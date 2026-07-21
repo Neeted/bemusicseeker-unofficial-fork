@@ -4,20 +4,20 @@ using System.Collections.Generic;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Classifies the install package records selected for deletion from the chart table.
+/// Classifies the package catalog section selected for removal from the chart table.
 /// </summary>
-internal enum DeleteInstallPackageRecordsKind
+internal enum PackageCatalogSection
 {
     Pending,
     Installed
 }
 
 /// <summary>
-/// Describes a chart-table request to delete pending or newly installed package records.
+/// Describes a chart-table request to remove pending or newly installed package catalog entries.
 /// </summary>
-internal sealed class DeleteInstallPackageRecordsRequest
+internal sealed class PackageCatalogRemovalRequest
 {
-    private DeleteInstallPackageRecordsRequest(DeleteInstallPackageRecordsKind kind, IReadOnlyList<ChartOperationTarget> targets)
+    private PackageCatalogRemovalRequest(PackageCatalogSection section, IReadOnlyList<ChartOperationTarget> targets)
     {
         if (targets == null)
         {
@@ -28,28 +28,24 @@ internal sealed class DeleteInstallPackageRecordsRequest
             throw new ArgumentException("At least one chart operation target is required.", nameof(targets));
         }
 
-        Kind = kind;
+        Section = section;
         Targets = targets;
     }
 
-    internal DeleteInstallPackageRecordsKind Kind { get; }
+    internal PackageCatalogSection Section { get; }
 
     internal IReadOnlyList<ChartOperationTarget> Targets { get; }
 
-    internal int SelectedRowCount => Targets.Count;
+    internal bool IsPending => Section == PackageCatalogSection.Pending;
 
-    internal bool IsPending => Kind == DeleteInstallPackageRecordsKind.Pending;
-
-    internal bool IsInstalled => Kind == DeleteInstallPackageRecordsKind.Installed;
-
-    internal static DeleteInstallPackageRecordsRequest CreatePending(IEnumerable<ChartOperationTarget> targets)
+    internal static PackageCatalogRemovalRequest CreatePending(IEnumerable<ChartOperationTarget> targets)
     {
-        return new DeleteInstallPackageRecordsRequest(DeleteInstallPackageRecordsKind.Pending, MaterializeTargets(targets));
+        return new PackageCatalogRemovalRequest(PackageCatalogSection.Pending, MaterializeTargets(targets));
     }
 
-    internal static DeleteInstallPackageRecordsRequest CreateInstalled(IEnumerable<ChartOperationTarget> targets)
+    internal static PackageCatalogRemovalRequest CreateInstalled(IEnumerable<ChartOperationTarget> targets)
     {
-        return new DeleteInstallPackageRecordsRequest(DeleteInstallPackageRecordsKind.Installed, MaterializeTargets(targets));
+        return new PackageCatalogRemovalRequest(PackageCatalogSection.Installed, MaterializeTargets(targets));
     }
 
     private static IReadOnlyList<ChartOperationTarget> MaterializeTargets(IEnumerable<ChartOperationTarget> targets)

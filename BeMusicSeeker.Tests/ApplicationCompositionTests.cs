@@ -525,7 +525,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.ElevatedProcessWarningWorkflow);
             Assert.IsNotNull(childComposition.ScoreViewerRegistrationWorkflow);
             Assert.IsNotNull(childComposition.ZeroNoteMaintenanceWorkflow);
-            Assert.IsNotNull(childComposition.PackageRecordWorkflow);
+            Assert.IsNotNull(childComposition.PackageCatalogWorkflow);
         }
         finally
         {

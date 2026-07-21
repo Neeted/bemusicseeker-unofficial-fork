@@ -88,7 +88,7 @@ internal sealed class ShutdownPreparationResult
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPresentation, IPendingPackageMutationPresentation
+public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -118,7 +118,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
 
     internal ZeroNoteMaintenanceWorkflowOwner ZeroNoteMaintenance { get; private set; }
 
-    internal PackageRecordWorkflowOwner PackageRecords { get; private set; }
+    internal PackageCatalogWorkflowOwner PackageCatalog { get; private set; }
 
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
@@ -2076,22 +2076,22 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         }
     }
 
-    void IPackageRecordMutationPresentation.BeginActivity()
+    void IPackageCatalogMutationPresentation.BeginActivity()
     {
         BeginChartPackageMutation();
     }
 
-    void IPackageRecordMutationPresentation.BeginRefreshSuppression()
+    void IPackageCatalogMutationPresentation.BeginRefreshSuppression()
     {
         BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
     }
 
-    void IPackageRecordMutationPresentation.EndRefreshSuppression()
+    void IPackageCatalogMutationPresentation.EndRefreshSuppression()
     {
         EndUiUpdateSuppression();
     }
 
-    void IPackageRecordMutationPresentation.EndActivity()
+    void IPackageCatalogMutationPresentation.EndActivity()
     {
         EndChartPackageMutation();
     }
@@ -3726,8 +3726,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
             ReportFolderAutoRenameWorkflowNotificationFailure,
             ReportFolderAutoRenameWorkflowFailure,
             zeroNoteLibraryProvider: () => files,
-            packageRecordLibraryProvider: () => files,
-            packageRecordPresentation: this);
+            packageCatalogLibraryProvider: () => files,
+            packageCatalogPresentation: this);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3748,7 +3748,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
-        PackageRecords = childComposition.PackageRecordWorkflow;
+        PackageCatalog = childComposition.PackageCatalogWorkflow;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(

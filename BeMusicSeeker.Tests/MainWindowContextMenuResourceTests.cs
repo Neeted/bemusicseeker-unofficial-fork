@@ -876,25 +876,88 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void DeleteInstallPackageRecordsRequest_RequiresTargetsAndPreservesKind()
+    public void PackageCatalogRemovalRequest_RequiresTargetsAndPreservesSection()
     {
         ChartOperationTarget target = CreateContextMenuTarget(
             ChartFileKind.Bms,
             ChartOperationCapabilities.UpdateInstallDestination);
 
-        DeleteInstallPackageRecordsRequest pending = DeleteInstallPackageRecordsRequest.CreatePending([target]);
-        DeleteInstallPackageRecordsRequest installed = DeleteInstallPackageRecordsRequest.CreateInstalled([target]);
+        PackageCatalogRemovalRequest pending = PackageCatalogRemovalRequest.CreatePending([target]);
+        PackageCatalogRemovalRequest installed = PackageCatalogRemovalRequest.CreateInstalled([target]);
 
-        Assert.AreEqual(DeleteInstallPackageRecordsKind.Pending, pending.Kind);
+        Assert.AreEqual(PackageCatalogSection.Pending, pending.Section);
         Assert.IsTrue(pending.IsPending);
-        Assert.IsFalse(pending.IsInstalled);
-        Assert.AreEqual(1, pending.SelectedRowCount);
         Assert.AreSame(target, pending.Targets[0]);
-        Assert.AreEqual(DeleteInstallPackageRecordsKind.Installed, installed.Kind);
+        Assert.AreEqual(PackageCatalogSection.Installed, installed.Section);
         Assert.IsFalse(installed.IsPending);
-        Assert.IsTrue(installed.IsInstalled);
-        Assert.ThrowsException<ArgumentException>(() => DeleteInstallPackageRecordsRequest.CreatePending([]));
-        Assert.ThrowsException<ArgumentException>(() => DeleteInstallPackageRecordsRequest.CreateInstalled([null!]));
+        Assert.ThrowsException<ArgumentException>(() => PackageCatalogRemovalRequest.CreatePending([]));
+        Assert.ThrowsException<ArgumentException>(() => PackageCatalogRemovalRequest.CreateInstalled([null!]));
+    }
+
+    [TestMethod]
+    public void PackageCatalogHandlersDelegateConfirmationAndMutationToWorkflowOwner()
+    {
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string ownerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PackageCatalogWorkflowOwner.cs");
+        string clearInstalled = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewInstalledContextMenuClearAllClick",
+            "private async void treeViewInstallPendingContextMenuClearAllClick");
+        string clearPending = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewInstallPendingContextMenuClearAllClick",
+            "private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
+        string mutationObserver = ExtractBetween(
+            mainWindowCode,
+            "private static async Task<bool> ObservePackageCatalogMutationAsync",
+            "private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
+        string removePendingPackage = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewInstallPackageContextMenuClearFolderClick",
+            "private async void treeViewInstalledFolderContextMenuClearFolderClick");
+        string removeInstalledPackage = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewInstalledFolderContextMenuClearFolderClick",
+            "private async void treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
+
+        StringAssert.Contains(clearInstalled, ".ClearAllAsync(PackageCatalogSection.Installed)");
+        StringAssert.Contains(clearInstalled, ".ConfirmClearAll(PackageCatalogSection.Installed)");
+        StringAssert.Contains(clearPending, ".ClearAllAsync(PackageCatalogSection.Pending)");
+        StringAssert.Contains(clearPending, ".ConfirmClearAll(PackageCatalogSection.Pending)");
+        StringAssert.Contains(removePendingPackage, ".RemovePackageAsync(");
+        StringAssert.Contains(removePendingPackage, "PackageCatalogSection.Pending");
+        StringAssert.Contains(removePendingPackage, ".ConfirmRemovePackage(PackageCatalogSection.Pending");
+        StringAssert.Contains(removeInstalledPackage, ".RemovePackageAsync(");
+        StringAssert.Contains(removeInstalledPackage, "PackageCatalogSection.Installed");
+        StringAssert.Contains(removeInstalledPackage, ".ConfirmRemovePackage(PackageCatalogSection.Installed");
+        foreach (string handler in new[] { clearInstalled, clearPending, removePendingPackage, removeInstalledPackage })
+        {
+            StringAssert.Contains(handler, "viewModel.PackageCatalog");
+            StringAssert.Contains(handler, "ObservePackageCatalogMutationAsync(");
+            Assert.IsFalse(handler.Contains("e.Handled = true;\r\n        await ObservePackageCatalogMutationAsync"));
+            Assert.IsFalse(handler.Contains("UiDialogRoute"));
+        }
+        StringAssert.Contains(removePendingPackage, "CaptureNextSiblingOrRoot(");
+        StringAssert.Contains(removeInstalledPackage, "CaptureNextSiblingOrRoot(");
+        Assert.IsFalse(removePendingPackage.Contains("() =>"));
+        Assert.IsFalse(removeInstalledPackage.Contains("() =>"));
+        StringAssert.Contains(
+            mutationObserver,
+            "result = await operation;");
+        StringAssert.Contains(mutationObserver, "_ = Task.FromException(exception).Logging(routeName)");
+        StringAssert.Contains(
+            mutationObserver,
+            "_ = Task.FromException(result.Failure).Logging(routeName)");
+        Assert.IsTrue(
+            mutationObserver.IndexOf("_ = Task.FromException(result.Failure).Logging(routeName)", StringComparison.Ordinal)
+            < mutationObserver.LastIndexOf("return true;", StringComparison.Ordinal));
+        StringAssert.Contains(ownerCode, "dialogs.ConfirmAsync(");
+        StringAssert.Contains(ownerCode, "store.RemoveAll(");
+        StringAssert.Contains(ownerCode, "store.RemovePackages(");
     }
 
     [TestMethod]
@@ -2804,13 +2867,16 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(manualInstall, "private async Task ManualInstallSelectedPendingChartsAsync");
         Assert.IsFalse(manualInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
-        StringAssert.Contains(deletePackages, "DeleteInstallPackageRecordsRequest.CreatePending(selectedPendingTargets)");
-        StringAssert.Contains(deletePackages, "DeleteInstallPackageRecordsRequest.CreateInstalled(selectedInstalledTargets)");
-        StringAssert.Contains(deletePackages, "viewModel.PackageRecords");
-        StringAssert.Contains(deletePackages, ".RemoveSelectionAsync(request)");
-        Assert.IsFalse(viewModelCode.Contains("internal void DeleteInstallPackageRecords(DeleteInstallPackageRecordsRequest request)"));
+        StringAssert.Contains(deletePackages, "PackageCatalogRemovalRequest.CreatePending(selectedPendingTargets)");
+        StringAssert.Contains(deletePackages, "PackageCatalogRemovalRequest.CreateInstalled(selectedInstalledTargets)");
+        StringAssert.Contains(deletePackages, "viewModel.PackageCatalog");
+        StringAssert.Contains(deletePackages, ".ConfirmRemoveSelection(request)");
+        StringAssert.Contains(deletePackages, ".RemoveSelectionAsync(");
+        StringAssert.Contains(deletePackages, "ObservePackageCatalogMutationAsync(");
+        Assert.IsFalse(viewModelCode.Contains("DeleteInstallPackageRecordsRequest"));
         Assert.IsFalse(viewModelCode.Contains("InstallPendingCharts(PendingInstallPackageOperationRequest request)"));
-        StringAssert.Contains(deletePackages, "private async Task DeleteInstallPackageRecordsFromContextMenuAsync");
+        StringAssert.Contains(deletePackages, "private async Task RemovePackageCatalogSelectionFromContextMenuAsync");
+        Assert.IsFalse(deletePackages.Contains("UiDialogRoute"));
         Assert.IsFalse(deletePackages.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         Assert.IsFalse(deletePackages.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));
