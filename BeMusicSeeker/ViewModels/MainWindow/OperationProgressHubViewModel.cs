@@ -6,7 +6,7 @@ using Livet;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Owns status-bar progress presentation state so the shell can keep legacy binding paths as pass-through properties.
+/// Owns status-bar progress presentation state for direct shell binding.
 /// </summary>
 public sealed class OperationProgressHubViewModel : ViewModel
 {
@@ -343,6 +343,37 @@ public sealed class OperationProgressHubViewModel : ViewModel
     {
         get => playlistSyncProgressMaximum;
         internal set => SetValue(ref playlistSyncProgressMaximum, value, nameof(PlaylistSyncProgressMaximum));
+    }
+
+    internal void UpdatePlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
+    {
+        bool isActive = snapshot?.IsActive == true;
+        IsPlaylistSyncProgressActive = isActive;
+        if (!isActive)
+        {
+            PlaylistSyncProgressLabel = string.Empty;
+            PlaylistSyncProgressSubLabel = string.Empty;
+            PlaylistSyncProgressValue = 0.0;
+            PlaylistSyncProgressMaximum = 0.0;
+            return;
+        }
+
+        int total = Math.Max(snapshot.TotalTableCount, 1);
+        int completed = Math.Max(0, Math.Min(snapshot.CompletedTableCount, total));
+        PlaylistSyncProgressMaximum = total;
+        PlaylistSyncProgressValue = completed;
+        string labelFormat = !string.IsNullOrWhiteSpace(snapshot.LabelFormat)
+            ? snapshot.LabelFormat
+            : BeMusicSeeker.Properties.Resources.Playlist_sync_progress_label_format;
+        string singleLabel = !string.IsNullOrWhiteSpace(snapshot.SingleLabel)
+            ? snapshot.SingleLabel
+            : BeMusicSeeker.Properties.Resources.Playlist_sync_progress_single_label;
+        PlaylistSyncProgressLabel = snapshot.TotalTableCount > 0
+            ? string.Format(labelFormat, completed, total)
+            : singleLabel;
+        PlaylistSyncProgressSubLabel = !string.IsNullOrWhiteSpace(snapshot.CurrentTableName)
+            ? snapshot.CurrentTableName
+            : (snapshot.CurrentUri?.ToString() ?? string.Empty);
     }
 
     /// <summary>

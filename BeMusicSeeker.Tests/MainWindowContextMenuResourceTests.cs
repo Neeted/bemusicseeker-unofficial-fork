@@ -1237,6 +1237,10 @@ public sealed class MainWindowContextMenuResourceTests
     {
         XDocument document = LoadMainWindowXamlDocument();
         XElement statusBar = document.Descendants().Single(element => element.Name.LocalName == "StatusBar");
+        string mainWindowViewModelCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
 
         Assert.AreEqual("{Binding ProgressHub}", GetAttributeValue(statusBar, "DataContext"));
         AssertStatusBarBinding(statusBar, "IsStartupProgressActive");
@@ -1282,6 +1286,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"retryLr2SongDbSyncClick\""));
         Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cancelLr2SongDbSyncClick\""));
         Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cleanupLr2SongDbSyncStartupScanBlockersClick\""));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsPlaylistSyncProgressActive"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public string PlaylistSyncProgressLabel"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public string PlaylistSyncProgressSubLabel"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public double PlaylistSyncProgressValue"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public double PlaylistSyncProgressMaximum"));
+        StringAssert.Contains(mainWindowViewModelCode, "ProgressHub.UpdatePlaylistSyncProgress(snapshot);");
     }
 
     [TestMethod]

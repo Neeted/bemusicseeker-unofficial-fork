@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -114,5 +115,58 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(1.0, hub.FolderAutoRenameProgressMaximum);
         Assert.AreEqual(string.Empty, hub.FolderAutoRenameProgressLabel);
         Assert.AreEqual(string.Empty, hub.FolderAutoRenameProgressSubLabel);
+    }
+
+    [TestMethod]
+    public void PlaylistSyncPresentation_UsesNormalizedValuesAndCurrentTableName()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var hub = new OperationProgressHubViewModel();
+        var changedProperties = new List<string>();
+        hub.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+        hub.UpdatePlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = true,
+            TotalTableCount = 2,
+            CompletedTableCount = 9,
+            CurrentTableName = "current table",
+            CurrentUri = new System.Uri("https://example.invalid/table"),
+            LabelFormat = "{0}/{1}",
+            SingleLabel = "single"
+        });
+
+        Assert.IsTrue(hub.IsPlaylistSyncProgressActive);
+        Assert.AreEqual(2.0, hub.PlaylistSyncProgressMaximum);
+        Assert.AreEqual(2.0, hub.PlaylistSyncProgressValue);
+        Assert.AreEqual("2/2", hub.PlaylistSyncProgressLabel);
+        Assert.AreEqual("current table", hub.PlaylistSyncProgressSubLabel);
+        CollectionAssert.Contains(changedProperties, nameof(hub.IsPlaylistSyncProgressActive));
+        CollectionAssert.Contains(changedProperties, nameof(hub.PlaylistSyncProgressLabel));
+        CollectionAssert.Contains(changedProperties, nameof(hub.PlaylistSyncProgressSubLabel));
+        CollectionAssert.Contains(changedProperties, nameof(hub.PlaylistSyncProgressValue));
+        CollectionAssert.Contains(changedProperties, nameof(hub.PlaylistSyncProgressMaximum));
+    }
+
+    [TestMethod]
+    public void PlaylistSyncPresentation_InactiveSnapshotClearsState()
+    {
+        var hub = new OperationProgressHubViewModel();
+        hub.UpdatePlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = true,
+            TotalTableCount = 1,
+            CompletedTableCount = 1,
+            CurrentTableName = "active",
+            LabelFormat = "{0}/{1}"
+        });
+
+        hub.UpdatePlaylistSyncProgress(new PlaylistSyncProgressSnapshot());
+
+        Assert.IsFalse(hub.IsPlaylistSyncProgressActive);
+        Assert.AreEqual(string.Empty, hub.PlaylistSyncProgressLabel);
+        Assert.AreEqual(string.Empty, hub.PlaylistSyncProgressSubLabel);
+        Assert.AreEqual(0.0, hub.PlaylistSyncProgressValue);
+        Assert.AreEqual(0.0, hub.PlaylistSyncProgressMaximum);
     }
 }

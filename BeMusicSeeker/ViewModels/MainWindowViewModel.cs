@@ -3173,51 +3173,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
 
     /// <summary>
-    /// Gets whether playlist sync progress is visible.
-    /// </summary>
-    public bool IsPlaylistSyncProgressActive
-    {
-        get => ProgressHub.IsPlaylistSyncProgressActive;
-        private set => ProgressHub.IsPlaylistSyncProgressActive = value;
-    }
-
-    /// <summary>
-    /// Gets the primary playlist sync progress label.
-    /// </summary>
-    public string PlaylistSyncProgressLabel
-    {
-        get => ProgressHub.PlaylistSyncProgressLabel;
-        private set => ProgressHub.PlaylistSyncProgressLabel = value;
-    }
-
-    /// <summary>
-    /// Gets the secondary playlist sync progress label.
-    /// </summary>
-    public string PlaylistSyncProgressSubLabel
-    {
-        get => ProgressHub.PlaylistSyncProgressSubLabel;
-        private set => ProgressHub.PlaylistSyncProgressSubLabel = value;
-    }
-
-    /// <summary>
-    /// Gets the current playlist sync progress value.
-    /// </summary>
-    public double PlaylistSyncProgressValue
-    {
-        get => ProgressHub.PlaylistSyncProgressValue;
-        private set => ProgressHub.PlaylistSyncProgressValue = value;
-    }
-
-    /// <summary>
-    /// Gets the playlist sync progress maximum.
-    /// </summary>
-    public double PlaylistSyncProgressMaximum
-    {
-        get => ProgressHub.PlaylistSyncProgressMaximum;
-        private set => ProgressHub.PlaylistSyncProgressMaximum = value;
-    }
-
-    /// <summary>
     /// 起動・リロード進捗をステータスバーへ表示中かどうかを返します。
     /// </summary>
     public bool IsStartupProgressActive
@@ -4376,7 +4331,12 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressSubLabel)
             || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressValue)
             || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressMaximum);
-        if (!installPipelineProperty && !maintenanceRescanProperty && !folderAutoRenameProperty)
+        bool playlistSyncProgressProperty = propertyName == nameof(OperationProgressHubViewModel.IsPlaylistSyncProgressActive)
+            || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressSubLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressValue)
+            || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressMaximum);
+        if (!installPipelineProperty && !maintenanceRescanProperty && !folderAutoRenameProperty && !playlistSyncProgressProperty)
         {
             RaisePropertyChanged(propertyName);
         }
@@ -7216,24 +7176,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             {
                 return;
             }
-            bool isActive = snapshot != null && snapshot.IsActive;
-            IsPlaylistSyncProgressActive = isActive;
-            if (!isActive)
-            {
-                PlaylistSyncProgressLabel = string.Empty;
-                PlaylistSyncProgressSubLabel = string.Empty;
-                PlaylistSyncProgressValue = 0.0;
-                PlaylistSyncProgressMaximum = 0.0;
-                return;
-            }
-            int total = Math.Max(snapshot.TotalTableCount, 1);
-            int completed = Math.Max(0, Math.Min(snapshot.CompletedTableCount, total));
-            PlaylistSyncProgressMaximum = total;
-            PlaylistSyncProgressValue = completed;
-            string labelFormat = !string.IsNullOrWhiteSpace(snapshot.LabelFormat) ? snapshot.LabelFormat : BeMusicSeeker.Properties.Resources.Playlist_sync_progress_label_format;
-            string singleLabel = !string.IsNullOrWhiteSpace(snapshot.SingleLabel) ? snapshot.SingleLabel : BeMusicSeeker.Properties.Resources.Playlist_sync_progress_single_label;
-            PlaylistSyncProgressLabel = (snapshot.TotalTableCount > 0) ? string.Format(labelFormat, completed, total) : singleLabel;
-            PlaylistSyncProgressSubLabel = !string.IsNullOrWhiteSpace(snapshot.CurrentTableName) ? snapshot.CurrentTableName : (snapshot.CurrentUri?.ToString() ?? string.Empty);
+            ProgressHub.UpdatePlaylistSyncProgress(snapshot);
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {
