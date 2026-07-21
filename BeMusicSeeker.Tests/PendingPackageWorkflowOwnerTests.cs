@@ -16,7 +16,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class InstallDestinationWorkflowOwnerTests
+public sealed class PendingPackageWorkflowOwnerTests
 {
     [TestMethod]
     public async Task SearchPendingAsync_AppliesMutationAndTerminalRefreshInOrder()
@@ -222,7 +222,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
     public async Task SearchPackagesAsync_EndActivityFailureStillDetachesAndFlushesDialogScope()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(InstallDestinationWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
@@ -240,7 +240,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
             };
             var failure = new InvalidOperationException("activity end failed");
             var presentation = new RecordingPresentation(events) { EndActivityFailure = failure };
-            var owner = new InstallDestinationWorkflowOwner(
+            var owner = new PendingPackageWorkflowOwner(
                 () => library,
                 new ChartFileOperationSynchronizer(),
                 presentation,
@@ -276,7 +276,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
     public async Task SearchPackagesAsync_MultipleFailuresPreserveMutationAndEveryCleanupFailure()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(InstallDestinationWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
@@ -302,7 +302,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
                 EndRefreshSuppressionFailure = suppressionFailure,
                 EndActivityFailure = activityFailure
             };
-            var owner = new InstallDestinationWorkflowOwner(
+            var owner = new PendingPackageWorkflowOwner(
                 () => library,
                 new ChartFileOperationSynchronizer(),
                 presentation,
@@ -348,7 +348,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
         };
-        var owner = new InstallDestinationWorkflowOwner(
+        var owner = new PendingPackageWorkflowOwner(
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             presentation,
@@ -370,7 +370,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
                 "activity-end"
             },
             events);
-        Assert.AreEqual(InstallDestinationRefreshScope.PackageMutation, presentation.LastRefreshScope);
+        Assert.AreEqual(PendingPackageRefreshScope.PackageMutation, presentation.LastRefreshScope);
         Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
         Assert.IsTrue(store.ApprovedNormalInstallOverridePackages.Contains(package));
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride, dialogs.ConfirmationRequest!.MessageBoxText);
@@ -418,7 +418,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
-        var owner = new InstallDestinationWorkflowOwner(
+        var owner = new PendingPackageWorkflowOwner(
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             new RecordingPresentation(events),
@@ -534,7 +534,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
         var dialogs = new FakeUiDialogService();
         dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
         dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes));
-        var owner = new InstallDestinationWorkflowOwner(
+        var owner = new PendingPackageWorkflowOwner(
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             presentation,
@@ -559,11 +559,237 @@ public sealed class InstallDestinationWorkflowOwnerTests
                 "activity-end"
             },
             events);
-        Assert.AreEqual(InstallDestinationRefreshScope.PackageMutation, presentation.LastRefreshScope);
+        Assert.AreEqual(PendingPackageRefreshScope.PackageMutation, presentation.LastRefreshScope);
         Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
         CollectionAssert.AreEqual(
             new[] { chart.Path },
             store.ApprovedDuplicateRemovalChartPaths.ToArray());
+    }
+
+    [TestMethod]
+    public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_ApprovedMutationUsesOwnerBoundary()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartPackage package = ChartPackage.FromChartEntries([
+            PackageChartEntry.FromChart(CreateChart())
+        ]);
+        var store = new RecordingStore(events) { InstalledOnlyPendingPackages = [package] };
+        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+
+        await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "store-get-installed-only",
+                "activity-start",
+                "suppression-start",
+                "store-delete-sources",
+                "suppression-end",
+                "activity-end"
+            },
+            events);
+        Assert.AreSame(package, store.LastPackages.Single());
+    }
+
+    [TestMethod]
+    public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_EmptySelectionWarnsWithoutMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var dialogs = AcceptedDialogs();
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
+
+        CollectionAssert.AreEqual(new[] { "store-get-installed-only" }, events);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages,
+            dialogs.MessageRequest!.MessageBoxText);
+    }
+
+    [TestMethod]
+    public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_RejectionSkipsMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartPackage package = ChartPackage.FromChartEntries([
+            PackageChartEntry.FromChart(CreateChart())
+        ]);
+        var store = new RecordingStore(events) { InstalledOnlyPendingPackages = [package] };
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+        };
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
+
+        CollectionAssert.AreEqual(new[] { "store-get-installed-only" }, events);
+    }
+
+    [TestMethod]
+    public async Task RenamePendingZeroNoteChartsAsync_StopsPlaybackBeforeMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartFile chart = CreateChart();
+        var store = new RecordingStore(events) { PendingBmsFormatCharts = [chart] };
+        var presentation = new RecordingPresentation(events);
+        var owner = new PendingPackageWorkflowOwner(
+            CreateLibrary,
+            new ChartFileOperationSynchronizer(),
+            presentation,
+            AcceptedDialogs(),
+            DefaultSettings,
+            store);
+
+        await owner.RenamePendingZeroNoteChartsAsync();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "store-get-pending-charts",
+                "activity-start",
+                "playback-stop",
+                "suppression-start",
+                "store-rename-zero-note",
+                "suppression-end",
+                "activity-end"
+            },
+            events);
+        Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
+    }
+
+    [TestMethod]
+    public async Task OverwriteInstalledOnlyPendingPackageResourcesAsync_ShowsSummaryAfterMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartFile chart = CreateChart();
+        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var overwriteResult = new PendingInstalledOnlyResourceOverwriteResult
+        {
+            Requested = 1,
+            Processed = 1,
+            SucceededInstall = 1
+        };
+        var store = new RecordingStore(events)
+        {
+            InstalledOnlyPendingPackages = [package],
+            OverwriteResult = overwriteResult
+        };
+        var dialogs = AcceptedDialogs();
+        var presentation = new RecordingPresentation(events);
+        var owner = new PendingPackageWorkflowOwner(
+            CreateLibrary,
+            new ChartFileOperationSynchronizer(),
+            presentation,
+            dialogs,
+            DefaultSettings,
+            store);
+
+        await owner.OverwriteInstalledOnlyPendingPackageResourcesAsync();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "store-get-installed-only",
+                "activity-start",
+                "playback-stop",
+                "suppression-start",
+                "store-overwrite-resources",
+                "suppression-end",
+                "activity-end"
+            },
+            events);
+        Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
+        StringAssert.Contains(dialogs.MessageRequest!.MessageBoxText, "1");
+    }
+
+    [TestMethod]
+    public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_MultiplePackagesUsesProgressRoute()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartPackage first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
+        ChartPackage second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
+        var store = new RecordingStore(events) { InstalledOnlyPendingPackages = [first, second] };
+        var dialogs = AcceptedDialogs();
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
+
+        Assert.IsNotNull(dialogs.ProgressRequest);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Remove, dialogs.ProgressRequest.Title);
+        CollectionAssert.AreEqual(new[] { first, second }, (System.Collections.ICollection)store.LastPackages);
+    }
+
+    [TestMethod]
+    public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_ProgressFailurePropagates()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartPackage first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
+        ChartPackage second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
+        var store = new RecordingStore(events) { InstalledOnlyPendingPackages = [first, second] };
+        var failure = new InvalidOperationException("progress failed");
+        var dialogs = AcceptedDialogs();
+        dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.Failed, error: failure);
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            owner.DeleteInstalledOnlyPendingPackageSourcesAsync);
+
+        Assert.AreSame(failure, exception.InnerException);
+    }
+
+    [TestMethod]
+    public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_UserCancellationIsNormalCompletion()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartPackage first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
+        ChartPackage second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
+        var store = new RecordingStore(events)
+        {
+            InstalledOnlyPendingPackages = [first, second],
+            WaitForDeleteSourcesCancellation = true
+        };
+        var dialogs = AcceptedDialogs();
+        dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.CancelledByUser);
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
+
+        CollectionAssert.Contains(events, "store-delete-sources");
+    }
+
+    [TestMethod]
+    public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_PreservesDialogAndMutationFailures()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartPackage first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
+        ChartPackage second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
+        var mutationFailure = new IOException("source deletion failed");
+        var store = new RecordingStore(events)
+        {
+            InstalledOnlyPendingPackages = [first, second],
+            DeleteSourcesFailure = mutationFailure
+        };
+        var dialogFailure = new InvalidOperationException("progress failed");
+        var dialogs = AcceptedDialogs();
+        dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.Failed, error: dialogFailure);
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
+            owner.DeleteInstalledOnlyPendingPackageSourcesAsync);
+
+        Assert.AreSame(dialogFailure, exception.InnerExceptions[0].InnerException);
+        Assert.AreSame(mutationFailure, exception.InnerExceptions[1]);
     }
 
     [TestMethod]
@@ -572,7 +798,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
         var synchronizer = new ChartFileOperationSynchronizer();
         var events = new List<string>();
         var store = new RecordingStore(events);
-        var owner = new InstallDestinationWorkflowOwner(
+        var owner = new PendingPackageWorkflowOwner(
             CreateLibrary,
             synchronizer,
             new RecordingPresentation(events),
@@ -606,13 +832,13 @@ public sealed class InstallDestinationWorkflowOwnerTests
         Assert.AreEqual(1, store.SearchPackagesCount);
     }
 
-    private static InstallDestinationWorkflowOwner CreateOwner(
+    private static PendingPackageWorkflowOwner CreateOwner(
         Func<BMSLibrary> libraryProvider,
         List<string> events,
-        IInstallDestinationStore store,
+        IPendingPackageStore store,
         IUiDialogService dialogs)
     {
-        return new InstallDestinationWorkflowOwner(
+        return new PendingPackageWorkflowOwner(
             libraryProvider,
             new ChartFileOperationSynchronizer(),
             new RecordingPresentation(events),
@@ -681,7 +907,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
             PackageChartEntry.FromChart(chart));
     }
 
-    private sealed class RecordingPresentation : IInstallDestinationMutationPresentation
+    private sealed class RecordingPresentation : IPendingPackageMutationPresentation
     {
         private readonly List<string> events;
 
@@ -694,13 +920,13 @@ public sealed class InstallDestinationWorkflowOwnerTests
 
         internal Exception? EndRefreshSuppressionFailure { get; set; }
 
-        internal InstallDestinationRefreshScope LastRefreshScope { get; private set; }
+        internal PendingPackageRefreshScope LastRefreshScope { get; private set; }
 
         internal IReadOnlyList<ChartFile> StoppedCharts { get; private set; } = [];
 
         public void BeginActivity() => events.Add("activity-start");
 
-        public void BeginRefreshSuppression(InstallDestinationRefreshScope scope)
+        public void BeginRefreshSuppression(PendingPackageRefreshScope scope)
         {
             LastRefreshScope = scope;
             events.Add("suppression-start");
@@ -739,7 +965,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
         }
     }
 
-    private sealed class RecordingStore : IInstallDestinationStore
+    private sealed class RecordingStore : IPendingPackageStore
     {
         private readonly List<string> events;
 
@@ -769,6 +995,16 @@ public sealed class InstallDestinationWorkflowOwnerTests
         internal IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> DuplicateConfirmations { get; set; } = [];
 
         internal IReadOnlyList<string> ApprovedDuplicateRemovalChartPaths { get; private set; } = [];
+
+        internal IReadOnlyList<ChartPackage> InstalledOnlyPendingPackages { get; set; } = [];
+
+        internal IReadOnlyList<ChartFile> PendingBmsFormatCharts { get; set; } = [];
+
+        internal PendingInstalledOnlyResourceOverwriteResult? OverwriteResult { get; set; }
+
+        internal bool WaitForDeleteSourcesCancellation { get; set; }
+
+        internal Exception? DeleteSourcesFailure { get; set; }
 
         internal Exception? Failure { get; set; }
 
@@ -891,6 +1127,79 @@ public sealed class InstallDestinationWorkflowOwnerTests
             ThrowIfConfigured();
         }
 
+        public IReadOnlyList<ChartPackage> GetInstalledOnlyPendingPackages(BMSLibrary library)
+        {
+            events.Add("store-get-installed-only");
+            ThrowIfConfigured();
+            return InstalledOnlyPendingPackages;
+        }
+
+        public IReadOnlyList<ChartFile> GetPendingBmsFormatCharts(BMSLibrary library)
+        {
+            events.Add("store-get-pending-charts");
+            ThrowIfConfigured();
+            return PendingBmsFormatCharts;
+        }
+
+        public void DeletePendingPackageSources(
+            BMSLibrary library,
+            IReadOnlyList<ChartPackage> packages,
+            CancellationToken cancellationToken,
+            Action onEachProcessed)
+        {
+            events.Add("store-delete-sources");
+            LastPackages = packages;
+            if (DeleteSourcesFailure != null)
+            {
+                throw DeleteSourcesFailure;
+            }
+            if (WaitForDeleteSourcesCancellation)
+            {
+                Assert.IsTrue(SpinWait.SpinUntil(
+                    () => cancellationToken.IsCancellationRequested,
+                    TimeSpan.FromSeconds(5)));
+            }
+            foreach (ChartPackage _ in packages)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                onEachProcessed?.Invoke();
+            }
+            ThrowIfConfigured();
+        }
+
+        public void RenamePendingZeroNoteCharts(
+            BMSLibrary library,
+            IReadOnlyList<ChartFile> charts,
+            CancellationToken cancellationToken,
+            Action onEachProcessed)
+        {
+            events.Add("store-rename-zero-note");
+            ChangedCharts = charts;
+            foreach (ChartFile _ in charts)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                onEachProcessed?.Invoke();
+            }
+            ThrowIfConfigured();
+        }
+
+        public PendingInstalledOnlyResourceOverwriteResult OverwriteInstalledOnlyPendingPackageResources(
+            BMSLibrary library,
+            IReadOnlyList<ChartPackage> packages,
+            CancellationToken cancellationToken,
+            Action onEachProcessed)
+        {
+            events.Add("store-overwrite-resources");
+            LastPackages = packages;
+            foreach (ChartPackage _ in packages)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                onEachProcessed?.Invoke();
+            }
+            ThrowIfConfigured();
+            return OverwriteResult!;
+        }
+
         private void ThrowIfConfigured()
         {
             if (Failure != null)
@@ -911,6 +1220,10 @@ public sealed class InstallDestinationWorkflowOwnerTests
         internal UiMessageRequest? MessageRequest { get; private set; }
 
         internal UiDialogResult? MessageResult { get; set; }
+
+        internal UiProgressRequest? ProgressRequest { get; private set; }
+
+        internal UiProgressResult? ProgressResult { get; set; }
 
         internal void EnqueueConfirmation(UiDialogResult result)
         {
@@ -942,7 +1255,11 @@ public sealed class InstallDestinationWorkflowOwnerTests
 
         public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default)
+        {
+            ProgressRequest = request;
+            return Task.FromResult(ProgressResult ?? new UiProgressResult(UiDialogStatus.Accepted));
+        }
     }
 
     private sealed class RecordingLibraryDialogService : IBmsLibraryDialogService

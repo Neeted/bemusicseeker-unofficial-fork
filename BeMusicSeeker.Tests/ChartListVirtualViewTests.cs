@@ -2375,7 +2375,7 @@ public sealed class ChartListVirtualViewTests
                 []));
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
-        await viewModel.InstallDestinations.ClearPackagesAsync([package]);
+        await viewModel.PendingPackages.ClearPackagesAsync([package]);
 
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -2419,7 +2419,7 @@ public sealed class ChartListVirtualViewTests
             Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
                 [selectedChart],
                 out PendingInstallDestinationClearRequest request));
-            await viewModel.InstallDestinations.ClearPendingAsync(request);
+            await viewModel.PendingPackages.ClearPendingAsync(request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -2471,7 +2471,7 @@ public sealed class ChartListVirtualViewTests
             Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
                 [target],
                 out PendingInstallDestinationClearRequest request));
-            await viewModel.InstallDestinations.ClearPendingAsync(request);
+            await viewModel.PendingPackages.ClearPendingAsync(request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -2537,7 +2537,7 @@ public sealed class ChartListVirtualViewTests
             Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
                 [packageTarget, standaloneTarget],
                 out PendingInstallDestinationClearRequest request));
-            await viewModel.InstallDestinations.ClearPendingAsync(request);
+            await viewModel.PendingPackages.ClearPendingAsync(request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -2601,7 +2601,7 @@ public sealed class ChartListVirtualViewTests
 
             PendingInstallDestinationSearchRequest request =
                 PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([target]);
-            await viewModel.InstallDestinations.SearchPendingAsync(request);
+            await viewModel.PendingPackages.SearchPendingAsync(request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         }
@@ -2643,7 +2643,7 @@ public sealed class ChartListVirtualViewTests
 
             PendingInstallDestinationSearchRequest request =
                 PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([target]);
-            new BmsLibraryInstallDestinationStore().SearchPending(library, request);
+            new BmsLibraryPendingPackageStore().SearchPending(library, request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         }
@@ -2701,7 +2701,7 @@ public sealed class ChartListVirtualViewTests
             Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
                 [target],
                 out PendingInstallDestinationClearRequest request));
-            await viewModel.InstallDestinations.ClearPendingAsync(request);
+            await viewModel.PendingPackages.ClearPendingAsync(request);
 
             Assert.IsNull(currentEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, currentEntry.Chart.InstallDestination);

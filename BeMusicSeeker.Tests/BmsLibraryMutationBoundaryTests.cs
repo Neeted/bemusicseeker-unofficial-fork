@@ -98,7 +98,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     {
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string installDestinationSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "InstallDestinationWorkflowOwner.cs");
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PendingPackageWorkflowOwner.cs");
         string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string runMethod = ExtractMethodBody(source, "private void RunChartPackageMutation(");
         string autoInstallMethod = ExtractMethodBody(source, "private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(");
@@ -123,7 +123,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(runMethod, "dialogScope?.Flush()");
         StringAssert.Contains(autoInstallMethod, "RunChartPackageMutation");
         StringAssert.Contains(forceInstallMethod, "store.ForceInstallPackages");
-        StringAssert.Contains(forceInstallMethod, "InstallDestinationRefreshScope.PackageMutation");
+        StringAssert.Contains(forceInstallMethod, "PendingPackageRefreshScope.PackageMutation");
         StringAssert.Contains(installDestinationBoundary, "BeginOperationDialogScope()");
         StringAssert.Contains(installDestinationBoundary, "operationGate = chartFileOperations.Enter()");
         StringAssert.Contains(installDestinationBoundary, "presentation.BeginRefreshSuppression(refreshScope)");

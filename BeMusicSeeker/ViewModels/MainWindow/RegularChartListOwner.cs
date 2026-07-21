@@ -48,7 +48,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly Action<string> log;
     private readonly Action<string> logWarning;
     private readonly Action<Action> dispatchToUi;
-    private readonly InstallDestinationWorkflowOwner installDestinationWorkflow;
+    private readonly PendingPackageWorkflowOwner pendingPackageWorkflow;
     private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> sortCache = [];
     private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualOrderCache = [];
     private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualSubsetOrderCache = [];
@@ -100,14 +100,14 @@ internal sealed class RegularChartListOwner : IDisposable
         Action<string> log,
         Action<Action> dispatchToUi,
         Action<string> logWarning,
-        InstallDestinationWorkflowOwner installDestinationWorkflow)
+        PendingPackageWorkflowOwner pendingPackageWorkflow)
     {
         this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logWarning = logWarning ?? log;
-        this.installDestinationWorkflow = installDestinationWorkflow ?? throw new ArgumentNullException(nameof(installDestinationWorkflow));
+        this.pendingPackageWorkflow = pendingPackageWorkflow ?? throw new ArgumentNullException(nameof(pendingPackageWorkflow));
         this.mainChartList.AppliedColumnModeCommitted += MainChartListAppliedColumnModeCommitted;
     }
 
@@ -630,7 +630,7 @@ internal sealed class RegularChartListOwner : IDisposable
             && installTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)
             && PendingInstallDestinationEditRequest.TryCreate(installTarget, out PendingInstallDestinationEditRequest installRequest))
         {
-            installDestinationWorkflow
+            pendingPackageWorkflow
                 .SetPendingAsync(installRequest, request.Text)
                 .Logging("regularChartListSetPendingInstallDestination");
         }

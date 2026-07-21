@@ -88,7 +88,7 @@ internal sealed class ShutdownPreparationResult
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPresentation, IInstallDestinationMutationPresentation
+public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPresentation, IPendingPackageMutationPresentation
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -120,7 +120,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
 
     internal PackageRecordWorkflowOwner PackageRecords { get; private set; }
 
-    internal InstallDestinationWorkflowOwner InstallDestinations { get; private set; }
+    internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
     /// <summary>
     /// Gets the one-shot startup update workflow owned by application composition.
@@ -2096,19 +2096,19 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         EndChartPackageMutation();
     }
 
-    void IInstallDestinationMutationPresentation.BeginActivity()
+    void IPendingPackageMutationPresentation.BeginActivity()
     {
         BeginChartPackageMutation();
     }
 
-    void IInstallDestinationMutationPresentation.BeginRefreshSuppression(
-        InstallDestinationRefreshScope scope)
+    void IPendingPackageMutationPresentation.BeginRefreshSuppression(
+        PendingPackageRefreshScope scope)
     {
         UiRefreshChannel refreshMask = scope switch
         {
-            InstallDestinationRefreshScope.DestinationState =>
+            PendingPackageRefreshScope.DestinationState =>
                 UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
-            InstallDestinationRefreshScope.PackageMutation =>
+            PendingPackageRefreshScope.PackageMutation =>
                 UiRefreshChannel.LibraryMainView
                 | UiRefreshChannel.InstallTree
                 | UiRefreshChannel.LibraryFolderTree
@@ -2118,41 +2118,41 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         BeginUiUpdateSuppression(refreshMask);
     }
 
-    void IInstallDestinationMutationPresentation.EndRefreshSuppression()
+    void IPendingPackageMutationPresentation.EndRefreshSuppression()
     {
         EndUiUpdateSuppression();
     }
 
-    void IInstallDestinationMutationPresentation.EndActivity()
+    void IPendingPackageMutationPresentation.EndActivity()
     {
         EndChartPackageMutation();
     }
 
-    void IInstallDestinationMutationPresentation.UpdateTransientStates(IEnumerable<ChartFile> charts)
+    void IPendingPackageMutationPresentation.UpdateTransientStates(IEnumerable<ChartFile> charts)
     {
         MainChartList.RowProjection.UpdateTransientStates(charts, forceInstallDestinationProjection: true);
     }
 
-    void IInstallDestinationMutationPresentation.InvalidateInstallDestinationSort()
+    void IPendingPackageMutationPresentation.InvalidateInstallDestinationSort()
     {
         InvalidateNormalLibrarySortDependency(
             MainViewDataDependency.InstallDestination,
             NormalLibraryInstallDestinationChangedReason);
     }
 
-    void IInstallDestinationMutationPresentation.RefreshIdentitySortKey()
+    void IPendingPackageMutationPresentation.RefreshIdentitySortKey()
     {
         RefreshLibraryMainViewForDataDependency(
             MainViewDataDependency.IdentitySortKey,
             NormalLibraryInstallDestinationChangedReason);
     }
 
-    void IInstallDestinationMutationPresentation.RequestDisplayRefresh()
+    void IPendingPackageMutationPresentation.RequestDisplayRefresh()
     {
         MainChartList.RequestDisplayRefresh();
     }
 
-    void IInstallDestinationMutationPresentation.StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
+    void IPendingPackageMutationPresentation.StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
     {
         PlaybackPanel.StopIfPlayingCharts(charts);
     }
@@ -3749,7 +3749,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PackageRecords = childComposition.PackageRecordWorkflow;
-        InstallDestinations = childComposition.InstallDestinationWorkflow;
+        PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
@@ -9181,62 +9181,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
             StartupProgressOperationKind.ReloadTables => string.Equals(reason, "ReloadTables", StringComparison.Ordinal),
             _ => false,
         };
-    }
-
-    public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts()
-    {
-        if (files == null)
-        {
-            return [];
-        }
-        using (chartFileOperations.Enter())
-        {
-            return files.GetPendingPackagesContainingOnlyInstalledCharts();
-        }
-    }
-
-    internal List<ChartFile> GetPendingBmsFormatChartFilesSnapshot()
-    {
-        if (files == null)
-        {
-            return [];
-        }
-        using (chartFileOperations.Enter())
-        {
-            return files.GetPendingBmsFormatChartFilesSnapshot();
-        }
-    }
-
-    public void DeletePendingPackageSources(IEnumerable<ChartPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default, Action onEachProcessed = null)
-    {
-        if (packages == null)
-        {
-            throw new ArgumentNullException(nameof(packages));
-        }
-        RunPendingInstallMutation(delegate
-        {
-            files.DeletePendingPackageSources(packages, sendToRecycleBin, token, onEachProcessed);
-        });
-    }
-
-    internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<ChartFile> targetCharts, CancellationToken token = default, Action onEachProcessed = null)
-    {
-        List<ChartFile> list = GetBmsFormatCharts((targetCharts != null) ? [.. targetCharts.Where(chart => chart != null)] : GetPendingBmsFormatChartFilesSnapshot());
-        RunPendingInstallMutation(delegate
-        {
-            files.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(list, token, onEachProcessed);
-        }, list);
-    }
-
-    public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token = default, Action onEachProcessed = null)
-    {
-        if (packages == null)
-        {
-            throw new ArgumentNullException("packages");
-        }
-        List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
-        List<ChartFile> playbackTargetCharts = CreatePackagePlaybackTargetSnapshot(list);
-        return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), playbackTargetCharts);
     }
 
     public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)

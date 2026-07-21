@@ -544,7 +544,7 @@ public sealed class RegularChartListOwnerTests
             logs.Add,
             action => action(),
             logs.Add,
-            CreateInstallDestinationWorkflowOwner());
+            CreatePendingPackageWorkflowOwner());
         int? sourceClearVersionAtRowsNotification = null;
         bool? detailActiveAtRowsNotification = null;
         bool? asyncBindingAtRowsNotification = null;
@@ -2379,7 +2379,7 @@ public sealed class RegularChartListOwnerTests
                 uiActionQueued.Set();
             },
             _ => { },
-            CreateInstallDestinationWorkflowOwner());
+            CreatePendingPackageWorkflowOwner());
         RegularChartListRequestLease lease = owner.BeginRequest();
         var rows = new List<object> { new(), new() };
         Assert.IsTrue(owner.TryCommitVirtual(lease, CreateVirtualTerminalInput(rows)).WasCommitted);
@@ -2449,7 +2449,7 @@ public sealed class RegularChartListOwnerTests
                 uiActionQueued.Set();
             },
             _ => { },
-            CreateInstallDestinationWorkflowOwner());
+            CreatePendingPackageWorkflowOwner());
         RegularChartListRequestLease staleLease = owner.BeginRequest();
         var staleRows = new List<object> { new(), new() };
         Assert.IsTrue(owner.TryCommitVirtual(staleLease, CreateVirtualTerminalInput(staleRows)).WasCommitted);
@@ -3522,12 +3522,12 @@ public sealed class RegularChartListOwnerTests
             _ => { },
             dispatchToUi,
             _ => { },
-            CreateInstallDestinationWorkflowOwner());
+            CreatePendingPackageWorkflowOwner());
     }
 
-    private static InstallDestinationWorkflowOwner CreateInstallDestinationWorkflowOwner()
+    private static PendingPackageWorkflowOwner CreatePendingPackageWorkflowOwner()
     {
-        return new InstallDestinationWorkflowOwner(
+        return new PendingPackageWorkflowOwner(
               () => null!,
               new ChartFileOperationSynchronizer(),
               new TestInstallDestinationMutationPresentation(),

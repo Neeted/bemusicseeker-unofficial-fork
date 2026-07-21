@@ -2658,13 +2658,13 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string installDestinationOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "InstallDestinationWorkflowOwner.cs");
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PendingPackageWorkflowOwner.cs");
 
         Assert.IsFalse(viewModelCode.Contains("private void InvalidateNormalLibrarySortKeys(string reason)"));
         StringAssert.Contains(viewModelCode, "regularChartListOwner.InvalidateIdentitySortKeys(clearSourceRows)");
         StringAssert.Contains(viewModelCode, "regularChartListOwner.InvalidateSortCacheByDependency(dependency");
         StringAssert.Contains(installDestinationOwnerCode, "presentation.InvalidateInstallDestinationSort()");
-        StringAssert.Contains(viewModelCode, "void IInstallDestinationMutationPresentation.InvalidateInstallDestinationSort()");
+        StringAssert.Contains(viewModelCode, "void IPendingPackageMutationPresentation.InvalidateInstallDestinationSort()");
         StringAssert.Contains(viewModelCode, "MainViewDataDependency.InstallDestination");
         StringAssert.Contains(viewModelCode, "InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance");
         StringAssert.Contains(viewModelCode, "InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning");
@@ -2791,14 +2791,14 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(forceInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(forceInstall, "PendingInstallPackageOperationRequest.CreateForceInstall(targets)");
-        StringAssert.Contains(forceInstall, "viewModel.InstallDestinations");
+        StringAssert.Contains(forceInstall, "viewModel.PendingPackages");
         StringAssert.Contains(forceInstall, ".InstallPendingAsync(request,");
         StringAssert.Contains(forceInstall, ".LoggingAndPropagate(");
         StringAssert.Contains(forceInstall, "private async Task ForceInstallSelectedPendingChartsAsync");
         Assert.IsFalse(forceInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(manualInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(manualInstall, "PendingInstallPackageOperationRequest.CreateManualInstall(targets)");
-        StringAssert.Contains(manualInstall, "viewModel.InstallDestinations");
+        StringAssert.Contains(manualInstall, "viewModel.PendingPackages");
         StringAssert.Contains(manualInstall, ".InstallPendingAsync(request,");
         StringAssert.Contains(manualInstall, ".LoggingAndPropagate(");
         StringAssert.Contains(manualInstall, "private async Task ManualInstallSelectedPendingChartsAsync");
@@ -2816,7 +2816,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));
         StringAssert.Contains(estimateSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(estimateSearch, "PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets)");
-        StringAssert.Contains(estimateSearch, "viewModel.InstallDestinations");
+        StringAssert.Contains(estimateSearch, "viewModel.PendingPackages");
         StringAssert.Contains(estimateSearch, ".SearchPendingAsync(request)");
         StringAssert.Contains(estimateSearch, ".LoggingAndPropagate(");
         StringAssert.Contains(estimateSearch, "private async Task SearchInstallDestinationSelectedPendingChartsAsync");
@@ -2824,7 +2824,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(estimateSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(mergeSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(mergeSearch, "PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch(targets)");
-        StringAssert.Contains(mergeSearch, "viewModel.InstallDestinations");
+        StringAssert.Contains(mergeSearch, "viewModel.PendingPackages");
         StringAssert.Contains(mergeSearch, ".SearchPendingAsync(request)");
         StringAssert.Contains(mergeSearch, ".LoggingAndPropagate(");
         StringAssert.Contains(mergeSearch, "private async Task SearchMergeDestinationSelectedPendingChartsAsync");
@@ -2832,30 +2832,77 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mergeSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         Assert.IsFalse(viewModelCode.Contains("internal void SearchPendingInstallDestination(PendingInstallDestinationSearchRequest request)"));
         Assert.IsFalse(mainWindowCode.Contains("private bool ConfirmMergeDestinationSearch"));
-        StringAssert.Contains(clearPackageDestination, "viewModel.InstallDestinations");
+        StringAssert.Contains(clearPackageDestination, "viewModel.PendingPackages");
         StringAssert.Contains(clearPackageDestination, ".ClearPackagesAsync([pkg])");
         StringAssert.Contains(clearPackageDestination, ".LoggingAndPropagate(");
-        Assert.IsTrue(clearPackageDestination.IndexOf("e.Handled = true", StringComparison.Ordinal) < clearPackageDestination.IndexOf("await viewModel.InstallDestinations", StringComparison.Ordinal));
+        Assert.IsTrue(clearPackageDestination.IndexOf("e.Handled = true", StringComparison.Ordinal) < clearPackageDestination.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
         StringAssert.Contains(forceInstallPackage, ".ForceInstallPackagesAsync(");
         StringAssert.Contains(forceInstallPackage, ".LoggingAndPropagate(");
-        Assert.IsTrue(forceInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < forceInstallPackage.IndexOf("await viewModel.InstallDestinations", StringComparison.Ordinal));
+        Assert.IsTrue(forceInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < forceInstallPackage.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
         Assert.IsFalse(forceInstallPackage.Contains("viewModel.ForceInstallPendingPackages"));
         StringAssert.Contains(manualInstallPackage, ".ManualInstallPackagesAsync(");
         StringAssert.Contains(manualInstallPackage, ".LoggingAndPropagate(");
-        Assert.IsTrue(manualInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < manualInstallPackage.IndexOf("await viewModel.InstallDestinations", StringComparison.Ordinal));
+        Assert.IsTrue(manualInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < manualInstallPackage.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
         Assert.IsFalse(manualInstallPackage.Contains("Settings.Default"));
         StringAssert.Contains(searchPackageDestination, ".SearchPackagesAsync(PendingInstallDestinationSearchKind.InstallDestination, [pkg])");
         StringAssert.Contains(searchPackageDestination, ".LoggingAndPropagate(");
-        Assert.IsTrue(searchPackageDestination.IndexOf("e.Handled = true", StringComparison.Ordinal) < searchPackageDestination.IndexOf("await viewModel.InstallDestinations", StringComparison.Ordinal));
+        Assert.IsTrue(searchPackageDestination.IndexOf("e.Handled = true", StringComparison.Ordinal) < searchPackageDestination.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
         StringAssert.Contains(searchPackageMergeDestination, ".SearchPackagesAsync(PendingInstallDestinationSearchKind.MergeDestination, [pkg])");
         StringAssert.Contains(searchPackageMergeDestination, ".LoggingAndPropagate(");
-        Assert.IsTrue(searchPackageMergeDestination.IndexOf("e.Handled = true", StringComparison.Ordinal) < searchPackageMergeDestination.IndexOf("await viewModel.InstallDestinations", StringComparison.Ordinal));
+        Assert.IsTrue(searchPackageMergeDestination.IndexOf("e.Handled = true", StringComparison.Ordinal) < searchPackageMergeDestination.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
         Assert.IsFalse(viewModelCode.Contains("SearchInstallDestinationForPendingPackages"));
         Assert.IsFalse(viewModelCode.Contains("SearchMergeDestinationForPendingPackages"));
         Assert.IsFalse(viewModelCode.Contains("ClearInstallDestinationForPendingPackages"));
         StringAssert.Contains(openInstallDestination, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(openInstallDestination, "TryResolveInstallDestination(targets[0].Chart");
         Assert.IsFalse(openInstallDestination.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+    }
+
+    [TestMethod]
+    public void PendingPackageBulkMaintenanceHandlersDelegateCompleteRoutesToOwner()
+    {
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string ownerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PendingPackageWorkflowOwner.cs");
+        string deleteSources = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick",
+            "private async void treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick");
+        string renameZeroNote = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick",
+            "private async void treeViewInstallPendingContextMenuOverwriteInstalledOnlyPackagesResourcesClick");
+        string overwriteResources = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewInstallPendingContextMenuOverwriteInstalledOnlyPackagesResourcesClick",
+            "private void treeViewInstallPackageContextMenuOpenExplorerClick");
+
+        StringAssert.Contains(deleteSources, ".DeleteInstalledOnlyPendingPackageSourcesAsync()");
+        StringAssert.Contains(renameZeroNote, ".RenamePendingZeroNoteChartsAsync()");
+        StringAssert.Contains(overwriteResources, ".OverwriteInstalledOnlyPendingPackageResourcesAsync()");
+        foreach (string handler in new[] { deleteSources, renameZeroNote, overwriteResources })
+        {
+            StringAssert.Contains(handler, "viewModel.PendingPackages");
+            StringAssert.Contains(handler, ".LoggingAndPropagate(");
+            Assert.IsTrue(
+                handler.IndexOf("e.Handled = true", StringComparison.Ordinal)
+                < handler.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
+            Assert.IsFalse(handler.Contains("UiDialogRoute"));
+            Assert.IsFalse(handler.Contains("Task.Run"));
+            Assert.IsFalse(handler.Contains("RunProgressUntilTaskCompletesAsync"));
+        }
+
+        Assert.IsFalse(viewModelCode.Contains("GetPendingPackagesContainingOnlyInstalledCharts("));
+        Assert.IsFalse(viewModelCode.Contains("GetPendingBmsFormatChartFilesSnapshot("));
+        Assert.IsFalse(viewModelCode.Contains("DeletePendingPackageSources("));
+        Assert.IsFalse(viewModelCode.Contains("RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions("));
+        Assert.IsFalse(viewModelCode.Contains("OverwritePendingInstalledOnlyPackagesResources("));
+        StringAssert.Contains(ownerCode, "dialogs.RunWithProgressAsync(");
+        StringAssert.Contains(ownerCode, "store.DeletePendingPackageSources(");
+        StringAssert.Contains(ownerCode, "store.RenamePendingZeroNoteCharts(");
+        StringAssert.Contains(ownerCode, "store.OverwriteInstalledOnlyPendingPackageResources(");
     }
 
     [TestMethod]
@@ -2952,11 +2999,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(searchRepair, "GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation)");
         StringAssert.Contains(searchRepair, "RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest request)");
         StringAssert.Contains(searchRepair, "base.DataContext is not MainWindowViewModel viewModel");
-        StringAssert.Contains(searchRepair, "viewModel.InstallDestinations");
+        StringAssert.Contains(searchRepair, "viewModel.PendingPackages");
         StringAssert.Contains(searchRepair, ".SearchCorrectAsync(request)");
         StringAssert.Contains(searchRepair, ".LoggingAndPropagate(");
         Assert.IsTrue(
-            searchRepair.IndexOf("e.Handled = true", StringComparison.Ordinal) < searchRepair.IndexOf("await viewModel.InstallDestinations", StringComparison.Ordinal),
+            searchRepair.IndexOf("e.Handled = true", StringComparison.Ordinal) < searchRepair.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal),
             "The routed event must be handled before the asynchronous workflow yields.");
         Assert.IsFalse(searchRepair.Contains("IRepairInstalledLocationTargetSnapshot"));
         Assert.IsFalse(searchRepair.Contains("GetSelectedChartCompatibilityAdapters"));
@@ -2964,11 +3011,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(fixRepair, "RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest request)");
         StringAssert.Contains(fixRepair, "base.DataContext is not MainWindowViewModel viewModel");
         Assert.IsFalse(fixRepair.Contains("repairTargets.MaterializeRepairEntries()"));
-        StringAssert.Contains(fixRepair, "viewModel.InstallDestinations");
+        StringAssert.Contains(fixRepair, "viewModel.PendingPackages");
         StringAssert.Contains(fixRepair, ".FixInstalledLocationsAsync(request)");
         StringAssert.Contains(fixRepair, ".LoggingAndPropagate(");
         Assert.IsTrue(
-            fixRepair.IndexOf("e.Handled = true", StringComparison.Ordinal) < fixRepair.IndexOf("await viewModel.InstallDestinations", StringComparison.Ordinal),
+            fixRepair.IndexOf("e.Handled = true", StringComparison.Ordinal) < fixRepair.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal),
             "The routed event must be handled before the asynchronous workflow yields.");
         Assert.IsFalse(fixRepair.Contains("IRepairInstalledLocationTargetSnapshot"));
         Assert.IsFalse(fixRepair.Contains("GetSelectedChartCompatibilityAdapters"));
@@ -2987,7 +3034,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(clearInstallDestination, "GetSelectedChartTargets(capability)");
         StringAssert.Contains(clearInstallDestination, "RepairInstalledLocationRequest.TryCreate(targets, out repairRequest)");
         StringAssert.Contains(clearInstallDestination, "PendingInstallDestinationClearRequest.TryCreate(pendingTargets, out pendingInstallRequest)");
-        StringAssert.Contains(clearInstallDestination, "viewModel.InstallDestinations");
+        StringAssert.Contains(clearInstallDestination, "viewModel.PendingPackages");
         StringAssert.Contains(clearInstallDestination, ".ClearPendingAsync(pendingInstallRequest)");
         StringAssert.Contains(clearInstallDestination, ".ClearCorrectAsync(repairRequest)");
         Assert.AreEqual(2, CountOccurrences(clearInstallDestination, ".LoggingAndPropagate("));

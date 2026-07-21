@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
@@ -10,17 +11,17 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal enum InstallDestinationRefreshScope
+internal enum PendingPackageRefreshScope
 {
     DestinationState,
     PackageMutation
 }
 
-internal interface IInstallDestinationMutationPresentation
+internal interface IPendingPackageMutationPresentation
 {
     void BeginActivity();
 
-    void BeginRefreshSuppression(InstallDestinationRefreshScope scope);
+    void BeginRefreshSuppression(PendingPackageRefreshScope scope);
 
     void EndRefreshSuppression();
 
@@ -37,7 +38,7 @@ internal interface IInstallDestinationMutationPresentation
     void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts);
 }
 
-internal interface IInstallDestinationStore
+internal interface IPendingPackageStore
 {
     void SearchPackages(
         BMSLibrary library,
@@ -88,31 +89,53 @@ internal interface IInstallDestinationStore
         BMSLibrary library,
         IReadOnlyList<ChartFile> repairCharts,
         IReadOnlyList<string> approvedDuplicateRemovalChartPaths);
+
+    IReadOnlyList<ChartPackage> GetInstalledOnlyPendingPackages(BMSLibrary library);
+
+    IReadOnlyList<ChartFile> GetPendingBmsFormatCharts(BMSLibrary library);
+
+    void DeletePendingPackageSources(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages,
+        CancellationToken cancellationToken,
+        Action onEachProcessed);
+
+    void RenamePendingZeroNoteCharts(
+        BMSLibrary library,
+        IReadOnlyList<ChartFile> charts,
+        CancellationToken cancellationToken,
+        Action onEachProcessed);
+
+    PendingInstalledOnlyResourceOverwriteResult OverwriteInstalledOnlyPendingPackageResources(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages,
+        CancellationToken cancellationToken,
+        Action onEachProcessed);
 }
 
-internal sealed class InstallDestinationWorkflowOwner
+internal sealed class PendingPackageWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
-    private readonly IInstallDestinationMutationPresentation presentation;
+    private readonly IPendingPackageMutationPresentation presentation;
     private readonly IUiDialogService dialogs;
-    private readonly IInstallDestinationStore store;
+    private readonly IPendingPackageStore store;
     private readonly Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider;
 
-    internal InstallDestinationWorkflowOwner(
+    internal PendingPackageWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
-        IInstallDestinationMutationPresentation presentation,
+        IPendingPackageMutationPresentation presentation,
         IUiDialogService dialogs,
         Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
-        IInstallDestinationStore store = null)
+        IPendingPackageStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
-        this.store = store ?? new BmsLibraryInstallDestinationStore();
+        this.store = store ?? new BmsLibraryPendingPackageStore();
     }
 
     internal Task SearchPackagesAsync(
@@ -362,8 +385,149 @@ internal sealed class InstallDestinationWorkflowOwner
                 library,
                 repairCharts,
                 approvedDuplicateRemovalChartPaths),
-            InstallDestinationRefreshScope.PackageMutation,
+            PendingPackageRefreshScope.PackageMutation,
             [.. repairCharts.Where(ChartFileKindResolver.IsBmsChartFile)]));
+    }
+
+    internal async Task DeleteInstalledOnlyPendingPackageSourcesAsync()
+    {
+        IReadOnlyList<ChartPackage> packages = await Task.Run(() =>
+            Read(store.GetInstalledOnlyPendingPackages)) ?? [];
+        if (packages.Count == 0)
+        {
+            await ShowMessageAsync(
+                BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxImage.Exclamation,
+                "Installed-only pending-package source warning");
+            return;
+        }
+        UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+            string.Format(
+                BeMusicSeeker.Properties.Resources.Msg_delete_pending_installed_only_packages_permanently,
+                packages.Count),
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning,
+            MessageBoxResult.Cancel));
+        if (!ToConfirmationDecision(
+            confirmation,
+            "Installed-only pending-package source deletion confirmation"))
+        {
+            return;
+        }
+
+        await RunBulkOperationAsync(
+            packages,
+            BeMusicSeeker.Properties.Resources.Remove,
+            package => package.path,
+            (cancellationToken, onEachProcessed) => Execute(library =>
+                store.DeletePendingPackageSources(
+                    library,
+                    packages,
+                    cancellationToken,
+                    onEachProcessed)));
+    }
+
+    internal async Task RenamePendingZeroNoteChartsAsync()
+    {
+        IReadOnlyList<ChartFile> charts = await Task.Run(() =>
+            Read(store.GetPendingBmsFormatCharts)) ?? [];
+        if (charts.Count == 0)
+        {
+            await ShowMessageAsync(
+                BeMusicSeeker.Properties.Resources.Warn_no_pending_charts,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxImage.Exclamation,
+                "Pending chart rename warning");
+            return;
+        }
+        UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+            string.Format(
+                BeMusicSeeker.Properties.Resources.Msg_rename_pending_zero_note_to_invalid_ext,
+                charts.Count),
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning,
+            MessageBoxResult.Cancel));
+        if (!ToConfirmationDecision(confirmation, "Pending zero-note chart rename confirmation"))
+        {
+            return;
+        }
+
+        await RunBulkOperationAsync(
+            charts,
+            BeMusicSeeker.Properties.Resources.Rename_invalid_ext,
+            chart => chart.Path,
+            (cancellationToken, onEachProcessed) => Execute(
+                library => store.RenamePendingZeroNoteCharts(
+                    library,
+                    charts,
+                    cancellationToken,
+                    onEachProcessed),
+                playbackTargets: charts));
+    }
+
+    internal async Task OverwriteInstalledOnlyPendingPackageResourcesAsync()
+    {
+        IReadOnlyList<ChartPackage> packages = await Task.Run(() =>
+            Read(store.GetInstalledOnlyPendingPackages)) ?? [];
+        if (packages.Count == 0)
+        {
+            await ShowMessageAsync(
+                BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxImage.Exclamation,
+                "Installed-only pending-package overwrite warning");
+            return;
+        }
+        UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+            string.Format(
+                BeMusicSeeker.Properties.Resources.Msg_overwrite_pending_installed_only_packages_resources,
+                packages.Count),
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning,
+            MessageBoxResult.Cancel));
+        if (!ToConfirmationDecision(
+            confirmation,
+            "Installed-only pending-package resource overwrite confirmation"))
+        {
+            return;
+        }
+
+        PendingInstalledOnlyResourceOverwriteResult overwriteResult = null;
+        await RunBulkOperationAsync(
+            packages,
+            BeMusicSeeker.Properties.Resources.Install_to_estimation,
+            package => package.path,
+            (cancellationToken, onEachProcessed) => Execute(
+                library => overwriteResult = store.OverwriteInstalledOnlyPendingPackageResources(
+                    library,
+                    packages,
+                    cancellationToken,
+                    onEachProcessed),
+                playbackTargets: CreatePlaybackTargetSnapshot(packages)));
+        if (overwriteResult == null)
+        {
+            return;
+        }
+        await ShowMessageAsync(
+            string.Format(
+                BeMusicSeeker.Properties.Resources.Warn_overwrite_pending_installed_only_packages_summary,
+                overwriteResult.Requested,
+                overwriteResult.Processed,
+                overwriteResult.SucceededInstall,
+                overwriteResult.SucceededCleanupOnly,
+                overwriteResult.SkippedNotPending,
+                overwriteResult.SkippedMissingInstlDst,
+                overwriteResult.SkippedMultiDestination,
+                overwriteResult.SkippedNoComponentTarget,
+                overwriteResult.Failed,
+                overwriteResult.Canceled),
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxImage.Exclamation,
+            "Installed-only pending-package resource overwrite summary");
     }
 
     private async Task InstallPackagesAsync(
@@ -391,14 +555,14 @@ internal sealed class InstallDestinationWorkflowOwner
                 prepareShellForMutation();
                 await Task.Run(() => Execute(
                     library => store.ForceInstallPackages(library, packages, approvedPackages),
-                    InstallDestinationRefreshScope.PackageMutation,
+                    PendingPackageRefreshScope.PackageMutation,
                     CreatePlaybackTargetSnapshot(packages)));
                 return;
             case PendingInstallPackageOperationKind.ManualInstall:
                 prepareShellForMutation();
                 await Task.Run(() => Execute(
                     library => store.ManualInstallPackages(library, packages),
-                    InstallDestinationRefreshScope.PackageMutation,
+                    PendingPackageRefreshScope.PackageMutation,
                     CreatePlaybackTargetSnapshot(packages)));
                 return;
             default:
@@ -447,6 +611,161 @@ internal sealed class InstallDestinationWorkflowOwner
         return ToConfirmationDecision(result, "Manual pending-package installation confirmation");
     }
 
+    private async Task RunBulkOperationAsync<T>(
+        IReadOnlyList<T> items,
+        string title,
+        Func<T, string> itemLabel,
+        Action<CancellationToken, Action> operation)
+    {
+        if (items.Count == 1)
+        {
+            await Task.Run(() => operation(CancellationToken.None, null));
+            return;
+        }
+
+        using var cancellationTokenSource = new CancellationTokenSource();
+        int processedCount = 0;
+        Task operationTask = Task.Run(() =>
+            operation(
+                cancellationTokenSource.Token,
+                () => Interlocked.Increment(ref processedCount)));
+        UiProgressResult progressResult;
+        try
+        {
+            progressResult = await dialogs.RunWithProgressAsync(
+                new UiProgressRequest(
+                    title,
+                    string.Empty,
+                    new Parago.Windows.ProgressDialogSettings(
+                        showSubLabel: true,
+                        showCancelButton: true,
+                        showProgressBarIndeterminate: false)),
+                async context =>
+                {
+                    while (!operationTask.IsCompleted)
+                    {
+                        int currentProcessedCount = Volatile.Read(ref processedCount);
+                        try
+                        {
+                            int currentIndex = Math.Min(currentProcessedCount, items.Count - 1);
+                            context.ReportWithCancellationCheck(
+                                100 * currentProcessedCount / items.Count,
+                                "[{0}/{1}] {2}",
+                                Math.Min(currentProcessedCount + 1, items.Count),
+                                items.Count,
+                                itemLabel(items[currentIndex]) ?? "(null)");
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            cancellationTokenSource.Cancel();
+                            ExceptionDispatchInfo operationFailure = await CaptureOperationFailureAsync(
+                                operationTask,
+                                cancellationTokenSource.Token);
+                            operationFailure?.Throw();
+                            break;
+                        }
+                        catch
+                        {
+                            cancellationTokenSource.Cancel();
+                            throw;
+                        }
+                        await Task.Delay(100);
+                    }
+                });
+        }
+        catch (Exception ex)
+        {
+            cancellationTokenSource.Cancel();
+            ExceptionDispatchInfo operationFailure = await CaptureOperationFailureAsync(
+                operationTask,
+                cancellationTokenSource.Token);
+            ThrowProgressFailures(ExceptionDispatchInfo.Capture(ex), operationFailure);
+            return;
+        }
+        if (progressResult == null)
+        {
+            cancellationTokenSource.Cancel();
+            ExceptionDispatchInfo operationFailure = await CaptureOperationFailureAsync(
+                operationTask,
+                cancellationTokenSource.Token);
+            ThrowProgressFailures(
+                ExceptionDispatchInfo.Capture(new InvalidOperationException(
+                    "Pending-package progress dialog route returned no result.")),
+                operationFailure);
+            return;
+        }
+        if (progressResult.Status == UiDialogStatus.Accepted)
+        {
+            ExceptionDispatchInfo operationFailure = await CaptureOperationFailureAsync(
+                operationTask,
+                cancellationTokenSource.Token);
+            operationFailure?.Throw();
+            return;
+        }
+        cancellationTokenSource.Cancel();
+        ExceptionDispatchInfo terminalOperationFailure = await CaptureOperationFailureAsync(
+            operationTask,
+            cancellationTokenSource.Token);
+        if (progressResult.Status == UiDialogStatus.CancelledByUser)
+        {
+            terminalOperationFailure?.Throw();
+            return;
+        }
+        ThrowProgressFailures(
+            ExceptionDispatchInfo.Capture(new InvalidOperationException(
+                "Pending-package progress dialog route failed: " + progressResult.Status,
+                progressResult.Error)),
+            terminalOperationFailure);
+    }
+
+    private async Task ShowMessageAsync(
+        string message,
+        string title,
+        MessageBoxImage image,
+        string routeName)
+    {
+        UiDialogResult result = await dialogs.ShowMessageAsync(new UiMessageRequest(
+            message,
+            title,
+            MessageBoxButton.OK,
+            image,
+            MessageBoxResult.OK));
+        EnsureMessageWasShown(result, routeName);
+    }
+
+    private static async Task<ExceptionDispatchInfo> CaptureOperationFailureAsync(
+        Task task,
+        CancellationToken expectedCancellationToken)
+    {
+        try
+        {
+            await task;
+            return null;
+        }
+        catch (OperationCanceledException) when (expectedCancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ExceptionDispatchInfo.Capture(ex);
+        }
+    }
+
+    private static void ThrowProgressFailures(
+        ExceptionDispatchInfo primaryFailure,
+        ExceptionDispatchInfo operationFailure)
+    {
+        if (operationFailure == null)
+        {
+            primaryFailure.Throw();
+        }
+        throw new AggregateException(
+            "Pending-package progress dialog and mutation both failed.",
+            primaryFailure.SourceException,
+            operationFailure.SourceException);
+    }
+
     private static IReadOnlyList<ChartPackage> MaterializePackages(IEnumerable<ChartPackage> packages)
     {
         if (packages == null)
@@ -491,7 +810,7 @@ internal sealed class InstallDestinationWorkflowOwner
     {
         if (result == null)
         {
-            throw new InvalidOperationException("Merge destination confirmation returned no result.");
+            throw new InvalidOperationException(routeName + " returned no result.");
         }
         return result.Status switch
         {
@@ -523,7 +842,7 @@ internal sealed class InstallDestinationWorkflowOwner
 
     private bool Execute(
         Action<BMSLibrary> mutation,
-        InstallDestinationRefreshScope refreshScope = InstallDestinationRefreshScope.DestinationState,
+        PendingPackageRefreshScope refreshScope = PendingPackageRefreshScope.DestinationState,
         IReadOnlyList<ChartFile> playbackTargets = null,
         bool requiresLibrary = true)
     {
@@ -630,7 +949,7 @@ internal sealed class InstallDestinationWorkflowOwner
     }
 }
 
-internal sealed class BmsLibraryInstallDestinationStore : IInstallDestinationStore
+internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
 {
     public void SearchPackages(
         BMSLibrary library,
@@ -774,6 +1093,53 @@ internal sealed class BmsLibraryInstallDestinationStore : IInstallDestinationSto
         library.FixInstallationDirectoryCharts(
             repairCharts,
             approvedDuplicateRemovalChartPaths);
+    }
+
+    public IReadOnlyList<ChartPackage> GetInstalledOnlyPendingPackages(BMSLibrary library)
+    {
+        return library.GetPendingPackagesContainingOnlyInstalledCharts();
+    }
+
+    public IReadOnlyList<ChartFile> GetPendingBmsFormatCharts(BMSLibrary library)
+    {
+        return library.GetPendingBmsFormatChartFilesSnapshot();
+    }
+
+    public void DeletePendingPackageSources(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages,
+        CancellationToken cancellationToken,
+        Action onEachProcessed)
+    {
+        library.DeletePendingPackageSources(
+            packages,
+            sendToRecycleBin: false,
+            cancellationToken,
+            onEachProcessed);
+    }
+
+    public void RenamePendingZeroNoteCharts(
+        BMSLibrary library,
+        IReadOnlyList<ChartFile> charts,
+        CancellationToken cancellationToken,
+        Action onEachProcessed)
+    {
+        library.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
+            charts,
+            cancellationToken,
+            onEachProcessed);
+    }
+
+    public PendingInstalledOnlyResourceOverwriteResult OverwriteInstalledOnlyPendingPackageResources(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages,
+        CancellationToken cancellationToken,
+        Action onEachProcessed)
+    {
+        return library.OverwritePendingInstalledOnlyPackagesResources(
+            packages,
+            cancellationToken,
+            onEachProcessed);
     }
 
     private static IReadOnlyList<ChartPackage> ResolvePackages(

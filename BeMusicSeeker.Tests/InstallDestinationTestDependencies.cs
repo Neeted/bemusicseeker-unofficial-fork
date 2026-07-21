@@ -9,13 +9,13 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Tests;
 
-internal sealed class TestInstallDestinationMutationPresentation : IInstallDestinationMutationPresentation
+internal sealed class TestInstallDestinationMutationPresentation : IPendingPackageMutationPresentation
 {
     public void BeginActivity()
     {
     }
 
-    public void BeginRefreshSuppression(InstallDestinationRefreshScope scope)
+    public void BeginRefreshSuppression(PendingPackageRefreshScope scope)
     {
     }
 

@@ -18,7 +18,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `UI05-R2B-U2 Package bulk maintenance workflow`
+sequence cursor: `UI05-R2B-U3 Catalog maintenance workflow`
 
 目的:
 

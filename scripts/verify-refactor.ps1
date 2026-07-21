@@ -27,6 +27,7 @@ public sealed class MonitoredProcessJob : IDisposable
 {
     private const uint JobObjectLimitKillOnJobClose = 0x00002000;
     private IntPtr handle;
+    private IntPtr rootProcessHandle;
 
     public MonitoredProcessJob()
     {
@@ -136,6 +137,8 @@ public sealed class MonitoredProcessJob : IDisposable
                 process.Dispose();
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to resume the monitored test root process.");
             }
+            rootProcessHandle = processInformation.ProcessHandle;
+            processInformation.ProcessHandle = IntPtr.Zero;
             return process;
         }
         catch (Exception primaryFailure)
@@ -268,12 +271,48 @@ public sealed class MonitoredProcessJob : IDisposable
         return WaitForEmpty(timeoutMilliseconds);
     }
 
+    public bool TryGetRootExitCode(out int exitCode)
+    {
+        ThrowIfDisposed();
+        exitCode = 0;
+        if (rootProcessHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+        uint waitResult = WaitForSingleObject(rootProcessHandle, 0);
+        if (waitResult == WaitTimeout)
+        {
+            return false;
+        }
+        if (waitResult == WaitFailed)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to wait for the monitored test root exit code.");
+        }
+        if (waitResult != WaitObject0)
+        {
+            throw new InvalidOperationException(
+                "Waiting for the monitored test root exit code returned unexpected result " + waitResult + ".");
+        }
+        if (!GetExitCodeProcess(rootProcessHandle, out uint nativeExitCode))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to read the monitored test root exit code.");
+        }
+        if (nativeExitCode == StillActive)
+        {
+            return false;
+        }
+        exitCode = unchecked((int)nativeExitCode);
+        return true;
+    }
+
     public void Dispose()
     {
         if (handle == IntPtr.Zero)
         {
             return;
         }
+        CloseIfValid(rootProcessHandle);
+        rootProcessHandle = IntPtr.Zero;
         CloseHandle(handle);
         handle = IntPtr.Zero;
     }
@@ -465,6 +504,7 @@ public sealed class MonitoredProcessJob : IDisposable
     private const uint WaitObject0 = 0x00000000;
     private const uint WaitTimeout = 0x00000102;
     private const uint WaitFailed = 0xffffffff;
+    private const uint StillActive = 259;
     private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -530,6 +570,9 @@ public sealed class MonitoredProcessJob : IDisposable
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
@@ -969,7 +1012,11 @@ function Invoke-MonitoredTestCommand {
                 $failures.Add($_.Exception)
             }
         }
-        if ($process.HasExited) {
+        $nativeExitCode = 0
+        if ($processJob.TryGetRootExitCode([ref]$nativeExitCode)) {
+            $exitCode = $nativeExitCode
+        }
+        elseif ($process.HasExited) {
             $exitCode = $process.ExitCode
         }
     }
@@ -980,6 +1027,12 @@ function Invoke-MonitoredTestCommand {
         $stopwatch.Stop()
         if ($null -ne $processJob) {
             try {
+                if ($null -eq $exitCode) {
+                    $nativeExitCode = 0
+                    if ($processJob.TryGetRootExitCode([ref]$nativeExitCode)) {
+                        $exitCode = $nativeExitCode
+                    }
+                }
                 if (-not $processJob.WaitForEmpty(0) -and -not $processJob.TerminateAndWait(5000)) {
                     $failures.Add([InvalidOperationException]::new(
                         'The monitored process job did not become empty during final cleanup.'))
@@ -1040,6 +1093,10 @@ function Invoke-MonitoredTestCommand {
     if ($null -ne $exitCode -and $exitCode -ne 0) {
         $failures.Add([InvalidOperationException]::new(
             "Command failed with exit code ${exitCode}: $Command $($Arguments -join ' ')"))
+    }
+    if ($null -eq $exitCode) {
+        $failures.Add([InvalidOperationException]::new(
+            'The monitored test root exited without an observable exit code.'))
     }
     if ($failures.Count -eq 1) {
         throw $failures[0]
