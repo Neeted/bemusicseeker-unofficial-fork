@@ -526,7 +526,8 @@ public sealed class ApplicationCompositionTests
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalLibraryProvider: () => null!,
             selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort(),
-            lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner());
+            lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
+            rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner());
 
         try
         {
@@ -548,6 +549,8 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.ZeroNoteMaintenanceWorkflow);
             Assert.IsNotNull(childComposition.PackageCatalogWorkflow);
             Assert.IsNotNull(childComposition.SelectedChartAudioConversion);
+            Assert.IsNotNull(childComposition.Lr2SongDbSyncWorkflow);
+            Assert.IsNotNull(childComposition.RankingCacheDownloadWorkflow);
         }
         finally
         {
@@ -640,7 +643,8 @@ public sealed class ApplicationCompositionTests
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalLibraryProvider: () => null!,
                 selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort(),
-                lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner());
+                lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
+                rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner());
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -772,7 +776,8 @@ public sealed class ApplicationCompositionTests
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalLibraryProvider: () => null!,
                 selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort(),
-                lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner());
+                lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
+                rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner());
             try
             {
                 workspace.IsPlaylistSummaryMode = true;
@@ -1486,6 +1491,14 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 () => null!,
                 () => false),
+            new TestUiDialogService());
+    }
+
+    private static RankingCacheDownloadWorkflowOwner CreateDisabledRankingCacheDownloadWorkflowOwner()
+    {
+        return new RankingCacheDownloadWorkflowOwner(
+            new BmsRankingCacheDownloadRuntime(() => null!),
+            new ChartFileOperationSynchronizer(),
             new TestUiDialogService());
     }
 

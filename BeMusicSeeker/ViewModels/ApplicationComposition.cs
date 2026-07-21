@@ -362,7 +362,8 @@ internal sealed class ApplicationComposition
         ISelectedChartAudioConversionPlaybackPort selectedChartAudioConversionPlayback = null,
         IUiDialogService selectedChartAudioConversionDialogService = null,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
-        Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null)
+        Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
+        RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -423,7 +424,8 @@ internal sealed class ApplicationComposition
                 ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionPlayback)),
             selectedChartAudioConversionDialogService,
             selectedChartAudioConversionExecutor,
-            lr2SongDbSyncWorkflow);
+            lr2SongDbSyncWorkflow,
+            rankingCacheDownloadWorkflow);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -608,7 +610,8 @@ internal sealed class MainWindowChildComposition
         ISelectedChartAudioConversionPlaybackPort selectedChartAudioConversionPlayback = null,
         IUiDialogService selectedChartAudioConversionDialogService = null,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
-        Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null)
+        Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
+        RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -722,6 +725,8 @@ internal sealed class MainWindowChildComposition
             selectedChartAudioConversionExecutor);
         Lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow
             ?? throw new ArgumentNullException(nameof(lr2SongDbSyncWorkflow));
+        RankingCacheDownloadWorkflow = rankingCacheDownloadWorkflow
+            ?? throw new ArgumentNullException(nameof(rankingCacheDownloadWorkflow));
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -767,6 +772,8 @@ internal sealed class MainWindowChildComposition
     internal SelectedChartAudioConversionWorkflowOwner SelectedChartAudioConversion { get; }
 
     internal Lr2SongDbSyncWorkflowOwner Lr2SongDbSyncWorkflow { get; }
+
+    internal RankingCacheDownloadWorkflowOwner RankingCacheDownloadWorkflow { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

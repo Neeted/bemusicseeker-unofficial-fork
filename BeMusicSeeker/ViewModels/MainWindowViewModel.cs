@@ -132,6 +132,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     internal Lr2SongDbSyncWorkflowOwner Lr2SongDbSyncWorkflow { get; private set; }
 
+    internal RankingCacheDownloadWorkflowOwner RankingCacheDownloadWorkflow { get; private set; }
+
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
     /// <summary>
@@ -3678,6 +3680,10 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                     () => files,
                     () => tables,
                     () => ApplicationSettings.OperationModeLR2DB),
+                new UiDialogCoordinator()),
+            rankingCacheDownloadWorkflow: new RankingCacheDownloadWorkflowOwner(
+                new BmsRankingCacheDownloadRuntime(() => files),
+                chartFileOperations,
                 new UiDialogCoordinator()));
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
@@ -3706,6 +3712,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         ChartInfoParseFailureRemoval = childComposition.ChartInfoParseFailureRemoval;
         SelectedChartAudioConversion = childComposition.SelectedChartAudioConversion;
         Lr2SongDbSyncWorkflow = childComposition.Lr2SongDbSyncWorkflow;
+        RankingCacheDownloadWorkflow = childComposition.RankingCacheDownloadWorkflow;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
@@ -9082,51 +9089,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree,
             stopPlayback: () => PlaybackPanel.StopPlayback(closeProcess: true));
         return new FolderAutoRenameExecutionResult { RefreshRequired = changed };
-    }
-
-    /// <summary>
-    /// 指定されたハッシュ群をキーに LR2IR キャッシュを更新します。
-    /// 実ファイル未所持の playlist 行でもランキングデータ更新を行えるようにします。
-    /// </summary>
-    /// <param name="hashes">更新対象の MD5 ハッシュ一覧。</param>
-    public void GetLR2IRCacheHashes(IEnumerable<string> hashes)
-    {
-        using (chartFileOperations.Enter())
-        {
-            if (hashes == null)
-            {
-                throw new ArgumentNullException(nameof(hashes));
-            }
-            try
-            {
-                List<string> normalizedHashes = [.. hashes.Where(hash => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase)];
-                if (normalizedHashes.Count == 0)
-                {
-                    return;
-                }
-                List<BMSLibrary.IRDataCacheInfo> iRDataNeedUpdates = files.GetIRDataNeedUpdates(normalizedHashes);
-                if (iRDataNeedUpdates.Count > 0)
-                {
-                    if (ShowUiConfirmation(BeMusicSeeker.Properties.Resources.Msg_download_ranking_cache + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Download + ": " + iRDataNeedUpdates.Count + Environment.NewLine + BeMusicSeeker.Properties.Resources.Skip + ": " + (normalizedHashes.Count - iRDataNeedUpdates.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Size + ": " + FileSizeHelper.GetReadableFileSize(iRDataNeedUpdates.Select(c => c.size).Sum()), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, MessageBoxButton.OKCancel, "Ranking cache download confirmation", MessageBoxResult.OK))
-                    {
-                        List<BMSLibrary.IRDataCacheInfo> list = files.DownloadIRData(iRDataNeedUpdates);
-                        ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_download_completed + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (iRDataNeedUpdates.Count - list.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + list.Count, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, "Ranking cache download completion notification");
-                    }
-                }
-                else
-                {
-                    ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_ranking_cache_notfound, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Hand, "Ranking cache not found notification");
-                }
-            }
-            catch (InvalidOperationException ex) when (ex is not UiDialogDisplayException)
-            {
-                ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_warn_cache_download, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Ranking cache download warning notification");
-            }
-            catch (Exception ex) when (ex is not UiDialogDisplayException)
-            {
-                ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_cache_download + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Ranking cache download failure notification");
-            }
-        }
     }
 
     private static bool ShowUiConfirmation(

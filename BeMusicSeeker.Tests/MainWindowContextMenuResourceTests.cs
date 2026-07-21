@@ -828,6 +828,27 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void RankingCacheContextMenu_DelegatesSelectionSnapshotToOwner()
+    {
+        string root = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string mainWindow = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Views",
+            "MainWindow.cs");
+        string handler = ExtractMethodBody(
+            mainWindow,
+            "private void tableContextMenuItemUpdateRankingDataClick");
+
+        StringAssert.Contains(xaml, "Click=\"tableContextMenuItemUpdateRankingDataClick\"");
+        StringAssert.Contains(handler, "GetSelectedGridHashTargets()");
+        StringAssert.Contains(handler, "viewModel?.RankingCacheDownloadWorkflow.Request(hashes);");
+        Assert.AreEqual(1, CountOccurrences(handler, ".RankingCacheDownloadWorkflow.Request("));
+        Assert.IsFalse(handler.Contains("Task.Run"));
+        Assert.IsFalse(mainWindow.Contains("GetLR2IRCacheHashes("));
+    }
+
+    [TestMethod]
     public void ChartContextMenuStateBuilder_ResolvesCapabilityPolicy()
     {
         ChartOperationTarget rowTarget = CreateContextMenuTarget(

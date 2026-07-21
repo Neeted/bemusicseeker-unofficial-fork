@@ -6136,10 +6136,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (hashes != null && hashes.Count != 0)
         {
             var viewModel = base.DataContext as MainWindowViewModel;
-            Task.Run(delegate
-            {
-                viewModel.GetLR2IRCacheHashes(hashes);
-            }).Logging("tableContextMenuItemUpdateRankingDataClick");
+            viewModel?.RankingCacheDownloadWorkflow.Request(hashes);
             e.Handled = true;
         }
     }
