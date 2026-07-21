@@ -4388,13 +4388,19 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void DuplicateFileCheckConfirmations_RespectSharedMessageSetting()
     {
-        string root = FindRepositoryRoot();
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string folderMergeMethod = ExtractMethodBody(mainWindowCode, "private void ExecuteDuplicateFolderMerge(string srcPath, string dstPath, DuplicateGroup duplicateGroup)");
-        string hashCleanupMethod = ExtractMethodBody(mainWindowCode, "private void ExecuteDuplicateHashCleanup(DuplicateGroup duplicateGroup, string folderPath)");
+        string ownerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "DuplicateMaintenanceWorkflowOwner.cs");
 
-        StringAssert.Contains(folderMergeMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox");
-        StringAssert.Contains(hashCleanupMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox");
+        StringAssert.Contains(mainWindowCode, "viewModel.DuplicateMaintenanceWorkflow");
+        StringAssert.Contains(ownerCode, "showConfirmationProvider()");
+        StringAssert.Contains(ownerCode, "Msg_merge_bms_target");
+        StringAssert.Contains(ownerCode, "Msg_cleanup_duplicate_hash");
+        Assert.IsFalse(mainWindowCode.Contains("private void ExecuteDuplicateFolderMerge("));
+        Assert.IsFalse(mainWindowCode.Contains("private void ExecuteDuplicateHashCleanup("));
     }
 
     [TestMethod]

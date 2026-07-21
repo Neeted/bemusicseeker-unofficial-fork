@@ -507,7 +507,13 @@ public sealed class ApplicationCompositionTests
             action => action(),
             () => null!,
             new TestInstallDestinationMutationPresentation(),
-            new TestUiDialogService());
+            new TestUiDialogService(),
+            duplicateMaintenanceActivity: new NoOpDuplicateMaintenanceActivityPort(),
+            duplicateMaintenanceRefresh: new NoOpDuplicateMaintenanceRefreshPort(),
+            duplicateMaintenancePlayback: new NoOpDuplicateMaintenancePlaybackPort(),
+            duplicateMaintenanceDialogService: new TestUiDialogService(),
+            showDuplicateFileCheckConfirmProvider: () => false,
+            duplicateMaintenanceLibraryProvider: () => null!);
 
         try
         {
@@ -599,7 +605,13 @@ public sealed class ApplicationCompositionTests
                 action => action(),
                 () => null!,
                 new TestInstallDestinationMutationPresentation(),
-                new TestUiDialogService());
+                new TestUiDialogService(),
+                duplicateMaintenanceActivity: new NoOpDuplicateMaintenanceActivityPort(),
+                duplicateMaintenanceRefresh: new NoOpDuplicateMaintenanceRefreshPort(),
+                duplicateMaintenancePlayback: new NoOpDuplicateMaintenancePlaybackPort(),
+                duplicateMaintenanceDialogService: new TestUiDialogService(),
+                showDuplicateFileCheckConfirmProvider: () => false,
+                duplicateMaintenanceLibraryProvider: () => null!);
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -712,7 +724,13 @@ public sealed class ApplicationCompositionTests
                 action => action(),
                 () => null!,
                 new TestInstallDestinationMutationPresentation(),
-                new TestUiDialogService());
+                new TestUiDialogService(),
+                duplicateMaintenanceActivity: new NoOpDuplicateMaintenanceActivityPort(),
+                duplicateMaintenanceRefresh: new NoOpDuplicateMaintenanceRefreshPort(),
+                duplicateMaintenancePlayback: new NoOpDuplicateMaintenancePlaybackPort(),
+                duplicateMaintenanceDialogService: new TestUiDialogService(),
+                showDuplicateFileCheckConfirmProvider: () => false,
+                duplicateMaintenanceLibraryProvider: () => null!);
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

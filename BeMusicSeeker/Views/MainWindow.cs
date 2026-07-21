@@ -63,6 +63,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool _isClosingOrClosed;
 
+    private int _duplicateMaintenanceSelectionVersion;
+
     private bool _shutdownPrepared;
 
     private bool _shutdownPreparationRunning;
@@ -262,12 +264,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private readonly Storyboard treeViewItemInstantStoryBoardPlaylistTable = new();
 
-
-    // マージ後に自動選択するDuplicateGroupのHeader（曲名）をキャッシュ
-    private string _pendingDuplicateGroupHeader;
-    private int _duplicateGroupAutoSelectRequestVersion;
-    private PropertyChangedEventHandler _duplicateGroupAutoSelectHandler;
-    private MainWindowViewModel _duplicateGroupAutoSelectHandlerOwner;
 
     private bool startupInitialSelectionApplied;
 
@@ -4524,14 +4520,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         // 親DuplicateGroupを取得
         TreeViewItem groupTreeItem = WPFUtil.FindVisualParent<TreeViewItem>(tag);
         var duplicateGroup = groupTreeItem?.DataContext as DuplicateGroup;
-        ExecuteDuplicateFolderMerge(srcPath, dstPath, duplicateGroup);
+        e.Handled = true;
+        _ = ExecuteDuplicateFolderMergeAsync(srcPath, dstPath, duplicateGroup);
     }
 
-    /// <summary>
-    /// 重複フォルダのマージ処理を実行する共通メソッド。
-    /// 確認ダイアログ → マージ実行 → マージ後のグループ自動選択を行う。
-    /// </summary>
-    private void ExecuteDuplicateFolderMerge(string srcPath, string dstPath, DuplicateGroup duplicateGroup)
+    private async Task ExecuteDuplicateFolderMergeAsync(string srcPath, string dstPath, DuplicateGroup duplicateGroup)
     {
         if (ShouldBlockChartPackageMutationInteraction("duplicate_merge_execute"))
         {
@@ -4541,232 +4534,175 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (string.IsNullOrWhiteSpace(srcPath) || string.IsNullOrWhiteSpace(dstPath))
+        if (duplicateGroup == null
+            || string.IsNullOrWhiteSpace(srcPath)
+            || string.IsNullOrWhiteSpace(dstPath))
         {
             return;
         }
 
-        // 確認ダイアログ
-        if (Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox(Window.GetWindow(this),
-            BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder + Environment.NewLine + Environment.NewLine +
-            BeMusicSeeker.Properties.Resources.Msg_merge_bms_target + ": " + srcPath + Environment.NewLine +
-            BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination + ": " + dstPath,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        DuplicateFolderMergeRequest request = CreateDuplicateFolderMergeRequest(
+            srcPath,
+            dstPath,
+            duplicateGroup,
+            viewModel);
+        DuplicateMaintenanceConfirmationResult confirmation = viewModel.DuplicateMaintenanceWorkflow
+            .ConfirmFolderMerge(request);
+        if (!confirmation.Accepted)
         {
+            if (confirmation.Failure != null)
+            {
+                NLogWrapper.FileLogger?.Warn(confirmation.Failure, "duplicate_merge_confirmation_failed");
+            }
             return;
         }
 
-        long operationId = Stopwatch.GetTimestamp();
-        var okToTaskStopwatch = Stopwatch.StartNew();
-        var totalStopwatch = Stopwatch.StartNew();
-        LogDuplicateMergePerformance("duplicate_merge_ui confirmed op=" + operationId + " src=" + srcPath + " dst=" + dstPath);
-
-        // マージ後に自動選択するグループのHeaderをキャッシュ
-        _pendingDuplicateGroupHeader = null;
-        if (duplicateGroup != null && viewModel.DuplicateChartGroups != null)
+        DuplicateMaintenanceMutationResult result = await viewModel.DuplicateMaintenanceWorkflow
+            .MergeFolderAsync(confirmation.Operation);
+        if (!result.Succeeded)
         {
-            int folderCount = duplicateGroup.Folders.Count;
-            if (folderCount == 2)
-            {
-                // フォルダが2つの場合: マージでグループ消滅 → 次のグループを選択
-                int currentIndex = viewModel.DuplicateChartGroups.IndexOf(duplicateGroup);
-                if (currentIndex >= 0 && currentIndex + 1 < viewModel.DuplicateChartGroups.Count)
-                {
-                    _pendingDuplicateGroupHeader = viewModel.DuplicateChartGroups[currentIndex + 1].Header;
-                }
-            }
-            else if (folderCount >= 3)
-            {
-                // フォルダが3つ以上の場合: マージ後もグループが残る → 同じグループを再選択
-                _pendingDuplicateGroupHeader = duplicateGroup.Header;
-            }
+            NLogWrapper.FileLogger?.Warn(result.Failure, "duplicate_merge_failed");
+            return;
         }
-
-        string srcFolderName = Path.GetFileName(srcPath);
-        string dstFolderName = Path.GetFileName(dstPath);
-
-        Task.Run(delegate
-        {
-            LogDuplicateMergePerformance("duplicate_merge_task start op=" + operationId + " okToTaskStartMs=" + okToTaskStopwatch.ElapsedMilliseconds + " src=" + srcPath + " dst=" + dstPath);
-            var taskStopwatch = Stopwatch.StartNew();
-            viewModel.MergeChartDirectory(srcPath, dstPath, operationId);
-            LogDuplicateMergePerformance("duplicate_merge_task viewModel_done op=" + operationId + " taskMs=" + taskStopwatch.ElapsedMilliseconds + " totalSinceOkMs=" + totalStopwatch.ElapsedMilliseconds);
-
-            // マージ完了ログ（将来のステータスバー通知に備える）
-            NLogWrapper.FileLogger?.Info(string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_merge_bms_completed, srcFolderName, dstFolderName));
-
-        }).ContinueWith(t =>
-        {
-            LogDuplicateMergePerformance("duplicate_merge_ui continuation op=" + operationId + " faulted=" + (t.Exception != null) + " totalSinceOkMs=" + totalStopwatch.ElapsedMilliseconds);
-            if (t.Exception != null)
-            {
-                return;
-            }
-            // マージ後にDuplicateChartGroupsの更新を待ってからツリーで自動選択を試みる
-            WaitForDuplicateListUpdateAndSelect(_pendingDuplicateGroupHeader, viewModel);
-        }, TaskScheduler.FromCurrentSynchronizationContext()).Logging("ExecuteDuplicateFolderMerge");
+        NLogWrapper.FileLogger?.Info(string.Format(
+            BeMusicSeeker.Properties.Resources.Msg_merge_bms_completed,
+            Path.GetFileName(srcPath),
+            Path.GetFileName(dstPath)));
+        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionHeader, viewModel);
     }
 
-    private static void LogDuplicateMergePerformance(string message)
+    private static DuplicateFolderMergeRequest CreateDuplicateFolderMergeRequest(
+        string sourceDirectory,
+        string destinationDirectory,
+        DuplicateGroup duplicateGroup,
+        MainWindowViewModel viewModel)
     {
-        if (CommandLineSwitches.IsInfoLoggingEnabled)
-        {
-            NLogWrapper.GetLogger("InstallPerformance.DuplicateMerge").Info(message);
-        }
+        int folderCount = duplicateGroup?.Folders?.Count ?? 0;
+        string selectionHeader = folderCount >= 3
+            ? duplicateGroup.Header
+            : CaptureNextDuplicateGroupHeader(viewModel, duplicateGroup);
+        return new DuplicateFolderMergeRequest(
+            sourceDirectory,
+            destinationDirectory,
+            duplicateGroup?.Folders,
+            duplicateGroup?.Header,
+            selectionHeader);
     }
 
-    /// <summary>
-    /// DuplicateChartGroups更新タイミングの競合を吸収しつつ、該当グループを自動選択する。
-    /// PropertyChangedと遅延フォールバックの両方から、データ更新後のTreeView反映を待って選択を試みる。
-    /// </summary>
-    private void WaitForDuplicateListUpdateAndSelect(string header, MainWindowViewModel viewModel)
+    private static string CaptureNextDuplicateGroupHeader(
+        MainWindowViewModel viewModel,
+        DuplicateGroup duplicateGroup)
     {
-        if (string.IsNullOrEmpty(header) || viewModel == null)
+        if (viewModel?.DuplicateChartGroups == null || duplicateGroup == null)
+        {
+            return null;
+        }
+        int currentIndex = viewModel.DuplicateChartGroups.IndexOf(duplicateGroup);
+        return currentIndex >= 0 && currentIndex + 1 < viewModel.DuplicateChartGroups.Count
+            ? viewModel.DuplicateChartGroups[currentIndex + 1].Header
+            : null;
+    }
+
+    private async Task ApplyDuplicateMaintenanceSelectionAsync(string header, MainWindowViewModel viewModel)
+    {
+        if (viewModel == null || _isClosingOrClosed)
         {
             return;
         }
-        if (_duplicateGroupAutoSelectHandler != null && _duplicateGroupAutoSelectHandlerOwner != null)
+        int requestVersion = Interlocked.Increment(ref _duplicateMaintenanceSelectionVersion);
+        if (string.IsNullOrWhiteSpace(header))
         {
-            _duplicateGroupAutoSelectHandlerOwner.PropertyChanged -= _duplicateGroupAutoSelectHandler;
-            _duplicateGroupAutoSelectHandler = null;
-            _duplicateGroupAutoSelectHandlerOwner = null;
+            return;
         }
-        int requestVersion = Interlocked.Increment(ref _duplicateGroupAutoSelectRequestVersion);
-        bool completed = false;
-        PropertyChangedEventHandler handler = null;
-        void completeSelection()
+        TaskCompletionSource<bool> duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
+        PropertyChangedEventHandler handler = (sender, args) =>
         {
-            if (completed)
+            if (args.PropertyName == nameof(viewModel.DuplicateChartGroups)
+                && requestVersion == Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
             {
-                return;
-            }
-            completed = true;
-            if (handler != null)
-            {
-                viewModel.PropertyChanged -= handler;
-            }
-            if (ReferenceEquals(_duplicateGroupAutoSelectHandler, handler))
-            {
-                _duplicateGroupAutoSelectHandler = null;
-                _duplicateGroupAutoSelectHandlerOwner = null;
-            }
-        }
-        async Task AttemptAutoSelectAsync(string trigger)
-        {
-            try
-            {
-                if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
-                {
-                    return;
-                }
-                if (viewModel.DuplicateChartGroups == null)
-                {
-                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect wait_for_groups trigger=" + trigger + " header=" + header + " request=" + requestVersion);
-                    if (trigger == "timeout_fallback")
-                    {
-                        completeSelection();
-                    }
-                    return;
-                }
-
-                string lastReason = string.Empty;
-                DispatcherPriority[] retryPriorities = [DispatcherPriority.Loaded, DispatcherPriority.Render, DispatcherPriority.ContextIdle];
-                for (int retryIndex = 0; retryIndex < retryPriorities.Length; retryIndex++)
-                {
-                    await Dispatcher.Yield(retryPriorities[retryIndex]);
-                    if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
-                    {
-                        return;
-                    }
-                    if (TrySelectDuplicateGroupByHeader(header, viewModel, out lastReason))
-                    {
-                        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success trigger=" + trigger + " retry=" + retryIndex + " header=" + header + " request=" + requestVersion);
-                        completeSelection();
-                        return;
-                    }
-                    if (!ShouldRetryDuplicateGroupAutoSelect(lastReason))
-                    {
-                        break;
-                    }
-                }
-                NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending trigger=" + trigger + " header=" + header + " request=" + requestVersion + " reason=" + lastReason);
-                if (trigger == "timeout_fallback")
-                {
-                    completeSelection();
-                }
-            }
-            catch (Exception ex)
-            {
-                NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect failed trigger=" + trigger + " header=" + header + " request=" + requestVersion + " message=" + ex.Message);
-            }
-        }
-        handler = (s, e) =>
-        {
-            if (e.PropertyName != nameof(viewModel.DuplicateChartGroups))
-            {
-                return;
-            }
-            NLogWrapper.FileLogger?.Info("duplicate_group_autoselect trigger=property_changed header=" + header + " request=" + requestVersion);
-            if (Dispatcher.CheckAccess())
-            {
-                _ = AttemptAutoSelectAsync("property_changed");
-            }
-            else
-            {
-                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
-                {
-                    if (_isClosingOrClosed)
-                    {
-                        return;
-                    }
-                    _ = AttemptAutoSelectAsync("property_changed");
-                }));
+                duplicateGroupsChanged.TrySetResult(true);
             }
         };
         viewModel.PropertyChanged += handler;
-        _duplicateGroupAutoSelectHandler = handler;
-        _duplicateGroupAutoSelectHandlerOwner = viewModel;
-        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect queued header=" + header + " request=" + requestVersion + " mode=property_changed");
-        if (viewModel.DuplicateChartGroups != null)
+        try
         {
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
+            string lastReason = string.Empty;
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                if (_isClosingOrClosed)
+                if (requestVersion != Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
                 {
                     return;
                 }
-                NLogWrapper.FileLogger?.Info("duplicate_group_autoselect trigger=already_ready header=" + header + " request=" + requestVersion);
-                _ = AttemptAutoSelectAsync("already_ready");
-            }));
-        }
-        Task.Run(async delegate
-        {
-            await Task.Delay(1500).ConfigureAwait(continueOnCapturedContext: false);
-            if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
-            {
-                return;
+                (bool succeeded, string failReason) = await TryApplyDuplicateMaintenanceSelectionAsync(
+                    header,
+                    viewModel,
+                    requestVersion);
+                lastReason = failReason;
+                if (succeeded)
+                {
+                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success header=" + header + " attempt=" + attempt);
+                    return;
+                }
+                if (!ShouldRetryDuplicateGroupAutoSelect(lastReason) || _isClosingOrClosed || attempt == 1)
+                {
+                    break;
+                }
+                Task signal = duplicateGroupsChanged.Task;
+                await Task.WhenAny(signal, Task.Delay(1500));
+                if (requestVersion != Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
+                {
+                    return;
+                }
+                duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
             }
-            await Dispatcher.InvokeAsync(async delegate
+            if (!_isClosingOrClosed)
             {
-                if (_isClosingOrClosed)
-                {
-                    return;
-                }
-                if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
-                {
-                    return;
-                }
-                NLogWrapper.FileLogger?.Info("duplicate_group_autoselect trigger=timeout_fallback header=" + header + " request=" + requestVersion);
-                await AttemptAutoSelectAsync("timeout_fallback");
-            }, DispatcherPriority.Background);
-        });
+                NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending header=" + header + " reason=" + lastReason);
+            }
+        }
+        finally
+        {
+            viewModel.PropertyChanged -= handler;
+        }
+    }
+
+    private static TaskCompletionSource<bool> CreateDuplicateGroupsChangedSignal()
+    {
+        return new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private async Task<(bool Succeeded, string FailReason)> TryApplyDuplicateMaintenanceSelectionAsync(
+        string header,
+        MainWindowViewModel viewModel,
+        int requestVersion)
+    {
+        string failReason = string.Empty;
+        DispatcherPriority[] retryPriorities = [DispatcherPriority.Loaded, DispatcherPriority.Render, DispatcherPriority.ContextIdle];
+        foreach (DispatcherPriority retryPriority in retryPriorities)
+        {
+            await Dispatcher.Yield(retryPriority);
+            if (_isClosingOrClosed || requestVersion != Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
+            {
+                failReason = "window_closed";
+                return (false, failReason);
+            }
+            if (TrySelectDuplicateGroupByHeader(header, viewModel, out failReason))
+            {
+                return (true, string.Empty);
+            }
+            if (!ShouldRetryDuplicateGroupAutoSelect(failReason))
+            {
+                return (false, failReason);
+            }
+        }
+        return (false, failReason);
     }
 
     private static bool ShouldRetryDuplicateGroupAutoSelect(string failReason)
     {
         return failReason == "duplicate_tree_items_not_updated" ||
+            failReason == "duplicated_list_null" ||
+            failReason == "group_not_found" ||
             failReason == "container_not_realized" ||
             failReason == "duplicate_items_host_not_found" ||
             failReason == "bring_index_out_of_range";
@@ -4932,7 +4868,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// 重複フォルダのキーボードショートカットハンドラ。
     /// Ctrl+G: フォルダが2つの場合、もう一方のフォルダへマージを実行する。
     /// </summary>
-    private void duplicateFolderKeyDown(object sender, KeyEventArgs e)
+    private async void duplicateFolderKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.G || Keyboard.Modifiers != ModifierKeys.Control)
         {
@@ -4966,13 +4902,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 .FirstOrDefault(f => !f.Equals(srcPath, StringComparison.OrdinalIgnoreCase));
             if (!string.IsNullOrWhiteSpace(dstPath))
             {
-                ExecuteDuplicateFolderMerge(srcPath, dstPath, duplicateGroup);
+                e.Handled = true;
+                await ExecuteDuplicateFolderMergeAsync(srcPath, dstPath, duplicateGroup);
             }
         }
         else if (folderCount == 1)
         {
             // フォルダが1つの場合: ハッシュ重複BMSファイルの整理
-            ExecuteDuplicateHashCleanup(duplicateGroup, srcPath);
+            e.Handled = true;
+            await ExecuteDuplicateHashCleanupAsync(duplicateGroup, srcPath);
         }
         else if (folderCount >= 3)
         {
@@ -4988,89 +4926,43 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// 各ハッシュグループごとに1つだけ残し、残りをごみ箱へ移動する。
     /// 保持ルール: 更新日時が最も古いものを優先、同日時ならファイル名が最も短いものを優先。
     /// </summary>
-    private void ExecuteDuplicateHashCleanup(DuplicateGroup duplicateGroup, string folderPath)
+    private async Task ExecuteDuplicateHashCleanupAsync(DuplicateGroup duplicateGroup, string folderPath)
     {
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-
-        var chartsInFolder = duplicateGroup.ChartFiles
-            .Where(chart => !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        if (chartsInFolder.Count == 0)
+        if (duplicateGroup == null || string.IsNullOrWhiteSpace(folderPath))
         {
             return;
         }
-
-        // 主キー(hash)でグループ化し、各グループで削除対象を決定
-        var deletionList = new List<ChartFile>();
-        foreach (var hashGroup in chartsInFolder
-            .Select(chart => new { Chart = chart, LookupHash = ChartLookupKey.GetPrimaryHash(chart) })
-            .Where(x => !string.IsNullOrWhiteSpace(x.LookupHash))
-            .GroupBy(x => x.LookupHash, StringComparer.OrdinalIgnoreCase))
+        DuplicateHashCleanupRequest request = new(
+            folderPath,
+            duplicateGroup?.ChartFiles,
+            CaptureNextDuplicateGroupHeader(viewModel, duplicateGroup));
+        DuplicateHashCleanupConfirmationResult confirmation = viewModel.DuplicateMaintenanceWorkflow
+            .ConfirmHashCleanup(request);
+        if (!confirmation.Accepted || !confirmation.HasWork)
         {
-            var grouped = hashGroup.Select(x => x.Chart).ToList();
-            if (grouped.Count <= 1)
+            if (confirmation.Failure != null)
             {
-                continue;
+                NLogWrapper.FileLogger?.Warn(confirmation.Failure, "duplicate_hash_cleanup_confirmation_failed");
             }
-
-            // 保持対象: 更新日時が最も古い → ファイル名が最も短い
-            ChartFile keeper = grouped
-                .OrderBy(chart =>
-                {
-                    try { return LongPathFileSystem.GetLastWriteTime(chart.Path, isDirectory: false); }
-                    catch { return DateTime.MaxValue; }
-                })
-                .ThenBy(chart => Path.GetFileName(chart.Path).Length)
-                .First();
-
-            deletionList.AddRange(grouped.Where(f => f != keeper));
-        }
-
-        if (deletionList.Count == 0)
-        {
             return;
         }
 
-        // 確認ダイアログ
-        if (Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox(Window.GetWindow(this),
-            string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, deletionList.Count),
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        DuplicateMaintenanceMutationResult result = await viewModel.DuplicateMaintenanceWorkflow
+            .CleanupHashAsync(confirmation.Operation);
+        if (!result.Succeeded)
         {
+            NLogWrapper.FileLogger?.Warn(result.Failure, "duplicate_hash_cleanup_failed");
             return;
         }
-
-        // 処理後の自動選択用: フォルダ1つなのでグループは消滅 → 次のグループを自動選択
-        _pendingDuplicateGroupHeader = null;
-        if (viewModel.DuplicateChartGroups != null)
-        {
-            int currentIndex = viewModel.DuplicateChartGroups.IndexOf(duplicateGroup);
-            if (currentIndex >= 0 && currentIndex + 1 < viewModel.DuplicateChartGroups.Count)
-            {
-                _pendingDuplicateGroupHeader = viewModel.DuplicateChartGroups[currentIndex + 1].Header;
-            }
-        }
-
-        Task.Run(delegate
-        {
-            viewModel.RemoveLibraryCharts(deletionList);
-
-            NLogWrapper.FileLogger?.Info(string.Format(
-                "Cleaned up {0} duplicate hash BMS file(s) in folder: {1}",
-                deletionList.Count, Path.GetFileName(folderPath)));
-
-        }).ContinueWith(t =>
-        {
-            if (t.Exception != null)
-            {
-                return;
-            }
-            WaitForDuplicateListUpdateAndSelect(_pendingDuplicateGroupHeader, viewModel);
-        }, TaskScheduler.FromCurrentSynchronizationContext()).Logging("ExecuteDuplicateHashCleanup");
+        NLogWrapper.FileLogger?.Info(string.Format(
+            "Cleaned up {0} duplicate hash BMS file(s) in folder: {1}",
+            confirmation.Plan.ChartsToRemove.Count,
+            Path.GetFileName(folderPath)));
+        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionHeader, viewModel);
     }
 
     /// <summary>

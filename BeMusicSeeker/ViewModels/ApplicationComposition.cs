@@ -309,7 +309,13 @@ internal sealed class ApplicationComposition
         ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
         Func<BMSLibrary> zeroNoteLibraryProvider = null,
         Func<BMSLibrary> packageCatalogLibraryProvider = null,
-        IPackageCatalogMutationPresentation packageCatalogPresentation = null)
+        IPackageCatalogMutationPresentation packageCatalogPresentation = null,
+        IDuplicateMaintenanceActivityPort duplicateMaintenanceActivity = null,
+        IDuplicateMaintenanceRefreshPort duplicateMaintenanceRefresh = null,
+        IDuplicateMaintenancePlaybackPort duplicateMaintenancePlayback = null,
+        IUiDialogService duplicateMaintenanceDialogService = null,
+        Func<bool> showDuplicateFileCheckConfirmProvider = null,
+        Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -343,7 +349,13 @@ internal sealed class ApplicationComposition
             scoreViewerRegistrationWorkflow ?? CreateScoreViewerRegistrationWorkflowOwner(),
             zeroNoteLibraryProvider,
             packageCatalogLibraryProvider,
-            packageCatalogPresentation);
+            packageCatalogPresentation,
+            duplicateMaintenanceActivity,
+            duplicateMaintenanceRefresh,
+            duplicateMaintenancePlayback,
+            duplicateMaintenanceDialogService,
+            showDuplicateFileCheckConfirmProvider,
+            duplicateMaintenanceLibraryProvider);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -504,7 +516,13 @@ internal sealed class MainWindowChildComposition
         ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
         Func<BMSLibrary> zeroNoteLibraryProvider = null,
         Func<BMSLibrary> packageCatalogLibraryProvider = null,
-        IPackageCatalogMutationPresentation packageCatalogPresentation = null)
+        IPackageCatalogMutationPresentation packageCatalogPresentation = null,
+        IDuplicateMaintenanceActivityPort duplicateMaintenanceActivity = null,
+        IDuplicateMaintenanceRefreshPort duplicateMaintenanceRefresh = null,
+        IDuplicateMaintenancePlaybackPort duplicateMaintenancePlayback = null,
+        IUiDialogService duplicateMaintenanceDialogService = null,
+        Func<bool> showDuplicateFileCheckConfirmProvider = null,
+        Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -585,6 +603,14 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             packageCatalogPresentation ?? new NoOpPackageCatalogMutationPresentation(),
             installDestinationDialogService);
+        DuplicateMaintenanceWorkflow = new DuplicateMaintenanceWorkflowOwner(
+            duplicateMaintenanceLibraryProvider ?? throw new ArgumentNullException(nameof(duplicateMaintenanceLibraryProvider)),
+            chartFileOperations,
+            duplicateMaintenanceActivity ?? throw new ArgumentNullException(nameof(duplicateMaintenanceActivity)),
+            duplicateMaintenanceRefresh ?? throw new ArgumentNullException(nameof(duplicateMaintenanceRefresh)),
+            duplicateMaintenancePlayback ?? throw new ArgumentNullException(nameof(duplicateMaintenancePlayback)),
+            duplicateMaintenanceDialogService ?? throw new ArgumentNullException(nameof(duplicateMaintenanceDialogService)),
+            showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)));
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -618,6 +644,8 @@ internal sealed class MainWindowChildComposition
     internal ZeroNoteMaintenanceWorkflowOwner ZeroNoteMaintenanceWorkflow { get; }
 
     internal PackageCatalogWorkflowOwner PackageCatalogWorkflow { get; }
+
+    internal DuplicateMaintenanceWorkflowOwner DuplicateMaintenanceWorkflow { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

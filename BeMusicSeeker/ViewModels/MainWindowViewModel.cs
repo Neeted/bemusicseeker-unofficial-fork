@@ -88,7 +88,7 @@ internal sealed class ShutdownPreparationResult
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation
+public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, IDuplicateMaintenancePlaybackPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -119,6 +119,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     internal ZeroNoteMaintenanceWorkflowOwner ZeroNoteMaintenance { get; private set; }
 
     internal PackageCatalogWorkflowOwner PackageCatalog { get; private set; }
+
+    internal DuplicateMaintenanceWorkflowOwner DuplicateMaintenanceWorkflow { get; private set; }
 
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
@@ -2096,6 +2098,50 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         EndChartPackageMutation();
     }
 
+    void IDuplicateMaintenanceActivityPort.BeginActivity()
+    {
+        BeginChartPackageMutation();
+    }
+
+    void IDuplicateMaintenanceRefreshPort.BeginRefreshSuppression()
+    {
+        BeginUiUpdateSuppression(
+            UiRefreshChannel.LibraryMainView
+            | UiRefreshChannel.LibraryFolderTree
+            | UiRefreshChannel.InstallTree
+            | UiRefreshChannel.DuplicateTree);
+    }
+
+    void IDuplicateMaintenanceRefreshPort.EndRefreshSuppression()
+    {
+        EndUiUpdateSuppression();
+    }
+
+    void IDuplicateMaintenanceActivityPort.EndActivity()
+    {
+        EndChartPackageMutation();
+    }
+
+    void IDuplicateMaintenancePlaybackPort.StopPlaybackForMerge()
+    {
+        PlaybackPanel.StopPlayback(closeProcess: true);
+    }
+
+    void IDuplicateMaintenancePlaybackPort.StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
+    {
+        PlaybackPanel.StopIfPlayingCharts(GetBmsFormatCharts(charts));
+    }
+
+    void IDuplicateMaintenanceRefreshPort.BeginRefreshPriorityWindow(string reason)
+    {
+        PlaylistWorkspace.BeginDuplicateRefreshPriorityWindow(reason);
+    }
+
+    void IDuplicateMaintenanceRefreshPort.ScheduleRefreshPriorityWindowRelease(string reason)
+    {
+        ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(reason + "_ui_refresh_done");
+    }
+
     void IPendingPackageMutationPresentation.BeginActivity()
     {
         BeginChartPackageMutation();
@@ -3727,7 +3773,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             ReportFolderAutoRenameWorkflowFailure,
             zeroNoteLibraryProvider: () => files,
             packageCatalogLibraryProvider: () => files,
-            packageCatalogPresentation: this);
+            packageCatalogPresentation: this,
+            duplicateMaintenanceActivity: this,
+            duplicateMaintenanceRefresh: this,
+            duplicateMaintenancePlayback: this,
+            duplicateMaintenanceDialogService: new UiDialogCoordinator(),
+            showDuplicateFileCheckConfirmProvider: () => ApplicationSettings.ShowDuplicateFileCheckConfirmMsg,
+            duplicateMaintenanceLibraryProvider: () => files);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3749,6 +3801,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PackageCatalog = childComposition.PackageCatalogWorkflow;
+        DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
@@ -9336,33 +9389,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
-    public void MergeChartDirectory(string src, string dst)
-    {
-        MergeChartDirectory(src, dst, operationId: 0);
-    }
-
-    internal void MergeChartDirectory(string src, string dst, long operationId)
-    {
-        var totalStopwatch = Stopwatch.StartNew();
-        LogDuplicateMergePerformance("duplicate_merge_vm enter op=" + operationId + " src=" + src + " dst=" + dst);
-        RunChartPackageMutation(
-            delegate
-            {
-                var modelStopwatch = Stopwatch.StartNew();
-                files.MergeChartDirectory(src, dst, operationId);
-                LogDuplicateMergePerformance("duplicate_merge_vm model_done op=" + operationId + " elapsedMs=" + modelStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
-            },
-            refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree,
-            stopPlayback: () =>
-            {
-                var playEndStopwatch = Stopwatch.StartNew();
-                PlaybackPanel.StopPlayback(closeProcess: true);
-                LogDuplicateMergePerformance("duplicate_merge_vm play_end_done op=" + operationId + " elapsedMs=" + playEndStopwatch.ElapsedMilliseconds);
-            },
-            beforeAction: () => PlaylistWorkspace.BeginDuplicateRefreshPriorityWindow("merge_folder"),
-            afterUiRefresh: () => ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh("merge_folder_ui_refresh_done"));
-    }
-
     private void ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(string reason)
     {
         try
@@ -9375,14 +9401,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         catch
         {
             PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
-        }
-    }
-
-    private static void LogDuplicateMergePerformance(string message)
-    {
-        if (CommandLineSwitches.IsInfoLoggingEnabled)
-        {
-            NLogWrapper.GetLogger("InstallPerformance.DuplicateMerge").Info(message);
         }
     }
 
@@ -9412,26 +9430,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree, stopPlayback: () =>
         {
             PlaybackPanel.StopIfPlayingLibraryCharts(GetBmsLibraryChartRefs(charts));
-            PlaybackPanel.StopIfPlayingChartDirectories(approvedWholeFolderDeletePaths);
-        });
-    }
-
-    internal void RemoveLibraryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedWholeFolderDeletePaths = null)
-    {
-        List<ChartFile> chartSnapshot = [.. (charts ?? []).Where(chart => chart != null)];
-        List<LibraryChartRef> chartRefs = [.. chartSnapshot
-            .Select(chart => LibraryChartRef.FromChartFile(chart))
-            .Where(chart => chart != null)];
-        if (chartRefs.Count == 0)
-        {
-            return;
-        }
-        RunChartPackageMutation(delegate
-        {
-            files.RemoveLibraryCharts(chartRefs, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree, stopPlayback: () =>
-        {
-            PlaybackPanel.StopIfPlayingCharts(GetBmsFormatCharts(chartSnapshot));
             PlaybackPanel.StopIfPlayingChartDirectories(approvedWholeFolderDeletePaths);
         });
     }
