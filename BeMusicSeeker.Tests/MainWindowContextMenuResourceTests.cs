@@ -1241,6 +1241,10 @@ public sealed class MainWindowContextMenuResourceTests
             "BeMusicSeeker",
             "ViewModels",
             "MainWindowViewModel.cs");
+        string mainWindowCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Views",
+            "MainWindow.cs");
 
         Assert.AreEqual("{Binding ProgressHub}", GetAttributeValue(statusBar, "DataContext"));
         AssertStatusBarBinding(statusBar, "IsStartupProgressActive");
@@ -1317,6 +1321,17 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"retryLr2SongDbSyncClick\""));
         Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cancelLr2SongDbSyncClick\""));
         Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cleanupLr2SongDbSyncStartupScanBlockersClick\""));
+        string retryHandler = ExtractMethodBody(mainWindowCode, "private void retryLr2SongDbSyncClick");
+        string cancelHandler = ExtractMethodBody(mainWindowCode, "private void cancelLr2SongDbSyncClick");
+        string cleanupHandler = ExtractMethodBody(mainWindowCode, "private void cleanupLr2SongDbSyncStartupScanBlockersClick");
+        StringAssert.Contains(retryHandler, ".Lr2SongDbSyncWorkflow.RequestStatusBarRetry();");
+        StringAssert.Contains(cancelHandler, ".Lr2SongDbSyncWorkflow.CancelStatusBarSync();");
+        StringAssert.Contains(cleanupHandler, ".Lr2SongDbSyncWorkflow.CleanupStartupScanBlockersAndRetry();");
+        Assert.AreEqual(1, CountOccurrences(retryHandler, ".Lr2SongDbSyncWorkflow."));
+        Assert.AreEqual(1, CountOccurrences(cancelHandler, ".Lr2SongDbSyncWorkflow."));
+        Assert.AreEqual(1, CountOccurrences(cleanupHandler, ".Lr2SongDbSyncWorkflow."));
+        Assert.IsFalse(mainWindowCode.Contains("RequestLr2SongDbSync("));
+        Assert.IsFalse(mainWindowCode.Contains("CleanupLr2SongDbSyncStartupScanBlockersAndRetry()"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsPlaylistSyncProgressActive"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public string PlaylistSyncProgressLabel"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public string PlaylistSyncProgressSubLabel"));
@@ -1969,7 +1984,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
         StringAssert.Contains(reloadFileDiff, ".LoggingAndPropagate(\"ReloadFileDiff\")");
         Assert.IsTrue(
-            reloadFileDiff.IndexOf("files.QueueLr2SongDbSync(", StringComparison.Ordinal)
+            reloadFileDiff.IndexOf("Lr2SongDbSyncWorkflow.QueueAfterReloadFileDiff(\"ReloadFileDiff\")", StringComparison.Ordinal)
             < reloadFileDiff.IndexOf("PlaylistWorkspace.QueuePlaylistReferenceApply(", StringComparison.Ordinal));
         Assert.IsTrue(
             reloadFileDiff.IndexOf("PlaylistWorkspace.QueuePlaylistReferenceApply(", StringComparison.Ordinal)
@@ -2319,18 +2334,15 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("await ReloadFileDiffAsync();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
-        StringAssert.Contains(viewModelCode, "SyncLr2SongDbSyncFolderDataAfterSettingsChange(\"SettingDialog.SaveSettings\")");
-        StringAssert.Contains(viewModelCode, "private Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)");
-        StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2SongDbSync(");
-        StringAssert.Contains(viewModelCode, "files?.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;");
-        StringAssert.Contains(viewModelCode, "Lr2SongDbSyncPreparedDataSurface.Merge(playlistSurface, builtinSurface);");
-        StringAssert.Contains(viewModelCode, "() => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false)");
+        StringAssert.Contains(viewModelCode, "Lr2SongDbSyncWorkflow.SyncFolderDataAfterSettingsChange(\"SettingDialog.SaveSettings\")");
+        StringAssert.Contains(viewModelCode, "Lr2SongDbSyncWorkflow.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChange(\"SettingDialog.SaveSettings\")");
+        Assert.IsFalse(viewModelCode.Contains("private Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)"));
+        Assert.IsFalse(viewModelCode.Contains("files?.QueueLr2SongDbSync("));
+        Assert.IsFalse(viewModelCode.Contains("files?.TryRunLr2SongDbSyncDataPreparation("));
+        Assert.IsFalse(viewModelCode.Contains("files?.PublishLr2SongDbSyncExternalStageProgress("));
         StringAssert.Contains(viewModelCode, "internal async Task RequestLr2SongDbSyncAsync()");
         Assert.IsFalse(viewModelCode.Contains("public async Task RequestLr2SongDbSyncAsync(string reason, bool force)"));
-        StringAssert.Contains(viewModelCode, "ownerViewModel.files?.QueueLr2SongDbSync(");
-        StringAssert.Contains(viewModelCode, "() => ownerViewModel.ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)");
-        StringAssert.Contains(viewModelCode, "files?.TryRunLr2SongDbSyncDataPreparation(");
-        StringAssert.Contains(viewModelCode, "files?.PublishLr2SongDbSyncExternalStageProgress(");
+        StringAssert.Contains(viewModelCode, "await ownerViewModel.Lr2SongDbSyncWorkflow.RequestManualResyncAsync().ConfigureAwait(false);");
         StringAssert.Contains(viewModelCode, "public bool CanRequestLr2SongDbSyncDataResync => ownerViewModel.HasActiveLibraryProfile");
         StringAssert.Contains(viewModelCode, "&& OperationModeLR2DB");
         StringAssert.Contains(viewModelCode, "&& !fileDiffReloadPending");
@@ -2354,10 +2366,15 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(
             manualResyncPlaylistMethod.IndexOf("ReOutputCustomFolder(table)", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must batch app-managed custom folder projection instead of running per-table physical reoutput and DB sync.");
-        Assert.IsTrue(
-            viewModelCode.IndexOf("() => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)", StringComparison.Ordinal)
-            < viewModelCode.IndexOf("() => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false)", StringComparison.Ordinal),
-            "LR2 generated-data preparation must stay behind the LR2 preparation/queue gate instead of running as an unguarded pre-step.");
+        string workflowOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "Lr2SongDbSyncWorkflowOwner.cs");
+        StringAssert.Contains(workflowOwnerCode, "runtime.TryRunDataPreparation(");
+        StringAssert.Contains(workflowOwnerCode, "runtime.PreparePlaylistGeneratedData(reason)");
+        StringAssert.Contains(workflowOwnerCode, "runtime.PrepareBuiltinGeneratedData(reason)");
+        StringAssert.Contains(workflowOwnerCode, "runtime.Queue(reason, force: false, allowIncompleteToQueue: false)");
         Assert.IsFalse(
             manualResyncClickHandler.IndexOf("settingDialogOperationGrid.IsEnabled = false;", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must not disable the entire settings dialog while playlist projection is running.");
@@ -2382,12 +2399,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(buildPostSaveImpact, "tempLR2RootPath, ApplicationSettings.LR2RootPath");
         StringAssert.Contains(buildPostSaveImpact, "tempLR2CustomFolderOutputDir, ApplicationSettings.LR2CustomFolderOutputBaseDir");
         StringAssert.Contains(buildPostSaveImpact, "tempLR2CustomFolderAsRootOutputDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType");
-        StringAssert.Contains(reloadFileDiff, "files.QueueLr2SongDbSync(");
-        StringAssert.Contains(reloadFileDiff, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"ReloadFileDiff\")");
-        StringAssert.Contains(viewModelCode, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"status_bar_cleanup_retry\")");
+        StringAssert.Contains(reloadFileDiff, "Lr2SongDbSyncWorkflow.QueueAfterReloadFileDiff(\"ReloadFileDiff\")");
+        Assert.IsFalse(reloadFileDiff.Contains("files.QueueLr2SongDbSync("));
+        Assert.IsFalse(viewModelCode.Contains("prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"status_bar_cleanup_retry\")"));
         Assert.IsTrue(
             reloadFileDiff.IndexOf("files.ReloadFileDiff();", StringComparison.Ordinal)
-            < reloadFileDiff.IndexOf("files.QueueLr2SongDbSync(", StringComparison.Ordinal),
+            < reloadFileDiff.IndexOf("Lr2SongDbSyncWorkflow.QueueAfterReloadFileDiff(\"ReloadFileDiff\")", StringComparison.Ordinal),
             "LR2 song.db sync status should be evaluated after file diff has applied root/source changes.");
     }
 

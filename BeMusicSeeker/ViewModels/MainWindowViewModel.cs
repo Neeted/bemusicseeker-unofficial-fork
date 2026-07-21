@@ -95,7 +95,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     internal event EventHandler InitializationSucceeded;
 
     /// <summary>
-    /// Gets status-bar progress presentation state owned outside the shell ViewModel while legacy root bindings remain in place.
+    /// Gets status-bar progress presentation state owned by the composed progress hub.
     /// </summary>
     public OperationProgressHubViewModel ProgressHub { get; }
 
@@ -129,6 +129,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     internal ChartInfoParseFailureRemovalWorkflowOwner ChartInfoParseFailureRemoval { get; private set; }
 
     internal SelectedChartAudioConversionWorkflowOwner SelectedChartAudioConversion { get; private set; }
+
+    internal Lr2SongDbSyncWorkflowOwner Lr2SongDbSyncWorkflow { get; private set; }
 
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
@@ -2825,13 +2827,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private void SchedulePostStartupBestEffortWarmups(string reason)
     {
-        string fullGenerationReason = "post_startup_" + (reason ?? string.Empty);
-        Task.Run(delegate
-        {
-            files?.QueueLr2SongDbSync(
-                fullGenerationReason,
-                prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(fullGenerationReason));
-        }).Logging("PostStartupLr2SongDbSync");
+        Lr2SongDbSyncWorkflow.SchedulePostStartupSync(reason);
         ScheduleVirtualNormalLibraryOrderPrewarm(reason);
     }
 
@@ -3676,7 +3672,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             chartInfoParseFailureRemovalDialogService: new UiDialogCoordinator(),
             chartInfoParseFailureRemovalLibraryProvider: () => files,
             selectedChartAudioConversionPlayback: this,
-            selectedChartAudioConversionDialogService: new UiDialogCoordinator());
+            selectedChartAudioConversionDialogService: new UiDialogCoordinator(),
+            lr2SongDbSyncWorkflow: new Lr2SongDbSyncWorkflowOwner(
+                new BmsLr2SongDbSyncWorkflowRuntime(
+                    () => files,
+                    () => tables,
+                    () => ApplicationSettings.OperationModeLR2DB),
+                new UiDialogCoordinator()));
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3703,6 +3705,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         SelectedChartResourceHealth = childComposition.SelectedChartResourceHealth;
         ChartInfoParseFailureRemoval = childComposition.ChartInfoParseFailureRemoval;
         SelectedChartAudioConversion = childComposition.SelectedChartAudioConversion;
+        Lr2SongDbSyncWorkflow = childComposition.Lr2SongDbSyncWorkflow;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
@@ -4934,9 +4937,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             {
                 LogInitStage("file_diff_reload_call", "ReloadFileDiff");
                 files.ReloadFileDiff();
-                files.QueueLr2SongDbSync(
-                    "ReloadFileDiff",
-                    prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync("ReloadFileDiff"));
+                Lr2SongDbSyncWorkflow.QueueAfterReloadFileDiff("ReloadFileDiff");
             }).LoggingAndPropagate("ReloadFileDiff");
             LogInitStage("file_diff_reload_done", "ReloadFileDiff");
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
@@ -7805,114 +7806,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             return startupProgressState.IsActive
                 && !startupProgressState.IsFailed
                 && CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone);
-        }
-    }
-
-    public void RetryLr2SongDbSync()
-    {
-        RequestLr2SongDbSync("status_bar_retry", force: false);
-    }
-
-    public void RequestLr2SongDbSync(string reason, bool force)
-    {
-        if (!ApplicationSettings.OperationModeLR2DB)
-        {
-            return;
-        }
-        Task.Run(delegate
-        {
-            files?.QueueLr2SongDbSync(
-                reason,
-                force,
-                () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason));
-        }).Logging("RequestLr2SongDbSync");
-    }
-
-    public void SyncLr2SongDbSyncFolderDataAfterSettingsChange(string reason)
-    {
-        if (!ApplicationSettings.OperationModeLR2DB)
-        {
-            return;
-        }
-
-        Task.Run(delegate
-        {
-            files?.TryRunLr2SongDbSyncDataPreparation(
-                reason,
-                () =>
-                {
-                    Lr2SongDbSyncPreparedDataSurface playlistSurface = ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason);
-                    Lr2SongDbSyncPreparedDataSurface builtinSurface =
-                        files?.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;
-                    return Lr2SongDbSyncPreparedDataSurface.Merge(playlistSurface, builtinSurface);
-                },
-                () => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false));
-        }).Logging("SyncLr2SongDbSyncFolderDataAfterSettingsChange");
-    }
-
-    public void SyncExternalLr2FolderRowsAfterCustomFolderOutputBaseSettingsChange(string reason)
-    {
-        if (!ApplicationSettings.OperationModeLR2DB)
-        {
-            return;
-        }
-
-        Task.Run(delegate
-        {
-            files?.Lr2Synchronization.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange(reason);
-        }).Logging("SyncExternalLr2FolderRowsAfterCustomFolderOutputBaseSettingsChange");
-    }
-
-    private Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)
-    {
-        return tables?.ReOutputAllCustomFoldersForLr2SongDbSync(
-            reason,
-            (processed, total, tableName) => files?.PublishLr2SongDbSyncExternalStageProgress(
-                "playlist_materialization",
-                processed,
-                total,
-                tableName))
-            ?? Lr2SongDbSyncPreparedDataSurface.Empty;
-    }
-
-    public void CancelLr2SongDbSync()
-    {
-        files?.CancelLr2SongDbSync("status_bar_cancel");
-    }
-
-    public void CleanupLr2SongDbSyncStartupScanBlockersAndRetry()
-    {
-        if (files == null)
-        {
-            return;
-        }
-
-        if (!ShowUiConfirmation(
-            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxImage.Exclamation,
-            MessageBoxButton.OKCancel,
-            "LR2 song DB sync startup blocker cleanup confirmation"))
-        {
-            return;
-        }
-
-        try
-        {
-            files.CleanupLr2SongDbSyncStartupScanBlockerFolderRows("status_bar_cleanup");
-            Task.Run(delegate
-            {
-                files.QueueLr2SongDbSync(
-                    "status_bar_cleanup_retry",
-                    prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync("status_bar_cleanup_retry"));
-            }).Logging("Lr2SongDbSyncStartupScanBlockerCleanupRetry");
-        }
-        catch (Exception ex)
-        {
-            ShowUiMessage(
-                BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.Message,
-                BeMusicSeeker.Properties.Resources.Error,
-                MessageBoxImage.Hand);
         }
     }
 

@@ -399,19 +399,7 @@ public partial class MainWindowViewModel
 
         internal async Task RequestLr2SongDbSyncAsync()
         {
-            if (!ApplicationSettings.OperationModeLR2DB)
-            {
-                return;
-            }
-
-            const string reason = "setting_dialog_manual_resync";
-            await Task.Run(delegate
-            {
-                ownerViewModel.files?.QueueLr2SongDbSync(
-                    reason,
-                    force: true,
-                    () => ownerViewModel.ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason));
-            }).ConfigureAwait(false);
+            await ownerViewModel.Lr2SongDbSyncWorkflow.RequestManualResyncAsync().ConfigureAwait(false);
         }
 
         private async Task ReloadFileDiffCoreAsync()
@@ -6129,11 +6117,11 @@ public partial class MainWindowViewModel
                 var lr2GeneratedDataSyncStopwatch = Stopwatch.StartNew();
                 if (impact.HasFlag(SettingsPostSaveImpact.Lr2CoreSync))
                 {
-                    ownerViewModel.SyncLr2SongDbSyncFolderDataAfterSettingsChange("SettingDialog.SaveSettings");
+                    ownerViewModel.Lr2SongDbSyncWorkflow.SyncFolderDataAfterSettingsChange("SettingDialog.SaveSettings");
                 }
                 else if (impact.HasFlag(SettingsPostSaveImpact.ExternalLr2FolderRowsSync))
                 {
-                    ownerViewModel.SyncExternalLr2FolderRowsAfterCustomFolderOutputBaseSettingsChange("SettingDialog.SaveSettings");
+                    ownerViewModel.Lr2SongDbSyncWorkflow.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChange("SettingDialog.SaveSettings");
                 }
                 lr2GeneratedDataSyncMs = lr2GeneratedDataSyncStopwatch.ElapsedMilliseconds;
                 var beatorajaBmtExportStopwatch = Stopwatch.StartNew();

@@ -525,7 +525,8 @@ public sealed class ApplicationCompositionTests
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalLibraryProvider: () => null!,
-            selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort());
+            selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort(),
+            lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner());
 
         try
         {
@@ -638,7 +639,8 @@ public sealed class ApplicationCompositionTests
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalLibraryProvider: () => null!,
-            selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort());
+                selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort(),
+                lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner());
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -769,7 +771,8 @@ public sealed class ApplicationCompositionTests
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalLibraryProvider: () => null!,
-            selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort());
+                selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort(),
+                lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner());
             try
             {
                 workspace.IsPlaylistSummaryMode = true;
@@ -1474,6 +1477,16 @@ public sealed class ApplicationCompositionTests
         public string SelectedDisplayTargetIdentity { get; set; } = string.Empty;
 
         public string DisplayTargetSetsJson { get; set; } = string.Empty;
+    }
+
+    private static Lr2SongDbSyncWorkflowOwner CreateDisabledLr2SongDbSyncWorkflowOwner()
+    {
+        return new Lr2SongDbSyncWorkflowOwner(
+            new BmsLr2SongDbSyncWorkflowRuntime(
+                () => null!,
+                () => null!,
+                () => false),
+            new TestUiDialogService());
     }
 
     private sealed class FakeSettingsEditSession : ISettingsEditSession

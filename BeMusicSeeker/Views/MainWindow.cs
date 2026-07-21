@@ -6113,17 +6113,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void retryLr2SongDbSyncClick(object sender, RoutedEventArgs e)
     {
-        (base.DataContext as MainWindowViewModel)?.RetryLr2SongDbSync();
+        (base.DataContext as MainWindowViewModel)?.Lr2SongDbSyncWorkflow.RequestStatusBarRetry();
     }
 
     private void cancelLr2SongDbSyncClick(object sender, RoutedEventArgs e)
     {
-        (base.DataContext as MainWindowViewModel)?.CancelLr2SongDbSync();
+        (base.DataContext as MainWindowViewModel)?.Lr2SongDbSyncWorkflow.CancelStatusBarSync();
     }
 
     private void cleanupLr2SongDbSyncStartupScanBlockersClick(object sender, RoutedEventArgs e)
     {
-        (base.DataContext as MainWindowViewModel)?.CleanupLr2SongDbSyncStartupScanBlockersAndRetry();
+        (base.DataContext as MainWindowViewModel)?.Lr2SongDbSyncWorkflow.CleanupStartupScanBlockersAndRetry();
     }
 
     private void tableContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)
