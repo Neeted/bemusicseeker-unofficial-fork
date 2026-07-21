@@ -3030,6 +3030,10 @@ public sealed class MainWindowContextMenuResourceTests
             mainWindowCode,
             "private async void treeViewInstallPackageContextMenuOpenInstallDestinationClick",
             "private static string GetBmsIrSongUrl");
+        string openPackageSource = ExtractBetween(
+            mainWindowCode,
+            "private void treeViewInstallPackageContextMenuOpenExplorerClick",
+            "private async void treeViewInstallPackageContextMenuClearFolderClick");
         string clearPackageDestination = ExtractBetween(
             mainWindowCode,
             "private async void treeViewInstallPackageContextMenuRemoveInstallDestinationClick",
@@ -3126,6 +3130,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(openPackageInstallDestination, ".LoggingAndPropagate(\"treeViewInstallPackageContextMenuOpenInstallDestinationClick\")");
         Assert.IsFalse(viewModelCode.Contains("TryGetInstalledDirectoryByHash"));
         Assert.IsFalse(openInstallDestination.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        StringAssert.Contains(openPackageSource, "viewModel.PendingPackages.OpenPackageSourceInExplorer(dataContext)");
+        Assert.IsFalse(openPackageSource.Contains("LongPathFileSystem.DirectoryExists"));
+        Assert.IsFalse(openPackageSource.Contains("LongPathFileSystem.FileExists"));
+        Assert.IsFalse(openPackageSource.Contains("ExplorerOpenService.OpenDirectory"));
+        Assert.IsFalse(openPackageSource.Contains("ExplorerOpenService.OpenFileAndSelect"));
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        Assert.AreEqual(2, Regex.Matches(xaml, "Click=\"treeViewInstallPackageContextMenuOpenExplorerClick\"").Count);
     }
 
     [TestMethod]

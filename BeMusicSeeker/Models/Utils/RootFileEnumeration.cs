@@ -323,7 +323,11 @@ internal static class RootFileEnumerationService
         return result.Success ? "enumeration_incomplete" : "enumeration_failed";
     }
 
-    internal static RootFileEnumerationResult EnumerateFilesWithFallback(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
+    internal static RootFileEnumerationResult EnumerateFilesWithFallback(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<RootFileEnumerationGroup> groups,
+        bool verboseLog = false,
+        bool retryEmptyEverythingResultWithFastEnumerator = false)
     {
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         if (groupList.Count == 0)
@@ -336,21 +340,40 @@ internal static class RootFileEnumerationService
         }
 
         RootFileEnumerationResult result = new EverythingRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog);
-        if (IsAuthoritativeComplete(result))
+        return SelectFallbackResult(
+            result,
+            () => new FastRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog),
+            retryEmptyEverythingResultWithFastEnumerator);
+    }
+
+    internal static RootFileEnumerationResult SelectFallbackResult(
+        RootFileEnumerationResult result,
+        Func<RootFileEnumerationResult> fallbackFactory,
+        bool retryEmptyEverythingResultWithFastEnumerator)
+    {
+        if (IsAuthoritativeComplete(result)
+            && (!retryEmptyEverythingResultWithFastEnumerator || !IsEmptyEverythingResult(result)))
         {
             return result;
         }
-        if (IsBridgeContractFailure(result.ErrorReason))
+        if (IsBridgeContractFailure(result?.ErrorReason))
         {
             return result;
         }
 
-        RootFileEnumerationResult fallbackResult = new FastRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog);
-        if (fallbackResult.Success && string.IsNullOrWhiteSpace(fallbackResult.ErrorReason))
+        RootFileEnumerationResult fallbackResult = fallbackFactory?.Invoke();
+        if (fallbackResult?.Success == true && string.IsNullOrWhiteSpace(fallbackResult.ErrorReason))
         {
-            fallbackResult.ErrorReason = result.ErrorReason ?? string.Empty;
+            fallbackResult.ErrorReason = result?.ErrorReason ?? string.Empty;
         }
         return fallbackResult;
+    }
+
+    private static bool IsEmptyEverythingResult(RootFileEnumerationResult result)
+    {
+        return result != null
+            && string.Equals(result.BackendName, EverythingNative.GroupedEnumerationBackendName, StringComparison.OrdinalIgnoreCase)
+            && result.TotalFileCount == 0;
     }
 
     internal static bool IsBridgeContractFailure(string reason)

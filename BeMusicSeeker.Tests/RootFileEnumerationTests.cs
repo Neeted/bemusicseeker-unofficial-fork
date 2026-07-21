@@ -108,6 +108,39 @@ public sealed class RootFileEnumerationTests
     }
 
     [TestMethod]
+    public void SelectFallbackResult_RetriesFastForEmptyEverythingResult()
+    {
+        var everythingResult = new RootFileEnumerationResult
+        {
+            Success = true,
+            BackendName = EverythingNative.GroupedEnumerationBackendName,
+            TotalFileCount = 0
+        };
+        everythingResult.InitializeGroup("lr2folder");
+        var fastResult = new RootFileEnumerationResult
+        {
+            Success = true,
+            BackendName = "fast",
+            TotalFileCount = 1
+        };
+        fastResult.AddEntry("lr2folder", new RootFileEnumerationEntry(@"C:\temp\table.lr2folder"));
+
+        RootFileEnumerationResult selected = RootFileEnumerationService.SelectFallbackResult(
+            everythingResult,
+            () => fastResult,
+            retryEmptyEverythingResultWithFastEnumerator: true);
+
+        Assert.AreSame(fastResult, selected);
+        CollectionAssert.Contains(selected.GetPaths("lr2folder").ToList(), @"C:\temp\table.lr2folder");
+        Assert.AreSame(
+            everythingResult,
+            RootFileEnumerationService.SelectFallbackResult(
+                everythingResult,
+                () => fastResult,
+                retryEmptyEverythingResultWithFastEnumerator: false));
+    }
+
+    [TestMethod]
     public void RootFileEnumerationResult_WithScanLimitExceededIsNotAuthoritativeComplete()
     {
         var result = new RootFileEnumerationResult

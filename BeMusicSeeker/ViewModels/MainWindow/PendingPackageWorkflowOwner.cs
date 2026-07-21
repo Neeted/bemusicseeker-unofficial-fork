@@ -123,6 +123,7 @@ internal sealed class PendingPackageWorkflowOwner
     private readonly IPendingPackageStore store;
     private readonly Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider;
     private readonly Func<string, ExplorerOpenResult> explorerOpener;
+    private readonly Func<string, ExplorerOpenResult> fileExplorerOpener;
 
     internal PendingPackageWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
@@ -131,7 +132,8 @@ internal sealed class PendingPackageWorkflowOwner
         IUiDialogService dialogs,
         Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
         IPendingPackageStore store = null,
-        Func<string, ExplorerOpenResult> explorerOpener = null)
+        Func<string, ExplorerOpenResult> explorerOpener = null,
+        Func<string, ExplorerOpenResult> fileExplorerOpener = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
@@ -140,6 +142,7 @@ internal sealed class PendingPackageWorkflowOwner
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.store = store ?? new BmsLibraryPendingPackageStore();
         this.explorerOpener = explorerOpener ?? ExplorerOpenService.OpenDirectory;
+        this.fileExplorerOpener = fileExplorerOpener ?? ExplorerOpenService.OpenFileAndSelect;
     }
 
     internal async Task OpenInstallDestinationForChartsAsync(
@@ -200,6 +203,25 @@ internal sealed class PendingPackageWorkflowOwner
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxImage.Exclamation,
             "Open install destination warning");
+    }
+
+    internal void OpenPackageSourceInExplorer(ChartPackage package)
+    {
+        if (package == null)
+        {
+            return;
+        }
+        string packagePath = package.path;
+        if (LongPathFileSystem.DirectoryExists(packagePath))
+        {
+            _ = explorerOpener(packagePath);
+            return;
+        }
+        if (!LongPathFileSystem.FileExists(packagePath))
+        {
+            return;
+        }
+        _ = fileExplorerOpener(packagePath);
     }
 
     internal Task SearchPackagesAsync(

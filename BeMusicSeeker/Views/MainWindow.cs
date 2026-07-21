@@ -4169,20 +4169,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPackageContextMenuOpenExplorerClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: ChartPackage dataContext } } }))
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: ChartPackage dataContext } } })
+            || base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        if (LongPathFileSystem.DirectoryExists(dataContext.path))
-        {
-            ExplorerOpenService.OpenDirectory(dataContext.path);
-            return;
-        }
-        if (!LongPathFileSystem.FileExists(dataContext.path))
-        {
-            return;
-        }
-        ExplorerOpenService.OpenFileAndSelect(dataContext.path);
+        viewModel.PendingPackages.OpenPackageSourceInExplorer(dataContext);
     }
 
     /// <summary>

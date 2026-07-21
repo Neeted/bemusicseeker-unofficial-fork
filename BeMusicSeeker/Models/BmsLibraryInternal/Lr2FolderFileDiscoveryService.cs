@@ -79,7 +79,10 @@ internal static class Lr2FolderFileDiscoveryService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
         RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"], excludedDirectories: excludedDirectoryList)];
-        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups);
+        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
+            roots,
+            groups,
+            retryEmptyEverythingResultWithFastEnumerator: true);
         if (!result.Success)
         {
             logScan?.Invoke("lr2folder_scan failed"

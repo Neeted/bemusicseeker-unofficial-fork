@@ -230,6 +230,155 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
+    public void OpenPackageSourceInExplorer_OpensExistingDirectoryOnlyThroughDirectoryRoute()
+    {
+        string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var openedDirectories = new List<string>();
+            var selectedFiles = new List<string>();
+            var owner = CreateOwner(
+                () => null!,
+                [],
+                new RecordingStore([]),
+                AcceptedDialogs(),
+                directory =>
+                {
+                    openedDirectories.Add(directory);
+                    return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
+                },
+                file =>
+                {
+                    selectedFiles.Add(file);
+                    return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.SelectedFile };
+                });
+
+            owner.OpenPackageSourceInExplorer(new ChartPackage { path = temporaryDirectory });
+
+            CollectionAssert.AreEqual(new[] { temporaryDirectory }, openedDirectories);
+            Assert.AreEqual(0, selectedFiles.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void OpenPackageSourceInExplorer_OpensExistingFileOnlyThroughFileRoute()
+    {
+        string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string temporaryFile = Path.Combine(temporaryDirectory, "package.zip");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.WriteAllText(temporaryFile, string.Empty);
+        try
+        {
+            var openedDirectories = new List<string>();
+            var selectedFiles = new List<string>();
+            var owner = CreateOwner(
+                () => null!,
+                [],
+                new RecordingStore([]),
+                AcceptedDialogs(),
+                directory =>
+                {
+                    openedDirectories.Add(directory);
+                    return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
+                },
+                file =>
+                {
+                    selectedFiles.Add(file);
+                    return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.SelectedFile };
+                });
+
+            owner.OpenPackageSourceInExplorer(new ChartPackage { path = temporaryFile });
+
+            Assert.AreEqual(0, openedDirectories.Count);
+            CollectionAssert.AreEqual(new[] { temporaryFile }, selectedFiles);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void OpenPackageSourceInExplorer_MissingOrEmptyPathIsSilent()
+    {
+        var openedDirectories = new List<string>();
+        var selectedFiles = new List<string>();
+        var owner = CreateOwner(
+            () => null!,
+            [],
+            new RecordingStore([]),
+            AcceptedDialogs(),
+            directory =>
+            {
+                openedDirectories.Add(directory);
+                return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
+            },
+            file =>
+            {
+                selectedFiles.Add(file);
+                return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.SelectedFile };
+            });
+
+        owner.OpenPackageSourceInExplorer(new ChartPackage { path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")) });
+        owner.OpenPackageSourceInExplorer(new ChartPackage { path = string.Empty });
+
+        Assert.AreEqual(0, openedDirectories.Count);
+        Assert.AreEqual(0, selectedFiles.Count);
+    }
+
+    [TestMethod]
+    public void OpenPackageSourceInExplorer_DoesNotTranslateExplorerFailureIntoAnotherRoute()
+    {
+        string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string temporaryFile = Path.Combine(temporaryDirectory, "package.zip");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.WriteAllText(temporaryFile, string.Empty);
+        try
+        {
+            int directoryOpenCount = 0;
+            int fileSelectCount = 0;
+            var owner = CreateOwner(
+                () => null!,
+                [],
+                new RecordingStore([]),
+                AcceptedDialogs(),
+                directory =>
+                {
+                    directoryOpenCount++;
+                    return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.Failed, FailureReason = "directory_failed" };
+                },
+                file =>
+                {
+                    fileSelectCount++;
+                    return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.Failed, FailureReason = "file_failed" };
+                });
+
+            owner.OpenPackageSourceInExplorer(new ChartPackage { path = temporaryFile });
+
+            Assert.AreEqual(0, directoryOpenCount);
+            Assert.AreEqual(1, fileSelectCount);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task SearchPendingAsync_AppliesMutationAndTerminalRefreshInOrder()
     {
         var events = new List<string>();
@@ -1048,7 +1197,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         List<string> events,
         IPendingPackageStore store,
         IUiDialogService dialogs,
-        Func<string, ExplorerOpenResult>? explorerOpener = null)
+        Func<string, ExplorerOpenResult>? explorerOpener = null,
+        Func<string, ExplorerOpenResult>? fileExplorerOpener = null)
     {
         return new PendingPackageWorkflowOwner(
             libraryProvider,
@@ -1057,7 +1207,8 @@ public sealed class PendingPackageWorkflowOwnerTests
             dialogs,
             DefaultSettings,
             store,
-            explorerOpener);
+            explorerOpener,
+            fileExplorerOpener);
     }
 
     private static FakeUiDialogService AcceptedDialogs()
