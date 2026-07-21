@@ -154,6 +154,93 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     }
 
     [TestMethod]
+    public void SelectedChartEncodingRequest_FiltersBmsCapabilityAndPreservesEncoding()
+    {
+        ChartOperationTarget eligible = CreateTarget(
+            "alpha.bms",
+            ChartOperationSourceScope.Library,
+            false,
+            ChartOperationCapabilities.RunBmsEncodingFix);
+        ChartOperationTarget ineligible = CreateTarget(
+            "beta.bms",
+            ChartOperationSourceScope.Library,
+            false,
+            ChartOperationCapabilities.None);
+
+        var request = new SelectedChartEncodingRequest([eligible, ineligible], string.Empty);
+
+        Assert.IsTrue(request.HasTargets);
+        Assert.AreEqual(string.Empty, request.Encoding);
+        Assert.AreEqual(1, request.BmsFiles.Count);
+        Assert.AreSame(eligible.Chart.GetBmsStorageOwner(), request.BmsFiles[0]);
+    }
+
+    [TestMethod]
+    public void ApplyEncoding_StoresBeforeRefreshWithoutGeneralMutationLifecycle()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var presentation = new RecordingPresentation(events);
+        var owner = CreateOwner(presentation, new FakeUiDialogService(), store);
+        ChartOperationTarget target = CreateTarget(
+            "alpha.bms",
+            ChartOperationSourceScope.Library,
+            false,
+            ChartOperationCapabilities.RunBmsEncodingFix);
+
+        SelectedChartMutationResult result = owner.ApplyEncoding(new SelectedChartEncodingRequest([target], string.Empty));
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(1, store.EncodingCallCount);
+        Assert.AreEqual(string.Empty, store.Encoding);
+        Assert.AreSame(target.Chart.GetBmsStorageOwner(), store.EncodingFiles[0]);
+        CollectionAssert.AreEqual(new[] { "store-encoding", "encoding-refresh" }, events);
+    }
+
+    [TestMethod]
+    public void ApplyEncoding_WithoutTargetsDoesNotStoreOrRefresh()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var presentation = new RecordingPresentation(events);
+        var owner = CreateOwner(presentation, new FakeUiDialogService(), store);
+        ChartOperationTarget target = CreateTarget(
+            "alpha.bms",
+            ChartOperationSourceScope.Library,
+            false,
+            ChartOperationCapabilities.None);
+
+        SelectedChartMutationResult result = owner.ApplyEncoding(new SelectedChartEncodingRequest([target], "utf-8"));
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(0, store.EncodingCallCount);
+        Assert.AreEqual(0, presentation.EncodingRefreshCalls);
+        CollectionAssert.AreEqual(Array.Empty<string>(), events);
+    }
+
+    [TestMethod]
+    public void ApplyEncoding_FailureDoesNotRefresh()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events) { Failure = new IOException("encoding failed") };
+        var presentation = new RecordingPresentation(events);
+        var owner = CreateOwner(presentation, new FakeUiDialogService(), store);
+        ChartOperationTarget target = CreateTarget(
+            "alpha.bms",
+            ChartOperationSourceScope.Library,
+            false,
+            ChartOperationCapabilities.RunBmsEncodingFix);
+
+        SelectedChartMutationResult result = owner.ApplyEncoding(new SelectedChartEncodingRequest([target], "utf-8"));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsInstanceOfType<IOException>(result.Failure);
+        Assert.AreEqual(1, store.EncodingCallCount);
+        Assert.AreEqual(0, presentation.EncodingRefreshCalls);
+        CollectionAssert.AreEqual(Array.Empty<string>(), events);
+    }
+
+    [TestMethod]
     public async Task MutationFailure_ReleasesSuppressionAndActivity()
     {
         var store = new RecordingStore { Failure = new IOException("mutation failed") };
@@ -268,6 +355,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal int PathRefreshCalls { get; private set; }
 
+        internal int EncodingRefreshCalls { get; private set; }
+
         public void BeginActivity() => Events.Add("activity-start");
 
         public void EndActivity() => Events.Add("activity-end");
@@ -277,6 +366,12 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         public void EndRefreshSuppression() => Events.Add(Events.Contains("pending-refresh-start") && !Events.Contains("library-refresh-end") ? "pending-refresh-end" : "library-refresh-end");
 
         public void ApplyLibraryPathMutationRefresh() => PathRefreshCalls++;
+
+        public void ApplyEncodingRefresh()
+        {
+            EncodingRefreshCalls++;
+            Events.Add("encoding-refresh");
+        }
 
         public void StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts) => Events.Add("pending-playback");
 
@@ -314,6 +409,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         internal int RenameCallCount { get; private set; }
 
         internal string MovedDirectory { get; private set; } = string.Empty;
+
+        internal int EncodingCallCount { get; private set; }
 
         internal Exception Failure { get; set; } = null!;
 
@@ -358,6 +455,22 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             events?.Add("store-move");
             MovedDirectory = request.NewParentDirectory;
         }
+
+        public void SetBMSFilesEncoding(
+            BMSLibrary library,
+            IReadOnlyList<BMSFile> bmsFiles,
+            string encoding)
+        {
+            EncodingCallCount++;
+            ThrowIfConfigured();
+            events?.Add("store-encoding");
+            EncodingFiles = bmsFiles;
+            Encoding = encoding;
+        }
+
+        internal IReadOnlyList<BMSFile> EncodingFiles { get; private set; } = [];
+
+        internal string Encoding { get; private set; } = string.Empty;
 
         private void ThrowIfConfigured()
         {

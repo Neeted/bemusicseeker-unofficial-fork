@@ -101,6 +101,10 @@ internal sealed class NoOpSelectedChartMutationRefreshPort : ISelectedChartMutat
     public void ApplyLibraryPathMutationRefresh()
     {
     }
+
+    public void ApplyEncodingRefresh()
+    {
+    }
 }
 
 internal sealed class NoOpSelectedChartMutationPlaybackPort : ISelectedChartMutationPlaybackPort

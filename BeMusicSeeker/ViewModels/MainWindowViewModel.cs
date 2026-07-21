@@ -2185,6 +2185,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
     }
 
+    void ISelectedChartMutationRefreshPort.ApplyEncodingRefresh()
+    {
+        InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
+    }
+
     void ISelectedChartMutationPlaybackPort.StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts)
     {
         PlaybackPanel.StopIfPlayingCharts(charts);
@@ -6990,12 +6995,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             treeViewFilterTypeSelected,
             isInit: true);
         PlaylistWorkspace.CommitMainTableColumnSetting(MainChartList, selection);
-    }
-
-    internal void FixEncodingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string encoding = "")
-    {
-        files.SetBMSFilesEncoding(bmsFiles, encoding);
-        InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
     }
 
     private void MaintenanceRescanWorkflowProgressChanged(MaintenanceWorkflowProgress progress)

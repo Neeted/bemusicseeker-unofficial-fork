@@ -32,6 +32,8 @@ internal interface ISelectedChartMutationRefreshPort
     void EndRefreshSuppression();
 
     void ApplyLibraryPathMutationRefresh();
+
+    void ApplyEncodingRefresh();
 }
 
 internal interface ISelectedChartMutationPlaybackPort
@@ -71,6 +73,11 @@ internal interface ISelectedChartMutationStore
         string newExtension);
 
     void MoveLibraryCharts(BMSLibrary library, ChartLibraryMoveRequest request);
+
+    void SetBMSFilesEncoding(
+        BMSLibrary library,
+        IReadOnlyList<BMSFile> bmsFiles,
+        string encoding);
 }
 
 internal sealed class SelectedChartDeleteRequest
@@ -317,6 +324,28 @@ internal sealed class SelectedChartMoveOperation : ISelectedChartMutationOperati
     }
 
     internal ChartLibraryMoveRequest Request { get; }
+}
+
+internal sealed class SelectedChartEncodingRequest
+{
+    internal SelectedChartEncodingRequest(
+        IEnumerable<ChartOperationTarget> targets,
+        string encoding)
+    {
+        BmsFiles = (targets ?? [])
+            .Where(target => target?.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix) == true
+                && ChartFileKindResolver.IsBmsChartFile(target.Chart))
+            .Select(target => target.Chart.GetBmsStorageOwner())
+            .Where(ChartFileKindResolver.IsBmsChartFile)
+            .ToArray();
+        Encoding = encoding ?? string.Empty;
+    }
+
+    internal IReadOnlyList<BMSFile> BmsFiles { get; }
+
+    internal string Encoding { get; }
+
+    internal bool HasTargets => BmsFiles.Count > 0;
 }
 
 internal sealed class SelectedChartMutationWorkflowOwner
@@ -607,6 +636,25 @@ internal sealed class SelectedChartMutationWorkflowOwner
             }));
     }
 
+    internal SelectedChartMutationResult ApplyEncoding(SelectedChartEncodingRequest request)
+    {
+        if (request?.HasTargets != true)
+        {
+            return SelectedChartMutationResult.Completed;
+        }
+
+        try
+        {
+            store.SetBMSFilesEncoding(RequireLibrary(), request.BmsFiles, request.Encoding);
+            refresh.ApplyEncodingRefresh();
+            return SelectedChartMutationResult.Completed;
+        }
+        catch (Exception ex)
+        {
+            return SelectedChartMutationResult.Failed(ex);
+        }
+    }
+
     private SelectedChartMutationResult ExecuteMutation(
         SelectedChartMutationRefreshScope refreshScope,
         Action stopPlayback,
@@ -785,5 +833,13 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
     public void MoveLibraryCharts(BMSLibrary library, ChartLibraryMoveRequest request)
     {
         library.MoveLibraryRootFolder(request.Charts, request.NewParentDirectory, false);
+    }
+
+    public void SetBMSFilesEncoding(
+        BMSLibrary library,
+        IReadOnlyList<BMSFile> bmsFiles,
+        string encoding)
+    {
+        library.SetBMSFilesEncoding(bmsFiles, encoding);
     }
 }

@@ -2795,8 +2795,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(renameInvalidExtensionClick, "SelectedInvalidExtensionRenameRequest");
         StringAssert.Contains(renameInvalidExtensionClick, "viewModel.SelectedChartMutations");
         Assert.IsFalse(renameInvalidExtensionClick.Contains("viewModel.RenameBMSFilesExtensions"));
-        StringAssert.Contains(encodingFixClick, "GetSelectedBmsFiles(ChartOperationCapabilities.RunBmsEncodingFix)");
+        StringAssert.Contains(encodingFixClick, "SelectedChartEncodingRequest");
+        StringAssert.Contains(encodingFixClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunBmsEncodingFix)");
+        StringAssert.Contains(encodingFixClick, "viewModel.SelectedChartMutations.ApplyEncoding(request)");
+        Assert.IsFalse(encodingFixClick.Contains("GetSelectedBmsFiles(ChartOperationCapabilities.RunBmsEncodingFix)"));
         Assert.IsFalse(encodingFixClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunBmsEncodingFix)"));
+        Assert.IsFalse(encodingFixClick.Contains("FixEncodingBMSFiles"));
+        Assert.IsFalse(encodingFixClick.Contains("SetBMSFilesEncoding"));
+        Assert.IsFalse(encodingFixClick.Contains("Task.Run"));
         StringAssert.Contains(audioConvertClick, "GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio)");
         Assert.IsFalse(audioConvertClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.ConvertToAudio)"));
         StringAssert.Contains(resourceHealthClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");

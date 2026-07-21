@@ -6492,11 +6492,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Source is MenuItem menuItem && TryGetContextMenuRow(e.Source, out _))
         {
-            List<BMSFile> list = GetSelectedBmsFiles(ChartOperationCapabilities.RunBmsEncodingFix);
-            if (list != null && list.Count() != 0)
+            SelectedChartEncodingRequest request = new(
+                GetSelectedChartTargets(ChartOperationCapabilities.RunBmsEncodingFix),
+                menuItem.Tag.ToString());
+            if (!request.HasTargets || base.DataContext is not MainWindowViewModel viewModel)
             {
-                (base.DataContext as MainWindowViewModel).FixEncodingBMSFiles(list, menuItem.Tag.ToString());
+                return;
+            }
+            SelectedChartMutationResult result = viewModel.SelectedChartMutations.ApplyEncoding(request);
+            if (result.Succeeded)
+            {
                 e.Handled = true;
+            }
+            else if (result.Failure != null)
+            {
+                _ = Task.FromException(result.Failure).Logging("fixEncodingSelectedBMS");
             }
         }
     }
