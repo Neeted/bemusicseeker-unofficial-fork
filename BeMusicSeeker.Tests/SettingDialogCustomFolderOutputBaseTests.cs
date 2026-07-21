@@ -73,41 +73,6 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
-    public void HasFreshLr2PlayHistorySchemaCheckResult_MatchesPathAndOperationMode()
-    {
-        var viewModel = new MainWindowViewModel();
-        MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-        SetDialogField(dialog, "operationModeLR2DB", true);
-        string expectedScoreDbPath = dialog.Lr2PlayHistoryScoreDbPath;
-        var result = new Lr2PlayHistorySchemaCheckResult
-        {
-            ScoreDbPath = expectedScoreDbPath,
-            Status = Lr2PlayHistorySchemaStatus.Installed
-        };
-
-        dialog.ApplyLr2PlayHistorySchemaCheckResult(result);
-
-        Assert.IsTrue(dialog.HasFreshLr2PlayHistorySchemaCheckResult(expectedScoreDbPath, isLr2LinkedProfile: true));
-        Assert.IsFalse(dialog.HasFreshLr2PlayHistorySchemaCheckResult(@"C:\LR2\Score\other.db", isLr2LinkedProfile: true));
-        Assert.IsFalse(dialog.HasFreshLr2PlayHistorySchemaCheckResult(expectedScoreDbPath, isLr2LinkedProfile: false));
-        Assert.IsFalse(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: false, expectedScoreDbPath, expectedOperationMode: true));
-        Assert.IsTrue(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: true, expectedScoreDbPath, expectedOperationMode: true));
-        Assert.IsTrue(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: false, @"C:\LR2\Score\other.db", expectedOperationMode: true));
-        Assert.IsTrue(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: false, expectedScoreDbPath, expectedOperationMode: false));
-
-        dialog.ResetLr2PlayHistorySchemaStatus();
-
-        Assert.IsTrue(dialog.HasFreshLr2PlayHistorySchemaCheckResult(expectedScoreDbPath, isLr2LinkedProfile: true));
-        Assert.IsFalse(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: false, expectedScoreDbPath, expectedOperationMode: true));
-
-        SetDialogField(dialog, "operationModeLR2DB", false);
-        dialog.ResetLr2PlayHistorySchemaStatus();
-
-        Assert.IsFalse(dialog.HasFreshLr2PlayHistorySchemaCheckResult(expectedScoreDbPath, isLr2LinkedProfile: true));
-        Assert.IsTrue(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: false, expectedScoreDbPath, expectedOperationMode: true));
-    }
-
-    [TestMethod]
     public void PendingSettingsRemainIndependentOfActiveLibraryProfile()
     {
         bool previousShowRecommUpdatedMsg = Settings.Default.ShowRecommUpdatedMsg;

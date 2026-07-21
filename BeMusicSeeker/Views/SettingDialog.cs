@@ -424,136 +424,19 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void uninstallLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
+        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
             return;
         }
-        if (viewModel.IsLibraryOperationInProgress)
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
-            return;
-        }
-
-        await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: true);
-        Lr2PlayHistorySchemaCheckResult before = settingDialogViewModel.Lr2PlayHistorySchemaCheckResult;
-        if (before == null || !settingDialogViewModel.CanUninstallLr2PlayHistorySchema)
-        {
-            return;
-        }
-        if (before.Status == Lr2PlayHistorySchemaStatus.NotInstalled)
-        {
-            UiDialogRoute.ShowMessageBox(
-                Window.GetWindow(this),
-                BeMusicSeeker.Properties.Resources.Msg_lr2_play_history_schema_uninstall_not_installed,
-                BeMusicSeeker.Properties.Resources.Information,
-                MessageBoxButton.OK,
-                MessageBoxImage.Asterisk);
-            return;
-        }
-        if (before.Status is Lr2PlayHistorySchemaStatus.SkippedProfile or Lr2PlayHistorySchemaStatus.Unreadable)
-        {
-            UiDialogRoute.ShowMessageBox(
-                Window.GetWindow(this),
-                before.Message,
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxButton.OK,
-                MessageBoxImage.Exclamation);
-            return;
-        }
-
-        UiWindowDialogResult<Lr2PlayHistorySchemaUninstallMode> dialogResult = await new UiDialogCoordinator()
-            .ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>(
-                () => new Lr2PlayHistorySchemaUninstallDialog(settingDialogViewModel.Lr2PlayHistoryScoreDbPath),
-                dialog => dialog.SelectedMode,
-                Window.GetWindow(this)));
-        ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "LR2 play history schema uninstall dialog");
-        if (!dialogResult.IsAccepted)
-        {
-            return;
-        }
-
-        Lr2PlayHistorySchemaUninstallMode uninstallMode = dialogResult.Value;
         settingDialogOperationGrid.IsEnabled = false;
         try
         {
-            Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
-                settingDialogViewModel.UninstallLr2PlayHistorySchemaCore(uninstallMode));
-            settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
-            if (IsExpectedLr2PlayHistorySchemaUninstallResult(uninstallMode, result.Status))
-            {
-                viewModel.InvalidatePlayHistoryReadCache("lr2_play_history_schema_uninstall");
-                UiDialogRoute.ShowMessageBox(
-                    Window.GetWindow(this),
-                    BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_uninstall,
-                    BeMusicSeeker.Properties.Resources.Success,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Asterisk);
-                if (viewModel.HasActiveLibraryProfile)
-                {
-                    await settingDialogViewModel.ReloadScoresOnlyAsync();
-                }
-                return;
-            }
-
-            UiDialogRoute.ShowMessageBox(
-                Window.GetWindow(this),
-                result.Message,
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxButton.OK,
-                MessageBoxImage.Exclamation);
-        }
-        catch (Exception ex)
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            await settingDialogViewModel.UninstallLr2PlayHistorySchemaAsync();
         }
         finally
         {
             settingDialogOperationGrid.IsEnabled = true;
         }
-    }
-
-    private static bool IsExpectedLr2PlayHistorySchemaUninstallResult(
-        Lr2PlayHistorySchemaUninstallMode uninstallMode,
-        Lr2PlayHistorySchemaStatus status)
-    {
-        return (uninstallMode == Lr2PlayHistorySchemaUninstallMode.TriggersOnly && status == Lr2PlayHistorySchemaStatus.Repairable)
-            || (uninstallMode == Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers && status == Lr2PlayHistorySchemaStatus.NotInstalled);
-    }
-
-    private static async Task RefreshLr2PlayHistorySchemaStatusAsync(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel, bool force)
-    {
-        string expectedScoreDbPath = settingDialogViewModel.Lr2PlayHistoryScoreDbPath;
-        bool expectedOperationMode = settingDialogViewModel.OperationModeLR2DB;
-        if (!ShouldRefreshLr2PlayHistorySchemaStatus(settingDialogViewModel, force, expectedScoreDbPath, expectedOperationMode))
-        {
-            return;
-        }
-        Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
-            settingDialogViewModel.CheckLr2PlayHistorySchemaCore(expectedScoreDbPath, expectedOperationMode));
-        if (expectedOperationMode == settingDialogViewModel.OperationModeLR2DB
-            && string.Equals(expectedScoreDbPath, settingDialogViewModel.Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
-        {
-            settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
-        }
-    }
-
-    /// <summary>
-    /// LR2 play history schema status の非同期再確認が必要かどうかを判定します。
-    /// 表示時の UI 停止を避けるため、同じ path と operation mode の確認済み結果は再利用します。
-    /// </summary>
-    /// <param name="settingDialogViewModel">設定画面の ViewModel。</param>
-    /// <param name="force">既存キャッシュに関係なく再確認する場合は <c>true</c>。</param>
-    /// <param name="expectedScoreDbPath">現在の設定から期待される score.db path。</param>
-    /// <param name="expectedOperationMode">現在の LR2 DB 連携モード。</param>
-    /// <returns>schema status の再確認が必要な場合は <c>true</c>。</returns>
-    internal static bool ShouldRefreshLr2PlayHistorySchemaStatus(
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel,
-        bool force,
-        string expectedScoreDbPath,
-        bool expectedOperationMode)
-    {
-        return settingDialogViewModel != null
-            && (force || !settingDialogViewModel.HasFreshLr2PlayHistorySchemaCheckResult(expectedScoreDbPath, expectedOperationMode));
     }
 
     private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)

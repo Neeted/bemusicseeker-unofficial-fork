@@ -222,6 +222,7 @@ public sealed class DialogRouteConsolidationTests
         string requestsCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogRequests.cs"));
         string windowResultCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiWindowDialogResult.cs"));
         string selectedChartMutationOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartMutationWorkflowOwner.cs"));
+        string settingDialogViewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.SettingDialogViewModel.cs"));
 
         Assert.IsFalse(mainWindowCode.Contains(".ShowDialog("), "MainWindow modal windows must go through UiDialogCoordinator.");
         Assert.IsFalse(settingDialogCode.Contains(".ShowDialog("), "SettingDialog modal windows must go through UiDialogCoordinator.");
@@ -265,7 +266,9 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(closingHandler, "ElevatedProcessWarningWorkflow.NotifyClosing()");
         StringAssert.Contains(selectedChartMutationOwnerCode, "ShowWindowAsync(");
         StringAssert.Contains(selectedChartMutationOwnerCode, "UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>");
-        StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>");
+        StringAssert.Contains(settingDialogViewModelCode, "ShowWindowAsync(");
+        StringAssert.Contains(settingDialogViewModelCode, "UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>");
+        Assert.IsFalse(settingDialogCode.Contains("ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>"));
         StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>");
         StringAssert.Contains(requestsCode, "internal sealed class UiWindowDialogRequest<TWindow, TResult>");
         StringAssert.Contains(windowResultCode, "internal sealed class UiWindowDialogResult<TResult>");

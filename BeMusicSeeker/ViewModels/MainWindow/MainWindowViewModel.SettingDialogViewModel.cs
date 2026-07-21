@@ -370,7 +370,7 @@ public partial class MainWindowViewModel
             }
         }
 
-        internal Task ReloadScoresOnlyAsync()
+        private Task ReloadScoresOnlyAsync()
         {
             return ReloadScoresOnlyCoreAsync();
         }
@@ -1161,6 +1161,98 @@ public partial class MainWindowViewModel
             }
         }
 
+        internal async Task UninstallLr2PlayHistorySchemaAsync()
+        {
+            if (ownerViewModel.IsLibraryOperationInProgress)
+            {
+                await ShowLr2PlayHistorySchemaMessageAsync(
+                    BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization,
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxImage.Exclamation,
+                    "LR2 play history schema uninstall blocked notification");
+                return;
+            }
+
+            await RefreshLr2PlayHistorySchemaStatusAsync(force: true);
+            Lr2PlayHistorySchemaCheckResult before = Lr2PlayHistorySchemaCheckResult;
+            if (before == null || !CanUninstallLr2PlayHistorySchema)
+            {
+                return;
+            }
+            if (before.Status == Lr2PlayHistorySchemaStatus.NotInstalled)
+            {
+                await ShowLr2PlayHistorySchemaMessageAsync(
+                    BeMusicSeeker.Properties.Resources.Msg_lr2_play_history_schema_uninstall_not_installed,
+                    BeMusicSeeker.Properties.Resources.Information,
+                    MessageBoxImage.Asterisk,
+                    "LR2 play history schema uninstall not installed notification");
+                return;
+            }
+            if (before.Status is Lr2PlayHistorySchemaStatus.SkippedProfile or Lr2PlayHistorySchemaStatus.Unreadable)
+            {
+                await ShowLr2PlayHistorySchemaMessageAsync(
+                    before.Message,
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxImage.Exclamation,
+                    "LR2 play history schema uninstall preflight notification");
+                return;
+            }
+
+            string scoreDbPath = Lr2PlayHistoryScoreDbPath;
+            bool isLr2LinkedProfile = OperationModeLR2DB;
+            UiWindowDialogResult<Lr2PlayHistorySchemaUninstallMode> dialogResult = await schemaDialogs.ShowWindowAsync(
+                new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>(
+                    () => new Lr2PlayHistorySchemaUninstallDialog(scoreDbPath),
+                    dialog => dialog.SelectedMode));
+            ThrowIfWindowDialogNotShown(dialogResult, "LR2 play history schema uninstall dialog");
+            if (!dialogResult.IsAccepted)
+            {
+                return;
+            }
+
+            Lr2PlayHistorySchemaUninstallMode uninstallMode = dialogResult.Value;
+            try
+            {
+                Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
+                    UninstallLr2PlayHistorySchemaCore(scoreDbPath, isLr2LinkedProfile, uninstallMode));
+                if (isLr2LinkedProfile != OperationModeLR2DB
+                    || !string.Equals(scoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                ApplyLr2PlayHistorySchemaCheckResult(result);
+                if (IsExpectedLr2PlayHistorySchemaUninstallResult(uninstallMode, result.Status))
+                {
+                    invalidatePlayHistoryReadCache("lr2_play_history_schema_uninstall");
+                    await ShowLr2PlayHistorySchemaMessageAsync(
+                        BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_uninstall,
+                        BeMusicSeeker.Properties.Resources.Success,
+                        MessageBoxImage.Asterisk,
+                        "LR2 play history schema uninstall success notification");
+                    if (ownerViewModel.HasActiveLibraryProfile)
+                    {
+                        await ReloadScoresOnlyAsync();
+                    }
+                    return;
+                }
+
+                await ShowLr2PlayHistorySchemaMessageAsync(
+                    result.Message,
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxImage.Exclamation,
+                    "LR2 play history schema uninstall result notification");
+            }
+            catch (Exception ex)
+            {
+                await ShowLr2PlayHistorySchemaMessageAsync(
+                    BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
+                    BeMusicSeeker.Properties.Resources.Error,
+                    MessageBoxImage.Hand,
+                    "LR2 play history schema uninstall failure notification");
+            }
+        }
+
         private async Task RefreshLr2PlayHistorySchemaStatusAsync(bool force)
         {
             string expectedScoreDbPath = Lr2PlayHistoryScoreDbPath;
@@ -1224,7 +1316,7 @@ public partial class MainWindowViewModel
             ResetLr2PlayHistorySchemaStatus();
         }
 
-        internal Lr2PlayHistorySchemaCheckResult InstallOrRepairLr2PlayHistorySchemaCore(
+        private Lr2PlayHistorySchemaCheckResult InstallOrRepairLr2PlayHistorySchemaCore(
             string scoreDbPath,
             bool isLr2LinkedProfile)
         {
@@ -1239,12 +1331,14 @@ public partial class MainWindowViewModel
         /// </summary>
         /// <param name="uninstallMode">trigger のみ削除するか、履歴 table も削除するか。</param>
         /// <returns>削除後に再確認した schema 状態。</returns>
-        internal Lr2PlayHistorySchemaCheckResult UninstallLr2PlayHistorySchemaCore(Lr2PlayHistorySchemaUninstallMode uninstallMode)
+        private Lr2PlayHistorySchemaCheckResult UninstallLr2PlayHistorySchemaCore(
+            string scoreDbPath,
+            bool isLr2LinkedProfile,
+            Lr2PlayHistorySchemaUninstallMode uninstallMode)
         {
-            string scoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
-            LogLr2PlayHistorySchema("uninstall_start_" + uninstallMode, scoreDbPath, OperationModeLR2DB);
-            Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, OperationModeLR2DB, uninstallMode);
-            LogLr2PlayHistorySchema("uninstall_done", result, OperationModeLR2DB);
+            LogLr2PlayHistorySchema("uninstall_start_" + uninstallMode, scoreDbPath, isLr2LinkedProfile);
+            Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, isLr2LinkedProfile, uninstallMode);
+            LogLr2PlayHistorySchema("uninstall_done", result, isLr2LinkedProfile);
             return result;
         }
 
@@ -1256,23 +1350,40 @@ public partial class MainWindowViewModel
             RaiseLr2PlayHistorySchemaStatusChanged();
         }
 
-        internal bool HasFreshLr2PlayHistorySchemaCheckResult(string scoreDbPath, bool isLr2LinkedProfile)
+        private bool HasFreshLr2PlayHistorySchemaCheckResult(string scoreDbPath, bool isLr2LinkedProfile)
         {
             return lr2PlayHistorySchemaCheckResult != null
                 && lr2PlayHistorySchemaCheckOperationMode == isLr2LinkedProfile
                 && string.Equals(lr2PlayHistoryScoreDbPath ?? string.Empty, scoreDbPath ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         }
 
-        internal Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchemaCore()
-        {
-            return CheckLr2PlayHistorySchemaCore(ResolveLr2PlayHistoryScoreDbPath(), OperationModeLR2DB);
-        }
-
-        internal Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchemaCore(string scoreDbPath, bool isLr2LinkedProfile)
+        private Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchemaCore(string scoreDbPath, bool isLr2LinkedProfile)
         {
             Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().Check(scoreDbPath, isLr2LinkedProfile);
             LogLr2PlayHistorySchema("check", result, isLr2LinkedProfile);
             return result;
+        }
+
+        private static bool IsExpectedLr2PlayHistorySchemaUninstallResult(
+            Lr2PlayHistorySchemaUninstallMode uninstallMode,
+            Lr2PlayHistorySchemaStatus status)
+        {
+            return (uninstallMode == Lr2PlayHistorySchemaUninstallMode.TriggersOnly && status == Lr2PlayHistorySchemaStatus.Repairable)
+                || (uninstallMode == Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers && status == Lr2PlayHistorySchemaStatus.NotInstalled);
+        }
+
+        private static void ThrowIfWindowDialogNotShown<TResult>(UiWindowDialogResult<TResult> result, string routeName)
+        {
+            if (result == null)
+            {
+                throw new InvalidOperationException(routeName + " failed: no result");
+            }
+            if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Error);
         }
 
         private string ResolveLr2PlayHistoryScoreDbPath()

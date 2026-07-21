@@ -1548,7 +1548,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaRootPath");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaScoreDbPath");
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
-        StringAssert.Contains(settingDialogCode, "ReloadScoresOnlyAsync()");
+        StringAssert.Contains(viewModelCode, "UninstallLr2PlayHistorySchemaAsync()");
         Assert.IsFalse(settingDialogCode.Contains("ReloadTables()"));
         Assert.IsFalse(xaml.Contains("Content=\"beatoraja"));
         Assert.IsFalse(xaml.Contains("Title=\"score.db"));
