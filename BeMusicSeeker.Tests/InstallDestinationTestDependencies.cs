@@ -15,7 +15,7 @@ internal sealed class TestInstallDestinationMutationPresentation : IInstallDesti
     {
     }
 
-    public void BeginRefreshSuppression()
+    public void BeginRefreshSuppression(InstallDestinationRefreshScope scope)
     {
     }
 
@@ -40,6 +40,10 @@ internal sealed class TestInstallDestinationMutationPresentation : IInstallDesti
     }
 
     public void RequestDisplayRefresh()
+    {
+    }
+
+    public void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
     {
     }
 }

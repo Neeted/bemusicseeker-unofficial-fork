@@ -10,11 +10,17 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
+internal enum InstallDestinationRefreshScope
+{
+    DestinationState,
+    PackageMutation
+}
+
 internal interface IInstallDestinationMutationPresentation
 {
     void BeginActivity();
 
-    void BeginRefreshSuppression();
+    void BeginRefreshSuppression(InstallDestinationRefreshScope scope);
 
     void EndRefreshSuppression();
 
@@ -27,6 +33,8 @@ internal interface IInstallDestinationMutationPresentation
     void RefreshIdentitySortKey();
 
     void RequestDisplayRefresh();
+
+    void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts);
 }
 
 internal interface IInstallDestinationStore
@@ -58,6 +66,28 @@ internal interface IInstallDestinationStore
         BMSLibrary library,
         PendingInstallDestinationEditRequest request,
         string destinationDirectory);
+
+    IReadOnlyList<ChartPackage> ResolvePendingPackages(
+        BMSLibrary library,
+        IReadOnlyList<ChartOperationTarget> targets);
+
+    void ForceInstallPackages(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages,
+        ISet<ChartPackage> approvedNormalInstallOverridePackages);
+
+    void ManualInstallPackages(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages);
+
+    IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> GetDuplicateInstallRepairConfirmations(
+        BMSLibrary library,
+        IReadOnlyList<ChartFile> repairCharts);
+
+    void FixInstalledLocations(
+        BMSLibrary library,
+        IReadOnlyList<ChartFile> repairCharts,
+        IReadOnlyList<string> approvedDuplicateRemovalChartPaths);
 }
 
 internal sealed class InstallDestinationWorkflowOwner
@@ -67,18 +97,21 @@ internal sealed class InstallDestinationWorkflowOwner
     private readonly IInstallDestinationMutationPresentation presentation;
     private readonly IUiDialogService dialogs;
     private readonly IInstallDestinationStore store;
+    private readonly Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider;
 
     internal InstallDestinationWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
         IInstallDestinationMutationPresentation presentation,
         IUiDialogService dialogs,
+        Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
         IInstallDestinationStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.store = store ?? new BmsLibraryInstallDestinationStore();
     }
 
@@ -213,6 +246,226 @@ internal sealed class InstallDestinationWorkflowOwner
         });
     }
 
+    internal Task ForceInstallPackagesAsync(
+        IEnumerable<ChartPackage> packages,
+        Action prepareShellForMutation)
+    {
+        if (prepareShellForMutation == null)
+        {
+            throw new ArgumentNullException(nameof(prepareShellForMutation));
+        }
+        return InstallPackagesAsync(
+            PendingInstallPackageOperationKind.ForceInstall,
+            MaterializePackages(packages),
+            prepareShellForMutation);
+    }
+
+    internal Task ManualInstallPackagesAsync(
+        IEnumerable<ChartPackage> packages,
+        Action prepareShellForMutation)
+    {
+        if (prepareShellForMutation == null)
+        {
+            throw new ArgumentNullException(nameof(prepareShellForMutation));
+        }
+        return InstallPackagesAsync(
+            PendingInstallPackageOperationKind.ManualInstall,
+            MaterializePackages(packages),
+            prepareShellForMutation);
+    }
+
+    internal async Task InstallPendingAsync(
+        PendingInstallPackageOperationRequest request,
+        Action prepareShellForMutation)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (prepareShellForMutation == null)
+        {
+            throw new ArgumentNullException(nameof(prepareShellForMutation));
+        }
+        if (request.IsManualInstall && !await ConfirmManualInstallAsync())
+        {
+            return;
+        }
+        IReadOnlyList<ChartPackage> packages = await Task.Run(() =>
+            Read(library => store.ResolvePendingPackages(library, request.Targets))) ?? [];
+        await InstallResolvedPackagesAsync(request.Kind, packages, prepareShellForMutation);
+    }
+
+    internal async Task FixInstalledLocationsAsync(RepairInstalledLocationRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (!request.HasTargets)
+        {
+            return;
+        }
+        if (!request.HasInstallDestination)
+        {
+            UiDialogResult warningResult = await dialogs.ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.OK));
+            EnsureMessageWasShown(warningResult, "Installed-location repair warning");
+            return;
+        }
+        UiDialogResult repairConfirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+            BeMusicSeeker.Properties.Resources.Msg_fix_installation,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Cancel));
+        if (!ToConfirmationDecision(repairConfirmation, "Installed-location repair confirmation"))
+        {
+            return;
+        }
+
+        request.MaterializeRepairEntries();
+        IReadOnlyList<ChartFile> repairCharts = request.RepairCharts;
+        IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> duplicateConfirmations =
+            await Task.Run(() => Read(library =>
+                store.GetDuplicateInstallRepairConfirmations(library, repairCharts))) ?? [];
+        var approvedDuplicateRemovalChartPaths = new List<string>();
+        foreach (BMSLibrary.DuplicateInstallRepairConfirmation duplicateConfirmation in duplicateConfirmations)
+        {
+            ChartFile chart = duplicateConfirmation.Chart;
+            if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+            {
+                continue;
+            }
+            UiDialogResult duplicateConfirmationResult = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                string.Format(
+                    BeMusicSeeker.Properties.Resources.Confirm_DuplicateReinstallSkipped,
+                    chart.Path,
+                    string.Join(Environment.NewLine, duplicateConfirmation.DuplicatePaths)),
+                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes));
+            if (ToConfirmationDecision(
+                duplicateConfirmationResult,
+                "Duplicate reinstall repair confirmation"))
+            {
+                approvedDuplicateRemovalChartPaths.Add(chart.Path);
+            }
+        }
+
+        await Task.Run(() => Execute(
+            library => store.FixInstalledLocations(
+                library,
+                repairCharts,
+                approvedDuplicateRemovalChartPaths),
+            InstallDestinationRefreshScope.PackageMutation,
+            [.. repairCharts.Where(ChartFileKindResolver.IsBmsChartFile)]));
+    }
+
+    private async Task InstallPackagesAsync(
+        PendingInstallPackageOperationKind kind,
+        IReadOnlyList<ChartPackage> packages,
+        Action prepareShellForMutation)
+    {
+        if (kind == PendingInstallPackageOperationKind.ManualInstall
+            && !await ConfirmManualInstallAsync())
+        {
+            return;
+        }
+        await InstallResolvedPackagesAsync(kind, packages, prepareShellForMutation);
+    }
+
+    private async Task InstallResolvedPackagesAsync(
+        PendingInstallPackageOperationKind kind,
+        IReadOnlyList<ChartPackage> packages,
+        Action prepareShellForMutation)
+    {
+        switch (kind)
+        {
+            case PendingInstallPackageOperationKind.ForceInstall:
+                ISet<ChartPackage> approvedPackages = await ConfirmNormalInstallOverridesAsync(packages);
+                prepareShellForMutation();
+                await Task.Run(() => Execute(
+                    library => store.ForceInstallPackages(library, packages, approvedPackages),
+                    InstallDestinationRefreshScope.PackageMutation,
+                    CreatePlaybackTargetSnapshot(packages)));
+                return;
+            case PendingInstallPackageOperationKind.ManualInstall:
+                prepareShellForMutation();
+                await Task.Run(() => Execute(
+                    library => store.ManualInstallPackages(library, packages),
+                    InstallDestinationRefreshScope.PackageMutation,
+                    CreatePlaybackTargetSnapshot(packages)));
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported pending install package operation.");
+        }
+    }
+
+    private async Task<ISet<ChartPackage>> ConfirmNormalInstallOverridesAsync(
+        IReadOnlyList<ChartPackage> packages)
+    {
+        var approvedPackages = new HashSet<ChartPackage>();
+        foreach (ChartPackage package in packages.Where(package =>
+            (package.ChartEntries ?? []).Any(entry =>
+                !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination))))
+        {
+            UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride,
+                BeMusicSeeker.Properties.Resources.Confirm_NormalInstallTitle,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes));
+            if (ToConfirmationDecision(result, "Pending package normal install override confirmation"))
+            {
+                approvedPackages.Add(package);
+            }
+        }
+        return approvedPackages;
+    }
+
+    private async Task<bool> ConfirmManualInstallAsync()
+    {
+        InstallDestinationWorkflowSettingsSnapshot settings = settingsProvider()
+            ?? throw new InvalidOperationException("Install-destination workflow settings provider returned null.");
+        if (!settings.ShowManualInstallConfirmation)
+        {
+            return true;
+        }
+        string message = settings.DeletePendingPackageSourceAfterInstall
+            ? BeMusicSeeker.Properties.Resources.Msg_manual_installation_delete_source
+            : BeMusicSeeker.Properties.Resources.Msg_manual_installation;
+        UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+            message,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Asterisk));
+        return ToConfirmationDecision(result, "Manual pending-package installation confirmation");
+    }
+
+    private static IReadOnlyList<ChartPackage> MaterializePackages(IEnumerable<ChartPackage> packages)
+    {
+        if (packages == null)
+        {
+            throw new ArgumentNullException(nameof(packages));
+        }
+        return [.. packages.Where(package => package != null)];
+    }
+
+    private static IReadOnlyList<ChartFile> CreatePlaybackTargetSnapshot(
+        IEnumerable<ChartPackage> packages)
+    {
+        return [.. (packages ?? [])
+            .Where(package => package != null)
+            .SelectMany(package => package.ChartEntries ?? [])
+            .Select(entry => entry?.Chart)
+            .Where(chart => chart != null)];
+    }
+
     private Task RunSearchAsync(PendingInstallDestinationSearchKind kind, Action operation)
     {
         return kind == PendingInstallDestinationSearchKind.MergeDestination
@@ -227,14 +480,14 @@ internal sealed class InstallDestinationWorkflowOwner
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Asterisk));
-        if (!ToConfirmationDecision(result))
+        if (!ToConfirmationDecision(result, "Merge destination confirmation"))
         {
             return;
         }
         await Task.Run(operation);
     }
 
-    private static bool ToConfirmationDecision(UiDialogResult result)
+    private static bool ToConfirmationDecision(UiDialogResult result, string routeName)
     {
         if (result == null)
         {
@@ -246,12 +499,33 @@ internal sealed class InstallDestinationWorkflowOwner
             UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
             UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
             _ => throw new InvalidOperationException(
-                "Merge destination confirmation could not be displayed (" + result.Status + ").",
+                routeName + " could not be displayed (" + result.Status + ").",
                 result.Exception),
         };
     }
 
-    private bool Execute(Action<BMSLibrary> mutation, bool requiresLibrary = true)
+    private static void EnsureMessageWasShown(UiDialogResult result, string routeName)
+    {
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " returned no result.");
+        }
+        if (result.Status is UiDialogStatus.Accepted
+            or UiDialogStatus.CancelledByUser
+            or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+        throw new InvalidOperationException(
+            routeName + " could not be displayed (" + result.Status + ").",
+            result.Exception);
+    }
+
+    private bool Execute(
+        Action<BMSLibrary> mutation,
+        InstallDestinationRefreshScope refreshScope = InstallDestinationRefreshScope.DestinationState,
+        IReadOnlyList<ChartFile> playbackTargets = null,
+        bool requiresLibrary = true)
     {
         BMSLibrary library = libraryProvider();
         if (requiresLibrary && library == null)
@@ -269,8 +543,12 @@ internal sealed class InstallDestinationWorkflowOwner
             activityStarted = true;
             presentation.BeginActivity();
             operationGate = chartFileOperations.Enter();
+            if (playbackTargets != null)
+            {
+                presentation.StopIfPlayingCharts(playbackTargets);
+            }
             suppressionStarted = true;
-            presentation.BeginRefreshSuppression();
+            presentation.BeginRefreshSuppression(refreshScope);
             mutation(library);
         }
         catch (Exception ex)
@@ -299,6 +577,23 @@ internal sealed class InstallDestinationWorkflowOwner
         }
         ThrowFailures(failures);
         return true;
+    }
+
+    private T Read<T>(Func<BMSLibrary, T> operation)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+        BMSLibrary library = libraryProvider();
+        if (library == null)
+        {
+            return default;
+        }
+        using (chartFileOperations.Enter())
+        {
+            return operation(library);
+        }
     }
 
     private static void CaptureCleanupFailure(Action cleanup, List<ExceptionDispatchInfo> failures)
@@ -437,6 +732,48 @@ internal sealed class BmsLibraryInstallDestinationStore : IInstallDestinationSto
         return entry != null && library.SetPendingInstallDestination(entry, destinationDirectory)
             ? entry.Chart
             : null;
+    }
+
+    public IReadOnlyList<ChartPackage> ResolvePendingPackages(
+        BMSLibrary library,
+        IReadOnlyList<ChartOperationTarget> targets)
+    {
+        return ResolvePackages(library, targets);
+    }
+
+    public void ForceInstallPackages(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages,
+        ISet<ChartPackage> approvedNormalInstallOverridePackages)
+    {
+        library.ForceInstallPendingPackages(
+            packages,
+            approveNormalInstallOverride: false,
+            approvedNormalInstallOverridePackages: approvedNormalInstallOverridePackages);
+    }
+
+    public void ManualInstallPackages(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages)
+    {
+        library.InstallPendingPackagesToEstimatedDestinations(packages);
+    }
+
+    public IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> GetDuplicateInstallRepairConfirmations(
+        BMSLibrary library,
+        IReadOnlyList<ChartFile> repairCharts)
+    {
+        return library.GetDuplicateInstallRepairConfirmations(repairCharts);
+    }
+
+    public void FixInstalledLocations(
+        BMSLibrary library,
+        IReadOnlyList<ChartFile> repairCharts,
+        IReadOnlyList<string> approvedDuplicateRemovalChartPaths)
+    {
+        library.FixInstallationDirectoryCharts(
+            repairCharts,
+            approvedDuplicateRemovalChartPaths);
     }
 
     private static IReadOnlyList<ChartPackage> ResolvePackages(

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -244,6 +245,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
                 new ChartFileOperationSynchronizer(),
                 presentation,
                 AcceptedDialogs(),
+                DefaultSettings,
                 store);
 
             InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
@@ -305,6 +307,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
                 new ChartFileOperationSynchronizer(),
                 presentation,
                 AcceptedDialogs(),
+                DefaultSettings,
                 store);
 
             AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
@@ -333,6 +336,237 @@ public sealed class InstallDestinationWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task ForceInstallPackagesAsync_ApprovesOverrideThenStopsPlaybackAndMutatesPackageScope()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartFile chart = CreateChart(installDestination: @"C:\Installed\song.bms");
+        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var store = new RecordingStore(events);
+        var presentation = new RecordingPresentation(events);
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
+        };
+        var owner = new InstallDestinationWorkflowOwner(
+            CreateLibrary,
+            new ChartFileOperationSynchronizer(),
+            presentation,
+            dialogs,
+            DefaultSettings,
+            store);
+
+        await owner.ForceInstallPackagesAsync([package], () => events.Add("shell-prepare"));
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "shell-prepare",
+                "activity-start",
+                "playback-stop",
+                "suppression-start",
+                "store-force-install",
+                "suppression-end",
+                "activity-end"
+            },
+            events);
+        Assert.AreEqual(InstallDestinationRefreshScope.PackageMutation, presentation.LastRefreshScope);
+        Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
+        Assert.IsTrue(store.ApprovedNormalInstallOverridePackages.Contains(package));
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride, dialogs.ConfirmationRequest!.MessageBoxText);
+    }
+
+    [TestMethod]
+    public async Task ForceInstallPackagesAsync_OverrideRejectionRunsBoundaryWithoutApprovingPackage()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartFile chart = CreateChart(installDestination: @"C:\Installed\song.bms");
+        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No)
+        };
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        await owner.ForceInstallPackagesAsync([package], () => events.Add("shell-prepare"));
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "shell-prepare",
+                "activity-start",
+                "playback-stop",
+                "suppression-start",
+                "store-force-install",
+                "suppression-end",
+                "activity-end"
+            },
+            events);
+        Assert.AreEqual(0, store.ApprovedNormalInstallOverridePackages.Count);
+        Assert.AreSame(package, store.LastPackages.Single());
+    }
+
+    [TestMethod]
+    public async Task ManualInstallPackagesAsync_RejectionPreservesShellSelectionAndSkipsMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+        };
+        var owner = new InstallDestinationWorkflowOwner(
+            CreateLibrary,
+            new ChartFileOperationSynchronizer(),
+            new RecordingPresentation(events),
+            dialogs,
+            () => new InstallDestinationWorkflowSettingsSnapshot(
+                showManualInstallConfirmation: true,
+                deletePendingPackageSourceAfterInstall: true),
+            store);
+        int prepareCount = 0;
+
+        await owner.ManualInstallPackagesAsync(
+            [ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())])],
+            () => prepareCount++);
+
+        Assert.AreEqual(0, prepareCount);
+        Assert.AreEqual(0, events.Count);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Msg_manual_installation_delete_source,
+            dialogs.ConfirmationRequest!.MessageBoxText);
+    }
+
+    [TestMethod]
+    public async Task InstallPendingAsync_ResolvesRequestBeforePreparingShellAndForceInstalling()
+    {
+        var events = new List<string>();
+        ChartFile chart = CreateChart();
+        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var store = new RecordingStore(events) { ResolvedPackages = [package] };
+        var owner = CreateOwner(CreateLibrary, events, store, new FakeUiDialogService());
+        PendingInstallPackageOperationRequest request =
+            PendingInstallPackageOperationRequest.CreateForceInstall([CreateTarget(chart)]);
+
+        await owner.InstallPendingAsync(request, () => events.Add("shell-prepare"));
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "store-resolve-packages",
+                "shell-prepare",
+                "activity-start",
+                "playback-stop",
+                "suppression-start",
+                "store-force-install",
+                "suppression-end",
+                "activity-end"
+            },
+            events);
+        Assert.AreSame(package, store.LastPackages.Single());
+    }
+
+    [TestMethod]
+    public async Task FixInstalledLocationsAsync_WarnsWithoutDestinationAndDoesNotMutate()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService();
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
+            [CreateTarget(CreateChart(), ChartOperationCapabilities.RepairInstalledLocation)],
+            out RepairInstalledLocationRequest request));
+
+        await owner.FixInstalledLocationsAsync(request);
+
+        Assert.AreEqual(0, events.Count);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning,
+            dialogs.MessageRequest!.MessageBoxText);
+    }
+
+    [TestMethod]
+    public async Task FixInstalledLocationsAsync_WarningDisplayFailurePropagates()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        var failure = new InvalidOperationException("warning display failed");
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService
+        {
+            MessageResult = UiDialogResult.Failed(failure)
+        };
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
+            [CreateTarget(CreateChart(), ChartOperationCapabilities.RepairInstalledLocation)],
+            out RepairInstalledLocationRequest request));
+
+        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => owner.FixInstalledLocationsAsync(request));
+
+        Assert.AreSame(failure, exception.InnerException);
+        StringAssert.Contains(exception.Message, "Installed-location repair warning");
+        Assert.AreEqual(0, events.Count);
+    }
+
+    [TestMethod]
+    public async Task FixInstalledLocationsAsync_ApprovesDuplicateRemovalAndMutatesPackageScope()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartFile chart = CreateChart(
+            path: @"C:\Charts\repair.bms",
+            installDestination: @"C:\Installed\repair.bms");
+        var store = new RecordingStore(events)
+        {
+            DuplicateConfirmations =
+            [
+                new BMSLibrary.DuplicateInstallRepairConfirmation(
+                    chart,
+                    [@"C:\Duplicate\repair.bms"])
+            ]
+        };
+        var presentation = new RecordingPresentation(events);
+        var dialogs = new FakeUiDialogService();
+        dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes));
+        var owner = new InstallDestinationWorkflowOwner(
+            CreateLibrary,
+            new ChartFileOperationSynchronizer(),
+            presentation,
+            dialogs,
+            DefaultSettings,
+            store);
+        Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
+            [CreateTarget(chart, ChartOperationCapabilities.RepairInstalledLocation)],
+            out RepairInstalledLocationRequest request));
+
+        await owner.FixInstalledLocationsAsync(request);
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "store-get-duplicate-confirmations",
+                "activity-start",
+                "playback-stop",
+                "suppression-start",
+                "store-fix-installed-locations",
+                "suppression-end",
+                "activity-end"
+            },
+            events);
+        Assert.AreEqual(InstallDestinationRefreshScope.PackageMutation, presentation.LastRefreshScope);
+        Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
+        CollectionAssert.AreEqual(
+            new[] { chart.Path },
+            store.ApprovedDuplicateRemovalChartPaths.ToArray());
+    }
+
+    [TestMethod]
     public async Task SearchPackagesAsync_WaitsForSharedChartFileGate()
     {
         var synchronizer = new ChartFileOperationSynchronizer();
@@ -343,6 +577,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
             synchronizer,
             new RecordingPresentation(events),
             AcceptedDialogs(),
+            DefaultSettings,
             store);
         using var gateHeld = new ManualResetEventSlim();
         using var releaseGate = new ManualResetEventSlim();
@@ -382,6 +617,7 @@ public sealed class InstallDestinationWorkflowOwnerTests
             new ChartFileOperationSynchronizer(),
             new RecordingPresentation(events),
             dialogs,
+            DefaultSettings,
             store);
     }
 
@@ -393,14 +629,41 @@ public sealed class InstallDestinationWorkflowOwnerTests
         };
     }
 
+    private static InstallDestinationWorkflowSettingsSnapshot DefaultSettings()
+    {
+        return new InstallDestinationWorkflowSettingsSnapshot(
+            showManualInstallConfirmation: false,
+            deletePendingPackageSourceAfterInstall: false);
+    }
+
     private static BMSLibrary CreateLibrary()
     {
         return (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
     }
 
-    private static ChartFile CreateChart()
+    private static ChartFile CreateChart(
+        string path = @"C:\Charts\song.bms",
+        string? installDestination = null)
     {
-        return (ChartFile)FormatterServices.GetUninitializedObject(typeof(ChartFile));
+        var bmsFile = new BMSFile { path = path };
+        return new ChartFile(
+            ChartFileKind.Bms,
+            path,
+            md5: "0123456789abcdef0123456789abcdef",
+            sha256: null,
+            title: "Title",
+            rawTitle: "Title",
+            artist: "Artist",
+            genre: "Genre",
+            folder: "Charts",
+            tag: null,
+            levelText: null,
+            level: null,
+            mode: null,
+            chartInfo: null,
+            bmsFile: bmsFile,
+            bmsonSong: null,
+            installDestination: installDestination);
     }
 
     private static ChartOperationTarget CreateTarget(
@@ -431,9 +694,17 @@ public sealed class InstallDestinationWorkflowOwnerTests
 
         internal Exception? EndRefreshSuppressionFailure { get; set; }
 
+        internal InstallDestinationRefreshScope LastRefreshScope { get; private set; }
+
+        internal IReadOnlyList<ChartFile> StoppedCharts { get; private set; } = [];
+
         public void BeginActivity() => events.Add("activity-start");
 
-        public void BeginRefreshSuppression() => events.Add("suppression-start");
+        public void BeginRefreshSuppression(InstallDestinationRefreshScope scope)
+        {
+            LastRefreshScope = scope;
+            events.Add("suppression-start");
+        }
 
         public void EndRefreshSuppression()
         {
@@ -460,6 +731,12 @@ public sealed class InstallDestinationWorkflowOwnerTests
         public void RefreshIdentitySortKey() => events.Add("identity-refresh");
 
         public void RequestDisplayRefresh() => events.Add("display-refresh");
+
+        public void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
+        {
+            StoppedCharts = charts;
+            events.Add("playback-stop");
+        }
     }
 
     private sealed class RecordingStore : IInstallDestinationStore
@@ -484,6 +761,14 @@ public sealed class InstallDestinationWorkflowOwnerTests
         internal ChartFile? SetResult { get; set; }
 
         internal string? LastDestinationDirectory { get; private set; }
+
+        internal IReadOnlyList<ChartPackage> ResolvedPackages { get; set; } = [];
+
+        internal ISet<ChartPackage> ApprovedNormalInstallOverridePackages { get; private set; } = new HashSet<ChartPackage>();
+
+        internal IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> DuplicateConfirmations { get; set; } = [];
+
+        internal IReadOnlyList<string> ApprovedDuplicateRemovalChartPaths { get; private set; } = [];
 
         internal Exception? Failure { get; set; }
 
@@ -557,6 +842,55 @@ public sealed class InstallDestinationWorkflowOwnerTests
             return SetResult!;
         }
 
+        public IReadOnlyList<ChartPackage> ResolvePendingPackages(
+            BMSLibrary library,
+            IReadOnlyList<ChartOperationTarget> targets)
+        {
+            events.Add("store-resolve-packages");
+            ThrowIfConfigured();
+            return ResolvedPackages;
+        }
+
+        public void ForceInstallPackages(
+            BMSLibrary library,
+            IReadOnlyList<ChartPackage> packages,
+            ISet<ChartPackage> approvedNormalInstallOverridePackages)
+        {
+            events.Add("store-force-install");
+            LastPackages = packages;
+            ApprovedNormalInstallOverridePackages = new HashSet<ChartPackage>(approvedNormalInstallOverridePackages);
+            ThrowIfConfigured();
+        }
+
+        public void ManualInstallPackages(
+            BMSLibrary library,
+            IReadOnlyList<ChartPackage> packages)
+        {
+            events.Add("store-manual-install");
+            LastPackages = packages;
+            ThrowIfConfigured();
+        }
+
+        public IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> GetDuplicateInstallRepairConfirmations(
+            BMSLibrary library,
+            IReadOnlyList<ChartFile> repairCharts)
+        {
+            events.Add("store-get-duplicate-confirmations");
+            ThrowIfConfigured();
+            return DuplicateConfirmations;
+        }
+
+        public void FixInstalledLocations(
+            BMSLibrary library,
+            IReadOnlyList<ChartFile> repairCharts,
+            IReadOnlyList<string> approvedDuplicateRemovalChartPaths)
+        {
+            events.Add("store-fix-installed-locations");
+            ChangedCharts = repairCharts;
+            ApprovedDuplicateRemovalChartPaths = approvedDuplicateRemovalChartPaths;
+            ThrowIfConfigured();
+        }
+
         private void ThrowIfConfigured()
         {
             if (Failure != null)
@@ -568,15 +902,34 @@ public sealed class InstallDestinationWorkflowOwnerTests
 
     private sealed class FakeUiDialogService : IUiDialogService
     {
+        private readonly Queue<UiDialogResult> confirmationResults = new();
+
         internal UiDialogResult? ConfirmationResult { get; set; }
 
         internal UiConfirmationRequest? ConfirmationRequest { get; private set; }
 
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        internal UiMessageRequest? MessageRequest { get; private set; }
+
+        internal UiDialogResult? MessageResult { get; set; }
+
+        internal void EnqueueConfirmation(UiDialogResult result)
+        {
+            confirmationResults.Enqueue(result);
+        }
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            MessageRequest = request;
+            return Task.FromResult(MessageResult ?? UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
             ConfirmationRequest = request;
+            if (confirmationResults.Count > 0)
+            {
+                return Task.FromResult(confirmationResults.Dequeue());
+            }
             return Task.FromResult(ConfirmationResult ?? throw new InvalidOperationException("Confirmation result was not configured."));
         }
 

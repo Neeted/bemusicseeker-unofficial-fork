@@ -4331,16 +4331,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuForceInstallClick");
-        await Task.Run(delegate
-        {
-            viewModel.ForceInstallPendingPackages([pkg]);
-        }).Logging("treeViewInstallPackageContextMenuForceInstallClick");
+        e.Handled = true;
+        await viewModel.InstallDestinations
+            .ForceInstallPackagesAsync(
+                [pkg],
+                () => SelectNextSiblingOrRoot(
+                    treeViewItemInstallPending,
+                    pkg,
+                    "treeViewInstallPackageContextMenuForceInstallClick"))
+            .LoggingAndPropagate("treeViewInstallPackageContextMenuForceInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
             await viewModel.RegularChartList
                 .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
-                .Logging("treeViewInstallPackageContextMenuForceInstallClick");
+                .LoggingAndPropagate("treeViewInstallPackageContextMenuForceInstallClick");
         }
     }
 
@@ -4359,20 +4363,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (base.DataContext is not MainWindowViewModel viewModel || (Settings.Default.ShowDiffBMSInstallConfirmMsg && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK))
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuManualInstallClick");
-        await Task.Run(delegate
-        {
-            viewModel.ManualInstallPendingPackages([pkg]);
-        }).Logging("treeViewInstallPackageContextMenuManualInstallClick");
+        e.Handled = true;
+        await viewModel.InstallDestinations
+            .ManualInstallPackagesAsync(
+                [pkg],
+                () => SelectNextSiblingOrRoot(
+                    treeViewItemInstallPending,
+                    pkg,
+                    "treeViewInstallPackageContextMenuManualInstallClick"))
+            .LoggingAndPropagate("treeViewInstallPackageContextMenuManualInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
             await viewModel.RegularChartList
                 .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
-                .Logging("treeViewInstallPackageContextMenuManualInstallClick");
+                .LoggingAndPropagate("treeViewInstallPackageContextMenuManualInstallClick");
         }
     }
 
@@ -6362,7 +6370,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void tableContextMenuFixInstallationDirectoryClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuFixInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_fix_installation_directory"))
         {
@@ -6383,17 +6391,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        if (!request.HasInstallDestination)
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-        }
-        else if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
-        {
-            Task.Run(delegate
-            {
-                viewModel.FixInstallationDirectoryCharts(request);
-            }).Logging("tableContextMenuFixInstallationDirectoryClick");
-        }
+        await viewModel.InstallDestinations
+            .FixInstalledLocationsAsync(request)
+            .LoggingAndPropagate("tableContextMenuFixInstallationDirectoryClick");
     }
 
     private void tableContextMenuItemDeleteEntryClick(object sender, RoutedEventArgs e)
@@ -6707,24 +6707,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         PendingInstallPackageOperationRequest request = PendingInstallPackageOperationRequest.CreateForceInstall(targets);
-        var viewModel = base.DataContext as MainWindowViewModel;
-        e.Handled = true;
-        ClearMainGridSelection();
-        if (!treeViewItemInstallPending.IsSelected)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
-            SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "forceInstallSelectedPendingCharts");
+            return;
         }
-        await Task.Run(delegate
-        {
-            viewModel.InstallPendingCharts(request);
-        }).Logging("forceInstallSelectedPendingCharts");
-    }
-
-    private static string GetManualInstallConfirmationMessage()
-    {
-        return Settings.Default.DeletePendingPackageSourceAfterInstall
-            ? BeMusicSeeker.Properties.Resources.Msg_manual_installation_delete_source
-            : BeMusicSeeker.Properties.Resources.Msg_manual_installation;
+        e.Handled = true;
+        await viewModel.InstallDestinations
+            .InstallPendingAsync(request, () =>
+            {
+                ClearMainGridSelection();
+                if (!treeViewItemInstallPending.IsSelected)
+                {
+                    SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "forceInstallSelectedPendingCharts");
+                }
+            })
+            .LoggingAndPropagate("forceInstallSelectedPendingCharts");
     }
 
     private async void manualInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
@@ -6749,21 +6746,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         PendingInstallPackageOperationRequest request = PendingInstallPackageOperationRequest.CreateManualInstall(targets);
-        var viewModel = base.DataContext as MainWindowViewModel;
-        e.Handled = true;
-        if (Settings.Default.ShowDiffBMSInstallConfirmMsg && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        ClearMainGridSelection();
-        if (!treeViewItemInstallPending.IsSelected)
-        {
-            SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "manualInstallSelectedPendingCharts");
-        }
-        await Task.Run(delegate
-        {
-            viewModel.InstallPendingCharts(request);
-        }).Logging("manualInstallSelectedPendingCharts");
+        e.Handled = true;
+        await viewModel.InstallDestinations
+            .InstallPendingAsync(request, () =>
+            {
+                ClearMainGridSelection();
+                if (!treeViewItemInstallPending.IsSelected)
+                {
+                    SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "manualInstallSelectedPendingCharts");
+                }
+            })
+            .LoggingAndPropagate("manualInstallSelectedPendingCharts");
     }
 
     private async void searchInstallDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)

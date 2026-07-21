@@ -53,6 +53,8 @@ internal sealed class ApplicationComposition
 
     private readonly IPlaybackSettingsStore playbackSettingsStore;
 
+    private readonly Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider;
+
     private readonly Func<IBMSPlayer> defaultBmsPlayerFactory;
 
     private readonly Func<MainWindowViewModel, Task<bool>> initializeOwner;
@@ -73,7 +75,8 @@ internal sealed class ApplicationComposition
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         ISettingsEditSession settingsEditSession = null,
         Func<IBMSPlayer> defaultBmsPlayerFactory = null,
-        Func<MainWindowViewModel, Task<bool>> initializeOwner = null)
+        Func<MainWindowViewModel, Task<bool>> initializeOwner = null,
+        Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -108,6 +111,8 @@ internal sealed class ApplicationComposition
             ?? new SettingsKeywordSearchHistorySettingsStore(() => this.settingsEditSession.Values);
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
+        this.installDestinationSettingsProvider = installDestinationSettingsProvider
+            ?? (() => InstallDestinationWorkflowSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values));
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;
@@ -135,6 +140,9 @@ internal sealed class ApplicationComposition
     internal IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore => keywordSearchHistorySettingsStore;
 
     internal IPlayHistoryDisplaySettingsStore PlayHistoryDisplaySettingsStore => playHistoryDisplaySettingsStore;
+
+    internal Func<InstallDestinationWorkflowSettingsSnapshot> InstallDestinationSettingsProvider =>
+        installDestinationSettingsProvider;
 
     internal ISettingsEditSession SettingsEditSession => settingsEditSession;
 
@@ -318,6 +326,7 @@ internal sealed class ApplicationComposition
             installDestinationLibraryProvider,
             installDestinationPresentation,
             installDestinationDialogService,
+            installDestinationSettingsProvider,
             reportPackageInstallWorkflowNotificationFailure,
             maintenanceRescanExecutor,
             maintenanceRescanScheduler,
@@ -478,6 +487,7 @@ internal sealed class MainWindowChildComposition
         Func<BMSLibrary> installDestinationLibraryProvider,
         IInstallDestinationMutationPresentation installDestinationPresentation,
         IUiDialogService installDestinationDialogService,
+        Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
         Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
@@ -517,7 +527,8 @@ internal sealed class MainWindowChildComposition
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
             chartFileOperations,
             installDestinationPresentation ?? throw new ArgumentNullException(nameof(installDestinationPresentation)),
-            installDestinationDialogService ?? throw new ArgumentNullException(nameof(installDestinationDialogService)));
+            installDestinationDialogService ?? throw new ArgumentNullException(nameof(installDestinationDialogService)),
+            installDestinationSettingsProvider ?? throw new ArgumentNullException(nameof(installDestinationSettingsProvider)));
         RegularChartListOwner = new RegularChartListOwner(
             MainChartList,
             PlaylistWorkspace,

@@ -2101,9 +2101,21 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         BeginChartPackageMutation();
     }
 
-    void IInstallDestinationMutationPresentation.BeginRefreshSuppression()
+    void IInstallDestinationMutationPresentation.BeginRefreshSuppression(
+        InstallDestinationRefreshScope scope)
     {
-        BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
+        UiRefreshChannel refreshMask = scope switch
+        {
+            InstallDestinationRefreshScope.DestinationState =>
+                UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
+            InstallDestinationRefreshScope.PackageMutation =>
+                UiRefreshChannel.LibraryMainView
+                | UiRefreshChannel.InstallTree
+                | UiRefreshChannel.LibraryFolderTree
+                | UiRefreshChannel.DuplicateTree,
+            _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "Unsupported install-destination refresh scope.")
+        };
+        BeginUiUpdateSuppression(refreshMask);
     }
 
     void IInstallDestinationMutationPresentation.EndRefreshSuppression()
@@ -2138,6 +2150,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
     void IInstallDestinationMutationPresentation.RequestDisplayRefresh()
     {
         MainChartList.RequestDisplayRefresh();
+    }
+
+    void IInstallDestinationMutationPresentation.StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
+    {
+        PlaybackPanel.StopIfPlayingCharts(charts);
     }
 
     private void RunChartPackageMutation(
@@ -9166,124 +9183,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         };
     }
 
-    private List<ChartPackage> ExtractChartPackagesFromChartTargets(ref List<ChartOperationTarget> targets, bool isInstalled = false)
-    {
-        DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
-        List<ChartOperationTarget> remainingTargets = [];
-        List<ChartPackage> packages = [];
-        foreach (ChartOperationTarget target in targets)
-        {
-            ChartPackage chartPackage = source?.FirstOrDefault(p => ContainsChartTarget(p, target));
-            if (chartPackage == null)
-            {
-                remainingTargets.Add(target);
-            }
-            else
-            {
-                packages.Add(chartPackage);
-            }
-        }
-        targets = remainingTargets;
-        return [.. packages.Distinct()];
-    }
-
-    private static bool ContainsChartTarget(ChartPackage chartPackage, ChartOperationTarget target)
-    {
-        ChartFile chart = target?.Chart;
-        if (chartPackage == null || chart == null)
-        {
-            return false;
-        }
-        if (target.PackageEntry != null)
-        {
-            return (chartPackage.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(target.PackageEntry) == true);
-        }
-        return (chartPackage.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(chart) == true);
-    }
-
-    public void ForceInstallPendingPackages(IEnumerable<ChartPackage> packages)
-    {
-        if (packages == null)
-        {
-            throw new ArgumentNullException(nameof(packages));
-        }
-        List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
-        HashSet<ChartPackage> approvedNormalInstallOverridePackages = [];
-        foreach (ChartPackage package in list.Where(pkg => (pkg.ChartEntries ?? []).Any(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination))))
-        {
-            bool approved = ShowUiConfirmation(
-                BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride,
-                BeMusicSeeker.Properties.Resources.Confirm_NormalInstallTitle,
-                MessageBoxImage.Question,
-                MessageBoxButton.YesNo,
-                "Pending package normal install override confirmation",
-                MessageBoxResult.Yes);
-            if (approved)
-            {
-                approvedNormalInstallOverridePackages.Add(package);
-            }
-        }
-        RunPendingInstallMutation(delegate
-        {
-            files.ForceInstallPendingPackages(list, approveNormalInstallOverride: false, approvedNormalInstallOverridePackages: approvedNormalInstallOverridePackages);
-        }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
-    }
-
-    private void ForceInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
-    {
-        if (targets == null)
-        {
-            throw new ArgumentNullException(nameof(targets));
-        }
-        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
-        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
-        ForceInstallPendingPackages(chartPackages);
-    }
-
-    public void ManualInstallPendingPackages(IEnumerable<ChartPackage> packages)
-    {
-        if (packages == null)
-        {
-            throw new ArgumentNullException(nameof(packages));
-        }
-        List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
-        RunPendingInstallMutation(delegate
-        {
-            files.InstallPendingPackagesToEstimatedDestinations(list);
-        }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
-    }
-
-    private void ManualInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
-    {
-        if (targets == null)
-        {
-            throw new ArgumentNullException("targets");
-        }
-        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
-        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
-        ManualInstallPendingPackages(chartPackages);
-    }
-
-    internal void InstallPendingCharts(PendingInstallPackageOperationRequest request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-
-        switch (request.Kind)
-        {
-            case PendingInstallPackageOperationKind.ForceInstall:
-                ForceInstallPendingCharts(request.Targets);
-                return;
-            case PendingInstallPackageOperationKind.ManualInstall:
-                ManualInstallPendingCharts(request.Targets);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unsupported pending install package operation.");
-        }
-    }
-
     public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts()
     {
         if (files == null)
@@ -9535,59 +9434,12 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         }
     }
 
-    private List<string> ConfirmDuplicateInstallRepairRemovals(IEnumerable<ChartFile> repairCharts)
-    {
-        if (files == null)
-        {
-            return [];
-        }
-        List<string> approvedPaths = [];
-        List<BMSLibrary.DuplicateInstallRepairConfirmation> confirmations = files.GetDuplicateInstallRepairConfirmations(repairCharts);
-        foreach (BMSLibrary.DuplicateInstallRepairConfirmation confirmation in confirmations)
-        {
-            ChartFile chart = confirmation.Chart;
-            if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
-            {
-                continue;
-            }
-            if (ShowUiConfirmation(
-                string.Format(BeMusicSeeker.Properties.Resources.Confirm_DuplicateReinstallSkipped, chart.Path, string.Join(Environment.NewLine, confirmation.DuplicatePaths)),
-                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
-                MessageBoxImage.Question,
-                MessageBoxButton.YesNo,
-                "Duplicate reinstall repair confirmation",
-                MessageBoxResult.Yes))
-            {
-                approvedPaths.Add(chart.Path);
-            }
-        }
-        return approvedPaths;
-    }
-
     private static void LogDuplicateMergePerformance(string message)
     {
         if (CommandLineSwitches.IsInfoLoggingEnabled)
         {
             NLogWrapper.GetLogger("InstallPerformance.DuplicateMerge").Info(message);
         }
-    }
-
-    internal void FixInstallationDirectoryCharts(RepairInstalledLocationRequest request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-        if (!request.HasTargets)
-        {
-            return;
-        }
-        IReadOnlyList<ChartFile> repairCharts = request.RepairCharts;
-        List<string> approvedDuplicateRemovalChartPaths = ConfirmDuplicateInstallRepairRemovals(repairCharts);
-        RunChartPackageMutation(delegate
-        {
-            files.FixInstallationDirectoryCharts(repairCharts, approvedDuplicateRemovalChartPaths);
-        }, GetBmsFormatCharts(repairCharts), UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<ChartOperationTarget> targets)

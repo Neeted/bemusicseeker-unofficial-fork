@@ -3531,7 +3531,10 @@ public sealed class RegularChartListOwnerTests
               () => null!,
               new ChartFileOperationSynchronizer(),
               new TestInstallDestinationMutationPresentation(),
-              new TestUiDialogService());
+              new TestUiDialogService(),
+              () => new InstallDestinationWorkflowSettingsSnapshot(
+                  showManualInstallConfirmation: false,
+                  deletePendingPackageSourceAfterInstall: false));
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceForOwner()

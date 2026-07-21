@@ -102,7 +102,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string runMethod = ExtractMethodBody(source, "private void RunChartPackageMutation(");
         string autoInstallMethod = ExtractMethodBody(source, "private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(");
-        string forceInstallMethod = ExtractMethodBody(source, "public void ForceInstallPendingPackages(");
+        string forceInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task InstallResolvedPackagesAsync(");
         string installDestinationBoundary = ExtractMethodBody(installDestinationSource, "private bool Execute(");
         string repairInstallDestinationMethod = ExtractMethodBody(installDestinationSource, "internal Task SearchCorrectAsync(");
         string autoInstallLibraryMethod = ExtractMethodBody(librarySource, "public List<ChartPackage> InstallChartPackagesAuto(");
@@ -122,11 +122,11 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(runMethod, "EndUiUpdateSuppression()");
         StringAssert.Contains(runMethod, "dialogScope?.Flush()");
         StringAssert.Contains(autoInstallMethod, "RunChartPackageMutation");
-        StringAssert.Contains(forceInstallMethod, "approvedNormalInstallOverridePackages");
-        StringAssert.Contains(forceInstallMethod, "approveNormalInstallOverride: false");
+        StringAssert.Contains(forceInstallMethod, "store.ForceInstallPackages");
+        StringAssert.Contains(forceInstallMethod, "InstallDestinationRefreshScope.PackageMutation");
         StringAssert.Contains(installDestinationBoundary, "BeginOperationDialogScope()");
         StringAssert.Contains(installDestinationBoundary, "operationGate = chartFileOperations.Enter()");
-        StringAssert.Contains(installDestinationBoundary, "presentation.BeginRefreshSuppression()");
+        StringAssert.Contains(installDestinationBoundary, "presentation.BeginRefreshSuppression(refreshScope)");
         StringAssert.Contains(installDestinationBoundary, "CaptureCleanupFailure(dialogScope.Flush, failures)");
         StringAssert.Contains(installDestinationBoundary, "ThrowFailures(failures)");
         StringAssert.Contains(repairInstallDestinationMethod, "Execute(library =>");

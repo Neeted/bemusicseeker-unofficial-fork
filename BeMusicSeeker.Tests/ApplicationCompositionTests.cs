@@ -1124,7 +1124,9 @@ public sealed class ApplicationCompositionTests
             LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-output\"]",
             EnablePlaylistUrlCompletion = true,
             EnableBeatorajaBmtOutput = true,
-            LR2CustomFolderOutputBaseDir = "session-output-base"
+            LR2CustomFolderOutputBaseDir = "session-output-base",
+            ShowDiffBMSInstallConfirmMsg = true,
+            DeletePendingPackageSourceAfterInstall = true
         };
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(settingsEditSession: session);
@@ -1133,6 +1135,8 @@ public sealed class ApplicationCompositionTests
         PlaylistUrlCompletionOptionsSnapshot playlistOptions = composition.PlaylistUrlCompletionOptionsProvider();
         BeatorajaBmtOptionsSnapshot beatorajaOptions = composition.BeatorajaBmtOptionsProvider();
         CustomFolderOutputSettingsSnapshot customFolderOptions = composition.CustomFolderOutputSettingsProvider();
+        InstallDestinationWorkflowSettingsSnapshot installDestinationOptions =
+            composition.InstallDestinationSettingsProvider();
 
         Assert.AreEqual(11, libraryOptions.PendingInstallEstimateMaxParallelPackages);
         Assert.AreEqual(1, libraryOptions.LR2CustomFolderAdditionalOutputBaseDirs.Count);
@@ -1142,6 +1146,8 @@ public sealed class ApplicationCompositionTests
         Assert.IsTrue(playlistOptions.EnablePlaylistUrlCompletion);
         Assert.IsTrue(beatorajaOptions.EnableBeatorajaBmtOutput);
         Assert.AreEqual("session-output-base", customFolderOptions.LR2CustomFolderOutputBaseDir);
+        Assert.IsTrue(installDestinationOptions.ShowManualInstallConfirmation);
+        Assert.IsTrue(installDestinationOptions.DeletePendingPackageSourceAfterInstall);
 
         values.PendingInstallEstimateMaxParallelPackages = 13;
         Assert.AreEqual(13, composition.BmsLibraryOptionsProvider().PendingInstallEstimateMaxParallelPackages);
