@@ -302,7 +302,10 @@ internal sealed class ApplicationComposition
             invalidatePlayHistoryReadCache: owner.InvalidatePlayHistoryReadCache,
             applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(
                 schemaDialogs,
-                new Lr2ApplicationDataUninstallStore()));
+                new Lr2ApplicationDataUninstallStore()),
+            audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
+                new PlaybackPanelAudioDeviceTestPlaybackPort(owner.PlaybackPanel),
+                new BassAudioDeviceTestRuntime()));
     }
 
     internal MainWindowChildComposition CreateMainWindowChildComposition(

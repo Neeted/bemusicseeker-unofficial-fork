@@ -2075,6 +2075,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string playerDriverProperty = ExtractBetween(
             viewModelCode,
@@ -2126,6 +2127,13 @@ public sealed class MainWindowContextMenuResourceTests
             "public SettingDialogViewModel(MainWindowViewModel owner)");
 
         StringAssert.Contains(xaml, "IsChecked=\"{Binding settingDialog.UseInternalPlayer}\"");
+        StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.IsAudioDeviceTestAvailable, Mode=OneWay}\"");
+        StringAssert.Contains(viewModelCode, "public bool IsEditCompletionEnabled => !IsEditCompletionInProgress && !IsAudioDeviceTestInProgress;");
+        StringAssert.Contains(viewModelCode, "public bool IsEditCancellationEnabled => !IsEditCompletionInProgress");
+        StringAssert.Contains(viewModelCode, "if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress)");
+        StringAssert.Contains(settingDialogCode, "await settingDialogViewModel.RunAudioDeviceTestAsync();");
+        Assert.IsFalse(settingDialogCode.Contains("AudioPlayerInitTest"));
+        Assert.IsFalse(settingDialogCode.Contains("Task.Run"));
         Assert.IsFalse(xaml.Contains("Name=\"radioButtonInternalPlayer\" Height=\"20\" GroupName=\"Player\" Margin=\"30,0,0,0\" IsChecked=\"True\""));
         StringAssert.Contains(playerSelectionProperties, "public bool UseInternalPlayer");
         StringAssert.Contains(playerSelectionProperties, "SetPlayerSelection(usePlayeruBMplay: false, usePlayerLR2body: false, usePlayerBMIIDXView: false);");

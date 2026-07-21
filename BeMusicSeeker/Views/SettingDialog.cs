@@ -646,14 +646,9 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void buttonPlayerTestClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel && sender is Button button)
+        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
-            settingDialog.IsEnabled = false;
-            await Task.Run(delegate
-            {
-                viewModel.settingDialog?.AudioPlayerInitTest();
-            });
-            settingDialog.IsEnabled = true;
+            await settingDialogViewModel.RunAudioDeviceTestAsync();
         }
     }
 }

@@ -14,6 +14,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using Ribbit.Media;
+using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
@@ -71,6 +73,53 @@ public sealed class SettingDialogEditCompletionTests
                 requests);
             Assert.IsFalse(dialog.IsEditCompletionInProgress);
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTestBusy_BlocksEditCompletionAndCancellation()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            SetActiveLibraryProfile(viewModel, true);
+            using var runtimeStarted = new ManualResetEventSlim();
+            using var releaseRuntime = new ManualResetEventSlim();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new BlockingAudioDeviceTestRuntime(runtimeStarted, releaseRuntime));
+            MainWindowViewModel.SettingDialogViewModel dialog = new(
+                viewModel,
+                settingsSession.Reload,
+                settingsSession.Save,
+                settingsSession,
+                audioDeviceTestWorkflow: workflow);
+            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
+            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+
+            Task testTask = dialog.RunAudioDeviceTestAsync();
+
+            Assert.IsTrue(runtimeStarted.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsFalse(dialog.IsEditCompletionEnabled);
+            Assert.IsFalse(dialog.IsEditCancellationEnabled);
+
+            await dialog.ApplySettingsAsync();
+            dialog.CancelCommand.Execute();
+            Assert.AreEqual(0, settingsSession.SaveCount);
+            CollectionAssert.DoesNotContain(
+                requests,
+                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+
+            releaseRuntime.Set();
+            await testTask;
+            Assert.IsTrue(dialog.IsEditCompletionEnabled);
+            Assert.IsTrue(dialog.IsEditCancellationEnabled);
         }
         finally
         {
@@ -805,6 +854,39 @@ public sealed class SettingDialogEditCompletionTests
                 SaveEntered.Set();
                 ReleaseSave.Wait();
             }
+        }
+    }
+
+    private sealed class TestAudioDeviceTestPlaybackPort : IAudioDeviceTestPlaybackPort
+    {
+        public void StopPlayback()
+        {
+        }
+    }
+
+    private sealed class BlockingAudioDeviceTestRuntime : IAudioDeviceTestRuntime
+    {
+        private readonly ManualResetEventSlim runtimeStarted;
+
+        private readonly ManualResetEventSlim releaseRuntime;
+
+        internal BlockingAudioDeviceTestRuntime(ManualResetEventSlim runtimeStarted, ManualResetEventSlim releaseRuntime)
+        {
+            this.runtimeStarted = runtimeStarted;
+            this.releaseRuntime = releaseRuntime;
+        }
+
+        public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
+        {
+            runtimeStarted.Set();
+            releaseRuntime.Wait();
+            return new AudioDeviceTestResult(
+                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                request.PlayerDevice,
+                request.PlayerDeviceName,
+                request.PlayerSampleRate,
+                request.PlayerFormat,
+                0);
         }
     }
 }

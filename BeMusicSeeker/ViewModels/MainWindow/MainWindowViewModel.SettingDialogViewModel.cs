@@ -124,6 +124,8 @@ public partial class MainWindowViewModel
 
         private readonly ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow;
 
+        private readonly AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow;
+
         /// <summary>
         /// Requests that the shell present the settings dialog.
         /// </summary>
@@ -167,12 +169,25 @@ public partial class MainWindowViewModel
         /// <summary>
         /// Gets a value indicating whether the settings editor can accept another completion command.
         /// </summary>
-        public bool IsEditCompletionEnabled => !IsEditCompletionInProgress;
+        public bool IsEditCompletionEnabled => !IsEditCompletionInProgress && !IsAudioDeviceTestInProgress;
 
         /// <summary>
         /// Gets a value indicating whether the settings editor can be cancelled without leaving a failed score or file-diff reload pending.
         /// </summary>
-        public bool IsEditCancellationEnabled => !IsEditCompletionInProgress && !scoreReloadPending && !fileDiffReloadPending;
+        public bool IsEditCancellationEnabled => !IsEditCompletionInProgress
+            && !IsAudioDeviceTestInProgress
+            && !scoreReloadPending
+            && !fileDiffReloadPending;
+
+        /// <summary>
+        /// Gets a value indicating whether the audio-device test is currently running.
+        /// </summary>
+        public bool IsAudioDeviceTestInProgress => audioDeviceTestWorkflow?.IsRunning == true;
+
+        /// <summary>
+        /// Gets a value indicating whether the audio-device test command can start.
+        /// </summary>
+        public bool IsAudioDeviceTestAvailable => !IsAudioDeviceTestInProgress;
 
         internal bool IsScoreReloadPending => scoreReloadPending;
 
@@ -193,7 +208,7 @@ public partial class MainWindowViewModel
 
         private void ExecuteCancelCommand()
         {
-            if (IsEditCompletionInProgress || scoreReloadPending || fileDiffReloadPending)
+            if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || scoreReloadPending || fileDiffReloadPending)
             {
                 return;
             }
@@ -219,7 +234,7 @@ public partial class MainWindowViewModel
         /// </summary>
         internal async Task ApplySettingsAsync()
         {
-            if (IsEditCompletionInProgress)
+            if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress)
             {
                 return;
             }
@@ -3721,7 +3736,8 @@ public partial class MainWindowViewModel
             Func<Task> reloadFileDiff = null,
             IUiDialogService schemaDialogs = null,
             Action<string> invalidatePlayHistoryReadCache = null,
-            ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow = null)
+            ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow = null,
+            AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow = null)
         {
             SettingDialogViewModel settingDialogViewModel = this;
             ownerViewModel = owner;
@@ -3741,6 +3757,10 @@ public partial class MainWindowViewModel
             this.invalidatePlayHistoryReadCache = invalidatePlayHistoryReadCache ?? owner.InvalidatePlayHistoryReadCache;
             this.applicationDataUninstallWorkflow = applicationDataUninstallWorkflow
                 ?? new ApplicationDataUninstallWorkflowOwner(this.schemaDialogs, new Lr2ApplicationDataUninstallStore());
+            this.audioDeviceTestWorkflow = audioDeviceTestWorkflow
+                ?? new AudioDeviceTestWorkflowOwner(
+                    new PlaybackPanelAudioDeviceTestPlaybackPort(ownerViewModel.PlaybackPanel),
+                    new BassAudioDeviceTestRuntime());
             playHistoryDisplaySettingsStore = owner.PlayHistoryDisplaySettingsStore;
             appearanceThemeOptions =
             [
@@ -5499,63 +5519,56 @@ public partial class MainWindowViewModel
             }
         }
 
-        public void AudioPlayerInitTest(bool playSound = true)
+        internal async Task RunAudioDeviceTestAsync()
         {
-            ownerViewModel.PlaybackPanel.StopPlayback(closeProcess: true);
-            BassAudioPlayer.DeviceDescriptor desc = (string.IsNullOrWhiteSpace(ApplicationSettings.PlayerDevice) ? default : new BassAudioPlayer.DeviceDescriptor(ApplicationSettings.PlayerDeviceName, ApplicationSettings.PlayerDevice));
-            BassAudioPlayer.Frequency = ApplicationSettings.PlayerSampleRate;
-            BassAudioPlayer.Format = ApplicationSettings.PlayerFormat;
-            BassAudioPlayer.DeviceVolume = (float)Math.Min(100, Math.Max(0, ApplicationSettings.uBMplayVolume)) / 100f;
-            desc = BassAudioPlayer.Initialize(ApplicationSettings.PlayerDriver, desc, ApplicationSettings.PlayerBufferSize, ApplicationSettings.PlayerWASAPIParam);
-            ApplicationSettings.PlayerDriver = BassAudioPlayer.DriverType;
-            if (BassAudioPlayer.DriverType < BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+            if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress)
             {
-                ApplicationSettings.PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
-                NLogWrapper.TraceLogger.Warn("Sound device not found?");
+                return;
             }
-            ApplicationSettings.PlayerDevice = desc.Driver;
-            ApplicationSettings.PlayerDeviceName = desc.Name;
-            ApplicationSettings.PlayerSampleRate = BassAudioPlayer.Frequency;
-            ApplicationSettings.PlayerFormat = BassAudioPlayer.Format;
-            PlayerLatency = BassAudioPlayer.Latency;
-            if (playSound)
+
+            AudioDeviceTestRequest request = new(
+                ApplicationSettings.PlayerDriver,
+                ApplicationSettings.PlayerDevice,
+                ApplicationSettings.PlayerDeviceName,
+                ApplicationSettings.PlayerSampleRate,
+                ApplicationSettings.PlayerFormat,
+                ApplicationSettings.PlayerBufferSize,
+                ApplicationSettings.PlayerWASAPIParam,
+                ApplicationSettings.uBMplayVolume,
+                playSound: true);
+            Task<AudioDeviceTestResult> testTask = audioDeviceTestWorkflow.TryRunAsync(request);
+            RaisePropertyChanged(() => IsAudioDeviceTestInProgress);
+            RaisePropertyChanged(() => IsAudioDeviceTestAvailable);
+            RaisePropertyChanged(() => IsEditCompletionEnabled);
+            RaisePropertyChanged(() => IsEditCancellationEnabled);
+            try
             {
-                string text = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "test.mp3");
-                if (File.Exists(text))
+                AudioDeviceTestResult result = await testTask;
+                if (result == null)
                 {
-                    BassAudioPlayer bassAudioPlayer = null;
-                    try
-                    {
-                        bassAudioPlayer = new BassAudioPlayer(text);
-                        bassAudioPlayer.Play();
-                        int num = 0;
-                        while (bassAudioPlayer.PlayState != PlayState.Stopped || bassAudioPlayer.CurrentTime == TimeSpan.Zero)
-                        {
-                            Thread.Sleep(100);
-                            num++;
-                            if (num == 100)
-                            {
-                                throw new Exception("No response from sound device");
-                            }
-                        }
-                    }
-                    catch (Exception value)
-                    {
-                        NLogWrapper.TraceLogger.Warn(value);
-                    }
-                    finally
-                    {
-                        bassAudioPlayer?.Dispose();
-                    }
+                    return;
                 }
+
+                ApplicationSettings.PlayerDriver = result.PlayerDriver;
+                ApplicationSettings.PlayerDevice = result.PlayerDevice;
+                ApplicationSettings.PlayerDeviceName = result.PlayerDeviceName;
+                ApplicationSettings.PlayerSampleRate = result.PlayerSampleRate;
+                ApplicationSettings.PlayerFormat = result.PlayerFormat;
+                PlayerLatency = result.PlayerLatency;
+                RaisePropertyChanged(() => PlayerDriverIndex);
+                RaisePropertyChanged(() => PlayerDeviceNames);
+                RaisePropertyChanged(() => PlayerDevice);
+                RaisePropertyChanged(() => PlayerSampleRate);
+                RaisePropertyChanged(() => PlayerFormat);
+                RaisePropertyChanged(() => PlayerLatency);
             }
-            BassAudioPlayer.Free();
-            RaisePropertyChanged(() => PlayerDriverIndex);
-            RaisePropertyChanged(() => PlayerDeviceNames);
-            RaisePropertyChanged(() => PlayerDevice);
-            RaisePropertyChanged(() => PlayerSampleRate);
-            RaisePropertyChanged(() => PlayerFormat);
-            RaisePropertyChanged(() => PlayerLatency);
+            finally
+            {
+                RaisePropertyChanged(() => IsAudioDeviceTestInProgress);
+                RaisePropertyChanged(() => IsAudioDeviceTestAvailable);
+                RaisePropertyChanged(() => IsEditCompletionEnabled);
+                RaisePropertyChanged(() => IsEditCancellationEnabled);
+            }
         }
 
         [Flags]
