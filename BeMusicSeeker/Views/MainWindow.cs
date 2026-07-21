@@ -3972,6 +3972,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private async void treeViewLibraryFolderContextMenuItemReinitializeClick(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel viewModel && sender is MenuItem)
+        {
+            await viewModel.ReinitializeLibraryAsync()
+                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReinitializeClick");
+        }
+    }
+
     /// <summary>
     /// BMS検索フォルダコンテキストメニュー「BMS検索フォルダから除外」実行時の処理。
     /// ユーザー確認ダイアログ表示後、アプリケーション設定のBMSルートフォルダー一覧から該当のパスを除外して保存します。

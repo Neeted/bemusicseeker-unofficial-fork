@@ -228,7 +228,7 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 
 ## Operation Serialization
 
-`InitializeForSettingsAsync()`, `ReloadFileDiffAsync()`, `ReloadScoresOnlyAsync()`, `ReloadTables()`, `ReinitializeLibrary()` は `_semaphore` で直列化される。XAML の `InitializeAsync()` はこの awaitable operation を起動する presentation boundary である。
+`InitializeForSettingsAsync()`, `ReloadFileDiffAsync()`, `ReloadScoresOnlyAsync()`, `ReloadTables()`, `ReinitializeLibraryAsync()` は `_semaphore` で直列化される。XAML の `InitializeAsync()` はこの awaitable operation を起動する presentation boundary である。
 ただし `_semaphore` は同時実行を防ぐだけで、ユーザー操作から 2 回目の operation を予約することまでは防がない。
 
 そのため設定画面 OK の時点で active operation を拒否し、意図しない予約を作らない。score-only / file-diff operation または設定画面から起動した初期化が失敗した場合は、失敗表示を保持しつつ `IsLibraryOperationInProgress` の busy 判定を解除し、semaphore と UI suppression の cleanup 後に設定画面 OK から同じ反映を再試行できるようにする。他の active / failed operation は従来どおり busy として扱う。

@@ -5194,7 +5194,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
-    public async void ReinitializeLibrary()
+    internal async Task ReinitializeLibraryAsync()
     {
         if (!initializationCompleted)
         {
@@ -5213,7 +5213,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             {
                 LogInitStage("files_initialize_call", "FullReinitialize");
                 files.Reinitialize();
-            }).Logging("FullReinitialize");
+            }).LoggingAndPropagate("FullReinitialize");
             LogInitStage("files_initialize_done", "FullReinitialize");
             scheduleDeferredPlaylistRef = true;
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))

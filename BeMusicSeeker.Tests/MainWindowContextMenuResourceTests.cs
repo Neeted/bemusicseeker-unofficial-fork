@@ -1104,7 +1104,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(reloadHandler, "await viewModel.ReloadFileDiffAsync()");
         StringAssert.Contains(reloadHandler, ".LoggingAndPropagate(\"treeViewLibraryFolderContextMenuItemReloadClick\")");
         Assert.IsFalse(mainWindowCode.Contains("viewModel.ReloadFileDiff();"));
-        Assert.AreEqual(2, CountOccurrences(xaml, "MethodName=\"ReinitializeLibrary\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "MethodName=\"ReinitializeLibrary\""));
+        Assert.AreEqual(2, CountOccurrences(xaml, "Click=\"treeViewLibraryFolderContextMenuItemReinitializeClick\""));
+        string reinitializeHandler = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewLibraryFolderContextMenuItemReinitializeClick",
+            "private async void treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
+        StringAssert.Contains(reinitializeHandler, "await viewModel.ReinitializeLibraryAsync()");
+        StringAssert.Contains(reinitializeHandler, ".LoggingAndPropagate(\"treeViewLibraryFolderContextMenuItemReinitializeClick\")");
         Assert.AreEqual(2, CountOccurrences(xaml, "Path=Resources.Reinitialize_library, Mode=OneWay"));
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Reinitialize_library));
     }
@@ -1882,7 +1889,11 @@ public sealed class MainWindowContextMenuResourceTests
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
             "internal async Task ReloadFileDiffAsync()",
-            "public async void ReinitializeLibrary()");
+            "internal async Task ReinitializeLibraryAsync()");
+        string reinitialize = ExtractBetween(
+            viewModelCode,
+            "internal async Task ReinitializeLibraryAsync()",
+            "internal static string BuildAppSchemaRepairWarningMessage");
         string initialize = ExtractBetween(
             viewModelCode,
             "internal async Task<bool> InitializeForSettingsAsync()",
@@ -1911,6 +1922,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(
             reloadFileDiff.IndexOf("PlaylistWorkspace.QueuePlaylistReferenceApply(", StringComparison.Ordinal)
             < reloadFileDiff.IndexOf("MarkStartupProgressFailureCleanupComplete(operationToken)", StringComparison.Ordinal));
+        StringAssert.Contains(reinitialize, ".LoggingAndPropagate(\"FullReinitialize\")");
+        Assert.IsTrue(
+            reinitialize.IndexOf("_semaphore.Release();", StringComparison.Ordinal)
+            < reinitialize.IndexOf("PlaylistWorkspace.QueuePlaylistReferenceApply(", StringComparison.Ordinal));
+        Assert.IsFalse(viewModelCode.Contains("public async void ReinitializeLibrary()"));
         Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "PlaylistWorkspace.QueueExternalPlaylistSync(");
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
@@ -2228,7 +2244,7 @@ public sealed class MainWindowContextMenuResourceTests
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
             "internal async Task ReloadFileDiffAsync()",
-            "public async void ReinitializeLibrary()");
+            "internal async Task ReinitializeLibraryAsync()");
         string manualResyncClickHandler = ExtractBetween(
             settingDialogCode,
             "private async void resyncLr2SongDbSyncDataButtonClicked",
