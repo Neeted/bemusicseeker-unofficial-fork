@@ -14,18 +14,3 @@ internal sealed class RegularChartFolderEditRequestedEventArgs : EventArgs
 
     internal string FolderName { get; }
 }
-
-internal sealed class RegularChartInstallDestinationEditRequestedEventArgs : EventArgs
-{
-    internal RegularChartInstallDestinationEditRequestedEventArgs(
-        PendingInstallDestinationEditRequest request,
-        string destinationDirectory)
-    {
-        Request = request ?? throw new ArgumentNullException(nameof(request));
-        DestinationDirectory = destinationDirectory ?? string.Empty;
-    }
-
-    internal PendingInstallDestinationEditRequest Request { get; }
-
-    internal string DestinationDirectory { get; }
-}

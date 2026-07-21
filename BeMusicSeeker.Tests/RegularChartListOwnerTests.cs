@@ -15,6 +15,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -542,7 +543,8 @@ public sealed class RegularChartListOwnerTests
             workspace,
             logs.Add,
             action => action(),
-            logs.Add);
+            logs.Add,
+            CreateInstallDestinationWorkflowOwner());
         int? sourceClearVersionAtRowsNotification = null;
         bool? detailActiveAtRowsNotification = null;
         bool? asyncBindingAtRowsNotification = null;
@@ -2375,7 +2377,9 @@ public sealed class RegularChartListOwnerTests
             {
                 pendingUiAction = action;
                 uiActionQueued.Set();
-            });
+            },
+            _ => { },
+            CreateInstallDestinationWorkflowOwner());
         RegularChartListRequestLease lease = owner.BeginRequest();
         var rows = new List<object> { new(), new() };
         Assert.IsTrue(owner.TryCommitVirtual(lease, CreateVirtualTerminalInput(rows)).WasCommitted);
@@ -2443,7 +2447,9 @@ public sealed class RegularChartListOwnerTests
             {
                 pendingUiAction = action;
                 uiActionQueued.Set();
-            });
+            },
+            _ => { },
+            CreateInstallDestinationWorkflowOwner());
         RegularChartListRequestLease staleLease = owner.BeginRequest();
         var staleRows = new List<object> { new(), new() };
         Assert.IsTrue(owner.TryCommitVirtual(staleLease, CreateVirtualTerminalInput(staleRows)).WasCommitted);
@@ -3514,7 +3520,18 @@ public sealed class RegularChartListOwnerTests
             table,
             workspace,
             _ => { },
-            dispatchToUi);
+            dispatchToUi,
+            _ => { },
+            CreateInstallDestinationWorkflowOwner());
+    }
+
+    private static InstallDestinationWorkflowOwner CreateInstallDestinationWorkflowOwner()
+    {
+        return new InstallDestinationWorkflowOwner(
+              () => null!,
+              new ChartFileOperationSynchronizer(),
+              new TestInstallDestinationMutationPresentation(),
+              new TestUiDialogService());
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceForOwner()

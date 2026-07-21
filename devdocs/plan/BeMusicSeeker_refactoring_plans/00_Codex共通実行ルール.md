@@ -11,11 +11,11 @@
 - DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約、明示的にサポートする SDK / plugin / CLI / IPC / COM / automation contract を変更する必要が生じたら、実装前にユーザーへ確認する。
 - 意味の変わる fallback を追加しない。失敗を隠すより、既存の失敗契約を維持して明示的に失敗させる。
 - C# symbol rename は text replacement ではなく semantic rename / compiler-driven edit を使う。
-- build / format / analyzer は固定 timeout を設けず完了まで待つ。test は root を拘束する直接実行ではなく、標準入口 `scripts/verify-refactor.ps1` が起動する監視付き process として実行する。開始から 180 秒で未完なら process tree snapshot を保存し、testhost を停止して blame sequence を確定し、異常調査を開始する。診断開始後も test runner が戻らない場合は bounded grace period 後に残る process tree を停止する。180 秒到達後に runner が終了コード 0 を返しても検証は失敗とする。120 秒 timeout は使用しない。
-- Codex から検証を起動するときは、実行プロセスを継続したまま 10 秒以内に制御が戻る resumable execution cell を使い、終了まで 60 秒以内の間隔でポーリングする。一つの同期 tool call で完了まで待たない。resumable execution cell が使えない場合は、標準出力と終了状態を artifact へ保存する background process として起動し、60 秒以内の間隔で監視する。このポーリングは test process の timeout ではなく、Codex が 180 秒到達時に必ず診断結果を回収して調査へ移るための制御手順とする。
-- 180 秒で診断へ移った test は失敗として扱い、保存した sequence と process snapshot から実行中 test と process を特定し、dispatcher / scheduler / async completion、共有 mutable state、実行順、file / DB / network I/O、重複・無駄な test work を調査する。active unit と直接関係しない test も修正対象とし、修正は長時間化を発見した implementation unit の code / test / 関連資料と同じ差分・commit に含める。
-- process 列挙、diagnostic artifact 保存、testhost 停止のいずれかが失敗した場合は診断成功として扱わず、monitored root process tree を停止して診断開始失敗を明示する。
-- 180 秒超過が hang、test isolation 不良、無駄な待機ではなく、必要な test 件数・処理量による正当な所要時間だと command output と test breakdown で確認できた場合は、その実測根拠に基づいて監視閾値を更新する。個別再実行の成功や原因未特定の再実行だけを根拠に閾値を延長しない。
+- build / format / analyzer は固定 timeout を設けず完了まで待つ。test は root を拘束する直接実行ではなく、標準入口 `scripts/verify-refactor.ps1` が Windows Job Object 内で起動する監視付き process として実行する。開始から 180 秒で未完なら CPU 時間・memory を含む process tree snapshot を保存して調査を開始し、正当な test 分量として観測中の実行は継続する。現行 Full suite の実測に基づく異常閾値は 300 秒とし、到達時は testhost を停止して blame sequence を確定する。診断開始後も runner が戻らない場合と診断処理自体が失敗した場合はjob全体を停止し、active memberが0になるまで確認する。300 秒到達後に runner が終了コード 0 を返しても検証は失敗とする。120 秒 timeout は使用しない。
+- Codex から検証を起動するときは、実行プロセスを継続したまま 10 秒以内に制御が戻る resumable execution cell を使い、終了まで 60 秒以内の間隔でポーリングする。一つの同期 tool call で完了まで待たない。resumable execution cell が使えない場合は、標準出力と終了状態を artifact へ保存する background process として起動し、60 秒以内の間隔で監視する。このポーリングは test process の timeout ではなく、Codex が 180 秒到達時に観測結果を回収して調査へ移るための制御手順とする。
+- 180 秒の観測で進捗停止または異常な resource state が見つかった test と、300 秒で診断へ移った test は失敗として扱い、保存した sequence と process snapshot から実行中 test と process を特定し、dispatcher / scheduler / async completion、共有 mutable state、実行順、file / DB / network I/O、重複・無駄な test work を調査する。active unit と直接関係しない test も修正対象とし、修正は長時間化を発見した implementation unit の code / test / 関連資料と同じ差分・commit に含める。
+- 300 秒の診断段階で process 列挙、diagnostic artifact 保存、testhost 停止のいずれかが失敗した場合は診断成功として扱わず、monitored jobを停止してactive memberが0になったことを確認し、診断開始失敗を明示する。330 秒fallbackを含む全診断経路でblame sequenceの有無を共通確認する。180 秒の観測snapshotだけが失敗した場合は警告を記録し、60秒以内のpollingでprocess状態の確認を継続する。
+- 異常閾値の超過が hang、test isolation 不良、無駄な待機ではなく、必要な test 件数・処理量による正当な所要時間だと command output と test breakdown で確認できた場合は、その実測根拠に基づいて閾値を更新する。個別再実行の成功や原因未特定の再実行だけを根拠に閾値を延長しない。
 
 ## 実行ロール
 

@@ -97,11 +97,14 @@ public sealed class BmsLibraryMutationBoundaryTests
     public void MainWindowViewModel_UsesChartPackageMutationBoundary()
     {
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string installDestinationSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "InstallDestinationWorkflowOwner.cs");
         string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string runMethod = ExtractMethodBody(source, "private void RunChartPackageMutation(");
         string autoInstallMethod = ExtractMethodBody(source, "private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(");
         string forceInstallMethod = ExtractMethodBody(source, "public void ForceInstallPendingPackages(");
-        string repairInstallDestinationMethod = ExtractMethodBody(source, "private void SearchCorrectInstallationDirectoryCharts(");
+        string installDestinationBoundary = ExtractMethodBody(installDestinationSource, "private bool Execute(");
+        string repairInstallDestinationMethod = ExtractMethodBody(installDestinationSource, "internal Task SearchCorrectAsync(");
         string autoInstallLibraryMethod = ExtractMethodBody(librarySource, "public List<ChartPackage> InstallChartPackagesAuto(");
         string pendingOverwriteMethod = ExtractMethodBody(librarySource, "public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(");
         string pendingZeroNoteRenameMethod = ExtractMethodBody(librarySource, "internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(");
@@ -121,7 +124,12 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(autoInstallMethod, "RunChartPackageMutation");
         StringAssert.Contains(forceInstallMethod, "approvedNormalInstallOverridePackages");
         StringAssert.Contains(forceInstallMethod, "approveNormalInstallOverride: false");
-        StringAssert.Contains(repairInstallDestinationMethod, "RunChartPackageMutation");
+        StringAssert.Contains(installDestinationBoundary, "BeginOperationDialogScope()");
+        StringAssert.Contains(installDestinationBoundary, "operationGate = chartFileOperations.Enter()");
+        StringAssert.Contains(installDestinationBoundary, "presentation.BeginRefreshSuppression()");
+        StringAssert.Contains(installDestinationBoundary, "CaptureCleanupFailure(dialogScope.Flush, failures)");
+        StringAssert.Contains(installDestinationBoundary, "ThrowFailures(failures)");
+        StringAssert.Contains(repairInstallDestinationMethod, "Execute(library =>");
         Assert.IsFalse(autoInstallLibraryMethod.Contains("deferredSourceProcessedCount"));
         StringAssert.Contains(autoInstallLibraryMethod, "onEachSourceProcessed");
         StringAssert.Contains(autoInstallLibraryMethod, "onEachArchiveExtractStarted");
@@ -147,8 +155,8 @@ public sealed class BmsLibraryMutationBoundaryTests
         string source = SourceTextTestHelper.ReadMainWindowSourceText();
         string rowContextMenu = ExtractMethodBody(source, "private void customTableView_RowContextMenuRequested");
         string tableContextMenuOpened = ExtractMethodBody(source, "private void tableContextMenuOpened");
-        string removeInstallDestination = ExtractMethodBody(source, "private void tableContextMenuRemoveInstallDestinationClick");
-        string searchCorrectInstallationDirectory = ExtractMethodBody(source, "private void tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
+        string removeInstallDestination = ExtractMethodBody(source, "private async void tableContextMenuRemoveInstallDestinationClick");
+        string searchCorrectInstallationDirectory = ExtractMethodBody(source, "private async void tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
 
         StringAssert.Contains(source, "private bool ShouldBlockChartPackageMutationInteraction");
         StringAssert.Contains(source, "viewModel.IsChartPackageMutationInProgress");

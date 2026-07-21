@@ -88,7 +88,7 @@ internal sealed class ShutdownPreparationResult
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPresentation
+public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPresentation, IInstallDestinationMutationPresentation
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -119,6 +119,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
     internal ZeroNoteMaintenanceWorkflowOwner ZeroNoteMaintenance { get; private set; }
 
     internal PackageRecordWorkflowOwner PackageRecords { get; private set; }
+
+    internal InstallDestinationWorkflowOwner InstallDestinations { get; private set; }
 
     /// <summary>
     /// Gets the one-shot startup update workflow owned by application composition.
@@ -2094,6 +2096,50 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         EndChartPackageMutation();
     }
 
+    void IInstallDestinationMutationPresentation.BeginActivity()
+    {
+        BeginChartPackageMutation();
+    }
+
+    void IInstallDestinationMutationPresentation.BeginRefreshSuppression()
+    {
+        BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
+    }
+
+    void IInstallDestinationMutationPresentation.EndRefreshSuppression()
+    {
+        EndUiUpdateSuppression();
+    }
+
+    void IInstallDestinationMutationPresentation.EndActivity()
+    {
+        EndChartPackageMutation();
+    }
+
+    void IInstallDestinationMutationPresentation.UpdateTransientStates(IEnumerable<ChartFile> charts)
+    {
+        MainChartList.RowProjection.UpdateTransientStates(charts, forceInstallDestinationProjection: true);
+    }
+
+    void IInstallDestinationMutationPresentation.InvalidateInstallDestinationSort()
+    {
+        InvalidateNormalLibrarySortDependency(
+            MainViewDataDependency.InstallDestination,
+            NormalLibraryInstallDestinationChangedReason);
+    }
+
+    void IInstallDestinationMutationPresentation.RefreshIdentitySortKey()
+    {
+        RefreshLibraryMainViewForDataDependency(
+            MainViewDataDependency.IdentitySortKey,
+            NormalLibraryInstallDestinationChangedReason);
+    }
+
+    void IInstallDestinationMutationPresentation.RequestDisplayRefresh()
+    {
+        MainChartList.RequestDisplayRefresh();
+    }
+
     private void RunChartPackageMutation(
         Action action,
         IEnumerable<ChartFile> playbackTargetCharts = null,
@@ -3646,6 +3692,9 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
             LogMainViewBuildWarning,
             ExecutePackageInstallMutation,
             DispatchPackageInstallUi,
+            () => files,
+            this,
+            new UiDialogCoordinator(),
             ReportPackageInstallWorkflowNotificationFailure,
             (library, progress, cancellationToken) => library.RescanAllOwnedChartMaintenance(progress, cancellationToken),
             action => Task.Run(action),
@@ -3683,6 +3732,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PackageRecords = childComposition.PackageRecordWorkflow;
+        InstallDestinations = childComposition.InstallDestinationWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
@@ -3730,7 +3780,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         regularChartListOwner.SortChanged += RegularChartListOwnerSortChanged;
         regularChartListOwner.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         regularChartListOwner.FolderEditRequested += RegularChartListOwnerFolderEditRequested;
-        regularChartListOwner.InstallDestinationEditRequested += RegularChartListOwnerInstallDestinationEditRequested;
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.KeywordSearchHistory));
@@ -3800,17 +3849,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
                 MainChartList.RequestDisplayRefresh();
             }
         }).Logging("regularChartListFolderEditRequested");
-    }
-
-    private void RegularChartListOwnerInstallDestinationEditRequested(
-        object sender,
-        RegularChartInstallDestinationEditRequestedEventArgs request)
-    {
-        Task.Run(() =>
-        {
-            SetPendingInstallDestination(request.Request, request.DestinationDirectory);
-            MainChartList.RequestDisplayRefresh();
-        }).Logging("regularChartListInstallDestinationEditRequested");
     }
 
     private void RegularChartListOwnerNormalLibraryRefreshApplied(
@@ -7008,133 +7046,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         SetChartResourceWarningsIgnored(request.Charts, unset);
     }
 
-    /// <summary>
-    /// リンク切れ等の問題がある ChartPackage (インストーラーまたはアーカイブ単位) について、正しいインストール先のディレクトリをヒューリスティックに探索します。
-    /// 探索結果は内部の BMSLibrary に対して適用されます。
-    /// </summary>
-    /// <param name="packages">探索・復旧対象となるBMSパッケージのコレクション。</param>
-    public void SearchInstallDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
-    {
-        if (packages == null)
-        {
-            throw new ArgumentNullException(nameof(packages));
-        }
-        RunChartPackageMutation(delegate
-        {
-            files.SearchEstimatedInstallationDirectory(packages);
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
-    }
-
-    public void SearchMergeDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
-    {
-        if (packages == null)
-        {
-            throw new ArgumentNullException(nameof(packages));
-        }
-        List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
-        RunChartPackageMutation(delegate
-        {
-            for (int num = 0; num < list.Count; num++)
-            {
-                files.SearchMergeDestinationForPendingPackage(list[num]);
-            }
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
-    }
-
-    internal void SearchInstallDestinationForPendingCharts(PendingInstallDestinationTargetSnapshot targets)
-    {
-        if (targets == null)
-        {
-            throw new ArgumentNullException(nameof(targets));
-        }
-        if (!targets.HasTargets)
-        {
-            return;
-        }
-        SearchInstallDestinationForPendingCharts(targets.PackageTargets, targets.LooseEntries);
-    }
-
-    internal void SearchMergeDestinationForPendingCharts(PendingInstallDestinationTargetSnapshot targets)
-    {
-        if (targets == null)
-        {
-            throw new ArgumentNullException(nameof(targets));
-        }
-        if (!targets.HasTargets)
-        {
-            return;
-        }
-        SearchMergeDestinationForPendingCharts(targets.PackageTargets, targets.LooseEntries);
-    }
-
-    internal void SearchPendingInstallDestination(PendingInstallDestinationSearchRequest request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-        if (!request.HasTargets)
-        {
-            return;
-        }
-
-        switch (request.Kind)
-        {
-            case PendingInstallDestinationSearchKind.InstallDestination:
-                SearchInstallDestinationForPendingCharts(request.PackageTargets, request.LooseEntries);
-                return;
-            case PendingInstallDestinationSearchKind.MergeDestination:
-                SearchMergeDestinationForPendingCharts(request.PackageTargets, request.LooseEntries);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unsupported pending install destination search operation.");
-        }
-    }
-
-    private void SearchInstallDestinationForPendingCharts(IReadOnlyList<ChartOperationTarget> packageTargets, IReadOnlyList<PackageChartEntry> looseEntries)
-    {
-        RunChartPackageMutation(delegate
-        {
-            List<ChartOperationTarget> mutablePackageTargets = packageTargets.ToList();
-            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref mutablePackageTargets);
-            if (packages.Count > 0)
-            {
-                files.SearchEstimatedInstallationDirectory(packages);
-            }
-            if (looseEntries.Count > 0)
-            {
-                files.SearchEstimatedInstallationDirectoryForLooseCharts(looseEntries);
-                MainChartList.RowProjection.UpdateTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
-            }
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
-    }
-
-    private void SearchMergeDestinationForPendingCharts(IReadOnlyList<ChartOperationTarget> packageTargets, IReadOnlyList<PackageChartEntry> looseEntries)
-    {
-        RunChartPackageMutation(delegate
-        {
-            List<ChartOperationTarget> mutablePackageTargets = packageTargets.ToList();
-            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref mutablePackageTargets);
-            for (int num = 0; num < packages.Count; num++)
-            {
-                files.SearchMergeDestinationForPendingPackage(packages[num]);
-            }
-            if (looseEntries.Count > 0)
-            {
-                files.SearchMergeDestinationForPendingCharts(looseEntries);
-                MainChartList.RowProjection.UpdateTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
-            }
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
-    }
-
     private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(
         BMSLibrary library,
         IEnumerable<string> installPaths,
@@ -9255,27 +9166,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         };
     }
 
-    private List<ChartPackage> ExtractChartPackagesFromChartEntries(ref List<PackageChartEntry> entries, bool isInstalled = false)
-    {
-        DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
-        List<PackageChartEntry> remainingEntries = [];
-        List<ChartPackage> packages = [];
-        foreach (PackageChartEntry entry in entries)
-        {
-            ChartPackage chartPackage = source?.FirstOrDefault(p => ContainsChartTarget(p, entry));
-            if (chartPackage == null)
-            {
-                remainingEntries.Add(entry);
-            }
-            else
-            {
-                packages.Add(chartPackage);
-            }
-        }
-        entries = remainingEntries;
-        return [.. packages.Distinct()];
-    }
-
     private List<ChartPackage> ExtractChartPackagesFromChartTargets(ref List<ChartOperationTarget> targets, bool isInstalled = false)
     {
         DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
@@ -9295,16 +9185,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         }
         targets = remainingTargets;
         return [.. packages.Distinct()];
-    }
-
-    private static bool ContainsChartTarget(ChartPackage chartPackage, PackageChartEntry targetEntry)
-    {
-        ChartFile chart = targetEntry?.Chart;
-        if (chartPackage == null || chart == null)
-        {
-            return false;
-        }
-        return (chartPackage.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(targetEntry) == true);
     }
 
     private static bool ContainsChartTarget(ChartPackage chartPackage, ChartOperationTarget target)
@@ -9458,226 +9338,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
         List<ChartFile> playbackTargetCharts = CreatePackagePlaybackTargetSnapshot(list);
         return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), playbackTargetCharts);
-    }
-
-    private void SearchCorrectInstallationDirectoryCharts(IEnumerable<PackageChartEntry> chartEntries)
-    {
-        if (chartEntries == null)
-        {
-            throw new ArgumentNullException(nameof(chartEntries));
-        }
-        List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
-        if (entries.Count == 0)
-        {
-            return;
-        }
-        RunChartPackageMutation(delegate
-        {
-            files.SearchCorrectInstallationDirectoryCharts(entries);
-            MainChartList.RowProjection.UpdateTransientStates(entries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-    }
-
-    internal void SearchCorrectInstallationDirectoryCharts(IRepairInstalledLocationTargetSnapshot targets)
-    {
-        RepairInstalledLocationTargetSnapshot snapshot = AsRepairInstalledLocationTargetSnapshot(targets);
-        if (snapshot?.HasTargets != true)
-        {
-            return;
-        }
-        SearchCorrectInstallationDirectoryCharts(snapshot.RepairEntries);
-    }
-
-    internal void SearchCorrectInstallationDirectoryCharts(RepairInstalledLocationRequest request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-        if (!request.HasTargets)
-        {
-            return;
-        }
-        SearchCorrectInstallationDirectoryCharts(request.RepairEntries);
-    }
-
-    public void ClearInstallDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
-    {
-        if (packages == null)
-        {
-            throw new ArgumentNullException(nameof(packages));
-        }
-        List<ChartPackage> list = [.. packages.Where(f => f != null)];
-        List<PackageChartEntry> changedEntries = [.. list.SelectMany(package => package.ChartEntries ?? []).Where(entry => entry?.Chart != null)];
-        RunChartPackageMutation(delegate
-        {
-            for (int num = 0; num < list.Count; num++)
-            {
-                ClearChartPackageInstallDestinations(list[num]);
-            }
-            MainChartList.RowProjection.UpdateTransientStates(changedEntries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree, requiresLibrary: false);
-        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-    }
-
-    internal void ClearInstallDestinationForPendingCharts(PendingInstallDestinationTargetSnapshot targets)
-    {
-        if (targets == null)
-        {
-            throw new ArgumentNullException(nameof(targets));
-        }
-        if (files == null)
-        {
-            return;
-        }
-        if (!targets.HasTargets)
-        {
-            return;
-        }
-        ClearPendingInstallDestination(targets.PackageTargets, targets.LooseEntries);
-    }
-
-    internal void ClearPendingInstallDestination(PendingInstallDestinationClearRequest request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-        if (files == null)
-        {
-            return;
-        }
-        if (!request.HasTargets)
-        {
-            return;
-        }
-        ClearPendingInstallDestination(request.PackageTargets, request.LooseEntries);
-    }
-
-    private void ClearPendingInstallDestination(IReadOnlyList<ChartOperationTarget> packageTargets, IReadOnlyList<PackageChartEntry> looseEntries)
-    {
-        RunChartPackageMutation(delegate
-        {
-            List<ChartOperationTarget> mutablePackageTargets = packageTargets.ToList();
-            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref mutablePackageTargets);
-            for (int num = 0; num < packages.Count; num++)
-            {
-                ClearChartPackageInstallDestinations(packages[num]);
-            }
-            if (looseEntries.Count > 0)
-            {
-                files.RemoveInstallDestination(looseEntries);
-                MainChartList.RowProjection.UpdateTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
-            }
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-    }
-
-    internal void ClearInstallDestinationForCharts(IRepairInstalledLocationTargetSnapshot targets)
-    {
-        RepairInstalledLocationTargetSnapshot snapshot = AsRepairInstalledLocationTargetSnapshot(targets);
-        if (snapshot?.HasTargets != true)
-        {
-            return;
-        }
-        ClearInstallDestinationForCharts(snapshot.RepairEntries);
-    }
-
-    internal void ClearInstallDestinationForCharts(RepairInstalledLocationRequest request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-        if (!request.HasTargets)
-        {
-            return;
-        }
-        ClearInstallDestinationForCharts(request.RepairEntries);
-    }
-
-    private void ClearInstallDestinationForCharts(IEnumerable<PackageChartEntry> chartEntries)
-    {
-        if (files != null)
-        {
-            if (chartEntries == null)
-            {
-                throw new ArgumentNullException(nameof(chartEntries));
-            }
-            RunChartPackageMutation(delegate
-            {
-                List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
-                List<ChartPackage> chartPackages = ExtractChartPackagesFromChartEntries(ref entries);
-                for (int num = 0; num < chartPackages.Count; num++)
-                {
-                    ClearChartPackageInstallDestinations(chartPackages[num]);
-                }
-                files.RemoveInstallDestination(entries);
-                MainChartList.RowProjection.UpdateTransientStates(entries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
-            }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-        }
-    }
-
-    private static void ClearChartPackageInstallDestinations(ChartPackage chartPackage)
-    {
-        foreach (PackageChartEntry entry in chartPackage?.ChartEntries ?? [])
-        {
-            entry?.ClearInstallDestination();
-        }
-    }
-
-    internal bool SetPendingInstallDestination(PendingInstallDestinationEditTargetSnapshot target, string destinationDirectory)
-    {
-        if (files == null)
-        {
-            return false;
-        }
-        if (target == null)
-        {
-            throw new ArgumentNullException(nameof(target));
-        }
-        return SetPendingInstallDestination(target.PackageEntry, target.GetOrCreateChartEntry, destinationDirectory);
-    }
-
-    internal bool SetPendingInstallDestination(PendingInstallDestinationEditRequest request, string destinationDirectory)
-    {
-        if (files == null)
-        {
-            return false;
-        }
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-        return SetPendingInstallDestination(request.PackageEntry, request.GetOrCreateChartEntry, destinationDirectory);
-    }
-
-    private bool SetPendingInstallDestination(PackageChartEntry packageEntry, Func<PackageChartEntry> chartEntryFactory, string destinationDirectory)
-    {
-        PackageChartEntry changedEntry = null;
-        bool changed = RunChartPackageMutation(delegate
-        {
-            if (packageEntry != null)
-            {
-                changedEntry = packageEntry;
-                return files.SetPendingInstallDestination(changedEntry, destinationDirectory);
-            }
-            PackageChartEntry chartEntry = chartEntryFactory?.Invoke();
-            if (chartEntry == null)
-            {
-                return false;
-            }
-            changedEntry = chartEntry;
-            return files.SetPendingInstallDestination(changedEntry, destinationDirectory);
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        if (changed)
-        {
-            MainChartList.RowProjection.UpdateTransientStates([changedEntry.Chart], forceInstallDestinationProjection: true);
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-        }
-        return changed;
     }
 
     public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)
@@ -9912,21 +9572,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
         }
     }
 
-    internal void FixInstallationDirectoryCharts(IRepairInstalledLocationTargetSnapshot targets)
-    {
-        RepairInstalledLocationTargetSnapshot snapshot = AsRepairInstalledLocationTargetSnapshot(targets);
-        if (snapshot?.HasTargets != true)
-        {
-            return;
-        }
-        IReadOnlyList<ChartFile> repairCharts = snapshot.RepairCharts;
-        List<string> approvedDuplicateRemovalChartPaths = ConfirmDuplicateInstallRepairRemovals(repairCharts);
-        RunChartPackageMutation(delegate
-        {
-            files.FixInstallationDirectoryCharts(repairCharts, approvedDuplicateRemovalChartPaths);
-        }, GetBmsFormatCharts(repairCharts), UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
-    }
-
     internal void FixInstallationDirectoryCharts(RepairInstalledLocationRequest request)
     {
         if (request == null)
@@ -10113,215 +9758,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPres
             .Where(target => target != null && target.HasCapability(requiredCapability))
             .Select(target => target.ToLibraryChartRef())
             .Where(chart => chart != null);
-    }
-
-    internal IRepairInstalledLocationTargetSnapshot CreateRepairInstalledLocationTargetSnapshot(IEnumerable<ChartOperationTarget> targets)
-    {
-        List<ChartOperationTarget> targetList = [.. (targets ?? []).Where(target => target != null && target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation))];
-        List<ChartFile> charts = [.. targetList.Select(target => target.Chart).Where(chart => chart != null)];
-        return new RepairInstalledLocationTargetSnapshot(
-            charts,
-            () => [.. targetList
-                .Select(target => target.ToPackageChartEntry())
-                .Where(entry => entry?.Chart != null)]);
-    }
-
-    internal PendingInstallDestinationTargetSnapshot CreatePendingInstallDestinationTargetSnapshot(IEnumerable<ChartOperationTarget> targets)
-    {
-        List<ChartOperationTarget> remainingTargets = [.. (targets ?? [])
-            .Where(target => target?.Chart != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))];
-        List<ChartOperationTarget> packageTargets = [.. remainingTargets.Where(target => target.PackageEntry != null)];
-        remainingTargets = [.. remainingTargets.Where(target => target.PackageEntry == null)];
-        List<ChartFile> charts = [.. remainingTargets.Select(target => target.Chart).Where(chart => chart != null)];
-        return new PendingInstallDestinationTargetSnapshot(
-            packageTargets,
-            charts,
-            () => [.. remainingTargets
-                .Select(target => target.ToPackageChartEntry())
-                .Where(entry => entry?.Chart != null)]);
-    }
-
-    internal PendingInstallDestinationEditTargetSnapshot CreatePendingInstallDestinationEditTargetSnapshot(ChartOperationTarget target)
-    {
-        if (target == null || !target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
-        {
-            return PendingInstallDestinationEditTargetSnapshot.Empty;
-        }
-        if (target.PackageEntry != null)
-        {
-            return new PendingInstallDestinationEditTargetSnapshot(target.PackageEntry, null, null);
-        }
-        return new PendingInstallDestinationEditTargetSnapshot(
-            null,
-            target.Chart,
-            target.ToPackageChartEntry);
-    }
-
-    internal sealed class PendingInstallDestinationTargetSnapshot
-    {
-        private readonly Lazy<IReadOnlyList<PackageChartEntry>> looseEntries;
-
-        internal PendingInstallDestinationTargetSnapshot(
-            IEnumerable<ChartOperationTarget> packageTargets,
-            IEnumerable<ChartFile> charts,
-            Func<IReadOnlyList<PackageChartEntry>> looseEntryFactory)
-        {
-            PackageTargets = [.. (packageTargets ?? []).Where(target => target?.PackageEntry != null && target.Chart != null)];
-            Charts = [.. (charts ?? []).Where(chart => chart != null)];
-            looseEntries = new Lazy<IReadOnlyList<PackageChartEntry>>(
-                () => [.. (looseEntryFactory?.Invoke() ?? []).Where(entry => entry?.Chart != null)]);
-        }
-
-        internal IReadOnlyList<ChartOperationTarget> PackageTargets { get; }
-
-        internal IReadOnlyList<ChartFile> Charts { get; }
-
-        internal IReadOnlyList<PackageChartEntry> LooseEntries => looseEntries.Value;
-
-        internal bool HasTargets => PackageTargets.Count > 0 || Charts.Count > 0;
-
-        internal void MaterializeLooseEntries()
-        {
-            _ = LooseEntries.Count;
-        }
-    }
-
-    internal sealed class PendingInstallDestinationEditTargetSnapshot
-    {
-        private readonly Lazy<PackageChartEntry> chartEntry;
-
-        internal static PendingInstallDestinationEditTargetSnapshot Empty { get; } = new(null, null, null);
-
-        internal PendingInstallDestinationEditTargetSnapshot(PackageChartEntry packageEntry, ChartFile chartFile, Func<PackageChartEntry> chartEntryFactory)
-        {
-            PackageEntry = packageEntry;
-            ChartFile = chartFile;
-            chartEntry = new Lazy<PackageChartEntry>(() => chartEntryFactory?.Invoke());
-        }
-
-        internal PackageChartEntry PackageEntry { get; }
-
-        internal ChartFile ChartFile { get; }
-
-        internal bool HasTarget => PackageEntry != null || ChartFile != null;
-
-        internal PackageChartEntry GetOrCreateChartEntry()
-        {
-            return PackageEntry ?? chartEntry.Value;
-        }
-    }
-
-    internal interface IRepairInstalledLocationTargetSnapshot
-    {
-        bool HasTargets { get; }
-
-        bool HasInstallDestination { get; }
-
-        IReadOnlyList<ChartFile> RepairCharts { get; }
-
-        void MaterializeRepairEntries();
-    }
-
-    private static RepairInstalledLocationTargetSnapshot AsRepairInstalledLocationTargetSnapshot(IRepairInstalledLocationTargetSnapshot snapshot)
-    {
-        return snapshot as RepairInstalledLocationTargetSnapshot;
-    }
-
-    private sealed class RepairInstalledLocationTargetSnapshot : IRepairInstalledLocationTargetSnapshot
-    {
-        private readonly Lazy<IReadOnlyList<PackageChartEntry>> repairEntries;
-
-        internal RepairInstalledLocationTargetSnapshot(IEnumerable<ChartFile> charts, Func<IReadOnlyList<PackageChartEntry>> repairEntryFactory)
-        {
-            Charts = [.. (charts ?? []).Where(chart => chart != null)];
-            repairEntries = new Lazy<IReadOnlyList<PackageChartEntry>>(
-                () => [.. (repairEntryFactory?.Invoke() ?? []).Where(entry => entry?.Chart != null)]);
-            repairCharts = new Lazy<IReadOnlyList<ChartFile>>(CreateRepairCharts);
-        }
-
-        private readonly Lazy<IReadOnlyList<ChartFile>> repairCharts;
-
-        internal bool HasTargets => Charts.Count > 0;
-
-        public bool HasInstallDestination => RepairCharts.Any(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination));
-
-        internal IReadOnlyList<ChartFile> Charts { get; }
-
-        public IReadOnlyList<ChartFile> RepairCharts => repairCharts.Value;
-
-        internal IReadOnlyList<PackageChartEntry> RepairEntries => repairEntries.Value;
-
-        private IReadOnlyList<ChartFile> CreateRepairCharts()
-        {
-            IReadOnlyList<PackageChartEntry> entries = RepairEntries;
-            if (entries.Count == 0)
-            {
-                return Charts;
-            }
-
-            var entriesByChartKey = entries
-                .Select(entry => new
-                {
-                    Entry = entry,
-                    Key = CreateRepairChartKey(entry.Chart)
-                })
-                .Where(item => !string.IsNullOrWhiteSpace(item.Key))
-                .GroupBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-
-            return [.. Charts.Select(chart =>
-            {
-                string key = CreateRepairChartKey(chart);
-                if (string.IsNullOrWhiteSpace(key) || !entriesByChartKey.TryGetValue(key, out var entry))
-                {
-                    return chart;
-                }
-                if (!HasInstallDestinationState(entry.Entry.Chart))
-                {
-                    return chart;
-                }
-
-                return ChartFileProjection.WithPackageState(
-                    chart,
-                    entry.Entry.Chart.InstallDestination,
-                    entry.Entry.Chart.InstallDestinationTitle,
-                    entry.Entry.Chart.InstallDestinationArtist,
-                    entry.Entry.Chart.InstallDestinationSuggestions,
-                    chart.Warnings);
-            })];
-        }
-
-        private static bool HasInstallDestinationState(ChartFile chart)
-        {
-            return chart != null
-                && (!string.IsNullOrWhiteSpace(chart.InstallDestination)
-                    || !string.IsNullOrWhiteSpace(chart.InstallDestinationTitle)
-                    || !string.IsNullOrWhiteSpace(chart.InstallDestinationArtist)
-                    || (chart.InstallDestinationSuggestions?.Count ?? 0) > 0);
-        }
-
-        private static string CreateRepairChartKey(ChartFile chart)
-        {
-            if (chart == null)
-            {
-                return null;
-            }
-
-            if (!string.IsNullOrWhiteSpace(chart.Path))
-            {
-                return "path:" + chart.Path;
-            }
-
-            string hash = ChartLookupKey.GetPrimaryHash(chart);
-            return string.IsNullOrWhiteSpace(hash) ? null : "hash:" + hash;
-        }
-
-        public void MaterializeRepairEntries()
-        {
-            _ = RepairEntries.Count;
-        }
-
-        bool IRepairInstalledLocationTargetSnapshot.HasTargets => HasTargets;
     }
 
     /// <summary>

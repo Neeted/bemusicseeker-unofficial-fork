@@ -4288,7 +4288,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void treeViewInstallPackageContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
+    private async void treeViewInstallPackageContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("tree_package_remove_install_destination"))
         {
@@ -4305,10 +4305,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel viewModel)
         {
-            Task.Run(delegate
-            {
-                viewModel.ClearInstallDestinationForPendingPackages([pkg]);
-            }).Logging("treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
+            e.Handled = true;
+            await viewModel.InstallDestinations
+                .ClearPackagesAsync([pkg])
+                .LoggingAndPropagate("treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
         }
     }
 
@@ -4376,7 +4376,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void treeViewInstallPackageContextMenuSearchInstallationDirectoryClick(object sender, RoutedEventArgs e)
+    private async void treeViewInstallPackageContextMenuSearchInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("tree_package_search_install_destination"))
         {
@@ -4393,14 +4393,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel viewModel)
         {
-            Task.Run(delegate
-            {
-                viewModel.SearchInstallDestinationForPendingPackages([pkg]);
-            }).Logging("treeViewInstallPackageContextMenuSearchInstallationDirectoryClick");
+            e.Handled = true;
+            await viewModel.InstallDestinations
+                .SearchPackagesAsync(PendingInstallDestinationSearchKind.InstallDestination, [pkg])
+                .LoggingAndPropagate("treeViewInstallPackageContextMenuSearchInstallationDirectoryClick");
         }
     }
 
-    private void treeViewInstallPackageContextMenuSearchMergeDestinationClick(object sender, RoutedEventArgs e)
+    private async void treeViewInstallPackageContextMenuSearchMergeDestinationClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("tree_package_search_merge_destination"))
         {
@@ -4411,16 +4411,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (placementTarget.DataContext is not ChartPackage pkg || !ConfirmMergeDestinationSearch())
+        if (placementTarget.DataContext is not ChartPackage pkg)
         {
             return;
         }
         if (base.DataContext is MainWindowViewModel viewModel)
         {
-            Task.Run(delegate
-            {
-                viewModel.SearchMergeDestinationForPendingPackages([pkg]);
-            }).Logging("treeViewInstallPackageContextMenuSearchMergeDestinationClick");
+            e.Handled = true;
+            await viewModel.InstallDestinations
+                .SearchPackagesAsync(PendingInstallDestinationSearchKind.MergeDestination, [pkg])
+                .LoggingAndPropagate("treeViewInstallPackageContextMenuSearchMergeDestinationClick");
         }
     }
 
@@ -6288,7 +6288,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void tableContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -6322,23 +6322,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if ((repairRequest?.HasTargets == true) || (pendingInstallRequest?.HasTargets == true))
         {
             e.Handled = true;
-            repairRequest?.MaterializeRepairEntries();
-            pendingInstallRequest?.MaterializeLooseEntries();
-            Task.Run(delegate
+            if (isInstalledLocationRepair)
             {
-                if (isInstalledLocationRepair)
-                {
-                    viewModel.ClearInstallDestinationForCharts(repairRequest);
-                }
-                else
-                {
-                    viewModel.ClearPendingInstallDestination(pendingInstallRequest);
-                }
-            }).Logging("tableContextMenuRemoveInstallDestinationClick");
+                await viewModel.InstallDestinations
+                    .ClearCorrectAsync(repairRequest)
+                    .LoggingAndPropagate("tableContextMenuRemoveInstallDestinationClick");
+            }
+            else
+            {
+                await viewModel.InstallDestinations
+                    .ClearPendingAsync(pendingInstallRequest)
+                    .LoggingAndPropagate("tableContextMenuRemoveInstallDestinationClick");
+            }
         }
     }
 
-    private void tableContextMenuSearchCorrectInstallationDirectoryChartsClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuSearchCorrectInstallationDirectoryChartsClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -6356,12 +6355,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 return;
             }
-            request.MaterializeRepairEntries();
-            Task.Run(delegate
-            {
-                viewModel.SearchCorrectInstallationDirectoryCharts(request);
-            }).Logging("tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
             e.Handled = true;
+            await viewModel.InstallDestinations
+                .SearchCorrectAsync(request)
+                .LoggingAndPropagate("tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
         }
     }
 
@@ -6793,10 +6790,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         PendingInstallDestinationSearchRequest request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets);
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        await Task.Run(delegate
-        {
-            viewModel.SearchPendingInstallDestination(request);
-        }).Logging("searchInstallDestinationSelectedPendingCharts");
+        await viewModel.InstallDestinations
+            .SearchPendingAsync(request)
+            .LoggingAndPropagate("searchInstallDestinationSelectedPendingCharts");
     }
 
     private async void tableContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)
@@ -6910,22 +6906,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
-        if (targets == null || targets.Count == 0 || !ConfirmMergeDestinationSearch())
+        if (targets == null || targets.Count == 0)
         {
             return;
         }
         PendingInstallDestinationSearchRequest request = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch(targets);
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        await Task.Run(delegate
-        {
-            viewModel.SearchPendingInstallDestination(request);
-        }).Logging("searchMergeDestinationSelectedPendingCharts");
-    }
-
-    private bool ConfirmMergeDestinationSearch()
-    {
-        return UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) == MessageBoxResult.OK;
+        await viewModel.InstallDestinations
+            .SearchPendingAsync(request)
+            .LoggingAndPropagate("searchMergeDestinationSelectedPendingCharts");
     }
 
     private async void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)

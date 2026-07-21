@@ -504,7 +504,10 @@ public sealed class ApplicationCompositionTests
             {
             },
             (_, _, _, _, _) => [],
-            action => action());
+            action => action(),
+            () => null!,
+            new TestInstallDestinationMutationPresentation(),
+            new TestUiDialogService());
 
         try
         {
@@ -514,6 +517,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.PlaybackPanel);
             Assert.IsNotNull(childComposition.ChartFilters);
             Assert.IsNotNull(childComposition.PlayHistory);
+            Assert.IsNotNull(childComposition.InstallDestinationWorkflow);
             Assert.IsNotNull(childComposition.RegularChartListOwner);
             Assert.IsNotNull(childComposition.PackageInstallWorkflow);
             Assert.IsNotNull(childComposition.FolderAutoRenameWorkflow);
@@ -592,7 +596,10 @@ public sealed class ApplicationCompositionTests
                 action => action(),
                 _ => { },
                 (_, _, _, _, _) => [],
-                action => action());
+                action => action(),
+                () => null!,
+                new TestInstallDestinationMutationPresentation(),
+                new TestUiDialogService());
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -702,7 +709,10 @@ public sealed class ApplicationCompositionTests
                 action => action(),
                 _ => { },
                 (_, _, _, _, _) => [],
-                action => action());
+                action => action(),
+                () => null!,
+                new TestInstallDestinationMutationPresentation(),
+                new TestUiDialogService());
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

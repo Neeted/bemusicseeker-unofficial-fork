@@ -2362,7 +2362,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void ClearInstallDestinationForPendingPackages_ClearsAdapterlessBmsonEntryWithoutMaterializing()
+    public async Task InstallDestinationWorkflow_ClearPackagesWithoutLibraryClearsAdapterlessBmsonEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var viewModel = new MainWindowViewModel();
@@ -2375,14 +2375,14 @@ public sealed class ChartListVirtualViewTests
                 []));
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
-        viewModel.ClearInstallDestinationForPendingPackages([package]);
+        await viewModel.InstallDestinations.ClearPackagesAsync([package]);
 
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
     }
 
     [TestMethod]
-    public void ClearInstallDestinationForPendingCharts_ClearsAdapterlessBmsonPackageEntryWithoutMaterializing()
+    public async Task InstallDestinationWorkflow_ClearPendingClearsAdapterlessBmsonPackageEntryWithoutMaterializing()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var viewModel = new MainWindowViewModel();
@@ -2416,7 +2416,10 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 adapterlessBmsonEntry);
 
-            viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([selectedChart]));
+            Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
+                [selectedChart],
+                out PendingInstallDestinationClearRequest request));
+            await viewModel.InstallDestinations.ClearPendingAsync(request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -2431,7 +2434,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void ClearInstallDestinationForPendingChartTargets_DoesNotResolveAdapterlessBmsonCompatibilityFile()
+    public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var viewModel = new MainWindowViewModel();
@@ -2465,7 +2468,10 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 adapterlessBmsonEntry);
 
-            viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
+            Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
+                [target],
+                out PendingInstallDestinationClearRequest request));
+            await viewModel.InstallDestinations.ClearPendingAsync(request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -2480,7 +2486,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void ClearInstallDestinationForPendingChartTargets_DoesNotResolveLooseBmsonCompatibilityAdapterWhenStandaloneTargetSharesPath()
+    public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveLooseBmsonCompatibilityAdapterWhenStandaloneTargetSharesPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var viewModel = new MainWindowViewModel();
@@ -2528,7 +2534,10 @@ public sealed class ChartListVirtualViewTests
                 isPlaylistMissing: false,
                 ChartOperationCapabilities.UpdateInstallDestination);
 
-            viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([packageTarget, standaloneTarget]));
+            Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
+                [packageTarget, standaloneTarget],
+                out PendingInstallDestinationClearRequest request));
+            await viewModel.InstallDestinations.ClearPendingAsync(request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -2562,7 +2571,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void SearchInstallDestinationForPendingChartTargets_DoesNotResolveAdapterlessBmsonCompatibilityFile()
+    public async Task InstallDestinationWorkflow_SearchPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var viewModel = new MainWindowViewModel();
@@ -2590,7 +2599,9 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 adapterlessBmsonEntry);
 
-            viewModel.SearchInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
+            PendingInstallDestinationSearchRequest request =
+                PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([target]);
+            await viewModel.InstallDestinations.SearchPendingAsync(request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         }
@@ -2604,10 +2615,9 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void SearchMergeDestinationForPendingChartTargets_DoesNotResolveAdapterlessBmsonCompatibilityFile()
+    public void InstallDestinationStore_SearchMergeDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = new MainWindowViewModel();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2621,7 +2631,6 @@ public sealed class ChartListVirtualViewTests
             library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
                 new ObservableCollection<ChartPackage>([package]),
                 Dispatcher.CurrentDispatcher);
-            typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
                 null,
@@ -2632,7 +2641,9 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 adapterlessBmsonEntry);
 
-            viewModel.SearchMergeDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
+            PendingInstallDestinationSearchRequest request =
+                PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([target]);
+            new BmsLibraryInstallDestinationStore().SearchPending(library, request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         }
@@ -2646,7 +2657,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void ClearInstallDestinationForPendingChartTargets_ResolvesReplacedPackageEntryByChartIdentity()
+    public async Task InstallDestinationWorkflow_ClearPendingResolvesReplacedPackageEntryByChartIdentity()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var viewModel = new MainWindowViewModel();
@@ -2687,7 +2698,10 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 staleEntry);
 
-            viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
+            Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
+                [target],
+                out PendingInstallDestinationClearRequest request));
+            await viewModel.InstallDestinations.ClearPendingAsync(request);
 
             Assert.IsNull(currentEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, currentEntry.Chart.InstallDestination);

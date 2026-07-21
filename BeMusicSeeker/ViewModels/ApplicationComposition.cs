@@ -282,6 +282,9 @@ internal sealed class ApplicationComposition
         Action<string> mainViewLogWarning,
         Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
         Action<Action> dispatchPackageInstallUi,
+        Func<BMSLibrary> installDestinationLibraryProvider,
+        IInstallDestinationMutationPresentation installDestinationPresentation,
+        IUiDialogService installDestinationDialogService,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
         Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
@@ -312,6 +315,9 @@ internal sealed class ApplicationComposition
             mainViewLogWarning,
             installPackageBatch,
             dispatchPackageInstallUi,
+            installDestinationLibraryProvider,
+            installDestinationPresentation,
+            installDestinationDialogService,
             reportPackageInstallWorkflowNotificationFailure,
             maintenanceRescanExecutor,
             maintenanceRescanScheduler,
@@ -469,6 +475,9 @@ internal sealed class MainWindowChildComposition
         Action<string> mainViewLogWarning,
         Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
         Action<Action> dispatchPackageInstallUi,
+        Func<BMSLibrary> installDestinationLibraryProvider,
+        IInstallDestinationMutationPresentation installDestinationPresentation,
+        IUiDialogService installDestinationDialogService,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
         Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
@@ -504,12 +513,18 @@ internal sealed class MainWindowChildComposition
             chartFileOperations);
         ChartFilters = new ChartListFilterViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();
+        InstallDestinationWorkflow = new InstallDestinationWorkflowOwner(
+            installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
+            chartFileOperations,
+            installDestinationPresentation ?? throw new ArgumentNullException(nameof(installDestinationPresentation)),
+            installDestinationDialogService ?? throw new ArgumentNullException(nameof(installDestinationDialogService)));
         RegularChartListOwner = new RegularChartListOwner(
             MainChartList,
             PlaylistWorkspace,
             mainViewLog,
             dispatchMainChartListAction,
-            mainViewLogWarning);
+            mainViewLogWarning,
+            InstallDestinationWorkflow);
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
             installPackageBatch,
             dispatchPackageInstallUi,
@@ -571,6 +586,8 @@ internal sealed class MainWindowChildComposition
     internal ChartListFilterViewModel ChartFilters { get; }
 
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
+
+    internal InstallDestinationWorkflowOwner InstallDestinationWorkflow { get; }
 
     internal RegularChartListOwner RegularChartListOwner { get; }
 

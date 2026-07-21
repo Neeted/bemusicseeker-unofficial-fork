@@ -74,6 +74,23 @@ public static class TaskEx
         return task.Logging(log2file, memberName, filePath, lineNumber);
     }
 
+    public static async Task LoggingAndPropagate(this Task task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
+    {
+        if (task == null)
+        {
+            throw new ArgumentNullException(nameof(task));
+        }
+        Task loggingTask = task.Logging(log2file, memberName, filePath, lineNumber);
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        finally
+        {
+            await loggingTask.ConfigureAwait(false);
+        }
+    }
+
     public static Task<T> Logging<T>(this Task<T> task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
     {
         return task.Logging(log2file, memberName, filePath, lineNumber);
