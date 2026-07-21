@@ -142,7 +142,7 @@
     <Border Width="640" Height="500" CornerRadius="8" Background="{DynamicResource App.DialogBackgroundBrush}" BorderBrush="{DynamicResource App.DialogBorderBrush}" BorderThickness="1" Padding="12" SnapsToDevicePixels="True">
       <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
           <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Name="buttonOK" Content="OK" MinWidth="64" Margin="0,0,8,0" Command="{Binding settingDialog.ApplyCommand}" />
+            <Button Name="buttonOK" Content="OK" MinWidth="64" Margin="0,0,8,0" Click="buttonOKClick" />
             <Button Name="buttonCancel" Content="Cancel" MinWidth="64" IsEnabled="{Binding settingDialog.IsEditCancellationEnabled}" Command="{Binding settingDialog.CancelCommand}" />
           </StackPanel>
           <TabControl DockPanel.Dock="Top">

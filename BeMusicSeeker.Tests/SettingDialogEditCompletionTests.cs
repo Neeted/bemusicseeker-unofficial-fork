@@ -2,12 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
 
 namespace BeMusicSeeker.Tests;
 
@@ -43,6 +49,109 @@ public sealed class SettingDialogEditCompletionTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_ActiveProfileWithoutChanges_PublishesSingleCloseRequest()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            SetActiveLibraryProfile(viewModel, true);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
+            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(
+                new[] { MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay },
+                requests);
+            Assert.IsFalse(dialog.IsEditCompletionInProgress);
+            Assert.IsTrue(dialog.IsEditCompletionEnabled);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void SettingDialogOkClick_AwaitsOwnerCompletionBeforeClosing()
+    {
+        RunOnStaDispatcherThread(() =>
+        {
+            Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
+            SynchronizationContext previousSynchronizationContext = SynchronizationContext.Current;
+            Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
+            DispatcherHelper.UIDispatcher = dispatcher;
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
+            string root = CreateTemporaryRoot();
+            try
+            {
+                var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+                using var reloadStarted = new ManualResetEventSlim();
+                var reloadRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                MainWindowViewModel viewModel = new ApplicationComposition(
+                    firstStartupProvider: () => false,
+                    completeFirstStartup: () => { },
+                    reloadSettings: settingsSession.Reload,
+                    saveSettings: settingsSession.Save,
+                    settingsEditSession: settingsSession,
+                    reloadScoresOnly: _ =>
+                    {
+                        reloadStarted.Set();
+                        return reloadRelease.Task;
+                    })
+                    .CreateMainWindowViewModel();
+                SetActiveLibraryProfile(viewModel, true);
+                MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = viewModel.settingDialog;
+                settingDialogViewModel.BeatorajaPlayerId = "player2";
+                var settingDialog = new SettingDialog
+                {
+                    DataContext = viewModel
+                };
+                Button button = (Button)typeof(SettingDialog)
+                    .GetField("buttonOK", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .GetValue(settingDialog)!;
+                using var closeRequestObserved = new ManualResetEventSlim();
+                DispatcherFrame? frame = null;
+                settingDialogViewModel.PresentationRequested += (_, request) =>
+                {
+                    if (request.Kind == MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay)
+                    {
+                        closeRequestObserved.Set();
+                        if (frame != null)
+                        {
+                            frame.Continue = false;
+                        }
+                    }
+                };
+
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
+
+                Assert.IsTrue(reloadStarted.Wait(TimeSpan.FromSeconds(5)));
+                Assert.IsTrue(settingDialogViewModel.IsEditCompletionInProgress);
+                Assert.IsFalse(closeRequestObserved.IsSet);
+
+                reloadRelease.SetResult(true);
+                frame = new DispatcherFrame();
+                var timeoutTimer = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.ApplicationIdle, (_, _) => frame.Continue = false, dispatcher);
+                timeoutTimer.Start();
+                Dispatcher.PushFrame(frame);
+                timeoutTimer.Stop();
+                Assert.IsTrue(closeRequestObserved.IsSet);
+                Assert.IsFalse(settingDialogViewModel.IsEditCompletionInProgress);
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+                DispatcherHelper.UIDispatcher = previousDispatcher;
+                SynchronizationContext.SetSynchronizationContext(previousSynchronizationContext);
+            }
+        });
     }
 
     [TestMethod]
@@ -582,6 +691,40 @@ public sealed class SettingDialogEditCompletionTests
         instance.GetType()
             .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(instance, value);
+    }
+
+    private static void RunOnStaDispatcherThread(Action action)
+    {
+        Exception? exception = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+            finally
+            {
+                Dispatcher dispatcher = Dispatcher.FromThread(Thread.CurrentThread);
+                if (dispatcher != null && !dispatcher.HasShutdownStarted)
+                {
+                    dispatcher.InvokeShutdown();
+                }
+            }
+        })
+        {
+            IsBackground = true
+        };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (exception != null)
+        {
+            ExceptionDispatchInfo.Capture(exception).Throw();
+        }
     }
 
     private sealed class CountingSettingsEditSession : ISettingsEditSession

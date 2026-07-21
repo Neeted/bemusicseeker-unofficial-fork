@@ -106,6 +106,13 @@ public partial class SettingDialog : UserControl, IComponentConnector
             ?? throw new InvalidOperationException("Setting dialog view model is unavailable.");
     }
 
+    private async void buttonOKClick(object sender, RoutedEventArgs e)
+    {
+        await GetSettingDialogViewModel()
+            .ApplySettingsAsync()
+            .LoggingAndPropagate("buttonOKClick");
+    }
+
     private void PickRootFolderForSetting(string propertyName, string selectedPath, string title = null)
     {
         MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();

@@ -1787,7 +1787,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void SettingDialogApplyCommand_UsesOwnerCompletionRoute()
+    public void SettingDialogApplyClick_UsesOwnerCompletionRoute()
     {
         string root = FindRepositoryRoot();
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
@@ -1801,15 +1801,22 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(settingDialogCode.Contains("ShouldResetSettingsOnCancel"));
         Assert.IsFalse(settingDialogCode.Contains("ShouldCloseSettingsWithoutSave"));
         Assert.IsFalse(settingDialogCode.Contains("IsNeedRestartForSaveOrCancel"));
-        StringAssert.Contains(settingDialogXaml, "Command=\"{Binding settingDialog.ApplyCommand}\"");
+        StringAssert.Contains(settingDialogXaml, "Click=\"buttonOKClick\"");
+        Assert.IsFalse(settingDialogXaml.Contains("settingDialog.ApplyCommand"));
         StringAssert.Contains(settingDialogXaml, "Command=\"{Binding settingDialog.CancelCommand}\"");
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding settingDialog.IsEditCompletionEnabled}\"");
+        StringAssert.Contains(settingDialogCode, "private async void buttonOKClick(object sender, RoutedEventArgs e)");
+        StringAssert.Contains(settingDialogCode, "await GetSettingDialogViewModel()");
+        StringAssert.Contains(settingDialogCode, "ApplySettingsAsync()");
+        StringAssert.Contains(settingDialogCode, "LoggingAndPropagate(\"buttonOKClick\")");
         Assert.IsFalse(mainWindowXaml.Contains("EventName=\"ContentRendered\""));
         StringAssert.Contains(mainWindowCode, "Task<bool> initializationTask = viewModel.InitializeAsync();");
         StringAssert.Contains(mainWindowCode, "ApplyStartupInitialSelectionRequest();");
         StringAssert.Contains(mainWindowCode, "await initializationTask.LoggingAndPropagate(\"MainWindow_ContentRendered\")");
         Assert.IsFalse(viewModelCode.Contains("public async void InitializeAsync()"));
         Assert.IsFalse(viewModelCode.Contains("InitializeForSettingsAsync"));
+        Assert.IsFalse(viewModelCode.Contains("ApplyCommand"));
+        Assert.IsFalse(viewModelCode.Contains("ExecuteApplyCommand"));
         StringAssert.Contains(viewModelCode, "internal async Task ApplySettingsAsync()");
         StringAssert.Contains(viewModelCode, "await SaveSettingsForInitialInitialize();");
         StringAssert.Contains(viewModelCode, "await SaveSettings();");

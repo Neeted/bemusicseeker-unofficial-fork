@@ -39,23 +39,6 @@ public sealed class SettingDialogOpenCommandTests
     }
 
     [TestMethod]
-    public void ApplyCommand_ActiveProfileWithoutChanges_PublishesSingleCloseRequest()
-    {
-        MainWindowViewModel viewModel = CreateViewModel();
-        SetActiveLibraryProfile(viewModel, true);
-        var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
-        viewModel.settingDialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
-
-        viewModel.settingDialog.ApplyCommand.Execute();
-
-        CollectionAssert.AreEqual(
-            new[] { MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay },
-            requests);
-        Assert.IsFalse(viewModel.settingDialog.IsEditCompletionInProgress);
-        Assert.IsTrue(viewModel.settingDialog.IsEditCompletionEnabled);
-    }
-
-    [TestMethod]
     public void CancelCommand_ChangedDraft_ResetsDraftBeforeClosing()
     {
         bool previousShowRecommUpdatedMsg = BeMusicSeeker.Properties.Settings.Default.ShowRecommUpdatedMsg;
@@ -110,10 +93,4 @@ public sealed class SettingDialogOpenCommandTests
             .CreateMainWindowViewModel();
     }
 
-    private static void SetActiveLibraryProfile(MainWindowViewModel viewModel, bool value)
-    {
-        typeof(MainWindowViewModel)
-            .GetField("hasActiveLibraryProfile", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(viewModel, value);
-    }
 }

@@ -98,8 +98,6 @@ public partial class MainWindowViewModel
 
         private ViewModelCommand openCommand;
 
-        private ViewModelCommand applyCommand;
-
         private ViewModelCommand cancelCommand;
 
         private bool isEditCompletionInProgress;
@@ -134,11 +132,6 @@ public partial class MainWindowViewModel
         /// Gets the command used by views to request the settings dialog.
         /// </summary>
         public ViewModelCommand OpenCommand => openCommand ??= new ViewModelCommand(RequestOpen);
-
-        /// <summary>
-        /// Gets the command that validates and applies the settings draft.
-        /// </summary>
-        public ViewModelCommand ApplyCommand => applyCommand ??= new ViewModelCommand(ExecuteApplyCommand);
 
         /// <summary>
         /// Gets the command that restores the saved settings snapshot and closes the dialog.
@@ -190,11 +183,6 @@ public partial class MainWindowViewModel
         private void RequestPresentation(PresentationRequestKind kind)
         {
             PresentationRequested?.Invoke(this, new PresentationRequestedEventArgs(kind));
-        }
-
-        private async void ExecuteApplyCommand()
-        {
-            await ApplySettingsAsync();
         }
 
         private void ExecuteCancelCommand()
