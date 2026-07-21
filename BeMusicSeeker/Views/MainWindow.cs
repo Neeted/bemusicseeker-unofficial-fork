@@ -6327,26 +6327,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Task.WhenAll(deleteTasks).Logging("tableContextMenuItemDeleteEntryClick");
     }
 
-    private void tableContextMenuItemForceFileScanCheckAllCharts(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemForceFileScanCheckAllCharts(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("datagrid_context_menu_full_scan_all_charts"))
         {
             e.Handled = true;
             return;
         }
-        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this),
-            BeMusicSeeker.Properties.Resources.Msg_rescan_all_charts_confirm,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Question,
-            MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        e.Handled = true;
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || viewModel.MaintenanceRescanWorkflow == null)
         {
-            e.Handled = true;
             return;
         }
-        var viewModel = base.DataContext as MainWindowViewModel;
-        viewModel?.MaintenanceRescanWorkflow?.Start();
-        e.Handled = true;
+        MaintenanceRescanStartResult result = await viewModel.MaintenanceRescanWorkflow.RequestStartAsync();
+        if (result.Status == MaintenanceRescanStartStatus.Failed && result.Failure != null)
+        {
+            _ = Task.FromException(result.Failure).Logging("tableContextMenuItemForceFileScanCheckAllCharts");
+        }
     }
 
     private void tableContextMenuItemRemoveChartInfoParseFailureClick(object sender, RoutedEventArgs e)

@@ -109,7 +109,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     checkerThreadId = Thread.CurrentThread.ManagedThreadId;
                     return false;
                 },
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action());
             owner.AttachLibrary(library);
             owner.ProgressChanged += _ => Interlocked.Increment(ref progressCalls);

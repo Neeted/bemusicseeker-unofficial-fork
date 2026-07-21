@@ -323,7 +323,8 @@ internal sealed class ApplicationComposition
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
         ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
         IUiDialogService selectedChartResourceHealthDialogService = null,
-        Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null)
+        Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
+        IUiDialogService maintenanceRescanDialogService = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -371,7 +372,8 @@ internal sealed class ApplicationComposition
             selectedChartMutationLibraryProvider,
             selectedChartResourceHealthRefresh,
             selectedChartResourceHealthDialogService,
-            selectedChartResourceHealthLibraryProvider);
+            selectedChartResourceHealthLibraryProvider,
+            maintenanceRescanDialogService);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -546,7 +548,8 @@ internal sealed class MainWindowChildComposition
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
         ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
         IUiDialogService selectedChartResourceHealthDialogService = null,
-        Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null)
+        Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
+        IUiDialogService maintenanceRescanDialogService = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -588,7 +591,8 @@ internal sealed class MainWindowChildComposition
             dispatchMainChartListAction,
             maintenanceRescanLog,
             reportMaintenanceRescanWorkflowNotificationFailure,
-            reportMaintenanceRescanWorkflowFailure);
+            reportMaintenanceRescanWorkflowFailure,
+            dialogs: maintenanceRescanDialogService ?? throw new ArgumentNullException(nameof(maintenanceRescanDialogService)));
         FolderAutoRenameWorkflow = new FolderAutoRenameWorkflowOwner(
             folderAutoRenameSelectedExecutor ?? MissingFolderAutoRenameSelectedExecutor,
             folderAutoRenameAllExecutor ?? MissingFolderAutoRenameAllExecutor,

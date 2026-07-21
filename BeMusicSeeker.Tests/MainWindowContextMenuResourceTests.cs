@@ -2809,6 +2809,25 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void FullResourceHealthContextMenu_RoutesConfirmationThroughWorkflowOwner()
+    {
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string handler = ExtractBetween(
+            mainWindowCode,
+            "private async void tableContextMenuItemForceFileScanCheckAllCharts",
+            "private void tableContextMenuItemRemoveChartInfoParseFailureClick");
+
+        StringAssert.Contains(handler, "ShouldBlockStartupUiInteraction(\"datagrid_context_menu_full_scan_all_charts\")");
+        StringAssert.Contains(handler, "viewModel.MaintenanceRescanWorkflow.RequestStartAsync()");
+        StringAssert.Contains(handler, "MaintenanceRescanStartStatus.Failed");
+        Assert.IsFalse(handler.Contains("UiDialogRoute.ShowMessageBox"));
+        Assert.IsFalse(handler.Contains("MaintenanceRescanWorkflow.Start"));
+        int blockIndex = handler.IndexOf("ShouldBlockStartupUiInteraction", StringComparison.Ordinal);
+        int requestIndex = handler.IndexOf("RequestStartAsync", StringComparison.Ordinal);
+        Assert.IsTrue(blockIndex >= 0 && requestIndex > blockIndex, "Startup blocking must precede the confirmation request.");
+    }
+
+    [TestMethod]
     public void PendingPackageChartHandlersUseChartTargetsForPackageOperations()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();

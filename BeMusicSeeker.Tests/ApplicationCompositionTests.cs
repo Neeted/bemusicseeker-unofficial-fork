@@ -521,7 +521,8 @@ public sealed class ApplicationCompositionTests
             selectedChartMutationLibraryProvider: () => null!,
             selectedChartResourceHealthRefresh: new NoOpSelectedChartResourceHealthRefreshPort(),
             selectedChartResourceHealthDialogService: new TestUiDialogService(),
-            selectedChartResourceHealthLibraryProvider: () => null!);
+            selectedChartResourceHealthLibraryProvider: () => null!,
+            maintenanceRescanDialogService: new TestUiDialogService());
 
         try
         {
@@ -534,6 +535,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.PendingPackageWorkflow);
             Assert.IsNotNull(childComposition.RegularChartListOwner);
             Assert.IsNotNull(childComposition.PackageInstallWorkflow);
+            Assert.IsNotNull(childComposition.MaintenanceRescanWorkflow);
             Assert.IsNotNull(childComposition.FolderAutoRenameWorkflow);
             Assert.IsNotNull(childComposition.StartupUpdateWorkflow);
             Assert.IsNotNull(childComposition.ElevatedProcessWarningWorkflow);
@@ -627,7 +629,8 @@ public sealed class ApplicationCompositionTests
             selectedChartMutationLibraryProvider: () => null!,
             selectedChartResourceHealthRefresh: new NoOpSelectedChartResourceHealthRefreshPort(),
             selectedChartResourceHealthDialogService: new TestUiDialogService(),
-            selectedChartResourceHealthLibraryProvider: () => null!);
+            selectedChartResourceHealthLibraryProvider: () => null!,
+            maintenanceRescanDialogService: new TestUiDialogService());
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -754,7 +757,8 @@ public sealed class ApplicationCompositionTests
             selectedChartMutationLibraryProvider: () => null!,
             selectedChartResourceHealthRefresh: new NoOpSelectedChartResourceHealthRefreshPort(),
             selectedChartResourceHealthDialogService: new TestUiDialogService(),
-            selectedChartResourceHealthLibraryProvider: () => null!);
+            selectedChartResourceHealthLibraryProvider: () => null!,
+            maintenanceRescanDialogService: new TestUiDialogService());
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

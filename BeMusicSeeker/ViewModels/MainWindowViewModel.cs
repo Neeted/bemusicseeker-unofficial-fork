@@ -3851,7 +3851,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             selectedChartMutationLibraryProvider: () => files,
             selectedChartResourceHealthRefresh: this,
             selectedChartResourceHealthDialogService: new UiDialogCoordinator(),
-            selectedChartResourceHealthLibraryProvider: () => files);
+            selectedChartResourceHealthLibraryProvider: () => files,
+            maintenanceRescanDialogService: new UiDialogCoordinator());
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;

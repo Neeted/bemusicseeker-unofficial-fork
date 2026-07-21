@@ -1400,14 +1400,19 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
             File.WriteAllText(folderInfoPath, "#TITLE Surface Table", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(lr2FolderPath, "#TITLE External Folder", Encoding.GetEncoding("shift_jis"));
-            var library = new BMSLibrary(scope.SongDbPath)
-            {
-                SearchTargets = [rootDirectory],
-                BMSFiles = []
-            };
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
+            };
+            var library = new BMSLibrary(
+                scope.SongDbPath,
+                getLR2Config: null,
+                _lr2ScoreDB: null,
+                startupRequiredFileScanReason: null,
+                optionsSnapshotProvider: () => options)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
             };
             var fileCheckResult = new SongTableFileCheckResult
             {

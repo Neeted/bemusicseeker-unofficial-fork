@@ -3,6 +3,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Views.Dialogs;
+using System.Windows;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -35,6 +37,45 @@ internal sealed class MaintenanceRescanFailure : EventArgs
     internal Exception Exception { get; }
 }
 
+internal enum MaintenanceRescanStartStatus
+{
+    Started,
+    Rejected,
+    NotStarted,
+    Failed
+}
+
+internal sealed class MaintenanceRescanStartResult
+{
+    private MaintenanceRescanStartResult(MaintenanceRescanStartStatus status, Exception failure)
+    {
+        Status = status;
+        Failure = failure;
+    }
+
+    internal MaintenanceRescanStartStatus Status { get; }
+
+    internal Exception Failure { get; }
+
+    internal bool Started => Status == MaintenanceRescanStartStatus.Started;
+
+    internal static MaintenanceRescanStartResult StartedResult { get; } =
+        new(MaintenanceRescanStartStatus.Started, null);
+
+    internal static MaintenanceRescanStartResult Rejected { get; } =
+        new(MaintenanceRescanStartStatus.Rejected, null);
+
+    internal static MaintenanceRescanStartResult NotStarted { get; } =
+        new(MaintenanceRescanStartStatus.NotStarted, null);
+
+    internal static MaintenanceRescanStartResult Failed(Exception failure)
+    {
+        return new(
+            MaintenanceRescanStartStatus.Failed,
+            failure ?? throw new ArgumentNullException(nameof(failure)));
+    }
+}
+
 /// <summary>
 /// Owns the shell lifecycle of the all-owned maintenance rescan while the library
 /// remains responsible for the durable/live catalog mutation boundary.
@@ -55,6 +96,8 @@ internal sealed class MaintenanceRescanWorkflowOwner
 
     private readonly Action<Exception> reportNotificationFailure;
 
+    private readonly IUiDialogService dialogs;
+
     private BMSLibrary library;
 
     private long generation;
@@ -71,7 +114,8 @@ internal sealed class MaintenanceRescanWorkflowOwner
         Action<Action> dispatchToUi,
         Action<string> logInfo = null,
         Action<Exception> reportNotificationFailure = null,
-        Action<Exception> reportWorkflowFailure = null)
+        Action<Exception> reportWorkflowFailure = null,
+        IUiDialogService dialogs = null)
     {
         this.execute = execute ?? throw new ArgumentNullException(nameof(execute));
         this.schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
@@ -79,6 +123,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
         this.logInfo = logInfo;
         this.reportWorkflowFailure = reportWorkflowFailure;
         this.reportNotificationFailure = reportNotificationFailure;
+        this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
     }
 
     internal event Action<MaintenanceWorkflowProgress> ProgressChanged;
@@ -122,7 +167,44 @@ internal sealed class MaintenanceRescanWorkflowOwner
         DispatchNotification(() => ProgressChanged?.Invoke(CreateResetProgress()));
     }
 
-    internal bool Start()
+    internal async Task<MaintenanceRescanStartResult> RequestStartAsync()
+    {
+        try
+        {
+            UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Msg_rescan_all_charts_confirm,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Cancel));
+            if (result == null)
+            {
+                return MaintenanceRescanStartResult.Failed(
+                    new InvalidOperationException("Maintenance rescan confirmation returned no result."));
+            }
+            if (result.Status is UiDialogStatus.Rejected
+                or UiDialogStatus.CancelledByUser
+                or UiDialogStatus.ClosedByUser)
+            {
+                return MaintenanceRescanStartResult.Rejected;
+            }
+            if (result.Status != UiDialogStatus.Accepted)
+            {
+                return MaintenanceRescanStartResult.Failed(
+                    result.Exception ?? new InvalidOperationException(
+                        "Maintenance rescan confirmation could not be displayed (" + result.Status + ")."));
+            }
+            return StartCore()
+                ? MaintenanceRescanStartResult.StartedResult
+                : MaintenanceRescanStartResult.NotStarted;
+        }
+        catch (Exception exception)
+        {
+            return MaintenanceRescanStartResult.Failed(exception);
+        }
+    }
+
+    private bool StartCore()
     {
         RunContext run;
         lock (syncRoot)
