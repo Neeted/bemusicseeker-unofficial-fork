@@ -296,7 +296,9 @@ internal sealed class ApplicationComposition
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
         Action<Exception> reportFolderAutoRenameFailure = null,
         ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
-        Func<BMSLibrary> zeroNoteLibraryProvider = null)
+        Func<BMSLibrary> zeroNoteLibraryProvider = null,
+        Func<BMSLibrary> packageRecordLibraryProvider = null,
+        IPackageRecordMutationPresentation packageRecordPresentation = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -324,7 +326,9 @@ internal sealed class ApplicationComposition
             reportFolderAutoRenameNotificationFailure,
             reportFolderAutoRenameFailure,
             scoreViewerRegistrationWorkflow ?? CreateScoreViewerRegistrationWorkflowOwner(),
-            zeroNoteLibraryProvider);
+            zeroNoteLibraryProvider,
+            packageRecordLibraryProvider,
+            packageRecordPresentation);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -479,7 +483,9 @@ internal sealed class MainWindowChildComposition
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
         Action<Exception> reportFolderAutoRenameFailure = null,
         ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
-        Func<BMSLibrary> zeroNoteLibraryProvider = null)
+        Func<BMSLibrary> zeroNoteLibraryProvider = null,
+        Func<BMSLibrary> packageRecordLibraryProvider = null,
+        IPackageRecordMutationPresentation packageRecordPresentation = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -548,6 +554,10 @@ internal sealed class MainWindowChildComposition
         ZeroNoteMaintenanceWorkflow = new ZeroNoteMaintenanceWorkflowOwner(
             zeroNoteLibraryProvider ?? (() => null),
             chartFileOperations);
+        PackageRecordWorkflow = new PackageRecordWorkflowOwner(
+            packageRecordLibraryProvider ?? (() => null),
+            chartFileOperations,
+            packageRecordPresentation ?? new NoOpPackageRecordMutationPresentation());
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -577,6 +587,8 @@ internal sealed class MainWindowChildComposition
     internal ScoreViewerRegistrationWorkflowOwner ScoreViewerRegistrationWorkflow { get; }
 
     internal ZeroNoteMaintenanceWorkflowOwner ZeroNoteMaintenanceWorkflow { get; }
+
+    internal PackageRecordWorkflowOwner PackageRecordWorkflow { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

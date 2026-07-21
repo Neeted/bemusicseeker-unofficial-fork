@@ -4012,7 +4012,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
     }
 
-    private void treeViewInstalledContextMenuClearAllClick(object sender, RoutedEventArgs e)
+    private async void treeViewInstalledContextMenuClearAllClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("tree_installed_clear_all"))
         {
@@ -4021,14 +4021,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel viewModel && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_installed, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
-            Task.Run(delegate
-            {
-                viewModel.RemoveInstalledPackageRecordsAll();
-            }).Logging("treeViewInstalledContextMenuClearAllClick");
+            await viewModel.PackageRecords
+                .RemoveAllAsync(DeleteInstallPackageRecordsKind.Installed)
+                .Logging("treeViewInstalledContextMenuClearAllClick");
         }
     }
 
-    private void treeViewInstallPendingContextMenuClearAllClick(object sender, RoutedEventArgs e)
+    private async void treeViewInstallPendingContextMenuClearAllClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("tree_pending_clear_all"))
         {
@@ -4037,10 +4036,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel viewModel && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
-            Task.Run(delegate
-            {
-                viewModel.RemovePendingPackagesAll();
-            }).Logging("treeViewInstallPendingContextMenuClearAllClick");
+            await viewModel.PackageRecords
+                .RemoveAllAsync(DeleteInstallPackageRecordsKind.Pending)
+                .Logging("treeViewInstallPendingContextMenuClearAllClick");
         }
     }
 
@@ -4243,10 +4241,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuClearFolderClick");
-        await Task.Run(delegate
-        {
-            viewModel.RemovePendingPackages([pkg]);
-        }).Logging("treeViewInstallPackageContextMenuClearFolderClick");
+        await viewModel.PackageRecords
+            .RemovePackagesAsync(DeleteInstallPackageRecordsKind.Pending, [pkg])
+            .Logging("treeViewInstallPackageContextMenuClearFolderClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
             await viewModel.RegularChartList
@@ -4280,10 +4277,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, pkg, "treeViewInstalledFolderContextMenuClearFolderClick");
-        await Task.Run(delegate
-        {
-            viewModel.RemoveInstalledPackageRecords([pkg]);
-        }).Logging("treeViewInstalledFolderContextMenuClearFolderClick");
+        await viewModel.PackageRecords
+            .RemovePackagesAsync(DeleteInstallPackageRecordsKind.Installed, [pkg])
+            .Logging("treeViewInstalledFolderContextMenuClearFolderClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
             await viewModel.RegularChartList
@@ -6845,10 +6841,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (request.IsPending)
         {
             SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
-            await Task.Run(delegate
-            {
-                viewModel.DeleteInstallPackageRecords(request);
-            }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
+            await viewModel.PackageRecords
+                .RemoveSelectionAsync(request)
+                .Logging("tableContextMenuItemDeleteInstallPackagesClick");
             if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
             {
                 await viewModel.RegularChartList
@@ -6858,10 +6853,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
-        await Task.Run(delegate
-        {
-            viewModel.DeleteInstallPackageRecords(request);
-        }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
+        await viewModel.PackageRecords
+            .RemoveSelectionAsync(request)
+            .Logging("tableContextMenuItemDeleteInstallPackagesClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
             await viewModel.RegularChartList

@@ -88,7 +88,7 @@ internal sealed class ShutdownPreparationResult
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel
+public partial class MainWindowViewModel : ViewModel, IPackageRecordMutationPresentation
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -117,6 +117,8 @@ public partial class MainWindowViewModel : ViewModel
     internal ScoreViewerRegistrationWorkflowOwner ScoreViewerRegistration { get; private set; }
 
     internal ZeroNoteMaintenanceWorkflowOwner ZeroNoteMaintenance { get; private set; }
+
+    internal PackageRecordWorkflowOwner PackageRecords { get; private set; }
 
     /// <summary>
     /// Gets the one-shot startup update workflow owned by application composition.
@@ -2072,6 +2074,26 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
+    void IPackageRecordMutationPresentation.BeginActivity()
+    {
+        BeginChartPackageMutation();
+    }
+
+    void IPackageRecordMutationPresentation.BeginRefreshSuppression()
+    {
+        BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
+    }
+
+    void IPackageRecordMutationPresentation.EndRefreshSuppression()
+    {
+        EndUiUpdateSuppression();
+    }
+
+    void IPackageRecordMutationPresentation.EndActivity()
+    {
+        EndChartPackageMutation();
+    }
+
     private void RunChartPackageMutation(
         Action action,
         IEnumerable<ChartFile> playbackTargetCharts = null,
@@ -3637,7 +3659,9 @@ public partial class MainWindowViewModel : ViewModel
             message => NLogWrapper.FileLogger?.Info(message),
             ReportFolderAutoRenameWorkflowNotificationFailure,
             ReportFolderAutoRenameWorkflowFailure,
-            zeroNoteLibraryProvider: () => files);
+            zeroNoteLibraryProvider: () => files,
+            packageRecordLibraryProvider: () => files,
+            packageRecordPresentation: this);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3658,6 +3682,7 @@ public partial class MainWindowViewModel : ViewModel
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
+        PackageRecords = childComposition.PackageRecordWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
@@ -9379,53 +9404,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public void RemovePendingPackagesAll()
-    {
-        RunPendingInstallMutation(delegate
-        {
-            files.RemovePendingPackagesAll();
-        });
-    }
-
-    public void RemovePendingPackages(IEnumerable<ChartPackage> packages)
-    {
-        if (packages == null)
-        {
-            throw new ArgumentNullException(nameof(packages));
-        }
-        RunPendingInstallMutation(delegate
-        {
-            files.RemovePendingPackages(packages);
-        });
-    }
-
-    internal void RemovePendingPackages(IEnumerable<ChartOperationTarget> targets)
-    {
-        if (targets == null)
-        {
-            throw new ArgumentNullException(nameof(targets));
-        }
-        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
-        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
-        RemovePendingPackages(chartPackages);
-    }
-
-    internal void DeleteInstallPackageRecords(DeleteInstallPackageRecordsRequest request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-
-        if (request.IsPending)
-        {
-            RemovePendingPackages(request.Targets);
-            return;
-        }
-
-        RemoveInstalledPackageRecords(request.Targets);
-    }
-
     public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts()
     {
         if (files == null)
@@ -9480,38 +9458,6 @@ public partial class MainWindowViewModel : ViewModel
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
         List<ChartFile> playbackTargetCharts = CreatePackagePlaybackTargetSnapshot(list);
         return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), playbackTargetCharts);
-    }
-
-    public void RemoveInstalledPackageRecordsAll()
-    {
-        RunChartPackageMutation(delegate
-        {
-            files.RemoveInstalledPackageRecordsAll();
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-    }
-
-    public void RemoveInstalledPackageRecords(IEnumerable<ChartPackage> packages)
-    {
-        if (packages == null)
-        {
-            throw new ArgumentNullException(nameof(packages));
-        }
-        List<ChartPackage> packageList = [.. packages.Where(package => package != null)];
-        RunChartPackageMutation(delegate
-        {
-            files.RemoveInstalledPackageRecords(packageList);
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-    }
-
-    internal void RemoveInstalledPackageRecords(IEnumerable<ChartOperationTarget> targets)
-    {
-        if (targets == null)
-        {
-            throw new ArgumentNullException(nameof(targets));
-        }
-        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
-        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets, isInstalled: true);
-        RemoveInstalledPackageRecords(chartPackages);
     }
 
     private void SearchCorrectInstallationDirectoryCharts(IEnumerable<PackageChartEntry> chartEntries)
