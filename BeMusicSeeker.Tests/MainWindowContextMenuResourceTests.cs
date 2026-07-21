@@ -4392,31 +4392,28 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string uninstallClickHandler = ExtractMethodBody(settingDialogCode, "private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)");
 
-        StringAssert.Contains(uninstallClickHandler, "UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_success_uninstall");
-        StringAssert.Contains(uninstallClickHandler, "UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_failed_uninstall");
-        StringAssert.Contains(uninstallClickHandler, "if (viewModel.IsLibraryOperationInProgress)");
-        StringAssert.Contains(uninstallClickHandler, "BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization");
+        StringAssert.Contains(uninstallClickHandler, "await settingDialogViewModel.UninstallApplicationDataAsync();");
         StringAssert.Contains(uninstallClickHandler, "settingDialogOperationGrid.IsEnabled = false;");
         StringAssert.Contains(uninstallClickHandler, "if (!closeAfterSuccess)");
         StringAssert.Contains(uninstallClickHandler, "settingDialogOperationGrid.IsEnabled = true;");
+        StringAssert.Contains(uninstallClickHandler, "window.Close();");
+        Assert.IsFalse(uninstallClickHandler.Contains("UninstallAllData"));
+        Assert.IsFalse(uninstallClickHandler.Contains("Task.Run"));
+        Assert.IsFalse(uninstallClickHandler.Contains("Msg_success_uninstall"));
+        Assert.IsFalse(uninstallClickHandler.Contains("Msg_failed_uninstall"));
+        Assert.IsFalse(uninstallClickHandler.Contains("Msg_settings_apply_blocked_during_initialization"));
+        Assert.IsFalse(uninstallClickHandler.Contains("Application.Current.MainWindow"));
+        Assert.IsFalse(uninstallClickHandler.Contains("base.Dispatcher.BeginInvoke"));
         Assert.IsTrue(
-            uninstallClickHandler.IndexOf("Msg_success_uninstall", StringComparison.Ordinal)
-            < uninstallClickHandler.IndexOf("アプリケーションを終了します", StringComparison.Ordinal));
-        Assert.IsTrue(
-            uninstallClickHandler.IndexOf("viewModel.IsLibraryOperationInProgress", StringComparison.Ordinal)
-            < uninstallClickHandler.IndexOf("続行しますか？", StringComparison.Ordinal));
+            uninstallClickHandler.IndexOf("await settingDialogViewModel.UninstallApplicationDataAsync();", StringComparison.Ordinal)
+            < uninstallClickHandler.IndexOf("window.Close();", StringComparison.Ordinal));
         Assert.IsTrue(
             uninstallClickHandler.IndexOf("settingDialogOperationGrid.IsEnabled = false;", StringComparison.Ordinal)
-            < uninstallClickHandler.IndexOf("viewModel.UninstallAllData();", StringComparison.Ordinal));
-        Assert.IsTrue(
-            uninstallClickHandler.IndexOf("base.Dispatcher.BeginInvoke", StringComparison.Ordinal)
-            < uninstallClickHandler.IndexOf("closeAfterSuccess = true;", StringComparison.Ordinal));
-
-        string uninstallMethod = ExtractMethodBody(viewModelCode, "internal void UninstallAllData()");
-        Assert.IsFalse(uninstallMethod.Contains("Msg_success_uninstall"));
-        Assert.IsFalse(uninstallMethod.Contains("Msg_failed_uninstall"));
-        Assert.IsFalse(uninstallMethod.Contains("base.Messenger.Raise"));
-        Assert.IsFalse(uninstallMethod.Contains("Dispatcher.Invoke"));
+            < uninstallClickHandler.IndexOf("await settingDialogViewModel.UninstallApplicationDataAsync();", StringComparison.Ordinal));
+        Assert.IsFalse(viewModelCode.Contains("internal void UninstallAllData()"));
+        StringAssert.Contains(viewModelCode, "internal Task<ApplicationDataUninstallResult> UninstallApplicationDataAsync()");
+        StringAssert.Contains(viewModelCode, "new ApplicationDataUninstallRequest(");
+        StringAssert.Contains(viewModelCode, "new ApplicationDataUninstallWorkflowOwner(");
     }
 
     [TestMethod]

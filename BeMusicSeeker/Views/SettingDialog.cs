@@ -467,16 +467,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.PlaylistWorkspace.PlaylistTreeTables == null)
-        {
-            return;
-        }
-        if (viewModel.IsLibraryOperationInProgress)
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
-            return;
-        }
-        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "BeMusicSeekerのデータをLR2データベースから削除します。" + Environment.NewLine + "続行した場合この操作を取り消しすることは出来ません。" + Environment.NewLine + "必要に応じて事前にバックアップを取得してください。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
             return;
         }
@@ -484,21 +475,16 @@ public partial class SettingDialog : UserControl, IComponentConnector
         settingDialogOperationGrid.IsEnabled = false;
         try
         {
-            await Task.Run(delegate
+            ApplicationDataUninstallResult result = await settingDialogViewModel.UninstallApplicationDataAsync();
+            closeAfterSuccess = result.ShouldCloseApplication;
+            if (closeAfterSuccess)
             {
-                viewModel.UninstallAllData();
-            }).Logging("detailTabItemUninstallButtonClicked");
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_success_uninstall, BeMusicSeeker.Properties.Resources.Success, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
-            await base.Dispatcher.BeginInvoke((Action)delegate
-            {
-                UiDialogRoute.ShowMessageBox(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
-                Application.Current.MainWindow.Close();
-            }, DispatcherPriority.Normal);
-            closeAfterSuccess = true;
-        }
-        catch (Exception ex)
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_failed_uninstall + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                if (Window.GetWindow(this) is not Window window)
+                {
+                    throw new InvalidOperationException("Setting dialog is not hosted by a window.");
+                }
+                window.Close();
+            }
         }
         finally
         {

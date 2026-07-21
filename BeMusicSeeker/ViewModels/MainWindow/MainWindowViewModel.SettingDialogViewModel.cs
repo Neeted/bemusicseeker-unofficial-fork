@@ -122,6 +122,8 @@ public partial class MainWindowViewModel
 
         private readonly Action<string> invalidatePlayHistoryReadCache;
 
+        private readonly ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow;
+
         /// <summary>
         /// Requests that the shell present the settings dialog.
         /// </summary>
@@ -1159,6 +1161,14 @@ public partial class MainWindowViewModel
                     MessageBoxImage.Hand,
                     "LR2 play history schema install failure notification");
             }
+        }
+
+        internal Task<ApplicationDataUninstallResult> UninstallApplicationDataAsync()
+        {
+            return applicationDataUninstallWorkflow.RunAsync(new ApplicationDataUninstallRequest(
+                ownerViewModel.PlaylistWorkspace.PlaylistTreeTables != null,
+                ownerViewModel.IsLibraryOperationInProgress,
+                ApplicationSettings.LR2SongDBPath));
         }
 
         internal async Task UninstallLr2PlayHistorySchemaAsync()
@@ -3710,7 +3720,8 @@ public partial class MainWindowViewModel
             Action<Exception> reportApplyFailure = null,
             Func<Task> reloadFileDiff = null,
             IUiDialogService schemaDialogs = null,
-            Action<string> invalidatePlayHistoryReadCache = null)
+            Action<string> invalidatePlayHistoryReadCache = null,
+            ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow = null)
         {
             SettingDialogViewModel settingDialogViewModel = this;
             ownerViewModel = owner;
@@ -3728,6 +3739,8 @@ public partial class MainWindowViewModel
                     "Settings apply failure notification"));
             this.schemaDialogs = schemaDialogs ?? new UiDialogCoordinator();
             this.invalidatePlayHistoryReadCache = invalidatePlayHistoryReadCache ?? owner.InvalidatePlayHistoryReadCache;
+            this.applicationDataUninstallWorkflow = applicationDataUninstallWorkflow
+                ?? new ApplicationDataUninstallWorkflowOwner(this.schemaDialogs, new Lr2ApplicationDataUninstallStore());
             playHistoryDisplaySettingsStore = owner.PlayHistoryDisplaySettingsStore;
             appearanceThemeOptions =
             [

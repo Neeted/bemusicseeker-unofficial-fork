@@ -284,6 +284,7 @@ internal sealed class ApplicationComposition
         {
             throw new ArgumentNullException(nameof(owner));
         }
+        IUiDialogService schemaDialogs = new UiDialogCoordinator();
         return new MainWindowViewModel.SettingDialogViewModel(
             owner,
             reloadSettings,
@@ -297,8 +298,11 @@ internal sealed class ApplicationComposition
             reloadFileDiff == null
                 ? owner.ReloadFileDiffAsync
                 : () => reloadFileDiff(owner),
-            schemaDialogs: new UiDialogCoordinator(),
-            invalidatePlayHistoryReadCache: owner.InvalidatePlayHistoryReadCache);
+            schemaDialogs: schemaDialogs,
+            invalidatePlayHistoryReadCache: owner.InvalidatePlayHistoryReadCache,
+            applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(
+                schemaDialogs,
+                new Lr2ApplicationDataUninstallStore()));
     }
 
     internal MainWindowChildComposition CreateMainWindowChildComposition(

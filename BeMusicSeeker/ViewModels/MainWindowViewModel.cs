@@ -9367,41 +9367,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
-    internal void UninstallAllData()
-    {
-        if (string.IsNullOrWhiteSpace(ApplicationSettings.LR2SongDBPath) || !File.Exists(ApplicationSettings.LR2SongDBPath))
-        {
-            return;
-        }
-        bool unlockAfterOperation = !LR2SongDBExtended.IsProcessLockEnteredByCurrentThread();
-        if (!LR2SongDBExtended.Lock(new TimeSpan(0, 1, 0)))
-        {
-            throw new TimeoutException(BeMusicSeeker.Properties.Resources.Msg_error_timeout_dblock_uninstall);
-        }
-        try
-        {
-            using var lR2SongDBExtended = new LR2SongDBExtended(ApplicationSettings.LR2SongDBPath);
-            string savepoint = lR2SongDBExtended.SaveTransactionPoint();
-            try
-            {
-                lR2SongDBExtended.Uninstall();
-                lR2SongDBExtended.Commit();
-            }
-            catch (Exception)
-            {
-                lR2SongDBExtended.RollbackTo(savepoint);
-                throw;
-            }
-        }
-        finally
-        {
-            if (unlockAfterOperation)
-            {
-                LR2SongDBExtended.Unlock();
-            }
-        }
-    }
-
     private void ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(string reason)
     {
         try
