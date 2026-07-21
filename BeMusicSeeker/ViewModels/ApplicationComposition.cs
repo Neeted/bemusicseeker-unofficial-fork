@@ -14,6 +14,7 @@ using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using Ribbit.Logging;
+using Ribbit.Media.Audio;
 using Ribbit.Net;
 
 namespace BeMusicSeeker.ViewModels;
@@ -327,7 +328,12 @@ internal sealed class ApplicationComposition
         IUiDialogService maintenanceRescanDialogService = null,
         Func<BMSLibrary> chartInfoParseFailureRemovalLibraryProvider = null,
         IUiDialogService chartInfoParseFailureRemovalDialogService = null,
-        Func<Action, Task> chartInfoParseFailureRemovalScheduler = null)
+        Func<Action, Task> chartInfoParseFailureRemovalScheduler = null,
+        Func<SelectedChartAudioConversionSettingsSnapshot> selectedChartAudioConversionSettingsProvider = null,
+        Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
+        ISelectedChartAudioConversionPlaybackPort selectedChartAudioConversionPlayback = null,
+        IUiDialogService selectedChartAudioConversionDialogService = null,
+        ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -379,7 +385,15 @@ internal sealed class ApplicationComposition
             maintenanceRescanDialogService,
             chartInfoParseFailureRemovalLibraryProvider,
             chartInfoParseFailureRemovalDialogService,
-            chartInfoParseFailureRemovalScheduler);
+            chartInfoParseFailureRemovalScheduler,
+            selectedChartAudioConversionSettingsProvider
+                ?? (() => SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(settingsEditSession.Values)),
+            selectedChartAudioConversionEncoderFallback
+                ?? (encoder => settingsEditSession.Values.Encoder = encoder),
+            selectedChartAudioConversionPlayback
+                ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionPlayback)),
+            selectedChartAudioConversionDialogService,
+            selectedChartAudioConversionExecutor);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -558,7 +572,12 @@ internal sealed class MainWindowChildComposition
         IUiDialogService maintenanceRescanDialogService = null,
         Func<BMSLibrary> chartInfoParseFailureRemovalLibraryProvider = null,
         IUiDialogService chartInfoParseFailureRemovalDialogService = null,
-        Func<Action, Task> chartInfoParseFailureRemovalScheduler = null)
+        Func<Action, Task> chartInfoParseFailureRemovalScheduler = null,
+        Func<SelectedChartAudioConversionSettingsSnapshot> selectedChartAudioConversionSettingsProvider = null,
+        Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
+        ISelectedChartAudioConversionPlaybackPort selectedChartAudioConversionPlayback = null,
+        IUiDialogService selectedChartAudioConversionDialogService = null,
+        ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -663,6 +682,13 @@ internal sealed class MainWindowChildComposition
             chartInfoParseFailureRemovalLibraryProvider ?? throw new ArgumentNullException(nameof(chartInfoParseFailureRemovalLibraryProvider)),
             chartInfoParseFailureRemovalDialogService ?? throw new ArgumentNullException(nameof(chartInfoParseFailureRemovalDialogService)),
             chartInfoParseFailureRemovalScheduler ?? (action => Task.Run(action)));
+        SelectedChartAudioConversion = new SelectedChartAudioConversionWorkflowOwner(
+            selectedChartAudioConversionSettingsProvider ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionSettingsProvider)),
+            selectedChartAudioConversionEncoderFallback ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionEncoderFallback)),
+            selectedChartAudioConversionPlayback
+                ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionPlayback)),
+            selectedChartAudioConversionDialogService ?? new UiDialogCoordinator(),
+            selectedChartAudioConversionExecutor);
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -704,6 +730,8 @@ internal sealed class MainWindowChildComposition
     internal SelectedChartResourceHealthWorkflowOwner SelectedChartResourceHealth { get; }
 
     internal ChartInfoParseFailureRemovalWorkflowOwner ChartInfoParseFailureRemoval { get; }
+
+    internal SelectedChartAudioConversionWorkflowOwner SelectedChartAudioConversion { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

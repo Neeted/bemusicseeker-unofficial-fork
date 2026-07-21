@@ -88,7 +88,7 @@ internal sealed class ShutdownPreparationResult
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, IDuplicateMaintenancePlaybackPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort, ISelectedChartMutationPlaybackPort, ISelectedChartResourceHealthRefreshPort
+public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, IDuplicateMaintenancePlaybackPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort, ISelectedChartMutationPlaybackPort, ISelectedChartResourceHealthRefreshPort, ISelectedChartAudioConversionPlaybackPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -127,6 +127,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     internal SelectedChartResourceHealthWorkflowOwner SelectedChartResourceHealth { get; private set; }
 
     internal ChartInfoParseFailureRemovalWorkflowOwner ChartInfoParseFailureRemoval { get; private set; }
+
+    internal SelectedChartAudioConversionWorkflowOwner SelectedChartAudioConversion { get; private set; }
 
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
@@ -2205,6 +2207,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         PlaybackPanel.StopIfPlayingChartDirectories(directories);
     }
 
+    void ISelectedChartAudioConversionPlaybackPort.StopPlayback()
+    {
+        PlaybackPanel.StopPlayback(closeProcess: true);
+    }
+
     void ISelectedChartResourceHealthRefreshPort.RefreshAfterRescan()
     {
         RefreshResourceHealthViewsAfterMaintenanceChanged(
@@ -3861,7 +3868,9 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             selectedChartResourceHealthLibraryProvider: () => files,
             maintenanceRescanDialogService: new UiDialogCoordinator(),
             chartInfoParseFailureRemovalDialogService: new UiDialogCoordinator(),
-            chartInfoParseFailureRemovalLibraryProvider: () => files);
+            chartInfoParseFailureRemovalLibraryProvider: () => files,
+            selectedChartAudioConversionPlayback: this,
+            selectedChartAudioConversionDialogService: new UiDialogCoordinator());
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3887,6 +3896,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         SelectedChartMutations = childComposition.SelectedChartMutations;
         SelectedChartResourceHealth = childComposition.SelectedChartResourceHealth;
         ChartInfoParseFailureRemoval = childComposition.ChartInfoParseFailureRemoval;
+        SelectedChartAudioConversion = childComposition.SelectedChartAudioConversion;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
@@ -9649,86 +9659,4 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
-    public void ConvertBMSToAudioFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string saveDir, CancellationToken token = default, Action<bool> onEachCompleted = null)
-    {
-        if (!LongPathFileSystem.DirectoryExists(saveDir))
-        {
-            throw new DirectoryNotFoundException("Directory " + saveDir + " not found");
-        }
-        bmsFiles = bmsFiles.Materialize();
-        PlaybackPanel.StopPlayback(closeProcess: true);
-        BassAudioPlayer.Frequency = ApplicationSettings.EncoderSampleRate;
-        BassAudioPlayer.Format = ApplicationSettings.EncoderFormat;
-        BassAudioWriter.EncoderDirectory = ApplicationSettings.EncoderExeDir;
-        BassAudioWriter.Initialize();
-        int num = 0;
-        foreach (BeMusicSeeker.Models.BMSFile bmsFile in bmsFiles)
-        {
-            if (token.IsCancellationRequested)
-            {
-                break;
-            }
-            bool obj = true;
-            BMSAutoPlayWriter bMSAutoPlayWriter = null;
-            try
-            {
-                num++;
-                var bMSFile = new Ribbit.BMS.BMSFile(bmsFile.path);
-                string text = new Dictionary<string, string>
-                {
-                    {
-                        "%ARTIST%",
-                        ((bMSFile.Artist.Trim() ?? string.Empty) + " " + (bMSFile.Subartist?.Trim() ?? string.Empty)).Trim()
-                    },
-                    {
-                        "%TITLE%",
-                        ((bMSFile.Title.Trim() ?? string.Empty) + " " + (bMSFile.Subtitle?.Trim() ?? string.Empty)).Trim()
-                    },
-                    {
-                        "%GENRE%",
-                        bMSFile.Genre.Trim() ?? string.Empty
-                    },
-                    {
-                        "%NO%",
-                        num.ToString().PadLeft(Math.Max(2, bmsFiles.Count().ToString().Length), '0')
-                    },
-                    {
-                        "%FILE%",
-                        Path.GetFileName(bmsFile.path)
-                    },
-                    { "%HASH%", bMSFile.Md5 }
-                }.Aggregate(ApplicationSettings.EncodeFileNameFormat, (i, r) => i.Replace(r.Key, r.Value)).NaturalNormalizationForFileName().ReplaceInvalidFileNameCharsByWide()
-                    .RemoveInvalidFileNameChars()
-                    .Trim();
-                if (string.IsNullOrWhiteSpace(text))
-                {
-                    text = num.ToString();
-                }
-                int num2 = saveDir.Length + text.Length;
-                if (num2 > 240 && text.Length > num2 - 240 + 5)
-                {
-                    text = text.Substring(0, text.Length - (num2 - 235));
-                }
-                string filePathWithoutExtension = Path.Combine(saveDir, text);
-                bMSAutoPlayWriter = new BMSAutoPlayWriter(bMSFile);
-                if (!BassAudioWriter.IsEncoderAvailable(ApplicationSettings.Encoder))
-                {
-                    ApplicationSettings.Encoder = EncoderType.WAVE;
-                }
-                bMSAutoPlayWriter.LoadResources();
-                bMSAutoPlayWriter.Write(ApplicationSettings.Encoder, ApplicationSettings.EncoderQuality, filePathWithoutExtension, ApplicationSettings.EncoderNormalization, ApplicationSettings.EncoderAmplifier);
-            }
-            catch (Exception ex)
-            {
-                obj = false;
-                NLogWrapper.GetLogger()?.Warn(ex.ToString());
-            }
-            bMSAutoPlayWriter?.Dispose();
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-            onEachCompleted?.Invoke(obj);
-        }
-        BassAudioPlayer.Free();
-    }
 }

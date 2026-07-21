@@ -172,12 +172,13 @@ public sealed class DialogRouteConsolidationTests
         string progressDialogCode = File.ReadAllText(Path.Combine(root, "Parago", "Windows", "ProgressDialog.cs"));
         string ownerResolverCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogOwnerResolver.cs"));
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
+        string audioOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartAudioConversionWorkflowOwner.cs"));
 
         Assert.IsFalse(mainWindowCode.Contains("ProgressDialog.Execute("), "MainWindow progress operations must go through UiDialogCoordinator.");
         Assert.IsFalse(mainWindowCode.Contains("ProgressDialog.Current"), "MainWindow must not depend on static progress dialog state.");
         Assert.IsFalse(progressDialogCode.Contains("static ProgressDialogContext Current"), "ProgressDialog must pass operation context explicitly instead of exposing static state.");
-        StringAssert.Contains(mainWindowCode, "RunProgressUntilTaskCompletesAsync(");
-        StringAssert.Contains(mainWindowCode, "RunWithProgressAsync(");
+        Assert.IsFalse(mainWindowCode.Contains("RunProgressUntilTaskCompletesAsync("));
+        StringAssert.Contains(audioOwnerCode, "dialogs.RunWithProgressAsync(");
         StringAssert.Contains(coordinatorCode, "UiDialogOwnerResolver.PushActiveModal");
         int activeModalOwnerIndex = ownerResolverCode.IndexOf("Window activeModalWindow = ResolveActiveModalWindow();", StringComparison.Ordinal);
         int requestedOwnerIndex = ownerResolverCode.IndexOf("IsUsableOwner(requestedOwner)", StringComparison.Ordinal);

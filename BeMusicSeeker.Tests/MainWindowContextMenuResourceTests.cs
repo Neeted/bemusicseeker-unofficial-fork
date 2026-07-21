@@ -732,6 +732,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void ChartInfoParseFailureContextMenu_RoutesRemovalThroughWorkflowOwner()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string handler = ExtractBetween(
             mainWindowCode,
             "private async void tableContextMenuItemRemoveChartInfoParseFailureClick",
@@ -2760,6 +2761,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void ChartContextMenu_BmsOnlyAndChartCommonHandlersUseExpectedSelectionHelpers()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string contextMenuResource = ExtractBetween(
             mainWindowCode,
             "private bool TryGetTableContextMenuResource",
@@ -2803,8 +2805,17 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(encodingFixClick.Contains("FixEncodingBMSFiles"));
         Assert.IsFalse(encodingFixClick.Contains("SetBMSFilesEncoding"));
         Assert.IsFalse(encodingFixClick.Contains("Task.Run"));
-        StringAssert.Contains(audioConvertClick, "GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio)");
+        StringAssert.Contains(audioConvertClick, "SelectedChartAudioConversionRequest");
+        StringAssert.Contains(audioConvertClick, "GetSelectedChartTargets(ChartOperationCapabilities.ConvertToAudio)");
+        StringAssert.Contains(audioConvertClick, "viewModel.SelectedChartAudioConversion.RunAsync(request)");
+        Assert.IsFalse(audioConvertClick.Contains("GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio)"));
         Assert.IsFalse(audioConvertClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.ConvertToAudio)"));
+        Assert.IsFalse(audioConvertClick.Contains("PickFolderAsync"));
+        Assert.IsFalse(audioConvertClick.Contains("Settings.Default"));
+        Assert.IsFalse(audioConvertClick.Contains("Task.Run"));
+        Assert.IsFalse(audioConvertClick.Contains("RunProgressUntilTaskCompletesAsync"));
+        Assert.IsFalse(audioConvertClick.Contains("ConvertBMSToAudioFiles"));
+        Assert.IsFalse(viewModelCode.Contains("ConvertBMSToAudioFiles"));
         StringAssert.Contains(resourceHealthClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
         StringAssert.Contains(resourceHealthClick, "ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request)");
         StringAssert.Contains(resourceHealthClick, "viewModel.SelectedChartResourceHealth.RescanAsync(request)");

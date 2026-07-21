@@ -128,3 +128,10 @@ internal sealed class NoOpSelectedChartResourceHealthRefreshPort : ISelectedChar
     {
     }
 }
+
+internal sealed class NoOpSelectedChartAudioConversionPlaybackPort : ISelectedChartAudioConversionPlaybackPort
+{
+    public void StopPlayback()
+    {
+    }
+}

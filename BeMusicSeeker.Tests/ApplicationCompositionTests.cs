@@ -524,7 +524,8 @@ public sealed class ApplicationCompositionTests
             selectedChartResourceHealthLibraryProvider: () => null!,
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
-            chartInfoParseFailureRemovalLibraryProvider: () => null!);
+            chartInfoParseFailureRemovalLibraryProvider: () => null!,
+            selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort());
 
         try
         {
@@ -545,6 +546,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.ScoreViewerRegistrationWorkflow);
             Assert.IsNotNull(childComposition.ZeroNoteMaintenanceWorkflow);
             Assert.IsNotNull(childComposition.PackageCatalogWorkflow);
+            Assert.IsNotNull(childComposition.SelectedChartAudioConversion);
         }
         finally
         {
@@ -635,7 +637,8 @@ public sealed class ApplicationCompositionTests
             selectedChartResourceHealthLibraryProvider: () => null!,
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
-            chartInfoParseFailureRemovalLibraryProvider: () => null!);
+            chartInfoParseFailureRemovalLibraryProvider: () => null!,
+            selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort());
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -765,7 +768,8 @@ public sealed class ApplicationCompositionTests
             selectedChartResourceHealthLibraryProvider: () => null!,
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
-            chartInfoParseFailureRemovalLibraryProvider: () => null!);
+            chartInfoParseFailureRemovalLibraryProvider: () => null!,
+            selectedChartAudioConversionPlayback: new NoOpSelectedChartAudioConversionPlaybackPort());
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

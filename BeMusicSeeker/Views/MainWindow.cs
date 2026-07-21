@@ -83,56 +83,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         private set => SetValue(PlaybackOverlayVisibilityProperty, value);
     }
 
-    private async Task RunProgressUntilTaskCompletesAsync(Task task, CancellationTokenSource cancellationTokenSource, string title, string label, Action<UiProgressContext> reportProgress)
-    {
-        UiProgressResult progressResult = await new UiDialogCoordinator().RunWithProgressAsync(
-            new UiProgressRequest(title, label, new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false), this),
-            context =>
-            {
-                while (!task.IsCompleted)
-                {
-                    try
-                    {
-                        reportProgress(context);
-                    }
-                    catch
-                    {
-                        cancellationTokenSource.Cancel();
-                        WaitForTaskCompletion(task);
-                        break;
-                    }
-
-                    Thread.Sleep(100);
-                }
-
-                return Task.CompletedTask;
-            });
-        if (progressResult.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser)
-        {
-            await task;
-            return;
-        }
-
-        cancellationTokenSource.Cancel();
-        try
-        {
-            await task;
-        }
-        catch
-        {
-        }
-
-        throw new InvalidOperationException("Progress dialog route failed: " + progressResult.Status, progressResult.Error);
-    }
-
-    private static void WaitForTaskCompletion(Task task)
-    {
-        while (!task.IsCompleted)
-        {
-            Thread.Sleep(100);
-        }
-    }
-
     private static void ThrowIfPickerFailed(UiDialogStatus status, Exception exception, string routeName)
     {
         if (status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser)
@@ -1693,14 +1643,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         return [.. GetSelectedChartTargets(capability, isPendingSection)
             .Select(target => target.Chart)
-            .Where(ChartFileKindResolver.IsBmsChartFile)];
-    }
-
-    private List<BMSFile> GetSelectedBmsFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
-    {
-        return [.. GetSelectedChartTargets(capability, isPendingSection)
-            .Where(target => ChartFileKindResolver.IsBmsChartFile(target.Chart))
-            .Select(target => target.Chart.GetBmsStorageOwner())
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
@@ -6806,42 +6748,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
-        BMSFile[] bmsFiles = [.. GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio).Where(f => LongPathFileSystem.FileExists(f.path))];
-        if (bmsFiles.Length == 0)
+        if (!TryGetContextMenuRow(e.Source, out _)
+            || base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        var viewModel = base.DataContext as MainWindowViewModel;
-        var cancelTokenSource = new CancellationTokenSource();
-        int progIdx = 0;
-        int failNum = 0;
-        UiFolderPickerResult folderResult = await new UiDialogCoordinator().PickFolderAsync(new UiFolderPickerRequest(
-            BeMusicSeeker.Properties.Resources.Save_to,
-            owner: this));
-        ThrowIfPickerFailed(folderResult.Status, folderResult.Error, "Audio conversion output folder picker");
-        if (folderResult.Status != UiDialogStatus.Accepted)
+        SelectedChartAudioConversionRequest request = new(
+            GetSelectedChartTargets(ChartOperationCapabilities.ConvertToAudio));
+        if (!request.HasTargets)
         {
             return;
         }
-        string saveDir = folderResult.FolderPath;
-        Task task = Task.Run(delegate
-        {
-            viewModel.ConvertBMSToAudioFiles(bmsFiles, saveDir, cancelTokenSource.Token, delegate (bool s)
-            {
-                progIdx++;
-                if (!s)
-                {
-                    failNum++;
-                }
-            });
-        }, cancelTokenSource.Token).Logging("tableContextMenuItemConvertToAudioFileClick");
-        await RunProgressUntilTaskCompletesAsync(
-            task,
-            cancelTokenSource,
-            BeMusicSeeker.Properties.Resources.Converting,
-            viewModel.settingDialog.EncoderNames[(int)Settings.Default.Encoder] + " - " + BeMusicSeeker.Properties.Resources.Sampling_rate + ":" + viewModel.settingDialog.PlayerSampleRateNames[Settings.Default.EncoderSampleRate] + " " + BeMusicSeeker.Properties.Resources.Sampling_format + ":" + viewModel.settingDialog.PlayerFormatNames[Settings.Default.EncoderFormat],
-            context => context.ReportWithCancellationCheck(100 * (progIdx + 1) / (bmsFiles.Length + 1), "[{0}/{1}] {2}", Math.Min(progIdx + 1, bmsFiles.Length), bmsFiles.Length, bmsFiles[Math.Min(progIdx, bmsFiles.Length - 1)].path));
-        UiDialogRoute.ShowMessageBox(Window.GetWindow(this), ((!cancelTokenSource.IsCancellationRequested) ? BeMusicSeeker.Properties.Resources.Msg_conversion_completed : BeMusicSeeker.Properties.Resources.Msg_conversion_stopped) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (progIdx - failNum) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + (bmsFiles.Length - progIdx + failNum), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, cancelTokenSource.IsCancellationRequested ? MessageBoxImage.Exclamation : MessageBoxImage.Asterisk, MessageBoxResult.OK);
+        await viewModel.SelectedChartAudioConversion.RunAsync(request);
     }
 
     private void playlistTableDrop(object sender, DragEventArgs e)
