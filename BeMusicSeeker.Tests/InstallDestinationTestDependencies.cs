@@ -117,3 +117,10 @@ internal sealed class NoOpSelectedChartMutationPlaybackPort : ISelectedChartMuta
     {
     }
 }
+
+internal sealed class NoOpSelectedChartResourceHealthRefreshPort : ISelectedChartResourceHealthRefreshPort
+{
+    public void RefreshAfterRescan()
+    {
+    }
+}

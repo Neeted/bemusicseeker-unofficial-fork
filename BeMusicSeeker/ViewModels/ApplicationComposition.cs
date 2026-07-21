@@ -320,7 +320,10 @@ internal sealed class ApplicationComposition
         ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
         ISelectedChartMutationPlaybackPort selectedChartMutationPlayback = null,
         IUiDialogService selectedChartMutationDialogService = null,
-        Func<BMSLibrary> selectedChartMutationLibraryProvider = null)
+        Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
+        ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
+        IUiDialogService selectedChartResourceHealthDialogService = null,
+        Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -365,7 +368,10 @@ internal sealed class ApplicationComposition
             selectedChartMutationRefresh,
             selectedChartMutationPlayback,
             selectedChartMutationDialogService,
-            selectedChartMutationLibraryProvider);
+            selectedChartMutationLibraryProvider,
+            selectedChartResourceHealthRefresh,
+            selectedChartResourceHealthDialogService,
+            selectedChartResourceHealthLibraryProvider);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -537,7 +543,10 @@ internal sealed class MainWindowChildComposition
         ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
         ISelectedChartMutationPlaybackPort selectedChartMutationPlayback = null,
         IUiDialogService selectedChartMutationDialogService = null,
-        Func<BMSLibrary> selectedChartMutationLibraryProvider = null)
+        Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
+        ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
+        IUiDialogService selectedChartResourceHealthDialogService = null,
+        Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -633,6 +642,10 @@ internal sealed class MainWindowChildComposition
             selectedChartMutationRefresh ?? throw new ArgumentNullException(nameof(selectedChartMutationRefresh)),
             selectedChartMutationPlayback ?? throw new ArgumentNullException(nameof(selectedChartMutationPlayback)),
             selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)));
+        SelectedChartResourceHealth = new SelectedChartResourceHealthWorkflowOwner(
+            selectedChartResourceHealthLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthLibraryProvider)),
+            selectedChartResourceHealthRefresh ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthRefresh)),
+            selectedChartResourceHealthDialogService ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthDialogService)));
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -670,6 +683,8 @@ internal sealed class MainWindowChildComposition
     internal DuplicateMaintenanceWorkflowOwner DuplicateMaintenanceWorkflow { get; }
 
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; }
+
+    internal SelectedChartResourceHealthWorkflowOwner SelectedChartResourceHealth { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

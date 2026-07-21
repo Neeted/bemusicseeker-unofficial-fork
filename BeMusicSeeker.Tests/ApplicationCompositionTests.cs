@@ -518,7 +518,10 @@ public sealed class ApplicationCompositionTests
             selectedChartMutationRefresh: new NoOpSelectedChartMutationRefreshPort(),
             selectedChartMutationPlayback: new NoOpSelectedChartMutationPlaybackPort(),
             selectedChartMutationDialogService: new TestUiDialogService(),
-            selectedChartMutationLibraryProvider: () => null!);
+            selectedChartMutationLibraryProvider: () => null!,
+            selectedChartResourceHealthRefresh: new NoOpSelectedChartResourceHealthRefreshPort(),
+            selectedChartResourceHealthDialogService: new TestUiDialogService(),
+            selectedChartResourceHealthLibraryProvider: () => null!);
 
         try
         {
@@ -619,9 +622,12 @@ public sealed class ApplicationCompositionTests
                 duplicateMaintenanceLibraryProvider: () => null!,
                 selectedChartMutationActivity: new NoOpSelectedChartMutationActivityPort(),
                 selectedChartMutationRefresh: new NoOpSelectedChartMutationRefreshPort(),
-                selectedChartMutationPlayback: new NoOpSelectedChartMutationPlaybackPort(),
-                selectedChartMutationDialogService: new TestUiDialogService(),
-                selectedChartMutationLibraryProvider: () => null!);
+            selectedChartMutationPlayback: new NoOpSelectedChartMutationPlaybackPort(),
+            selectedChartMutationDialogService: new TestUiDialogService(),
+            selectedChartMutationLibraryProvider: () => null!,
+            selectedChartResourceHealthRefresh: new NoOpSelectedChartResourceHealthRefreshPort(),
+            selectedChartResourceHealthDialogService: new TestUiDialogService(),
+            selectedChartResourceHealthLibraryProvider: () => null!);
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -743,9 +749,12 @@ public sealed class ApplicationCompositionTests
                 duplicateMaintenanceLibraryProvider: () => null!,
                 selectedChartMutationActivity: new NoOpSelectedChartMutationActivityPort(),
                 selectedChartMutationRefresh: new NoOpSelectedChartMutationRefreshPort(),
-                selectedChartMutationPlayback: new NoOpSelectedChartMutationPlaybackPort(),
-                selectedChartMutationDialogService: new TestUiDialogService(),
-                selectedChartMutationLibraryProvider: () => null!);
+            selectedChartMutationPlayback: new NoOpSelectedChartMutationPlaybackPort(),
+            selectedChartMutationDialogService: new TestUiDialogService(),
+            selectedChartMutationLibraryProvider: () => null!,
+            selectedChartResourceHealthRefresh: new NoOpSelectedChartResourceHealthRefreshPort(),
+            selectedChartResourceHealthDialogService: new TestUiDialogService(),
+            selectedChartResourceHealthLibraryProvider: () => null!);
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

@@ -2586,6 +2586,12 @@ public sealed class MainWindowContextMenuResourceTests
             "ViewModels",
             "MainWindow",
             "RegularChartListOwner.cs"));
+        string resourceHealthOwnerCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "SelectedChartResourceHealthWorkflowOwner.cs"));
         string refreshEventHandler = ExtractBetween(
             viewModelCode,
             "private void RegularChartListOwnerNormalLibraryRefreshApplied",
@@ -2604,14 +2610,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(refreshEventHandler, "RefreshNormalLibraryAfterSourceChanged(request.Reason)");
         StringAssert.Contains(refreshEventHandler, "RefreshNormalLibraryForNotificationPresentationEffects(request.NotificationBatch)");
         StringAssert.Contains(rootViewModelCode, "invalidateSortDependency: false");
-        string forceResourceHealthMethod = ExtractMethodBody(
-            rootViewModelCode,
-            "private void ForceResourceHealthCheckCharts(IEnumerable<ChartFile> charts)");
         string maintenanceCompletionHandler = ExtractMethodBody(
             rootViewModelCode,
             "private void MaintenanceRescanWorkflowCompletionPublished(MaintenanceRescanCompletionReceipt receipt)");
-        StringAssert.Contains(forceResourceHealthMethod, "invalidateSortDependency: false");
-        Assert.IsFalse(forceResourceHealthMethod.Contains("InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance"));
+        StringAssert.Contains(resourceHealthOwnerCode, "ISelectedChartResourceHealthRefreshPort");
+        StringAssert.Contains(resourceHealthOwnerCode, "refresh.RefreshAfterRescan()");
+        Assert.IsFalse(rootViewModelCode.Contains("ForceResourceHealthCheckCharts("));
+        Assert.IsFalse(rootViewModelCode.Contains("SetChartResourceWarningsIgnored("));
         StringAssert.Contains(maintenanceCompletionHandler, "RefreshResourceHealthViewsAfterMaintenanceChanged");
         StringAssert.Contains(maintenanceCompletionHandler, "invalidateSortDependency: false");
         StringAssert.Contains(regularOwnerCode, "notificationBatch.NotifiesBmsFiles");
@@ -2756,7 +2761,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private void playlistTableDrop");
         string resourceHealthClick = ExtractBetween(
             mainWindowCode,
-            "private void tableContextMenuItemForceFileScanCheckSelectedCharts",
+            "private async void tableContextMenuItemForceFileScanCheckSelectedCharts",
             "private async void tableContextMenuRemoveInstallDestinationClick");
         string resourceHealthIgnoreClick = ExtractBetween(
             mainWindowCode,
@@ -2779,17 +2784,17 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(audioConvertClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.ConvertToAudio)"));
         StringAssert.Contains(resourceHealthClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
         StringAssert.Contains(resourceHealthClick, "ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request)");
-        StringAssert.Contains(resourceHealthClick, "viewModel.ForceResourceHealthCheckCharts(request)");
+        StringAssert.Contains(resourceHealthClick, "viewModel.SelectedChartResourceHealth.RescanAsync(request)");
         Assert.IsFalse(resourceHealthClick.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(resourceHealthClick.Contains("resourceTargets.MaterializeCompatibilityFiles()"));
         StringAssert.Contains(resourceHealthIgnoreClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
         StringAssert.Contains(resourceHealthIgnoreClick, "ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request)");
-        StringAssert.Contains(resourceHealthIgnoreClick, "viewModel.SetChartResourceWarningsIgnored(request)");
+        StringAssert.Contains(resourceHealthIgnoreClick, "viewModel.SelectedChartResourceHealth.SetWarningsIgnored(request)");
         Assert.IsFalse(resourceHealthIgnoreClick.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(resourceHealthIgnoreClick.Contains("resourceTargets.MaterializeCompatibilityFiles()"));
         StringAssert.Contains(resourceHealthUnignoreClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
         StringAssert.Contains(resourceHealthUnignoreClick, "ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request)");
-        StringAssert.Contains(resourceHealthUnignoreClick, "viewModel.SetChartResourceWarningsIgnored(request, unset: true)");
+        StringAssert.Contains(resourceHealthUnignoreClick, "viewModel.SelectedChartResourceHealth.SetWarningsIgnored(request, unset: true)");
         Assert.IsFalse(resourceHealthUnignoreClick.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(resourceHealthUnignoreClick.Contains("resourceTargets.MaterializeCompatibilityFiles()"));
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));

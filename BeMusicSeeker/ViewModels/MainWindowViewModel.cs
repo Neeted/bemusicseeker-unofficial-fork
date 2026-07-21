@@ -88,7 +88,7 @@ internal sealed class ShutdownPreparationResult
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, IDuplicateMaintenancePlaybackPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort, ISelectedChartMutationPlaybackPort
+public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, IDuplicateMaintenancePlaybackPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort, ISelectedChartMutationPlaybackPort, ISelectedChartResourceHealthRefreshPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -123,6 +123,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     internal DuplicateMaintenanceWorkflowOwner DuplicateMaintenanceWorkflow { get; private set; }
 
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; private set; }
+
+    internal SelectedChartResourceHealthWorkflowOwner SelectedChartResourceHealth { get; private set; }
 
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
@@ -2196,6 +2198,14 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         PlaybackPanel.StopIfPlayingChartDirectories(directories);
     }
 
+    void ISelectedChartResourceHealthRefreshPort.RefreshAfterRescan()
+    {
+        RefreshResourceHealthViewsAfterMaintenanceChanged(
+            "maintenance_hydration_completed",
+            "maintenance_changed",
+            invalidateSortDependency: false);
+    }
+
     void IPendingPackageMutationPresentation.BeginActivity()
     {
         BeginChartPackageMutation();
@@ -3838,7 +3848,10 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             selectedChartMutationRefresh: this,
             selectedChartMutationPlayback: this,
             selectedChartMutationDialogService: new UiDialogCoordinator(),
-            selectedChartMutationLibraryProvider: () => files);
+            selectedChartMutationLibraryProvider: () => files,
+            selectedChartResourceHealthRefresh: this,
+            selectedChartResourceHealthDialogService: new UiDialogCoordinator(),
+            selectedChartResourceHealthLibraryProvider: () => files);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3862,6 +3875,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         PackageCatalog = childComposition.PackageCatalogWorkflow;
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
         SelectedChartMutations = childComposition.SelectedChartMutations;
+        SelectedChartResourceHealth = childComposition.SelectedChartResourceHealth;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
@@ -6988,33 +7002,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
     }
 
-    private void ForceResourceHealthCheckCharts(IEnumerable<ChartFile> charts)
-    {
-        MaintenanceWorkflowResult result = files.RescanResourceHealthCharts(charts);
-        if (result?.Canceled == true)
-        {
-            ShowUiMessage(
-                BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning,
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxImage.Exclamation,
-                "Resource health rescan blocked notification");
-            return;
-        }
-        RefreshResourceHealthViewsAfterMaintenanceChanged(
-            "maintenance_hydration_completed",
-            "maintenance_changed",
-            invalidateSortDependency: false);
-    }
-
-    internal void ForceResourceHealthCheckCharts(ChartResourceHealthRequest request)
-    {
-        if (request?.HasTargets != true)
-        {
-            return;
-        }
-        ForceResourceHealthCheckCharts(request.Charts);
-    }
-
     private void MaintenanceRescanWorkflowProgressChanged(MaintenanceWorkflowProgress progress)
     {
         ProgressHub.UpdateMaintenanceRescanProgress(progress);
@@ -7155,20 +7142,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             return;
         }
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.InstallDestination, reason);
-    }
-
-    private void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)
-    {
-        files.SetChartResourceWarningsIgnored(charts, unset);
-    }
-
-    internal void SetChartResourceWarningsIgnored(ChartResourceHealthRequest request, bool unset = false)
-    {
-        if (request?.HasTargets != true)
-        {
-            return;
-        }
-        SetChartResourceWarningsIgnored(request.Charts, unset);
     }
 
     private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(

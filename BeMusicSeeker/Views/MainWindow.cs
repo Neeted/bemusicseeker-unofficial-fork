@@ -6191,7 +6191,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void tableContextMenuItemForceFileScanCheckSelectedCharts(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemForceFileScanCheckSelectedCharts(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -6204,11 +6204,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
         if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
         {
-            Task.Run(delegate
-            {
-                viewModel.ForceResourceHealthCheckCharts(request);
-            }).Logging("tableContextMenuItemForceFileScanCheckSelectedCharts");
             e.Handled = true;
+            SelectedChartResourceHealthWorkflowResult result = await viewModel.SelectedChartResourceHealth.RescanAsync(request);
+            if (!result.Succeeded && result.Failure != null)
+            {
+                _ = Task.FromException(result.Failure).Logging("tableContextMenuItemForceFileScanCheckSelectedCharts");
+            }
         }
     }
 
@@ -6515,8 +6516,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
             if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
             {
-                viewModel.SetChartResourceWarningsIgnored(request);
                 e.Handled = true;
+                SelectedChartResourceHealthWorkflowResult result = viewModel.SelectedChartResourceHealth.SetWarningsIgnored(request);
+                if (!result.Succeeded && result.Failure != null)
+                {
+                    _ = Task.FromException(result.Failure).Logging("ignoreFileScanCheckSelectedCharts");
+                }
             }
         }
     }
@@ -6532,8 +6537,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
             if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
             {
-                viewModel.SetChartResourceWarningsIgnored(request, unset: true);
                 e.Handled = true;
+                SelectedChartResourceHealthWorkflowResult result = viewModel.SelectedChartResourceHealth.SetWarningsIgnored(request, unset: true);
+                if (!result.Succeeded && result.Failure != null)
+                {
+                    _ = Task.FromException(result.Failure).Logging("notIgnoredFileScanCheckSelectedCharts");
+                }
             }
         }
     }
