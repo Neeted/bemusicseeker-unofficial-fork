@@ -2132,14 +2132,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(reloadFileDiff, ".LoggingAndPropagate(\"ReloadFileDiff\")");
         Assert.IsTrue(
             reloadFileDiff.IndexOf("Lr2SongDbSyncWorkflow.QueueAfterReloadFileDiff(\"ReloadFileDiff\")", StringComparison.Ordinal)
-            < reloadFileDiff.IndexOf("PlaylistWorkspace.QueuePlaylistReferenceApply(", StringComparison.Ordinal));
+            < reloadFileDiff.IndexOf("PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(", StringComparison.Ordinal));
         Assert.IsTrue(
-            reloadFileDiff.IndexOf("PlaylistWorkspace.QueuePlaylistReferenceApply(", StringComparison.Ordinal)
+            reloadFileDiff.IndexOf("PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(", StringComparison.Ordinal)
             < reloadFileDiff.IndexOf("MarkStartupProgressFailureCleanupComplete(operationToken)", StringComparison.Ordinal));
         StringAssert.Contains(reinitialize, ".LoggingAndPropagate(\"FullReinitialize\")");
         Assert.IsTrue(
             reinitialize.IndexOf("_semaphore.Release();", StringComparison.Ordinal)
-            < reinitialize.IndexOf("PlaylistWorkspace.QueuePlaylistReferenceApply(", StringComparison.Ordinal));
+            < reinitialize.IndexOf("PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(", StringComparison.Ordinal));
         Assert.IsFalse(viewModelCode.Contains("public async void ReinitializeLibrary()"));
         Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "PlaylistWorkspace.QueueExternalPlaylistSync(");
@@ -2183,8 +2183,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending()");
         StringAssert.Contains(viewModelCode, "ShowInitialSetupCompletionMessageIfPending();");
         StringAssert.Contains(endSuppression, "FlushPendingUiRefresh(uiRefreshChannel, operationToken)");
-        StringAssert.Contains(reloadFileDiff, "PlaylistWorkspace.QueuePlaylistReferenceApply(\"ReloadFileDiff\", operationToken);");
-        StringAssert.Contains(reinitialize, "PlaylistWorkspace.QueuePlaylistReferenceApply(\"FullReinitialize\", operationToken);");
+        StringAssert.Contains(reloadFileDiff, "PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(\"ReloadFileDiff\", operationToken);");
+        StringAssert.Contains(reinitialize, "PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(\"FullReinitialize\", operationToken);");
         Assert.IsFalse(viewModelCode.Contains("private void ScheduleDeferredPlaylistReferenceApply("));
     }
 
@@ -3789,7 +3789,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);");
         string playlistReferencePresentationHandler = ExtractBetween(
             viewModelCode,
-            "private void PlaylistWorkspacePlaylistReferenceApplyPresentationRequested(",
+            "private void PlaylistReferenceApplyWorkflowPresentationRequested(",
             "private void FinalizeMainViewBuild(");
         int suppressionIndex = playlistReferencePresentationHandler.IndexOf(
             "TrySuppress(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree)",

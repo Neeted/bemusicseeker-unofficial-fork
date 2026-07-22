@@ -102,6 +102,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (ReferenceEquals(playlistTreeStore, nextStore))
             {
                 AttachObservedPlaylistTreeTables(nextStore?.BMSTables);
+                PlaylistReferenceApplyWorkflow.AttachContext(
+                    nextStore,
+                    nextLibrary,
+                    Volatile.Read(ref playlistTreeNotificationGeneration));
                 return;
             }
 
@@ -117,6 +121,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
             playlistTreeStore = nextStore;
             Interlocked.Increment(ref playlistTreeNotificationGeneration);
+            PlaylistReferenceApplyWorkflow.AttachContext(
+                nextStore,
+                nextLibrary,
+                Volatile.Read(ref playlistTreeNotificationGeneration));
             observedPlaylistTreeTables = null;
             if (playlistTreeStore != null)
             {
@@ -140,7 +148,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                 observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
             }
             observedPlaylistTreeTables = nextTables;
-            Interlocked.Increment(ref playlistTreeNotificationGeneration);
+            long generation = Interlocked.Increment(ref playlistTreeNotificationGeneration);
+            PlaylistReferenceApplyWorkflow.AttachContext(
+                playlistTreeStore,
+                subscribedPlaylistExternalSyncLibrary,
+                generation);
             if (observedPlaylistTreeTables != null)
             {
                 observedPlaylistTreeTables.CollectionChanged += PlaylistTreeTablesCollectionChanged;

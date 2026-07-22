@@ -34,6 +34,11 @@ public sealed class PlaylistWorkspaceViewModelTests
     {
         string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string referenceApplySource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistReferenceApplyWorkflowOwner.cs");
         string detailSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailSource.cs");
         string summaryBuildSource = SourceTextTestHelper.ReadProductionSourceText(
@@ -252,9 +257,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "Func<string, Func<Task>, bool> playlistReferenceApplyScheduler,");
         StringAssert.Contains(workspaceSource, "Func<Action, Task> playlistRestoreUiApplyScheduler,");
         StringAssert.Contains(workspaceSource, "Func<bool> playlistRestoreUiThreadCheck)");
-        StringAssert.Contains(workspaceSource, "internal void QueuePlaylistReferenceApply(string reason, long operationToken)");
-        StringAssert.Contains(workspaceSource, "playlists.EnsureAllPlaylistEntriesLoadedAsync(\"playlist_ref_deferred\")");
-        StringAssert.Contains(workspaceSource, "GetPlaylistLibrary().SynchronizeReferenceBMSTables(tables)");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("QueuePlaylistReferenceApply(", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal PlaylistReferenceApplyWorkflowOwner PlaylistReferenceApplyWorkflow { get; }");
+        StringAssert.Contains(referenceApplySource, "context.Store.EnsureAllPlaylistEntriesLoadedAsync(\"playlist_ref_deferred\")");
+        StringAssert.Contains(referenceApplySource, "context.Library.SynchronizeReferenceBMSTables(tables)");
         Assert.AreEqual(-1, rootSource.IndexOf("deferredPlaylistRefRequestedVersion", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("lockDeferredPlaylistRef", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("private void ScheduleDeferredPlaylistReferenceApply(", StringComparison.Ordinal));
@@ -3188,10 +3194,10 @@ public sealed class PlaylistWorkspaceViewModelTests
                     schedulerCalls++;
                     return false;
                 });
-            workspace.PlaylistReferenceApplyQueued += (_, request) => queued.Add(request);
-            workspace.PlaylistReferenceApplyCompleted += (_, request) => completed.Add(request);
+            workspace.PlaylistReferenceApplyWorkflow.Queued += (_, request) => queued.Add(request);
+            workspace.PlaylistReferenceApplyWorkflow.Completed += (_, request) => completed.Add(request);
 
-            workspace.QueuePlaylistReferenceApply("test_rejection", 11L);
+            workspace.PlaylistReferenceApplyWorkflow.Queue("test_rejection", 11L);
 
             Assert.AreEqual(1, schedulerCalls);
             Assert.AreEqual(1, queued.Count);
@@ -3200,8 +3206,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.AreEqual(1, completed.Count);
             Assert.IsTrue(completed[0].WasSkipped);
             Assert.IsFalse(completed[0].Succeeded);
-            Assert.AreEqual(1, workspace.PlaylistReferenceApplyLastCompletedVersion);
-            Assert.IsTrue(workspace.IsPlaylistReferenceApplyIdle);
+            Assert.AreEqual(1, workspace.PlaylistReferenceApplyWorkflow.LastCompletedVersion);
+            Assert.IsTrue(workspace.PlaylistReferenceApplyWorkflow.IsIdle);
         }
         finally
         {
@@ -3256,17 +3262,17 @@ public sealed class PlaylistWorkspaceViewModelTests
                     return true;
                 });
             workspace.RefreshPlaylistTreeTables(playlist);
-            workspace.PlaylistReferenceApplyQueued += (_, request) => queued.Add(request);
-            workspace.PlaylistReferenceApplyCompleted += (_, request) => completed.Add(request);
+            workspace.PlaylistReferenceApplyWorkflow.Queued += (_, request) => queued.Add(request);
+            workspace.PlaylistReferenceApplyWorkflow.Completed += (_, request) => completed.Add(request);
             workspace.PlaylistEntriesHydrationCompleted += (_, _) => lifecycle.Add("hydration");
-            workspace.PlaylistReferenceApplyPresentationRequested += (_, request) =>
+            workspace.PlaylistReferenceApplyWorkflow.PresentationRequested += (_, request) =>
             {
                 lifecycle.Add("presentation");
                 presentation.Add(request);
             };
 
-            workspace.QueuePlaylistReferenceApply("first_request", 1L);
-            workspace.QueuePlaylistReferenceApply("latest_request", 2L);
+            workspace.PlaylistReferenceApplyWorkflow.Queue("first_request", 1L);
+            workspace.PlaylistReferenceApplyWorkflow.Queue("latest_request", 2L);
 
             Assert.AreEqual(1, schedulerCalls);
             Assert.IsNotNull(scheduledWork);
@@ -3276,7 +3282,7 @@ public sealed class PlaylistWorkspaceViewModelTests
 
             scheduledWork!().GetAwaiter().GetResult();
 
-            Assert.IsTrue(workspace.IsPlaylistReferenceApplyIdle);
+            Assert.IsTrue(workspace.PlaylistReferenceApplyWorkflow.IsIdle);
             Assert.AreEqual(1, completed.Count);
             Assert.AreEqual(2, completed[0].Version);
             Assert.AreEqual("latest_request", completed[0].Reason);
@@ -3337,7 +3343,7 @@ public sealed class PlaylistWorkspaceViewModelTests
                 playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library);
             var presentations = new List<PlaylistReferenceApplyPresentationRequestedEventArgs>();
-            workspace.PlaylistReferenceApplyPresentationRequested += (_, request) => presentations.Add(request);
+            workspace.PlaylistReferenceApplyWorkflow.PresentationRequested += (_, request) => presentations.Add(request);
 
             workspace.RefreshPlaylistTreeTables(playlist);
             playlist.QueueDeferredPlaylistEntriesHydration("receipt_presentation");
@@ -3389,12 +3395,12 @@ public sealed class PlaylistWorkspaceViewModelTests
                     scheduledWork = work;
                     return true;
                 });
-            workspace.PlaylistReferenceApplyCompleted += (_, request) => completed.Add(request);
+            workspace.PlaylistReferenceApplyWorkflow.Completed += (_, request) => completed.Add(request);
 
-            workspace.QueuePlaylistReferenceApply("test_shutdown_discard", 17L);
+            workspace.PlaylistReferenceApplyWorkflow.Queue("test_shutdown_discard", 17L);
             Assert.IsNotNull(scheduledWork);
 
-            workspace.DiscardPlaylistReferenceApplyForShutdown("test_shutdown");
+            workspace.PlaylistReferenceApplyWorkflow.DiscardForShutdown("test_shutdown");
 
             Assert.AreEqual(1, completed.Count);
             Assert.AreEqual("test_shutdown_discard", completed[0].Reason);
@@ -3402,7 +3408,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.AreEqual(17L, completed[0].OperationToken);
             Assert.IsTrue(completed[0].WasSkipped);
             Assert.IsFalse(completed[0].Succeeded);
-            Assert.IsTrue(workspace.IsPlaylistReferenceApplyIdle);
+            Assert.IsTrue(workspace.PlaylistReferenceApplyWorkflow.IsIdle);
         }
         finally
         {

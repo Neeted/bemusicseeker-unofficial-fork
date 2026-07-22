@@ -22,6 +22,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 {
     private readonly Action<Action> dispatchPresentation;
 
+    private readonly Func<Action, Task> playlistRestoreUiApplyScheduler;
+
+    private readonly Func<bool> playlistRestoreUiThreadCheck;
+
     private readonly Action<PlaylistSummarySelectionRestoreRequest> playlistSummarySelectionRestoreSink;
 
     private readonly MainChartListViewModel detailMainChartList;
@@ -55,6 +59,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     private readonly PlaylistCatalogSummaryOwner playlistCatalogSummaryOwner = new();
 
     internal PlaylistCatalogSummaryOwner CatalogSummaryOwner => playlistCatalogSummaryOwner;
+
+    internal PlaylistReferenceApplyWorkflowOwner PlaylistReferenceApplyWorkflow { get; }
 
     private readonly Action<Action<bool>> playlistSummaryPresentationRefreshGate;
 
@@ -230,12 +236,15 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistTreeRefreshDeferredProvider));
         this.playlistExternalSyncScheduler = playlistExternalSyncScheduler
             ?? throw new ArgumentNullException(nameof(playlistExternalSyncScheduler));
-        this.playlistReferenceApplyScheduler = playlistReferenceApplyScheduler
-            ?? throw new ArgumentNullException(nameof(playlistReferenceApplyScheduler));
         this.playlistRestoreUiApplyScheduler = playlistRestoreUiApplyScheduler
             ?? throw new ArgumentNullException(nameof(playlistRestoreUiApplyScheduler));
         this.playlistRestoreUiThreadCheck = playlistRestoreUiThreadCheck
             ?? throw new ArgumentNullException(nameof(playlistRestoreUiThreadCheck));
+        PlaylistReferenceApplyWorkflow = new PlaylistReferenceApplyWorkflowOwner(
+            playlistReferenceApplyScheduler,
+            dispatchPresentation,
+            playlistReloadCleanupShutdownRequestedProvider,
+            playlistReloadLog);
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;

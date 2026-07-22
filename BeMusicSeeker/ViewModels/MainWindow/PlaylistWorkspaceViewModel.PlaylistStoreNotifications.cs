@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -144,33 +143,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             sourceStore = playlistTreeStore;
             generation = Volatile.Read(ref playlistTreeNotificationGeneration);
-            BMSLibrary library = GetPlaylistLibrary();
-            library.SynchronizeReferenceBMSTableSnapshots(
-                eventArgs.Receipt.Tables
-                    .Where(fact => fact?.ReferenceSnapshot != null)
-                    .Select(fact => fact.ReferenceSnapshot));
-            if (!ReferenceEquals(playlistTreeStore, sourceStore)
-                || Volatile.Read(ref playlistTreeNotificationGeneration) != generation)
-            {
-                return;
-            }
         }
-
-        DispatchPlaylistStoreNotification(() =>
-        {
-            if (!ReferenceEquals(playlistTreeStore, sourceStore)
-                || Volatile.Read(ref playlistTreeNotificationGeneration) != generation)
-            {
-                return;
-            }
-            RequestPlaylistReferenceSortInvalidation();
-            PlaylistReferenceApplyPresentationRequested?.Invoke(
-                this,
-                new PlaylistReferenceApplyPresentationRequestedEventArgs(
-                    eventArgs.Receipt.Reason,
-                    eventArgs.Receipt.RequestVersion,
-                    operationToken: 0L));
-        });
+        PlaylistReferenceApplyWorkflow.ApplyHydrationReceipt(
+            sourceStore,
+            generation,
+            eventArgs.Receipt);
     }
 
     private bool IsCurrentPlaylistTreeNotification(

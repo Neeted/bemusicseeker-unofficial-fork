@@ -94,6 +94,8 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private readonly PlaylistWorkspaceViewModel playlistWorkspace;
 
+    private readonly PlaylistReferenceApplyWorkflowOwner playlistReferenceApplyWorkflow;
+
     private readonly PlayHistoryWorkflowOwner playHistoryWorkflowOwner;
 
     private readonly PackageInstallWorkflowOwner packageInstallWorkflow;
@@ -174,6 +176,7 @@ internal sealed class ShellShutdownWorkflowOwner
         this.startupBackgroundTaskScheduler = startupBackgroundTaskScheduler ?? throw new ArgumentNullException(nameof(startupBackgroundTaskScheduler));
         this.regularChartListOwner = regularChartListOwner ?? throw new ArgumentNullException(nameof(regularChartListOwner));
         this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
+        playlistReferenceApplyWorkflow = playlistWorkspace.PlaylistReferenceApplyWorkflow;
         this.playHistoryWorkflowOwner = playHistoryWorkflowOwner ?? throw new ArgumentNullException(nameof(playHistoryWorkflowOwner));
         this.packageInstallWorkflow = packageInstallWorkflow ?? throw new ArgumentNullException(nameof(packageInstallWorkflow));
         this.maintenanceRescanWorkflow = maintenanceRescanWorkflow ?? throw new ArgumentNullException(nameof(maintenanceRescanWorkflow));
@@ -816,11 +819,11 @@ internal sealed class ShellShutdownWorkflowOwner
     {
         await WaitForConditionAsync(
             "deferredPlaylistWorkers",
-            () => playlistWorkspace.IsPlaylistReferenceApplyIdle
+            () => playlistReferenceApplyWorkflow.IsIdle
                 && playlistWorkspace.IsDeferredExternalPlaylistSyncIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
-            () => playlistWorkspace.DescribePlaylistReferenceApplyWaitState()
+            () => playlistReferenceApplyWorkflow.DescribeWaitState()
                 + " " + playlistWorkspace.DescribeDeferredExternalPlaylistSyncWaitState()).ConfigureAwait(false);
     }
 

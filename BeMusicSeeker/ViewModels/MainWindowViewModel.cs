@@ -668,8 +668,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     private PlaylistOpenReadinessSnapshot CapturePlaylistOpenReadinessSnapshot()
     {
-        bool playlistRefRunning = !PlaylistWorkspace.IsPlaylistReferenceApplyIdle;
-        int playlistRefLastCompletedVersion = PlaylistWorkspace.PlaylistReferenceApplyLastCompletedVersion;
+        bool playlistRefRunning = !PlaylistWorkspace.PlaylistReferenceApplyWorkflow.IsIdle;
+        int playlistRefLastCompletedVersion = PlaylistWorkspace.PlaylistReferenceApplyWorkflow.LastCompletedVersion;
         BMSLibrary.ScoreRuntimeState scoreState = default;
         if (files != null)
         {
@@ -2565,7 +2565,7 @@ public partial class MainWindowViewModel : ViewModel
                 reason,
                 null,
                 work,
-                shutdownReason => PlaylistWorkspace.DiscardPlaylistReferenceApplyForShutdown(shutdownReason)),
+                shutdownReason => PlaylistWorkspace.PlaylistReferenceApplyWorkflow.DiscardForShutdown(shutdownReason)),
             ApplyMainChartListPresentationActionAsync,
             () => DispatcherHelper.UIDispatcher.CheckAccess());
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
@@ -2604,9 +2604,10 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistExternalSyncQueued += PlaylistWorkspacePlaylistExternalSyncQueued;
         PlaylistWorkspace.PlaylistExternalSyncCompleted += PlaylistWorkspacePlaylistExternalSyncCompleted;
         PlaylistWorkspace.PlaylistExternalSyncReferenceApplied += PlaylistWorkspacePlaylistExternalSyncReferenceApplied;
-        PlaylistWorkspace.PlaylistReferenceApplyQueued += PlaylistWorkspacePlaylistReferenceApplyQueued;
-        PlaylistWorkspace.PlaylistReferenceApplyCompleted += PlaylistWorkspacePlaylistReferenceApplyCompleted;
-        PlaylistWorkspace.PlaylistReferenceApplyPresentationRequested += PlaylistWorkspacePlaylistReferenceApplyPresentationRequested;
+        PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queued += PlaylistReferenceApplyWorkflowQueued;
+        PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Completed += PlaylistReferenceApplyWorkflowCompleted;
+        PlaylistWorkspace.PlaylistReferenceApplyWorkflow.PresentationRequested += PlaylistReferenceApplyWorkflowPresentationRequested;
+        PlaylistWorkspace.PlaylistReferenceApplyWorkflow.ReferenceApplied += PlaylistReferenceApplyWorkflowReferenceApplied;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
@@ -3445,7 +3446,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
             }
-            PlaylistWorkspace.QueuePlaylistReferenceApply("ReloadFileDiff", operationToken);
+            PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue("ReloadFileDiff", operationToken);
             LogInitStage("deferred_playlist_ref_queued", "ReloadFileDiff");
             SkipUnrequestedStartupProgressPhases(
                 "ReloadFileDiff:scheduled",
@@ -3509,7 +3510,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (scheduleDeferredPlaylistRef)
         {
-            PlaylistWorkspace.QueuePlaylistReferenceApply("FullReinitialize", operationToken);
+            PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue("FullReinitialize", operationToken);
             LogInitStage("deferred_playlist_ref_queued", "FullReinitialize");
         }
         SkipUnrequestedStartupProgressPhases(
@@ -4319,7 +4320,7 @@ public partial class MainWindowViewModel : ViewModel
         TryCompleteStartupProgressPlaylistReference(request.Version);
     }
 
-    private void PlaylistWorkspacePlaylistReferenceApplyQueued(
+    private void PlaylistReferenceApplyWorkflowQueued(
         object sender,
         PlaylistReferenceApplyQueuedEventArgs request)
     {
@@ -4333,7 +4334,7 @@ public partial class MainWindowViewModel : ViewModel
             "playlist_ref_deferred:" + request.Reason);
     }
 
-    private void PlaylistWorkspacePlaylistReferenceApplyCompleted(
+    private void PlaylistReferenceApplyWorkflowCompleted(
         object sender,
         PlaylistReferenceApplyCompletedEventArgs completion)
     {
@@ -4345,7 +4346,7 @@ public partial class MainWindowViewModel : ViewModel
         TryCompleteStartupProgressPlaylistReference(completion.Version);
     }
 
-    private void PlaylistWorkspacePlaylistReferenceApplyPresentationRequested(
+    private void PlaylistReferenceApplyWorkflowPresentationRequested(
         object sender,
         PlaylistReferenceApplyPresentationRequestedEventArgs request)
     {
@@ -4364,6 +4365,13 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
+    }
+
+    private void PlaylistReferenceApplyWorkflowReferenceApplied(
+        object sender,
+        PlaylistReferenceAppliedEventArgs receipt)
+    {
+        InvalidateNormalLibraryReferenceTableSortKeys();
     }
 
     /// <summary>

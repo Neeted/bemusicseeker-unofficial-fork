@@ -144,11 +144,19 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "ViewModels",
             "MainWindow",
             "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs"));
+        string referenceApplySource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistReferenceApplyWorkflowOwner.cs"));
 
         StringAssert.Contains(ownerSource, "using (table.ReaderWriterLock.GetReaderGuard())");
         StringAssert.Contains(ownerSource, "new PlaylistReferenceTableSnapshot(");
         StringAssert.Contains(ownerSource, "internal PlaylistReferenceTableSnapshot ReferenceSnapshot { get; }");
-        StringAssert.Contains(workspaceSource, "SynchronizeReferenceBMSTableSnapshots(");
+        StringAssert.Contains(referenceApplySource, "SynchronizeReferenceBMSTableSnapshots(");
+        StringAssert.Contains(referenceApplySource, "ApplyHydrationReceipt(");
+        Assert.IsFalse(workspaceSource.Contains("SynchronizeReferenceBMSTableSnapshots("));
         Assert.IsFalse(workspaceSource.Contains("Select(fact => fact.Table)"));
     }
 
