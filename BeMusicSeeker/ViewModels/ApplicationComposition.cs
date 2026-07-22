@@ -368,7 +368,9 @@ internal sealed class ApplicationComposition
         Func<string, bool> selectedChartExternalActionFileExists = null,
         Func<string, ExplorerOpenResult> selectedChartExternalActionExplorerOpen = null,
         Action<string> selectedChartExternalActionAssociatedFileLauncher = null,
-        Action<string> selectedChartExternalActionUrlLauncher = null)
+        Action<string> selectedChartExternalActionUrlLauncher = null,
+        Action<string> libraryFolderTreeLog = null,
+        Action<string> libraryFolderTreeLogWarning = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -436,7 +438,9 @@ internal sealed class ApplicationComposition
             selectedChartExternalActionFileExists,
             selectedChartExternalActionExplorerOpen,
             selectedChartExternalActionAssociatedFileLauncher,
-            selectedChartExternalActionUrlLauncher);
+            selectedChartExternalActionUrlLauncher,
+            libraryFolderTreeLog,
+            libraryFolderTreeLogWarning);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -628,7 +632,9 @@ internal sealed class MainWindowChildComposition
         Func<string, bool> selectedChartExternalActionFileExists = null,
         Func<string, ExplorerOpenResult> selectedChartExternalActionExplorerOpen = null,
         Action<string> selectedChartExternalActionAssociatedFileLauncher = null,
-        Action<string> selectedChartExternalActionUrlLauncher = null)
+        Action<string> selectedChartExternalActionUrlLauncher = null,
+        Action<string> libraryFolderTreeLog = null,
+        Action<string> libraryFolderTreeLogWarning = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -646,6 +652,7 @@ internal sealed class MainWindowChildComposition
             exception => NLogWrapper.TraceLogger?.Warn(exception),
             chartFileOperations);
         ChartFilters = new ChartListFilterViewModel(keywordSearchHistorySettingsStore);
+        LibraryFolderTree = new LibraryFolderTreeViewModel(libraryFolderTreeLog, libraryFolderTreeLogWarning);
         PlayHistory = new PlayHistoryWorkflowOwner();
         PendingPackageWorkflow = new PendingPackageWorkflowOwner(
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
@@ -761,6 +768,8 @@ internal sealed class MainWindowChildComposition
     internal PlaybackPanelViewModel PlaybackPanel { get; }
 
     internal ChartListFilterViewModel ChartFilters { get; }
+
+    internal LibraryFolderTreeViewModel LibraryFolderTree { get; }
 
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
 

@@ -190,7 +190,7 @@
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_reinstall_estimation, Mode=OneWay}" Click="tableContextMenuRemoveInstallDestinationClick" />
         </MenuItem>
         <Separator Name="tableContextMenuSeparatorForFolderview" />
-        <MenuItem Name="tableContextMenuItemMoveFile" ItemsSource="{Binding BMSParentFolderList, Source={StaticResource vm}}">
+        <MenuItem Name="tableContextMenuItemMoveFile" ItemsSource="{Binding LibraryFolderTree.BMSParentFolderList, Source={StaticResource vm}}">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Move_to, Mode=OneWay}" />
           </MenuItem.Header>
@@ -1589,7 +1589,7 @@
                         <FrameworkElement.Style>
                           <Style TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
                             <Style.Triggers>
-                              <DataTrigger Value="True" Binding="{Binding DataContext.IsWriteLockHeldInitializeBMSFiles, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
+                              <DataTrigger Value="True" Binding="{Binding DataContext.LibraryFolderTree.IsWriteLockHeldInitializeBMSFiles, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
                                 <TriggerBase.EnterActions>
                                   <BeginStoryboard Name="AnimationBeginStoryboard" Storyboard="{StaticResource storyboardTreeViewItemIconRotation}" />
                                 </TriggerBase.EnterActions>
@@ -1598,7 +1598,7 @@
                                 </TriggerBase.ExitActions>
                                 <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
-                              <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldInitializeBMSFiles, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
+                              <DataTrigger Value="False" Binding="{Binding DataContext.LibraryFolderTree.IsWriteLockHeldInitializeBMSFiles, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
                                 <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_108}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>
@@ -1619,7 +1619,7 @@
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                 </Style>
               </ItemsControl.ItemContainerStyle>
-              <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderFolder}" ContextMenu="{StaticResource treeViewLibraryFolderRootContextMenu}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Folder, Mode=OneWay}" ItemsSource="{Binding BMSParentFolderList}">
+              <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderFolder}" ContextMenu="{StaticResource treeViewLibraryFolderRootContextMenu}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Folder, Mode=OneWay}" ItemsSource="{Binding LibraryFolderTree.BMSParentFolderList}">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />

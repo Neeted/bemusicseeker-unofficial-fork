@@ -125,6 +125,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     /// </summary>
     public ChartListFilterViewModel ChartFilters { get; }
 
+    /// <summary>
+    /// Gets the library-folder tree presentation owner.
+    /// </summary>
+    public LibraryFolderTreeViewModel LibraryFolderTree { get; }
+
     internal RegularChartListOwner RegularChartList => regularChartListOwner;
 
     public PlayHistoryWorkflowOwner PlayHistory { get; }
@@ -416,10 +421,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private readonly object lockUiSuppression = new();
 
-    private bool deferredLibraryFolderTreeRefreshQueued;
-
-    private readonly object lockDeferredLibraryFolderTreeRefresh = new();
-
     private readonly object startupInitializationCompletionLock = new();
 
     private readonly StartupBackgroundTaskSchedulerOwner startupBackgroundTaskScheduler;
@@ -476,10 +477,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private long startupProgressOperationTokenSeed;
 
     private bool _IsStartupUiInteractionBlocked;
-
-    private readonly DispatcherCollection<string> _sortedBmsParentFolderList = new(DispatcherHelper.UIDispatcher);
-
-    private bool bmsParentFolderListViewInitialized;
 
     private MainViewUpdateMode treeViewFilterTypeSelected;
 
@@ -1288,109 +1285,24 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         RefreshLibraryMainViewForDataDependency(libraryDependency, "chart_info_dependent_views");
     }
 
-    private void ScheduleDeferredLibraryFolderTreeRefresh()
+    private void LibraryFolderTreeCacheRefreshRequested(object sender, EventArgs e)
     {
-        ScheduleDeferredLibraryFolderTreeRefresh(GetActiveStartupProgressOperationToken());
-    }
-
-    private void ScheduleDeferredLibraryFolderTreeRefresh(long operationToken)
-    {
-        bool shouldSchedule = false;
-        lock (lockDeferredLibraryFolderTreeRefresh)
-        {
-            if (!deferredLibraryFolderTreeRefreshQueued)
-            {
-                deferredLibraryFolderTreeRefreshQueued = true;
-                shouldSchedule = true;
-            }
-        }
-        if (!shouldSchedule)
+        if (TrySuppress(UiRefreshChannel.LibraryFolderTree))
         {
             return;
         }
-        Task.Run(delegate
+        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryFolderTree, "parent_folder_cache_changed"))
         {
-            BMSLibrary.ParentFolderListCacheSnapshot snapshot = null;
-            try
-            {
-                snapshot = files.BuildBMSParentFolderListCacheSnapshot();
-            }
-            catch (Exception ex)
-            {
-                LogUiSuppressionWarning("ui_stall_library_folder_tree_prepare_failed message=" + ex.Message);
-            }
-            DispatcherHelper.UIDispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
-            {
-                var stopwatch = Stopwatch.StartNew();
-                bool shouldReschedule = false;
-                try
-                {
-                    bool refreshed = false;
-                    if (snapshot != null)
-                    {
-                        refreshed = files.TryApplyBMSParentFolderListCacheSnapshot(snapshot);
-                        if (!refreshed && files.IsBMSParentFolderListCacheDirty())
-                        {
-                            shouldReschedule = true;
-                        }
-                    }
-                    if (!shouldReschedule)
-                    {
-                        RefreshBmsParentFolderListView();
-                    }
-                }
-                finally
-                {
-                    stopwatch.Stop();
-                    LogUiSuppression("ui_suppress flush_library_folder_tree_deferred_ms=" + stopwatch.ElapsedMilliseconds);
-                    lock (lockDeferredLibraryFolderTreeRefresh)
-                    {
-                        deferredLibraryFolderTreeRefreshQueued = false;
-                    }
-                    if (shouldReschedule)
-                    {
-                        ScheduleDeferredLibraryFolderTreeRefresh(operationToken);
-                    }
-                    else
-                    {
-                        TryLogStartupReadyOperable(operationToken);
-                    }
-                }
-            });
-        });
+            return;
+        }
+        LibraryFolderTree.ScheduleDeferredRefresh(GetActiveStartupProgressOperationToken());
     }
 
-    /// <summary>
-    /// BMS 親フォルダ一覧の安定したソート済みビューを、現在のライブラリ状態から更新します。
-    /// 他経路でキャッシュが先に構築された場合でも、ツリーと移動メニューが同じ正本を参照できるようにします。
-    /// </summary>
-    private bool RefreshBmsParentFolderListView(bool raisePropertyChanged = true)
+    private void LibraryFolderTreeDeferredRefreshCompleted(
+        object sender,
+        LibraryFolderTreeRefreshCompletedEventArgs e)
     {
-        IEnumerable<string> source = (files != null) ? files.GetBMSParentFolderListSnapshot() : Enumerable.Empty<string>();
-        List<string> sortedParentFolders = [.. source.Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
-        bool changed = !_sortedBmsParentFolderList.SequenceEqual(sortedParentFolders, StringComparer.OrdinalIgnoreCase);
-        if (changed)
-        {
-            _sortedBmsParentFolderList.Clear();
-            _sortedBmsParentFolderList.AddRange(sortedParentFolders);
-        }
-        bmsParentFolderListViewInitialized = true;
-        if (raisePropertyChanged)
-        {
-            RaisePropertyChanged(() => BMSParentFolderList);
-        }
-        return changed;
-    }
-
-    /// <summary>
-    /// BMS 検索ルートディレクトリ設定の変更を UI 側の親フォルダ一覧へ反映させます。
-    /// </summary>
-    private void NotifyBmsParentFolderListChanged()
-    {
-        bmsParentFolderListViewInitialized = false;
-        files?.NotifyBMSDirectoriesChanged();
+        TryLogStartupReadyOperable(e.OperationToken);
     }
 
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
@@ -1478,7 +1390,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
         if (flag)
         {
-            ScheduleDeferredLibraryFolderTreeRefresh(operationToken);
+            LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
         }
         else if (logReadiness)
         {
@@ -1977,22 +1889,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                 return files.ChartPackagesPending;
             }
             return null;
-        }
-    }
-
-    /// <summary>
-    /// ライブラリツリーや移動メニューが共有する、UI 向けの安定したソート済み親フォルダ一覧です。
-    /// ライブラリ側の候補 cache から同期される表示用正本であり、昇順表示を保証します。
-    /// </summary>
-    public DispatcherCollection<string> BMSParentFolderList
-    {
-        get
-        {
-            if (files != null && !bmsParentFolderListViewInitialized)
-            {
-                RefreshBmsParentFolderListView(raisePropertyChanged: false);
-            }
-            return _sortedBmsParentFolderList;
         }
     }
 
@@ -2633,18 +2529,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         ChartFilters.UpdateKeywordSearchContext(context, playlistNameCandidates);
     }
 
-    public bool IsWriteLockHeldInitializeBMSFiles
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.IsWriteLockHeldInitializeBMSFiles;
-            }
-            return true;
-        }
-    }
-
     public bool IsWriteLockHeldInitializdBMSFilesHealthStatus
     {
         get
@@ -2907,10 +2791,15 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             rankingCacheDownloadWorkflow: new RankingCacheDownloadWorkflowOwner(
                 new BmsRankingCacheDownloadRuntime(() => files),
                 chartFileOperations,
-                new UiDialogCoordinator()));
+                new UiDialogCoordinator()),
+            libraryFolderTreeLog: LogUiSuppression,
+            libraryFolderTreeLogWarning: LogUiSuppressionWarning);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
+        LibraryFolderTree = childComposition.LibraryFolderTree;
+        LibraryFolderTree.CacheRefreshRequested += LibraryFolderTreeCacheRefreshRequested;
+        LibraryFolderTree.DeferredRefreshCompleted += LibraryFolderTreeDeferredRefreshCompleted;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
         UpdateChartKeywordSearchContext();
@@ -3680,8 +3569,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             LogInitStage("file_diff_reload_done", "ReloadFileDiff");
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
             {
-                bmsParentFolderListViewInitialized = false;
-                ScheduleDeferredLibraryFolderTreeRefresh();
+                LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
             }
             PlaylistWorkspace.QueuePlaylistReferenceApply("ReloadFileDiff", operationToken);
             LogInitStage("deferred_playlist_ref_queued", "ReloadFileDiff");
@@ -3730,8 +3618,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             scheduleDeferredPlaylistRef = true;
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
             {
-                bmsParentFolderListViewInitialized = false;
-                ScheduleDeferredLibraryFolderTreeRefresh();
+                LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
             }
         }
         catch (Exception ex)
@@ -4083,6 +3970,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             {
                 files.SearchTargets.AddRange(libraryProfile.SearchRoots);
             }
+            LibraryFolderTree.AttachLibrary(files);
             IBMSPlayer configuredBmsPlayer = applicationComposition.CreateBmsPlayer(
                 startupSettings,
                 () => CreateLR2PlayerConfig(startupSettings));
@@ -4342,23 +4230,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         RebindChartPackagesPendingCollectionListener();
         UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
         UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSParentFolderListCacheVersion, delegate
-        {
-            bmsParentFolderListViewInitialized = false;
-            if (TrySuppress(UiRefreshChannel.LibraryFolderTree))
-            {
-                return;
-            }
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryFolderTree, "parent_folder_cache_changed"))
-            {
-                return;
-            }
-            ScheduleDeferredLibraryFolderTreeRefresh();
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializeBMSFiles, delegate
-        {
-            RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFiles);
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializdBMSFilesHealthStatus, delegate
         {
             RaisePropertyChanged(() => IsWriteLockHeldInitializdBMSFilesHealthStatus);

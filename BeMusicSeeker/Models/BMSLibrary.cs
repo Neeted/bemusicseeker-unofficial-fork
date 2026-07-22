@@ -1331,6 +1331,23 @@ public partial class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// Returns the current parent-folder cache without rebuilding it.
+    /// </summary>
+    internal bool TryGetBMSParentFolderListCacheSnapshot(out IReadOnlyList<string> snapshot)
+    {
+        lock (lockParentFolderList)
+        {
+            if (bmsParentFolderListDirty)
+            {
+                snapshot = null;
+                return false;
+            }
+            snapshot = [.. bmsParentFolderListCache];
+            return true;
+        }
+    }
+
     private List<BMSScore> BMSScores
     {
         get

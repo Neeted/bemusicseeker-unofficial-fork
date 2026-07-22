@@ -4740,14 +4740,14 @@ public partial class MainWindowViewModel
                 }
                 else
                 {
-                    ownerViewModel.NotifyBmsParentFolderListChanged();
+                    ownerViewModel.LibraryFolderTree.InvalidateLibraryFolderCache();
                 }
                 isSearchRootsChanged = false;
                 isBMSDirectoryAdded = false;
             }
             else
             {
-                ownerViewModel.NotifyBmsParentFolderListChanged();
+                ownerViewModel.LibraryFolderTree.InvalidateLibraryFolderCache();
             }
         }
 
@@ -5399,14 +5399,14 @@ public partial class MainWindowViewModel
                     }
                     else
                     {
-                        ownerViewModel.NotifyBmsParentFolderListChanged();
+                        ownerViewModel.LibraryFolderTree.InvalidateLibraryFolderCache();
                     }
                     isSearchRootsChanged = false;
                     isBMSDirectoryRemoved = false;
                 }
                 else
                 {
-                    ownerViewModel.NotifyBmsParentFolderListChanged();
+                    ownerViewModel.LibraryFolderTree.InvalidateLibraryFolderCache();
                 }
                 return;
             }
@@ -5443,14 +5443,14 @@ public partial class MainWindowViewModel
                 }
                 else
                 {
-                    ownerViewModel.NotifyBmsParentFolderListChanged();
+                    ownerViewModel.LibraryFolderTree.InvalidateLibraryFolderCache();
                 }
                 isSearchRootsChanged = false;
                 isBMSDirectoryRemoved = false;
             }
             else
             {
-                ownerViewModel.NotifyBmsParentFolderListChanged();
+                ownerViewModel.LibraryFolderTree.InvalidateLibraryFolderCache();
             }
         }
 

@@ -18,7 +18,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `UI05-R4-U4-B Library/install/maintenance tree binding relay closure — planner required`
+sequence cursor: `UI05-R4-U4-B2 Install tree binding relay closure — planner required`
 
 目的:
 

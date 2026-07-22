@@ -164,7 +164,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         UiFolderPickerResult result = await new UiDialogCoordinator()
             .PickFolderAsync(new UiFolderPickerRequest(
-                selectedPath: viewModel.BMSParentFolderList?.FirstOrDefault(),
+                selectedPath: viewModel.LibraryFolderTree.BMSParentFolderList?.FirstOrDefault(),
                 multiselect: false,
                 ensurePathExists: true,
                 owner: this));

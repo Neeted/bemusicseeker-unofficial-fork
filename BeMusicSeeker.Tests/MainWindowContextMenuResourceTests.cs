@@ -67,6 +67,30 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void LibraryFolderTree_BindsToChildOwnerAndRemovesRootRelay()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string rootViewModelSource = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs"));
+
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding LibraryFolderTree.BMSParentFolderList}\"");
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding LibraryFolderTree.BMSParentFolderList, Source={StaticResource vm}}\"");
+        Assert.AreEqual(2, CountOccurrences(xaml, "DataContext.LibraryFolderTree.IsWriteLockHeldInitializeBMSFiles"));
+        StringAssert.Contains(mainWindowSource, "viewModel.LibraryFolderTree.BMSParentFolderList?.FirstOrDefault()");
+        StringAssert.Contains(rootViewModelSource, "public LibraryFolderTreeViewModel LibraryFolderTree");
+        Assert.IsTrue(
+            rootViewModelSource.IndexOf("files.SearchTargets.AddRange(libraryProfile.SearchRoots);", StringComparison.Ordinal)
+                < rootViewModelSource.IndexOf("LibraryFolderTree.AttachLibrary(files);", StringComparison.Ordinal));
+        Assert.IsFalse(rootViewModelSource.Contains("NotifyBmsParentFolderListChanged"));
+        Assert.IsFalse(rootViewModelSource.Contains("public bool IsWriteLockHeldInitializeBMSFiles\r\n"));
+    }
+
+    [TestMethod]
     public void RegularLibraryTreeNavigation_RoutesThroughRegularChartListOwner()
     {
         string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
