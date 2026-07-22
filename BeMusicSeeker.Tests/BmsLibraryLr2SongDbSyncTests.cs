@@ -1973,14 +1973,15 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(lr2FolderPath, "#TITLE Random Folder", Encoding.GetEncoding("shift_jis"));
             File.SetLastWriteTimeUtc(folderInfoPath, timestamp);
             File.SetLastWriteTimeUtc(lr2FolderPath, timestamp);
-            var library = new BMSLibrary(scope.SongDbPath)
-            {
-                SearchTargets = [rootDirectory],
-                BMSFiles = []
-            };
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
+                LR2RootPath = lr2Root
+            };
+            var library = new BMSLibrary(scope.SongDbPath, null, null, null, () => options)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
             };
             var fileCheckResult = new SongTableFileCheckResult
             {

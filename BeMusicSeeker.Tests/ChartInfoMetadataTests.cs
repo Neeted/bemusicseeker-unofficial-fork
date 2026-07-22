@@ -22,6 +22,7 @@ using SQLite;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class ChartInfoMetadataTests
 {
     private const int FeatureMine = 2;

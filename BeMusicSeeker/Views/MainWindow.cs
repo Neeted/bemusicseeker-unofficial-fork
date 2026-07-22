@@ -77,6 +77,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private MainWindowViewModel subscribedViewModel;
 
+    private Func<string, Task<ShutdownPreparationResult>> startupUpdateShutdownPreparationPort;
+
     public Visibility PlaybackOverlayVisibility
     {
         get => (Visibility)GetValue(PlaybackOverlayVisibilityProperty);
@@ -304,6 +306,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
+        startupUpdateShutdownPreparationPort = PrepareStartupUpdateShutdownAsync;
+        viewModel.StartupUpdateWorkflow.BindShutdownPreparation(startupUpdateShutdownPreparationPort);
         viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;
         viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
@@ -311,7 +315,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.PlaylistUrlInstallTreeExpansionRequested += MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
-        viewModel.StartupUpdateWorkflow.ShutdownPreparationRequested += MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
         viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         viewModel.StartupUpdateWorkflow.ApplicationShutdownRequested += MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
         viewModel.ElevatedProcessWarningWorkflow.PresentationRequested += MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
@@ -330,11 +333,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.PlaylistUrlInstallTreeExpansionRequested -= MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
-        subscribedViewModel.StartupUpdateWorkflow.ShutdownPreparationRequested -= MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
+        subscribedViewModel.StartupUpdateWorkflow.UnbindShutdownPreparation(startupUpdateShutdownPreparationPort);
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.ApplicationShutdownRequested -= MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
         subscribedViewModel.ElevatedProcessWarningWorkflow.PresentationRequested -= MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
         subscribedViewModel = null;
+        startupUpdateShutdownPreparationPort = null;
     }
 
     private void MainWindowViewModel_FolderAutoRenameTerminalPublished()
@@ -402,25 +406,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void MainWindowViewModel_StartupUpdateShutdownPreparationRequested(StartupUpdateShutdownPreparationRequest request)
+    private Task<ShutdownPreparationResult> PrepareStartupUpdateShutdownAsync(string reason)
     {
-        _ = CompleteStartupUpdateShutdownPreparationAsync(request);
-    }
-
-    private async Task CompleteStartupUpdateShutdownPreparationAsync(StartupUpdateShutdownPreparationRequest request)
-    {
-        if (request == null)
+        if (base.Dispatcher.CheckAccess())
         {
-            return;
+            return EnsureShutdownPreparedAsync(reason);
         }
-        try
-        {
-            request.Complete(await EnsureShutdownPreparedAsync(request.Reason).ConfigureAwait(true));
-        }
-        catch (Exception exception)
-        {
-            request.Fail(exception);
-        }
+        return base.Dispatcher
+            .InvokeAsync(() => EnsureShutdownPreparedAsync(reason))
+            .Task
+            .Unwrap();
     }
 
     private void MainWindowViewModel_StartupUpdateFailurePresentationRequested(Exception exception)

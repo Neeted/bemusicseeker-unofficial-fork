@@ -228,6 +228,10 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(settingDialogCode.Contains(".ShowDialog("), "SettingDialog modal windows must go through UiDialogCoordinator.");
         StringAssert.Contains(mainWindowCode, "ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>");
         StringAssert.Contains(mainWindowCode, "StartupUpdatePresentationRequest");
+        StringAssert.Contains(mainWindowCode, "BindShutdownPreparation(startupUpdateShutdownPreparationPort)");
+        StringAssert.Contains(mainWindowCode, "PrepareStartupUpdateShutdownAsync");
+        Assert.IsFalse(mainWindowCode.Contains("StartupUpdateShutdownPreparationRequest"));
+        Assert.IsFalse(mainWindowCode.Contains("ShutdownPreparationRequested"));
         StringAssert.Contains(mainWindowCode, "startupViewModel.StartupUpdateWorkflow.Start();");
         StringAssert.Contains(mainWindowCode, "new UpdateAvailableDialog(request.Result, (base.DataContext as MainWindowViewModel)?.ProgressHub)");
         Assert.IsFalse(mainWindowCode.Contains("CheckForUpdatesAsync("), "MainWindow must not own the startup update check.");

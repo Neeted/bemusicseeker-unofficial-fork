@@ -61,30 +61,6 @@ internal sealed class StartupUpdatePresentationRequest
     }
 }
 
-internal sealed class StartupUpdateShutdownPreparationRequest
-{
-    private readonly TaskCompletionSource<ShutdownPreparationResult> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-    internal StartupUpdateShutdownPreparationRequest(string reason)
-    {
-        Reason = string.IsNullOrWhiteSpace(reason) ? "update" : reason;
-    }
-
-    internal string Reason { get; }
-
-    internal Task<ShutdownPreparationResult> Completion => completion.Task;
-
-    internal void Complete(ShutdownPreparationResult result)
-    {
-        completion.TrySetResult(result ?? throw new ArgumentNullException(nameof(result)));
-    }
-
-    internal void Fail(Exception exception)
-    {
-        completion.TrySetException(exception ?? new InvalidOperationException("Shutdown preparation failed."));
-    }
-}
-
 /// <summary>
 /// Owns the one-shot startup update workflow while the window remains a typed presentation and shutdown adapter.
 /// </summary>
@@ -111,6 +87,8 @@ internal sealed class StartupUpdateWorkflowOwner
     private readonly Action<Exception> logWarning;
 
     private readonly Action<Exception> logError;
+
+    private Func<string, Task<ShutdownPreparationResult>> shutdownPreparationPort;
 
     private long generation;
 
@@ -152,13 +130,47 @@ internal sealed class StartupUpdateWorkflowOwner
 
     internal event Action<StartupUpdatePresentationRequest> PresentationRequested;
 
-    internal event Action<StartupUpdateShutdownPreparationRequest> ShutdownPreparationRequested;
-
     internal event Action<Exception> FailurePresentationRequested;
 
     internal event Action ApplicationShutdownRequested;
 
     internal event Action<StartupUpdateWorkflowCompletionReceipt> TerminalPublished;
+
+    internal void BindShutdownPreparation(Func<string, Task<ShutdownPreparationResult>> port)
+    {
+        if (port == null)
+        {
+            throw new ArgumentNullException(nameof(port));
+        }
+        lock (syncRoot)
+        {
+            if (active)
+            {
+                throw new InvalidOperationException("Startup update shutdown preparation cannot be rebound while active.");
+            }
+            if (shutdownPreparationPort != null && !shutdownPreparationPort.Equals(port))
+            {
+                throw new InvalidOperationException("Startup update shutdown preparation is already bound.");
+            }
+            shutdownPreparationPort = port;
+        }
+    }
+
+    internal void UnbindShutdownPreparation(Func<string, Task<ShutdownPreparationResult>> port)
+    {
+        if (port == null)
+        {
+            return;
+        }
+        lock (syncRoot)
+        {
+            if (active || !Equals(shutdownPreparationPort, port))
+            {
+                return;
+            }
+            shutdownPreparationPort = null;
+        }
+    }
 
     internal bool IsActive
     {
@@ -400,26 +412,21 @@ internal sealed class StartupUpdateWorkflowOwner
 
     private async Task<ShutdownPreparationResult> RequestShutdownPreparationAsync()
     {
-        if (ShutdownPreparationRequested == null)
+        Func<string, Task<ShutdownPreparationResult>> port;
+        lock (syncRoot)
+        {
+            port = shutdownPreparationPort;
+        }
+        if (port == null)
         {
             throw new InvalidOperationException("Startup update shutdown preparation is not configured.");
         }
-        var request = new StartupUpdateShutdownPreparationRequest("update");
-        if (!DispatchToUi(() =>
+        Task<ShutdownPreparationResult> preparation = port("update");
+        if (preparation == null)
         {
-            try
-            {
-                ShutdownPreparationRequested?.Invoke(request);
-            }
-            catch (Exception exception)
-            {
-                request.Fail(exception);
-            }
-        }))
-        {
-            throw new InvalidOperationException("Startup update shutdown preparation could not be dispatched.");
+            throw new InvalidOperationException("Startup update shutdown preparation returned no task.");
         }
-        return await request.Completion.ConfigureAwait(false);
+        return await preparation.ConfigureAwait(false);
     }
 
     private void RequestFailurePresentation(Exception exception)
