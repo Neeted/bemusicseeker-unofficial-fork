@@ -18,7 +18,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `UI05-R4-U3 Main-chart sort presentation/compatibility relay closure`
+sequence cursor: `UI05-R4-U4 Remaining root binding/composition closure — planner required`
 
 目的:
 
