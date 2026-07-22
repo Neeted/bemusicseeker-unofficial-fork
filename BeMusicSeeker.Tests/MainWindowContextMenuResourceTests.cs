@@ -3073,17 +3073,39 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(forceInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(forceInstall, "PendingInstallPackageOperationRequest.CreateForceInstall(targets)");
         StringAssert.Contains(forceInstall, "viewModel.PendingPackages");
-        StringAssert.Contains(forceInstall, ".InstallPendingAsync(request,");
-        StringAssert.Contains(forceInstall, ".LoggingAndPropagate(");
+        StringAssert.Contains(forceInstall, ".InstallPendingAsync(request)");
+        StringAssert.Contains(forceInstall, "ObservePendingPackageMutationAsync(");
+        StringAssert.Contains(forceInstall, "PackageCatalogSelectionPlan");
+        Assert.IsFalse(forceInstall.Contains("prepareShellForMutation"));
+        Assert.IsFalse(forceInstall.Contains("() =>"));
         StringAssert.Contains(forceInstall, "private async Task ForceInstallSelectedPendingChartsAsync");
         Assert.IsFalse(forceInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        int forceInstallApplyGuard = forceInstall.IndexOf("if (result.ShouldApplyView)", StringComparison.Ordinal);
+        int forceInstallGridClear = forceInstall.IndexOf("ClearMainGridSelection();", StringComparison.Ordinal);
+        int forceInstallSelectionApply = forceInstall.IndexOf("selectionPlan.Apply(this);", StringComparison.Ordinal);
+        int forceInstallFailurePropagation = forceInstall.IndexOf("PropagatePendingPackageMutationFailureAsync(", StringComparison.Ordinal);
+        Assert.IsTrue(forceInstallApplyGuard >= 0
+            && forceInstallGridClear > forceInstallApplyGuard
+            && forceInstallSelectionApply > forceInstallGridClear
+            && forceInstallFailurePropagation > forceInstallSelectionApply);
         StringAssert.Contains(manualInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(manualInstall, "PendingInstallPackageOperationRequest.CreateManualInstall(targets)");
         StringAssert.Contains(manualInstall, "viewModel.PendingPackages");
-        StringAssert.Contains(manualInstall, ".InstallPendingAsync(request,");
-        StringAssert.Contains(manualInstall, ".LoggingAndPropagate(");
+        StringAssert.Contains(manualInstall, ".InstallPendingAsync(request)");
+        StringAssert.Contains(manualInstall, "ObservePendingPackageMutationAsync(");
+        StringAssert.Contains(manualInstall, "PackageCatalogSelectionPlan");
+        Assert.IsFalse(manualInstall.Contains("prepareShellForMutation"));
+        Assert.IsFalse(manualInstall.Contains("() =>"));
         StringAssert.Contains(manualInstall, "private async Task ManualInstallSelectedPendingChartsAsync");
         Assert.IsFalse(manualInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        int manualInstallApplyGuard = manualInstall.IndexOf("if (result.ShouldApplyView)", StringComparison.Ordinal);
+        int manualInstallGridClear = manualInstall.IndexOf("ClearMainGridSelection();", StringComparison.Ordinal);
+        int manualInstallSelectionApply = manualInstall.IndexOf("selectionPlan.Apply(this);", StringComparison.Ordinal);
+        int manualInstallFailurePropagation = manualInstall.IndexOf("PropagatePendingPackageMutationFailureAsync(", StringComparison.Ordinal);
+        Assert.IsTrue(manualInstallApplyGuard >= 0
+            && manualInstallGridClear > manualInstallApplyGuard
+            && manualInstallSelectionApply > manualInstallGridClear
+            && manualInstallFailurePropagation > manualInstallSelectionApply);
         StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(deletePackages, "PackageCatalogRemovalRequest.CreatePending(selectedPendingTargets)");
         StringAssert.Contains(deletePackages, "PackageCatalogRemovalRequest.CreateInstalled(selectedInstalledTargets)");
@@ -3126,12 +3148,40 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(clearPackageDestination, ".LoggingAndPropagate(");
         Assert.IsTrue(clearPackageDestination.IndexOf("e.Handled = true", StringComparison.Ordinal) < clearPackageDestination.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
         StringAssert.Contains(forceInstallPackage, ".ForceInstallPackagesAsync(");
-        StringAssert.Contains(forceInstallPackage, ".LoggingAndPropagate(");
-        Assert.IsTrue(forceInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < forceInstallPackage.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
+        StringAssert.Contains(forceInstallPackage, "ObservePendingPackageMutationAsync(");
+        StringAssert.Contains(forceInstallPackage, "PropagatePendingPackageMutationFailureAsync(");
+        StringAssert.Contains(forceInstallPackage, "CaptureNextSiblingOrRoot(");
+        Assert.IsFalse(forceInstallPackage.Contains("prepareShellForMutation"));
+        Assert.IsFalse(forceInstallPackage.Contains("() =>"));
+        int forcePackageApplyGuard = forceInstallPackage.IndexOf("if (result.ShouldApplyView)", StringComparison.Ordinal);
+        int forcePackageSelectionApply = forceInstallPackage.IndexOf("selectionPlan.Apply(this);", StringComparison.Ordinal);
+        int forcePackageFailurePropagation = forceInstallPackage.IndexOf("PropagatePendingPackageMutationFailureAsync(", StringComparison.Ordinal);
+        int forcePackageSuccessNavigation = forceInstallPackage.IndexOf("if (result.Succeeded", StringComparison.Ordinal);
+        int forcePackageNavigation = forceInstallPackage.IndexOf("NavigateInstallAsync", StringComparison.Ordinal);
+        Assert.IsTrue(forcePackageApplyGuard >= 0
+            && forcePackageSelectionApply > forcePackageApplyGuard
+            && forcePackageFailurePropagation > forcePackageSelectionApply
+            && forcePackageSuccessNavigation > forcePackageFailurePropagation
+            && forcePackageNavigation > forcePackageSuccessNavigation);
+        Assert.IsTrue(forceInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < forceInstallPackage.IndexOf("viewModel.PendingPackages", StringComparison.Ordinal));
         Assert.IsFalse(forceInstallPackage.Contains("viewModel.ForceInstallPendingPackages"));
         StringAssert.Contains(manualInstallPackage, ".ManualInstallPackagesAsync(");
-        StringAssert.Contains(manualInstallPackage, ".LoggingAndPropagate(");
-        Assert.IsTrue(manualInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < manualInstallPackage.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
+        StringAssert.Contains(manualInstallPackage, "ObservePendingPackageMutationAsync(");
+        StringAssert.Contains(manualInstallPackage, "PropagatePendingPackageMutationFailureAsync(");
+        StringAssert.Contains(manualInstallPackage, "CaptureNextSiblingOrRoot(");
+        Assert.IsFalse(manualInstallPackage.Contains("prepareShellForMutation"));
+        Assert.IsFalse(manualInstallPackage.Contains("() =>"));
+        int manualPackageApplyGuard = manualInstallPackage.IndexOf("if (result.ShouldApplyView)", StringComparison.Ordinal);
+        int manualPackageSelectionApply = manualInstallPackage.IndexOf("selectionPlan.Apply(this);", StringComparison.Ordinal);
+        int manualPackageFailurePropagation = manualInstallPackage.IndexOf("PropagatePendingPackageMutationFailureAsync(", StringComparison.Ordinal);
+        int manualPackageSuccessNavigation = manualInstallPackage.IndexOf("if (result.Succeeded", StringComparison.Ordinal);
+        int manualPackageNavigation = manualInstallPackage.IndexOf("NavigateInstallAsync", StringComparison.Ordinal);
+        Assert.IsTrue(manualPackageApplyGuard >= 0
+            && manualPackageSelectionApply > manualPackageApplyGuard
+            && manualPackageFailurePropagation > manualPackageSelectionApply
+            && manualPackageSuccessNavigation > manualPackageFailurePropagation
+            && manualPackageNavigation > manualPackageSuccessNavigation);
+        Assert.IsTrue(manualInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < manualInstallPackage.IndexOf("viewModel.PendingPackages", StringComparison.Ordinal));
         Assert.IsFalse(manualInstallPackage.Contains("Settings.Default"));
         StringAssert.Contains(searchPackageDestination, ".SearchPackagesAsync(PendingInstallDestinationSearchKind.InstallDestination, [pkg])");
         StringAssert.Contains(searchPackageDestination, ".LoggingAndPropagate(");

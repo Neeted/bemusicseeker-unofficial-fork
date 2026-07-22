@@ -18,6 +18,42 @@ internal enum PendingPackageRefreshScope
     PackageMutation
 }
 
+internal sealed class PendingPackageMutationResult
+{
+    private PendingPackageMutationResult(bool succeeded, Exception failure, bool shouldApplyView)
+    {
+        Succeeded = succeeded;
+        Failure = failure;
+        ShouldApplyView = shouldApplyView;
+    }
+
+    internal bool Succeeded { get; }
+
+    internal Exception Failure { get; }
+
+    internal bool ShouldApplyView { get; }
+
+    internal static PendingPackageMutationResult Completed { get; } = new(true, null, true);
+
+    internal static PendingPackageMutationResult Rejected { get; } = new(false, null, false);
+
+    internal static PendingPackageMutationResult FailedBeforeMutation(Exception failure)
+    {
+        return new PendingPackageMutationResult(
+            false,
+            failure ?? throw new ArgumentNullException(nameof(failure)),
+            false);
+    }
+
+    internal static PendingPackageMutationResult FailedAfterMutation(Exception failure)
+    {
+        return new PendingPackageMutationResult(
+            false,
+            failure ?? throw new ArgumentNullException(nameof(failure)),
+            true);
+    }
+}
+
 internal interface IPendingPackageMutationPresentation
 {
     void BeginActivity();
@@ -355,53 +391,43 @@ internal sealed class PendingPackageWorkflowOwner
         });
     }
 
-    internal Task ForceInstallPackagesAsync(
-        IEnumerable<ChartPackage> packages,
-        Action prepareShellForMutation)
+    internal Task<PendingPackageMutationResult> ForceInstallPackagesAsync(
+        IEnumerable<ChartPackage> packages)
     {
-        if (prepareShellForMutation == null)
-        {
-            throw new ArgumentNullException(nameof(prepareShellForMutation));
-        }
         return InstallPackagesAsync(
             PendingInstallPackageOperationKind.ForceInstall,
-            MaterializePackages(packages),
-            prepareShellForMutation);
+            MaterializePackages(packages));
     }
 
-    internal Task ManualInstallPackagesAsync(
-        IEnumerable<ChartPackage> packages,
-        Action prepareShellForMutation)
+    internal Task<PendingPackageMutationResult> ManualInstallPackagesAsync(
+        IEnumerable<ChartPackage> packages)
     {
-        if (prepareShellForMutation == null)
-        {
-            throw new ArgumentNullException(nameof(prepareShellForMutation));
-        }
         return InstallPackagesAsync(
             PendingInstallPackageOperationKind.ManualInstall,
-            MaterializePackages(packages),
-            prepareShellForMutation);
+            MaterializePackages(packages));
     }
 
-    internal async Task InstallPendingAsync(
-        PendingInstallPackageOperationRequest request,
-        Action prepareShellForMutation)
+    internal async Task<PendingPackageMutationResult> InstallPendingAsync(
+        PendingInstallPackageOperationRequest request)
     {
         if (request == null)
         {
             throw new ArgumentNullException(nameof(request));
         }
-        if (prepareShellForMutation == null)
+        try
         {
-            throw new ArgumentNullException(nameof(prepareShellForMutation));
+            if (request.IsManualInstall && !await ConfirmManualInstallAsync())
+            {
+                return PendingPackageMutationResult.Rejected;
+            }
+            IReadOnlyList<ChartPackage> packages = await Task.Run(() =>
+                Read(library => store.ResolvePendingPackages(library, request.Targets))) ?? [];
+            return await InstallResolvedPackagesAsync(request.Kind, packages);
         }
-        if (request.IsManualInstall && !await ConfirmManualInstallAsync())
+        catch (Exception exception)
         {
-            return;
+            return PendingPackageMutationResult.FailedBeforeMutation(exception);
         }
-        IReadOnlyList<ChartPackage> packages = await Task.Run(() =>
-            Read(library => store.ResolvePendingPackages(library, request.Targets))) ?? [];
-        await InstallResolvedPackagesAsync(request.Kind, packages, prepareShellForMutation);
     }
 
     internal async Task FixInstalledLocationsAsync(RepairInstalledLocationRequest request)
@@ -616,43 +642,67 @@ internal sealed class PendingPackageWorkflowOwner
             "Installed-only pending-package resource overwrite summary");
     }
 
-    private async Task InstallPackagesAsync(
+    private async Task<PendingPackageMutationResult> InstallPackagesAsync(
         PendingInstallPackageOperationKind kind,
-        IReadOnlyList<ChartPackage> packages,
-        Action prepareShellForMutation)
+        IReadOnlyList<ChartPackage> packages)
     {
-        if (kind == PendingInstallPackageOperationKind.ManualInstall
-            && !await ConfirmManualInstallAsync())
+        try
         {
-            return;
+            if (kind == PendingInstallPackageOperationKind.ManualInstall
+                && !await ConfirmManualInstallAsync())
+            {
+                return PendingPackageMutationResult.Rejected;
+            }
+            return await InstallResolvedPackagesAsync(kind, packages);
         }
-        await InstallResolvedPackagesAsync(kind, packages, prepareShellForMutation);
+        catch (Exception exception)
+        {
+            return PendingPackageMutationResult.FailedBeforeMutation(exception);
+        }
     }
 
-    private async Task InstallResolvedPackagesAsync(
+    private async Task<PendingPackageMutationResult> InstallResolvedPackagesAsync(
         PendingInstallPackageOperationKind kind,
-        IReadOnlyList<ChartPackage> packages,
-        Action prepareShellForMutation)
+        IReadOnlyList<ChartPackage> packages)
     {
-        switch (kind)
+        try
         {
-            case PendingInstallPackageOperationKind.ForceInstall:
-                ISet<ChartPackage> approvedPackages = await ConfirmNormalInstallOverridesAsync(packages);
-                prepareShellForMutation();
-                await Task.Run(() => Execute(
-                    library => store.ForceInstallPackages(library, packages, approvedPackages),
-                    PendingPackageRefreshScope.PackageMutation,
-                    CreatePlaybackTargetSnapshot(packages)));
-                return;
-            case PendingInstallPackageOperationKind.ManualInstall:
-                prepareShellForMutation();
-                await Task.Run(() => Execute(
-                    library => store.ManualInstallPackages(library, packages),
-                    PendingPackageRefreshScope.PackageMutation,
-                    CreatePlaybackTargetSnapshot(packages)));
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported pending install package operation.");
+            switch (kind)
+            {
+                case PendingInstallPackageOperationKind.ForceInstall:
+                    ISet<ChartPackage> approvedPackages = await ConfirmNormalInstallOverridesAsync(packages);
+                    return await ExecuteInstallAsync(
+                        library => store.ForceInstallPackages(library, packages, approvedPackages),
+                        packages);
+                case PendingInstallPackageOperationKind.ManualInstall:
+                    return await ExecuteInstallAsync(
+                        library => store.ManualInstallPackages(library, packages),
+                        packages);
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported pending install package operation.");
+            }
+        }
+        catch (Exception exception)
+        {
+            return PendingPackageMutationResult.FailedBeforeMutation(exception);
+        }
+    }
+
+    private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
+        Action<BMSLibrary> mutation,
+        IReadOnlyList<ChartPackage> packages)
+    {
+        try
+        {
+            await Task.Run(() => Execute(
+                mutation,
+                PendingPackageRefreshScope.PackageMutation,
+                CreatePlaybackTargetSnapshot(packages)));
+            return PendingPackageMutationResult.Completed;
+        }
+        catch (Exception exception)
+        {
+            return PendingPackageMutationResult.FailedAfterMutation(exception);
         }
     }
 

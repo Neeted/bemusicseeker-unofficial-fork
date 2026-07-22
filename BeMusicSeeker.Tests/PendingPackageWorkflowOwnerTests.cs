@@ -716,12 +716,14 @@ public sealed class PendingPackageWorkflowOwnerTests
             DefaultSettings,
             store);
 
-        await owner.ForceInstallPackagesAsync([package], () => events.Add("shell-prepare"));
+        PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync([package]);
 
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.IsTrue(result.ShouldApplyView);
         CollectionAssert.AreEqual(
             new[]
             {
-                "shell-prepare",
                 "activity-start",
                 "playback-stop",
                 "suppression-start",
@@ -750,12 +752,14 @@ public sealed class PendingPackageWorkflowOwnerTests
         };
         var owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
-        await owner.ForceInstallPackagesAsync([package], () => events.Add("shell-prepare"));
+        PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync([package]);
 
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.IsTrue(result.ShouldApplyView);
         CollectionAssert.AreEqual(
             new[]
             {
-                "shell-prepare",
                 "activity-start",
                 "playback-stop",
                 "suppression-start",
@@ -787,17 +791,106 @@ public sealed class PendingPackageWorkflowOwnerTests
                 showManualInstallConfirmation: true,
                 deletePendingPackageSourceAfterInstall: true),
             store);
-        int prepareCount = 0;
+        PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync(
+            [ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())])]);
 
-        await owner.ManualInstallPackagesAsync(
-            [ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())])],
-            () => prepareCount++);
-
-        Assert.AreEqual(0, prepareCount);
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.IsFalse(result.ShouldApplyView);
         Assert.AreEqual(0, events.Count);
         Assert.AreEqual(
             BeMusicSeeker.Properties.Resources.Msg_manual_installation_delete_source,
             dialogs.ConfirmationRequest!.MessageBoxText);
+    }
+
+    [TestMethod]
+    public async Task ManualInstallPackagesAsync_ConfirmationFailureReturnsBeforeMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        var failure = new InvalidOperationException("manual confirmation failed");
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.Failed(failure)
+        };
+        var owner = new PendingPackageWorkflowOwner(
+            CreateLibrary,
+            new ChartFileOperationSynchronizer(),
+            new RecordingPresentation(events),
+            dialogs,
+            () => new InstallDestinationWorkflowSettingsSnapshot(
+                showManualInstallConfirmation: true,
+                deletePendingPackageSourceAfterInstall: true),
+            store);
+
+        PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync(
+            [ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())])]);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNotNull(result.Failure);
+        Assert.AreSame(failure, result.Failure.InnerException);
+        Assert.IsFalse(result.ShouldApplyView);
+        Assert.AreEqual(0, events.Count);
+    }
+
+    [TestMethod]
+    public async Task ForceInstallPackagesAsync_MutationFailurePreservesTerminalViewApply()
+    {
+        var events = new List<string>();
+        var mutationFailure = new InvalidOperationException("force install failed");
+        var cleanupFailure = new InvalidOperationException("refresh cleanup failed");
+        var store = new RecordingStore(events) { Failure = mutationFailure };
+        var presentation = new RecordingPresentation(events)
+        {
+            EndRefreshSuppressionFailure = cleanupFailure
+        };
+        var owner = new PendingPackageWorkflowOwner(
+            CreateLibrary,
+            new ChartFileOperationSynchronizer(),
+            presentation,
+            AcceptedDialogs(),
+            DefaultSettings,
+            store);
+
+        PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync(
+            [ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())])]);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsTrue(result.ShouldApplyView);
+        Assert.IsInstanceOfType<AggregateException>(result.Failure);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "activity-start",
+                "playback-stop",
+                "suppression-start",
+                "store-force-install",
+                "suppression-end",
+                "activity-end"
+            },
+            events);
+        var exception = (AggregateException)result.Failure;
+        Assert.AreSame(mutationFailure, exception.InnerExceptions[0]);
+        Assert.AreSame(cleanupFailure, exception.InnerExceptions[1]);
+    }
+
+    [TestMethod]
+    public async Task InstallPendingAsync_ResolutionFailureDoesNotApplySelection()
+    {
+        var events = new List<string>();
+        var failure = new InvalidOperationException("pending resolution failed");
+        var store = new RecordingStore(events) { Failure = failure };
+        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        PendingInstallPackageOperationRequest request =
+            PendingInstallPackageOperationRequest.CreateForceInstall([CreateTarget(CreateChart())]);
+
+        PendingPackageMutationResult result = await owner.InstallPendingAsync(request);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsFalse(result.ShouldApplyView);
+        Assert.AreSame(failure, result.Failure);
+        CollectionAssert.AreEqual(new[] { "store-resolve-packages" }, events);
     }
 
     [TestMethod]
@@ -811,13 +904,15 @@ public sealed class PendingPackageWorkflowOwnerTests
         PendingInstallPackageOperationRequest request =
             PendingInstallPackageOperationRequest.CreateForceInstall([CreateTarget(chart)]);
 
-        await owner.InstallPendingAsync(request, () => events.Add("shell-prepare"));
+        PendingPackageMutationResult result = await owner.InstallPendingAsync(request);
 
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.IsTrue(result.ShouldApplyView);
         CollectionAssert.AreEqual(
             new[]
             {
                 "store-resolve-packages",
-                "shell-prepare",
                 "activity-start",
                 "playback-stop",
                 "suppression-start",

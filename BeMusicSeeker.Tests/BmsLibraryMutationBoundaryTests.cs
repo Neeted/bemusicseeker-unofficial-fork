@@ -102,7 +102,8 @@ public sealed class BmsLibraryMutationBoundaryTests
         string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string runMethod = ExtractMethodBody(source, "private void RunChartPackageMutation(");
         string autoInstallMethod = ExtractMethodBody(source, "private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(");
-        string forceInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task InstallResolvedPackagesAsync(");
+        string forceInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task<PendingPackageMutationResult> InstallResolvedPackagesAsync(");
+        string executeInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task<PendingPackageMutationResult> ExecuteInstallAsync(");
         string installDestinationBoundary = ExtractMethodBody(installDestinationSource, "private bool Execute(");
         string repairInstallDestinationMethod = ExtractMethodBody(installDestinationSource, "internal Task SearchCorrectAsync(");
         string autoInstallLibraryMethod = ExtractMethodBody(librarySource, "public List<ChartPackage> InstallChartPackagesAuto(");
@@ -123,7 +124,8 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(runMethod, "dialogScope?.Flush()");
         StringAssert.Contains(autoInstallMethod, "RunChartPackageMutation");
         StringAssert.Contains(forceInstallMethod, "store.ForceInstallPackages");
-        StringAssert.Contains(forceInstallMethod, "PendingPackageRefreshScope.PackageMutation");
+        StringAssert.Contains(forceInstallMethod, "ExecuteInstallAsync(");
+        StringAssert.Contains(executeInstallMethod, "PendingPackageRefreshScope.PackageMutation");
         StringAssert.Contains(installDestinationBoundary, "BeginOperationDialogScope()");
         StringAssert.Contains(installDestinationBoundary, "operationGate = chartFileOperations.Enter()");
         StringAssert.Contains(installDestinationBoundary, "presentation.BeginRefreshSuppression(refreshScope)");

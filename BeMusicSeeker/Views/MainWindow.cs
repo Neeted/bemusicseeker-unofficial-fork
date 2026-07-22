@@ -4087,6 +4087,35 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return result.ShouldApplyView;
     }
 
+    private static async Task<PendingPackageMutationResult> ObservePendingPackageMutationAsync(
+        Task<PendingPackageMutationResult> operation,
+        string routeName)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+        try
+        {
+            return await operation;
+        }
+        catch (Exception exception)
+        {
+            await Task.FromException(exception).LoggingAndPropagate(routeName);
+            throw;
+        }
+    }
+
+    private static async Task PropagatePendingPackageMutationFailureAsync(
+        PendingPackageMutationResult result,
+        string routeName)
+    {
+        if (result?.Failure != null)
+        {
+            await Task.FromException(result.Failure).LoggingAndPropagate(routeName);
+        }
+    }
+
     private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("tree_pending_delete_installed_only"))
@@ -4278,15 +4307,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        await viewModel.PendingPackages
-            .ForceInstallPackagesAsync(
-                [pkg],
-                () => SelectNextSiblingOrRoot(
-                    treeViewItemInstallPending,
-                    pkg,
-                    "treeViewInstallPackageContextMenuForceInstallClick"))
-            .LoggingAndPropagate("treeViewInstallPackageContextMenuForceInstallClick");
-        if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
+        PackageCatalogSelectionPlan selectionPlan = CaptureNextSiblingOrRoot(
+            treeViewItemInstallPending,
+            pkg,
+            "treeViewInstallPackageContextMenuForceInstallClick");
+        PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
+            viewModel.PendingPackages.ForceInstallPackagesAsync([pkg]),
+            "treeViewInstallPackageContextMenuForceInstallClick");
+        if (result.ShouldApplyView)
+        {
+            selectionPlan.Apply(this);
+        }
+        await PropagatePendingPackageMutationFailureAsync(
+            result,
+            "treeViewInstallPackageContextMenuForceInstallClick");
+        if (result.Succeeded
+            && treeViewItemInstallPending.IsSelected
+            && treeViewItemInstallPending.Items.Count == 0)
         {
             await viewModel.RegularChartList
                 .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
@@ -4314,15 +4351,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        await viewModel.PendingPackages
-            .ManualInstallPackagesAsync(
-                [pkg],
-                () => SelectNextSiblingOrRoot(
-                    treeViewItemInstallPending,
-                    pkg,
-                    "treeViewInstallPackageContextMenuManualInstallClick"))
-            .LoggingAndPropagate("treeViewInstallPackageContextMenuManualInstallClick");
-        if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
+        PackageCatalogSelectionPlan selectionPlan = CaptureNextSiblingOrRoot(
+            treeViewItemInstallPending,
+            pkg,
+            "treeViewInstallPackageContextMenuManualInstallClick");
+        PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
+            viewModel.PendingPackages.ManualInstallPackagesAsync([pkg]),
+            "treeViewInstallPackageContextMenuManualInstallClick");
+        if (result.ShouldApplyView)
+        {
+            selectionPlan.Apply(this);
+        }
+        await PropagatePendingPackageMutationFailureAsync(
+            result,
+            "treeViewInstallPackageContextMenuManualInstallClick");
+        if (result.Succeeded
+            && treeViewItemInstallPending.IsSelected
+            && treeViewItemInstallPending.Items.Count == 0)
         {
             await viewModel.RegularChartList
                 .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
@@ -6431,16 +6476,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        await viewModel.PendingPackages
-            .InstallPendingAsync(request, () =>
-            {
-                ClearMainGridSelection();
-                if (!treeViewItemInstallPending.IsSelected)
-                {
-                    SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "forceInstallSelectedPendingCharts");
-                }
-            })
-            .LoggingAndPropagate("forceInstallSelectedPendingCharts");
+        PackageCatalogSelectionPlan selectionPlan = treeViewItemInstallPending.IsSelected
+            ? PackageCatalogSelectionPlan.None
+            : CaptureNextSiblingOrRoot(
+                treeViewItemInstallPending,
+                treeView.SelectedItem,
+                "forceInstallSelectedPendingCharts");
+        PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
+            viewModel.PendingPackages.InstallPendingAsync(request),
+            "forceInstallSelectedPendingCharts");
+        if (result.ShouldApplyView)
+        {
+            ClearMainGridSelection();
+            selectionPlan.Apply(this);
+        }
+        await PropagatePendingPackageMutationFailureAsync(
+            result,
+            "forceInstallSelectedPendingCharts");
     }
 
     private async void manualInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
@@ -6470,16 +6522,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        await viewModel.PendingPackages
-            .InstallPendingAsync(request, () =>
-            {
-                ClearMainGridSelection();
-                if (!treeViewItemInstallPending.IsSelected)
-                {
-                    SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "manualInstallSelectedPendingCharts");
-                }
-            })
-            .LoggingAndPropagate("manualInstallSelectedPendingCharts");
+        PackageCatalogSelectionPlan selectionPlan = treeViewItemInstallPending.IsSelected
+            ? PackageCatalogSelectionPlan.None
+            : CaptureNextSiblingOrRoot(
+                treeViewItemInstallPending,
+                treeView.SelectedItem,
+                "manualInstallSelectedPendingCharts");
+        PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
+            viewModel.PendingPackages.InstallPendingAsync(request),
+            "manualInstallSelectedPendingCharts");
+        if (result.ShouldApplyView)
+        {
+            ClearMainGridSelection();
+            selectionPlan.Apply(this);
+        }
+        await PropagatePendingPackageMutationFailureAsync(
+            result,
+            "manualInstallSelectedPendingCharts");
     }
 
     private async void searchInstallDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
