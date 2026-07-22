@@ -4113,7 +4113,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
 
         _ = Task.FromException(result.Failure).Logging(routeName);
-        return true;
+        return result.ShouldApplyView;
     }
 
     private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick(object sender, RoutedEventArgs e)
@@ -4200,12 +4200,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!ObservePackageCatalogConfirmation(
-            viewModel.PackageCatalog.ConfirmRemovePackage(PackageCatalogSection.Pending, pkg),
-            "treeViewInstallPackageContextMenuClearFolderClick"))
-        {
-            return;
-        }
         PackageCatalogSelectionPlan selectionPlan = CaptureNextSiblingOrRoot(
             treeViewItemInstallPending,
             pkg,
@@ -4244,12 +4238,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        if (!ObservePackageCatalogConfirmation(
-            viewModel.PackageCatalog.ConfirmRemovePackage(PackageCatalogSection.Installed, pkg),
-            "treeViewInstalledFolderContextMenuClearFolderClick"))
         {
             return;
         }

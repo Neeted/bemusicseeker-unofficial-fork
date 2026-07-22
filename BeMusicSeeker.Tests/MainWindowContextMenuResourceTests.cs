@@ -942,6 +942,11 @@ public sealed class MainWindowContextMenuResourceTests
             "ViewModels",
             "MainWindow",
             "PackageCatalogWorkflowOwner.cs");
+        string mainWindowXaml = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "Views",
+            "MainWindow.xaml"));
         string clearInstalled = ExtractBetween(
             mainWindowCode,
             "private async void treeViewInstalledContextMenuClearAllClick",
@@ -969,10 +974,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(clearPending, ".ConfirmClearAll(PackageCatalogSection.Pending)");
         StringAssert.Contains(removePendingPackage, ".RemovePackageAsync(");
         StringAssert.Contains(removePendingPackage, "PackageCatalogSection.Pending");
-        StringAssert.Contains(removePendingPackage, ".ConfirmRemovePackage(PackageCatalogSection.Pending");
+        Assert.AreEqual(1, CountOccurrences(removePendingPackage, ".RemovePackageAsync("));
+        Assert.IsFalse(removePendingPackage.Contains("ConfirmRemovePackage"));
         StringAssert.Contains(removeInstalledPackage, ".RemovePackageAsync(");
         StringAssert.Contains(removeInstalledPackage, "PackageCatalogSection.Installed");
-        StringAssert.Contains(removeInstalledPackage, ".ConfirmRemovePackage(PackageCatalogSection.Installed");
+        Assert.AreEqual(1, CountOccurrences(removeInstalledPackage, ".RemovePackageAsync("));
+        Assert.IsFalse(removeInstalledPackage.Contains("ConfirmRemovePackage"));
+        StringAssert.Contains(mainWindowXaml, "Click=\"treeViewInstallPackageContextMenuClearFolderClick\"");
+        StringAssert.Contains(mainWindowXaml, "Click=\"treeViewInstalledFolderContextMenuClearFolderClick\"");
         foreach (string handler in new[] { clearInstalled, clearPending, removePendingPackage, removeInstalledPackage })
         {
             StringAssert.Contains(handler, "viewModel.PackageCatalog");
@@ -993,10 +1002,11 @@ public sealed class MainWindowContextMenuResourceTests
             "_ = Task.FromException(result.Failure).Logging(routeName)");
         Assert.IsTrue(
             mutationObserver.IndexOf("_ = Task.FromException(result.Failure).Logging(routeName)", StringComparison.Ordinal)
-            < mutationObserver.LastIndexOf("return true;", StringComparison.Ordinal));
+            < mutationObserver.LastIndexOf("return result.ShouldApplyView;", StringComparison.Ordinal));
         StringAssert.Contains(ownerCode, "dialogs.ConfirmAsync(");
         StringAssert.Contains(ownerCode, "store.RemoveAll(");
         StringAssert.Contains(ownerCode, "store.RemovePackages(");
+        Assert.IsFalse(ownerCode.Contains("ConfirmRemovePackage"));
     }
 
     [TestMethod]

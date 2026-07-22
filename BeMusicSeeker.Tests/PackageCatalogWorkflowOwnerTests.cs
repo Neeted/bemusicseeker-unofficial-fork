@@ -81,14 +81,13 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var owner = CreateOwner(CreateLibrary, events, store, dialogs);
         var package = new ChartPackage { path = @"C:\Pending\package" };
 
-        PackageCatalogConfirmationResult confirmation = owner.ConfirmRemovePackage(PackageCatalogSection.Pending, package);
-        Assert.IsTrue(confirmation.Accepted);
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Pending,
             package);
 
         Assert.IsTrue(result.Succeeded);
         Assert.IsNull(result.Failure);
+        Assert.IsTrue(result.ShouldApplyView);
         CollectionAssert.AreEqual(
             new[]
             {
@@ -111,18 +110,59 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var dialogs = new FakeUiDialogService();
         var owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
-        PackageCatalogConfirmationResult confirmation = owner.ConfirmRemovePackage(
-            PackageCatalogSection.Installed,
-            new ChartPackage());
-        Assert.IsTrue(confirmation.Accepted);
+        var package = new ChartPackage();
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Installed,
-            new ChartPackage());
+            package);
 
         Assert.IsTrue(result.Succeeded);
         Assert.IsNull(result.Failure);
+        Assert.IsTrue(result.ShouldApplyView);
         Assert.IsNull(dialogs.ConfirmationRequest);
         CollectionAssert.Contains(events, "store-remove-packages");
+    }
+
+    [TestMethod]
+    public async Task RemovePackageAsync_PendingRejectionSkipsMutationAndViewApply()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+        };
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        PackageCatalogMutationResult result = await owner.RemovePackageAsync(
+            PackageCatalogSection.Pending,
+            new ChartPackage());
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.IsFalse(result.ShouldApplyView);
+        Assert.AreEqual(0, store.RemovePackagesCount);
+        CollectionAssert.AreEqual(Array.Empty<string>(), events);
+    }
+
+    [TestMethod]
+    public async Task RemovePackageAsync_PendingConfirmationFailureSkipsMutationAndViewApply()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var failure = new InvalidOperationException("dialog failed");
+        var dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.Failed(failure) };
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        PackageCatalogMutationResult result = await owner.RemovePackageAsync(
+            PackageCatalogSection.Pending,
+            new ChartPackage());
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNotNull(result.Failure);
+        Assert.AreSame(failure, result.Failure.InnerException);
+        Assert.IsFalse(result.ShouldApplyView);
+        Assert.AreEqual(0, store.RemovePackagesCount);
+        CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
     [TestMethod]
@@ -190,12 +230,12 @@ public sealed class PackageCatalogWorkflowOwnerTests
             AcceptedDialogs(),
             store);
 
-        Assert.IsTrue(owner.ConfirmRemovePackage(PackageCatalogSection.Installed, new ChartPackage()).Accepted);
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Installed,
             new ChartPackage());
 
         Assert.IsFalse(result.Succeeded);
+        Assert.IsTrue(result.ShouldApplyView);
         Assert.IsInstanceOfType<AggregateException>(result.Failure);
         var exception = (AggregateException)result.Failure;
         Assert.AreSame(mutationFailure, exception.InnerExceptions[0]);
@@ -337,6 +377,8 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
         internal int RemoveAllCount { get; private set; }
 
+        internal int RemovePackagesCount { get; private set; }
+
         internal PackageCatalogSection LastSection { get; private set; }
 
         internal IReadOnlyList<ChartPackage> LastPackages { get; private set; } = [];
@@ -361,6 +403,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             IReadOnlyList<ChartPackage> packages)
         {
             events.Add("store-remove-packages");
+            RemovePackagesCount++;
             LastSection = section;
             LastPackages = packages;
             ThrowIfConfigured();

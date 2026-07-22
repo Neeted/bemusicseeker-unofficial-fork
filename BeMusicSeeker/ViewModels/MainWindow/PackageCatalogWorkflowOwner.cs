@@ -37,23 +37,37 @@ internal interface IPackageCatalogStore
 
 internal sealed class PackageCatalogMutationResult
 {
-    private PackageCatalogMutationResult(bool succeeded, Exception failure)
+    private PackageCatalogMutationResult(bool succeeded, Exception failure, bool shouldApplyView)
     {
         Succeeded = succeeded;
         Failure = failure;
+        ShouldApplyView = shouldApplyView;
     }
 
     internal bool Succeeded { get; }
 
     internal Exception Failure { get; }
 
-    internal static PackageCatalogMutationResult Completed { get; } = new(true, null);
+    internal bool ShouldApplyView { get; }
+
+    internal static PackageCatalogMutationResult Completed { get; } = new(true, null, true);
+
+    internal static PackageCatalogMutationResult Rejected { get; } = new(false, null, false);
 
     internal static PackageCatalogMutationResult Failed(Exception failure)
     {
         return new PackageCatalogMutationResult(
             false,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
+            failure ?? throw new ArgumentNullException(nameof(failure)),
+            true);
+    }
+
+    internal static PackageCatalogMutationResult FailedBeforeMutation(Exception failure)
+    {
+        return new PackageCatalogMutationResult(
+            false,
+            failure ?? throw new ArgumentNullException(nameof(failure)),
+            false);
     }
 }
 
@@ -118,27 +132,6 @@ internal sealed class PackageCatalogWorkflowOwner
         return Task.Run(() => Execute(library => store.RemoveAll(library, section)));
     }
 
-    internal PackageCatalogConfirmationResult ConfirmRemovePackage(
-        PackageCatalogSection section,
-        ChartPackage package)
-    {
-        ValidateSection(section);
-        if (package == null)
-        {
-            throw new ArgumentNullException(nameof(package));
-        }
-        if (section != PackageCatalogSection.Pending)
-        {
-            return PackageCatalogConfirmationResult.AcceptedResult;
-        }
-        return ConfirmRemoval(
-            BeMusicSeeker.Properties.Resources.Msg_clear_pendings
-            + Environment.NewLine
-            + Environment.NewLine
-            + (package.DisplayTitle ?? string.Empty),
-            "Pending package catalog entry removal confirmation");
-    }
-
     internal Task<PackageCatalogMutationResult> RemovePackageAsync(
         PackageCatalogSection section,
         ChartPackage package)
@@ -147,6 +140,22 @@ internal sealed class PackageCatalogWorkflowOwner
         if (package == null)
         {
             throw new ArgumentNullException(nameof(package));
+        }
+        if (section == PackageCatalogSection.Pending)
+        {
+            PackageCatalogConfirmationResult confirmation = ConfirmRemoval(
+                BeMusicSeeker.Properties.Resources.Msg_clear_pendings
+                + Environment.NewLine
+                + Environment.NewLine
+                + (package.DisplayTitle ?? string.Empty),
+                "Pending package catalog entry removal confirmation");
+            if (!confirmation.Accepted)
+            {
+                return Task.FromResult(
+                    confirmation.Failure == null
+                        ? PackageCatalogMutationResult.Rejected
+                        : PackageCatalogMutationResult.FailedBeforeMutation(confirmation.Failure));
+            }
         }
         return Task.Run(() => Execute(library => store.RemovePackages(library, section, [package])));
     }
