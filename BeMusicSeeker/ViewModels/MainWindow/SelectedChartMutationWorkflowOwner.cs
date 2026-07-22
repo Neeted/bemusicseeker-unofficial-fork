@@ -151,43 +151,6 @@ internal sealed class SelectedChartMutationResult
     }
 }
 
-internal sealed class SelectedChartDeleteConfirmationResult
-{
-    private SelectedChartDeleteConfirmationResult(
-        bool accepted,
-        SelectedChartDeleteOperation operation,
-        Exception failure)
-    {
-        Accepted = accepted;
-        Operation = operation;
-        Failure = failure;
-    }
-
-    internal bool Accepted { get; }
-
-    internal SelectedChartDeleteOperation Operation { get; }
-
-    internal Exception Failure { get; }
-
-    internal static SelectedChartDeleteConfirmationResult Rejected { get; } = new(false, null, null);
-
-    internal static SelectedChartDeleteConfirmationResult AcceptedOperation(SelectedChartDeleteOperation operation)
-    {
-        return new SelectedChartDeleteConfirmationResult(
-            true,
-            operation ?? throw new ArgumentNullException(nameof(operation)),
-            null);
-    }
-
-    internal static SelectedChartDeleteConfirmationResult Failed(Exception failure)
-    {
-        return new SelectedChartDeleteConfirmationResult(
-            false,
-            null,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
-    }
-}
-
 internal sealed class SelectedChartMoveConfirmationResult
 {
     private SelectedChartMoveConfirmationResult(
@@ -227,37 +190,6 @@ internal sealed class SelectedChartMoveConfirmationResult
 
 internal interface ISelectedChartMutationOperation
 {
-}
-
-internal sealed class SelectedChartDeleteOperation : ISelectedChartMutationOperation
-{
-    internal SelectedChartDeleteOperation(
-        ChartDeleteRoute route,
-        IReadOnlyList<ChartOperationTarget> targets,
-        IReadOnlyList<LibraryChartRef> libraryCharts,
-        IReadOnlyList<ChartFile> pendingCharts,
-        IReadOnlyList<string> approvedWholeFolderDeletePaths,
-        bool deleteContainingPackageFoldersWhenNoBms)
-    {
-        Route = route;
-        Targets = targets ?? throw new ArgumentNullException(nameof(targets));
-        LibraryCharts = libraryCharts ?? throw new ArgumentNullException(nameof(libraryCharts));
-        PendingCharts = pendingCharts ?? throw new ArgumentNullException(nameof(pendingCharts));
-        ApprovedWholeFolderDeletePaths = approvedWholeFolderDeletePaths ?? throw new ArgumentNullException(nameof(approvedWholeFolderDeletePaths));
-        DeleteContainingPackageFoldersWhenNoBms = deleteContainingPackageFoldersWhenNoBms;
-    }
-
-    internal ChartDeleteRoute Route { get; }
-
-    internal IReadOnlyList<ChartOperationTarget> Targets { get; }
-
-    internal IReadOnlyList<LibraryChartRef> LibraryCharts { get; }
-
-    internal IReadOnlyList<ChartFile> PendingCharts { get; }
-
-    internal IReadOnlyList<string> ApprovedWholeFolderDeletePaths { get; }
-
-    internal bool DeleteContainingPackageFoldersWhenNoBms { get; }
 }
 
 internal sealed class SelectedChartMoveOperation : ISelectedChartMutationOperation
@@ -322,53 +254,50 @@ internal sealed class SelectedChartMutationWorkflowOwner
         this.store = store ?? new BmsLibrarySelectedChartMutationStore();
     }
 
-    internal SelectedChartDeleteConfirmationResult ConfirmDelete(SelectedChartDeleteRequest request)
+    internal async Task<SelectedChartMutationResult> DeleteAsync(SelectedChartDeleteRequest request)
     {
         if (request == null)
         {
             throw new ArgumentNullException(nameof(request));
         }
-
-        ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
-            request.SelectedTargets,
-            request.ContextTarget,
-            request.Section);
-        if (resolution.Route == ChartDeleteRoute.None || resolution.Targets.Count == 0)
-        {
-            return SelectedChartDeleteConfirmationResult.Rejected;
-        }
-
         try
         {
+            ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
+                request.SelectedTargets,
+                request.ContextTarget,
+                request.Section);
+            if (resolution.Route == ChartDeleteRoute.None || resolution.Targets.Count == 0)
+            {
+                return SelectedChartMutationResult.Completed;
+            }
+
             bool deleteContainingPackageFoldersWhenNoBms = false;
             if (resolution.Route == ChartDeleteRoute.Pending)
             {
-                UiWindowDialogResult<bool> dialogResult = dialogs.ShowWindowAsync(
+                UiWindowDialogResult<bool> dialogResult = await dialogs.ShowWindowAsync(
                     new UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>(
                         () => new PendingDeleteConfirmDialog(),
-                        dialog => dialog.DeleteFolderWhenNoBmsChecked))
-                    .GetAwaiter()
-                    .GetResult();
+                        dialog => dialog.DeleteFolderWhenNoBmsChecked));
                 if (dialogResult == null)
                 {
-                    return SelectedChartDeleteConfirmationResult.Failed(
+                    return SelectedChartMutationResult.Failed(
                         new InvalidOperationException("Pending delete confirmation returned no result."));
                 }
                 if (!dialogResult.IsAccepted)
                 {
                     return dialogResult.Status is UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser
-                        ? SelectedChartDeleteConfirmationResult.Rejected
-                        : SelectedChartDeleteConfirmationResult.Failed(
+                        ? SelectedChartMutationResult.Completed
+                        : SelectedChartMutationResult.Failed(
                             dialogResult.Error ?? new InvalidOperationException(
                                 "Pending delete confirmation could not be displayed (" + dialogResult.Status + ")."));
                 }
                 deleteContainingPackageFoldersWhenNoBms = dialogResult.Value;
             }
-            else if (!ConfirmMessage(
+            else if (!await ConfirmMessageAsync(
                 BeMusicSeeker.Properties.Resources.Msg_move_to_recycle,
                 "Selected library chart deletion confirmation"))
             {
-                return SelectedChartDeleteConfirmationResult.Rejected;
+                return SelectedChartMutationResult.Completed;
             }
 
             List<LibraryChartRef> libraryCharts = resolution.Route == ChartDeleteRoute.Library
@@ -394,7 +323,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 }
                 foreach (string folderPath in candidatePaths)
                 {
-                    bool approved = ConfirmMessage(
+                    bool approved = await ConfirmMessageAsync(
                         string.Format(BeMusicSeeker.Properties.Resources.Confirm_DeleteFolderWithNoBms, folderPath),
                         BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
                         MessageBoxButton.YesNo,
@@ -406,64 +335,47 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 }
             }
 
-            var operation = new SelectedChartDeleteOperation(
-                resolution.Route,
-                resolution.Targets.ToArray(),
-                libraryCharts,
-                pendingCharts,
-                approvedWholeFolderDeletePaths.ToArray(),
-                deleteContainingPackageFoldersWhenNoBms);
-            RegisterOperation(operation);
-            return SelectedChartDeleteConfirmationResult.AcceptedOperation(operation);
-        }
-        catch (Exception ex)
-        {
-            return SelectedChartDeleteConfirmationResult.Failed(ex);
-        }
-    }
-
-    internal Task<SelectedChartMutationResult> DeleteAsync(SelectedChartDeleteOperation operation)
-    {
-        if (!TryConsumeOperation(operation))
-        {
-            return Task.FromResult(SelectedChartMutationResult.Failed(
-                new InvalidOperationException("The selected chart delete operation was not issued by this owner.")));
-        }
-        return Task.Run(() => ExecuteMutation(
-            operation.Route == ChartDeleteRoute.Pending
+            IReadOnlyList<string> approvedFolderPaths = approvedWholeFolderDeletePaths.ToArray();
+            return await Task.Run(() => ExecuteMutation(
+                resolution.Route == ChartDeleteRoute.Pending
                 ? SelectedChartMutationRefreshScope.Pending
                 : SelectedChartMutationRefreshScope.Library,
             () =>
             {
-                if (operation.Route == ChartDeleteRoute.Pending)
+                if (resolution.Route == ChartDeleteRoute.Pending)
                 {
-                    IReadOnlyList<ChartFile> playbackCharts = operation.DeleteContainingPackageFoldersWhenNoBms
-                        ? operation.PendingCharts
-                        : [.. operation.PendingCharts.Where(ChartFileKindResolver.IsBmsChartFile)];
+                    IReadOnlyList<ChartFile> playbackCharts = deleteContainingPackageFoldersWhenNoBms
+                        ? pendingCharts
+                        : [.. pendingCharts.Where(ChartFileKindResolver.IsBmsChartFile)];
                     playback.StopPlaybackForPendingCharts(playbackCharts);
                     return;
                 }
                 playback.StopPlaybackForLibraryCharts(
-                    [.. operation.LibraryCharts.Where(chart => chart?.Kind == LibraryChartKind.Bms)]);
-                playback.StopPlaybackForChartDirectories(operation.ApprovedWholeFolderDeletePaths);
+                    [.. libraryCharts.Where(chart => chart?.Kind == LibraryChartKind.Bms)]);
+                playback.StopPlaybackForChartDirectories(approvedFolderPaths);
             },
             library =>
             {
-                if (operation.Route == ChartDeleteRoute.Pending)
+                if (resolution.Route == ChartDeleteRoute.Pending)
                 {
                     store.RemovePendingCharts(
                         library,
-                        operation.PendingCharts,
+                        pendingCharts,
                         sendToRecycleBin: true,
-                        operation.DeleteContainingPackageFoldersWhenNoBms);
+                        deleteContainingPackageFoldersWhenNoBms);
                     return;
                 }
 
                 store.RemoveLibraryCharts(
                     library,
-                    operation.LibraryCharts,
-                    operation.ApprovedWholeFolderDeletePaths);
-            }));
+                    libraryCharts,
+                    approvedFolderPaths);
+            })).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            return SelectedChartMutationResult.Failed(ex);
+        }
     }
 
     internal Task<SelectedChartMutationResult> RenameInvalidExtensionsAsync(
@@ -673,6 +585,32 @@ internal sealed class SelectedChartMutationWorkflowOwner
             1 => SelectedChartMutationResult.Failed(failures[0].SourceException),
             _ => SelectedChartMutationResult.Failed(
                 new AggregateException(failures.Select(failure => failure.SourceException))),
+        };
+    }
+
+    private async Task<bool> ConfirmMessageAsync(
+        string message,
+        string routeName,
+        MessageBoxButton button = MessageBoxButton.OKCancel,
+        MessageBoxResult defaultResult = MessageBoxResult.Cancel)
+    {
+        UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+            message,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            button,
+            MessageBoxImage.Question,
+            defaultResult));
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " returned no result.");
+        }
+        return result.Status switch
+        {
+            UiDialogStatus.Accepted => true,
+            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
+            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
+            _ => throw result.Exception ?? new InvalidOperationException(
+                routeName + " could not be displayed (" + result.Status + ").")
         };
     }
 

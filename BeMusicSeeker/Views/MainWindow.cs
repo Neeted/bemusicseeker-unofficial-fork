@@ -6312,18 +6312,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(IsPendingMainViewSection(section));
         TryGetContextMenuChartTarget(sender, e.Source, out ChartOperationTarget contextTarget);
         e.Handled = true;
-        SelectedChartDeleteConfirmationResult confirmation = viewModel.SelectedChartMutations
-            .ConfirmDelete(new SelectedChartDeleteRequest(selectedTargets, contextTarget, section));
-        if (!confirmation.Accepted)
-        {
-            if (confirmation.Failure != null)
-            {
-                _ = Task.FromException(confirmation.Failure).Logging("tableContextMenuItemRemoveBMSFileClick");
-            }
-            return;
-        }
-        SelectedChartMutationResult result = await viewModel.SelectedChartMutations
-            .DeleteAsync(confirmation.Operation);
+        SelectedChartMutationResult result = await viewModel.SelectedChartMutations.DeleteAsync(
+            new SelectedChartDeleteRequest(selectedTargets, contextTarget, section));
         if (!result.Succeeded && result.Failure != null)
         {
             _ = Task.FromException(result.Failure).Logging("tableContextMenuItemRemoveBMSFileClick");

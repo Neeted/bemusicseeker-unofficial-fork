@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class SelectedChartMutationWorkflowOwnerTests
 {
     [TestMethod]
-    public void DeletePendingAsync_RejectedDialogDoesNotMutate()
+    public async Task DeletePendingAsync_RejectedDialogDoesNotMutate()
     {
         var store = new RecordingStore();
         var presentation = new RecordingPresentation();
@@ -29,11 +29,63 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
 
-        SelectedChartDeleteConfirmationResult confirmation = owner.ConfirmDelete(
+        SelectedChartMutationResult result = await owner.DeleteAsync(
             new SelectedChartDeleteRequest([target], target, MainViewOperationSection.InstallPending));
 
-        Assert.IsFalse(confirmation.Accepted);
-        Assert.IsNull(confirmation.Operation);
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.AreEqual(0, store.PendingDeleteCalls);
+    }
+
+    [TestMethod]
+    public async Task DeletePendingAsync_DialogFailureReturnsFailureWithoutMutation()
+    {
+        var store = new RecordingStore();
+        var dialogs = new FakeUiDialogService
+        {
+            PendingDeleteResult = new UiWindowDialogResult<bool>(
+                UiDialogStatus.Failed,
+                error: new IOException("pending dialog failed"))
+        };
+        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
+
+        SelectedChartMutationResult result = await owner.DeleteAsync(
+            new SelectedChartDeleteRequest([target], target, MainViewOperationSection.InstallPending));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNotNull(result.Failure);
+        Assert.AreEqual(0, store.PendingDeleteCalls);
+    }
+
+    [TestMethod]
+    public async Task DeletePendingAsync_NullDialogResultReturnsFailureWithoutMutation()
+    {
+        var store = new RecordingStore();
+        var dialogs = new FakeUiDialogService();
+        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
+
+        SelectedChartMutationResult result = await owner.DeleteAsync(
+            new SelectedChartDeleteRequest([target], target, MainViewOperationSection.InstallPending));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsInstanceOfType<InvalidOperationException>(result.Failure);
+        Assert.AreEqual(0, store.PendingDeleteCalls);
+    }
+
+    [TestMethod]
+    public async Task DeleteAsync_WithoutEligibleTargetsDoesNotShowDialogOrMutate()
+    {
+        var store = new RecordingStore();
+        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        ChartOperationTarget target = CreateTarget("library.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.None);
+
+        SelectedChartMutationResult result = await owner.DeleteAsync(
+            new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(0, store.LibraryDeleteCalls);
         Assert.AreEqual(0, store.PendingDeleteCalls);
     }
 
@@ -49,9 +101,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
 
-        SelectedChartDeleteConfirmationResult confirmation = owner.ConfirmDelete(
+        SelectedChartMutationResult result = await owner.DeleteAsync(
             new SelectedChartDeleteRequest([target], target, MainViewOperationSection.InstallPending));
-        SelectedChartMutationResult result = await owner.DeleteAsync(confirmation.Operation);
 
         Assert.IsTrue(result.Succeeded);
         Assert.IsTrue(store.DeleteContainingPackageFoldersWhenNoBms);
@@ -80,9 +131,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         ChartOperationTarget libraryTarget = CreateTarget("library.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RemoveFromLibrary);
         ChartOperationTarget pendingTarget = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
 
-        SelectedChartDeleteConfirmationResult confirmation = owner.ConfirmDelete(
+        SelectedChartMutationResult result = await owner.DeleteAsync(
             new SelectedChartDeleteRequest([libraryTarget, pendingTarget], libraryTarget, MainViewOperationSection.Library));
-        SelectedChartMutationResult result = await owner.DeleteAsync(confirmation.Operation);
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(1, store.LibraryDeleteCalls);
@@ -106,9 +156,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget target = CreateTarget("library.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RemoveFromLibrary);
 
-        SelectedChartDeleteConfirmationResult confirmation = owner.ConfirmDelete(
+        SelectedChartMutationResult result = await owner.DeleteAsync(
             new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
-        SelectedChartMutationResult result = await owner.DeleteAsync(confirmation.Operation);
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(7, events.Count, string.Join("|", events));

@@ -2947,6 +2947,10 @@ public sealed class MainWindowContextMenuResourceTests
             mainWindowCode,
             "private async void tableContextMenuItemRenameBMSFileClick",
             "private async void tableContextMenuItemRemoveBMSFileClick");
+        string deleteClick = ExtractBetween(
+            mainWindowCode,
+            "private async void tableContextMenuItemRemoveBMSFileClick",
+            "private async void tableContextMenuItemMoveFileClick");
         string encodingFixClick = ExtractBetween(
             mainWindowCode,
             "private void fixEncodingSelectedBMS",
@@ -2981,6 +2985,19 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(renameInvalidExtensionClick.Contains("confirmation.Operation"));
         Assert.IsFalse(renameInvalidExtensionClick.Contains("viewModel.RenameBMSFilesExtensions"));
         Assert.IsFalse(renameInvalidExtensionClick.Contains("Task.Run"));
+        StringAssert.Contains(deleteClick, "GetCurrentMainViewOperationSection()");
+        StringAssert.Contains(deleteClick, "GetSelectedChartTargets(IsPendingMainViewSection(section))");
+        StringAssert.Contains(deleteClick, "TryGetContextMenuChartTarget(sender, e.Source, out ChartOperationTarget contextTarget)");
+        StringAssert.Contains(deleteClick, "SelectedChartDeleteRequest");
+        StringAssert.Contains(deleteClick, "e.Handled = true;");
+        Assert.AreEqual(1, CountOccurrences(deleteClick, "DeleteAsync("));
+        Assert.IsFalse(deleteClick.Contains("ConfirmDelete"));
+        Assert.IsFalse(deleteClick.Contains("SelectedChartDeleteConfirmationResult"));
+        Assert.IsFalse(deleteClick.Contains("SelectedChartDeleteOperation"));
+        Assert.IsFalse(deleteClick.Contains("confirmation.Operation"));
+        Assert.IsFalse(deleteClick.Contains("Task.Run"));
+        Assert.IsFalse(deleteClick.Contains("RemoveLibraryCharts"));
+        Assert.IsFalse(deleteClick.Contains("RemovePendingCharts"));
         StringAssert.Contains(encodingFixClick, "SelectedChartEncodingRequest");
         StringAssert.Contains(encodingFixClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunBmsEncodingFix)");
         StringAssert.Contains(encodingFixClick, "viewModel.SelectedChartMutations.ApplyEncoding(request)");
