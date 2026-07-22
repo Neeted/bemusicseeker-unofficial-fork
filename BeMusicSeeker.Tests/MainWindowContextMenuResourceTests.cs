@@ -115,6 +115,37 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void MaintenanceTree_BindsToChildOwnerAndRemovesRootRelay()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding MaintenanceTree.DuplicateChartGroups}\"");
+        Assert.AreEqual(2, CountOccurrences(xaml, "DataContext.MaintenanceTree.IsWriteLockHeldInitializdBMSFilesHealthStatus"));
+        Assert.AreEqual(2, CountOccurrences(xaml, "DataContext.MaintenanceTree.IsWriteLockHeldInitializeBMSFilesEncodingInfo"));
+        Assert.AreEqual(2, CountOccurrences(xaml, "DataContext.MaintenanceTree.IsWriteLockHeldInitializeBMSFilesZeroNote"));
+        Assert.AreEqual(2, CountOccurrences(xaml, "DataContext.MaintenanceTree.IsWriteLockHeldDuplicateChartGroups"));
+        StringAssert.Contains(mainWindowSource, "viewModel.MaintenanceTree.DuplicateChartGroups");
+        StringAssert.Contains(mainWindowSource, "nameof(MaintenanceTreeViewModel.DuplicateChartGroups)");
+        StringAssert.Contains(rootViewModelSource, "public MaintenanceTreeViewModel MaintenanceTree");
+        StringAssert.Contains(rootViewModelSource, "MaintenanceTree.ApplyDuplicateGroupsPresentation()");
+        Assert.IsFalse(rootViewModelSource.Contains("listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroups"));
+        Assert.IsFalse(rootViewModelSource.Contains("listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroupsInvalidationVersion"));
+        Assert.IsFalse(rootViewModelSource.Contains("RaisePropertyChanged(() => IsWriteLockHeldInitializdBMSFilesHealthStatus"));
+        Assert.IsFalse(rootViewModelSource.Contains("RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFilesEncodingInfo"));
+        Assert.IsFalse(rootViewModelSource.Contains("RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFilesZeroNote"));
+        Assert.IsFalse(rootViewModelSource.Contains("RaisePropertyChanged(() => IsWriteLockHeldDuplicateChartGroups"));
+        Assert.IsFalse(rootViewModelSource.Contains("public List<DuplicateGroup> DuplicateChartGroups"));
+        Assert.IsFalse(rootViewModelSource.Contains("public bool IsWriteLockHeldInitializdBMSFilesHealthStatus"));
+        Assert.IsFalse(rootViewModelSource.Contains("public bool IsWriteLockHeldInitializeBMSFilesEncodingInfo"));
+        Assert.IsFalse(rootViewModelSource.Contains("public bool IsWriteLockHeldInitializeBMSFilesZeroNote"));
+        Assert.IsFalse(rootViewModelSource.Contains("public bool IsWriteLockHeldDuplicateChartGroups"));
+    }
+
+    [TestMethod]
     public void RegularLibraryTreeNavigation_RoutesThroughRegularChartListOwner()
     {
         string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();

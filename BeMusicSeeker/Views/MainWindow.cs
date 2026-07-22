@@ -4473,13 +4473,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MainWindowViewModel viewModel,
         DuplicateGroup duplicateGroup)
     {
-        if (viewModel?.DuplicateChartGroups == null || duplicateGroup == null)
+        if (viewModel?.MaintenanceTree?.DuplicateChartGroups == null || duplicateGroup == null)
         {
             return null;
         }
-        int currentIndex = viewModel.DuplicateChartGroups.IndexOf(duplicateGroup);
-        return currentIndex >= 0 && currentIndex + 1 < viewModel.DuplicateChartGroups.Count
-            ? viewModel.DuplicateChartGroups[currentIndex + 1].Header
+        int currentIndex = viewModel.MaintenanceTree.DuplicateChartGroups.IndexOf(duplicateGroup);
+        return currentIndex >= 0 && currentIndex + 1 < viewModel.MaintenanceTree.DuplicateChartGroups.Count
+            ? viewModel.MaintenanceTree.DuplicateChartGroups[currentIndex + 1].Header
             : null;
     }
 
@@ -4497,13 +4497,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         TaskCompletionSource<bool> duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
         PropertyChangedEventHandler handler = (sender, args) =>
         {
-            if (args.PropertyName == nameof(viewModel.DuplicateChartGroups)
+            if (args.PropertyName == nameof(MaintenanceTreeViewModel.DuplicateChartGroups)
                 && requestVersion == Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
             {
                 duplicateGroupsChanged.TrySetResult(true);
             }
         };
-        viewModel.PropertyChanged += handler;
+        viewModel.MaintenanceTree.PropertyChanged += handler;
         try
         {
             string lastReason = string.Empty;
@@ -4542,7 +4542,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         finally
         {
-            viewModel.PropertyChanged -= handler;
+            viewModel.MaintenanceTree.PropertyChanged -= handler;
         }
     }
 
@@ -4599,7 +4599,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return false;
         }
 
-        List<DuplicateGroup> duplicatedList = viewModel.DuplicateChartGroups;
+        List<DuplicateGroup> duplicatedList = viewModel.MaintenanceTree.DuplicateChartGroups;
         if (duplicatedList == null)
         {
             failReason = "duplicated_list_null";

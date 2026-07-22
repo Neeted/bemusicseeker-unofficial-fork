@@ -654,6 +654,7 @@ internal sealed class MainWindowChildComposition
         ChartFilters = new ChartListFilterViewModel(keywordSearchHistorySettingsStore);
         LibraryFolderTree = new LibraryFolderTreeViewModel(libraryFolderTreeLog, libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();
+        MaintenanceTree = new MaintenanceTreeViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();
         PendingPackageWorkflow = new PendingPackageWorkflowOwner(
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
@@ -773,6 +774,8 @@ internal sealed class MainWindowChildComposition
     internal LibraryFolderTreeViewModel LibraryFolderTree { get; }
 
     internal InstallTreeViewModel InstallTree { get; }
+
+    internal MaintenanceTreeViewModel MaintenanceTree { get; }
 
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
 

@@ -135,6 +135,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     /// </summary>
     public InstallTreeViewModel InstallTree { get; }
 
+    /// <summary>
+    /// Gets the maintenance tree presentation owner.
+    /// </summary>
+    public MaintenanceTreeViewModel MaintenanceTree { get; }
+
     internal RegularChartListOwner RegularChartList => regularChartListOwner;
 
     public PlayHistoryWorkflowOwner PlayHistory { get; }
@@ -1330,6 +1335,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         InstallTree.ApplyPresentation(sections);
     }
 
+    private void MaintenanceTreeDuplicatePresentationChanged(
+        object sender,
+        MaintenanceTreeDuplicatePresentationChangedEventArgs e)
+    {
+        RefreshDuplicatePresentationAfterGroupsChanged(e?.Reason);
+    }
+
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
     {
         FlushPendingUiRefresh(mask, GetActiveStartupProgressOperationToken());
@@ -1379,7 +1391,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         if ((mask & UiRefreshChannel.DuplicateTree) != 0)
         {
             var stopwatch4 = Stopwatch.StartNew();
-            RaisePropertyChanged(() => DuplicateChartGroups);
+            MaintenanceTree.ApplyDuplicateGroupsPresentation();
             stopwatch4.Stop();
             num4 = stopwatch4.ElapsedMilliseconds;
         }
@@ -1810,18 +1822,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                 _WindowTitle = value;
                 RaisePropertyChanged("WindowTitle");
             }
-        }
-    }
-
-    public List<DuplicateGroup> DuplicateChartGroups
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.DuplicateChartGroups;
-            }
-            return null;
         }
     }
 
@@ -2462,54 +2462,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         ChartFilters.UpdateKeywordSearchContext(context, playlistNameCandidates);
     }
 
-    public bool IsWriteLockHeldInitializdBMSFilesHealthStatus
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.IsWriteLockHeldInitializdBMSFilesHealthStatus;
-            }
-            return true;
-        }
-    }
-
-    public bool IsWriteLockHeldInitializeBMSFilesEncodingInfo
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.IsWriteLockHeldInitializeBMSFilesEncodingInfo;
-            }
-            return true;
-        }
-    }
-
-    public bool IsWriteLockHeldInitializeBMSFilesZeroNote
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.IsWriteLockHeldInitializeBMSFilesZeroNote;
-            }
-            return true;
-        }
-    }
-
-    public bool IsWriteLockHeldDuplicateChartGroups
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.IsWriteLockHeldDuplicateChartGroups;
-            }
-            return false;
-        }
-    }
-
     public int LR2ID
     {
         get
@@ -2723,6 +2675,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         LibraryFolderTree.DeferredRefreshCompleted += LibraryFolderTreeDeferredRefreshCompleted;
         InstallTree = childComposition.InstallTree;
         InstallTree.PresentationChanged += InstallTreePresentationChanged;
+        MaintenanceTree = childComposition.MaintenanceTree;
+        MaintenanceTree.DuplicatePresentationChanged += MaintenanceTreeDuplicatePresentationChanged;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
         UpdateChartKeywordSearchContext();
@@ -3895,6 +3849,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             }
             LibraryFolderTree.AttachLibrary(files);
             InstallTree.AttachLibrary(files);
+            MaintenanceTree.AttachLibrary(files);
             IBMSPlayer configuredBmsPlayer = applicationComposition.CreateBmsPlayer(
                 startupSettings,
                 () => CreateLR2PlayerConfig(startupSettings));
@@ -4124,14 +4079,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroups, delegate
-        {
-            RefreshDuplicatePresentationAfterGroupsChanged("bms_files_duplicated_changed");
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroupsInvalidationVersion, delegate
-        {
-            RefreshDuplicatePresentationAfterGroupsChanged("bms_files_duplicated_invalidated");
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.PendingEstimateQueueStatusVersion, delegate
         {
             UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
@@ -4142,22 +4089,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         });
         UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
         UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
-        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializdBMSFilesHealthStatus, delegate
-        {
-            RaisePropertyChanged(() => IsWriteLockHeldInitializdBMSFilesHealthStatus);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializeBMSFilesEncodingInfo, delegate
-        {
-            RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFilesEncodingInfo);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializeBMSFilesZeroNote, delegate
-        {
-            RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFilesZeroNote);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldDuplicateChartGroups, delegate
-        {
-            RaisePropertyChanged(() => IsWriteLockHeldDuplicateChartGroups);
-        });
         RaiseInitializationSucceeded();
         if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)
         {
@@ -5322,7 +5253,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         if (!TrySuppress(UiRefreshChannel.DuplicateTree)
             && !TryDeferStartupPresentationRefresh(UiRefreshChannel.DuplicateTree, refreshReason))
         {
-            RaisePropertyChanged(() => DuplicateChartGroups);
+            MaintenanceTree.ApplyDuplicateGroupsPresentation();
         }
         if (treeViewFilterTypeSelected == MainViewUpdateMode.DuplicateFilterSelected)
         {
@@ -5334,7 +5265,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             {
                 return;
             }
-            if (files.DuplicateChartGroups == null)
+            if (MaintenanceTree.DuplicateChartGroups == null)
             {
                 regularChartListOwner.EnsureDuplicateChartGroupsReady(refreshReason);
                 return;
