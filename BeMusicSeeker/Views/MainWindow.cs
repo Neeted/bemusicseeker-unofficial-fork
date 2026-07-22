@@ -3076,7 +3076,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel viewModel)
         {
-            await viewModel.PlaylistWorkspace.PlaylistTableRemovalWorkflow
+            await viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow
                 .RemoveSummaryRowsAsync(selectedPlaylistSummaryRows)
                 .Logging("playlistSummaryContextMenuRemoveClick");
         }
@@ -3686,7 +3686,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await viewModel.PlaylistWorkspace.PlaylistTableRemovalWorkflow
+        await viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow
             .RemoveTreeTableAsync(
                 bmsTable,
                 () => SelectNextSiblingOrRoot(
@@ -3851,8 +3851,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        viewModel.PlaylistWorkspace
-            .RemovePlaylistFolderAsync(bmsTable, folderNode)
+        viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow
+            .RemoveFolderAsync(bmsTable, folderNode)
             .Logging("treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick");
     }
 

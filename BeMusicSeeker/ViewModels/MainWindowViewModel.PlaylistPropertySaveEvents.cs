@@ -51,19 +51,6 @@ public partial class MainWindowViewModel
             request.Enable ? "Playlist summary sync enable confirmation" : "Playlist summary sync disable confirmation");
     }
 
-    private void PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested(
-        object sender,
-        PlaylistFolderRemovalConfirmationRequestedEventArgs request)
-    {
-        request.Confirmed = ShowUiConfirmation(
-            BeMusicSeeker.Properties.Resources.Msg_remove_folder,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxImage.Question,
-            MessageBoxButton.OKCancel,
-            "Playlist folder removal confirmation",
-            MessageBoxResult.Cancel);
-    }
-
     private void PlaylistWorkspacePlaylistTableLevelOverwriteConfirmationRequested(
         object sender,
         PlaylistTableLevelOverwriteConfirmationRequestedEventArgs request)
@@ -199,9 +186,9 @@ public partial class MainWindowViewModel
         InvalidateNormalLibraryReferenceTableSortKeys();
     }
 
-    private void PlaylistTableRemovalWorkflowInvalidOutputDirectoryRequested(
+    private void PlaylistRemovalWorkflowInvalidOutputDirectoryRequested(
         object sender,
-        PlaylistTableRemovalInvalidOutputDirectoryEventArgs request)
+        PlaylistRemovalInvalidOutputDirectoryEventArgs request)
     {
         ShowUiMessage(
             BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,

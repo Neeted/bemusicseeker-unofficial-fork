@@ -39,11 +39,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         return Task.Run(() => RenameFolder(table, folder, newName));
     }
 
-    internal Task RemoveFolderAsync(BMSTable table, PlaylistFolderNode folder)
-    {
-        return Task.Run(() => RemoveFolder(table, folder));
-    }
-
     internal Task CreateFolderAsync(BMSTable table)
     {
         return Task.Run(() => CreateFolder(table));
@@ -93,40 +88,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             playlistStore.FreeReaderLockBMSTables();
             PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist rename folder notification");
-        }
-    }
-
-    private void RemoveFolder(BMSTable table, PlaylistFolderNode folder)
-    {
-        if (folder?.IsEditable != true
-            || !CanMutate(table, PlaylistWorkspaceMutationKind.RemoveFolder))
-        {
-            return;
-        }
-        BMSPlaylist playlistStore = GetPlaylistStore();
-        string folderName = folder.FolderName;
-        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
-        playlistStore.AcquireReaderLockBMSTables();
-        try
-        {
-            if (!CanMutate(table, PlaylistWorkspaceMutationKind.RemoveFolder)
-                || !playlistStore.ContainsBMSTable(table)
-                || !playlistStore.RemoveFolderBMSTable(table, folderName))
-            {
-                return;
-            }
-            RemapCurrentPlaylistDetailFolderSelection(
-                table,
-                new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    [folderName] = string.Empty
-                });
-            PublishEntriesChanged(table);
-        }
-        finally
-        {
-            playlistStore.FreeReaderLockBMSTables();
-            PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist remove folder notification");
         }
     }
 

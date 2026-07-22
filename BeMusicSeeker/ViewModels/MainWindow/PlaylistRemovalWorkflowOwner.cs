@@ -11,9 +11,9 @@ using BeMusicSeeker.Views.Dialogs;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Owns playlist table removal confirmation, mutation, and terminal presentation facts.
+/// Owns playlist table and folder removal confirmation, mutation, and terminal presentation facts.
 /// </summary>
-internal sealed class PlaylistTableRemovalWorkflowOwner
+internal sealed class PlaylistRemovalWorkflowOwner
 {
     private readonly IUiDialogService dialogs;
 
@@ -31,9 +31,13 @@ internal sealed class PlaylistTableRemovalWorkflowOwner
 
     internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> OperationNotificationPresentationRequested;
 
-    internal event EventHandler<PlaylistTableRemovalInvalidOutputDirectoryEventArgs> InvalidOutputDirectoryRequested;
+    internal event EventHandler<PlaylistRemovalInvalidOutputDirectoryEventArgs> InvalidOutputDirectoryRequested;
 
-    internal PlaylistTableRemovalWorkflowOwner(
+    internal event EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> MutationRejected;
+
+    internal event EventHandler<PlaylistFolderRemovalAppliedEventArgs> FolderRemovalApplied;
+
+    internal PlaylistRemovalWorkflowOwner(
         IUiDialogService dialogs,
         Func<BMSPlaylist> playlistStoreProvider,
         Func<BMSLibrary> playlistLibraryProvider,
@@ -86,6 +90,25 @@ internal sealed class PlaylistTableRemovalWorkflowOwner
         }
 
         await RemoveTablesAsync(selectedRows.Select(row => row.TableRef)).ConfigureAwait(false);
+    }
+
+    internal async Task RemoveFolderAsync(BMSTable table, PlaylistFolderNode folder)
+    {
+        if (table == null || table.is_external_sync || folder?.IsEditable != true)
+        {
+            return;
+        }
+
+        string folderName = folder.FolderName;
+        if (!await ConfirmAsync(
+                BeMusicSeeker.Properties.Resources.Msg_remove_folder,
+                "Playlist folder removal confirmation")
+            .ConfigureAwait(true))
+        {
+            return;
+        }
+
+        await Task.Run(() => RemoveFolder(table, folderName)).ConfigureAwait(false);
     }
 
     private async Task<bool> ConfirmAsync(string message, string routeName)
@@ -202,6 +225,54 @@ internal sealed class PlaylistTableRemovalWorkflowOwner
         }
     }
 
+    private void RemoveFolder(BMSTable table, string folderName)
+    {
+        if (!CanRemoveFolder(table))
+        {
+            return;
+        }
+
+        BMSPlaylist playlistStore = GetPlaylistStore();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession =
+            playlistStore.OperationNotificationOwner.BeginSession();
+        playlistStore.AcquireReaderLockBMSTables();
+        try
+        {
+            if (!CanRemoveFolder(table)
+                || !playlistStore.ContainsBMSTable(table)
+                || !playlistStore.RemoveFolderBMSTable(table, folderName))
+            {
+                return;
+            }
+
+            FolderRemovalApplied?.Invoke(
+                this,
+                new PlaylistFolderRemovalAppliedEventArgs(table, folderName));
+        }
+        finally
+        {
+            playlistStore.FreeReaderLockBMSTables();
+            OperationNotificationPresentationRequested?.Invoke(
+                this,
+                new PlaylistOperationNotificationPresentationRequestedEventArgs(
+                    notificationSession.TakeReceipt(),
+                    "playlist remove folder notification"));
+        }
+    }
+
+    private bool CanRemoveFolder(BMSTable table)
+    {
+        if (!table.is_external_sync)
+        {
+            return true;
+        }
+
+        MutationRejected?.Invoke(
+            this,
+            new PlaylistWorkspaceMutationRejectedEventArgs(PlaylistWorkspaceMutationKind.RemoveFolder));
+        return false;
+    }
+
     private string ResolveCustomFolderOutputDirectory(
         BMSTable table,
         string routeName,
@@ -219,7 +290,7 @@ internal sealed class PlaylistTableRemovalWorkflowOwner
         {
             InvalidOutputDirectoryRequested?.Invoke(
                 this,
-                new PlaylistTableRemovalInvalidOutputDirectoryEventArgs(routeName));
+                new PlaylistRemovalInvalidOutputDirectoryEventArgs(routeName));
             throw;
         }
     }
@@ -237,12 +308,25 @@ internal sealed class PlaylistTableRemovalWorkflowOwner
     }
 }
 
-internal sealed class PlaylistTableRemovalInvalidOutputDirectoryEventArgs : EventArgs
+internal sealed class PlaylistRemovalInvalidOutputDirectoryEventArgs : EventArgs
 {
-    internal PlaylistTableRemovalInvalidOutputDirectoryEventArgs(string routeName)
+    internal PlaylistRemovalInvalidOutputDirectoryEventArgs(string routeName)
     {
         RouteName = routeName ?? string.Empty;
     }
 
     internal string RouteName { get; }
+}
+
+internal sealed class PlaylistFolderRemovalAppliedEventArgs : EventArgs
+{
+    internal PlaylistFolderRemovalAppliedEventArgs(BMSTable table, string folderName)
+    {
+        Table = table ?? throw new ArgumentNullException(nameof(table));
+        FolderName = folderName ?? string.Empty;
+    }
+
+    internal BMSTable Table { get; }
+
+    internal string FolderName { get; }
 }

@@ -722,6 +722,10 @@ public sealed class BmsPlaylistUpdateTests
                     null!)
             };
             var library = new BMSLibrary(songDbPath);
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
                 new MainChartListViewModel(action => action()),
@@ -758,7 +762,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogs);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
             workspace.IsPlaylistDetailViewActive = true;
@@ -772,7 +776,7 @@ public sealed class BmsPlaylistUpdateTests
             await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Mutation"), "Renamed");
             Assert.AreEqual("Renamed", workspace.CapturePlaylistDetailSelection()!.FolderName);
             await workspace.CreateFolderAsync(table);
-            await workspace.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder("Renamed"));
+            await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder("Renamed"));
             Assert.AreEqual(string.Empty, workspace.CapturePlaylistDetailSelection()!.FolderName);
             await workspace.DeleteEntriesAsync([entry], table);
 
@@ -7443,7 +7447,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 _ => { },
                 (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
-                new PlaylistWorkspaceTestPorts.PlaylistTableRemovalDialogService
+                new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService
                 {
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
                 });
@@ -7451,7 +7455,7 @@ public sealed class BmsPlaylistUpdateTests
             workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notificationRoutes.Add(request.RouteName);
             long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
 
-            workspace.PlaylistTableRemovalWorkflow.RemoveSummaryRowsAsync(
+            workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync(
                 [new PlaylistSummaryRow { TableRef = table }])
                 .GetAwaiter()
                 .GetResult();
@@ -7535,7 +7539,7 @@ public sealed class BmsPlaylistUpdateTests
                     Dispatcher.CurrentDispatcher)
             };
             var library = new BMSLibrary(songDbPath);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistTableRemovalDialogService
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
@@ -7543,7 +7547,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getOperationSettings,
-                playlistTableRemovalDialogService: dialogs).CreateMainWindowViewModel();
+                playlistRemovalDialogService: dialogs).CreateMainWindowViewModel();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -7554,7 +7558,7 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, config);
 
-            viewModel.PlaylistWorkspace.PlaylistTableRemovalWorkflow
+            viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow
                 .RemoveTreeTableAsync(table, () => { })
                 .GetAwaiter()
                 .GetResult();

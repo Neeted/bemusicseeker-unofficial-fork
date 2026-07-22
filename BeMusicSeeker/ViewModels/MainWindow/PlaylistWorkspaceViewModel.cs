@@ -63,7 +63,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     internal PlaylistReferenceApplyWorkflowOwner PlaylistReferenceApplyWorkflow { get; }
 
-    internal PlaylistTableRemovalWorkflowOwner PlaylistTableRemovalWorkflow { get; }
+    internal PlaylistRemovalWorkflowOwner PlaylistRemovalWorkflow { get; }
 
     private readonly Action<Action<bool>> playlistSummaryPresentationRefreshGate;
 
@@ -158,7 +158,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<string, Func<Task>, bool> playlistReferenceApplyScheduler,
         Func<Action, Task> playlistRestoreUiApplyScheduler,
         Func<bool> playlistRestoreUiThreadCheck,
-        IUiDialogService playlistTableRemovalDialogService = null)
+        IUiDialogService playlistRemovalDialogService = null)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -249,21 +249,37 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             dispatchPresentation,
             playlistReloadCleanupShutdownRequestedProvider,
             playlistReloadLog);
-        PlaylistTableRemovalWorkflow = new PlaylistTableRemovalWorkflowOwner(
-            playlistTableRemovalDialogService ?? new UiDialogCoordinator(),
+        PlaylistRemovalWorkflow = new PlaylistRemovalWorkflowOwner(
+            playlistRemovalDialogService ?? new UiDialogCoordinator(),
             getPlaylistStore,
             getPlaylistLibrary,
             getLr2Config,
             customFolderOutputSettingsProvider);
-        PlaylistTableRemovalWorkflow.ReferenceSortInvalidationRequested +=
+        PlaylistRemovalWorkflow.ReferenceSortInvalidationRequested +=
             (_, _) => RequestPlaylistReferenceSortInvalidation();
-        PlaylistTableRemovalWorkflow.SummaryRefreshRequested +=
+        PlaylistRemovalWorkflow.SummaryRefreshRequested +=
             (_, _) => RequestPlaylistSummaryRefresh("playlist_table_removed", rebuildAsync: false);
-        PlaylistTableRemovalWorkflow.OperationNotificationPresentationRequested +=
+        PlaylistRemovalWorkflow.OperationNotificationPresentationRequested +=
             (_, request) => RaiseRequiredEvent(
                 PlaylistOperationNotificationPresentationRequested,
                 request,
                 nameof(PlaylistOperationNotificationPresentationRequested));
+        PlaylistRemovalWorkflow.MutationRejected +=
+            (_, request) => RaiseRequiredEvent(
+                MutationRejected,
+                request,
+                nameof(MutationRejected));
+        PlaylistRemovalWorkflow.FolderRemovalApplied +=
+            (_, request) =>
+            {
+                RemapCurrentPlaylistDetailFolderSelection(
+                    request.Table,
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [request.FolderName] = string.Empty
+                    });
+                PublishEntriesChanged(request.Table);
+            };
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;

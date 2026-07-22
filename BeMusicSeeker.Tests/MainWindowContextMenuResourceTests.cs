@@ -341,7 +341,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick",
             "private async void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick");
 
-        StringAssert.Contains(route, "PlaylistTableRemovalWorkflow");
+        StringAssert.Contains(route, "PlaylistRemovalWorkflow");
         StringAssert.Contains(route, "RemoveTreeTableAsync(");
         StringAssert.Contains(route, "SelectNextSiblingOrRoot(");
         Assert.AreEqual(-1, route.IndexOf("ConfirmPlaylistTableRemoval", StringComparison.Ordinal));
