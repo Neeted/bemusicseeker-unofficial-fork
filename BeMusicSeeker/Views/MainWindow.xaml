@@ -1660,7 +1660,7 @@
                         <FrameworkElement.Style>
                           <Style TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
                             <Style.Triggers>
-                              <DataTrigger Value="True" Binding="{Binding DataContext.IsWriteLockHeldPendingInstallCharts, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
+                              <DataTrigger Value="True" Binding="{Binding DataContext.InstallTree.IsWriteLockHeldPendingInstallCharts, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
                                 <TriggerBase.EnterActions>
                                   <BeginStoryboard Name="AnimationBeginStoryboard" Storyboard="{StaticResource storyboardTreeViewItemIconRotation}" />
                                 </TriggerBase.EnterActions>
@@ -1669,7 +1669,7 @@
                                 </TriggerBase.ExitActions>
                                 <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
-                              <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldPendingInstallCharts, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
+                              <DataTrigger Value="False" Binding="{Binding DataContext.InstallTree.IsWriteLockHeldPendingInstallCharts, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
                                 <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_1004}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>
@@ -1690,7 +1690,7 @@
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                 </Style>
               </ItemsControl.ItemContainerStyle>
-              <TreeViewItem Name="newlyInstalledTreeViewItem" ContextMenu="{StaticResource treeViewInstalledContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstall}" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.New, Mode=OneWay}" ItemsSource="{Binding ChartPackagesInstalled}" Selected="newlyInstalledFolderSelect">
+              <TreeViewItem Name="newlyInstalledTreeViewItem" ContextMenu="{StaticResource treeViewInstalledContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstall}" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.New, Mode=OneWay}" ItemsSource="{Binding InstallTree.ChartPackagesInstalled}" Selected="newlyInstalledFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
@@ -1701,7 +1701,7 @@
                   </Style>
                 </ItemsControl.ItemContainerStyle>
               </TreeViewItem>
-              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" IsSelected="{Binding Source={x:Static prop:Settings.Default}, Path=StartupSelectInstallPending, Mode=OneWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding ChartPackagesPending}" Selected="pendingInstallFolderSelect">
+              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" IsSelected="{Binding Source={x:Static prop:Settings.Default}, Path=StartupSelectInstallPending, Mode=OneWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding InstallTree.ChartPackagesPending}" Selected="pendingInstallFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />

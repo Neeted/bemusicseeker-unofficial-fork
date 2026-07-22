@@ -130,6 +130,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     /// </summary>
     public LibraryFolderTreeViewModel LibraryFolderTree { get; }
 
+    /// <summary>
+    /// Gets the installed and pending package tree presentation owner.
+    /// </summary>
+    public InstallTreeViewModel InstallTree { get; }
+
     internal RegularChartListOwner RegularChartList => regularChartListOwner;
 
     public PlayHistoryWorkflowOwner PlayHistory { get; }
@@ -392,10 +397,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private LR2Config lr2config;
 
     private PropertyChangedEventListener listenerForBMSLibrary;
-
-    private CollectionChangedEventListener listenerForBMSLibraryChartPackagesPendingCollection;
-
-    private CollectionChangedEventListener listenerForBMSLibraryChartPackagesInstalledCollection;
 
     private readonly object lockThis = new();
 
@@ -1305,6 +1306,30 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         TryLogStartupReadyOperable(e.OperationToken);
     }
 
+    private void InstallTreePresentationChanged(
+        object sender,
+        InstallTreePresentationChangedEventArgs e)
+    {
+        InstallTreePresentationSection sections = e?.Sections ?? InstallTreePresentationSection.None;
+        if ((sections & InstallTreePresentationSection.Installed) != 0
+            && treeViewFilterTypeSelected == MainViewUpdateMode.NewlyInstalledFolderSelected
+            && !TrySuppress(UiRefreshChannel.LibraryMainView))
+        {
+            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
+        }
+        if ((sections & InstallTreePresentationSection.Pending) != 0
+            && treeViewFilterTypeSelected == MainViewUpdateMode.PendingInstallFolderSelected
+            && !TrySuppress(UiRefreshChannel.LibraryMainView))
+        {
+            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
+        }
+        if (TrySuppress(UiRefreshChannel.InstallTree))
+        {
+            return;
+        }
+        InstallTree.ApplyPresentation(sections);
+    }
+
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
     {
         FlushPendingUiRefresh(mask, GetActiveStartupProgressOperationToken());
@@ -1333,8 +1358,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         if ((mask & UiRefreshChannel.InstallTree) != 0)
         {
             var stopwatch = Stopwatch.StartNew();
-            RaisePropertyChanged(() => ChartPackagesInstalled);
-            RaisePropertyChanged(() => ChartPackagesPending);
+            InstallTree.ApplyPresentation(
+                InstallTreePresentationSection.Installed | InstallTreePresentationSection.Pending);
             stopwatch.Stop();
             num = stopwatch.ElapsedMilliseconds;
         }
@@ -1772,74 +1797,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         return RunChartPackageMutation(func, playbackTargetCharts, UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask);
     }
 
-    private void HandleChartPackagesInstalledCollectionChanged()
-    {
-        if (treeViewFilterTypeSelected == MainViewUpdateMode.NewlyInstalledFolderSelected)
-        {
-            if (!TrySuppress(UiRefreshChannel.LibraryMainView))
-            {
-                RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-            }
-        }
-        if (TrySuppress(UiRefreshChannel.InstallTree))
-        {
-            return;
-        }
-        RaisePropertyChanged(() => ChartPackagesInstalled);
-    }
-
-    private void HandleChartPackagesPendingCollectionChanged()
-    {
-        if (treeViewFilterTypeSelected == MainViewUpdateMode.PendingInstallFolderSelected)
-        {
-            if (!TrySuppress(UiRefreshChannel.LibraryMainView))
-            {
-                RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-            }
-        }
-        if (TrySuppress(UiRefreshChannel.InstallTree))
-        {
-            return;
-        }
-        RaisePropertyChanged(() => ChartPackagesPending);
-    }
-
-    private void RebindChartPackagesInstalledCollectionListener()
-    {
-        if (listenerForBMSLibraryChartPackagesInstalledCollection is IDisposable disposable)
-        {
-            disposable.Dispose();
-        }
-        if (files == null || files.ChartPackagesInstalled == null)
-        {
-            listenerForBMSLibraryChartPackagesInstalledCollection = null;
-            return;
-        }
-        listenerForBMSLibraryChartPackagesInstalledCollection = new CollectionChangedEventListener(files.ChartPackagesInstalled);
-        listenerForBMSLibraryChartPackagesInstalledCollection.RegisterHandler(delegate
-        {
-            HandleChartPackagesInstalledCollectionChanged();
-        });
-    }
-
-    private void RebindChartPackagesPendingCollectionListener()
-    {
-        if (listenerForBMSLibraryChartPackagesPendingCollection is IDisposable disposable)
-        {
-            disposable.Dispose();
-        }
-        if (files == null || files.ChartPackagesPending == null)
-        {
-            listenerForBMSLibraryChartPackagesPendingCollection = null;
-            return;
-        }
-        listenerForBMSLibraryChartPackagesPendingCollection = new CollectionChangedEventListener(files.ChartPackagesPending);
-        listenerForBMSLibraryChartPackagesPendingCollection.RegisterHandler(delegate
-        {
-            HandleChartPackagesPendingCollectionChanged();
-        });
-    }
-
     public string WindowTitle
     {
         get
@@ -1863,30 +1820,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             if (files != null)
             {
                 return files.DuplicateChartGroups;
-            }
-            return null;
-        }
-    }
-
-    public DispatcherCollection<ChartPackage> ChartPackagesInstalled
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.ChartPackagesInstalled;
-            }
-            return null;
-        }
-    }
-
-    public DispatcherCollection<ChartPackage> ChartPackagesPending
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.ChartPackagesPending;
             }
             return null;
         }
@@ -2565,18 +2498,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
-    public bool IsWriteLockHeldPendingInstallCharts
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.IsWriteLockHeldPendingInstallCharts;
-            }
-            return true;
-        }
-    }
-
     public bool IsWriteLockHeldDuplicateChartGroups
     {
         get
@@ -2800,6 +2721,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         LibraryFolderTree = childComposition.LibraryFolderTree;
         LibraryFolderTree.CacheRefreshRequested += LibraryFolderTreeCacheRefreshRequested;
         LibraryFolderTree.DeferredRefreshCompleted += LibraryFolderTreeDeferredRefreshCompleted;
+        InstallTree = childComposition.InstallTree;
+        InstallTree.PresentationChanged += InstallTreePresentationChanged;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
         UpdateChartKeywordSearchContext();
@@ -3971,6 +3894,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                 files.SearchTargets.AddRange(libraryProfile.SearchRoots);
             }
             LibraryFolderTree.AttachLibrary(files);
+            InstallTree.AttachLibrary(files);
             IBMSPlayer configuredBmsPlayer = applicationComposition.CreateBmsPlayer(
                 startupSettings,
                 () => CreateLR2PlayerConfig(startupSettings));
@@ -4208,16 +4132,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             RefreshDuplicatePresentationAfterGroupsChanged("bms_files_duplicated_invalidated");
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartPackagesInstalled, delegate
-        {
-            RebindChartPackagesInstalledCollectionListener();
-            HandleChartPackagesInstalledCollectionChanged();
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartPackagesPending, delegate
-        {
-            RebindChartPackagesPendingCollectionListener();
-            HandleChartPackagesPendingCollectionChanged();
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.PendingEstimateQueueStatusVersion, delegate
         {
             UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
@@ -4226,8 +4140,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
         });
-        RebindChartPackagesInstalledCollectionListener();
-        RebindChartPackagesPendingCollectionListener();
         UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
         UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
         listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializdBMSFilesHealthStatus, delegate
@@ -4241,10 +4153,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializeBMSFilesZeroNote, delegate
         {
             RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFilesZeroNote);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldPendingInstallCharts, delegate
-        {
-            RaisePropertyChanged(() => IsWriteLockHeldPendingInstallCharts);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldDuplicateChartGroups, delegate
         {

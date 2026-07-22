@@ -538,6 +538,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.PlaybackPanel);
             Assert.IsNotNull(childComposition.ChartFilters);
             Assert.IsNotNull(childComposition.LibraryFolderTree);
+            Assert.IsNotNull(childComposition.InstallTree);
             Assert.IsNotNull(childComposition.PlayHistory);
             Assert.IsNotNull(childComposition.PendingPackageWorkflow);
             Assert.IsNotNull(childComposition.RegularChartListOwner);

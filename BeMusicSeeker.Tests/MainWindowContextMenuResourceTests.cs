@@ -91,6 +91,30 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void InstallTree_BindsToChildOwnerAndRemovesRootRelay()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding InstallTree.ChartPackagesInstalled}\"");
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding InstallTree.ChartPackagesPending}\"");
+        Assert.AreEqual(2, CountOccurrences(xaml, "DataContext.InstallTree.IsWriteLockHeldPendingInstallCharts"));
+        StringAssert.Contains(rootViewModelSource, "public InstallTreeViewModel InstallTree");
+        StringAssert.Contains(rootViewModelSource, "InstallTree.ApplyPresentation(");
+        Assert.IsFalse(rootViewModelSource.Contains("listenerForBMSLibraryChartPackagesInstalledCollection"));
+        Assert.IsFalse(rootViewModelSource.Contains("listenerForBMSLibraryChartPackagesPendingCollection"));
+        Assert.IsFalse(rootViewModelSource.Contains("HandleChartPackagesInstalledCollectionChanged"));
+        Assert.IsFalse(rootViewModelSource.Contains("HandleChartPackagesPendingCollectionChanged"));
+        Assert.IsFalse(rootViewModelSource.Contains("RebindChartPackagesInstalledCollectionListener"));
+        Assert.IsFalse(rootViewModelSource.Contains("RebindChartPackagesPendingCollectionListener"));
+        Assert.IsFalse(rootViewModelSource.Contains("public bool IsWriteLockHeldPendingInstallCharts"));
+        Assert.IsFalse(rootViewModelSource.Contains("public DispatcherCollection<ChartPackage> ChartPackagesInstalled"));
+        Assert.IsFalse(rootViewModelSource.Contains("public DispatcherCollection<ChartPackage> ChartPackagesPending"));
+    }
+
+    [TestMethod]
     public void RegularLibraryTreeNavigation_RoutesThroughRegularChartListOwner()
     {
         string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
