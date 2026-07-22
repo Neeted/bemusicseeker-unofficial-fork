@@ -2609,6 +2609,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(moveFileClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
         StringAssert.Contains(moveFileClick, "new SelectedChartMoveRequest(targets, dstDir)");
         StringAssert.Contains(moveFileClick, "viewModel.SelectedChartMutations");
+        Assert.AreEqual(1, CountOccurrences(moveFileClick, "MoveAsync("));
+        StringAssert.Contains(moveFileClick, "e.Handled = true;");
+        Assert.IsFalse(moveFileClick.Contains("ConfirmMove"));
+        Assert.IsFalse(moveFileClick.Contains("SelectedChartMoveConfirmationResult"));
+        Assert.IsFalse(moveFileClick.Contains("SelectedChartMoveOperation"));
+        Assert.IsFalse(moveFileClick.Contains("confirmation.Operation"));
+        Assert.IsFalse(moveFileClick.Contains("Task.Run"));
         Assert.IsFalse(moveFileClick.Contains("viewModel.MoveLibraryCharts"));
         StringAssert.Contains(contextMenuOpening, "contextMenuState.CanAutoRenameFolders");
         StringAssert.Contains(contextMenuStateBuilderCode, "hasBmsSelection || hasBmsonSelection");

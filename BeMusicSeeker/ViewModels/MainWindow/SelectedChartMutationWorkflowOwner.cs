@@ -151,57 +151,6 @@ internal sealed class SelectedChartMutationResult
     }
 }
 
-internal sealed class SelectedChartMoveConfirmationResult
-{
-    private SelectedChartMoveConfirmationResult(
-        bool accepted,
-        SelectedChartMoveOperation operation,
-        Exception failure)
-    {
-        Accepted = accepted;
-        Operation = operation;
-        Failure = failure;
-    }
-
-    internal bool Accepted { get; }
-
-    internal SelectedChartMoveOperation Operation { get; }
-
-    internal Exception Failure { get; }
-
-    internal static SelectedChartMoveConfirmationResult Rejected { get; } = new(false, null, null);
-
-    internal static SelectedChartMoveConfirmationResult AcceptedOperation(SelectedChartMoveOperation operation)
-    {
-        return new SelectedChartMoveConfirmationResult(
-            true,
-            operation ?? throw new ArgumentNullException(nameof(operation)),
-            null);
-    }
-
-    internal static SelectedChartMoveConfirmationResult Failed(Exception failure)
-    {
-        return new SelectedChartMoveConfirmationResult(
-            false,
-            null,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
-    }
-}
-
-internal interface ISelectedChartMutationOperation
-{
-}
-
-internal sealed class SelectedChartMoveOperation : ISelectedChartMutationOperation
-{
-    internal SelectedChartMoveOperation(ChartLibraryMoveRequest request)
-    {
-        Request = request ?? throw new ArgumentNullException(nameof(request));
-    }
-
-    internal ChartLibraryMoveRequest Request { get; }
-}
-
 internal sealed class SelectedChartEncodingRequest
 {
     internal SelectedChartEncodingRequest(
@@ -233,8 +182,6 @@ internal sealed class SelectedChartMutationWorkflowOwner
     private readonly ISelectedChartMutationPlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly ISelectedChartMutationStore store;
-    private readonly object operationLock = new();
-    private readonly HashSet<ISelectedChartMutationOperation> issuedOperations = [];
 
     internal SelectedChartMutationWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
@@ -462,7 +409,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         }
     }
 
-    internal SelectedChartMoveConfirmationResult ConfirmMove(SelectedChartMoveRequest request)
+    internal async Task<SelectedChartMutationResult> MoveAsync(SelectedChartMoveRequest request)
     {
         if (request == null)
         {
@@ -471,38 +418,30 @@ internal sealed class SelectedChartMutationWorkflowOwner
         try
         {
             if (string.IsNullOrWhiteSpace(request.NewParentDirectory)
-                || !ChartLibraryMoveRequest.TryCreate(request.Targets, request.NewParentDirectory, out ChartLibraryMoveRequest moveRequest)
-                || !ConfirmMessage(
+                || !ChartLibraryMoveRequest.TryCreate(
+                    request.Targets,
+                    request.NewParentDirectory,
+                    out ChartLibraryMoveRequest moveRequest)
+                || !await ConfirmMessageAsync(
                     BeMusicSeeker.Properties.Resources.Msg_move_to_other_root,
                     "Selected chart library move confirmation"))
             {
-                return SelectedChartMoveConfirmationResult.Rejected;
+                return SelectedChartMutationResult.Completed;
             }
-            var operation = new SelectedChartMoveOperation(moveRequest);
-            RegisterOperation(operation);
-            return SelectedChartMoveConfirmationResult.AcceptedOperation(operation);
+
+            return await Task.Run(() => ExecuteMutation(
+                SelectedChartMutationRefreshScope.Library,
+                () => playback.StopPlaybackForLibraryCharts(moveRequest.Charts),
+                library =>
+                {
+                    store.MoveLibraryCharts(library, moveRequest);
+                    refresh.ApplyLibraryPathMutationRefresh();
+                })).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            return SelectedChartMoveConfirmationResult.Failed(ex);
+            return SelectedChartMutationResult.Failed(ex);
         }
-    }
-
-    internal Task<SelectedChartMutationResult> MoveAsync(SelectedChartMoveOperation operation)
-    {
-        if (!TryConsumeOperation(operation))
-        {
-            return Task.FromResult(SelectedChartMutationResult.Failed(
-                new InvalidOperationException("The selected chart move operation was not issued by this owner.")));
-        }
-        return Task.Run(() => ExecuteMutation(
-            SelectedChartMutationRefreshScope.Library,
-            () => playback.StopPlaybackForLibraryCharts(operation.Request.Charts),
-            library =>
-            {
-                store.MoveLibraryCharts(library, operation.Request);
-                refresh.ApplyLibraryPathMutationRefresh();
-            }));
     }
 
     internal SelectedChartMutationResult ApplyEncoding(SelectedChartEncodingRequest request)
@@ -646,26 +585,6 @@ internal sealed class SelectedChartMutationWorkflowOwner
     {
         return libraryProvider()
             ?? throw new InvalidOperationException("Selected chart mutation library is not available.");
-    }
-
-    private void RegisterOperation(ISelectedChartMutationOperation operation)
-    {
-        lock (operationLock)
-        {
-            issuedOperations.Add(operation);
-        }
-    }
-
-    private bool TryConsumeOperation(ISelectedChartMutationOperation operation)
-    {
-        if (operation == null)
-        {
-            return false;
-        }
-        lock (operationLock)
-        {
-            return issuedOperations.Remove(operation);
-        }
     }
 
     private static void CaptureCleanupFailure(Action action, ICollection<ExceptionDispatchInfo> failures)

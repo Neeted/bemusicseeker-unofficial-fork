@@ -6338,18 +6338,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        SelectedChartMoveConfirmationResult confirmation = viewModel.SelectedChartMutations
-            .ConfirmMove(new SelectedChartMoveRequest(targets, dstDir));
-        if (!confirmation.Accepted)
-        {
-            if (confirmation.Failure != null)
-            {
-                _ = Task.FromException(confirmation.Failure).Logging("tableContextMenuItemMoveFileClick");
-            }
-            return;
-        }
-        SelectedChartMutationResult result = await viewModel.SelectedChartMutations
-            .MoveAsync(confirmation.Operation);
+        SelectedChartMutationResult result = await viewModel.SelectedChartMutations.MoveAsync(
+            new SelectedChartMoveRequest(targets, dstDir));
         if (!result.Succeeded && result.Failure != null)
         {
             _ = Task.FromException(result.Failure).Logging("tableContextMenuItemMoveFileClick");

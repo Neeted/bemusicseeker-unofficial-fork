@@ -303,18 +303,59 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     [TestMethod]
     public async Task MoveAsync_AcceptedUsesSelectedLibraryRefsAndPublishesPathRefresh()
     {
-        var store = new RecordingStore();
-        var presentation = new RecordingPresentation();
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var presentation = new RecordingPresentation(events);
         var owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
         ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
 
-        SelectedChartMoveConfirmationResult confirmation = owner.ConfirmMove(
+        SelectedChartMutationResult result = await owner.MoveAsync(
             new SelectedChartMoveRequest([target], @"D:\Moved"));
-        SelectedChartMutationResult result = await owner.MoveAsync(confirmation.Operation);
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(@"D:\Moved", store.MovedDirectory);
         Assert.AreEqual(1, presentation.PathRefreshCalls);
+        CollectionAssert.AreEqual(
+            new[] { "activity-start", "library-playback", "library-refresh-start", "store-move", "path-refresh", "library-refresh-end", "activity-end" },
+            events);
+    }
+
+    [TestMethod]
+    public async Task MoveAsync_RejectedConfirmationDoesNotMutate()
+    {
+        var store = new RecordingStore();
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResults = new Queue<UiDialogResult>([
+                UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+            ])
+        };
+        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
+
+        SelectedChartMutationResult result = await owner.MoveAsync(
+            new SelectedChartMoveRequest([target], @"D:\Moved"));
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(string.Empty, store.MovedDirectory);
+    }
+
+    [TestMethod]
+    public async Task MoveAsync_WithoutEligibleTargetsOrDestinationDoesNotShowDialogOrMutate()
+    {
+        var store = new RecordingStore();
+        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.None);
+        ChartOperationTarget eligibleTarget = CreateTarget("beta.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
+
+        SelectedChartMutationResult noTargetResult = await owner.MoveAsync(
+            new SelectedChartMoveRequest([target], @"D:\Moved"));
+        Assert.IsTrue(noTargetResult.Succeeded);
+        SelectedChartMutationResult noDestinationResult = await owner.MoveAsync(
+            new SelectedChartMoveRequest([eligibleTarget], string.Empty));
+
+        Assert.IsTrue(noDestinationResult.Succeeded);
+        Assert.AreEqual(string.Empty, store.MovedDirectory);
     }
 
     [TestMethod]
@@ -412,30 +453,29 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
         ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
 
-        SelectedChartMoveConfirmationResult confirmation = owner.ConfirmMove(
+        SelectedChartMutationResult result = await owner.MoveAsync(
             new SelectedChartMoveRequest([target], @"D:\Moved"));
-        SelectedChartMutationResult result = await owner.MoveAsync(confirmation.Operation);
 
         Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(0, presentation.PathRefreshCalls);
         CollectionAssert.AreEqual(
             new[] { "activity-start", "library-playback", "library-refresh-start", "library-refresh-end", "activity-end" },
             presentation.Events);
     }
 
     [TestMethod]
-    public void DialogFailure_DoesNotFallbackToMutation()
+    public async Task DialogFailure_DoesNotFallbackToMutation()
     {
         var store = new RecordingStore();
         var presentation = new RecordingPresentation();
         var owner = CreateOwner(presentation, new FakeUiDialogService(), store);
         ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
 
-        SelectedChartMoveConfirmationResult confirmation = owner.ConfirmMove(
+        SelectedChartMutationResult result = await owner.MoveAsync(
             new SelectedChartMoveRequest([target], @"D:\Moved"));
 
-        Assert.IsFalse(confirmation.Accepted);
-        Assert.IsNotNull(confirmation.Failure);
-        Assert.IsNull(confirmation.Operation);
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNotNull(result.Failure);
         Assert.AreEqual(string.Empty, store.MovedDirectory);
     }
 
@@ -529,7 +569,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         public void EndRefreshSuppression() => Events.Add(Events.Contains("pending-refresh-start") && !Events.Contains("library-refresh-end") ? "pending-refresh-end" : "library-refresh-end");
 
-        public void ApplyLibraryPathMutationRefresh() => PathRefreshCalls++;
+        public void ApplyLibraryPathMutationRefresh()
+        {
+            PathRefreshCalls++;
+            Events.Add("path-refresh");
+        }
 
         public void ApplyEncodingRefresh()
         {
