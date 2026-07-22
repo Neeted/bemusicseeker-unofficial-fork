@@ -51,19 +51,6 @@ public partial class MainWindowViewModel
             request.Enable ? "Playlist summary sync enable confirmation" : "Playlist summary sync disable confirmation");
     }
 
-    private void PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested(
-        object sender,
-        PlaylistSummaryRemovalConfirmationRequestedEventArgs request)
-    {
-        request.Confirmed = ShowUiConfirmation(
-            BeMusicSeeker.Properties.Resources.Msg_remove_playlist,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxImage.Question,
-            MessageBoxButton.OKCancel,
-            "Playlist summary removal confirmation",
-            MessageBoxResult.Cancel);
-    }
-
     private void PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested(
         object sender,
         PlaylistFolderRemovalConfirmationRequestedEventArgs request)
@@ -74,19 +61,6 @@ public partial class MainWindowViewModel
             MessageBoxImage.Question,
             MessageBoxButton.OKCancel,
             "Playlist folder removal confirmation",
-            MessageBoxResult.Cancel);
-    }
-
-    private void PlaylistWorkspacePlaylistTableRemovalConfirmationRequested(
-        object sender,
-        PlaylistTableRemovalConfirmationRequestedEventArgs request)
-    {
-        request.Confirmed = ShowUiConfirmation(
-            BeMusicSeeker.Properties.Resources.Msg_remove_playlist,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxImage.Question,
-            MessageBoxButton.OKCancel,
-            "Playlist table removal confirmation",
             MessageBoxResult.Cancel);
     }
 
@@ -225,7 +199,7 @@ public partial class MainWindowViewModel
         InvalidateNormalLibraryReferenceTableSortKeys();
     }
 
-    private void PlaylistWorkspacePlaylistTableRemovalInvalidOutputDirectoryRequested(
+    private void PlaylistTableRemovalWorkflowInvalidOutputDirectoryRequested(
         object sender,
         PlaylistTableRemovalInvalidOutputDirectoryEventArgs request)
     {

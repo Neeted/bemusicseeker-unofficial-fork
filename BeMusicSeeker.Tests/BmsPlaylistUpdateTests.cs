@@ -8,6 +8,7 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -15,6 +16,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Codeplex.Data;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -7440,25 +7442,21 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
+                new PlaylistWorkspaceTestPorts.PlaylistTableRemovalDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+                });
             var notificationRoutes = new List<string>();
             workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notificationRoutes.Add(request.RouteName);
             long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
 
-            bool removalConfirmationRequested = false;
-            workspace.PlaylistSummaryRemovalConfirmationRequested += (_, request) =>
-            {
-                removalConfirmationRequested = true;
-                request.Confirmed = true;
-            };
-
-            workspace.RemovePlaylistSummaryRowsAsync(
+            workspace.PlaylistTableRemovalWorkflow.RemoveSummaryRowsAsync(
                 [new PlaylistSummaryRow { TableRef = table }])
                 .GetAwaiter()
                 .GetResult();
 
             Assert.AreEqual(1, providerCallCount);
-            Assert.IsTrue(removalConfirmationRequested);
             CollectionAssert.Contains(notificationRoutes, "playlist remove custom folder notification");
             Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > summaryDataGenerationBeforeRemoval);
             Assert.IsFalse(playlist.ContainsBMSTable(table));
@@ -7537,10 +7535,15 @@ public sealed class BmsPlaylistUpdateTests
                     Dispatcher.CurrentDispatcher)
             };
             var library = new BMSLibrary(songDbPath);
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistTableRemovalDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
             var viewModel = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
-                customFolderOutputSettingsProvider: getOperationSettings).CreateMainWindowViewModel();
+                customFolderOutputSettingsProvider: getOperationSettings,
+                playlistTableRemovalDialogService: dialogs).CreateMainWindowViewModel();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -7551,7 +7554,10 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, config);
 
-            viewModel.PlaylistWorkspace.RemoveTableAsync(table).GetAwaiter().GetResult();
+            viewModel.PlaylistWorkspace.PlaylistTableRemovalWorkflow
+                .RemoveTreeTableAsync(table, () => { })
+                .GetAwaiter()
+                .GetResult();
 
             Assert.AreEqual(1, providerCallCount);
             Assert.IsFalse(Directory.Exists(outputDirectory));

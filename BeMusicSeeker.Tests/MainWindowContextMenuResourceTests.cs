@@ -333,7 +333,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void PlaylistTableRemoval_RoutesConfirmationThroughWorkspaceOwner()
+    public void PlaylistTableRemoval_RoutesThroughWorkflowOwner()
     {
         string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
         string route = ExtractBetween(
@@ -341,9 +341,11 @@ public sealed class MainWindowContextMenuResourceTests
             "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick",
             "private async void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick");
 
-        StringAssert.Contains(route, "ConfirmPlaylistTableRemoval(bmsTable)");
+        StringAssert.Contains(route, "PlaylistTableRemovalWorkflow");
+        StringAssert.Contains(route, "RemoveTreeTableAsync(");
         StringAssert.Contains(route, "SelectNextSiblingOrRoot(");
-        StringAssert.Contains(route, "RemoveTableAsync(bmsTable)");
+        Assert.AreEqual(-1, route.IndexOf("ConfirmPlaylistTableRemoval", StringComparison.Ordinal));
+        Assert.AreEqual(-1, route.IndexOf("RemoveTableAsync", StringComparison.Ordinal));
         Assert.AreEqual(-1, route.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
     }
 

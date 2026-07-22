@@ -1367,7 +1367,20 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(folderInfoPath, "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(Path.Combine(randomDirectory, "random.lr2folder"), "#TITLE Random", Encoding.GetEncoding("shift_jis"));
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x1, titleFlashHours: 24, Path.Combine(scope.DirectoryPath, "BMS"));
-            var library = new BMSLibrary(scope.SongDbPath, () => config);
+            BmsLibraryOptionsSnapshot options = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = lr2Root,
+                LR2CustomFolderOutputBaseDir = string.Empty,
+                LR2CustomFolderAdditionalOutputBaseDirs = [],
+                LR2CustomFolderOutputBaseDirRootType = string.Empty
+            };
+            var library = new BMSLibrary(
+                scope.SongDbPath,
+                () => config,
+                null,
+                null,
+                () => options);
 
             Lr2SongDbSyncPreparedDataSurface surface = library.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows("test_builtin_folderinfo");
 
