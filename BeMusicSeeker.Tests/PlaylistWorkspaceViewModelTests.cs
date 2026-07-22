@@ -164,7 +164,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(mainWindowXaml, "IsExpanded=\"{Binding PlaylistWorkspace.IsPlaylistTreeExpanded, Mode=TwoWay}\"");
         StringAssert.Contains(mainWindowXaml, "ItemsSource=\"{Binding PlaylistWorkspace.PlaylistTreeTables}\"");
         Assert.IsFalse(mainWindowXaml.Contains("ItemsSource=\"{Binding BMSTables}\""));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RefreshPlaylistTreeTables(tables);");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RefreshPlaylistTreeTables(tables, files);");
         Assert.AreEqual(-1, logicalSource.IndexOf("ConfigurePlaylistTreeSource(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("public DispatcherCollection<BMSTable> BMSTables", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "PlaylistTablesPresentationChanged");
@@ -313,8 +313,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistPropertyReferenceTableReplaced", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistPropertyFolderSelectionRemapped", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistPropertyReferenceSortInvalidationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.CreateReferenceReplaceUpdateCallback()");
+        StringAssert.Contains(workspaceSource, "private void ApplyReferenceReplaceReceipt(");
+        StringAssert.Contains(logicalSource, "publishReferenceReceipt: true");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistTableUpdateContext", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("CreatePlaylistReferenceReplaceUpdateCallback", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("files.ReplaceReferenceBMSTable(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;");
@@ -2909,11 +2910,12 @@ public sealed class PlaylistWorkspaceViewModelTests
                 });
             workspace.PlaylistExternalSyncQueued += (_, request) => queued.Add(request);
             workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
+            workspace.RefreshPlaylistTreeTables(playlist);
 
             workspace.QueueExternalPlaylistSync(
                 "test_rejection",
                 fromReloadTables: true,
-                updateCallbackAction: null,
+                publishReferenceReceipt: false,
                 operationToken: 11L);
 
             Assert.AreEqual(1, schedulerCalls);
@@ -2923,8 +2925,93 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.AreEqual(1, completed.Count);
             Assert.IsTrue(completed[0].WasSkipped);
             Assert.IsFalse(completed[0].Succeeded);
-            Assert.IsFalse(completed[0].HasUpdateCallback);
+            Assert.IsFalse(completed[0].PublishesReferenceReceipt);
             Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistExternalSyncReceiptSubscription_FollowsPlaylistStoreReplacement()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string firstDirectory = Path.Combine(tempDirectory, "first");
+            string secondDirectory = Path.Combine(tempDirectory, "second");
+            Directory.CreateDirectory(firstDirectory);
+            Directory.CreateDirectory(secondDirectory);
+            string firstSongDbPath = Path.Combine(firstDirectory, "song.db");
+            string secondSongDbPath = Path.Combine(secondDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(firstSongDbPath))
+            using (var __ = new LR2SongDBExtended(secondSongDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(firstSongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(secondSongDbPath);
+            var firstPlaylist = new BMSPlaylist(firstSongDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([new BMSTable { name = "first" }]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var secondTable = new BMSTable { name = "second" };
+            var secondPlaylist = new BMSPlaylist(secondSongDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([secondTable]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            BMSPlaylist currentPlaylist = firstPlaylist;
+            BMSLibrary currentLibrary = new BMSLibrary(firstSongDbPath);
+            var secondLibrary = new BMSLibrary(secondSongDbPath);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => currentPlaylist,
+                playlistLibraryProvider: () => currentLibrary);
+            int sortInvalidationCount = 0;
+            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => sortInvalidationCount++;
+
+            workspace.RefreshPlaylistTreeTables(firstPlaylist, currentLibrary);
+            currentPlaylist = secondPlaylist;
+            currentLibrary = secondLibrary;
+            workspace.RefreshPlaylistTreeTables(secondPlaylist, currentLibrary);
+
+            PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt receipt = new(
+                new BMSTable { name = "old" },
+                secondTable,
+                updated: true,
+                referenceEntriesChanged: false,
+                oldEntriesSnapshot: null,
+                newEntriesSnapshot: null,
+                uri: null,
+                reason: "test");
+            FieldInfo eventField = typeof(PlaylistExternalSyncOwner).GetField(
+                "PlaylistTableUpdateReceiptPublished",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(eventField);
+            MulticastDelegate? oldOwnerHandlers = eventField.GetValue(firstPlaylist.ExternalSyncOwner) as MulticastDelegate;
+            oldOwnerHandlers?.DynamicInvoke(
+                firstPlaylist.ExternalSyncOwner,
+                new PlaylistExternalSyncOwner.PlaylistTableUpdateReceiptPublishedEventArgs(receipt));
+            Assert.AreEqual(0, sortInvalidationCount);
+
+            MulticastDelegate? currentOwnerHandlers = eventField.GetValue(secondPlaylist.ExternalSyncOwner) as MulticastDelegate;
+            Assert.IsNotNull(currentOwnerHandlers);
+            currentOwnerHandlers!.DynamicInvoke(
+                secondPlaylist.ExternalSyncOwner,
+                new PlaylistExternalSyncOwner.PlaylistTableUpdateReceiptPublishedEventArgs(receipt));
+            Assert.AreEqual(1, sortInvalidationCount);
         }
         finally
         {
@@ -2967,11 +3054,12 @@ public sealed class PlaylistWorkspaceViewModelTests
                     return true;
                 });
             workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
+            workspace.RefreshPlaylistTreeTables(playlist);
 
             workspace.QueueExternalPlaylistSync(
                 "test_shutdown_discard",
                 fromReloadTables: false,
-                updateCallbackAction: _ => { },
+                publishReferenceReceipt: true,
                 operationToken: 17L);
 
             Assert.IsNotNull(scheduledWork);
@@ -2981,7 +3069,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.AreEqual("test_shutdown_discard", completed[0].Reason);
             Assert.AreEqual(1, completed[0].Version);
             Assert.AreEqual(17L, completed[0].OperationToken);
-            Assert.IsTrue(completed[0].HasUpdateCallback);
+            Assert.IsTrue(completed[0].PublishesReferenceReceipt);
             Assert.IsTrue(completed[0].WasSkipped);
             Assert.IsFalse(completed[0].Succeeded);
             Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
@@ -3031,16 +3119,17 @@ public sealed class PlaylistWorkspaceViewModelTests
                 });
             workspace.PlaylistExternalSyncQueued += (_, request) => queued.Add(request);
             workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
+            workspace.RefreshPlaylistTreeTables(playlist);
 
             workspace.QueueExternalPlaylistSync(
                 "first_request",
                 fromReloadTables: false,
-                updateCallbackAction: null,
+                publishReferenceReceipt: false,
                 operationToken: 1L);
             workspace.QueueExternalPlaylistSync(
                 "latest_request",
                 fromReloadTables: false,
-                updateCallbackAction: _ => { },
+                publishReferenceReceipt: true,
                 operationToken: 2L);
 
             Assert.AreEqual(1, schedulerCalls);
@@ -3048,7 +3137,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.AreEqual(2, queued.Count);
             Assert.AreEqual("latest_request", queued[1].Reason);
             Assert.AreEqual(2L, queued[1].OperationToken);
-            Assert.IsTrue(queued[1].HasUpdateCallback);
+            Assert.IsTrue(queued[1].PublishesReferenceReceipt);
 
             scheduledWork!().GetAwaiter().GetResult();
 
@@ -3056,7 +3145,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.IsTrue(completed.Any(request =>
                 request.Version == 2
                 && request.Succeeded
-                && request.HasUpdateCallback));
+                && request.PublishesReferenceReceipt));
         }
         finally
         {

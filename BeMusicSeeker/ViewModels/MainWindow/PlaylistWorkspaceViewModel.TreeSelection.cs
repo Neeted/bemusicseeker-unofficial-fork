@@ -80,7 +80,12 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore)
     {
-        AttachPlaylistTreeStore(playlistStore);
+        RefreshPlaylistTreeTables(playlistStore, getPlaylistLibrary());
+    }
+
+    internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore, BMSLibrary playlistLibrary)
+    {
+        AttachPlaylistTreeStore(playlistStore, playlistLibrary);
         ApplyPlaylistTreeTablesSource();
     }
 
@@ -89,8 +94,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         ApplyPlaylistTreeTablesSource(raiseWhenUnchanged: true);
     }
 
-    private void AttachPlaylistTreeStore(BMSPlaylist nextStore)
+    private void AttachPlaylistTreeStore(BMSPlaylist nextStore, BMSLibrary nextLibrary)
     {
+        SetPlaylistExternalSyncReceiptSubscription(nextStore, nextLibrary);
         lock (playlistTreeStoreSyncRoot)
         {
             if (ReferenceEquals(playlistTreeStore, nextStore))

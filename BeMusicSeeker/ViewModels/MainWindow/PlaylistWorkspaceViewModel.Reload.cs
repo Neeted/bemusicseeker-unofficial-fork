@@ -154,7 +154,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + activeTables.Count);
                 results = await playlists.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     activeTables,
-                    [CreateReferenceReplaceUpdateCallback()],
                     result =>
                     {
                         RecordPlaylistSyncResult(result);
@@ -162,7 +161,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                     },
                     ReportPlaylistSyncProgress,
                     "manual_resync",
-                    requireCurrentTargetForApply: true);
+                    requireCurrentTargetForApply: true,
+                    publishReferenceReceipts: true);
                 playlists.BmtOutput.QueueBeatorajaBmtExportAll("manual_resync");
                 RequestPlaylistSummaryDataRefresh(
                     "manual_playlist_resync");
@@ -212,64 +212,64 @@ public sealed partial class PlaylistWorkspaceViewModel
             + (result.PageUri?.ToString() ?? string.Empty));
     }
 
-    internal Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()
+    private void ApplyReferenceReplaceReceipt(
+        PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt receipt,
+        BMSPlaylist playlists = null,
+        BMSLibrary library = null)
     {
-        return updateContext =>
+        if (receipt == null)
         {
-            if (updateContext == null)
+            return;
+        }
+        library ??= getPlaylistLibrary();
+        if (library == null)
+        {
+            return;
+        }
+        playlists ??= getPlaylistStore();
+        bool objectReplaced = receipt.OldTable != null
+            && receipt.NewTable != null
+            && !ReferenceEquals(receipt.OldTable, receipt.NewTable);
+        if (receipt.NewTable == null
+            || playlists?.ContainsBMSTable(receipt.NewTable) != true)
+        {
+            if (receipt.OldTable != null)
             {
-                return;
+                library.RemoveReferenceBMSTables(receipt.OldTable);
             }
-            BMSLibrary library = getPlaylistLibrary();
-            if (library == null)
+            return;
+        }
+        bool referenceIndexChanged = receipt.Updated
+            || receipt.ReferenceEntriesChanged
+            || objectReplaced;
+        bool referenceIndexApplied = false;
+        if (referenceIndexChanged)
+        {
+            library.ReplaceReferenceBMSTable(
+                receipt.OldTable,
+                receipt.NewTable,
+                receipt.OldEntriesSnapshot,
+                receipt.NewEntriesSnapshot);
+            referenceIndexApplied = true;
+        }
+        if (playlists?.ContainsBMSTable(receipt.NewTable) != true)
+        {
+            if (referenceIndexApplied)
             {
-                return;
+                library.RemoveReferenceBMSTables(receipt.NewTable);
             }
-            BMSPlaylist playlists = getPlaylistStore();
-            bool objectReplaced = updateContext.OldTable != null
-                && updateContext.NewTable != null
-                && !ReferenceEquals(updateContext.OldTable, updateContext.NewTable);
-            if (updateContext.NewTable == null
-                || playlists?.ContainsBMSTable(updateContext.NewTable) != true)
-            {
-                if (updateContext.OldTable != null)
-                {
-                    library.RemoveReferenceBMSTables(updateContext.OldTable);
-                }
-                return;
-            }
-            bool referenceIndexChanged = updateContext.Updated
-                || updateContext.ReferenceEntriesChanged
-                || objectReplaced;
-            bool referenceIndexApplied = false;
+            return;
+        }
+        if (objectReplaced || receipt.Updated || receipt.ReferenceEntriesChanged)
+        {
+            ReplaceCurrentPlaylistDetailSelectionTable(
+                receipt.OldTable,
+                receipt.NewTable);
             if (referenceIndexChanged)
             {
-                library.ReplaceReferenceBMSTable(
-                    updateContext.OldTable,
-                    updateContext.NewTable,
-                    updateContext.OldEntriesSnapshot,
-                    updateContext.NewEntriesSnapshot);
-                referenceIndexApplied = true;
+                RequestPlaylistReferenceSortInvalidation();
             }
-            if (playlists?.ContainsBMSTable(updateContext.NewTable) != true)
-            {
-                if (referenceIndexApplied)
-                {
-                    library.RemoveReferenceBMSTables(updateContext.NewTable);
-                }
-                return;
-            }
-            if (objectReplaced || updateContext.Updated || updateContext.ReferenceEntriesChanged)
-            {
-                ReplaceCurrentPlaylistDetailSelectionTable(
-                    updateContext.OldTable,
-                    updateContext.NewTable);
-                if (referenceIndexChanged)
-                {
-                    RequestPlaylistReferenceSortInvalidation();
-                }
-            }
-        };
+        }
     }
 }
 

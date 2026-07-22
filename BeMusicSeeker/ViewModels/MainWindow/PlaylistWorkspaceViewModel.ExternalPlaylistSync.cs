@@ -18,24 +18,30 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private bool deferredExternalSyncFromReloadTables;
 
-    private Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> deferredExternalSyncUpdateCallback;
+    private bool deferredExternalSyncPublishesReferenceReceipt;
 
     private long deferredExternalSyncOperationToken;
 
     private readonly Func<string, Func<Task>, bool> playlistExternalSyncScheduler;
 
+    private readonly object playlistExternalSyncReceiptSyncRoot = new();
+
+    private PlaylistExternalSyncOwner subscribedPlaylistExternalSyncOwner;
+
+    private BMSPlaylist subscribedPlaylistExternalSyncStore;
+
+    private BMSLibrary subscribedPlaylistExternalSyncLibrary;
+
     internal event EventHandler<PlaylistExternalSyncRequestEventArgs> PlaylistExternalSyncQueued;
 
     internal event EventHandler<PlaylistExternalSyncCompletionEventArgs> PlaylistExternalSyncCompleted;
-
-    internal event EventHandler<PlaylistExternalSyncReferenceApplyRequestedEventArgs> PlaylistExternalSyncReferenceApplyRequested;
 
     internal event EventHandler<PlaylistExternalSyncReferenceAppliedEventArgs> PlaylistExternalSyncReferenceApplied;
 
     internal void QueueExternalPlaylistSync(
         string reason,
         bool fromReloadTables,
-        Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> updateCallbackAction,
+        bool publishReferenceReceipt,
         long operationToken)
     {
         BMSPlaylist playlists = getPlaylistStore();
@@ -55,18 +61,18 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool shouldStartWorker = false;
         string queuedReason;
         bool queuedFromReloadTables;
-        bool queuedHasUpdateCallback;
+        bool queuedPublishesReferenceReceipt;
         long queuedOperationToken;
         lock (deferredExternalSyncLock)
         {
             version = ++deferredExternalSyncRequestedVersion;
             deferredExternalSyncReason = reason ?? string.Empty;
             deferredExternalSyncFromReloadTables = fromReloadTables;
-            deferredExternalSyncUpdateCallback = updateCallbackAction;
+            deferredExternalSyncPublishesReferenceReceipt = publishReferenceReceipt;
             deferredExternalSyncOperationToken = operationToken;
             queuedReason = deferredExternalSyncReason;
             queuedFromReloadTables = deferredExternalSyncFromReloadTables;
-            queuedHasUpdateCallback = deferredExternalSyncUpdateCallback != null;
+            queuedPublishesReferenceReceipt = deferredExternalSyncPublishesReferenceReceipt;
             queuedOperationToken = deferredExternalSyncOperationToken;
             if (!deferredExternalSyncRunning)
             {
@@ -81,7 +87,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 queuedReason,
                 version,
                 queuedFromReloadTables,
-                queuedHasUpdateCallback,
+                queuedPublishesReferenceReceipt,
                 queuedOperationToken));
         if (!shouldStartWorker)
         {
@@ -117,9 +123,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                         + request.FromReloadTables.ToString().ToLowerInvariant()
                         + " version="
                         + request.Version);
-                    List<Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext>> updateCallbackActions = request.UpdateCallback == null
-                        ? null
-                        : [request.UpdateCallback];
                     BMSPlaylist currentPlaylists = getPlaylistStore();
                     if (currentPlaylists == null)
                     {
@@ -127,23 +130,15 @@ public sealed partial class PlaylistWorkspaceViewModel
                     }
                     List<BMSTable> tables = await currentPlaylists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
                         reloadExtPlaylist: true,
-                        updateCallbackActions,
                         result =>
                         {
                             RecordPlaylistSyncResult(result);
                         },
-                        ReportPlaylistSyncProgress).ConfigureAwait(false);
+                        ReportPlaylistSyncProgress,
+                        publishReferenceReceipts: request.PublishesReferenceReceipt).ConfigureAwait(false);
                     updatedCount = tables?.Count ?? 0;
                     currentPlaylists.BmtOutput.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + request.Reason);
-                    if (request.UpdateCallback == null)
-                    {
-                        PlaylistExternalSyncReferenceApplyRequested?.Invoke(
-                            this,
-                            new PlaylistExternalSyncReferenceApplyRequestedEventArgs(
-                                "DeferredExternalSync:" + request.Reason,
-                                request.OperationToken));
-                    }
-                    else
+                    if (request.PublishesReferenceReceipt)
                     {
                         PlaylistExternalSyncReferenceApplied?.Invoke(
                             this,
@@ -225,7 +220,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         request.Reason,
                         request.Version,
                         request.FromReloadTables,
-                        request.UpdateCallback != null,
+                        request.PublishesReferenceReceipt,
                         request.OperationToken,
                         succeeded,
                         wasSkipped: false));
@@ -239,7 +234,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         int rejectedVersion = version;
         string rejectedReason = queuedReason;
         bool rejectedFromReloadTables = queuedFromReloadTables;
-        bool rejectedHasUpdateCallback = queuedHasUpdateCallback;
+        bool rejectedPublishesReferenceReceipt = queuedPublishesReferenceReceipt;
         long rejectedOperationToken = queuedOperationToken;
         while (!playlistExternalSyncScheduler(rejectedReason, Work))
         {
@@ -249,7 +244,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     rejectedVersion,
                     rejectedReason,
                     rejectedFromReloadTables,
-                    rejectedHasUpdateCallback,
+                    rejectedPublishesReferenceReceipt,
                     rejectedOperationToken,
                     "startup_scheduler_rejected");
                 return;
@@ -259,7 +254,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             rejectedVersion = latest.Version;
             rejectedReason = latest.Reason;
             rejectedFromReloadTables = latest.FromReloadTables;
-            rejectedHasUpdateCallback = latest.UpdateCallback != null;
+            rejectedPublishesReferenceReceipt = latest.PublishesReferenceReceipt;
             rejectedOperationToken = latest.OperationToken;
         }
     }
@@ -300,7 +295,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 deferredExternalSyncRequestedVersion,
                 deferredExternalSyncReason ?? string.Empty,
                 deferredExternalSyncFromReloadTables,
-                deferredExternalSyncUpdateCallback,
+                deferredExternalSyncPublishesReferenceReceipt,
                 deferredExternalSyncOperationToken);
         }
         PlaylistExternalSyncCompleted?.Invoke(
@@ -309,7 +304,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 request.Reason,
                 request.Version,
                 request.FromReloadTables,
-                request.UpdateCallback != null,
+                request.PublishesReferenceReceipt,
                 request.OperationToken,
                 succeeded: false,
                 wasSkipped: true));
@@ -324,7 +319,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         int version,
         string reason,
         bool fromReloadTables,
-        bool hadUpdateCallback,
+        bool publishesReferenceReceipt,
         long operationToken,
         string shutdownReason)
     {
@@ -334,7 +329,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 reason ?? string.Empty,
                 version,
                 fromReloadTables,
-                hadUpdateCallback,
+                publishesReferenceReceipt,
                 operationToken,
                 succeeded: false,
                 wasSkipped: true));
@@ -355,7 +350,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 deferredExternalSyncRequestedVersion,
                 deferredExternalSyncReason ?? string.Empty,
                 deferredExternalSyncFromReloadTables,
-                deferredExternalSyncUpdateCallback,
+                deferredExternalSyncPublishesReferenceReceipt,
                 deferredExternalSyncOperationToken);
         }
     }
@@ -382,19 +377,69 @@ public sealed partial class PlaylistWorkspaceViewModel
             new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, routeName));
     }
 
+    private void SetPlaylistExternalSyncReceiptSubscription(
+        BMSPlaylist playlists,
+        BMSLibrary library)
+    {
+        PlaylistExternalSyncOwner owner = playlists?.ExternalSyncOwner;
+        lock (playlistExternalSyncReceiptSyncRoot)
+        {
+            SetPlaylistExternalSyncReceiptSubscriptionUnsafe(playlists, owner, library);
+        }
+    }
+
+    private void SetPlaylistExternalSyncReceiptSubscriptionUnsafe(
+        BMSPlaylist playlists,
+        PlaylistExternalSyncOwner owner,
+        BMSLibrary library)
+    {
+        if (subscribedPlaylistExternalSyncOwner != null)
+        {
+            subscribedPlaylistExternalSyncOwner.PlaylistTableUpdateReceiptPublished -=
+                PlaylistTableUpdateReceiptPublished;
+        }
+        subscribedPlaylistExternalSyncStore = playlists;
+        subscribedPlaylistExternalSyncLibrary = library;
+        subscribedPlaylistExternalSyncOwner = owner;
+        if (subscribedPlaylistExternalSyncOwner != null)
+        {
+            subscribedPlaylistExternalSyncOwner.PlaylistTableUpdateReceiptPublished +=
+                PlaylistTableUpdateReceiptPublished;
+        }
+    }
+
+    private void PlaylistTableUpdateReceiptPublished(
+        object sender,
+        PlaylistExternalSyncOwner.PlaylistTableUpdateReceiptPublishedEventArgs eventArgs)
+    {
+        PlaylistExternalSyncOwner owner = sender as PlaylistExternalSyncOwner;
+        lock (playlistExternalSyncReceiptSyncRoot)
+        {
+            BMSPlaylist currentPlaylist = subscribedPlaylistExternalSyncStore;
+            BMSLibrary currentLibrary = subscribedPlaylistExternalSyncLibrary;
+            if (owner == null
+                || !ReferenceEquals(owner, subscribedPlaylistExternalSyncOwner)
+                || !ReferenceEquals(owner, currentPlaylist?.ExternalSyncOwner))
+            {
+                return;
+            }
+            ApplyReferenceReplaceReceipt(eventArgs?.Receipt, currentPlaylist, currentLibrary);
+        }
+    }
+
     private readonly struct ExternalPlaylistSyncRequestSnapshot
     {
         internal ExternalPlaylistSyncRequestSnapshot(
             int version,
             string reason,
             bool fromReloadTables,
-            Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> updateCallback,
+            bool publishesReferenceReceipt,
             long operationToken)
         {
             Version = version;
             Reason = reason;
             FromReloadTables = fromReloadTables;
-            UpdateCallback = updateCallback;
+            PublishesReferenceReceipt = publishesReferenceReceipt;
             OperationToken = operationToken;
         }
 
@@ -404,7 +449,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         internal bool FromReloadTables { get; }
 
-        internal Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> UpdateCallback { get; }
+        internal bool PublishesReferenceReceipt { get; }
 
         internal long OperationToken { get; }
     }
@@ -416,13 +461,13 @@ internal sealed class PlaylistExternalSyncRequestEventArgs : EventArgs
         string reason,
         int version,
         bool fromReloadTables,
-        bool hasUpdateCallback,
+        bool publishesReferenceReceipt,
         long operationToken)
     {
         Reason = reason;
         Version = version;
         FromReloadTables = fromReloadTables;
-        HasUpdateCallback = hasUpdateCallback;
+        PublishesReferenceReceipt = publishesReferenceReceipt;
         OperationToken = operationToken;
     }
 
@@ -432,7 +477,7 @@ internal sealed class PlaylistExternalSyncRequestEventArgs : EventArgs
 
     internal bool FromReloadTables { get; }
 
-    internal bool HasUpdateCallback { get; }
+    internal bool PublishesReferenceReceipt { get; }
 
     internal long OperationToken { get; }
 }
@@ -443,7 +488,7 @@ internal sealed class PlaylistExternalSyncCompletionEventArgs : EventArgs
         string reason,
         int version,
         bool fromReloadTables,
-        bool hasUpdateCallback,
+        bool publishesReferenceReceipt,
         long operationToken,
         bool succeeded,
         bool wasSkipped)
@@ -451,7 +496,7 @@ internal sealed class PlaylistExternalSyncCompletionEventArgs : EventArgs
         Reason = reason;
         Version = version;
         FromReloadTables = fromReloadTables;
-        HasUpdateCallback = hasUpdateCallback;
+        PublishesReferenceReceipt = publishesReferenceReceipt;
         OperationToken = operationToken;
         Succeeded = succeeded;
         WasSkipped = wasSkipped;
@@ -463,26 +508,13 @@ internal sealed class PlaylistExternalSyncCompletionEventArgs : EventArgs
 
     internal bool FromReloadTables { get; }
 
-    internal bool HasUpdateCallback { get; }
+    internal bool PublishesReferenceReceipt { get; }
 
     internal long OperationToken { get; }
 
     internal bool Succeeded { get; }
 
     internal bool WasSkipped { get; }
-}
-
-internal sealed class PlaylistExternalSyncReferenceApplyRequestedEventArgs : EventArgs
-{
-    internal PlaylistExternalSyncReferenceApplyRequestedEventArgs(string reason, long operationToken)
-    {
-        Reason = reason;
-        OperationToken = operationToken;
-    }
-
-    internal string Reason { get; }
-
-    internal long OperationToken { get; }
 }
 
 internal sealed class PlaylistExternalSyncReferenceAppliedEventArgs : EventArgs

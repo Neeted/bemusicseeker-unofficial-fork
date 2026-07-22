@@ -2183,7 +2183,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending()");
         StringAssert.Contains(viewModelCode, "ShowInitialSetupCompletionMessageIfPending();");
         StringAssert.Contains(endSuppression, "FlushPendingUiRefresh(uiRefreshChannel, operationToken)");
-        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.QueuePlaylistReferenceApply(request.Reason, request.OperationToken)");
+        StringAssert.Contains(reloadFileDiff, "PlaylistWorkspace.QueuePlaylistReferenceApply(\"ReloadFileDiff\", operationToken);");
+        StringAssert.Contains(reinitialize, "PlaylistWorkspace.QueuePlaylistReferenceApply(\"FullReinitialize\", operationToken);");
         Assert.IsFalse(viewModelCode.Contains("private void ScheduleDeferredPlaylistReferenceApply("));
     }
 
@@ -3768,7 +3769,7 @@ public sealed class MainWindowContextMenuResourceTests
             "MainWindowViewModel.PlaylistPropertySaveEvents.cs");
 
         StringAssert.Contains(workspaceCode, "playlists.ExternalSyncOwner.ReloadPlaylistTargetsAsync(");
-        StringAssert.Contains(workspaceCode, "CreateReferenceReplaceUpdateCallback()");
+        StringAssert.Contains(workspaceCode, "publishReferenceReceipts: true");
         StringAssert.Contains(workspaceCode, "requireCurrentTargetForApply: true");
         StringAssert.Contains(workspaceCode, "playlists.BmtOutput.QueueBeatorajaBmtExportAll(\"manual_resync\")");
         StringAssert.Contains(workspaceCode, "LogPlaylistSyncFailure(result)");
@@ -3778,7 +3779,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistSyncResultReported"));
         Assert.IsFalse(propertySaveEventsCode.Contains("playlist_property_resync_failed table="));
         Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistReferenceTableReplaced"));
-        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.CreateReferenceReplaceUpdateCallback()");
+        StringAssert.Contains(viewModelCode, "publishReferenceReceipt: true");
         Assert.AreEqual(-1, viewModelCode.IndexOf("files.ReplaceReferenceBMSTable(", StringComparison.Ordinal));
         Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection("));
         Assert.AreEqual(-1, viewModelCode.IndexOf("ReplaceCurrentPlaylistSelectionTable(", StringComparison.Ordinal));
@@ -3829,14 +3830,14 @@ public sealed class MainWindowContextMenuResourceTests
             File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistPropertySaveService.cs")),
             "internal async Task ApplyPostSaveUpdatesAsync(PlaylistPropertySaveCommit commit)",
             "private static bool IsValid(");
-        string replaceCallback = ExtractBetween(
+        string replaceReceipt = ExtractBetween(
             File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.Reload.cs")),
-            "internal Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()",
+            "private void ApplyReferenceReplaceReceipt(",
             "internal sealed class PlaylistSyncProgressChangedEventArgs");
 
         AssertReplaceInvalidatesReferenceSortKey(propertyDialogSave);
-        StringAssert.Contains(replaceCallback, "ReferenceEntriesChanged");
-        AssertReplaceInvalidatesReferenceSortKey(replaceCallback);
+        StringAssert.Contains(replaceReceipt, "ReferenceEntriesChanged");
+        AssertReplaceInvalidatesReferenceSortKey(replaceReceipt);
     }
 
     private static void AssertReplaceInvalidatesReferenceSortKey(string source)

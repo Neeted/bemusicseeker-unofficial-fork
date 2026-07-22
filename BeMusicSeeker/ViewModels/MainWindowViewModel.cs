@@ -2603,7 +2603,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistEntriesHydrationCompleted += PlaylistWorkspacePlaylistEntriesHydrationCompleted;
         PlaylistWorkspace.PlaylistExternalSyncQueued += PlaylistWorkspacePlaylistExternalSyncQueued;
         PlaylistWorkspace.PlaylistExternalSyncCompleted += PlaylistWorkspacePlaylistExternalSyncCompleted;
-        PlaylistWorkspace.PlaylistExternalSyncReferenceApplyRequested += PlaylistWorkspacePlaylistExternalSyncReferenceApplyRequested;
         PlaylistWorkspace.PlaylistExternalSyncReferenceApplied += PlaylistWorkspacePlaylistExternalSyncReferenceApplied;
         PlaylistWorkspace.PlaylistReferenceApplyQueued += PlaylistWorkspacePlaylistReferenceApplyQueued;
         PlaylistWorkspace.PlaylistReferenceApplyCompleted += PlaylistWorkspacePlaylistReferenceApplyCompleted;
@@ -3356,8 +3355,8 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace.QueueExternalPlaylistSync(
                 "ReloadTables",
                 fromReloadTables: true,
-                PlaylistWorkspace.CreateReferenceReplaceUpdateCallback(),
-                operationToken);
+                publishReferenceReceipt: true,
+                operationToken: operationToken);
         }
         SkipUnrequestedStartupProgressPhases(
             "ReloadTables:scheduled",
@@ -3834,7 +3833,7 @@ public partial class MainWindowViewModel : ViewModel
                 () => files.CreateBeatorajaBmtSongHashResolver(),
                 files.Lr2PlaylistFolderSynchronization);
             ShellShutdownWorkflow.AttachPlaylist(tables);
-            PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
+            PlaylistWorkspace.RefreshPlaylistTreeTables(tables, files);
             PlaylistWorkspace.SetDetailDataSource(
                 applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
             files.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
@@ -4221,8 +4220,8 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace.QueueExternalPlaylistSync(
                 "Initialize",
                 fromReloadTables: false,
-                PlaylistWorkspace.CreateReferenceReplaceUpdateCallback(),
-                operationToken);
+                publishReferenceReceipt: true,
+                operationToken: operationToken);
         }
         SkipUnrequestedStartupProgressPhases(
             "Initialize:scheduled",
@@ -4286,7 +4285,7 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         TrackStartupProgressExternalSyncRequest(request.Reason, request.Version);
-        if (request.HasUpdateCallback)
+        if (request.PublishesReferenceReceipt)
         {
             TrackStartupProgressPlaylistReferenceRequest(
                 "DeferredExternalSync:" + request.Reason,
@@ -4302,22 +4301,11 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (completion.WasSkipped && completion.HasUpdateCallback)
+        if (completion.WasSkipped && completion.PublishesReferenceReceipt)
         {
             TryCompleteStartupProgressPlaylistReference(completion.Version);
         }
         TryCompleteStartupProgressExternalSync(completion.Version);
-    }
-
-    private void PlaylistWorkspacePlaylistExternalSyncReferenceApplyRequested(
-        object sender,
-        PlaylistExternalSyncReferenceApplyRequestedEventArgs request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        PlaylistWorkspace.QueuePlaylistReferenceApply(request.Reason, request.OperationToken);
     }
 
     private void PlaylistWorkspacePlaylistExternalSyncReferenceApplied(

@@ -138,78 +138,6 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void UpdateBmsTablesInternal_CallbackFailureDoesNotAbortUpdate()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
-            {
-                BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
-            };
-            bool callbackInvoked = false;
-
-            List<BMSTable> updated = playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions:
-            [
-                delegate
-                {
-                    callbackInvoked = true;
-                    throw new InvalidOperationException("callback failure");
-                }
-            ], syncResultCallback: null).GetAwaiter().GetResult();
-
-            Assert.IsTrue(callbackInvoked);
-            Assert.AreEqual(0, updated.Count);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public async Task UpdateBmsTablesInternalAsync_CallbackFailureDoesNotAbortUpdate()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
-            {
-                BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
-            };
-            bool callbackInvoked = false;
-
-            List<BMSTable> updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions:
-            [
-                delegate
-                {
-                    callbackInvoked = true;
-                    throw new InvalidOperationException("callback failure");
-                }
-            ], syncResultCallback: null);
-
-            Assert.IsTrue(callbackInvoked);
-            Assert.AreEqual(0, updated.Count);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
     public async Task UpdateBmsTablesInternalAsync_PassesOldAndNewEntrySnapshotsToCallback()
     {
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
@@ -229,27 +157,28 @@ public sealed class BmsPlaylistUpdateTests
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
-            PlaylistExternalSyncOwner.PlaylistTableUpdateContext? callbackContext = null;
+            PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt receipt = null!;
+            playlist.ExternalSyncOwner.PlaylistTableUpdateReceiptPublished += (_, eventArgs) =>
+            {
+                receipt = eventArgs.Receipt;
+                throw new InvalidOperationException("receipt consumer failure");
+            };
 
-            List<BMSTable> updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions:
-            [
-                delegate(PlaylistExternalSyncOwner.PlaylistTableUpdateContext context)
-                {
-                    callbackContext = context;
-                }
-            ], syncResultCallback: _ => throw new InvalidOperationException("sync result callback failure"));
+            List<BMSTable> updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
+                reloadExtPlaylist: true,
+                syncResultCallback: _ => throw new InvalidOperationException("sync result callback failure"),
+                publishReferenceReceipts: true);
 
-            Assert.IsNotNull(callbackContext);
-            PlaylistExternalSyncOwner.PlaylistTableUpdateContext actualCallbackContext = callbackContext!;
-            Assert.AreSame(table, actualCallbackContext.OldTable);
-            Assert.IsNotNull(actualCallbackContext.NewTable);
-            Assert.IsNotNull(actualCallbackContext.OldEntriesSnapshot);
-            Assert.IsNotNull(actualCallbackContext.NewEntriesSnapshot);
-            Assert.AreEqual(1, actualCallbackContext.OldEntriesSnapshot.Count);
-            Assert.AreEqual(1, actualCallbackContext.NewEntriesSnapshot.Count);
-            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actualCallbackContext.OldEntriesSnapshot[0].md5);
-            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actualCallbackContext.NewEntriesSnapshot[0].md5);
-            Assert.AreEqual(new string('b', 64), actualCallbackContext.NewEntriesSnapshot[0].sha256);
+            Assert.IsNotNull(receipt);
+            Assert.AreSame(table, receipt!.OldTable);
+            Assert.IsNotNull(receipt.NewTable);
+            Assert.IsNotNull(receipt.OldEntriesSnapshot);
+            Assert.IsNotNull(receipt.NewEntriesSnapshot);
+            Assert.AreEqual(1, receipt.OldEntriesSnapshot.Count);
+            Assert.AreEqual(1, receipt.NewEntriesSnapshot.Count);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", receipt.OldEntriesSnapshot[0].md5);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", receipt.NewEntriesSnapshot[0].md5);
+            Assert.AreEqual(new string('b', 64), receipt.NewEntriesSnapshot[0].sha256);
         }
         finally
         {
@@ -296,21 +225,22 @@ public sealed class BmsPlaylistUpdateTests
             }
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Hash Init Song\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Repaired Song\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
-            PlaylistExternalSyncOwner.PlaylistTableUpdateContext? callbackContext = null;
+            PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt receipt = null!;
+            playlist.ExternalSyncOwner.PlaylistTableUpdateReceiptPublished += (_, eventArgs) =>
+            {
+                receipt = eventArgs.Receipt;
+            };
 
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table],
-            [
-                delegate(PlaylistExternalSyncOwner.PlaylistTableUpdateContext context)
-                {
-                    callbackContext = context;
-                }
-            ], reason: "test_hash_initialization");
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                [table],
+                reason: "test_hash_initialization",
+                publishReferenceReceipts: true);
 
             Assert.AreEqual(1, results.Count);
             Assert.IsFalse(results[0].Updated);
-            Assert.IsNotNull(callbackContext);
-            Assert.IsFalse(callbackContext!.Updated);
-            Assert.IsTrue(callbackContext.ReferenceEntriesChanged);
+            Assert.IsNotNull(receipt);
+            Assert.IsFalse(receipt!.Updated);
+            Assert.IsTrue(receipt.ReferenceEntriesChanged);
             Assert.AreEqual(existingLastUpdate, results[0].ResultTable.last_update);
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.header_sha256));
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.data_sha256));
@@ -355,7 +285,10 @@ public sealed class BmsPlaylistUpdateTests
 
             List<PlaylistSyncProgressSnapshot> snapshots = [];
 
-            List<BMSTable> updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: null, syncResultCallback: null, progressCallback: snapshots.Add);
+            List<BMSTable> updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
+                reloadExtPlaylist: true,
+                syncResultCallback: null,
+                progressCallback: snapshots.Add);
 
             Assert.IsNotNull(updated);
             Assert.IsTrue(snapshots.Count >= 3);
@@ -408,7 +341,9 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { externalTable, manualTable }), Dispatcher.CurrentDispatcher);
             List<PlaylistSyncAttemptResult> syncResults = [];
 
-            await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: null, syncResults.Add);
+            await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
+                reloadExtPlaylist: true,
+                syncResultCallback: syncResults.Add);
 
             Assert.AreEqual(1, syncResults.Count);
             Assert.AreSame(externalTable, syncResults[0].SourceTable);
@@ -555,12 +490,10 @@ public sealed class BmsPlaylistUpdateTests
             }
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
 
-            int callbackCount = 0;
             int syncResultCount = 0;
             tableWriterGuard = table.ReaderWriterLock.GetWriterGuard();
             reloadTask = playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                 [table],
-                [context => callbackCount++],
                 _ => syncResultCount++,
                 reason: "test_removed_target",
                 requireCurrentTargetForApply: true);
@@ -578,8 +511,7 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsFalse(results[0].Succeeded);
             Assert.IsFalse(results[0].Updated);
             Assert.AreSame(table, results[0].ResultTable);
-            Assert.IsNull(results[0].UpdateContext);
-            Assert.AreEqual(0, callbackCount);
+            Assert.IsNull(results[0].UpdateReceipt);
             Assert.AreEqual(1, syncResultCount);
             Assert.AreEqual(0, playlist.BMSTables.Count);
             using var verify = new LR2SongDBExtended(songDbPath);
@@ -679,6 +611,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 message => lifecycleLogs.Add(message),
                 (exception, message) => failureLogs.Add((exception, message)), request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            workspace.RefreshPlaylistTreeTables(playlist);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             int progressCount = 0;
             int referenceSortInvalidationCount = 0;

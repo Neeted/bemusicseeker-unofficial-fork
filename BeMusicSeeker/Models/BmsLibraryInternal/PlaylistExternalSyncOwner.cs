@@ -68,6 +68,8 @@ internal sealed class PlaylistExternalSyncOwner
 
     private readonly Action<Action> executeRegistrationPreparation;
 
+    internal event EventHandler<PlaylistTableUpdateReceiptPublishedEventArgs> PlaylistTableUpdateReceiptPublished;
+
     internal PlaylistExternalSyncOwner(
         AppHttpClient httpClient,
         PlaylistRecommendedTableOwner recommendedTableOwner,
@@ -328,13 +330,13 @@ internal sealed class PlaylistExternalSyncOwner
 
     internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(
         IEnumerable<BMSTable> targets,
-        List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null,
         Action<PlaylistSyncAttemptResult> syncResultCallback = null,
         Action<PlaylistSyncProgressSnapshot> progressCallback = null,
         string reason = "ReloadPlaylistTargetsAsync",
         CancellationToken cancellationToken = default,
         bool requireCurrentTargetForApply = true,
-        Func<BMSTable, Uri> uriProvider = null)
+        Func<BMSTable, Uri> uriProvider = null,
+        bool publishReferenceReceipts = false)
     {
         enterPlaylistUpdating?.Invoke();
         try
@@ -386,12 +388,12 @@ internal sealed class PlaylistExternalSyncOwner
                     PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(
                         table,
                         uri,
-                        updateCallbackActions,
                         syncResultCallback,
                         reason,
                         cancellationToken,
                         requireCurrentTargetForApply,
-                        allowUriOverride: uriProvider != null).ConfigureAwait(false);
+                        allowUriOverride: uriProvider != null,
+                        publishReferenceReceipt: publishReferenceReceipts).ConfigureAwait(false);
                     lock (resultLock)
                     {
                         results.Add(result);
@@ -476,10 +478,10 @@ internal sealed class PlaylistExternalSyncOwner
 
     internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(
         bool reloadExtPlaylist = true,
-        List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null,
         Action<PlaylistSyncAttemptResult> syncResultCallback = null,
         Action<PlaylistSyncProgressSnapshot> progressCallback = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool publishReferenceReceipts = false)
     {
         enterPlaylistUpdating?.Invoke();
         try
@@ -497,31 +499,12 @@ internal sealed class PlaylistExternalSyncOwner
             })];
             List<PlaylistReloadTargetResult> results = await ReloadPlaylistTargetsAsync(
                 reloadTargets,
-                updateCallbackActions,
                 syncResultCallback,
                 progressCallback,
                 "UpdateBMSTablesInternalAsync",
                 cancellationToken,
-                requireCurrentTargetForApply: true).ConfigureAwait(false);
-            if (updateCallbackActions != null)
-            {
-                var reloadedTables = new HashSet<BMSTable>(results.Select(result => result.SourceTable).Where(table => table != null));
-                foreach (BMSTable table in tableSnapshot.Where(table => table != null && !reloadedTables.Contains(table)))
-                {
-                    InvokePlaylistUpdateCallbacks(
-                        new PlaylistTableUpdateContext
-                        {
-                            NewTable = table,
-                            Updated = false,
-                            ReferenceEntriesChanged = false,
-                            OldTable = table,
-                            OldEntriesSnapshot = null,
-                            NewEntriesSnapshot = null
-                        },
-                        updateCallbackActions,
-                        table.Page_url ?? table.Header_url);
-                }
-            }
+                requireCurrentTargetForApply: true,
+                publishReferenceReceipts: publishReferenceReceipts).ConfigureAwait(false);
             stopwatch.Stop();
             List<BMSTable> updatedTables = [.. results
                 .Where(result => result.Succeeded && result.Updated && result.ResultTable != null)
@@ -928,12 +911,12 @@ internal sealed class PlaylistExternalSyncOwner
     private async Task<PlaylistReloadTargetResult> ReloadPlaylistTargetCoreAsync(
         BMSTable table,
         Uri uri,
-        List<Action<PlaylistTableUpdateContext>> updateCallbackActions,
         Action<PlaylistSyncAttemptResult> syncResultCallback,
         string reason,
         CancellationToken cancellationToken,
         bool requireCurrentTargetForApply = true,
-        bool allowUriOverride = false)
+        bool allowUriOverride = false,
+        bool publishReferenceReceipt = false)
     {
         BMSTable newTable = table;
         List<BMSTableEntry> oldEntriesSnapshot = null;
@@ -1087,19 +1070,22 @@ internal sealed class PlaylistExternalSyncOwner
                 PlaylistSyncAttemptResult.CreateFailure(table, uri, ex),
                 reason);
         }
-        PlaylistTableUpdateContext updateContext = null;
+        PlaylistTableUpdateReceipt updateReceipt = null;
         if (!applySkipped)
         {
-            updateContext = new PlaylistTableUpdateContext
+            updateReceipt = new PlaylistTableUpdateReceipt(
+                table,
+                newTable,
+                updated,
+                persistenceDecision?.NeedsEntryPersistence == true,
+                oldEntriesSnapshot,
+                newEntriesSnapshot,
+                uri,
+                reason);
+            if (publishReferenceReceipt)
             {
-                NewTable = newTable,
-                Updated = updated,
-                ReferenceEntriesChanged = persistenceDecision?.NeedsEntryPersistence == true,
-                OldTable = table,
-                OldEntriesSnapshot = oldEntriesSnapshot,
-                NewEntriesSnapshot = newEntriesSnapshot
-            };
-            InvokePlaylistUpdateCallbacks(updateContext, updateCallbackActions, uri);
+                PublishPlaylistTableUpdateReceipt(updateReceipt, uri);
+            }
         }
         return new PlaylistReloadTargetResult
         {
@@ -1108,32 +1094,38 @@ internal sealed class PlaylistExternalSyncOwner
             Uri = uri,
             Updated = updated,
             Exception = failure,
-            UpdateContext = updateContext
+            UpdateReceipt = updateReceipt
         };
     }
 
-    private void InvokePlaylistUpdateCallbacks(
-        PlaylistTableUpdateContext updateContext,
-        List<Action<PlaylistTableUpdateContext>> updateCallbackActions,
+    private void PublishPlaylistTableUpdateReceipt(
+        PlaylistTableUpdateReceipt receipt,
         Uri uri)
     {
-        if (updateCallbackActions == null)
+        if (receipt == null)
         {
             return;
         }
-        try
+        foreach (EventHandler<PlaylistTableUpdateReceiptPublishedEventArgs> handler in
+            PlaylistTableUpdateReceiptPublished?.GetInvocationList()
+                .Cast<EventHandler<PlaylistTableUpdateReceiptPublishedEventArgs>>()
+                ?? [])
         {
-            foreach (Action<PlaylistTableUpdateContext> action in updateCallbackActions.Where(action => action != null))
+            try
             {
-                action(updateContext);
+                handler(
+                    this,
+                    new PlaylistTableUpdateReceiptPublishedEventArgs(receipt));
             }
-        }
-        catch (Exception ex)
-        {
-            logWarning?.Invoke(
-                ex,
-                "playlist_update_callback_failed table=" + FormatTextForLog(updateContext?.NewTable?.name)
-                + " uri=" + FormatUriForLog(uri));
+            catch (Exception ex)
+            {
+                logWarning?.Invoke(
+                    ex,
+                    "playlist_update_receipt_consumer_failed table="
+                    + FormatTextForLog(receipt.NewTable?.name)
+                    + " uri="
+                    + FormatUriForLog(uri));
+            }
         }
     }
 
@@ -1218,19 +1210,53 @@ internal sealed class PlaylistExternalSyncOwner
         internal bool Succeeded => Exception == null && ExternalTable != null;
     }
 
-    internal sealed class PlaylistTableUpdateContext
+    internal sealed class PlaylistTableUpdateReceipt
     {
-        internal BMSTable NewTable { get; init; }
+        internal PlaylistTableUpdateReceipt(
+            BMSTable oldTable,
+            BMSTable newTable,
+            bool updated,
+            bool referenceEntriesChanged,
+            IReadOnlyList<BMSTableEntry> oldEntriesSnapshot,
+            IReadOnlyList<BMSTableEntry> newEntriesSnapshot,
+            Uri uri,
+            string reason)
+        {
+            OldTable = oldTable;
+            NewTable = newTable;
+            Updated = updated;
+            ReferenceEntriesChanged = referenceEntriesChanged;
+            OldEntriesSnapshot = oldEntriesSnapshot;
+            NewEntriesSnapshot = newEntriesSnapshot;
+            Uri = uri;
+            Reason = reason ?? string.Empty;
+        }
 
-        internal bool Updated { get; init; }
+        internal BMSTable NewTable { get; }
 
-        internal bool ReferenceEntriesChanged { get; init; }
+        internal bool Updated { get; }
 
-        internal BMSTable OldTable { get; init; }
+        internal bool ReferenceEntriesChanged { get; }
 
-        internal IReadOnlyList<BMSTableEntry> OldEntriesSnapshot { get; init; }
+        internal BMSTable OldTable { get; }
 
-        internal IReadOnlyList<BMSTableEntry> NewEntriesSnapshot { get; init; }
+        internal IReadOnlyList<BMSTableEntry> OldEntriesSnapshot { get; }
+
+        internal IReadOnlyList<BMSTableEntry> NewEntriesSnapshot { get; }
+
+        internal Uri Uri { get; }
+
+        internal string Reason { get; }
+    }
+
+    internal sealed class PlaylistTableUpdateReceiptPublishedEventArgs : EventArgs
+    {
+        internal PlaylistTableUpdateReceiptPublishedEventArgs(PlaylistTableUpdateReceipt receipt)
+        {
+            Receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
+        }
+
+        internal PlaylistTableUpdateReceipt Receipt { get; }
     }
 
     internal sealed class PlaylistReloadTargetResult
@@ -1245,7 +1271,7 @@ internal sealed class PlaylistExternalSyncOwner
 
         internal Exception Exception { get; init; }
 
-        internal PlaylistTableUpdateContext UpdateContext { get; init; }
+        internal PlaylistTableUpdateReceipt UpdateReceipt { get; init; }
 
         internal bool Succeeded => Exception == null;
     }
