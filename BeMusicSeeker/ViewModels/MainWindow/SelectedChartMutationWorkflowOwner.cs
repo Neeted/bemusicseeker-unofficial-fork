@@ -188,43 +188,6 @@ internal sealed class SelectedChartDeleteConfirmationResult
     }
 }
 
-internal sealed class SelectedInvalidExtensionRenameConfirmationResult
-{
-    private SelectedInvalidExtensionRenameConfirmationResult(
-        bool accepted,
-        SelectedInvalidExtensionRenameOperation operation,
-        Exception failure)
-    {
-        Accepted = accepted;
-        Operation = operation;
-        Failure = failure;
-    }
-
-    internal bool Accepted { get; }
-
-    internal SelectedInvalidExtensionRenameOperation Operation { get; }
-
-    internal Exception Failure { get; }
-
-    internal static SelectedInvalidExtensionRenameConfirmationResult Rejected { get; } = new(false, null, null);
-
-    internal static SelectedInvalidExtensionRenameConfirmationResult AcceptedOperation(SelectedInvalidExtensionRenameOperation operation)
-    {
-        return new SelectedInvalidExtensionRenameConfirmationResult(
-            true,
-            operation ?? throw new ArgumentNullException(nameof(operation)),
-            null);
-    }
-
-    internal static SelectedInvalidExtensionRenameConfirmationResult Failed(Exception failure)
-    {
-        return new SelectedInvalidExtensionRenameConfirmationResult(
-            false,
-            null,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
-    }
-}
-
 internal sealed class SelectedChartMoveConfirmationResult
 {
     private SelectedChartMoveConfirmationResult(
@@ -295,25 +258,6 @@ internal sealed class SelectedChartDeleteOperation : ISelectedChartMutationOpera
     internal IReadOnlyList<string> ApprovedWholeFolderDeletePaths { get; }
 
     internal bool DeleteContainingPackageFoldersWhenNoBms { get; }
-}
-
-internal sealed class SelectedInvalidExtensionRenameOperation : ISelectedChartMutationOperation
-{
-    internal SelectedInvalidExtensionRenameOperation(
-        bool isPendingSelected,
-        IReadOnlyList<ChartFile> bCharts,
-        IReadOnlyList<ChartFile> pCharts)
-    {
-        IsPendingSelected = isPendingSelected;
-        BCharts = bCharts ?? throw new ArgumentNullException(nameof(bCharts));
-        PCharts = pCharts ?? throw new ArgumentNullException(nameof(pCharts));
-    }
-
-    internal bool IsPendingSelected { get; }
-
-    internal IReadOnlyList<ChartFile> BCharts { get; }
-
-    internal IReadOnlyList<ChartFile> PCharts { get; }
 }
 
 internal sealed class SelectedChartMoveOperation : ISelectedChartMutationOperation
@@ -522,7 +466,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
             }));
     }
 
-    internal SelectedInvalidExtensionRenameConfirmationResult ConfirmRenameInvalidExtensions(
+    internal Task<SelectedChartMutationResult> RenameInvalidExtensionsAsync(
         SelectedInvalidExtensionRenameRequest request)
     {
         if (request == null)
@@ -531,66 +475,79 @@ internal sealed class SelectedChartMutationWorkflowOwner
         }
         try
         {
-            List<ChartFile> charts = [.. request.Targets
+            List<ChartOperationTarget> targets = [.. request.Targets
                 .Where(target => target?.HasCapability(ChartOperationCapabilities.RenameInvalidExtension) == true)
-                .Select(target => target.Chart)
-                .Where(ChartFileKindResolver.IsBmsChartFile)];
-            if (charts.Count == 0 || !ConfirmMessage(
+                .Where(target => ChartFileKindResolver.IsBmsChartFile(target.Chart))];
+            if (targets.Count == 0)
+            {
+                return Task.FromResult(SelectedChartMutationResult.Completed);
+            }
+            if (targets.Any(target =>
+                target.IsPending != request.IsPendingSelected
+                || (target.SourceScope == ChartOperationSourceScope.PendingPackage)
+                != request.IsPendingSelected))
+            {
+                return Task.FromResult(SelectedChartMutationResult.Failed(
+                    new InvalidOperationException(
+                        "Selected chart rename targets do not match the current operation section.")));
+            }
+
+            List<ChartFile> charts = [.. targets.Select(target => target.Chart)];
+            if (!ConfirmMessage(
                 BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid,
                 "Invalid chart extension rename confirmation"))
             {
-                return SelectedInvalidExtensionRenameConfirmationResult.Rejected;
+                return Task.FromResult(SelectedChartMutationResult.Completed);
             }
 
-            var operation = new SelectedInvalidExtensionRenameOperation(
-                request.IsPendingSelected,
-                [.. charts.Where(chart => (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".b", StringComparison.OrdinalIgnoreCase))],
-                [.. charts.Where(chart => (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".p", StringComparison.OrdinalIgnoreCase))]);
-            RegisterOperation(operation);
-            return SelectedInvalidExtensionRenameConfirmationResult.AcceptedOperation(operation);
+            IReadOnlyList<ChartFile> bCharts = [.. charts.Where(chart =>
+                (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".b", StringComparison.OrdinalIgnoreCase))];
+            IReadOnlyList<ChartFile> pCharts = [.. charts.Where(chart =>
+                (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".p", StringComparison.OrdinalIgnoreCase))];
+            IReadOnlyList<ChartFile> allCharts = [.. bCharts.Concat(pCharts)];
+            Action stopPlayback;
+            if (request.IsPendingSelected)
+            {
+                stopPlayback = () => playback.StopPlaybackForPendingCharts(allCharts);
+            }
+            else
+            {
+                stopPlayback = () => playback.StopPlaybackForLibraryCharts(
+                    [.. allCharts.Select(LibraryChartRef.FromChartFile).Where(chart => chart != null)]);
+            }
+            return Task.Run(() => ExecuteMutation(
+                request.IsPendingSelected
+                    ? SelectedChartMutationRefreshScope.Pending
+                    : SelectedChartMutationRefreshScope.Library,
+                stopPlayback,
+                library =>
+                {
+                    if (request.IsPendingSelected)
+                    {
+                        if (bCharts.Count > 0)
+                        {
+                            store.RenamePendingCharts(library, bCharts, ".bmx");
+                        }
+                        if (pCharts.Count > 0)
+                        {
+                            store.RenamePendingCharts(library, pCharts, ".pmx");
+                        }
+                        return;
+                    }
+                    if (bCharts.Count > 0)
+                    {
+                        store.RenameLibraryCharts(library, bCharts, ".bmx");
+                    }
+                    if (pCharts.Count > 0)
+                    {
+                        store.RenameLibraryCharts(library, pCharts, ".pmx");
+                    }
+                }));
         }
         catch (Exception ex)
         {
-            return SelectedInvalidExtensionRenameConfirmationResult.Failed(ex);
+            return Task.FromResult(SelectedChartMutationResult.Failed(ex));
         }
-    }
-
-    internal Task<SelectedChartMutationResult> RenameInvalidExtensionsAsync(
-        SelectedInvalidExtensionRenameOperation operation)
-    {
-        if (!TryConsumeOperation(operation))
-        {
-            return Task.FromResult(SelectedChartMutationResult.Failed(
-                new InvalidOperationException("The selected chart rename operation was not issued by this owner.")));
-        }
-        return Task.Run(() => ExecuteMutation(
-            operation.IsPendingSelected
-                ? SelectedChartMutationRefreshScope.Pending
-                : SelectedChartMutationRefreshScope.Library,
-            () => playback.StopPlaybackForPendingCharts([.. operation.BCharts.Concat(operation.PCharts)]),
-            library =>
-            {
-                if (operation.IsPendingSelected)
-                {
-                    if (operation.BCharts.Count > 0)
-                    {
-                        store.RenamePendingCharts(library, operation.BCharts, ".bmx");
-                    }
-                    if (operation.PCharts.Count > 0)
-                    {
-                        store.RenamePendingCharts(library, operation.PCharts, ".pmx");
-                    }
-                    return;
-                }
-                if (operation.BCharts.Count > 0)
-                {
-                    store.RenameLibraryCharts(library, operation.BCharts, ".bmx");
-                }
-                if (operation.PCharts.Count > 0)
-                {
-                    store.RenameLibraryCharts(library, operation.PCharts, ".pmx");
-                }
-            }));
     }
 
     internal SelectedChartMoveConfirmationResult ConfirmMove(SelectedChartMoveRequest request)

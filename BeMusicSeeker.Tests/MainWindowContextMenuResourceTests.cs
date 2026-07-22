@@ -2973,7 +2973,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedChartTargets(ChartOperationCapabilities.RenameInvalidExtension)");
         StringAssert.Contains(renameInvalidExtensionClick, "SelectedInvalidExtensionRenameRequest");
         StringAssert.Contains(renameInvalidExtensionClick, "viewModel.SelectedChartMutations");
+        Assert.AreEqual(1, CountOccurrences(renameInvalidExtensionClick, "RenameInvalidExtensionsAsync("));
+        StringAssert.Contains(renameInvalidExtensionClick, "e.Handled = true;");
+        Assert.IsFalse(renameInvalidExtensionClick.Contains("ConfirmRenameInvalidExtensions"));
+        Assert.IsFalse(renameInvalidExtensionClick.Contains("SelectedInvalidExtensionRenameConfirmationResult"));
+        Assert.IsFalse(renameInvalidExtensionClick.Contains("SelectedInvalidExtensionRenameOperation"));
+        Assert.IsFalse(renameInvalidExtensionClick.Contains("confirmation.Operation"));
         Assert.IsFalse(renameInvalidExtensionClick.Contains("viewModel.RenameBMSFilesExtensions"));
+        Assert.IsFalse(renameInvalidExtensionClick.Contains("Task.Run"));
         StringAssert.Contains(encodingFixClick, "SelectedChartEncodingRequest");
         StringAssert.Contains(encodingFixClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunBmsEncodingFix)");
         StringAssert.Contains(encodingFixClick, "viewModel.SelectedChartMutations.ApplyEncoding(request)");

@@ -6287,20 +6287,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        SelectedInvalidExtensionRenameConfirmationResult confirmation = viewModel.SelectedChartMutations
-            .ConfirmRenameInvalidExtensions(new SelectedInvalidExtensionRenameRequest(
+        SelectedChartMutationResult result = await viewModel.SelectedChartMutations.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest(
                 GetSelectedChartTargets(ChartOperationCapabilities.RenameInvalidExtension),
                 IsPendingMainViewSection(GetCurrentMainViewOperationSection())));
-        if (!confirmation.Accepted)
-        {
-            if (confirmation.Failure != null)
-            {
-                _ = Task.FromException(confirmation.Failure).Logging("tableContextMenuItemRenameBMSFileClick");
-            }
-            return;
-        }
-        SelectedChartMutationResult result = await viewModel.SelectedChartMutations
-            .RenameInvalidExtensionsAsync(confirmation.Operation);
         if (!result.Succeeded && result.Failure != null)
         {
             _ = Task.FromException(result.Failure).Logging("tableContextMenuItemRenameBMSFileClick");

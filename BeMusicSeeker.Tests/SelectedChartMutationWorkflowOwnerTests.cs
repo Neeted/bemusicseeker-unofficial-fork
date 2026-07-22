@@ -127,13 +127,128 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         ChartOperationTarget bChart = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
         ChartOperationTarget pChart = CreateTarget("beta.pms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
 
-        SelectedInvalidExtensionRenameConfirmationResult confirmation = owner.ConfirmRenameInvalidExtensions(
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
             new SelectedInvalidExtensionRenameRequest([bChart, pChart], isPendingSelected: false));
-        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(confirmation.Operation);
 
         Assert.IsTrue(result.Succeeded);
         CollectionAssert.AreEqual(new[] { "library:.bmx", "library:.pmx" }, store.RenameOperations);
         Assert.AreEqual(2, store.RenameCallCount);
+    }
+
+    [TestMethod]
+    public async Task RenameInvalidExtensionsAsync_PendingUsesPendingRouteAndRefreshScope()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var presentation = new RecordingPresentation(events);
+        var owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
+        ChartOperationTarget bChart = CreateTarget("pending.bme", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.RenameInvalidExtension);
+        ChartOperationTarget pChart = CreateTarget("pending.pms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.RenameInvalidExtension);
+
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest([bChart, pChart], isPendingSelected: true));
+
+        Assert.IsTrue(result.Succeeded);
+        CollectionAssert.AreEqual(new[] { "pending:.bmx", "pending:.pmx" }, store.RenameOperations);
+        CollectionAssert.AreEqual(
+            new[] { "activity-start", "pending-playback", "pending-refresh-start", "store-pending-rename", "store-pending-rename", "pending-refresh-end", "activity-end" },
+            events);
+    }
+
+    [TestMethod]
+    public async Task RenameInvalidExtensionsAsync_WithoutEligibleTargetsDoesNotShowDialogOrMutate()
+    {
+        var store = new RecordingStore();
+        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.None);
+
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest([target], isPendingSelected: false));
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(0, store.RenameCallCount);
+    }
+
+    [TestMethod]
+    public async Task RenameInvalidExtensionsAsync_RejectedConfirmationDoesNotMutate()
+    {
+        var store = new RecordingStore();
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResults = new Queue<UiDialogResult>([
+                UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+            ])
+        };
+        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        ChartOperationTarget target = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
+
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest([target], isPendingSelected: false));
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(0, store.RenameCallCount);
+    }
+
+    [TestMethod]
+    public async Task RenameInvalidExtensionsAsync_DialogFailureReturnsFailureWithoutMutation()
+    {
+        var store = new RecordingStore();
+        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        ChartOperationTarget target = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
+
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest([target], isPendingSelected: false));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNotNull(result.Failure);
+        Assert.AreEqual(0, store.RenameCallCount);
+    }
+
+    [TestMethod]
+    public async Task RenameInvalidExtensionsAsync_RejectsTargetsFromDifferentOperationSection()
+    {
+        var store = new RecordingStore();
+        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        ChartOperationTarget pendingTarget = CreateTarget("pending.bme", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.RenameInvalidExtension);
+
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest([pendingTarget], isPendingSelected: false));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsInstanceOfType<InvalidOperationException>(result.Failure);
+        Assert.AreEqual(0, store.RenameCallCount);
+    }
+
+    [TestMethod]
+    public async Task RenameInvalidExtensionsAsync_RejectsTargetWithPendingFlagOnly()
+    {
+        var store = new RecordingStore();
+        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        ChartOperationTarget inconsistentTarget = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, true, ChartOperationCapabilities.RenameInvalidExtension);
+
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest([inconsistentTarget], isPendingSelected: true));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsInstanceOfType<InvalidOperationException>(result.Failure);
+        Assert.AreEqual(0, store.RenameCallCount);
+    }
+
+    [TestMethod]
+    public async Task RenameInvalidExtensionsAsync_MutationFailureReleasesSuppressionAndActivity()
+    {
+        var store = new RecordingStore { Failure = new IOException("mutation failed") };
+        var presentation = new RecordingPresentation();
+        var owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
+        ChartOperationTarget target = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
+
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest([target], isPendingSelected: false));
+
+        Assert.IsFalse(result.Succeeded);
+        CollectionAssert.AreEqual(
+            new[] { "activity-start", "library-playback", "library-refresh-start", "library-refresh-end", "activity-end" },
+            presentation.Events);
     }
 
     [TestMethod]
