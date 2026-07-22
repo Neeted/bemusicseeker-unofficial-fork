@@ -6112,9 +6112,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        ChartInfoParseFailureRemovalResult result = await viewModel.ChartInfoParseFailureRemoval.RemoveAsync(
-            new ChartInfoParseFailureRemovalRequest(md5s),
-            () => e.Handled = true);
+        ChartInfoParseFailureRemovalOperation operation = viewModel.ChartInfoParseFailureRemoval.BeginRemove(
+            new ChartInfoParseFailureRemovalRequest(md5s));
+        ChartInfoParseFailureRemovalAcceptance acceptance = await operation.Acceptance;
+        if (acceptance.Accepted)
+        {
+            e.Handled = true;
+        }
+        ChartInfoParseFailureRemovalResult result = await operation.Completion;
         if (result.Status == ChartInfoParseFailureRemovalStatus.Failed && result.Failure != null)
         {
             _ = Task.FromException(result.Failure).Logging("tableContextMenuItemRemoveChartInfoParseFailureClick");

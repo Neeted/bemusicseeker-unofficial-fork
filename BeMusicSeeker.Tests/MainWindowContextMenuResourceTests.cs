@@ -835,9 +835,13 @@ public sealed class MainWindowContextMenuResourceTests
             "private async void tableContextMenuItemRemoveChartInfoParseFailureClick",
             "private void tableContextMenuItemAutoRenameFolderClick");
 
-        StringAssert.Contains(handler, "viewModel.ChartInfoParseFailureRemoval.RemoveAsync");
+        StringAssert.Contains(handler, "viewModel.ChartInfoParseFailureRemoval.BeginRemove");
         StringAssert.Contains(handler, "new ChartInfoParseFailureRemovalRequest(md5s)");
-        StringAssert.Contains(handler, "() => e.Handled = true");
+        StringAssert.Contains(handler, "ChartInfoParseFailureRemovalAcceptance acceptance = await operation.Acceptance;");
+        StringAssert.Contains(handler, "if (acceptance.Accepted)");
+        StringAssert.Contains(handler, "ChartInfoParseFailureRemovalResult result = await operation.Completion;");
+        StringAssert.Contains(handler, "e.Handled = true;");
+        Assert.IsFalse(handler.Contains("acceptedCallback"));
         Assert.IsFalse(handler.Contains("UiDialogRoute.ShowMessageBox"));
         Assert.IsFalse(handler.Contains("Task.Run"));
         Assert.IsFalse(handler.Contains("viewModel.RemoveChartInfoParseFailuresByMd5"));

@@ -54,7 +54,6 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
                 },
                 RemoveAction = () => releaseStore.Task.GetAwaiter().GetResult()
             };
-            bool acceptedCallbackCalled = false;
             var owner = new ChartInfoParseFailureRemovalWorkflowOwner(
                 () =>
                 {
@@ -70,17 +69,13 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
                 store);
             ChartInfoParseFailureRemovalRequest request = new([" " + new string('A', 32) + " ", new string('a', 32)]);
 
-            Task<ChartInfoParseFailureRemovalResult> operation = owner.RemoveAsync(
-                request,
-                () =>
-                {
-                    acceptedCallbackCalled = true;
-                    order.Add("callback");
-                });
+            ChartInfoParseFailureRemovalOperation operation = owner.BeginRemove(request);
+            ChartInfoParseFailureRemovalAcceptance acceptance = await operation.Acceptance;
+            Assert.IsTrue(acceptance.Accepted);
+            CollectionAssert.AreEqual(Array.Empty<string>(), order.ToArray());
             await storeStarted.Task;
-            Assert.IsFalse(operation.IsCompleted);
-            Assert.IsTrue(acceptedCallbackCalled);
-            CollectionAssert.AreEqual(new[] { "callback", "library", "schedule", "store" }, order.ToArray());
+            Assert.IsFalse(operation.Completion.IsCompleted);
+            CollectionAssert.AreEqual(new[] { "library", "schedule", "store" }, order.ToArray());
             Assert.IsNotNull(dialogs.LastConfirmationRequest);
             Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_remove_chart_info_parse_failure_record, dialogs.LastConfirmationRequest.MessageBoxText);
             Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm, dialogs.LastConfirmationRequest.Caption);
@@ -89,7 +84,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
             Assert.AreEqual(MessageBoxResult.Cancel, dialogs.LastConfirmationRequest.DefaultResult);
 
             releaseStore.TrySetResult(true);
-            ChartInfoParseFailureRemovalResult result = await operation;
+            ChartInfoParseFailureRemovalResult result = await operation.Completion;
 
             Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Removed, result.Status);
             Assert.IsTrue(result.Accepted);
@@ -115,7 +110,6 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         {
             var dialogs = new RecordingDialogService { ConfirmationResult = confirmation };
             var store = new RecordingStore();
-            int callbackCalls = 0;
             int scheduleCalls = 0;
             var owner = new ChartInfoParseFailureRemovalWorkflowOwner(
                 () => null!,
@@ -127,15 +121,13 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
                 },
                 store);
 
-            ChartInfoParseFailureRemovalResult result = await owner.RemoveAsync(
-                new ChartInfoParseFailureRemovalRequest([new string('a', 32)]),
-                () => callbackCalls++);
+            ChartInfoParseFailureRemovalResult result = await owner.BeginRemove(
+                new ChartInfoParseFailureRemovalRequest([new string('a', 32)])).Completion;
 
             Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Rejected, result.Status);
             Assert.IsFalse(result.Accepted);
             Assert.AreEqual(0, scheduleCalls);
             Assert.AreEqual(0, store.CallCount);
-            Assert.AreEqual(0, callbackCalls);
         }
     }
 
@@ -146,22 +138,19 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         var failure = new InvalidOperationException("dialog unavailable");
         var dialogs = new RecordingDialogService { ConfirmationResult = UiDialogResult.Failed(failure) };
         var store = new RecordingStore();
-        int callbackCalls = 0;
         var owner = new ChartInfoParseFailureRemovalWorkflowOwner(
             () => null!,
             dialogs,
             action => Task.Run(action),
             store);
 
-        ChartInfoParseFailureRemovalResult result = await owner.RemoveAsync(
-            new ChartInfoParseFailureRemovalRequest([new string('a', 32)]),
-            () => callbackCalls++);
+        ChartInfoParseFailureRemovalResult result = await owner.BeginRemove(
+            new ChartInfoParseFailureRemovalRequest([new string('a', 32)])).Completion;
 
         Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Failed, result.Status);
         Assert.IsFalse(result.Accepted);
         Assert.AreSame(failure, result.Failure.InnerException);
         Assert.AreEqual(0, store.CallCount);
-        Assert.AreEqual(0, callbackCalls);
     }
 
     [TestMethod]
@@ -173,7 +162,6 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
         };
         int scheduleCalls = 0;
-        int callbackCalls = 0;
         var owner = new ChartInfoParseFailureRemovalWorkflowOwner(
             () => null!,
             dialogs,
@@ -184,15 +172,13 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
             },
             new RecordingStore());
 
-        ChartInfoParseFailureRemovalResult result = await owner.RemoveAsync(
-            new ChartInfoParseFailureRemovalRequest([new string('a', 32)]),
-            () => callbackCalls++);
+        ChartInfoParseFailureRemovalResult result = await owner.BeginRemove(
+            new ChartInfoParseFailureRemovalRequest([new string('a', 32)])).Completion;
 
         Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Failed, result.Status);
         Assert.IsTrue(result.Accepted);
         Assert.IsNotNull(result.Failure);
         Assert.AreEqual(0, scheduleCalls);
-        Assert.AreEqual(1, callbackCalls);
     }
 
     [TestMethod]
@@ -214,8 +200,8 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
                 action => Task.Run(action),
                 store);
 
-            ChartInfoParseFailureRemovalResult result = await owner.RemoveAsync(
-                new ChartInfoParseFailureRemovalRequest([new string('a', 32)]));
+            ChartInfoParseFailureRemovalResult result = await owner.BeginRemove(
+                new ChartInfoParseFailureRemovalRequest([new string('a', 32)])).Completion;
 
             Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Failed, result.Status);
             Assert.IsTrue(result.Accepted);

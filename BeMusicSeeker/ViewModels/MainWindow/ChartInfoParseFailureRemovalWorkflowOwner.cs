@@ -63,6 +63,31 @@ internal sealed class ChartInfoParseFailureRemovalResult
     }
 }
 
+internal sealed class ChartInfoParseFailureRemovalAcceptance
+{
+    internal ChartInfoParseFailureRemovalAcceptance(bool accepted)
+    {
+        Accepted = accepted;
+    }
+
+    internal bool Accepted { get; }
+}
+
+internal sealed class ChartInfoParseFailureRemovalOperation
+{
+    internal ChartInfoParseFailureRemovalOperation(
+        Task<ChartInfoParseFailureRemovalAcceptance> acceptance,
+        Task<ChartInfoParseFailureRemovalResult> completion)
+    {
+        Acceptance = acceptance ?? throw new ArgumentNullException(nameof(acceptance));
+        Completion = completion ?? throw new ArgumentNullException(nameof(completion));
+    }
+
+    internal Task<ChartInfoParseFailureRemovalAcceptance> Acceptance { get; }
+
+    internal Task<ChartInfoParseFailureRemovalResult> Completion { get; }
+}
+
 internal interface IChartInfoParseFailureRemovalStore
 {
     void Remove(BMSLibrary library, IReadOnlyList<string> md5s);
@@ -90,13 +115,27 @@ internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
         this.store = store ?? new BmsLibraryChartInfoParseFailureRemovalStore();
     }
 
-    internal async Task<ChartInfoParseFailureRemovalResult> RemoveAsync(
+    internal ChartInfoParseFailureRemovalOperation BeginRemove(
+        ChartInfoParseFailureRemovalRequest request)
+    {
+        var acceptance = new TaskCompletionSource<ChartInfoParseFailureRemovalAcceptance>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<ChartInfoParseFailureRemovalResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = RunRemoveAsync(request, acceptance, completion);
+        return new ChartInfoParseFailureRemovalOperation(acceptance.Task, completion.Task);
+    }
+
+    private async Task RunRemoveAsync(
         ChartInfoParseFailureRemovalRequest request,
-        Action acceptedCallback = null)
+        TaskCompletionSource<ChartInfoParseFailureRemovalAcceptance> acceptance,
+        TaskCompletionSource<ChartInfoParseFailureRemovalResult> completion)
     {
         if (request?.HasTargets != true)
         {
-            return ChartInfoParseFailureRemovalResult.NotStarted;
+            acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false));
+            completion.TrySetResult(ChartInfoParseFailureRemovalResult.NotStarted);
+            return;
         }
 
         bool accepted = false;
@@ -118,7 +157,9 @@ internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
                     or UiDialogStatus.CancelledByUser
                     or UiDialogStatus.ClosedByUser)
                 {
-                    return ChartInfoParseFailureRemovalResult.Rejected;
+                    acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false));
+                    completion.TrySetResult(ChartInfoParseFailureRemovalResult.Rejected);
+                    return;
                 }
                 throw new InvalidOperationException(
                     "Chart-info parse-failure removal confirmation could not be displayed ("
@@ -128,7 +169,8 @@ internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
             }
 
             accepted = true;
-            acceptedCallback?.Invoke();
+            acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: true));
+            await Task.Yield();
             BMSLibrary library = libraryProvider()
                 ?? throw new InvalidOperationException("Chart-info parse-failure removal library is not available.");
             Task scheduled = schedule(() => store.Remove(library, request.Md5s));
@@ -137,11 +179,12 @@ internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
                 throw new InvalidOperationException("Chart-info parse-failure removal scheduler returned no task.");
             }
             await scheduled;
-            return ChartInfoParseFailureRemovalResult.Removed;
+            completion.TrySetResult(ChartInfoParseFailureRemovalResult.Removed);
         }
         catch (Exception exception)
         {
-            return ChartInfoParseFailureRemovalResult.Failed(exception, accepted);
+            acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted));
+            completion.TrySetResult(ChartInfoParseFailureRemovalResult.Failed(exception, accepted));
         }
     }
 }
