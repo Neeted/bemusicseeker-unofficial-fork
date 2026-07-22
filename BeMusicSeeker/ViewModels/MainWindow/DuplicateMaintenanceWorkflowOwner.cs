@@ -13,22 +13,41 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal interface IDuplicateMaintenanceActivityPort
+internal abstract class DuplicateMaintenanceWorkflowChangedEventArgs : EventArgs
 {
-    void BeginActivity();
-
-    void EndActivity();
 }
 
-internal interface IDuplicateMaintenanceRefreshPort
+internal sealed class DuplicateMaintenanceActivityChangedEventArgs : DuplicateMaintenanceWorkflowChangedEventArgs
 {
-    void BeginRefreshSuppression();
+    internal DuplicateMaintenanceActivityChangedEventArgs(bool isActive)
+    {
+        IsActive = isActive;
+    }
 
-    void EndRefreshSuppression();
+    internal bool IsActive { get; }
+}
 
-    void BeginRefreshPriorityWindow(string reason);
+internal sealed class DuplicateMaintenanceRefreshSuppressionChangedEventArgs : DuplicateMaintenanceWorkflowChangedEventArgs
+{
+    internal DuplicateMaintenanceRefreshSuppressionChangedEventArgs(bool isSuppressed)
+    {
+        IsSuppressed = isSuppressed;
+    }
 
-    void ScheduleRefreshPriorityWindowRelease(string reason);
+    internal bool IsSuppressed { get; }
+}
+
+internal sealed class DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs : DuplicateMaintenanceWorkflowChangedEventArgs
+{
+    internal DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs(bool isActive, string reason)
+    {
+        IsActive = isActive;
+        Reason = reason;
+    }
+
+    internal bool IsActive { get; }
+
+    internal string Reason { get; }
 }
 
 internal interface IDuplicateMaintenancePlaybackPort
@@ -282,8 +301,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
-    private readonly IDuplicateMaintenanceActivityPort activity;
-    private readonly IDuplicateMaintenanceRefreshPort refresh;
     private readonly IDuplicateMaintenancePlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly Func<bool> showConfirmationProvider;
@@ -294,8 +311,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
-        IDuplicateMaintenanceActivityPort activity,
-        IDuplicateMaintenanceRefreshPort refresh,
         IDuplicateMaintenancePlaybackPort playback,
         IUiDialogService dialogs,
         Func<bool> showConfirmationProvider,
@@ -303,13 +318,13 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
-        this.activity = activity ?? throw new ArgumentNullException(nameof(activity));
-        this.refresh = refresh ?? throw new ArgumentNullException(nameof(refresh));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.showConfirmationProvider = showConfirmationProvider ?? throw new ArgumentNullException(nameof(showConfirmationProvider));
         this.store = store ?? new BmsLibraryDuplicateMaintenanceStore();
     }
+
+    internal event EventHandler<DuplicateMaintenanceWorkflowChangedEventArgs> WorkflowChanged;
 
     internal DuplicateMaintenanceConfirmationResult ConfirmFolderMerge(DuplicateFolderMergeRequest request)
     {
@@ -480,15 +495,15 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                     new InvalidOperationException("Duplicate maintenance library is not available."));
             }
             dialogScope = library.BeginOperationDialogScope();
-            activity.BeginActivity();
+            PublishActivityChanged(isActive: true);
             activityStarted = true;
             operationGate = chartFileOperations.Enter();
             stopPlayback();
-            refresh.BeginRefreshSuppression();
+            PublishRefreshSuppressionChanged(isSuppressed: true);
             suppressionStarted = true;
             if (!string.IsNullOrWhiteSpace(refreshPriorityReason))
             {
-                refresh.BeginRefreshPriorityWindow(refreshPriorityReason);
+                PublishRefreshPriorityWindowChanged(isActive: true, reason: refreshPriorityReason);
                 refreshPriorityStarted = true;
             }
             mutation(library);
@@ -501,12 +516,14 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         {
             if (suppressionStarted)
             {
-                CaptureCleanupFailure(refresh.EndRefreshSuppression, failures);
+                CaptureCleanupFailure(
+                    () => PublishRefreshSuppressionChanged(isSuppressed: false),
+                    failures);
             }
             if (refreshPriorityStarted)
             {
                 CaptureCleanupFailure(
-                    () => refresh.ScheduleRefreshPriorityWindowRelease(refreshPriorityReason),
+                    () => PublishRefreshPriorityWindowChanged(isActive: false, reason: refreshPriorityReason),
                     failures);
             }
             if (operationGate != null)
@@ -515,7 +532,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             }
             if (activityStarted)
             {
-                CaptureCleanupFailure(activity.EndActivity, failures);
+                CaptureCleanupFailure(
+                    () => PublishActivityChanged(isActive: false),
+                    failures);
             }
             if (dialogScope != null)
             {
@@ -532,6 +551,27 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             failures.Count == 1
                 ? failures[0].SourceException
                 : new AggregateException(failures.Select(failure => failure.SourceException)));
+    }
+
+    private void PublishActivityChanged(bool isActive)
+    {
+        WorkflowChanged?.Invoke(
+            this,
+            new DuplicateMaintenanceActivityChangedEventArgs(isActive));
+    }
+
+    private void PublishRefreshSuppressionChanged(bool isSuppressed)
+    {
+        WorkflowChanged?.Invoke(
+            this,
+            new DuplicateMaintenanceRefreshSuppressionChangedEventArgs(isSuppressed));
+    }
+
+    private void PublishRefreshPriorityWindowChanged(bool isActive, string reason)
+    {
+        WorkflowChanged?.Invoke(
+            this,
+            new DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs(isActive, reason));
     }
 
     private static List<ChartFile> BuildHashCleanupDeletionList(IEnumerable<ChartFile> charts)
@@ -661,35 +701,5 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
         {
             library.RemoveLibraryCharts(chartRefs);
         }
-    }
-}
-
-internal sealed class NoOpDuplicateMaintenanceActivityPort : IDuplicateMaintenanceActivityPort
-{
-    public void BeginActivity()
-    {
-    }
-
-    public void EndActivity()
-    {
-    }
-}
-
-internal sealed class NoOpDuplicateMaintenanceRefreshPort : IDuplicateMaintenanceRefreshPort
-{
-    public void BeginRefreshSuppression()
-    {
-    }
-
-    public void EndRefreshSuppression()
-    {
-    }
-
-    public void BeginRefreshPriorityWindow(string reason)
-    {
-    }
-
-    public void ScheduleRefreshPriorityWindowRelease(string reason)
-    {
     }
 }

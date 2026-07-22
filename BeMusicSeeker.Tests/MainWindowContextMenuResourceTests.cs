@@ -4917,11 +4917,21 @@ public sealed class MainWindowContextMenuResourceTests
             "ViewModels",
             "MainWindow",
             "DuplicateMaintenanceWorkflowOwner.cs");
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
         StringAssert.Contains(mainWindowCode, "viewModel.DuplicateMaintenanceWorkflow");
+        StringAssert.Contains(viewModelCode, "DuplicateMaintenanceWorkflow.WorkflowChanged += DuplicateMaintenanceWorkflowChanged;");
         StringAssert.Contains(ownerCode, "showConfirmationProvider()");
         StringAssert.Contains(ownerCode, "Msg_merge_bms_target");
         StringAssert.Contains(ownerCode, "Msg_cleanup_duplicate_hash");
+        StringAssert.Contains(ownerCode, "PublishActivityChanged(isActive: true)");
+        StringAssert.Contains(ownerCode, "PublishRefreshSuppressionChanged(isSuppressed: true)");
+        StringAssert.Contains(ownerCode, "PublishRefreshPriorityWindowChanged(isActive: true");
+        Assert.IsFalse(viewModelCode.Contains("IDuplicateMaintenanceActivityPort"));
+        Assert.IsFalse(viewModelCode.Contains("IDuplicateMaintenanceRefreshPort"));
+        Assert.IsFalse(ownerCode.Contains("IDuplicateMaintenanceActivityPort"));
+        Assert.IsFalse(ownerCode.Contains("IDuplicateMaintenanceRefreshPort"));
+        Assert.IsFalse(ownerCode.Contains("NoOpDuplicateMaintenance"));
         Assert.IsFalse(mainWindowCode.Contains("private void ExecuteDuplicateFolderMerge("));
         Assert.IsFalse(mainWindowCode.Contains("private void ExecuteDuplicateHashCleanup("));
     }

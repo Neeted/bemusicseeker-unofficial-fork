@@ -46,7 +46,7 @@ namespace BeMusicSeeker.ViewModels;
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort
+public partial class MainWindowViewModel : ViewModel, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -1483,38 +1483,53 @@ public partial class MainWindowViewModel : ViewModel, IDuplicateMaintenanceActiv
         }
     }
 
-    void IDuplicateMaintenanceActivityPort.BeginActivity()
+    private void DuplicateMaintenanceWorkflowChanged(
+        object sender,
+        DuplicateMaintenanceWorkflowChangedEventArgs e)
     {
-        BeginChartPackageMutation();
-    }
-
-    void IDuplicateMaintenanceRefreshPort.BeginRefreshSuppression()
-    {
-        BeginUiUpdateSuppression(
-            UiRefreshChannel.LibraryMainView
-            | UiRefreshChannel.LibraryFolderTree
-            | UiRefreshChannel.InstallTree
-            | UiRefreshChannel.DuplicateTree);
-    }
-
-    void IDuplicateMaintenanceRefreshPort.EndRefreshSuppression()
-    {
-        EndUiUpdateSuppression();
-    }
-
-    void IDuplicateMaintenanceActivityPort.EndActivity()
-    {
-        EndChartPackageMutation();
-    }
-
-    void IDuplicateMaintenanceRefreshPort.BeginRefreshPriorityWindow(string reason)
-    {
-        PlaylistWorkspace.BeginDuplicateRefreshPriorityWindow(reason);
-    }
-
-    void IDuplicateMaintenanceRefreshPort.ScheduleRefreshPriorityWindowRelease(string reason)
-    {
-        ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(reason + "_ui_refresh_done");
+        switch (e)
+        {
+            case DuplicateMaintenanceActivityChangedEventArgs activityChanged:
+                if (activityChanged.IsActive)
+                {
+                    BeginChartPackageMutation();
+                }
+                else
+                {
+                    EndChartPackageMutation();
+                }
+                break;
+            case DuplicateMaintenanceRefreshSuppressionChangedEventArgs suppressionChanged:
+                if (suppressionChanged.IsSuppressed)
+                {
+                    BeginUiUpdateSuppression(
+                        UiRefreshChannel.LibraryMainView
+                        | UiRefreshChannel.LibraryFolderTree
+                        | UiRefreshChannel.InstallTree
+                        | UiRefreshChannel.DuplicateTree);
+                }
+                else
+                {
+                    EndUiUpdateSuppression();
+                }
+                break;
+            case DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs priorityChanged:
+                if (priorityChanged.IsActive)
+                {
+                    PlaylistWorkspace.BeginDuplicateRefreshPriorityWindow(priorityChanged.Reason);
+                }
+                else
+                {
+                    ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(
+                        priorityChanged.Reason + "_ui_refresh_done");
+                }
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(e),
+                    e,
+                    "Unsupported duplicate-maintenance workflow change.");
+        }
     }
 
     void ISelectedChartMutationActivityPort.BeginActivity()
@@ -2605,8 +2620,6 @@ public partial class MainWindowViewModel : ViewModel, IDuplicateMaintenanceActiv
             new UiDialogCoordinator(),
             zeroNoteLibraryProvider: () => files,
             packageCatalogLibraryProvider: () => files,
-            duplicateMaintenanceActivity: this,
-            duplicateMaintenanceRefresh: this,
             duplicateMaintenanceDialogService: new UiDialogCoordinator(),
             showDuplicateFileCheckConfirmProvider: () => ApplicationSettings.ShowDuplicateFileCheckConfirmMsg,
             duplicateMaintenanceLibraryProvider: () => files,
@@ -2663,6 +2676,7 @@ public partial class MainWindowViewModel : ViewModel, IDuplicateMaintenanceActiv
         PackageCatalog = childComposition.PackageCatalogWorkflow;
         PackageCatalog.MutationPhasePublished += PackageCatalogMutationPhasePublished;
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
+        DuplicateMaintenanceWorkflow.WorkflowChanged += DuplicateMaintenanceWorkflowChanged;
         SelectedChartMutations = childComposition.SelectedChartMutations;
         SelectedChartExternalActions = childComposition.SelectedChartExternalActions;
         SelectedChartResourceHealth = childComposition.SelectedChartResourceHealth;

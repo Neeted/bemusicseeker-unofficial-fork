@@ -126,6 +126,43 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task MergeFolderAsync_ObserverCleanupFailureIsAggregatedAfterPriorityRelease()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var presentation = new RecordingPresentation(events)
+        {
+            EndActivityFailure = new InvalidOperationException("activity cleanup failed")
+        };
+        var owner = CreateOwner(events, presentation, AcceptedDialogs(), store);
+        var request = new DuplicateFolderMergeRequest(
+            @"C:\\Songs\\Source",
+            @"C:\\Songs\\Destination",
+            [@"C:\\Songs\\Source", @"C:\\Songs\\Destination"],
+            "Group",
+            "Next group");
+
+        DuplicateMaintenanceConfirmationResult confirmation = owner.ConfirmFolderMerge(request);
+        DuplicateMaintenanceMutationResult result = await owner.MergeFolderAsync(confirmation.Operation);
+
+        Assert.IsFalse(result.Succeeded);
+        StringAssert.Contains(result.Failure.Message, "activity cleanup failed");
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "activity-start",
+                "stop-merge",
+                "suppression-start",
+                "priority-start:merge_folder",
+                "store-merge",
+                "suppression-end",
+                "priority-release:merge_folder",
+                "activity-end"
+            },
+            events);
+    }
+
+    [TestMethod]
     public void ConfirmHashCleanup_RejectionDoesNotCreateMutationPlanForExecution()
     {
         ChartFile first = CreateChart(@"C:\\Songs\\a.bms", "hash");
@@ -151,15 +188,15 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         IUiDialogService dialogs,
         RecordingStore store)
     {
-        return new DuplicateMaintenanceWorkflowOwner(
+        var owner = new DuplicateMaintenanceWorkflowOwner(
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
-            presentation,
-            presentation,
             presentation,
             dialogs,
             () => true,
             store);
+        owner.WorkflowChanged += presentation.OnWorkflowChanged;
+        return owner;
     }
 
     private static BMSLibrary CreateLibrary()
@@ -196,7 +233,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         };
     }
 
-    private sealed class RecordingPresentation : IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, IDuplicateMaintenancePlaybackPort
+    private sealed class RecordingPresentation : IDuplicateMaintenancePlaybackPort
     {
         private readonly List<string> events;
 
@@ -205,21 +242,41 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             this.events = events;
         }
 
-        public void BeginActivity() => events.Add("activity-start");
+        internal Exception? EndActivityFailure { get; set; }
 
-        public void BeginRefreshSuppression() => events.Add("suppression-start");
-
-        public void EndRefreshSuppression() => events.Add("suppression-end");
-
-        public void EndActivity() => events.Add("activity-end");
+        internal void OnWorkflowChanged(
+            object sender,
+            DuplicateMaintenanceWorkflowChangedEventArgs e)
+        {
+            switch (e)
+            {
+                case DuplicateMaintenanceActivityChangedEventArgs activityChanged:
+                    events.Add(activityChanged.IsActive ? "activity-start" : "activity-end");
+                    if (!activityChanged.IsActive && EndActivityFailure != null)
+                    {
+                        throw EndActivityFailure;
+                    }
+                    break;
+                case DuplicateMaintenanceRefreshSuppressionChangedEventArgs suppressionChanged:
+                    events.Add(suppressionChanged.IsSuppressed ? "suppression-start" : "suppression-end");
+                    break;
+                case DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs priorityChanged:
+                    events.Add(
+                        (priorityChanged.IsActive ? "priority-start:" : "priority-release:")
+                        + priorityChanged.Reason);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(e),
+                        e,
+                        "Unsupported duplicate-maintenance workflow change.");
+            }
+        }
 
         public void StopPlaybackForMerge() => events.Add("stop-merge");
 
         public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts) => events.Add("stop-charts");
 
-        public void BeginRefreshPriorityWindow(string reason) => events.Add("priority-start:" + reason);
-
-        public void ScheduleRefreshPriorityWindowRelease(string reason) => events.Add("priority-release:" + reason);
     }
 
     private sealed class RecordingStore : IDuplicateMaintenanceStore
