@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -71,6 +73,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
 
     private readonly Action<Action> dispatchToUi;
 
+    private readonly IUiDialogService dialogs;
+
     private readonly Action<string> logInfo;
 
     private readonly Action<Exception> reportWorkflowFailure;
@@ -93,6 +97,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
         Func<BMSLibrary, string, bool> hasAllTargets,
         Func<Action, Task> schedule,
         Action<Action> dispatchToUi,
+        IUiDialogService dialogs,
         Action<string> logInfo = null,
         Action<Exception> reportNotificationFailure = null,
         Action<Exception> reportWorkflowFailure = null)
@@ -102,6 +107,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
         this.hasAllTargets = hasAllTargets ?? throw new ArgumentNullException(nameof(hasAllTargets));
         this.schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
+        this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.logInfo = logInfo;
         this.reportNotificationFailure = reportNotificationFailure;
         this.reportWorkflowFailure = reportWorkflowFailure;
@@ -177,17 +183,40 @@ internal sealed class FolderAutoRenameWorkflowOwner
         return Schedule(run);
     }
 
-    internal bool StartAll(string parentDirectory)
+    internal async Task RequestStartAllAsync(string parentDirectory)
     {
+        if (!TryCaptureAllRequest(parentDirectory, out BMSLibrary requestedLibrary))
+        {
+            return;
+        }
+
+        UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+            BeMusicSeeker.Properties.Resources.Msg_rename_folders,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            System.Windows.MessageBoxButton.OKCancel,
+            System.Windows.MessageBoxImage.Question,
+            System.Windows.MessageBoxResult.Cancel));
+        UiDialogRoute.ThrowIfNotShown(confirmation, "folderAutoRenameAllConfirmation");
+        if (!confirmation.IsAccepted)
+        {
+            return;
+        }
+
+        if (!LongPathFileSystem.DirectoryExists(parentDirectory))
+        {
+            return;
+        }
+
         RunContext run;
         lock (syncRoot)
         {
-            if (!TryCreateRunUnsafe(allFolders: true, request: null, parentDirectory, out run))
+            if (!ReferenceEquals(library, requestedLibrary)
+                || !TryCreateRunUnsafe(allFolders: true, request: null, parentDirectory, out run))
             {
-                return false;
+                return;
             }
         }
-        return Schedule(run);
+        Schedule(run);
     }
 
     internal void RequestShutdown()
@@ -216,6 +245,20 @@ internal sealed class FolderAutoRenameWorkflowOwner
         run = new RunContext(generation, library, allFolders, request, parentDirectory);
         activeRun = run;
         return true;
+    }
+
+    private bool TryCaptureAllRequest(string parentDirectory, out BMSLibrary requestedLibrary)
+    {
+        if (string.IsNullOrWhiteSpace(parentDirectory) || !LongPathFileSystem.DirectoryExists(parentDirectory))
+        {
+            requestedLibrary = null;
+            return false;
+        }
+        lock (syncRoot)
+        {
+            requestedLibrary = library;
+            return !shutdownRequested && requestedLibrary != null && activeRun == null;
+        }
     }
 
     private bool Schedule(RunContext run)

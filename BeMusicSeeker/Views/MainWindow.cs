@@ -4007,7 +4007,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
     }
 
-    private void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick(object sender, RoutedEventArgs e)
+    private async void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("tree_library_auto_rename_all"))
         {
@@ -4019,14 +4019,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string path = placementTarget.Header.ToString();
-        if (base.DataContext is MainWindowViewModel viewModel
-            && viewModel.FolderAutoRenameWorkflow?.IsActive != true
-            && LongPathFileSystem.DirectoryExists(path)
-            && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_folders, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
-        {
-            viewModel.FolderAutoRenameWorkflow.StartAll(path);
-        }
         e.Handled = true;
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            await viewModel.FolderAutoRenameWorkflow
+                .RequestStartAllAsync(path)
+                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
+        }
     }
 
     private async void treeViewInstalledContextMenuClearAllClick(object sender, RoutedEventArgs e)

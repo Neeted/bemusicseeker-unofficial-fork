@@ -2527,7 +2527,7 @@ public sealed class MainWindowContextMenuResourceTests
         string unregisterHandler = ExtractBetween(
             mainWindowCode,
             "private async void treeViewLibraryFolderContextMenuItemUnregisterRootFolder",
-            "private void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
+            "private async void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
 
         Assert.IsFalse(unregisterHandler.Contains("Task.Run"));
         StringAssert.Contains(unregisterHandler, "await settingDialogViewModel.RequestRemoveBmsSearchRootAsync(path)");
@@ -2558,6 +2558,12 @@ public sealed class MainWindowContextMenuResourceTests
             mainWindowCode,
             "private void tableContextMenuItemAutoRenameFolderClick",
             "private async void tableContextMenuItemRenameBMSFileClick");
+        string autoRenameAllClick = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick",
+            "private async void treeViewInstalledContextMenuClearAllClick");
+        string folderAutoRenameWorkflowOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "FolderAutoRenameWorkflowOwner.cs");
         string moveFileClick = ExtractBetween(
             mainWindowCode,
             "private async void tableContextMenuItemMoveFileClick",
@@ -2590,6 +2596,14 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameClick.Contains("targetSnapshot"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
+        StringAssert.Contains(autoRenameAllClick, "await viewModel.FolderAutoRenameWorkflow");
+        StringAssert.Contains(autoRenameAllClick, "RequestStartAllAsync(path)");
+        StringAssert.Contains(autoRenameAllClick, "e.Handled = true;");
+        Assert.IsFalse(autoRenameAllClick.Contains("UiDialogRoute.ShowMessageBox"));
+        Assert.IsFalse(autoRenameAllClick.Contains("LongPathFileSystem.DirectoryExists"));
+        Assert.IsFalse(autoRenameAllClick.Contains("FolderAutoRenameWorkflow.StartAll"));
+        StringAssert.Contains(folderAutoRenameWorkflowOwnerCode, "dialogs.ConfirmAsync(new UiConfirmationRequest(");
+        StringAssert.Contains(folderAutoRenameWorkflowOwnerCode, "UiDialogRoute.ThrowIfNotShown(confirmation");
         StringAssert.Contains(moveFileClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
         StringAssert.Contains(moveFileClick, "new SelectedChartMoveRequest(targets, dstDir)");
         StringAssert.Contains(moveFileClick, "viewModel.SelectedChartMutations");

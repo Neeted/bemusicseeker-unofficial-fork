@@ -3653,6 +3653,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             message => NLogWrapper.FileLogger?.Info(message),
             ReportFolderAutoRenameWorkflowNotificationFailure,
             ReportFolderAutoRenameWorkflowFailure,
+            new UiDialogCoordinator(),
             zeroNoteLibraryProvider: () => files,
             packageCatalogLibraryProvider: () => files,
             packageCatalogPresentation: this,

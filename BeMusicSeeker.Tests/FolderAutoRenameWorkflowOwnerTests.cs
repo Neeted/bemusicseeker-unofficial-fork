@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -40,7 +42,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action();
                     return Task.CompletedTask;
                 },
-                action => action());
+                action => action(),
+                dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
             owner.ProgressChanged += progress =>
             {
@@ -86,7 +89,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AllRequestWithoutActionableTargets_DoesNotStartProgressOrMutation()
+    public async Task AllRequestWithoutActionableTargets_DoesNotStartProgressOrMutation()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -97,6 +100,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             int progressCalls = 0;
             int callerThreadId = Thread.CurrentThread.ManagedThreadId;
             int checkerThreadId = 0;
+            var dialogs = new AcceptedFolderDialogService();
             var owner = new FolderAutoRenameWorkflowOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
@@ -114,15 +118,181 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default),
-                action => action());
+                action => action(),
+                dialogs: dialogs);
             owner.AttachLibrary(library);
             owner.ProgressChanged += _ => Interlocked.Increment(ref progressCalls);
 
-            Assert.IsTrue(owner.StartAll("C:\\Library"));
+            await owner.RequestStartAllAsync(root);
             Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
             Assert.AreEqual(0, executorCalls);
             Assert.AreEqual(0, progressCalls);
             Assert.AreNotEqual(callerThreadId, checkerThreadId);
+            Assert.AreEqual(1, dialogs.ConfirmationCalls);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task AllRequestAccepted_ConfirmsAndSchedulesAllFoldersOnce()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = CreateRoot();
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            var dialogs = new AcceptedFolderDialogService();
+            var completion = new ManualResetEventSlim(false);
+            int executorCalls = 0;
+            string observedParentDirectory = null!;
+            var owner = new FolderAutoRenameWorkflowOwner(
+                (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
+                (current, parentDirectory, progress) =>
+                {
+                    observedParentDirectory = parentDirectory;
+                    Interlocked.Increment(ref executorCalls);
+                    return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+                },
+                (current, parentDirectory) => true,
+                action => Task.Run(action),
+                action => action(),
+                dialogs: dialogs);
+            owner.AttachLibrary(library);
+            owner.CompletionPublished += _ => completion.Set();
+
+            await owner.RequestStartAllAsync(root);
+
+            Assert.AreEqual(1, dialogs.ConfirmationCalls);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_rename_folders, dialogs.LastConfirmationRequest.MessageBoxText);
+            Assert.AreEqual(MessageBoxButton.OKCancel, dialogs.LastConfirmationRequest.Button);
+            Assert.AreEqual(MessageBoxImage.Question, dialogs.LastConfirmationRequest.Icon);
+            Assert.AreEqual(MessageBoxResult.Cancel, dialogs.LastConfirmationRequest.DefaultResult);
+            Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(1, executorCalls);
+            Assert.AreEqual(root, observedParentDirectory);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task AllRequestCancelled_DoesNotScheduleMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = CreateRoot();
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            var dialogs = new AcceptedFolderDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+            };
+            int executorCalls = 0;
+            var owner = new FolderAutoRenameWorkflowOwner(
+                (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
+                (current, parentDirectory, progress) =>
+                {
+                    Interlocked.Increment(ref executorCalls);
+                    return new FolderAutoRenameExecutionResult();
+                },
+                (current, parentDirectory) => true,
+                action => Task.Run(action),
+                action => action(),
+                dialogs: dialogs);
+            owner.AttachLibrary(library);
+
+            await owner.RequestStartAllAsync(root);
+
+            Assert.AreEqual(1, dialogs.ConfirmationCalls);
+            Assert.AreEqual(0, executorCalls);
+            Assert.IsTrue(owner.IsIdle);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task AllRequestDialogFailure_IsPropagatedBeforeMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = CreateRoot();
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            var dialogs = new AcceptedFolderDialogService
+            {
+                ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("dialog failed"))
+            };
+            int executorCalls = 0;
+            var owner = new FolderAutoRenameWorkflowOwner(
+                (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
+                (current, parentDirectory, progress) =>
+                {
+                    Interlocked.Increment(ref executorCalls);
+                    return new FolderAutoRenameExecutionResult();
+                },
+                (current, parentDirectory) => true,
+                action => Task.Run(action),
+                action => action(),
+                dialogs: dialogs);
+            owner.AttachLibrary(library);
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.RequestStartAllAsync(root));
+
+            Assert.AreEqual(1, dialogs.ConfirmationCalls);
+            Assert.AreEqual(0, executorCalls);
+            Assert.IsTrue(owner.IsIdle);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task AllRequestLibraryReplacementDuringConfirmation_DoesNotScheduleOldRun()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = CreateRoot();
+        string firstRoot = Path.Combine(root, "first");
+        string secondRoot = Path.Combine(root, "second");
+        Directory.CreateDirectory(firstRoot);
+        Directory.CreateDirectory(secondRoot);
+        try
+        {
+            BMSLibrary first = CreateLibrary(firstRoot, "song.db");
+            BMSLibrary second = CreateLibrary(secondRoot, "song.db");
+            var dialogs = new AcceptedFolderDialogService { DeferConfirmation = true };
+            int executorCalls = 0;
+            var owner = new FolderAutoRenameWorkflowOwner(
+                (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
+                (current, parentDirectory, progress) =>
+                {
+                    Interlocked.Increment(ref executorCalls);
+                    return new FolderAutoRenameExecutionResult();
+                },
+                (current, parentDirectory) => true,
+                action => Task.Run(action),
+                action => action(),
+                dialogs: dialogs);
+            owner.AttachLibrary(first);
+
+            Task requestTask = owner.RequestStartAllAsync(firstRoot);
+            Assert.IsTrue(dialogs.ConfirmationStarted.Wait(TimeSpan.FromSeconds(5)));
+            owner.AttachLibrary(second);
+            dialogs.ReleaseConfirmation();
+            await requestTask;
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(0, executorCalls);
         }
         finally
         {
@@ -156,7 +326,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     {
                         notifications.Enqueue(action);
                     }
-                });
+                },
+                dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
             owner.CompletionPublished += _ => Interlocked.Increment(ref completionCount);
 
@@ -201,7 +372,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
                 action => Task.Run(action),
-                action => action());
+                action => action(),
+                dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
             owner.CompletionPublished += _ => completed.Set();
 
@@ -255,7 +427,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
                 action => Task.Run(action),
-                action => action());
+                action => action(),
+                dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(first);
             owner.CompletionPublished += _ =>
             {
@@ -319,7 +492,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     {
                         notifications.Enqueue(action);
                     }
-                });
+                },
+                dialogs: new AcceptedFolderDialogService());
             owner.ProgressChanged += progress =>
             {
                 if (progress.IsCompleted)
@@ -367,7 +541,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
                 action => Task.Run(action),
-                action => action());
+                action => action(),
+                dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
 
             Assert.IsTrue(owner.StartSelected(request));
@@ -405,7 +580,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     return Task.CompletedTask;
                 },
                 action => action(),
-                reportWorkflowFailure: exception => observed = exception);
+                reportWorkflowFailure: exception => observed = exception,
+                dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
             owner.FailurePublished += _ => failure.Set();
 
@@ -438,7 +614,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 action => throw new InvalidOperationException("scheduler failed"),
                 action => throw new InvalidOperationException("dispatcher failed"),
                 reportNotificationFailure: _ => Interlocked.Increment(ref notificationFailures),
-                reportWorkflowFailure: _ => Interlocked.Increment(ref workflowFailures));
+                reportWorkflowFailure: _ => Interlocked.Increment(ref workflowFailures),
+                dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
 
             Assert.IsTrue(owner.StartSelected(request));
@@ -511,6 +688,59 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             }
             notification();
         }
+    }
+
+    private sealed class AcceptedFolderDialogService : IUiDialogService
+    {
+        private readonly TaskCompletionSource<UiDialogResult> pendingConfirmation = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal UiDialogResult ConfirmationResult { get; set; } =
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal bool DeferConfirmation { get; set; }
+
+        internal ManualResetEventSlim ConfirmationStarted { get; } = new(false);
+
+        internal int ConfirmationCalls { get; private set; }
+
+        internal UiConfirmationRequest LastConfirmationRequest { get; private set; } = null!;
+
+        internal void ReleaseConfirmation()
+        {
+            pendingConfirmation.TrySetResult(ConfirmationResult);
+        }
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
+        {
+            ConfirmationCalls++;
+            LastConfirmationRequest = request;
+            ConfirmationStarted.Set();
+            return DeferConfirmation
+                ? pendingConfirmation.Task
+                : Task.FromResult(ConfirmationResult);
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class TestableBmsFile : BMSFile
