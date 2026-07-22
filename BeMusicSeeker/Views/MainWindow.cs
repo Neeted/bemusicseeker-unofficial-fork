@@ -4043,12 +4043,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!ObservePackageCatalogConfirmation(
-            viewModel.PackageCatalog.ConfirmClearAll(PackageCatalogSection.Installed),
-            "treeViewInstalledContextMenuClearAllClick"))
-        {
-            return;
-        }
         await ObservePackageCatalogMutationAsync(
             viewModel.PackageCatalog.ClearAllAsync(PackageCatalogSection.Installed),
             "treeViewInstalledContextMenuClearAllClick");
@@ -4065,32 +4059,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!ObservePackageCatalogConfirmation(
-            viewModel.PackageCatalog.ConfirmClearAll(PackageCatalogSection.Pending),
-            "treeViewInstallPendingContextMenuClearAllClick"))
-        {
-            return;
-        }
         await ObservePackageCatalogMutationAsync(
             viewModel.PackageCatalog.ClearAllAsync(PackageCatalogSection.Pending),
             "treeViewInstallPendingContextMenuClearAllClick");
-    }
-
-    private static bool ObservePackageCatalogConfirmation(
-        PackageCatalogConfirmationResult confirmation,
-        string routeName)
-    {
-        if (confirmation == null)
-        {
-            throw new ArgumentNullException(nameof(confirmation));
-        }
-        if (confirmation.Failure == null)
-        {
-            return confirmation.Accepted;
-        }
-
-        _ = Task.FromException(confirmation.Failure).Logging(routeName);
-        return false;
     }
 
     private static async Task<bool> ObservePackageCatalogMutationAsync(
@@ -6571,13 +6542,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!ObservePackageCatalogConfirmation(
-            viewModel.PackageCatalog.ConfirmRemoveSelection(request),
-            "tableContextMenuItemDeleteInstallPackagesClick"))
-        {
-            return;
-        }
-        e.Handled = true;
         PackageCatalogSelectionPlan selectionPlan = request.IsPending
             ? CaptureNextSiblingOrRoot(
                 treeViewItemInstallPending,
@@ -6587,19 +6551,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 newlyInstalledTreeViewItem,
                 treeView.SelectedItem,
                 "tableContextMenuItemDeleteInstallPackagesClick");
-        bool removed;
-        if (request.IsPending)
+        Task<PackageCatalogMutationResult> operation = viewModel.PackageCatalog.RemoveSelectionAsync(request);
+        if (operation.Status == TaskStatus.RanToCompletion)
         {
-            removed = await ObservePackageCatalogMutationAsync(
-                viewModel.PackageCatalog.RemoveSelectionAsync(
-                    request),
-                "tableContextMenuItemDeleteInstallPackagesClick");
-            if (!removed)
+            PackageCatalogMutationResult immediateResult = operation.GetAwaiter().GetResult();
+            if (!immediateResult.Succeeded && !immediateResult.ShouldApplyView)
             {
+                await ObservePackageCatalogMutationAsync(
+                    operation,
+                    "tableContextMenuItemDeleteInstallPackagesClick");
                 return;
             }
-            ClearMainGridSelection();
-            selectionPlan.Apply(this);
+        }
+        e.Handled = true;
+        bool removed = await ObservePackageCatalogMutationAsync(
+            operation,
+            "tableContextMenuItemDeleteInstallPackagesClick");
+        if (!removed)
+        {
+            return;
+        }
+        ClearMainGridSelection();
+        selectionPlan.Apply(this);
+        if (request.IsPending)
+        {
             if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
             {
                 await viewModel.RegularChartList
@@ -6608,16 +6583,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             return;
         }
-        removed = await ObservePackageCatalogMutationAsync(
-            viewModel.PackageCatalog.RemoveSelectionAsync(
-                request),
-            "tableContextMenuItemDeleteInstallPackagesClick");
-        if (!removed)
-        {
-            return;
-        }
-        ClearMainGridSelection();
-        selectionPlan.Apply(this);
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
             await viewModel.RegularChartList

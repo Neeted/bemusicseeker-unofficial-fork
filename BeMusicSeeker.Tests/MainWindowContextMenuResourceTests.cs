@@ -969,9 +969,11 @@ public sealed class MainWindowContextMenuResourceTests
             "private async void treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
 
         StringAssert.Contains(clearInstalled, ".ClearAllAsync(PackageCatalogSection.Installed)");
-        StringAssert.Contains(clearInstalled, ".ConfirmClearAll(PackageCatalogSection.Installed)");
+        Assert.AreEqual(1, CountOccurrences(clearInstalled, ".ClearAllAsync("));
+        Assert.IsFalse(clearInstalled.Contains("ConfirmClearAll"));
         StringAssert.Contains(clearPending, ".ClearAllAsync(PackageCatalogSection.Pending)");
-        StringAssert.Contains(clearPending, ".ConfirmClearAll(PackageCatalogSection.Pending)");
+        Assert.AreEqual(1, CountOccurrences(clearPending, ".ClearAllAsync("));
+        Assert.IsFalse(clearPending.Contains("ConfirmClearAll"));
         StringAssert.Contains(removePendingPackage, ".RemovePackageAsync(");
         StringAssert.Contains(removePendingPackage, "PackageCatalogSection.Pending");
         Assert.AreEqual(1, CountOccurrences(removePendingPackage, ".RemovePackageAsync("));
@@ -980,6 +982,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(removeInstalledPackage, "PackageCatalogSection.Installed");
         Assert.AreEqual(1, CountOccurrences(removeInstalledPackage, ".RemovePackageAsync("));
         Assert.IsFalse(removeInstalledPackage.Contains("ConfirmRemovePackage"));
+        Assert.IsFalse(clearInstalled.Contains("ObservePackageCatalogConfirmation"));
+        Assert.IsFalse(clearPending.Contains("ObservePackageCatalogConfirmation"));
         StringAssert.Contains(mainWindowXaml, "Click=\"treeViewInstallPackageContextMenuClearFolderClick\"");
         StringAssert.Contains(mainWindowXaml, "Click=\"treeViewInstalledFolderContextMenuClearFolderClick\"");
         foreach (string handler in new[] { clearInstalled, clearPending, removePendingPackage, removeInstalledPackage })
@@ -1007,6 +1011,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(ownerCode, "store.RemoveAll(");
         StringAssert.Contains(ownerCode, "store.RemovePackages(");
         Assert.IsFalse(ownerCode.Contains("ConfirmRemovePackage"));
+        Assert.IsFalse(ownerCode.Contains("PackageCatalogConfirmationResult"));
     }
 
     [TestMethod]
@@ -3083,8 +3088,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(deletePackages, "PackageCatalogRemovalRequest.CreatePending(selectedPendingTargets)");
         StringAssert.Contains(deletePackages, "PackageCatalogRemovalRequest.CreateInstalled(selectedInstalledTargets)");
         StringAssert.Contains(deletePackages, "viewModel.PackageCatalog");
-        StringAssert.Contains(deletePackages, ".ConfirmRemoveSelection(request)");
         StringAssert.Contains(deletePackages, ".RemoveSelectionAsync(");
+        Assert.AreEqual(1, CountOccurrences(deletePackages, ".RemoveSelectionAsync("));
+        Assert.IsFalse(deletePackages.Contains("ConfirmRemoveSelection"));
         StringAssert.Contains(deletePackages, "ObservePackageCatalogMutationAsync(");
         Assert.IsFalse(viewModelCode.Contains("DeleteInstallPackageRecordsRequest"));
         Assert.IsFalse(viewModelCode.Contains("InstallPendingCharts(PendingInstallPackageOperationRequest request)"));
@@ -3093,6 +3099,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(deletePackages.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         Assert.IsFalse(deletePackages.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));
+        Assert.IsFalse(deletePackages.Contains("ObservePackageCatalogConfirmation"));
+        int handledIndex = deletePackages.LastIndexOf("e.Handled = true;", StringComparison.Ordinal);
+        int mutationObserverIndex = deletePackages.LastIndexOf("ObservePackageCatalogMutationAsync(", StringComparison.Ordinal);
+        Assert.IsTrue(handledIndex >= 0 && mutationObserverIndex > handledIndex);
         StringAssert.Contains(estimateSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(estimateSearch, "PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets)");
         StringAssert.Contains(estimateSearch, "viewModel.PendingPackages");

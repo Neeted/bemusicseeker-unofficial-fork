@@ -71,30 +71,6 @@ internal sealed class PackageCatalogMutationResult
     }
 }
 
-internal sealed class PackageCatalogConfirmationResult
-{
-    private PackageCatalogConfirmationResult(bool accepted, Exception failure)
-    {
-        Accepted = accepted;
-        Failure = failure;
-    }
-
-    internal bool Accepted { get; }
-
-    internal Exception Failure { get; }
-
-    internal static PackageCatalogConfirmationResult AcceptedResult { get; } = new(true, null);
-
-    internal static PackageCatalogConfirmationResult Rejected { get; } = new(false, null);
-
-    internal static PackageCatalogConfirmationResult Failed(Exception failure)
-    {
-        return new PackageCatalogConfirmationResult(
-            false,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
-    }
-}
-
 internal sealed class PackageCatalogWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
@@ -117,18 +93,18 @@ internal sealed class PackageCatalogWorkflowOwner
         this.store = store ?? new BmsLibraryPackageCatalogStore();
     }
 
-    internal PackageCatalogConfirmationResult ConfirmClearAll(PackageCatalogSection section)
-    {
-        ValidateSection(section);
-        string message = section == PackageCatalogSection.Pending
-            ? BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings
-            : BeMusicSeeker.Properties.Resources.Msg_clear_all_installed;
-        return ConfirmRemoval(message, "Package catalog clear-all confirmation");
-    }
-
     internal Task<PackageCatalogMutationResult> ClearAllAsync(PackageCatalogSection section)
     {
         ValidateSection(section);
+        PackageCatalogMutationResult confirmation = ConfirmRemoval(
+            section == PackageCatalogSection.Pending
+                ? BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings
+                : BeMusicSeeker.Properties.Resources.Msg_clear_all_installed,
+            "Package catalog clear-all confirmation");
+        if (!confirmation.Succeeded)
+        {
+            return Task.FromResult(confirmation);
+        }
         return Task.Run(() => Execute(library => store.RemoveAll(library, section)));
     }
 
@@ -143,33 +119,18 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         if (section == PackageCatalogSection.Pending)
         {
-            PackageCatalogConfirmationResult confirmation = ConfirmRemoval(
+            PackageCatalogMutationResult confirmation = ConfirmRemoval(
                 BeMusicSeeker.Properties.Resources.Msg_clear_pendings
                 + Environment.NewLine
                 + Environment.NewLine
                 + (package.DisplayTitle ?? string.Empty),
                 "Pending package catalog entry removal confirmation");
-            if (!confirmation.Accepted)
+            if (!confirmation.Succeeded)
             {
-                return Task.FromResult(
-                    confirmation.Failure == null
-                        ? PackageCatalogMutationResult.Rejected
-                        : PackageCatalogMutationResult.FailedBeforeMutation(confirmation.Failure));
+                return Task.FromResult(confirmation);
             }
         }
         return Task.Run(() => Execute(library => store.RemovePackages(library, section, [package])));
-    }
-
-    internal PackageCatalogConfirmationResult ConfirmRemoveSelection(PackageCatalogRemovalRequest request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-        string message = request.IsPending
-            ? BeMusicSeeker.Properties.Resources.Msg_clear_selected_pendings
-            : BeMusicSeeker.Properties.Resources.Msg_clear_selected_installed;
-        return ConfirmRemoval(message, "Selected package catalog entry removal confirmation");
     }
 
     internal Task<PackageCatalogMutationResult> RemoveSelectionAsync(PackageCatalogRemovalRequest request)
@@ -177,6 +138,15 @@ internal sealed class PackageCatalogWorkflowOwner
         if (request == null)
         {
             throw new ArgumentNullException(nameof(request));
+        }
+        PackageCatalogMutationResult confirmation = ConfirmRemoval(
+            request.IsPending
+                ? BeMusicSeeker.Properties.Resources.Msg_clear_selected_pendings
+                : BeMusicSeeker.Properties.Resources.Msg_clear_selected_installed,
+            "Selected package catalog entry removal confirmation");
+        if (!confirmation.Succeeded)
+        {
+            return Task.FromResult(confirmation);
         }
         return Task.Run(() => Execute(library =>
         {
@@ -243,7 +213,7 @@ internal sealed class PackageCatalogWorkflowOwner
         };
     }
 
-    private PackageCatalogConfirmationResult ConfirmRemoval(string message, string routeName)
+    private PackageCatalogMutationResult ConfirmRemoval(string message, string routeName)
     {
         try
         {
@@ -255,17 +225,17 @@ internal sealed class PackageCatalogWorkflowOwner
                 MessageBoxResult.Cancel)).GetAwaiter().GetResult();
             if (result == null)
             {
-                return PackageCatalogConfirmationResult.Failed(
+                return PackageCatalogMutationResult.FailedBeforeMutation(
                     new InvalidOperationException(routeName + " returned no result."));
             }
             return result.Status switch
             {
-                UiDialogStatus.Accepted => PackageCatalogConfirmationResult.AcceptedResult,
-                UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => PackageCatalogConfirmationResult.Rejected,
+                UiDialogStatus.Accepted => PackageCatalogMutationResult.Completed,
+                UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => PackageCatalogMutationResult.Rejected,
                 UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes
-                    ? PackageCatalogConfirmationResult.AcceptedResult
-                    : PackageCatalogConfirmationResult.Rejected,
-                _ => PackageCatalogConfirmationResult.Failed(
+                    ? PackageCatalogMutationResult.Completed
+                    : PackageCatalogMutationResult.Rejected,
+                _ => PackageCatalogMutationResult.FailedBeforeMutation(
                     new InvalidOperationException(
                         routeName + " could not be displayed (" + result.Status + ").",
                         result.Exception)),
@@ -273,7 +243,7 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         catch (Exception exception)
         {
-            return PackageCatalogConfirmationResult.Failed(exception);
+            return PackageCatalogMutationResult.FailedBeforeMutation(exception);
         }
     }
 
