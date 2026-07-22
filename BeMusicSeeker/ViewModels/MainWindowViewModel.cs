@@ -145,6 +145,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     internal ElevatedProcessWarningWorkflowOwner ElevatedProcessWarningWorkflow { get; private set; }
 
+    internal ShellShutdownWorkflowOwner ShellShutdownWorkflow { get; private set; }
+
     /// <summary>
     /// Gets playback adapter state and telemetry while chart-row traversal remains on the shell ViewModel.
     /// </summary>
@@ -3706,6 +3708,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
+        ShellShutdownWorkflow = new ShellShutdownWorkflowOwner(
+            StartupUpdateWorkflow,
+            ElevatedProcessWarningWorkflow,
+            PrepareShutdownAsync,
+            App.MarkCoordinatedShutdownStarted,
+            DispatchShellShutdownActionAsync,
+            (exception, context) => NLogWrapper.FileLogger?.Warn(exception, context));
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PackageCatalog = childComposition.PackageCatalogWorkflow;
@@ -4106,6 +4115,25 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
+    private static Task DispatchShellShutdownActionAsync(Func<Task> action)
+    {
+        if (action == null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+
+        Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            return action();
+        }
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return Task.FromException(new InvalidOperationException("The UI dispatcher is shutting down."));
+        }
+        return dispatcher.InvokeAsync(action, DispatcherPriority.Normal).Task.Unwrap();
+    }
+
     private void DispatchMainChartListPresentationAction(Action action)
     {
         InvokeMainChartListPresentationAction(action);
@@ -4197,7 +4225,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     public bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
 
-    internal Task<ShutdownPreparationResult> PrepareShutdownAsync(string reason)
+    private Task<ShutdownPreparationResult> PrepareShutdownAsync(string reason)
     {
         lock (shutdownPreparationLock)
         {

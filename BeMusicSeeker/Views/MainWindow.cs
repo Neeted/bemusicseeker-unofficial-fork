@@ -61,23 +61,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static readonly MethodInfo playlistTreeBringIndexIntoViewMethod = typeof(System.Windows.Controls.VirtualizingStackPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic) ?? typeof(System.Windows.Controls.VirtualizingPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic);
 
-    private bool _isClosingOrClosed;
-
     private int _duplicateMaintenanceSelectionVersion;
-
-    private bool _shutdownPrepared;
-
-    private bool _shutdownPreparationRunning;
-
-    private readonly object shutdownPreparationLock = new();
-
-    private Task<ShutdownPreparationResult> shutdownPreparationTask;
 
     private FrameworkElement activeOverlayDialog;
 
     private MainWindowViewModel subscribedViewModel;
-
-    private Func<string, Task<ShutdownPreparationResult>> startupUpdateShutdownPreparationPort;
 
     public Visibility PlaybackOverlayVisibility
     {
@@ -271,7 +259,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool CanPresentElevatedProcessWarning()
     {
-        if (_isClosingOrClosed || !IsLoaded || Visibility != Visibility.Visible)
+        if (IsShellClosingOrClosed() || !IsLoaded || Visibility != Visibility.Visible)
         {
             return false;
         }
@@ -290,6 +278,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             && !Dispatcher.HasShutdownFinished;
     }
 
+    private bool IsShellClosingOrClosed()
+    {
+        return (base.DataContext as MainWindowViewModel)?.ShellShutdownWorkflow.IsClosingOrClosed == true;
+    }
+
     private bool IsPlaylistUrlDownloadRunning
     {
         get
@@ -306,8 +299,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
-        startupUpdateShutdownPreparationPort = PrepareStartupUpdateShutdownAsync;
-        viewModel.StartupUpdateWorkflow.BindShutdownPreparation(startupUpdateShutdownPreparationPort);
         viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;
         viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
@@ -333,12 +324,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.PlaylistUrlInstallTreeExpansionRequested -= MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
-        subscribedViewModel.StartupUpdateWorkflow.UnbindShutdownPreparation(startupUpdateShutdownPreparationPort);
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.ApplicationShutdownRequested -= MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
         subscribedViewModel.ElevatedProcessWarningWorkflow.PresentationRequested -= MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
         subscribedViewModel = null;
-        startupUpdateShutdownPreparationPort = null;
     }
 
     private void MainWindowViewModel_FolderAutoRenameTerminalPublished()
@@ -387,7 +376,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         try
         {
-            if (_isClosingOrClosed)
+            if (IsShellClosingOrClosed())
             {
                 request.Complete(null);
                 return;
@@ -406,35 +395,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private Task<ShutdownPreparationResult> PrepareStartupUpdateShutdownAsync(string reason)
-    {
-        if (base.Dispatcher.CheckAccess())
-        {
-            return EnsureShutdownPreparedAsync(reason);
-        }
-        return base.Dispatcher
-            .InvokeAsync(() => EnsureShutdownPreparedAsync(reason))
-            .Task
-            .Unwrap();
-    }
-
     private void MainWindowViewModel_StartupUpdateFailurePresentationRequested(Exception exception)
     {
-        bool updateShutdownPreparationFailed = _shutdownPreparationRunning
-            && !_shutdownPrepared
-            && (base.DataContext as MainWindowViewModel)?.StartupUpdateWorkflow.IsShutdownPreparationStarted == true;
-        if (_isClosingOrClosed && !updateShutdownPreparationFailed)
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        bool updateShutdownPreparationFailed = viewModel?.ShellShutdownWorkflow.ConsumeUpdatePreparationFailure() == true;
+        if (IsShellClosingOrClosed() && !updateShutdownPreparationFailed)
         {
             return;
-        }
-        if (updateShutdownPreparationFailed)
-        {
-            // Shutdown cancellation has already been issued by the ViewModel and
-            // cannot be rolled back safely.  Keep the window in a terminal
-            // shutdown-safe state, show the existing failure contract, and let
-            // the user close it without attempting the faulted preparation again.
-            _shutdownPreparationRunning = false;
-            _shutdownPrepared = true;
         }
         UiDialogRoute.ShowMessageBox(
             "Failed to download or start the update.\n" + (exception?.Message ?? string.Empty),
@@ -445,7 +412,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void MainWindowViewModel_StartupUpdateApplicationShutdownRequested()
     {
-        _shutdownPrepared = true;
         if (Application.Current != null)
         {
             Application.Current.Shutdown();
@@ -584,7 +550,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
         {
-            if (_isClosingOrClosed)
+            if (IsShellClosingOrClosed())
             {
                 return;
             }
@@ -745,81 +711,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private Task<ShutdownPreparationResult> EnsureShutdownPreparedAsync(string reason)
+    private async Task CompleteCloseAfterShellRequestAsync(Task<ShellShutdownWorkflowCompletionReceipt> closeRequest)
     {
-        lock (shutdownPreparationLock)
-        {
-            shutdownPreparationTask ??= PrepareShutdownCoreAsync(reason ?? "shutdown");
-            return shutdownPreparationTask;
-        }
+        await closeRequest.ConfigureAwait(true);
+        await base.Dispatcher.InvokeAsync((Action)ApplyTerminalShutdown).Task.ConfigureAwait(true);
     }
 
-    private async Task<ShutdownPreparationResult> PrepareShutdownCoreAsync(string reason)
+    private void ApplyTerminalShutdown()
     {
-        _shutdownPreparationRunning = true;
-        _isClosingOrClosed = true;
-        App.MarkCoordinatedShutdownStarted(reason);
-        MainWindowViewModel viewModel = null;
-        if (base.Dispatcher.CheckAccess())
+        if (Application.Current != null)
         {
-            viewModel = base.DataContext as MainWindowViewModel;
+            Application.Current.Shutdown();
         }
         else
         {
-            await base.Dispatcher.InvokeAsync((Action)delegate
-            {
-                viewModel = base.DataContext as MainWindowViewModel;
-            }).Task.ConfigureAwait(false);
+            Close();
         }
-        if (viewModel != null)
-        {
-            ShutdownPreparationResult result = await viewModel.PrepareShutdownAsync(reason).ConfigureAwait(false);
-            _shutdownPrepared = true;
-            return result;
-        }
-        _shutdownPrepared = true;
-        return new ShutdownPreparationResult(
-            reason ?? "shutdown",
-            0L,
-            slowWaitLogged: false,
-            sqliteCloseFailureCount: ShutdownOperationTracker.SqliteCloseFailureCount);
-    }
-
-    private async Task CompleteCloseAfterShutdownPreparedAsync(string reason)
-    {
-        try
-        {
-            await EnsureShutdownPreparedAsync(reason).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            NLogWrapper.FileLogger?.Error(ex, "Failed to prepare shutdown.");
-            _shutdownPrepared = true;
-        }
-        await base.Dispatcher.InvokeAsync((Action)delegate
-        {
-            if (Application.Current != null)
-            {
-                Application.Current.Shutdown();
-            }
-            else
-            {
-                Close();
-            }
-        }).Task.ConfigureAwait(false);
-    }
-
-    private async Task CompleteCloseAfterStartupUpdateWorkflowAsync(StartupUpdateWorkflowOwner startupUpdateWorkflow)
-    {
-        try
-        {
-            await startupUpdateWorkflow.WaitForIdleAsync().ConfigureAwait(true);
-        }
-        catch (Exception exception)
-        {
-            NLogWrapper.FileLogger?.Error(exception, "Failed to drain startup update workflow before closing.");
-        }
-        await CompleteCloseAfterShutdownPreparedAsync("window_close").ConfigureAwait(true);
     }
 
     /// <summary>
@@ -830,32 +737,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <param name="e">キャンセル可能なイベントデータ。</param>
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (!_shutdownPrepared)
+        MainWindowViewModel closingViewModel = base.DataContext as MainWindowViewModel;
+        if (closingViewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow && !shellShutdownWorkflow.IsCloseAllowed)
         {
             e.Cancel = true;
-            MainWindowViewModel closingViewModel = base.DataContext as MainWindowViewModel;
-            closingViewModel?.ElevatedProcessWarningWorkflow.NotifyClosing();
-            if (closingViewModel?.StartupUpdateWorkflow.NotifyClosing() == true)
+            bool closeRequestStarted = shellShutdownWorkflow.TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest);
+            calcelAllContextMenuTasks();
+            CloseContextMenuIfOpen(_lastOpenedContextMenu);
+            if (closeRequestStarted)
             {
-                _shutdownPreparationRunning = true;
-                _isClosingOrClosed = true;
-                calcelAllContextMenuTasks();
-                CloseContextMenuIfOpen(_lastOpenedContextMenu);
-                _ = CompleteCloseAfterStartupUpdateWorkflowAsync(closingViewModel.StartupUpdateWorkflow);
-                return;
-            }
-            if (!_shutdownPreparationRunning)
-            {
-                _shutdownPreparationRunning = true;
-                _isClosingOrClosed = true;
-                calcelAllContextMenuTasks();
-                CloseContextMenuIfOpen(_lastOpenedContextMenu);
-                _ = CompleteCloseAfterShutdownPreparedAsync("window_close");
+                _ = CompleteCloseAfterShellRequestAsync(closeRequest);
             }
             return;
         }
-        _isClosingOrClosed = true;
-        var viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = closingViewModel;
         if (viewModel != null && _startupInitialSelectionReadyHandler != null)
         {
             viewModel.PropertyChanged -= _startupInitialSelectionReadyHandler;
@@ -916,7 +811,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool ShouldBlockStartupUiInteraction(string action)
     {
-        if (_isClosingOrClosed)
+        if (IsShellClosingOrClosed())
         {
             LogStartupUiBlocked(action, "closing");
             return true;
@@ -1458,7 +1353,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void RefreshCustomTableViewDisplay()
     {
-        if (_isClosingOrClosed || customTableView == null)
+        if (IsShellClosingOrClosed() || customTableView == null)
         {
             return;
         }
@@ -4567,7 +4462,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async Task ApplyDuplicateMaintenanceSelectionAsync(string header, MainWindowViewModel viewModel)
     {
-        if (viewModel == null || _isClosingOrClosed)
+        if (viewModel == null || IsShellClosingOrClosed())
         {
             return;
         }
@@ -4605,7 +4500,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success header=" + header + " attempt=" + attempt);
                     return;
                 }
-                if (!ShouldRetryDuplicateGroupAutoSelect(lastReason) || _isClosingOrClosed || attempt == 1)
+                if (!ShouldRetryDuplicateGroupAutoSelect(lastReason) || IsShellClosingOrClosed() || attempt == 1)
                 {
                     break;
                 }
@@ -4617,7 +4512,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
                 duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
             }
-            if (!_isClosingOrClosed)
+            if (!IsShellClosingOrClosed())
             {
                 NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending header=" + header + " reason=" + lastReason);
             }
@@ -4643,7 +4538,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         foreach (DispatcherPriority retryPriority in retryPriorities)
         {
             await Dispatcher.Yield(retryPriority);
-            if (_isClosingOrClosed || requestVersion != Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
+            if (IsShellClosingOrClosed() || requestVersion != Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
             {
                 failReason = "window_closed";
                 return (false, failReason);
@@ -4946,7 +4841,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         // メニューが開いた後にサブメニューを展開する
         Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
         {
-            if (_isClosingOrClosed)
+            if (IsShellClosingOrClosed())
             {
                 return;
             }
@@ -5234,7 +5129,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         {
                             base.Dispatcher.BeginInvoke((Action)delegate
                             {
-                                if (!token.IsCancellationRequested && !_isClosingOrClosed)
+                                if (!token.IsCancellationRequested && !IsShellClosingOrClosed())
                                 {
                                     menuItemOpenDocument.ItemsSource = list2;
                                     menuItemOpenDocument.IsEnabled = true;
@@ -5246,7 +5141,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     {
                         base.Dispatcher.BeginInvoke((Action)delegate
                         {
-                            if (!token.IsCancellationRequested && !_isClosingOrClosed)
+                            if (!token.IsCancellationRequested && !IsShellClosingOrClosed())
                             {
                                 menuItemOpenDocument.Visibility = Visibility.Collapsed;
                             }
@@ -6771,7 +6666,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void RestorePlaybackSurfaceAndFocusTable()
     {
-        if (_isClosingOrClosed) return;
+        if (IsShellClosingOrClosed()) return;
         playbackPanelView.RestoreSelectedSurface();
         IntPtr handle;
         try { handle = new WindowInteropHelper(this).Handle; }
@@ -6779,10 +6674,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (handle != Win32API.GetForegroundWindow()) return;
         Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)async delegate
         {
-            if (_isClosingOrClosed) return;
+            if (IsShellClosingOrClosed()) return;
             for (int i = 1; i <= 10; i++)
             {
-                if (_isClosingOrClosed) break;
+                if (IsShellClosingOrClosed()) break;
                 NLogWrapper.DebuggerLogger?.Trace("try to set focus on custom table");
                 IntPtr currentHandle;
                 try { currentHandle = new WindowInteropHelper(this).Handle; }

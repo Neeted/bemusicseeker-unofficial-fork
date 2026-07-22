@@ -228,8 +228,9 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(settingDialogCode.Contains(".ShowDialog("), "SettingDialog modal windows must go through UiDialogCoordinator.");
         StringAssert.Contains(mainWindowCode, "ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>");
         StringAssert.Contains(mainWindowCode, "StartupUpdatePresentationRequest");
-        StringAssert.Contains(mainWindowCode, "BindShutdownPreparation(startupUpdateShutdownPreparationPort)");
-        StringAssert.Contains(mainWindowCode, "PrepareStartupUpdateShutdownAsync");
+        StringAssert.Contains(mainWindowCode, "ShellShutdownWorkflow");
+        Assert.IsFalse(mainWindowCode.Contains("BindShutdownPreparation("));
+        Assert.IsFalse(mainWindowCode.Contains("PrepareStartupUpdateShutdownAsync"));
         Assert.IsFalse(mainWindowCode.Contains("StartupUpdateShutdownPreparationRequest"));
         Assert.IsFalse(mainWindowCode.Contains("ShutdownPreparationRequested"));
         StringAssert.Contains(mainWindowCode, "startupViewModel.StartupUpdateWorkflow.Start();");
@@ -267,7 +268,10 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(warningPresentationHandler, "request.Complete(true)");
         StringAssert.Contains(warningPresentationHandler, "request.Fail(exception)");
         string closingHandler = ExtractBetween(mainWindowCode, "protected override void OnClosing", "private static void CloseContextMenuIfOpen");
-        StringAssert.Contains(closingHandler, "ElevatedProcessWarningWorkflow.NotifyClosing()");
+        StringAssert.Contains(closingHandler, "TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest)");
+        StringAssert.Contains(closingHandler, "CompleteCloseAfterShellRequestAsync(closeRequest)");
+        Assert.IsFalse(closingHandler.Contains("ElevatedProcessWarningWorkflow.NotifyClosing()"));
+        Assert.IsFalse(closingHandler.Contains("StartupUpdateWorkflow.NotifyClosing()"));
         StringAssert.Contains(selectedChartMutationOwnerCode, "ShowWindowAsync(");
         StringAssert.Contains(selectedChartMutationOwnerCode, "UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>");
         StringAssert.Contains(settingDialogViewModelCode, "ShowWindowAsync(");

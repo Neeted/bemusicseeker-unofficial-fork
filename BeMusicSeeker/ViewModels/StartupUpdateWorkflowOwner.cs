@@ -104,6 +104,12 @@ internal sealed class StartupUpdateWorkflowOwner
 
     private TaskCompletionSource<bool> idleCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    private TaskCompletionSource<bool> terminalCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private bool terminalPending;
+
+    private TaskCompletionSource<bool> shutdownPreparationPortCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     internal StartupUpdateWorkflowOwner(
         Func<Task<UpdateCheckResult>> checkForUpdates,
         Func<UpdateAssetInfo, Task<string>> downloadAndVerify,
@@ -156,22 +162,6 @@ internal sealed class StartupUpdateWorkflowOwner
         }
     }
 
-    internal void UnbindShutdownPreparation(Func<string, Task<ShutdownPreparationResult>> port)
-    {
-        if (port == null)
-        {
-            return;
-        }
-        lock (syncRoot)
-        {
-            if (active || !Equals(shutdownPreparationPort, port))
-            {
-                return;
-            }
-            shutdownPreparationPort = null;
-        }
-    }
-
     internal bool IsActive
     {
         get
@@ -212,6 +202,9 @@ internal sealed class StartupUpdateWorkflowOwner
             activeRun = run;
             shutdownPreparationStartedForRun = false;
             idleCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            terminalCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            terminalPending = true;
+            shutdownPreparationPortCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
         try
@@ -250,6 +243,24 @@ internal sealed class StartupUpdateWorkflowOwner
         lock (syncRoot)
         {
             return active ? idleCompletion.Task : Task.CompletedTask;
+        }
+    }
+
+    internal Task WaitForTerminalAsync()
+    {
+        lock (syncRoot)
+        {
+            return terminalPending ? terminalCompletion.Task : Task.CompletedTask;
+        }
+    }
+
+    internal Task WaitForShutdownPreparationRequestAsync()
+    {
+        lock (syncRoot)
+        {
+            return shutdownPreparationStartedForRun
+                ? shutdownPreparationPortCompletion.Task
+                : Task.CompletedTask;
         }
     }
 
@@ -421,10 +432,18 @@ internal sealed class StartupUpdateWorkflowOwner
         {
             throw new InvalidOperationException("Startup update shutdown preparation is not configured.");
         }
-        Task<ShutdownPreparationResult> preparation = port("update");
-        if (preparation == null)
+        Task<ShutdownPreparationResult> preparation;
+        try
         {
-            throw new InvalidOperationException("Startup update shutdown preparation returned no task.");
+            preparation = port("update");
+            if (preparation == null)
+            {
+                throw new InvalidOperationException("Startup update shutdown preparation returned no task.");
+            }
+        }
+        finally
+        {
+            shutdownPreparationPortCompletion.TrySetResult(true);
         }
         return await preparation.ConfigureAwait(false);
     }
@@ -487,7 +506,7 @@ internal sealed class StartupUpdateWorkflowOwner
         idleCompletion.TrySetResult(true);
 
         var receipt = new StartupUpdateWorkflowCompletionReceipt(run.Generation, outcome, exception, shutdownPrepared);
-        DispatchToUi(() =>
+        if (!DispatchToUi(() =>
         {
             try
             {
@@ -497,7 +516,20 @@ internal sealed class StartupUpdateWorkflowOwner
             {
                 LogWarningSafely(notificationException, "startup_update terminal notification failed");
             }
-        });
+            CompleteTerminalNotification();
+        }))
+        {
+            CompleteTerminalNotification();
+        }
+    }
+
+    private void CompleteTerminalNotification()
+    {
+        lock (syncRoot)
+        {
+            terminalPending = false;
+        }
+        terminalCompletion.TrySetResult(true);
     }
 
     private bool TryBeginShutdownPreparation(RunContext run)
