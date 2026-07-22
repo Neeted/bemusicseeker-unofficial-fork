@@ -194,8 +194,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "CapturePlaylistLibraryIndexReadinessSnapshot()");
         StringAssert.Contains(workspaceSource, "MarkPlaylistLibraryIndexShutdownRequested()");
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.ConfigurePlaylistLibraryIndexPrewarm(", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "QueueStartupBackgroundTask(\"playlist_library_index_prewarm\", reason, null, work)");
-        StringAssert.Contains(rootSource, "QueueStartupBackgroundTask(\"playlist_library_index_prewarm\", reason, null, work)");
+        StringAssert.Contains(rootSource, "startupBackgroundTaskScheduler.Queue(\"playlist_library_index_prewarm\", reason, null, work)");
         StringAssert.Contains(rootSource, "PlaylistWorkspace.MarkPlaylistLibraryIndexShutdownRequested();");
         Assert.AreEqual(-1, rootSource.IndexOf("public bool IsPlaylistDetailViewActive", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryColumnSettingsCoordinator", StringComparison.Ordinal));

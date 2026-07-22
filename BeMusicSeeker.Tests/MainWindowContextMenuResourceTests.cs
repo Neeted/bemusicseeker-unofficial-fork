@@ -2004,7 +2004,7 @@ public sealed class MainWindowContextMenuResourceTests
         string endSuppression = ExtractBetween(
             viewModelCode,
             "private void EndUiUpdateSuppression()",
-            "private bool QueueStartupBackgroundTask");
+            "private void RefreshLibraryMainViewForCurrentFilter");
         string externalSyncWorkspace = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",

@@ -198,7 +198,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     /// <summary>
     /// 起動・リロード進捗の対象 operation 種別です。
     /// </summary>
-    private enum StartupProgressOperationKind
+    internal enum StartupProgressOperationKind
     {
         None,
         Startup,
@@ -382,52 +382,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         internal double ProgressMaximum { get; set; }
     }
 
-    private sealed class StartupBackgroundTaskRequest
-    {
-        internal string Name;
-
-        internal string Reason;
-
-        internal string Dependency;
-
-        internal string CoalesceKey;
-
-        internal string Lane;
-
-        internal int Priority;
-
-        internal long Version;
-
-        internal Func<Task> Work;
-    }
-
-    private sealed class StartupBackgroundTaskMetric
-    {
-        internal string Name = string.Empty;
-
-        internal string Reason = string.Empty;
-
-        internal string Dependency = string.Empty;
-
-        internal string Lane = string.Empty;
-
-        internal long QueuedCount;
-
-        internal long StartedCount;
-
-        internal long CompletedCount;
-
-        internal long FailedCount;
-
-        internal long TotalElapsedMs;
-
-        internal long LastElapsedMs;
-
-        internal string LastStatus = string.Empty;
-
-        internal string LastDetail = string.Empty;
-    }
-
     [Flags]
     private enum UiRefreshChannel
     {
@@ -544,21 +498,9 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private readonly object lockDeferredLibraryFolderTreeRefresh = new();
 
-    private readonly object startupBackgroundTaskLock = new();
+    private readonly object startupInitializationCompletionLock = new();
 
-    private readonly List<StartupBackgroundTaskRequest> startupBackgroundTaskQueue = [];
-
-    private readonly HashSet<string> startupBackgroundTaskCompletedNames = new(StringComparer.OrdinalIgnoreCase);
-
-    private readonly Dictionary<string, int> startupBackgroundTaskRunningCountByLane = new(StringComparer.OrdinalIgnoreCase);
-
-    private readonly Dictionary<string, StartupBackgroundTaskMetric> startupBackgroundTaskMetrics = new(StringComparer.OrdinalIgnoreCase);
-
-    private bool startupBackgroundTaskSchedulerStarted;
-
-    private int startupBackgroundTaskRunningCount;
-
-    private long startupBackgroundTaskVersion;
+    private readonly StartupBackgroundTaskSchedulerOwner startupBackgroundTaskScheduler;
 
     private Stopwatch startupInitializationCompleteStopwatch;
 
@@ -1018,7 +960,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             return false;
         }
         bool initializationCompleteLogged;
-        lock (startupBackgroundTaskLock)
+        lock (startupInitializationCompletionLock)
         {
             initializationCompleteLogged = startupInitializationCompleteLogged;
         }
@@ -1335,82 +1277,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         startupReadyOperableReached = true;
         SetStartupUiInteractionBlocked(false);
         MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
-        StartStartupBackgroundTaskScheduler();
+        startupBackgroundTaskScheduler.Start();
         TryCompleteStartupBackgroundTasksPhaseIfIdle();
-    }
-
-    private bool QueueStartupBackgroundTask(string name, string reason, string dependency, Func<Task> work)
-    {
-        if (work == null)
-        {
-            return false;
-        }
-        string normalizedName = string.IsNullOrWhiteSpace(name) ? "unknown" : name;
-        string normalizedReason = string.IsNullOrWhiteSpace(reason) ? "unspecified" : reason;
-        if (IsShutdownRequested)
-        {
-            LogUiSuppression("startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested");
-            return false;
-        }
-        string normalizedDependency = string.IsNullOrWhiteSpace(dependency) ? null : dependency;
-        string normalizedLane = GetStartupBackgroundTaskLane(normalizedName);
-        string coalesceKey = normalizedName;
-        long version;
-        bool shouldStartWorker = false;
-        lock (startupBackgroundTaskLock)
-        {
-            if (IsShutdownRequested)
-            {
-                LogUiSuppression("startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested_after_lock");
-                return false;
-            }
-            RecordStartupBackgroundTaskQueuedUnsafe(normalizedName, normalizedReason, normalizedDependency, normalizedLane);
-            version = ++startupBackgroundTaskVersion;
-            StartupBackgroundTaskRequest existing = startupBackgroundTaskQueue.LastOrDefault(item => string.Equals(item.CoalesceKey, coalesceKey, StringComparison.OrdinalIgnoreCase));
-            if (existing != null)
-            {
-                existing.Reason = normalizedReason;
-                existing.Dependency = normalizedDependency;
-                existing.Lane = normalizedLane;
-                existing.Priority = GetStartupBackgroundTaskPriority(normalizedName);
-                existing.Version = version;
-                existing.Work = work;
-                LogUiSuppression("startup_background_task skipped name=" + normalizedName + " version=" + version + " reason=" + normalizedReason + " coalesceKey=" + coalesceKey + " replaced=true");
-            }
-            else
-            {
-                startupBackgroundTaskQueue.Add(new StartupBackgroundTaskRequest
-                {
-                    Name = normalizedName,
-                    Reason = normalizedReason,
-                    Dependency = normalizedDependency,
-                    Lane = normalizedLane,
-                    CoalesceKey = coalesceKey,
-                    Priority = GetStartupBackgroundTaskPriority(normalizedName),
-                    Version = version,
-                    Work = work
-                });
-            }
-            LogUiSuppression("startup_background_task queue name=" + normalizedName + " version=" + version + " reason=" + normalizedReason + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + GetStartupBackgroundTaskPriority(normalizedName));
-            shouldStartWorker = startupBackgroundTaskSchedulerStarted;
-        }
-        if (shouldStartWorker)
-        {
-            TryStartStartupBackgroundTaskWorkers();
-        }
-        return true;
     }
 
     private void TryCompleteStartupBackgroundTasksPhaseIfIdle()
     {
-        bool schedulerIdle;
-        lock (startupBackgroundTaskLock)
-        {
-            schedulerIdle = startupBackgroundTaskSchedulerStarted
-                && startupBackgroundTaskQueue.Count == 0
-                && startupBackgroundTaskRunningCount == 0;
-        }
-        if (!schedulerIdle)
+        if (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle)
         {
             return;
         }
@@ -1429,324 +1302,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupBackgroundTasksDone);
         }
-    }
-
-    private StartupBackgroundTaskMetric GetOrCreateStartupBackgroundTaskMetricUnsafe(string name)
-    {
-        string normalizedName = string.IsNullOrWhiteSpace(name) ? "unknown" : name;
-        if (!startupBackgroundTaskMetrics.TryGetValue(normalizedName, out StartupBackgroundTaskMetric metric))
-        {
-            metric = new StartupBackgroundTaskMetric
-            {
-                Name = normalizedName
-            };
-            startupBackgroundTaskMetrics[normalizedName] = metric;
-        }
-        return metric;
-    }
-
-    private void RecordStartupBackgroundTaskQueuedUnsafe(string name, string reason, string dependency, string lane)
-    {
-        StartupBackgroundTaskMetric metric = GetOrCreateStartupBackgroundTaskMetricUnsafe(name);
-        metric.QueuedCount++;
-        metric.Reason = reason ?? string.Empty;
-        metric.Dependency = dependency ?? string.Empty;
-        metric.Lane = lane ?? string.Empty;
-        metric.LastStatus = "queued";
-    }
-
-    private void RecordStartupBackgroundTaskStarted(string name)
-    {
-        lock (startupBackgroundTaskLock)
-        {
-            StartupBackgroundTaskMetric metric = GetOrCreateStartupBackgroundTaskMetricUnsafe(name);
-            metric.StartedCount++;
-            metric.LastStatus = "running";
-        }
-    }
-
-    private void RecordStartupBackgroundTaskCompleted(string name, string status, long elapsedMs, bool failed, string detail)
-    {
-        lock (startupBackgroundTaskLock)
-        {
-            StartupBackgroundTaskMetric metric = GetOrCreateStartupBackgroundTaskMetricUnsafe(name);
-            if (string.Equals(status, "queued", StringComparison.OrdinalIgnoreCase))
-            {
-                metric.QueuedCount++;
-                metric.Reason = detail ?? string.Empty;
-                metric.Lane = GetStartupBackgroundTaskLane(name);
-                metric.LastStatus = "queued";
-                return;
-            }
-            if (string.Equals(status, "start", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(status, "running", StringComparison.OrdinalIgnoreCase))
-            {
-                metric.StartedCount++;
-                if (string.IsNullOrWhiteSpace(metric.Lane))
-                {
-                    metric.Lane = GetStartupBackgroundTaskLane(name);
-                }
-                metric.LastStatus = "running";
-                metric.LastDetail = detail ?? string.Empty;
-                return;
-            }
-            if (failed)
-            {
-                metric.FailedCount++;
-            }
-            else
-            {
-                metric.CompletedCount++;
-            }
-            metric.LastStatus = string.IsNullOrWhiteSpace(status) ? (failed ? "failed" : "done") : status;
-            if (string.IsNullOrWhiteSpace(metric.Lane))
-            {
-                metric.Lane = GetStartupBackgroundTaskLane(name);
-            }
-            metric.LastElapsedMs = Math.Max(0L, elapsedMs);
-            metric.TotalElapsedMs += Math.Max(0L, elapsedMs);
-            metric.LastDetail = detail ?? string.Empty;
-        }
-    }
-
-    private static int GetStartupBackgroundTaskPriority(string name)
-    {
-        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase))
-        {
-            return 10;
-        }
-        if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase))
-        {
-            return 15;
-        }
-        if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase))
-        {
-            return 20;
-        }
-        if (string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase))
-        {
-            return 30;
-        }
-        if (string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase))
-        {
-            return 40;
-        }
-        if (string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
-        {
-            return 50;
-        }
-        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase))
-        {
-            return 55;
-        }
-        if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase))
-        {
-            return 60;
-        }
-        if (string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase))
-        {
-            return 70;
-        }
-        if (string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase))
-        {
-            return 90;
-        }
-        return 100;
-    }
-
-    private static string GetStartupBackgroundTaskLane(string name)
-    {
-        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
-        {
-            return "read_hydration";
-        }
-        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase))
-        {
-            // Startup completion waits for installable maintenance, which depends on maintenance hydration.
-            // Keep it off the playlist/chart read lane so it can overlap with independent post-operable reads.
-            return "maintenance_hydration";
-        }
-        if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase))
-        {
-            return "playlist_followup";
-        }
-        if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase))
-        {
-            return "dependent_maintenance";
-        }
-        return "default";
-    }
-
-    private static int GetStartupBackgroundTaskLaneConcurrency(string lane)
-    {
-        if (string.Equals(lane, "read_hydration", StringComparison.OrdinalIgnoreCase))
-        {
-            return 2;
-        }
-        return 1;
-    }
-
-    private static int GetStartupBackgroundTaskTotalConcurrency()
-    {
-        return 4;
-    }
-
-    private void StartStartupBackgroundTaskScheduler()
-    {
-        bool shouldStartWorker;
-        lock (startupBackgroundTaskLock)
-        {
-            if (startupBackgroundTaskSchedulerStarted)
-            {
-                return;
-            }
-            startupBackgroundTaskSchedulerStarted = true;
-            shouldStartWorker = startupBackgroundTaskQueue.Count > 0;
-        }
-        LogUiSuppression("startup_background_task scheduler_start");
-        if (shouldStartWorker)
-        {
-            TryStartStartupBackgroundTaskWorkers();
-        }
-        else
-        {
-            TryCompleteStartupBackgroundTasksPhaseIfIdle();
-        }
-    }
-
-    private void TryStartStartupBackgroundTaskWorkers()
-    {
-        while (true)
-        {
-            StartupBackgroundTaskRequest request = null;
-            int laneRunningCount = 0;
-            int totalRunningCount = 0;
-            lock (startupBackgroundTaskLock)
-            {
-                if (!startupBackgroundTaskSchedulerStarted
-                    || startupBackgroundTaskRunningCount >= GetStartupBackgroundTaskTotalConcurrency())
-                {
-                    return;
-                }
-                int index = FindNextStartupBackgroundTaskIndexUnsafe();
-                if (index < 0)
-                {
-                    return;
-                }
-                request = startupBackgroundTaskQueue[index];
-                startupBackgroundTaskQueue.RemoveAt(index);
-                startupBackgroundTaskRunningCount++;
-                startupBackgroundTaskRunningCountByLane.TryGetValue(request.Lane, out int runningInLane);
-                startupBackgroundTaskRunningCountByLane[request.Lane] = runningInLane + 1;
-                laneRunningCount = runningInLane + 1;
-                totalRunningCount = startupBackgroundTaskRunningCount;
-            }
-            StartStartupBackgroundTaskWorker(request, laneRunningCount, totalRunningCount);
-        }
-    }
-
-    private int FindNextStartupBackgroundTaskIndexUnsafe()
-    {
-        int index = -1;
-        int bestPriority = int.MaxValue;
-        long bestVersion = long.MaxValue;
-        bool shutdownRequestedSnapshot = IsShutdownRequested;
-        for (int i = 0; i < startupBackgroundTaskQueue.Count; i++)
-        {
-            StartupBackgroundTaskRequest candidate = startupBackgroundTaskQueue[i];
-            if (!shutdownRequestedSnapshot && !AreStartupBackgroundDependenciesCompletedUnsafe(candidate.Dependency))
-            {
-                continue;
-            }
-            if (!CanStartStartupBackgroundTaskInLaneUnsafe(candidate.Lane))
-            {
-                continue;
-            }
-            if (candidate.Priority < bestPriority || (candidate.Priority == bestPriority && candidate.Version < bestVersion))
-            {
-                index = i;
-                bestPriority = candidate.Priority;
-                bestVersion = candidate.Version;
-            }
-        }
-        return index;
-    }
-
-    private bool CanStartStartupBackgroundTaskInLaneUnsafe(string lane)
-    {
-        string normalizedLane = string.IsNullOrWhiteSpace(lane) ? "default" : lane;
-        startupBackgroundTaskRunningCountByLane.TryGetValue(normalizedLane, out int runningCount);
-        return runningCount < GetStartupBackgroundTaskLaneConcurrency(normalizedLane);
-    }
-
-    private void StartStartupBackgroundTaskWorker(StartupBackgroundTaskRequest request, int laneRunningCount, int totalRunningCount)
-    {
-        Task.Run(async delegate
-        {
-            var stopwatch = Stopwatch.StartNew();
-            LogUiSuppression("startup_background_task start name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
-            RecordStartupBackgroundTaskStarted(request.Name);
-            try
-            {
-                await request.Work().ConfigureAwait(false);
-                stopwatch.Stop();
-                LogUiSuppression("startup_background_task done name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                RecordStartupBackgroundTaskCompleted(request.Name, "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=" + request.Reason);
-                StartupMemoryPressureService.LogCheckpoint(LogUiSuppression, "startup_background_task", request.Name + "_done");
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                LogUiSuppressionWarning("startup_background_task failed name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
-                RecordStartupBackgroundTaskCompleted(request.Name, "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
-                StartupMemoryPressureService.LogCheckpoint(LogUiSuppression, "startup_background_task", request.Name + "_failed");
-            }
-            finally
-            {
-                lock (startupBackgroundTaskLock)
-                {
-                    startupBackgroundTaskCompletedNames.Add(request.Name);
-                    startupBackgroundTaskRunningCount = Math.Max(0, startupBackgroundTaskRunningCount - 1);
-                    if (!string.IsNullOrWhiteSpace(request.Lane)
-                        && startupBackgroundTaskRunningCountByLane.TryGetValue(request.Lane, out int runningInLane))
-                    {
-                        runningInLane = Math.Max(0, runningInLane - 1);
-                        if (runningInLane == 0)
-                        {
-                            startupBackgroundTaskRunningCountByLane.Remove(request.Lane);
-                        }
-                        else
-                        {
-                            startupBackgroundTaskRunningCountByLane[request.Lane] = runningInLane;
-                        }
-                    }
-                }
-                TryStartStartupBackgroundTaskWorkers();
-                TryCompleteStartupBackgroundTasksPhaseIfIdle();
-            }
-        }).Logging("StartupBackgroundTaskScheduler");
-    }
-
-    private bool AreStartupBackgroundDependenciesCompletedUnsafe(string dependency)
-    {
-        if (string.IsNullOrWhiteSpace(dependency))
-        {
-            return true;
-        }
-        string[] dependencies = dependency.Split([','], StringSplitOptions.RemoveEmptyEntries);
-        foreach (string item in dependencies)
-        {
-            string dependencyName = item.Trim();
-            if (dependencyName.Length > 0 && !startupBackgroundTaskCompletedNames.Contains(dependencyName))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     private void RefreshLibraryMainViewForCurrentFilter()
@@ -2913,7 +2468,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                 + " stage=owned_adjacent_index"
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name
-                + " message=" + SanitizeStartupBackgroundSummaryValue(ex.Message));
+                + " message=" + FormatTextForLog(ex.Message));
         }
     }
 
@@ -3526,6 +3081,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             throw new ArgumentNullException(nameof(composition));
         }
         applicationComposition = composition;
+        startupBackgroundTaskScheduler = new StartupBackgroundTaskSchedulerOwner(
+            () => IsShutdownRequested,
+            LogUiSuppression,
+            LogUiSuppressionWarning,
+            LogShutdown,
+            FormatTextForLog,
+            TryCompleteStartupBackgroundTasksPhaseIfIdle);
         treeViewFilterTypeSelected = ApplicationSettings.StartupSelectInstallPending
             ? MainViewUpdateMode.PendingInstallFolderSelected
             : MainViewUpdateMode.FolderFilterSelected;
@@ -3567,7 +3129,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             () => lr2config,
             LogPlaylistSummaryBulkWarning,
             new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher),
-            (reason, work) => QueueStartupBackgroundTask("playlist_library_index_prewarm", reason, null, work),
+            (reason, work) => startupBackgroundTaskScheduler.Queue("playlist_library_index_prewarm", reason, null, work),
             () => startupReadyOperableReached,
             () => treeViewFilterTypeSelected,
             WaitForPlaylistReloadCleanupDispatcherIdleAsync,
@@ -3579,16 +3141,18 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             InvokePlaylistSummaryDataRefreshGate,
             () => TrySuppress(UiRefreshChannel.PlaylistTree),
             reason => TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, reason),
-            (reason, work) => QueueStartupBackgroundTask(
+            (reason, work) => startupBackgroundTaskScheduler.Queue(
                 "external_playlist_sync",
                 reason,
                 "playlist_entries_hydration",
-                work),
-            (reason, work) => QueueStartupBackgroundTask(
+                work,
+                shutdownReason => PlaylistWorkspace.DiscardDeferredExternalPlaylistSyncForShutdown(shutdownReason)),
+            (reason, work) => startupBackgroundTaskScheduler.Queue(
                 "playlist_ref_apply",
                 reason,
                 null,
-                work),
+                work,
+                shutdownReason => PlaylistWorkspace.DiscardPlaylistReferenceApplyForShutdown(shutdownReason)),
             ApplyMainChartListPresentationActionAsync,
             () => DispatcherHelper.UIDispatcher.CheckAccess());
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
@@ -4315,114 +3879,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         TryShutdownStep("maintenance_rescan", () => MaintenanceRescanWorkflow?.RequestShutdown());
         TryShutdownStep("folder_auto_rename", () => FolderAutoRenameWorkflow?.RequestShutdown());
         TryShutdownStep("package_install", () => PackageInstallWorkflow?.RequestShutdown());
-        TryShutdownStep("startup_background_queue", () => CancelStartupBackgroundTasksForShutdown(reason));
-    }
-
-    private void CancelStartupBackgroundTasksForShutdown(string reason)
-    {
-        bool shouldStartWorker;
-        int originalQueuedCount;
-        int discardedCount = 0;
-        int drainQueuedCount;
-        List<StartupBackgroundTaskRequest> discardedRequests = null;
-        lock (startupBackgroundTaskLock)
-        {
-            originalQueuedCount = startupBackgroundTaskQueue.Count;
-            for (int i = startupBackgroundTaskQueue.Count - 1; i >= 0; i--)
-            {
-                StartupBackgroundTaskRequest request = startupBackgroundTaskQueue[i];
-                if (IsStartupBackgroundTaskShutdownDrainRequired(request.Name))
-                {
-                    continue;
-                }
-                startupBackgroundTaskQueue.RemoveAt(i);
-                RecordStartupBackgroundTaskDiscardedForShutdownUnsafe(request, reason);
-                discardedRequests ??= [];
-                discardedRequests.Add(request);
-                discardedCount++;
-            }
-            drainQueuedCount = startupBackgroundTaskQueue.Count;
-            if (drainQueuedCount > 0)
-            {
-                startupBackgroundTaskSchedulerStarted = true;
-            }
-            shouldStartWorker = drainQueuedCount > 0;
-            LogShutdown("startup_background_task drain_queued reason=" + FormatTextForLog(reason)
-                + " queued=" + originalQueuedCount
-                + " drainQueued=" + drainQueuedCount
-                + " discarded=" + discardedCount
-                + " running=" + startupBackgroundTaskRunningCount);
-        }
-        if (discardedRequests != null)
-        {
-            foreach (StartupBackgroundTaskRequest request in discardedRequests)
-            {
-                CompleteStartupBackgroundTaskDiscardSideEffectsForShutdown(request, reason);
-            }
-        }
-        if (shouldStartWorker)
-        {
-            TryStartStartupBackgroundTaskWorkers();
-        }
-        else
-        {
-            TryCompleteStartupBackgroundTasksPhaseIfIdle();
-        }
-    }
-
-    private static bool IsStartupBackgroundTaskShutdownDrainRequired(string name)
-    {
-        return string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void CompleteStartupBackgroundTaskDiscardSideEffectsForShutdown(StartupBackgroundTaskRequest request, string reason)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        if (string.Equals(request.Name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase))
-        {
-            PlaylistWorkspace.DiscardPlaylistReferenceApplyForShutdown(reason);
-            return;
-        }
-        if (string.Equals(request.Name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase))
-        {
-            PlaylistWorkspace.DiscardDeferredExternalPlaylistSyncForShutdown(reason);
-        }
-    }
-
-    private void RecordStartupBackgroundTaskDiscardedForShutdownUnsafe(StartupBackgroundTaskRequest request, string reason)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        startupBackgroundTaskCompletedNames.Add(request.Name);
-        StartupBackgroundTaskMetric metric = GetOrCreateStartupBackgroundTaskMetricUnsafe(request.Name);
-        metric.CompletedCount++;
-        metric.LastStatus = "discarded";
-        metric.LastElapsedMs = 0L;
-        metric.LastDetail = "shutdown_requested reason=" + FormatTextForLog(reason);
-        if (string.IsNullOrWhiteSpace(metric.Reason))
-        {
-            metric.Reason = request.Reason ?? string.Empty;
-        }
-        if (string.IsNullOrWhiteSpace(metric.Dependency))
-        {
-            metric.Dependency = request.Dependency ?? string.Empty;
-        }
-        if (string.IsNullOrWhiteSpace(metric.Lane))
-        {
-            metric.Lane = request.Lane ?? GetStartupBackgroundTaskLane(request.Name);
-        }
-        LogUiSuppression("startup_background_task discarded name=" + request.Name
-            + " version=" + request.Version
-            + " reason=" + request.Reason
-            + " shutdownReason=" + FormatTextForLog(reason));
+        TryShutdownStep("startup_background_queue", () => startupBackgroundTaskScheduler.RequestShutdown(reason));
     }
 
     private void CancelPlaylistBuildRequestsForShutdown()
@@ -4516,10 +3973,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private bool IsStartupBackgroundTaskSchedulerIdle()
     {
-        lock (startupBackgroundTaskLock)
-        {
-            return startupBackgroundTaskQueue.Count == 0 && startupBackgroundTaskRunningCount == 0;
-        }
+        return startupBackgroundTaskScheduler.IsIdle;
     }
 
     private async Task WaitForPlayHistoryRefreshIdleAsync(ShutdownWaitTracker tracker)
@@ -4693,11 +4147,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private string DescribeStartupBackgroundTaskWaitState()
     {
-        lock (startupBackgroundTaskLock)
-        {
-            return "queueCount=" + startupBackgroundTaskQueue.Count
-                + " runningCount=" + startupBackgroundTaskRunningCount;
-        }
+        return startupBackgroundTaskScheduler.DescribeWaitState();
     }
 
     private string DescribePlayHistoryRefreshWaitState()
@@ -5374,9 +4824,9 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
             PlaylistWorkspace.SetDetailDataSource(
                 applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
-            files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
-            files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
-            tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
+            files.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
+            files.StartupBackgroundTaskReporter = startupBackgroundTaskScheduler.Report;
+            tables.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
             tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
             if (!libraryProfile.OperationModeLR2DB)
             {
@@ -7177,27 +6627,18 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private void ResetStartupBackgroundTaskSchedulerState(StartupProgressOperationKind operationKind)
     {
-        lock (startupBackgroundTaskLock)
-        {
-            startupBackgroundTaskQueue.Clear();
-            startupBackgroundTaskCompletedNames.Clear();
-            startupBackgroundTaskRunningCountByLane.Clear();
-            startupBackgroundTaskMetrics.Clear();
-            startupBackgroundTaskRunningCount = 0;
-            startupBackgroundTaskSchedulerStarted = ShouldStartStartupBackgroundTaskSchedulerAfterReset(operationKind, startupReadyOperableReached);
-        }
+        startupBackgroundTaskScheduler.Reset(
+            operationKind != StartupProgressOperationKind.Startup && startupReadyOperableReached);
         lock (lockUiSuppression)
         {
             deferredStartupPresentationMask = UiRefreshChannel.None;
         }
-        startupInitializationCompleteStopwatch = null;
-        startupInitializationCompleteLogged = false;
-        startupInitializationCompleteRetryQueued = false;
-    }
-
-    private static bool ShouldStartStartupBackgroundTaskSchedulerAfterReset(StartupProgressOperationKind operationKind, bool operableReached)
-    {
-        return operationKind != StartupProgressOperationKind.Startup && operableReached;
+        lock (startupInitializationCompletionLock)
+        {
+            startupInitializationCompleteStopwatch = null;
+            startupInitializationCompleteLogged = false;
+            startupInitializationCompleteRetryQueued = false;
+        }
     }
 
     private void SkipStartupProgressPhaseIfExpected(StartupProgressPhase phase, string reason)
@@ -8060,14 +7501,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private void TryLogStartupInitializationComplete()
     {
         long elapsedMs;
-        lock (startupBackgroundTaskLock)
+        lock (startupInitializationCompletionLock)
         {
             if (startupInitializationCompleteLogged || startupInitializationCompleteStopwatch == null)
             {
                 return;
             }
-            bool schedulerIdle = startupBackgroundTaskQueue.Count == 0 && startupBackgroundTaskRunningCount == 0;
-            if (!schedulerIdle)
+            if (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle)
             {
                 QueueStartupInitializationCompleteRetryUnsafe();
                 return;
@@ -8076,7 +7516,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             elapsedMs = startupInitializationCompleteStopwatch.ElapsedMilliseconds;
         }
         LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
-        LogUiSuppression(BuildStartupBackgroundSummaryLog(elapsedMs));
+        LogUiSuppression(startupBackgroundTaskScheduler.BuildSummaryLog(elapsedMs));
         if (!QueueDeferredStartupPresentationFlushAfterInitialization())
         {
             SchedulePostStartupBestEffortWarmups("startup_initialization_complete");
@@ -8148,88 +7588,12 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         Task.Run(async delegate
         {
             await Task.Delay(250).ConfigureAwait(false);
-            lock (startupBackgroundTaskLock)
+            lock (startupInitializationCompletionLock)
             {
                 startupInitializationCompleteRetryQueued = false;
             }
             TryLogStartupInitializationComplete();
         });
-    }
-
-    private string BuildStartupBackgroundSummaryLog(long elapsedMs)
-    {
-        List<StartupBackgroundTaskMetric> metrics;
-        lock (startupBackgroundTaskLock)
-        {
-            metrics = [.. startupBackgroundTaskMetrics.Values
-                .OrderBy(metric => metric.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(CloneStartupBackgroundTaskMetric)];
-        }
-        long queued = metrics.Sum(metric => metric.QueuedCount);
-        long started = metrics.Sum(metric => metric.StartedCount);
-        long completed = metrics.Sum(metric => metric.CompletedCount);
-        long failed = metrics.Sum(metric => metric.FailedCount);
-        string taskSummary = metrics.Count == 0
-            ? "(none)"
-            : string.Join(";", metrics.Select(FormatStartupBackgroundTaskMetric));
-        return "startup_background_summary elapsedMs=" + elapsedMs
-            + " queued=" + queued
-            + " started=" + started
-            + " completed=" + completed
-            + " failed=" + failed
-            + " tasks=" + taskSummary;
-    }
-
-    private static StartupBackgroundTaskMetric CloneStartupBackgroundTaskMetric(StartupBackgroundTaskMetric metric)
-    {
-        return new StartupBackgroundTaskMetric
-        {
-            Name = metric.Name,
-            Reason = metric.Reason,
-            Dependency = metric.Dependency,
-            Lane = metric.Lane,
-            QueuedCount = metric.QueuedCount,
-            StartedCount = metric.StartedCount,
-            CompletedCount = metric.CompletedCount,
-            FailedCount = metric.FailedCount,
-            TotalElapsedMs = metric.TotalElapsedMs,
-            LastElapsedMs = metric.LastElapsedMs,
-            LastStatus = metric.LastStatus,
-            LastDetail = metric.LastDetail
-        };
-    }
-
-    private static string FormatStartupBackgroundTaskMetric(StartupBackgroundTaskMetric metric)
-    {
-        return SanitizeStartupBackgroundSummaryValue(metric.Name)
-            + "{queued=" + metric.QueuedCount
-            + ",started=" + metric.StartedCount
-            + ",completed=" + metric.CompletedCount
-            + ",failed=" + metric.FailedCount
-            + ",lastStatus=" + SanitizeStartupBackgroundSummaryValue(metric.LastStatus)
-            + ",lastMs=" + metric.LastElapsedMs
-            + ",totalMs=" + metric.TotalElapsedMs
-            + ",reason=" + SanitizeStartupBackgroundSummaryValue(metric.Reason)
-            + ",dependency=" + SanitizeStartupBackgroundSummaryValue(metric.Dependency)
-            + ",lane=" + SanitizeStartupBackgroundSummaryValue(metric.Lane)
-            + ",detail=" + SanitizeStartupBackgroundSummaryValue(metric.LastDetail)
-            + "}";
-    }
-
-    private static string SanitizeStartupBackgroundSummaryValue(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "-";
-        }
-        return value
-            .Replace(Environment.NewLine, " ")
-            .Replace("\r", " ")
-            .Replace("\n", " ")
-            .Replace(";", ",")
-            .Replace("{", "(")
-            .Replace("}", ")")
-            .Replace(" ", "_");
     }
 
     /// <summary>
@@ -8777,40 +8141,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             ExpectedPhases = GetInitialExpectedStartupProgressPhases(ParseStartupProgressOperationKindForTest(operationKindName))
         };
         return CountExpectedStartupProgressPhases(state);
-    }
-
-    internal static bool ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest(string operationKindName, bool operableReached)
-    {
-        return ShouldStartStartupBackgroundTaskSchedulerAfterReset(ParseStartupProgressOperationKindForTest(operationKindName), operableReached);
-    }
-
-    /// <summary>
-    /// 起動後バックグラウンドタスクの lane 割り当てをテストから検証します。
-    /// </summary>
-    /// <param name="taskName">検証対象のタスク名。</param>
-    /// <returns>タスクに割り当てられる scheduler lane。</returns>
-    internal static string GetStartupBackgroundTaskLaneForTest(string taskName)
-    {
-        return GetStartupBackgroundTaskLane(taskName);
-    }
-
-    /// <summary>
-    /// 起動後バックグラウンドタスクの lane 別同時実行数をテストから検証します。
-    /// </summary>
-    /// <param name="lane">検証対象の scheduler lane。</param>
-    /// <returns>指定 lane の同時実行上限。</returns>
-    internal static int GetStartupBackgroundTaskLaneConcurrencyForTest(string lane)
-    {
-        return GetStartupBackgroundTaskLaneConcurrency(lane);
-    }
-
-    /// <summary>
-    /// 起動後バックグラウンドタスク全体の同時実行数をテストから検証します。
-    /// </summary>
-    /// <returns>全体の同時実行上限。</returns>
-    internal static int GetStartupBackgroundTaskTotalConcurrencyForTest()
-    {
-        return GetStartupBackgroundTaskTotalConcurrency();
     }
 
     private static int CountStartupProgressPhases(StartupProgressPhase phases)
