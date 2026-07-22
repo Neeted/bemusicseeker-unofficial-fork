@@ -893,7 +893,6 @@
   </FrameworkElement.Resources>
   <i:Interaction.Triggers>
     <i:EventTrigger EventName="Closed">
-      <l:LivetCallMethodAction MethodName="CloseProcess" MethodTarget="{Binding}" />
       <l:DataContextDisposeAction />
     </i:EventTrigger>
   </i:Interaction.Triggers>

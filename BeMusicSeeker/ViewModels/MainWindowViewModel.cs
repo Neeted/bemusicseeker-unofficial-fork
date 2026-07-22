@@ -41,48 +41,6 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class ShutdownPreparationResult
-{
-    internal ShutdownPreparationResult(
-        string reason,
-        long elapsedMs,
-        bool slowWaitLogged,
-        int sqliteCloseFailureCount)
-    {
-        Reason = reason ?? "shutdown";
-        ElapsedMs = elapsedMs;
-        SlowWaitLogged = slowWaitLogged;
-        SqliteCloseFailureCount = Math.Max(0, sqliteCloseFailureCount);
-    }
-
-    internal string Reason { get; }
-
-    internal long ElapsedMs { get; }
-
-    internal bool SlowWaitLogged { get; }
-
-    internal int SqliteCloseFailureCount { get; }
-
-    internal string ToLogFields()
-    {
-        return "reason=" + FormatForLog(Reason)
-            + " elapsedMs=" + ElapsedMs
-            + " slowWaitLogged=" + FormatBool(SlowWaitLogged)
-            + " sqliteCloseFailureCount=" + SqliteCloseFailureCount;
-    }
-
-    private static string FormatBool(bool value)
-    {
-        return value.ToString().ToLowerInvariant();
-    }
-
-    private static string FormatForLog(string value)
-    {
-        return (value ?? string.Empty).Replace(Environment.NewLine, " | ");
-    }
-}
-
-
 /// <summary>
 /// BeMusicSeeker のメイン画面を制御する ViewModel です。
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
@@ -463,16 +421,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private readonly object lockThis = new();
 
     private static readonly SemaphoreSlim _semaphore = new(1, 1);
-
-    private static readonly TimeSpan ShutdownDrainWarningThreshold = TimeSpan.FromSeconds(60);
-
-    private static readonly TimeSpan ShutdownQueueDrainWarningThreshold = TimeSpan.FromSeconds(20);
-
-    private readonly object shutdownPreparationLock = new();
-
-    private int shutdownRequested;
-
-    private Task<ShutdownPreparationResult> shutdownPreparationTask;
 
     private readonly ChartFileOperationSynchronizer chartFileOperations = new();
 
@@ -3082,7 +3030,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
         applicationComposition = composition;
         startupBackgroundTaskScheduler = new StartupBackgroundTaskSchedulerOwner(
-            () => IsShutdownRequested,
+            () => ShellShutdownWorkflow?.IsShutdownRequested == true,
             LogUiSuppression,
             LogUiSuppressionWarning,
             LogShutdown,
@@ -3133,7 +3081,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             () => startupReadyOperableReached,
             () => treeViewFilterTypeSelected,
             WaitForPlaylistReloadCleanupDispatcherIdleAsync,
-            () => IsShutdownRequested,
+            () => ShellShutdownWorkflow?.IsShutdownRequested == true,
             CollectPlaylistReloadCleanupGarbage,
             LogPlaylistReload,
             (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message),
@@ -3272,13 +3220,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
-        ShellShutdownWorkflow = new ShellShutdownWorkflowOwner(
-            StartupUpdateWorkflow,
-            ElevatedProcessWarningWorkflow,
-            PrepareShutdownAsync,
-            App.MarkCoordinatedShutdownStarted,
-            DispatchShellShutdownActionAsync,
-            (exception, context) => NLogWrapper.FileLogger?.Warn(exception, context));
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PackageCatalog = childComposition.PackageCatalogWorkflow;
@@ -3293,12 +3234,12 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
-            () => IsShutdownRequested,
+            () => ShellShutdownWorkflow?.IsShutdownRequested == true,
             PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot,
             SchedulePlayHistoryDisplayTargetCatalogRefresh);
         PlayHistory.PeriodRequestActivated += PlayHistoryPeriodRequestActivated;
         PlayHistory.ConfigureViewRefreshScheduler(
-            () => IsShutdownRequested,
+            () => ShellShutdownWorkflow?.IsShutdownRequested == true,
             request => RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request));
         PlayHistory.ConfigureViewExecution(new PlayHistoryViewExecutionDependencies(
             () => files,
@@ -3338,6 +3279,25 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         regularChartListOwner.SortChanged += RegularChartListOwnerSortChanged;
         regularChartListOwner.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         regularChartListOwner.FolderEditRequested += RegularChartListOwnerFolderEditRequested;
+
+        ShellShutdownWorkflow = new ShellShutdownWorkflowOwner(
+            StartupUpdateWorkflow,
+            ElevatedProcessWarningWorkflow,
+            startupBackgroundTaskScheduler,
+            regularChartListOwner,
+            PlaylistWorkspace,
+            playHistoryWorkflowOwner,
+            PackageInstallWorkflow,
+            MaintenanceRescanWorkflow,
+            FolderAutoRenameWorkflow,
+            PlaybackPanel,
+            _semaphore,
+            SetStartupUiInteractionBlocked,
+            App.MarkCoordinatedShutdownStarted,
+            DispatchShellShutdownActionAsync,
+            LogShutdown,
+            LogShutdownWarning,
+            FormatTextForLog);
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.KeywordSearchHistory));
@@ -3787,424 +3747,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         ProgressHub.UpdateLr2SongDbSyncStatusSuppression(IsStartupProgressBlockingLr2SongDbSyncStatus());
     }
 
-    public bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
-
-    private Task<ShutdownPreparationResult> PrepareShutdownAsync(string reason)
-    {
-        lock (shutdownPreparationLock)
-        {
-            if (shutdownPreparationTask == null)
-            {
-                PlaylistWorkspace.MarkPlaylistLibraryIndexShutdownRequested();
-                Interlocked.Exchange(ref shutdownRequested, 1);
-                Task regularChartListStopTask = regularChartListOwner.StopAsync();
-                shutdownPreparationTask = PrepareShutdownCoreAsync(reason ?? "shutdown", regularChartListStopTask);
-            }
-            return shutdownPreparationTask;
-        }
-    }
-
-    private async Task<ShutdownPreparationResult> PrepareShutdownCoreAsync(string reason, Task regularChartListStopTask)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        LogShutdown("prepare_start reason=" + FormatTextForLog(reason));
-        int sqliteCloseFailureBaseline = ShutdownOperationTracker.SqliteCloseFailureCount;
-        TryShutdownStep("set_ui_blocked", () => SetStartupUiInteractionBlocked(true));
-        RequestShutdownCancellation(reason);
-
-        ShutdownPreparationResult result = await CollectShutdownPreparationResultAsync(
-            reason,
-            stopwatch,
-            sqliteCloseFailureBaseline,
-            regularChartListStopTask).ConfigureAwait(false);
-        LogShutdown("prepare_done " + result.ToLogFields());
-        return result;
-    }
-
-    private async Task<ShutdownPreparationResult> CollectShutdownPreparationResultAsync(
-        string reason,
-        Stopwatch stopwatch = null,
-        int? sqliteCloseFailureBaseline = null,
-        Task regularChartListStopTask = null)
-    {
-        stopwatch ??= Stopwatch.StartNew();
-        sqliteCloseFailureBaseline ??= ShutdownOperationTracker.SqliteCloseFailureCount;
-        var waitTracker = new ShutdownWaitTracker();
-        await WaitForTaskCompletionAsync(
-            "regularChartListWarmup",
-            regularChartListStopTask,
-            ShutdownDrainWarningThreshold,
-            waitTracker,
-            () => "running=" + regularChartListOwner.IsVirtualOrderPrewarmRunning).ConfigureAwait(false);
-        await (regularChartListStopTask ?? Task.CompletedTask).ConfigureAwait(false);
-        await WaitForDropInstallQueueIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForMaintenanceRescanIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForFolderAutoRenameIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForPlaylistBuildIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForPlaylistSummaryDataBuildIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForStartupBackgroundTasksIdleAsync(waitTracker).ConfigureAwait(false);
-        Task playlistLibraryIndexPrewarmTask = PlaylistWorkspace.GetPlaylistLibraryIndexPrewarmTask();
-        await WaitForTaskCompletionAsync(
-            "playlistLibraryIndexPrewarm",
-            playlistLibraryIndexPrewarmTask,
-            ShutdownQueueDrainWarningThreshold,
-            waitTracker,
-            () => "completed=" + FormatBool(playlistLibraryIndexPrewarmTask == null || playlistLibraryIndexPrewarmTask.IsCompleted)).ConfigureAwait(false);
-        await WaitForPlayHistoryRefreshIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForMainOperationIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForLibraryShutdownBlockingWorkAsync(waitTracker).ConfigureAwait(false);
-        await WaitForPlaylistShutdownBlockingWorkAsync(waitTracker).ConfigureAwait(false);
-        await WaitForDeferredPlaylistWorkersIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForPlaylistReloadCleanupIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForLr2DbProcessLocksAsync(waitTracker).ConfigureAwait(false);
-        await WaitForSqliteConnectionsIdleAsync(waitTracker).ConfigureAwait(false);
-        int sqliteCloseFailureCount = Math.Max(0, ShutdownOperationTracker.SqliteCloseFailureCount - sqliteCloseFailureBaseline.Value);
-        stopwatch.Stop();
-        return new ShutdownPreparationResult(
-            reason,
-            stopwatch.ElapsedMilliseconds,
-            waitTracker.SlowWaitLogged,
-            sqliteCloseFailureCount);
-    }
-
-    private void RequestShutdownCancellation(string reason)
-    {
-        TryShutdownStep("library", () => files?.RequestShutdown(reason));
-        TryShutdownStep("playlist", () => tables?.RequestShutdown(reason));
-        TryShutdownStep("playlist_build", CancelPlaylistBuildRequestsForShutdown);
-        TryShutdownStep("playlist_summary", PlaylistWorkspace.StopPlaylistSummaryDataBuild);
-        TryShutdownStep("play_history", CancelPlayHistoryRequestsForShutdown);
-        TryShutdownStep("playlist_index_prewarm", PlaylistWorkspace.CancelPlaylistLibraryIndexPrewarmForShutdown);
-        TryShutdownStep("playlist_reload_cleanup", PlaylistWorkspace.CancelPlaylistReloadCleanupForShutdown);
-        TryShutdownStep("maintenance_rescan", () => MaintenanceRescanWorkflow?.RequestShutdown());
-        TryShutdownStep("folder_auto_rename", () => FolderAutoRenameWorkflow?.RequestShutdown());
-        TryShutdownStep("package_install", () => PackageInstallWorkflow?.RequestShutdown());
-        TryShutdownStep("startup_background_queue", () => startupBackgroundTaskScheduler.RequestShutdown(reason));
-    }
-
-    private void CancelPlaylistBuildRequestsForShutdown()
-    {
-        PlaylistWorkspace.CancelDetailBuilds();
-    }
-
-    private void CancelPlayHistoryRequestsForShutdown()
-    {
-        playHistoryWorkflowOwner.Deactivate();
-        playHistoryWorkflowOwner.ClearQueuedRefreshes();
-        playHistoryWorkflowOwner.CancelDisplayTargetCatalogRefreshesForShutdown();
-    }
-
-    private sealed class ShutdownWaitTracker
-    {
-        private int slowWaitLogged;
-
-        internal bool SlowWaitLogged => Volatile.Read(ref slowWaitLogged) != 0;
-
-        internal void MarkSlowWaitLogged()
-        {
-            Interlocked.Exchange(ref slowWaitLogged, 1);
-        }
-    }
-
-    private async Task WaitForDropInstallQueueIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "dropInstallQueue",
-            () => PackageInstallWorkflow == null || PackageInstallWorkflow.IsIdle,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            () => "idle=" + FormatBool(PackageInstallWorkflow == null || PackageInstallWorkflow.IsIdle)).ConfigureAwait(false);
-    }
-
-    private async Task WaitForMaintenanceRescanIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "maintenanceRescan",
-            () => MaintenanceRescanWorkflow == null || MaintenanceRescanWorkflow.IsIdle,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            () => "idle=" + FormatBool(MaintenanceRescanWorkflow == null || MaintenanceRescanWorkflow.IsIdle)).ConfigureAwait(false);
-    }
-
-    private async Task WaitForFolderAutoRenameIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "folderAutoRename",
-            () => FolderAutoRenameWorkflow == null || FolderAutoRenameWorkflow.IsIdle,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            () => "idle=" + FormatBool(FolderAutoRenameWorkflow == null || FolderAutoRenameWorkflow.IsIdle)).ConfigureAwait(false);
-    }
-
-    private async Task WaitForPlaylistBuildIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "playlistBuild",
-            IsPlaylistBuildIdle,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            DescribePlaylistBuildWaitState).ConfigureAwait(false);
-    }
-
-    private async Task WaitForPlaylistSummaryDataBuildIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "playlistSummaryDataBuild",
-            () => PlaylistWorkspace.IsPlaylistSummaryDataBuildIdle,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            () => "idle=" + FormatBool(PlaylistWorkspace.IsPlaylistSummaryDataBuildIdle)).ConfigureAwait(false);
-    }
-
-    private bool IsPlaylistBuildIdle()
-    {
-        return PlaylistWorkspace.IsDetailBuildIdle;
-    }
-
-    private async Task WaitForStartupBackgroundTasksIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "startupBackgroundTasks",
-            IsStartupBackgroundTaskSchedulerIdle,
-            ShutdownDrainWarningThreshold,
-            tracker,
-            DescribeStartupBackgroundTaskWaitState).ConfigureAwait(false);
-    }
-
-    private bool IsStartupBackgroundTaskSchedulerIdle()
-    {
-        return startupBackgroundTaskScheduler.IsIdle;
-    }
-
-    private async Task WaitForPlayHistoryRefreshIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "playHistoryRefresh",
-            IsPlayHistoryRefreshIdle,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            DescribePlayHistoryRefreshWaitState).ConfigureAwait(false);
-    }
-
-    private bool IsPlayHistoryRefreshIdle()
-    {
-        return playHistoryWorkflowOwner.AreRefreshQueuesIdle
-            && playHistoryWorkflowOwner.IsDisplayTargetCatalogRefreshIdle;
-    }
-
-    private async Task WaitForDeferredPlaylistWorkersIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "deferredPlaylistWorkers",
-            IsDeferredPlaylistWorkersIdle,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            DescribeDeferredPlaylistWorkersWaitState).ConfigureAwait(false);
-    }
-
-    private bool IsDeferredPlaylistWorkersIdle()
-    {
-        return PlaylistWorkspace.IsPlaylistReferenceApplyIdle
-            && PlaylistWorkspace.IsDeferredExternalPlaylistSyncIdle;
-    }
-
-    private async Task WaitForPlaylistReloadCleanupIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "playlistReloadCleanup",
-            () => PlaylistWorkspace.IsPlaylistReloadCleanupIdle,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            PlaylistWorkspace.DescribePlaylistReloadCleanupWaitState).ConfigureAwait(false);
-    }
-
-    private async Task WaitForLibraryShutdownBlockingWorkAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "libraryShutdownWork",
-            () => files == null || !files.HasShutdownBlockingWork,
-            ShutdownDrainWarningThreshold,
-            tracker,
-            () => files == null ? "library=null" : files.GetShutdownBlockingWorkLogFields()).ConfigureAwait(false);
-    }
-
-    private async Task WaitForPlaylistShutdownBlockingWorkAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "playlistShutdownWork",
-            () => tables == null || !tables.HasShutdownBlockingWork,
-            ShutdownDrainWarningThreshold,
-            tracker,
-            () => tables == null ? "playlist=null" : tables.GetShutdownBlockingWorkLogFields()).ConfigureAwait(false);
-    }
-
-    private static async Task WaitForSqliteConnectionsIdleAsync(ShutdownWaitTracker tracker)
-    {
-        await WaitForConditionAsync(
-            "sqliteConnections",
-            () => ShutdownOperationTracker.ActiveSqliteConnectionCount == 0,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            () => "activeSqliteConnectionCount=" + ShutdownOperationTracker.ActiveSqliteConnectionCount).ConfigureAwait(false);
-    }
-
-    private static async Task WaitForTaskCompletionAsync(string target, Task task, TimeSpan warningThreshold, ShutdownWaitTracker tracker, Func<string> describeState)
-    {
-        if (task == null || task.IsCompleted)
-        {
-            return;
-        }
-        var stopwatch = Stopwatch.StartNew();
-        bool warningLogged = false;
-        while (!task.IsCompleted)
-        {
-            await Task.Delay(100).ConfigureAwait(false);
-            LogSlowWaitIfNeeded(target, stopwatch, warningThreshold, tracker, ref warningLogged, describeState);
-        }
-    }
-
-    private static async Task WaitForConditionAsync(string target, Func<bool> isIdle, TimeSpan warningThreshold, ShutdownWaitTracker tracker, Func<string> describeState)
-    {
-        if (isIdle())
-        {
-            return;
-        }
-        var stopwatch = Stopwatch.StartNew();
-        bool warningLogged = false;
-        while (true)
-        {
-            await Task.Delay(100).ConfigureAwait(false);
-            if (isIdle())
-            {
-                return;
-            }
-            LogSlowWaitIfNeeded(target, stopwatch, warningThreshold, tracker, ref warningLogged, describeState);
-        }
-    }
-
-    private static async Task WaitForMainOperationIdleAsync(ShutdownWaitTracker tracker)
-    {
-        Task waitTask = _semaphore.WaitAsync();
-        await WaitForTaskCompletionAsync(
-            "mainOperationSemaphore",
-            waitTask,
-            ShutdownDrainWarningThreshold,
-            tracker,
-            () => "semaphoreAvailable=false").ConfigureAwait(false);
-        await waitTask.ConfigureAwait(false);
-        _semaphore.Release();
-    }
-
-    private static async Task WaitForLr2DbProcessLocksAsync(ShutdownWaitTracker tracker)
-    {
-        await Task.Run(() =>
-        {
-            var stopwatch = Stopwatch.StartNew();
-            bool warningLogged = false;
-            while (true)
-            {
-                bool songLockTaken = false;
-                bool scoreLockTaken = false;
-                try
-                {
-                    songLockTaken = LR2SongDBExtended.Lock(TimeSpan.FromMilliseconds(100));
-                    if (songLockTaken)
-                    {
-                        scoreLockTaken = LR2ScoreDBExtended.Lock(TimeSpan.FromMilliseconds(100));
-                    }
-                    if (songLockTaken && scoreLockTaken)
-                    {
-                        return;
-                    }
-                }
-                finally
-                {
-                    if (scoreLockTaken)
-                    {
-                        LR2ScoreDBExtended.Unlock();
-                    }
-                    if (songLockTaken)
-                    {
-                        LR2SongDBExtended.Unlock();
-                    }
-                }
-                LogSlowWaitIfNeeded(
-                    "lr2DbProcessLocks",
-                    stopwatch,
-                    ShutdownDrainWarningThreshold,
-                    tracker,
-                    ref warningLogged,
-                    () => "songLockTaken=" + FormatBool(songLockTaken) + " scoreLockTaken=" + FormatBool(scoreLockTaken));
-                Thread.Sleep(100);
-            }
-        }).ConfigureAwait(false);
-    }
-
-    private string DescribePlaylistBuildWaitState()
-    {
-        return PlaylistWorkspace.DescribeDetailBuildState(FormatBool);
-    }
-
-    private string DescribeStartupBackgroundTaskWaitState()
-    {
-        return startupBackgroundTaskScheduler.DescribeWaitState();
-    }
-
-    private string DescribePlayHistoryRefreshWaitState()
-    {
-        return playHistoryWorkflowOwner.DescribeRefreshQueues()
-            + " " + playHistoryWorkflowOwner.DescribeDisplayTargetCatalogRefresh();
-    }
-
-    private string DescribeDeferredPlaylistWorkersWaitState()
-    {
-        return PlaylistWorkspace.DescribePlaylistReferenceApplyWaitState()
-            + " " + PlaylistWorkspace.DescribeDeferredExternalPlaylistSyncWaitState();
-    }
-
-    private static void LogSlowWaitIfNeeded(
-        string target,
-        Stopwatch stopwatch,
-        TimeSpan warningThreshold,
-        ShutdownWaitTracker tracker,
-        ref bool warningLogged,
-        Func<string> describeState)
-    {
-        if (warningLogged || stopwatch.Elapsed < warningThreshold)
-        {
-            return;
-        }
-        warningLogged = true;
-        tracker?.MarkSlowWaitLogged();
-        string state = string.Empty;
-        if (describeState != null)
-        {
-            try
-            {
-                state = describeState();
-            }
-            catch (Exception ex)
-            {
-                state = "stateFailed=" + ex.GetType().Name;
-            }
-        }
-        LogShutdownWarning("wait_slow target=" + FormatTextForLog(target)
-            + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-            + (string.IsNullOrWhiteSpace(state) ? string.Empty : " " + state));
-    }
-
-    private static void TryShutdownStep(string name, Action action)
-    {
-        try
-        {
-            action?.Invoke();
-        }
-        catch (Exception ex)
-        {
-            LogShutdown((name ?? "step") + "_failed message=" + ex.Message);
-        }
-    }
-
     private static void LogShutdown(string message)
     {
         string line = "shutdown " + (message ?? string.Empty);
@@ -4228,6 +3770,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private static string FormatTextForLog(string value)
     {
         return (value ?? string.Empty).Replace(Environment.NewLine, " | ");
+    }
+
+    internal void SaveSettingsForShutdown()
+    {
+        saveSettings();
     }
 
     private static string FormatBool(bool value)
@@ -4806,6 +4353,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             try
             {
                 files = applicationComposition.CreateBmsLibrary(libraryProfile);
+                ShellShutdownWorkflow.AttachLibrary(files);
                 PackageInstallWorkflow.AttachLibrary(files);
                 MaintenanceRescanWorkflow.AttachLibrary(files);
                 FolderAutoRenameWorkflow.AttachLibrary(files);
@@ -4821,6 +4369,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                 () => files.GetBMSScores(),
                 () => files.CreateBeatorajaBmtSongHashResolver(),
                 files.Lr2PlaylistFolderSynchronization);
+            ShellShutdownWorkflow.AttachPlaylist(tables);
             PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
             PlaylistWorkspace.SetDetailDataSource(
                 applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
@@ -5411,90 +4960,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             return;
         }
         RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-    }
-
-    public void CloseProcess()
-    {
-        if (!IsShutdownRequested)
-        {
-            PlaylistWorkspace.MarkPlaylistLibraryIndexShutdownRequested();
-            Interlocked.Exchange(ref shutdownRequested, 1);
-            RequestShutdownCancellation("CloseProcess");
-        }
-        try
-        {
-            saveSettings();
-        }
-        catch (Exception ex)
-        {
-            LogShutdown("settings_save_failed message=" + ex.Message);
-        }
-        try
-        {
-            PlaybackPanel.CloseProcess();
-        }
-        catch (Exception ex)
-        {
-            LogShutdown("player_close_failed message=" + ex.Message);
-        }
-
-        WaitForFinalLr2DbProcessLocks();
-        try
-        {
-            TempDirectoryPublisher.RemoveAll((path, ex) => LogShutdown("temp_remove_failed path=" + path + " message=" + ex.Message));
-        }
-        catch (Exception ex)
-        {
-            LogShutdown("temp_remove_failed message=" + ex.Message);
-        }
-    }
-
-    internal void SaveSettingsForShutdown()
-    {
-        saveSettings();
-    }
-
-    private static void WaitForFinalLr2DbProcessLocks()
-    {
-        var stopwatch = Stopwatch.StartNew();
-        var tracker = new ShutdownWaitTracker();
-        bool warningLogged = false;
-        while (true)
-        {
-            bool songLockTaken = false;
-            bool scoreLockTaken = false;
-            try
-            {
-                songLockTaken = LR2SongDBExtended.Lock(TimeSpan.FromMilliseconds(100));
-                if (songLockTaken)
-                {
-                    scoreLockTaken = LR2ScoreDBExtended.Lock(TimeSpan.FromMilliseconds(100));
-                }
-                if (songLockTaken && scoreLockTaken)
-                {
-                    return;
-                }
-            }
-            finally
-            {
-                if (scoreLockTaken)
-                {
-                    LR2ScoreDBExtended.Unlock();
-                }
-                if (songLockTaken)
-                {
-                    LR2SongDBExtended.Unlock();
-                }
-            }
-            LogSlowWaitIfNeeded(
-                "lr2DbProcessLocksFinal",
-                stopwatch,
-                ShutdownDrainWarningThreshold,
-                tracker,
-                ref warningLogged,
-                () => "songLockTaken=" + FormatBool(songLockTaken) + " scoreLockTaken=" + FormatBool(scoreLockTaken));
-            Thread.Sleep(100);
-        }
     }
 
     private static List<ChartFile> GetBmsFormatCharts(IEnumerable<ChartFile> charts)

@@ -1,7 +1,53 @@
 using System;
+using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
+
+internal sealed class ShutdownPreparationResult
+{
+    internal ShutdownPreparationResult(
+        string reason,
+        long elapsedMs,
+        bool slowWaitLogged,
+        int sqliteCloseFailureCount)
+    {
+        Reason = reason ?? "shutdown";
+        ElapsedMs = elapsedMs;
+        SlowWaitLogged = slowWaitLogged;
+        SqliteCloseFailureCount = Math.Max(0, sqliteCloseFailureCount);
+    }
+
+    internal string Reason { get; }
+
+    internal long ElapsedMs { get; }
+
+    internal bool SlowWaitLogged { get; }
+
+    internal int SqliteCloseFailureCount { get; }
+
+    internal string ToLogFields()
+    {
+        return "reason=" + FormatForLog(Reason)
+            + " elapsedMs=" + ElapsedMs
+            + " slowWaitLogged=" + FormatBool(SlowWaitLogged)
+            + " sqliteCloseFailureCount=" + SqliteCloseFailureCount;
+    }
+
+    private static string FormatBool(bool value)
+    {
+        return value.ToString().ToLowerInvariant();
+    }
+
+    private static string FormatForLog(string value)
+    {
+        return (value ?? string.Empty).Replace(Environment.NewLine, " | ");
+    }
+}
 
 internal sealed class ShellShutdownWorkflowCompletionReceipt
 {
@@ -29,19 +75,58 @@ internal sealed class ShellShutdownWorkflowCompletionReceipt
 /// </summary>
 internal sealed class ShellShutdownWorkflowOwner
 {
+    private static readonly TimeSpan ShutdownDrainWarningThreshold = TimeSpan.FromSeconds(60);
+
+    private static readonly TimeSpan ShutdownQueueDrainWarningThreshold = TimeSpan.FromSeconds(20);
+
     private readonly object syncRoot = new();
+
+    private readonly TaskCompletionSource<Task> shutdownStartCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private readonly StartupUpdateWorkflowOwner startupUpdateWorkflow;
 
     private readonly ElevatedProcessWarningWorkflowOwner elevatedProcessWarningWorkflow;
 
-    private readonly Func<string, Task<ShutdownPreparationResult>> prepareShutdown;
+    private readonly StartupBackgroundTaskSchedulerOwner startupBackgroundTaskScheduler;
+
+    private readonly RegularChartListOwner regularChartListOwner;
+
+    private readonly PlaylistWorkspaceViewModel playlistWorkspace;
+
+    private readonly PlayHistoryWorkflowOwner playHistoryWorkflowOwner;
+
+    private readonly PackageInstallWorkflowOwner packageInstallWorkflow;
+
+    private readonly MaintenanceRescanWorkflowOwner maintenanceRescanWorkflow;
+
+    private readonly FolderAutoRenameWorkflowOwner folderAutoRenameWorkflow;
+
+    private readonly PlaybackPanelViewModel playbackPanel;
+
+    private readonly SemaphoreSlim mainOperationSemaphore;
+
+    private readonly Action<bool> setStartupUiInteractionBlocked;
 
     private readonly Action<string> markCoordinatedShutdownStarted;
 
     private readonly Func<Func<Task>, Task> dispatchToUi;
 
-    private readonly Action<Exception, string> logWarning;
+    private readonly Action<string> logShutdown;
+
+    private readonly Action<string> logShutdownWarning;
+
+    private readonly Func<string, string> formatTextForLog;
+
+    private BMSLibrary files;
+
+    private BMSPlaylist tables;
+
+    private bool libraryAttached;
+
+    private bool playlistAttached;
+
+    private int shutdownRequested;
 
     private Task<ShutdownPreparationResult> preparationTask;
 
@@ -61,22 +146,126 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private bool updatePreparationFailurePending;
 
+    private bool terminalResourcesClosed;
+
+    private Task failureDrainTask;
+
     internal ShellShutdownWorkflowOwner(
         StartupUpdateWorkflowOwner startupUpdateWorkflow,
         ElevatedProcessWarningWorkflowOwner elevatedProcessWarningWorkflow,
-        Func<string, Task<ShutdownPreparationResult>> prepareShutdown,
+        StartupBackgroundTaskSchedulerOwner startupBackgroundTaskScheduler,
+        RegularChartListOwner regularChartListOwner,
+        PlaylistWorkspaceViewModel playlistWorkspace,
+        PlayHistoryWorkflowOwner playHistoryWorkflowOwner,
+        PackageInstallWorkflowOwner packageInstallWorkflow,
+        MaintenanceRescanWorkflowOwner maintenanceRescanWorkflow,
+        FolderAutoRenameWorkflowOwner folderAutoRenameWorkflow,
+        PlaybackPanelViewModel playbackPanel,
+        SemaphoreSlim mainOperationSemaphore,
+        Action<bool> setStartupUiInteractionBlocked,
         Action<string> markCoordinatedShutdownStarted,
         Func<Func<Task>, Task> dispatchToUi,
-        Action<Exception, string> logWarning = null)
+        Action<string> logShutdown,
+        Action<string> logShutdownWarning,
+        Func<string, string> formatTextForLog)
     {
         this.startupUpdateWorkflow = startupUpdateWorkflow ?? throw new ArgumentNullException(nameof(startupUpdateWorkflow));
         this.elevatedProcessWarningWorkflow = elevatedProcessWarningWorkflow ?? throw new ArgumentNullException(nameof(elevatedProcessWarningWorkflow));
-        this.prepareShutdown = prepareShutdown ?? throw new ArgumentNullException(nameof(prepareShutdown));
+        this.startupBackgroundTaskScheduler = startupBackgroundTaskScheduler ?? throw new ArgumentNullException(nameof(startupBackgroundTaskScheduler));
+        this.regularChartListOwner = regularChartListOwner ?? throw new ArgumentNullException(nameof(regularChartListOwner));
+        this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
+        this.playHistoryWorkflowOwner = playHistoryWorkflowOwner ?? throw new ArgumentNullException(nameof(playHistoryWorkflowOwner));
+        this.packageInstallWorkflow = packageInstallWorkflow ?? throw new ArgumentNullException(nameof(packageInstallWorkflow));
+        this.maintenanceRescanWorkflow = maintenanceRescanWorkflow ?? throw new ArgumentNullException(nameof(maintenanceRescanWorkflow));
+        this.folderAutoRenameWorkflow = folderAutoRenameWorkflow ?? throw new ArgumentNullException(nameof(folderAutoRenameWorkflow));
+        this.playbackPanel = playbackPanel ?? throw new ArgumentNullException(nameof(playbackPanel));
+        this.mainOperationSemaphore = mainOperationSemaphore ?? throw new ArgumentNullException(nameof(mainOperationSemaphore));
+        this.setStartupUiInteractionBlocked = setStartupUiInteractionBlocked ?? throw new ArgumentNullException(nameof(setStartupUiInteractionBlocked));
         this.markCoordinatedShutdownStarted = markCoordinatedShutdownStarted ?? throw new ArgumentNullException(nameof(markCoordinatedShutdownStarted));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
-        this.logWarning = logWarning;
-
+        this.logShutdown = logShutdown ?? throw new ArgumentNullException(nameof(logShutdown));
+        this.logShutdownWarning = logShutdownWarning ?? throw new ArgumentNullException(nameof(logShutdownWarning));
+        this.formatTextForLog = formatTextForLog ?? throw new ArgumentNullException(nameof(formatTextForLog));
         startupUpdateWorkflow.BindShutdownPreparation(PrepareForStartupUpdateAsync);
+    }
+
+    internal bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
+
+    internal void AttachLibrary(BMSLibrary library)
+    {
+        if (library == null)
+        {
+            throw new ArgumentNullException(nameof(library));
+        }
+        bool requestShutdown;
+        lock (syncRoot)
+        {
+            files = library;
+            Volatile.Write(ref libraryAttached, true);
+            requestShutdown = IsShutdownRequested;
+        }
+        if (requestShutdown)
+        {
+            TryShutdownStep("library_late_attach", () => library.RequestShutdown("late_attach"));
+        }
+    }
+
+    internal void AttachPlaylist(BMSPlaylist playlist)
+    {
+        if (playlist == null)
+        {
+            throw new ArgumentNullException(nameof(playlist));
+        }
+        bool requestShutdown;
+        lock (syncRoot)
+        {
+            tables = playlist;
+            Volatile.Write(ref playlistAttached, true);
+            requestShutdown = IsShutdownRequested;
+        }
+        if (requestShutdown)
+        {
+            TryShutdownStep("playlist_late_attach", () => playlist.RequestShutdown("late_attach"));
+        }
+    }
+
+    internal void CompleteTerminalShutdown()
+    {
+        lock (syncRoot)
+        {
+            if (terminalResourcesClosed)
+            {
+                return;
+            }
+            terminalResourcesClosed = true;
+        }
+        Task regularChartListStop = BeginShutdownRequested("terminal_close");
+        try
+        {
+            regularChartListStop.GetAwaiter().GetResult();
+        }
+        catch (Exception exception)
+        {
+            logShutdown("regularChartListStop_final_failed message=" + exception.Message);
+        }
+        TryShutdownStep("player_close", playbackPanel.CloseProcess);
+        try
+        {
+            WaitForLr2DbProcessLocksAsync(new ShutdownWaitTracker()).GetAwaiter().GetResult();
+        }
+        catch (Exception exception)
+        {
+            logShutdown("lr2DbProcessLocksFinal_failed message=" + exception.Message);
+        }
+        try
+        {
+            TempDirectoryPublisher.RemoveAll((path, exception) =>
+                logShutdown("temp_remove_failed path=" + path + " message=" + exception.Message));
+        }
+        catch (Exception exception)
+        {
+            logShutdown("temp_remove_failed message=" + exception.Message);
+        }
     }
 
     internal bool IsClosingOrClosed
@@ -144,7 +333,7 @@ internal sealed class ShellShutdownWorkflowOwner
         }
         if (preparationBelongsToUpdate)
         {
-            _ = AllowCloseAfterStartupUpdateTerminalAsync();
+            _ = AllowCloseAfterStartupUpdateTerminalAsync(preparation);
         }
         return preparation;
     }
@@ -324,7 +513,7 @@ internal sealed class ShellShutdownWorkflowOwner
         try
         {
             markCoordinatedShutdownStarted(reason);
-            ShutdownPreparationResult result = await prepareShutdown(reason).ConfigureAwait(false);
+            ShutdownPreparationResult result = await PrepareShutdownCoreAsync(reason).ConfigureAwait(false);
             MarkPreparationCompleted();
             completion.TrySetResult(result);
         }
@@ -339,6 +528,24 @@ internal sealed class ShellShutdownWorkflowOwner
         Exception exception,
         bool updatePreparation)
     {
+        Task failureDrain = StartFailureDrain();
+        _ = CompletePreparationFailureAfterDrainAsync(completion, exception, updatePreparation, failureDrain);
+    }
+
+    private async Task CompletePreparationFailureAfterDrainAsync(
+        TaskCompletionSource<ShutdownPreparationResult> completion,
+        Exception exception,
+        bool updatePreparation,
+        Task failureDrain)
+    {
+        try
+        {
+            await failureDrain.ConfigureAwait(false);
+        }
+        catch (Exception shutdownException)
+        {
+            LogWarningSafely(shutdownException, "shell_shutdown cancellation fallback failed");
+        }
         lock (syncRoot)
         {
             preparationRunning = false;
@@ -351,6 +558,30 @@ internal sealed class ShellShutdownWorkflowOwner
         completion.TrySetException(exception);
     }
 
+    private Task StartFailureDrain()
+    {
+        lock (syncRoot)
+        {
+            if (failureDrainTask == null)
+            {
+                failureDrainTask = DrainAfterPreparationFailureAsync();
+            }
+            return failureDrainTask;
+        }
+    }
+
+    private async Task DrainAfterPreparationFailureAsync()
+    {
+        Task regularChartListStop = BeginShutdownRequested("preparation_failure");
+        var stopwatch = Stopwatch.StartNew();
+        int sqliteCloseFailureBaseline = ShutdownOperationTracker.SqliteCloseFailureCount;
+        await CollectShutdownPreparationResultAsync(
+            "preparation_failure",
+            stopwatch,
+            sqliteCloseFailureBaseline,
+            regularChartListStop).ConfigureAwait(false);
+    }
+
     private void MarkPreparationCompleted()
     {
         lock (syncRoot)
@@ -360,9 +591,16 @@ internal sealed class ShellShutdownWorkflowOwner
         }
     }
 
-    private async Task AllowCloseAfterStartupUpdateTerminalAsync()
+    private async Task AllowCloseAfterStartupUpdateTerminalAsync(Task<ShutdownPreparationResult> preparation)
     {
         await startupUpdateWorkflow.WaitForTerminalAsync().ConfigureAwait(false);
+        try
+        {
+            await preparation.ConfigureAwait(false);
+        }
+        catch
+        {
+        }
         MarkCloseAllowed();
     }
 
@@ -374,14 +612,416 @@ internal sealed class ShellShutdownWorkflowOwner
         }
     }
 
+    private async Task<ShutdownPreparationResult> PrepareShutdownCoreAsync(string reason)
+    {
+        Task regularChartListStop = BeginShutdownRequested(reason);
+        var stopwatch = Stopwatch.StartNew();
+        logShutdown("prepare_start reason=" + formatTextForLog(reason));
+        int sqliteCloseFailureBaseline = ShutdownOperationTracker.SqliteCloseFailureCount;
+        TryShutdownStep("set_ui_blocked", () => setStartupUiInteractionBlocked(true));
+
+        ShutdownPreparationResult result = await CollectShutdownPreparationResultAsync(
+            reason,
+            stopwatch,
+            sqliteCloseFailureBaseline,
+            regularChartListStop).ConfigureAwait(false);
+        logShutdown("prepare_done " + result.ToLogFields());
+        return result;
+    }
+
+    private async Task<ShutdownPreparationResult> CollectShutdownPreparationResultAsync(
+        string reason,
+        Stopwatch stopwatch = null,
+        int? sqliteCloseFailureBaseline = null,
+        Task regularChartListStopTask = null)
+    {
+        stopwatch ??= Stopwatch.StartNew();
+        sqliteCloseFailureBaseline ??= ShutdownOperationTracker.SqliteCloseFailureCount;
+        var waitTracker = new ShutdownWaitTracker();
+        await WaitForTaskCompletionAsync(
+            "regularChartListWarmup",
+            regularChartListStopTask,
+            ShutdownDrainWarningThreshold,
+            waitTracker,
+            () => "running=" + FormatBool(regularChartListOwner.IsVirtualOrderPrewarmRunning)).ConfigureAwait(false);
+        await (regularChartListStopTask ?? Task.CompletedTask).ConfigureAwait(false);
+        await WaitForDropInstallQueueIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForMaintenanceRescanIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForFolderAutoRenameIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForPlaylistBuildIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForPlaylistSummaryDataBuildIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForStartupBackgroundTasksIdleAsync(waitTracker).ConfigureAwait(false);
+        Task playlistLibraryIndexPrewarmTask = playlistWorkspace.GetPlaylistLibraryIndexPrewarmTask();
+        await WaitForTaskCompletionAsync(
+            "playlistLibraryIndexPrewarm",
+            playlistLibraryIndexPrewarmTask,
+            ShutdownQueueDrainWarningThreshold,
+            waitTracker,
+            () => "completed=" + FormatBool(playlistLibraryIndexPrewarmTask == null || playlistLibraryIndexPrewarmTask.IsCompleted)).ConfigureAwait(false);
+        await WaitForPlayHistoryRefreshIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForMainOperationIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForLibraryShutdownBlockingWorkAsync(waitTracker).ConfigureAwait(false);
+        await WaitForPlaylistShutdownBlockingWorkAsync(waitTracker).ConfigureAwait(false);
+        await WaitForDeferredPlaylistWorkersIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForPlaylistReloadCleanupIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForLr2DbProcessLocksAsync(waitTracker).ConfigureAwait(false);
+        await WaitForSqliteConnectionsIdleAsync(waitTracker).ConfigureAwait(false);
+        int sqliteCloseFailureCount = Math.Max(0, ShutdownOperationTracker.SqliteCloseFailureCount - sqliteCloseFailureBaseline.Value);
+        stopwatch.Stop();
+        return new ShutdownPreparationResult(
+            reason,
+            stopwatch.ElapsedMilliseconds,
+            waitTracker.SlowWaitLogged,
+            sqliteCloseFailureCount);
+    }
+
+    private Task BeginShutdownRequested(string reason)
+    {
+        if (Interlocked.CompareExchange(ref shutdownRequested, 1, 0) != 0)
+        {
+            return shutdownStartCompletion.Task.Unwrap();
+        }
+        TryShutdownStep("playlist_index_shutdown", playlistWorkspace.MarkPlaylistLibraryIndexShutdownRequested);
+        Task regularChartListStop = Task.CompletedTask;
+        try
+        {
+            regularChartListStop = regularChartListOwner.StopAsync() ?? Task.CompletedTask;
+        }
+        catch (Exception exception)
+        {
+            logShutdown("regularChartListStop_failed message=" + exception.Message);
+        }
+        RequestShutdownCancellation(reason ?? "shutdown");
+        shutdownStartCompletion.TrySetResult(regularChartListStop);
+        return regularChartListStop;
+    }
+
+    private void RequestShutdownCancellation(string reason)
+    {
+        TryShutdownStep("library", () =>
+        {
+            if (Volatile.Read(ref libraryAttached))
+            {
+                files.RequestShutdown(reason);
+            }
+        });
+        TryShutdownStep("playlist", () =>
+        {
+            if (Volatile.Read(ref playlistAttached))
+            {
+                tables.RequestShutdown(reason);
+            }
+        });
+        TryShutdownStep("playlist_build", playlistWorkspace.CancelDetailBuilds);
+        TryShutdownStep("playlist_summary", playlistWorkspace.StopPlaylistSummaryDataBuild);
+        TryShutdownStep("play_history", () =>
+        {
+            playHistoryWorkflowOwner.Deactivate();
+            playHistoryWorkflowOwner.ClearQueuedRefreshes();
+            playHistoryWorkflowOwner.CancelDisplayTargetCatalogRefreshesForShutdown();
+        });
+        TryShutdownStep("playlist_index_prewarm", playlistWorkspace.CancelPlaylistLibraryIndexPrewarmForShutdown);
+        TryShutdownStep("playlist_reload_cleanup", playlistWorkspace.CancelPlaylistReloadCleanupForShutdown);
+        TryShutdownStep("maintenance_rescan", maintenanceRescanWorkflow.RequestShutdown);
+        TryShutdownStep("folder_auto_rename", folderAutoRenameWorkflow.RequestShutdown);
+        TryShutdownStep("package_install", packageInstallWorkflow.RequestShutdown);
+        TryShutdownStep("startup_background_queue", () => startupBackgroundTaskScheduler.RequestShutdown(reason));
+    }
+
+    private sealed class ShutdownWaitTracker
+    {
+        private int slowWaitLogged;
+
+        internal bool SlowWaitLogged => Volatile.Read(ref slowWaitLogged) != 0;
+
+        internal void MarkSlowWaitLogged()
+        {
+            Interlocked.Exchange(ref slowWaitLogged, 1);
+        }
+    }
+
+    private async Task WaitForDropInstallQueueIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "dropInstallQueue",
+            () => packageInstallWorkflow.IsIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => "idle=" + FormatBool(packageInstallWorkflow.IsIdle)).ConfigureAwait(false);
+    }
+
+    private async Task WaitForMaintenanceRescanIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "maintenanceRescan",
+            () => maintenanceRescanWorkflow.IsIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => "idle=" + FormatBool(maintenanceRescanWorkflow.IsIdle)).ConfigureAwait(false);
+    }
+
+    private async Task WaitForFolderAutoRenameIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "folderAutoRename",
+            () => folderAutoRenameWorkflow.IsIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => "idle=" + FormatBool(folderAutoRenameWorkflow.IsIdle)).ConfigureAwait(false);
+    }
+
+    private async Task WaitForPlaylistBuildIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "playlistBuild",
+            () => playlistWorkspace.IsDetailBuildIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => playlistWorkspace.DescribeDetailBuildState(FormatBool)).ConfigureAwait(false);
+    }
+
+    private async Task WaitForPlaylistSummaryDataBuildIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "playlistSummaryDataBuild",
+            () => playlistWorkspace.IsPlaylistSummaryDataBuildIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => "idle=" + FormatBool(playlistWorkspace.IsPlaylistSummaryDataBuildIdle)).ConfigureAwait(false);
+    }
+
+    private async Task WaitForStartupBackgroundTasksIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "startupBackgroundTasks",
+            () => startupBackgroundTaskScheduler.IsIdle,
+            ShutdownDrainWarningThreshold,
+            tracker,
+            startupBackgroundTaskScheduler.DescribeWaitState).ConfigureAwait(false);
+    }
+
+    private async Task WaitForPlayHistoryRefreshIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "playHistoryRefresh",
+            () => playHistoryWorkflowOwner.AreRefreshQueuesIdle
+                && playHistoryWorkflowOwner.IsDisplayTargetCatalogRefreshIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => playHistoryWorkflowOwner.DescribeRefreshQueues()
+                + " " + playHistoryWorkflowOwner.DescribeDisplayTargetCatalogRefresh()).ConfigureAwait(false);
+    }
+
+    private async Task WaitForDeferredPlaylistWorkersIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "deferredPlaylistWorkers",
+            () => playlistWorkspace.IsPlaylistReferenceApplyIdle
+                && playlistWorkspace.IsDeferredExternalPlaylistSyncIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => playlistWorkspace.DescribePlaylistReferenceApplyWaitState()
+                + " " + playlistWorkspace.DescribeDeferredExternalPlaylistSyncWaitState()).ConfigureAwait(false);
+    }
+
+    private async Task WaitForPlaylistReloadCleanupIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "playlistReloadCleanup",
+            () => playlistWorkspace.IsPlaylistReloadCleanupIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            playlistWorkspace.DescribePlaylistReloadCleanupWaitState).ConfigureAwait(false);
+    }
+
+    private async Task WaitForLibraryShutdownBlockingWorkAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "libraryShutdownWork",
+            () => !Volatile.Read(ref libraryAttached) || !files.HasShutdownBlockingWork,
+            ShutdownDrainWarningThreshold,
+            tracker,
+            () => !Volatile.Read(ref libraryAttached) ? "library=unattached" : files.GetShutdownBlockingWorkLogFields()).ConfigureAwait(false);
+    }
+
+    private async Task WaitForPlaylistShutdownBlockingWorkAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "playlistShutdownWork",
+            () => !Volatile.Read(ref playlistAttached) || !tables.HasShutdownBlockingWork,
+            ShutdownDrainWarningThreshold,
+            tracker,
+            () => !Volatile.Read(ref playlistAttached) ? "playlist=unattached" : tables.GetShutdownBlockingWorkLogFields()).ConfigureAwait(false);
+    }
+
+    private async Task WaitForSqliteConnectionsIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "sqliteConnections",
+            () => ShutdownOperationTracker.ActiveSqliteConnectionCount == 0,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => "activeSqliteConnectionCount=" + ShutdownOperationTracker.ActiveSqliteConnectionCount).ConfigureAwait(false);
+    }
+
+    private async Task WaitForTaskCompletionAsync(
+        string target,
+        Task task,
+        TimeSpan warningThreshold,
+        ShutdownWaitTracker tracker,
+        Func<string> describeState)
+    {
+        if (task == null || task.IsCompleted)
+        {
+            return;
+        }
+        var stopwatch = Stopwatch.StartNew();
+        bool warningLogged = false;
+        while (!task.IsCompleted)
+        {
+            await Task.Delay(100).ConfigureAwait(false);
+            LogSlowWaitIfNeeded(target, stopwatch, warningThreshold, tracker, ref warningLogged, describeState);
+        }
+    }
+
+    private async Task WaitForConditionAsync(
+        string target,
+        Func<bool> isIdle,
+        TimeSpan warningThreshold,
+        ShutdownWaitTracker tracker,
+        Func<string> describeState)
+    {
+        if (isIdle())
+        {
+            return;
+        }
+        var stopwatch = Stopwatch.StartNew();
+        bool warningLogged = false;
+        while (true)
+        {
+            await Task.Delay(100).ConfigureAwait(false);
+            if (isIdle())
+            {
+                return;
+            }
+            LogSlowWaitIfNeeded(target, stopwatch, warningThreshold, tracker, ref warningLogged, describeState);
+        }
+    }
+
+    private async Task WaitForMainOperationIdleAsync(ShutdownWaitTracker tracker)
+    {
+        Task waitTask = mainOperationSemaphore.WaitAsync();
+        await WaitForTaskCompletionAsync(
+            "mainOperationSemaphore",
+            waitTask,
+            ShutdownDrainWarningThreshold,
+            tracker,
+            () => "semaphoreAvailable=false").ConfigureAwait(false);
+        await waitTask.ConfigureAwait(false);
+        mainOperationSemaphore.Release();
+    }
+
+    private async Task WaitForLr2DbProcessLocksAsync(ShutdownWaitTracker tracker)
+    {
+        await Task.Run(() =>
+        {
+            var stopwatch = Stopwatch.StartNew();
+            bool warningLogged = false;
+            while (true)
+            {
+                bool songLockTaken = false;
+                bool scoreLockTaken = false;
+                try
+                {
+                    songLockTaken = LR2SongDBExtended.Lock(TimeSpan.FromMilliseconds(100));
+                    if (songLockTaken)
+                    {
+                        scoreLockTaken = LR2ScoreDBExtended.Lock(TimeSpan.FromMilliseconds(100));
+                    }
+                    if (songLockTaken && scoreLockTaken)
+                    {
+                        return;
+                    }
+                }
+                finally
+                {
+                    if (scoreLockTaken)
+                    {
+                        LR2ScoreDBExtended.Unlock();
+                    }
+                    if (songLockTaken)
+                    {
+                        LR2SongDBExtended.Unlock();
+                    }
+                }
+                LogSlowWaitIfNeeded(
+                    "lr2DbProcessLocks",
+                    stopwatch,
+                    ShutdownDrainWarningThreshold,
+                    tracker,
+                    ref warningLogged,
+                    () => "songLockTaken=" + FormatBool(songLockTaken) + " scoreLockTaken=" + FormatBool(scoreLockTaken));
+                Thread.Sleep(100);
+            }
+        }).ConfigureAwait(false);
+    }
+
+    private void LogSlowWaitIfNeeded(
+        string target,
+        Stopwatch stopwatch,
+        TimeSpan warningThreshold,
+        ShutdownWaitTracker tracker,
+        ref bool warningLogged,
+        Func<string> describeState)
+    {
+        if (warningLogged || stopwatch.Elapsed < warningThreshold)
+        {
+            return;
+        }
+        warningLogged = true;
+        tracker?.MarkSlowWaitLogged();
+        string state = string.Empty;
+        if (describeState != null)
+        {
+            try
+            {
+                state = describeState();
+            }
+            catch (Exception exception)
+            {
+                state = "stateFailed=" + exception.GetType().Name;
+            }
+        }
+        logShutdownWarning("wait_slow target=" + formatTextForLog(target)
+            + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+            + (string.IsNullOrWhiteSpace(state) ? string.Empty : " " + state));
+    }
+
+    private void TryShutdownStep(string name, Action action)
+    {
+        try
+        {
+            action?.Invoke();
+        }
+        catch (Exception exception)
+        {
+            logShutdown((name ?? "step") + "_failed message=" + exception.Message);
+        }
+    }
+
     private void LogWarningSafely(Exception exception, string context)
     {
         try
         {
-            logWarning?.Invoke(exception, context);
+            logShutdownWarning(context + " message=" + exception.Message);
         }
         catch
         {
         }
+    }
+
+    private static string FormatBool(bool value)
+    {
+        return value.ToString().ToLowerInvariant();
     }
 }

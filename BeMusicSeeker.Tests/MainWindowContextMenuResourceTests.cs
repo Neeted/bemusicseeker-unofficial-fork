@@ -1938,7 +1938,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialize = ExtractBetween(
             viewModelCode,
             "internal async Task<bool> InitializeAsync()",
-            "public void CloseProcess()");
+            "private static List<ChartFile> GetBmsFormatCharts");
         string validationFailure = ExtractBetween(
             initialize,
             "if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))",
@@ -2000,7 +2000,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialize = ExtractBetween(
             viewModelCode,
             "internal async Task<bool> InitializeAsync()",
-            "public void CloseProcess()");
+            "private static List<ChartFile> GetBmsFormatCharts");
         string endSuppression = ExtractBetween(
             viewModelCode,
             "private void EndUiUpdateSuppression()",
@@ -3658,7 +3658,7 @@ public sealed class MainWindowContextMenuResourceTests
         string playlistReferencePresentationHandler = ExtractBetween(
             viewModelCode,
             "private void PlaylistWorkspacePlaylistReferenceApplyPresentationRequested(",
-            "public void CloseProcess()");
+            "private static List<ChartFile> GetBmsFormatCharts");
         int suppressionIndex = playlistReferencePresentationHandler.IndexOf(
             "TrySuppress(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree)",
             StringComparison.Ordinal);

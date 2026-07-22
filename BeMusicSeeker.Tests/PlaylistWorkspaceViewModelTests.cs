@@ -45,6 +45,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSummaryBmtSortCoordinator.cs");
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
         string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
+        string shellShutdownSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "ShellShutdownWorkflowOwner.cs");
         string mainChartListSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
         string regularOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
@@ -195,7 +197,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "MarkPlaylistLibraryIndexShutdownRequested()");
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.ConfigurePlaylistLibraryIndexPrewarm(", StringComparison.Ordinal));
         StringAssert.Contains(rootSource, "startupBackgroundTaskScheduler.Queue(\"playlist_library_index_prewarm\", reason, null, work)");
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.MarkPlaylistLibraryIndexShutdownRequested();");
+        StringAssert.Contains(shellShutdownSource, "playlistWorkspace.MarkPlaylistLibraryIndexShutdownRequested");
         Assert.AreEqual(-1, rootSource.IndexOf("public bool IsPlaylistDetailViewActive", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryColumnSettingsCoordinator", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.IsPlaylistSummaryMode =", StringComparison.Ordinal));

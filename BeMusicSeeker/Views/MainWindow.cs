@@ -208,6 +208,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
+    private MainWindowViewModel viewModelForClosed;
+
+    private bool settingsSavedForClosing;
+
     /// <summary>
     /// <see cref="MainWindow"/> クラスの新しいインスタンスを初期化します。
     /// UIコンポーネントの構築、TreeViewのイベントハンドラ登録、
@@ -221,13 +225,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Deactivated += MainWindow_Deactivated;
         if (base.DataContext is MainWindowViewModel viewModel)
         {
+            viewModelForClosed = viewModel;
             viewModel.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
             SubscribeViewModelUiInteractions(viewModel);
         }
-        Closed += delegate
-        {
-            UnsubscribeViewModelUiInteractions();
-        };
+        Closed += MainWindow_Closed;
         ContentRendered += MainWindow_ContentRendered;
 
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
@@ -412,14 +414,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void MainWindowViewModel_StartupUpdateApplicationShutdownRequested()
     {
-        if (Application.Current != null)
+        if (base.Dispatcher.HasShutdownStarted || base.Dispatcher.HasShutdownFinished)
         {
-            Application.Current.Shutdown();
+            return;
         }
-        else
-        {
-            Close();
-        }
+        _ = base.Dispatcher.InvokeAsync((Action)ApplyTerminalShutdown).Task;
     }
 
     private void MainWindowViewModel_SettingDialogOpenRequested(object sender, EventArgs e)
@@ -719,6 +718,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void ApplyTerminalShutdown()
     {
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel ?? viewModelForClosed;
+        SaveSettingsForClosing(viewModel);
+        viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
         if (Application.Current != null)
         {
             Application.Current.Shutdown();
@@ -727,6 +729,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Close();
         }
+    }
+
+    private void MainWindow_Closed(object sender, EventArgs e)
+    {
+        MainWindowViewModel viewModel = viewModelForClosed ?? (base.DataContext as MainWindowViewModel);
+        SaveSettingsForClosing(viewModel);
+        viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
+        UnsubscribeViewModelUiInteractions();
     }
 
     /// <summary>
@@ -738,6 +748,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     protected override void OnClosing(CancelEventArgs e)
     {
         MainWindowViewModel closingViewModel = base.DataContext as MainWindowViewModel;
+        viewModelForClosed ??= closingViewModel;
         if (closingViewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow && !shellShutdownWorkflow.IsCloseAllowed)
         {
             e.Cancel = true;
@@ -751,6 +762,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         var viewModel = closingViewModel;
+        viewModelForClosed ??= closingViewModel;
         if (viewModel != null && _startupInitialSelectionReadyHandler != null)
         {
             viewModel.PropertyChanged -= _startupInitialSelectionReadyHandler;
@@ -764,6 +776,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         calcelAllContextMenuTasks();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
         base.OnClosing(e);
+        SaveSettingsForClosing(viewModel);
+        closingViewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
+    }
+
+    private void SaveSettingsForClosing(MainWindowViewModel viewModel)
+    {
+        if (settingsSavedForClosing)
+        {
+            return;
+        }
+        settingsSavedForClosing = true;
         try
         {
             Settings.Default.TreeViewWidth = ResolveTreeViewWidthForSave(
