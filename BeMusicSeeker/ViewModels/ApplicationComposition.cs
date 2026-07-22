@@ -364,7 +364,11 @@ internal sealed class ApplicationComposition
         IUiDialogService selectedChartAudioConversionDialogService = null,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
-        RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null)
+        RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null,
+        Func<string, bool> selectedChartExternalActionFileExists = null,
+        Func<string, ExplorerOpenResult> selectedChartExternalActionExplorerOpen = null,
+        Action<string> selectedChartExternalActionAssociatedFileLauncher = null,
+        Action<string> selectedChartExternalActionUrlLauncher = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -427,7 +431,11 @@ internal sealed class ApplicationComposition
             selectedChartAudioConversionDialogService,
             selectedChartAudioConversionExecutor,
             lr2SongDbSyncWorkflow,
-            rankingCacheDownloadWorkflow);
+            rankingCacheDownloadWorkflow,
+            selectedChartExternalActionFileExists,
+            selectedChartExternalActionExplorerOpen,
+            selectedChartExternalActionAssociatedFileLauncher,
+            selectedChartExternalActionUrlLauncher);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -614,7 +622,11 @@ internal sealed class MainWindowChildComposition
         IUiDialogService selectedChartAudioConversionDialogService = null,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
-        RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null)
+        RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null,
+        Func<string, bool> selectedChartExternalActionFileExists = null,
+        Func<string, ExplorerOpenResult> selectedChartExternalActionExplorerOpen = null,
+        Action<string> selectedChartExternalActionAssociatedFileLauncher = null,
+        Action<string> selectedChartExternalActionUrlLauncher = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -712,6 +724,11 @@ internal sealed class MainWindowChildComposition
             selectedChartMutationRefresh ?? throw new ArgumentNullException(nameof(selectedChartMutationRefresh)),
             selectedChartMutationPlayback ?? throw new ArgumentNullException(nameof(selectedChartMutationPlayback)),
             selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)));
+        SelectedChartExternalActions = new SelectedChartExternalActionWorkflowOwner(
+            selectedChartExternalActionFileExists ?? LongPathFileSystem.FileExists,
+            selectedChartExternalActionExplorerOpen ?? ExplorerOpenService.OpenFileAndSelect,
+            selectedChartExternalActionAssociatedFileLauncher ?? LaunchAssociatedFile,
+            selectedChartExternalActionUrlLauncher ?? LaunchExternalUrl);
         SelectedChartResourceHealth = new SelectedChartResourceHealthWorkflowOwner(
             selectedChartResourceHealthLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthLibraryProvider)),
             selectedChartResourceHealthRefresh ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthRefresh)),
@@ -769,6 +786,8 @@ internal sealed class MainWindowChildComposition
 
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; }
 
+    internal SelectedChartExternalActionWorkflowOwner SelectedChartExternalActions { get; }
+
     internal SelectedChartResourceHealthWorkflowOwner SelectedChartResourceHealth { get; }
 
     internal ChartInfoParseFailureRemovalWorkflowOwner ChartInfoParseFailureRemoval { get; }
@@ -778,6 +797,22 @@ internal sealed class MainWindowChildComposition
     internal Lr2SongDbSyncWorkflowOwner Lr2SongDbSyncWorkflow { get; }
 
     internal RankingCacheDownloadWorkflowOwner RankingCacheDownloadWorkflow { get; }
+
+    private static void LaunchAssociatedFile(string path)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(path);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void LaunchExternalUrl(string url)
+    {
+        System.Diagnostics.Process.Start(url);
+    }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

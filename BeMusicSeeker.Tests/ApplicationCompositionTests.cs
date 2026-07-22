@@ -550,6 +550,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.ZeroNoteMaintenanceWorkflow);
             Assert.IsNotNull(childComposition.PackageCatalogWorkflow);
             Assert.IsNotNull(childComposition.SelectedChartAudioConversion);
+            Assert.IsNotNull(childComposition.SelectedChartExternalActions);
             Assert.IsNotNull(childComposition.Lr2SongDbSyncWorkflow);
             Assert.IsNotNull(childComposition.RankingCacheDownloadWorkflow);
         }

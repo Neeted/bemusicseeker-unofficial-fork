@@ -360,7 +360,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(playHistoryContextMenu.Contains("Click=\"tableContextMenuItemOpenMinIRClick\""));
         string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
         Assert.IsFalse(mainWindowSource.Contains("PlayHistoryContextMenuState.TryCreate"));
-        StringAssert.Contains(mainWindowSource, "row is not PlayHistoryRow");
+        StringAssert.Contains(mainWindowSource, "row is PlayHistoryRow");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenExplorer\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemRegisterScore\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopyMd5\"");
@@ -3051,6 +3051,58 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void SelectedChartExternalActionsRouteThroughFeatureOwner()
+    {
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string ownerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartExternalActionWorkflowOwner.cs");
+        string explorerClick = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuItemOpenExplorerClick",
+            "private async void tableContextMenuItemOpenInstallDestinationClick");
+        string fileClick = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuItemOpenBMSFileClick",
+            "private void tableContextMenuItemOpenLR2IRClick");
+        string lr2IrClick = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuItemOpenLR2IRClick",
+            "private void tableContextMenuItemOpenMochaClick");
+        string mochaClick = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuItemOpenMochaClick",
+            "private void tableContextMenuItemOpenMinIRClick");
+        string minIrClick = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuItemOpenMinIRClick",
+            "private async void tableContextMenuItemOpenURLClick");
+
+        StringAssert.Contains(explorerClick, "SelectedChartExternalActionKind.OpenExplorer");
+        StringAssert.Contains(fileClick, "SelectedChartExternalActionKind.OpenFile");
+        StringAssert.Contains(lr2IrClick, "SelectedChartExternalActionKind.OpenLr2Ir");
+        StringAssert.Contains(mochaClick, "SelectedChartExternalActionKind.OpenMocha");
+        StringAssert.Contains(minIrClick, "SelectedChartExternalActionKind.OpenMinIr");
+        foreach (string handler in new[] { explorerClick, fileClick, lr2IrClick, mochaClick, minIrClick })
+        {
+            Assert.AreEqual(1, CountOccurrences(handler, "SelectedChartExternalActions.Execute("));
+            Assert.IsFalse(handler.Contains("Process.Start"));
+            Assert.IsFalse(handler.Contains("ExplorerOpenService"));
+            Assert.IsFalse(handler.Contains("LongPathFileSystem.FileExists"));
+        }
+        Assert.IsFalse(mainWindowCode.Contains("GetBmsIrSongUrl"));
+        Assert.IsFalse(mainWindowCode.Contains("GetMochaSongUrl"));
+        Assert.IsFalse(mainWindowCode.Contains("GetMinIrSongUrl"));
+        Assert.IsFalse(mainWindowCode.Contains("OpenRepositoryUrlForRow"));
+        StringAssert.Contains(viewModelCode, "SelectedChartExternalActions = childComposition.SelectedChartExternalActions;");
+        StringAssert.Contains(ownerCode, "SelectedChartExternalActionKind.OpenExplorer");
+        StringAssert.Contains(ownerCode, "bms-ir.org/new/song?songmd5=");
+        StringAssert.Contains(ownerCode, "mocha-repository.info/song.php?sha256=");
+        StringAssert.Contains(ownerCode, "gaftalk.com/minir/#/viewer/song/");
+    }
+
+    [TestMethod]
     public void FullResourceHealthContextMenu_RoutesConfirmationThroughWorkflowOwner()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
@@ -3102,7 +3154,7 @@ public sealed class MainWindowContextMenuResourceTests
         string openPackageInstallDestination = ExtractBetween(
             mainWindowCode,
             "private async void treeViewInstallPackageContextMenuOpenInstallDestinationClick",
-            "private static string GetBmsIrSongUrl");
+            "private void tableContextMenuItemOpenBMSFileClick");
         string openPackageSource = ExtractBetween(
             mainWindowCode,
             "private void treeViewInstallPackageContextMenuOpenExplorerClick",

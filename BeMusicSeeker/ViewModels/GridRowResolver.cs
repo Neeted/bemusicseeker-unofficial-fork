@@ -124,6 +124,10 @@ internal static class GridRowResolver
         }
         bool isPending = sourceScope == ChartOperationSourceScope.PendingPackage;
         ChartFile operationChart = ResolveOperationChart(row, chart);
+        if (operationChart?.ChartInfo == null && chart?.ChartInfo != null)
+        {
+            operationChart = ChartFileProjection.WithChartInfo(operationChart, chart.ChartInfo);
+        }
         ChartOperationCapabilities capabilities = BuildCapabilities(operationChart, playlistEntry, sourceScope, isPlaylistRow, isOwned, isPlaylistMissing);
         target = new ChartOperationTarget(operationChart, playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities, ResolvePackageEntry(row));
         return true;

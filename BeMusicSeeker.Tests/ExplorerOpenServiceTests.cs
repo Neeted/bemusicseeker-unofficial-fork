@@ -250,9 +250,14 @@ public sealed class ExplorerOpenServiceTests
     {
         string root = FindRepositoryRoot();
         string mainWindow = SourceTextTestHelper.ReadMainWindowSourceText();
+        string selectedChartExternalActionOwner = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "SelectedChartExternalActionWorkflowOwner.cs");
 
         Assert.IsFalse(mainWindow.Contains("Process.Start(\"EXPLORER.EXE\""));
-        StringAssert.Contains(mainWindow, "ExplorerOpenService.OpenFileAndSelect");
+        StringAssert.Contains(selectedChartExternalActionOwner, "Func<string, ExplorerOpenResult> explorerOpen");
         StringAssert.Contains(mainWindow, "ExplorerOpenService.OpenDirectory");
     }
 

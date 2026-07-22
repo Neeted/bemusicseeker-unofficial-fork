@@ -5788,20 +5788,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out object row))
+        if (!TryGetContextMenuRow(e.Source, out object row)
+            || base.DataContext is not MainWindowViewModel viewModel
+            || !GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
         {
             return;
         }
-        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFolder))
-        {
-            return;
-        }
-        string path = target.Chart.Path;
-        if (!LongPathFileSystem.FileExists(path))
-        {
-            return;
-        }
-        ExplorerOpenService.OpenFileAndSelect(path);
+        viewModel.SelectedChartExternalActions.Execute(target, SelectedChartExternalActionKind.OpenExplorer);
     }
 
     private async void tableContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
@@ -5832,94 +5825,50 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             .LoggingAndPropagate("treeViewInstallPackageContextMenuOpenInstallDestinationClick");
     }
 
-    private static string GetBmsIrSongUrl(string md5)
-    {
-        if (string.IsNullOrWhiteSpace(md5) || !Regex.IsMatch(md5.Trim(), "^[A-F0-9]{32}$", RegexOptions.IgnoreCase))
-        {
-            return null;
-        }
-        return "https://bms-ir.org/new/song?songmd5=" + md5.Trim() + "&view=both";
-    }
-
-    private static string GetMochaSongUrl(string sha256)
-    {
-        return string.IsNullOrWhiteSpace(sha256) ? null : "https://mocha-repository.info/song.php?sha256=" + sha256;
-    }
-
-    private static string GetMinIrSongUrl(string sha256)
-    {
-        return string.IsNullOrWhiteSpace(sha256) ? null : "https://www.gaftalk.com/minir/#/viewer/song/" + sha256 + "/0";
-    }
-
-    private void OpenRepositoryUrlForRow(object row, Func<string, string> urlFactory)
-    {
-        string sha256 = GridRowResolver.GetRepositorySha256(row);
-        if (string.IsNullOrWhiteSpace(sha256))
-        {
-            return;
-        }
-        string url = urlFactory?.Invoke(sha256);
-        if (!string.IsNullOrWhiteSpace(url))
-        {
-            Process.Start(url);
-        }
-    }
-
     private void tableContextMenuItemOpenBMSFileClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out object row))
+        if (!TryGetContextMenuRow(e.Source, out object row)
+            || base.DataContext is not MainWindowViewModel viewModel
+            || !GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
         {
             return;
         }
-        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFile))
-        {
-            return;
-        }
-        string path = target.Chart.Path;
-        if (!LongPathFileSystem.FileExists(path))
-        {
-            return;
-        }
-        try
-        {
-            Process.Start(path);
-        }
-        catch
-        {
-        }
+        viewModel.SelectedChartExternalActions.Execute(target, SelectedChartExternalActionKind.OpenFile);
     }
 
     private void tableContextMenuItemOpenLR2IRClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out object row))
+        if (!TryGetContextMenuRow(e.Source, out object row)
+            || base.DataContext is not MainWindowViewModel viewModel
+            || !GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
         {
             return;
         }
-        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
-        {
-            return;
-        }
-        string text = GetBmsIrSongUrl(target.Chart.Md5);
-        if (text != null)
-        {
-            Process.Start(text);
-        }
+        viewModel.SelectedChartExternalActions.Execute(target, SelectedChartExternalActionKind.OpenLr2Ir);
     }
 
     private void tableContextMenuItemOpenMochaClick(object sender, RoutedEventArgs e)
     {
-        if (TryGetContextMenuRow(e.Source, out object row) && row is not PlayHistoryRow)
+        if (!TryGetContextMenuRow(e.Source, out object row)
+            || row is PlayHistoryRow
+            || base.DataContext is not MainWindowViewModel viewModel
+            || !GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
         {
-            OpenRepositoryUrlForRow(row, GetMochaSongUrl);
+            return;
         }
+        viewModel.SelectedChartExternalActions.Execute(target, SelectedChartExternalActionKind.OpenMocha);
     }
 
     private void tableContextMenuItemOpenMinIRClick(object sender, RoutedEventArgs e)
     {
-        if (TryGetContextMenuRow(e.Source, out object row) && row is not PlayHistoryRow)
+        if (!TryGetContextMenuRow(e.Source, out object row)
+            || row is PlayHistoryRow
+            || base.DataContext is not MainWindowViewModel viewModel
+            || !GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
         {
-            OpenRepositoryUrlForRow(row, GetMinIrSongUrl);
+            return;
         }
+        viewModel.SelectedChartExternalActions.Execute(target, SelectedChartExternalActionKind.OpenMinIr);
     }
 
     private async void tableContextMenuItemOpenURLClick(object sender, RoutedEventArgs e)

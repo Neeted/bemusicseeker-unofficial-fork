@@ -124,6 +124,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; private set; }
 
+    internal SelectedChartExternalActionWorkflowOwner SelectedChartExternalActions { get; private set; }
+
     internal SelectedChartResourceHealthWorkflowOwner SelectedChartResourceHealth { get; private set; }
 
     internal ChartInfoParseFailureRemovalWorkflowOwner ChartInfoParseFailureRemoval { get; private set; }
@@ -3709,6 +3711,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         PackageCatalog = childComposition.PackageCatalogWorkflow;
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
         SelectedChartMutations = childComposition.SelectedChartMutations;
+        SelectedChartExternalActions = childComposition.SelectedChartExternalActions;
         SelectedChartResourceHealth = childComposition.SelectedChartResourceHealth;
         ChartInfoParseFailureRemoval = childComposition.ChartInfoParseFailureRemoval;
         SelectedChartAudioConversion = childComposition.SelectedChartAudioConversion;
