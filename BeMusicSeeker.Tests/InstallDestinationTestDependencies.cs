@@ -44,33 +44,3 @@ internal sealed class TestUiDialogService : IUiDialogService
         Func<UiProgressContext, Task> operation,
         CancellationToken cancellationToken = default) => throw new NotSupportedException();
 }
-
-internal sealed class NoOpSelectedChartMutationActivityPort : ISelectedChartMutationActivityPort
-{
-    public void BeginActivity()
-    {
-    }
-
-    public void EndActivity()
-    {
-    }
-}
-
-internal sealed class NoOpSelectedChartMutationRefreshPort : ISelectedChartMutationRefreshPort
-{
-    public void BeginRefreshSuppression(SelectedChartMutationRefreshScope scope)
-    {
-    }
-
-    public void EndRefreshSuppression()
-    {
-    }
-
-    public void ApplyLibraryPathMutationRefresh()
-    {
-    }
-
-    public void ApplyEncodingRefresh()
-    {
-    }
-}

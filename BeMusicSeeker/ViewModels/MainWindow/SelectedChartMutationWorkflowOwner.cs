@@ -18,22 +18,48 @@ internal enum SelectedChartMutationRefreshScope
     Library
 }
 
-internal interface ISelectedChartMutationActivityPort
+internal abstract class SelectedChartMutationWorkflowChangedEventArgs : EventArgs
 {
-    void BeginActivity();
-
-    void EndActivity();
 }
 
-internal interface ISelectedChartMutationRefreshPort
+internal sealed class SelectedChartMutationActivityChangedEventArgs : SelectedChartMutationWorkflowChangedEventArgs
 {
-    void BeginRefreshSuppression(SelectedChartMutationRefreshScope scope);
+    internal SelectedChartMutationActivityChangedEventArgs(bool isActive)
+    {
+        IsActive = isActive;
+    }
 
-    void EndRefreshSuppression();
+    internal bool IsActive { get; }
+}
 
-    void ApplyLibraryPathMutationRefresh();
+internal sealed class SelectedChartMutationRefreshSuppressionChangedEventArgs : SelectedChartMutationWorkflowChangedEventArgs
+{
+    internal SelectedChartMutationRefreshSuppressionChangedEventArgs(
+        bool isSuppressed,
+        SelectedChartMutationRefreshScope? scope)
+    {
+        IsSuppressed = isSuppressed;
+        Scope = scope;
+    }
 
-    void ApplyEncodingRefresh();
+    internal bool IsSuppressed { get; }
+
+    internal SelectedChartMutationRefreshScope? Scope { get; }
+}
+
+internal sealed class SelectedChartMutationAppliedEventArgs : SelectedChartMutationWorkflowChangedEventArgs
+{
+    internal SelectedChartMutationAppliedEventArgs(
+        bool libraryPathChanged = false,
+        bool encodingChanged = false)
+    {
+        LibraryPathChanged = libraryPathChanged;
+        EncodingChanged = encodingChanged;
+    }
+
+    internal bool LibraryPathChanged { get; }
+
+    internal bool EncodingChanged { get; }
 }
 
 internal interface ISelectedChartMutationPlaybackPort
@@ -177,8 +203,6 @@ internal sealed class SelectedChartMutationWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
-    private readonly ISelectedChartMutationActivityPort activity;
-    private readonly ISelectedChartMutationRefreshPort refresh;
     private readonly ISelectedChartMutationPlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly ISelectedChartMutationStore store;
@@ -186,20 +210,18 @@ internal sealed class SelectedChartMutationWorkflowOwner
     internal SelectedChartMutationWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
-        ISelectedChartMutationActivityPort activity,
-        ISelectedChartMutationRefreshPort refresh,
         ISelectedChartMutationPlaybackPort playback,
         IUiDialogService dialogs,
         ISelectedChartMutationStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
-        this.activity = activity ?? throw new ArgumentNullException(nameof(activity));
-        this.refresh = refresh ?? throw new ArgumentNullException(nameof(refresh));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.store = store ?? new BmsLibrarySelectedChartMutationStore();
     }
+
+    internal event EventHandler<SelectedChartMutationWorkflowChangedEventArgs> WorkflowChanged;
 
     internal async Task<SelectedChartMutationResult> DeleteAsync(SelectedChartDeleteRequest request)
     {
@@ -435,7 +457,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 library =>
                 {
                     store.MoveLibraryCharts(library, moveRequest);
-                    refresh.ApplyLibraryPathMutationRefresh();
+                    PublishMutationApplied(libraryPathChanged: true);
                 })).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -454,7 +476,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         try
         {
             store.SetBMSFilesEncoding(RequireLibrary(), request.BmsFiles, request.Encoding);
-            refresh.ApplyEncodingRefresh();
+            PublishMutationApplied(encodingChanged: true);
             return SelectedChartMutationResult.Completed;
         }
         catch (Exception ex)
@@ -487,11 +509,11 @@ internal sealed class SelectedChartMutationWorkflowOwner
         {
             dialogScope = library.BeginOperationDialogScope();
             activityStarted = true;
-            activity.BeginActivity();
+            PublishActivityChanged(isActive: true);
             operationGate = chartFileOperations.Enter();
             stopPlayback?.Invoke();
             suppressionStarted = true;
-            refresh.BeginRefreshSuppression(refreshScope);
+            PublishRefreshSuppressionChanged(isSuppressed: true, scope: refreshScope);
             mutation(library);
         }
         catch (Exception ex)
@@ -502,7 +524,9 @@ internal sealed class SelectedChartMutationWorkflowOwner
         {
             if (suppressionStarted)
             {
-                CaptureCleanupFailure(refresh.EndRefreshSuppression, failures);
+                CaptureCleanupFailure(
+                    () => PublishRefreshSuppressionChanged(isSuppressed: false, scope: null),
+                    failures);
             }
             if (operationGate != null)
             {
@@ -510,7 +534,9 @@ internal sealed class SelectedChartMutationWorkflowOwner
             }
             if (activityStarted)
             {
-                CaptureCleanupFailure(activity.EndActivity, failures);
+                CaptureCleanupFailure(
+                    () => PublishActivityChanged(isActive: false),
+                    failures);
             }
             if (dialogScope != null)
             {
@@ -525,6 +551,31 @@ internal sealed class SelectedChartMutationWorkflowOwner
             _ => SelectedChartMutationResult.Failed(
                 new AggregateException(failures.Select(failure => failure.SourceException))),
         };
+    }
+
+    private void PublishActivityChanged(bool isActive)
+    {
+        WorkflowChanged?.Invoke(
+            this,
+            new SelectedChartMutationActivityChangedEventArgs(isActive));
+    }
+
+    private void PublishRefreshSuppressionChanged(
+        bool isSuppressed,
+        SelectedChartMutationRefreshScope? scope)
+    {
+        WorkflowChanged?.Invoke(
+            this,
+            new SelectedChartMutationRefreshSuppressionChangedEventArgs(isSuppressed, scope));
+    }
+
+    private void PublishMutationApplied(
+        bool libraryPathChanged = false,
+        bool encodingChanged = false)
+    {
+        WorkflowChanged?.Invoke(
+            this,
+            new SelectedChartMutationAppliedEventArgs(libraryPathChanged, encodingChanged));
     }
 
     private async Task<bool> ConfirmMessageAsync(

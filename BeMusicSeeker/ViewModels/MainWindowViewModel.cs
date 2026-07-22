@@ -46,7 +46,7 @@ namespace BeMusicSeeker.ViewModels;
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort
+public partial class MainWindowViewModel : ViewModel
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -1532,46 +1532,63 @@ public partial class MainWindowViewModel : ViewModel, ISelectedChartMutationActi
         }
     }
 
-    void ISelectedChartMutationActivityPort.BeginActivity()
+    private void SelectedChartMutationWorkflowChanged(
+        object sender,
+        SelectedChartMutationWorkflowChangedEventArgs e)
     {
-        BeginChartPackageMutation();
-    }
-
-    void ISelectedChartMutationActivityPort.EndActivity()
-    {
-        EndChartPackageMutation();
-    }
-
-    void ISelectedChartMutationRefreshPort.BeginRefreshSuppression(SelectedChartMutationRefreshScope scope)
-    {
-        UiRefreshChannel refreshMask = scope switch
+        switch (e)
         {
-            SelectedChartMutationRefreshScope.Pending =>
-                UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
-            SelectedChartMutationRefreshScope.Library =>
-                UiRefreshChannel.LibraryMainView
-                | UiRefreshChannel.LibraryFolderTree
-                | UiRefreshChannel.InstallTree
-                | UiRefreshChannel.DuplicateTree,
-            _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "Unsupported selected chart mutation refresh scope.")
-        };
-        BeginUiUpdateSuppression(refreshMask);
-    }
-
-    void ISelectedChartMutationRefreshPort.EndRefreshSuppression()
-    {
-        EndUiUpdateSuppression();
-    }
-
-    void ISelectedChartMutationRefreshPort.ApplyLibraryPathMutationRefresh()
-    {
-        regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
-        InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
-    }
-
-    void ISelectedChartMutationRefreshPort.ApplyEncodingRefresh()
-    {
-        InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
+            case SelectedChartMutationActivityChangedEventArgs activityChanged:
+                if (activityChanged.IsActive)
+                {
+                    BeginChartPackageMutation();
+                }
+                else
+                {
+                    EndChartPackageMutation();
+                }
+                break;
+            case SelectedChartMutationRefreshSuppressionChangedEventArgs suppressionChanged:
+                if (!suppressionChanged.IsSuppressed)
+                {
+                    EndUiUpdateSuppression();
+                    break;
+                }
+                UiRefreshChannel refreshMask = suppressionChanged.Scope switch
+                {
+                    SelectedChartMutationRefreshScope.Pending =>
+                        UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
+                    SelectedChartMutationRefreshScope.Library =>
+                        UiRefreshChannel.LibraryMainView
+                        | UiRefreshChannel.LibraryFolderTree
+                        | UiRefreshChannel.InstallTree
+                        | UiRefreshChannel.DuplicateTree,
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(suppressionChanged.Scope),
+                        suppressionChanged.Scope,
+                        "Unsupported selected chart mutation refresh scope.")
+                };
+                BeginUiUpdateSuppression(refreshMask);
+                break;
+            case SelectedChartMutationAppliedEventArgs mutationApplied:
+                if (mutationApplied.LibraryPathChanged)
+                {
+                    regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
+                    InvalidateNormalLibrarySortKeysAfterPathMutation(
+                        hasBmsPathMutation: true,
+                        hasBmsonPathMutation: true);
+                }
+                if (mutationApplied.EncodingChanged)
+                {
+                    InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
+                }
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(e),
+                    e,
+                    "Unsupported selected chart mutation workflow change.");
+        }
     }
 
     private void PendingPackageWorkflowChanged(
@@ -2623,8 +2640,6 @@ public partial class MainWindowViewModel : ViewModel, ISelectedChartMutationActi
             duplicateMaintenanceDialogService: new UiDialogCoordinator(),
             showDuplicateFileCheckConfirmProvider: () => ApplicationSettings.ShowDuplicateFileCheckConfirmMsg,
             duplicateMaintenanceLibraryProvider: () => files,
-            selectedChartMutationActivity: this,
-            selectedChartMutationRefresh: this,
             selectedChartMutationDialogService: new UiDialogCoordinator(),
             selectedChartMutationLibraryProvider: () => files,
             selectedChartResourceHealthDialogService: new UiDialogCoordinator(),
@@ -2678,6 +2693,7 @@ public partial class MainWindowViewModel : ViewModel, ISelectedChartMutationActi
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
         DuplicateMaintenanceWorkflow.WorkflowChanged += DuplicateMaintenanceWorkflowChanged;
         SelectedChartMutations = childComposition.SelectedChartMutations;
+        SelectedChartMutations.WorkflowChanged += SelectedChartMutationWorkflowChanged;
         SelectedChartExternalActions = childComposition.SelectedChartExternalActions;
         SelectedChartResourceHealth = childComposition.SelectedChartResourceHealth;
         SelectedChartResourceHealth.RescanCompleted += SelectedChartResourceHealthRescanCompleted;

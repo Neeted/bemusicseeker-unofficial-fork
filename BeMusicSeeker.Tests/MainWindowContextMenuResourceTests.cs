@@ -3057,6 +3057,16 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string selectedMutationOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartMutationWorkflowOwner.cs");
+        StringAssert.Contains(viewModelCode, "SelectedChartMutations.WorkflowChanged += SelectedChartMutationWorkflowChanged;");
+        StringAssert.Contains(selectedMutationOwnerCode, "PublishActivityChanged(isActive: true)");
+        StringAssert.Contains(selectedMutationOwnerCode, "PublishRefreshSuppressionChanged(isSuppressed: true");
+        StringAssert.Contains(selectedMutationOwnerCode, "PublishMutationApplied(libraryPathChanged: true)");
+        Assert.IsFalse(viewModelCode.Contains("ISelectedChartMutationActivityPort"));
+        Assert.IsFalse(viewModelCode.Contains("ISelectedChartMutationRefreshPort"));
+        Assert.IsFalse(selectedMutationOwnerCode.Contains("ISelectedChartMutationActivityPort"));
+        Assert.IsFalse(selectedMutationOwnerCode.Contains("ISelectedChartMutationRefreshPort"));
         string contextMenuResource = ExtractBetween(
             mainWindowCode,
             "private bool TryGetTableContextMenuResource",

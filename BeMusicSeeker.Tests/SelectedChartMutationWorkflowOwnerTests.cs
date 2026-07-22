@@ -484,14 +484,14 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         FakeUiDialogService dialogs,
         RecordingStore store)
     {
-        return new SelectedChartMutationWorkflowOwner(
+        var owner = new SelectedChartMutationWorkflowOwner(
             () => (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary)),
             new ChartFileOperationSynchronizer(),
             presentation,
-            presentation,
-            presentation,
             dialogs,
             store);
+        owner.WorkflowChanged += presentation.OnWorkflowChanged;
+        return owner;
     }
 
     private static FakeUiDialogService AcceptedMessageDialogs()
@@ -545,10 +545,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             null);
     }
 
-    private sealed class RecordingPresentation :
-        ISelectedChartMutationActivityPort,
-        ISelectedChartMutationRefreshPort,
-        ISelectedChartMutationPlaybackPort
+    private sealed class RecordingPresentation : ISelectedChartMutationPlaybackPort
     {
         internal List<string> Events { get; }
 
@@ -561,24 +558,49 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal int EncodingRefreshCalls { get; private set; }
 
-        public void BeginActivity() => Events.Add("activity-start");
-
-        public void EndActivity() => Events.Add("activity-end");
-
-        public void BeginRefreshSuppression(SelectedChartMutationRefreshScope scope) => Events.Add(scope == SelectedChartMutationRefreshScope.Pending ? "pending-refresh-start" : "library-refresh-start");
-
-        public void EndRefreshSuppression() => Events.Add(Events.Contains("pending-refresh-start") && !Events.Contains("library-refresh-end") ? "pending-refresh-end" : "library-refresh-end");
-
-        public void ApplyLibraryPathMutationRefresh()
+        internal void OnWorkflowChanged(
+            object sender,
+            SelectedChartMutationWorkflowChangedEventArgs e)
         {
-            PathRefreshCalls++;
-            Events.Add("path-refresh");
-        }
-
-        public void ApplyEncodingRefresh()
-        {
-            EncodingRefreshCalls++;
-            Events.Add("encoding-refresh");
+            switch (e)
+            {
+                case SelectedChartMutationActivityChangedEventArgs activityChanged:
+                    Events.Add(activityChanged.IsActive ? "activity-start" : "activity-end");
+                    break;
+                case SelectedChartMutationRefreshSuppressionChangedEventArgs suppressionChanged:
+                    if (suppressionChanged.IsSuppressed)
+                    {
+                        Events.Add(
+                            suppressionChanged.Scope == SelectedChartMutationRefreshScope.Pending
+                                ? "pending-refresh-start"
+                                : "library-refresh-start");
+                    }
+                    else
+                    {
+                        Events.Add(
+                            Events.Contains("pending-refresh-start") && !Events.Contains("library-refresh-end")
+                                ? "pending-refresh-end"
+                                : "library-refresh-end");
+                    }
+                    break;
+                case SelectedChartMutationAppliedEventArgs mutationApplied:
+                    if (mutationApplied.LibraryPathChanged)
+                    {
+                        PathRefreshCalls++;
+                        Events.Add("path-refresh");
+                    }
+                    if (mutationApplied.EncodingChanged)
+                    {
+                        EncodingRefreshCalls++;
+                        Events.Add("encoding-refresh");
+                    }
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(e),
+                        e,
+                        "Unsupported selected chart mutation workflow change.");
+            }
         }
 
         public void StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts) => Events.Add("pending-playback");

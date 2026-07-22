@@ -341,8 +341,6 @@ internal sealed class ApplicationComposition
         IUiDialogService duplicateMaintenanceDialogService = null,
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
         Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
-        ISelectedChartMutationActivityPort selectedChartMutationActivity = null,
-        ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
         IUiDialogService selectedChartMutationDialogService = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
         IUiDialogService selectedChartResourceHealthDialogService = null,
@@ -400,8 +398,6 @@ internal sealed class ApplicationComposition
             duplicateMaintenanceDialogService,
             showDuplicateFileCheckConfirmProvider,
             duplicateMaintenanceLibraryProvider,
-            selectedChartMutationActivity,
-            selectedChartMutationRefresh,
             selectedChartMutationDialogService,
             selectedChartMutationLibraryProvider,
             selectedChartResourceHealthDialogService,
@@ -588,8 +584,6 @@ internal sealed class MainWindowChildComposition
         IUiDialogService duplicateMaintenanceDialogService = null,
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
         Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
-        ISelectedChartMutationActivityPort selectedChartMutationActivity = null,
-        ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
         IUiDialogService selectedChartMutationDialogService = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
         IUiDialogService selectedChartResourceHealthDialogService = null,
@@ -703,8 +697,6 @@ internal sealed class MainWindowChildComposition
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,
-            selectedChartMutationActivity ?? throw new ArgumentNullException(nameof(selectedChartMutationActivity)),
-            selectedChartMutationRefresh ?? throw new ArgumentNullException(nameof(selectedChartMutationRefresh)),
             PlaybackPanel,
             selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)));
         SelectedChartExternalActions = new SelectedChartExternalActionWorkflowOwner(
