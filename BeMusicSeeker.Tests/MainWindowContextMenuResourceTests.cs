@@ -2530,7 +2530,18 @@ public sealed class MainWindowContextMenuResourceTests
             "private void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
 
         Assert.IsFalse(unregisterHandler.Contains("Task.Run"));
-        StringAssert.Contains(unregisterHandler, "await settingDialogViewModel.RemoveBMSDirectoryFromRootFolderAndSave(path)");
+        StringAssert.Contains(unregisterHandler, "await settingDialogViewModel.RequestRemoveBmsSearchRootAsync(path)");
+        Assert.IsFalse(unregisterHandler.Contains("LongPathFileSystem.DirectoryExists"));
+        Assert.IsFalse(unregisterHandler.Contains("UiDialogRoute.ShowMessageBox"));
+        Assert.IsFalse(unregisterHandler.Contains("Window.GetWindow(this)"));
+        string settingDialogViewModelCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainWindowViewModel.SettingDialogViewModel.cs");
+        StringAssert.Contains(settingDialogViewModelCode, "internal async Task RequestRemoveBmsSearchRootAsync(string dir)");
+        StringAssert.Contains(settingDialogViewModelCode, "schemaDialogs.ConfirmAsync(new UiConfirmationRequest(");
+        Assert.IsFalse(settingDialogViewModelCode.Contains("RemoveBMSDirectoryFromRootFolderAndSave"));
         Assert.IsFalse(parentFolderCacheCode.Contains("throw new NotImplementedException();"));
         StringAssert.Contains(parentFolderCacheCode, "return true;");
     }

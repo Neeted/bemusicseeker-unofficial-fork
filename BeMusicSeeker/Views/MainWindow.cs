@@ -4003,11 +4003,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = viewModel.settingDialog;
-        if (LongPathFileSystem.DirectoryExists(path) && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_unregister_root_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
-        {
-            await settingDialogViewModel.RemoveBMSDirectoryFromRootFolderAndSave(path)
-                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
-        }
+        await settingDialogViewModel.RequestRemoveBmsSearchRootAsync(path)
+            .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
     }
 
     private void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick(object sender, RoutedEventArgs e)

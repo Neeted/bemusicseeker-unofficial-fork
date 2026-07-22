@@ -5353,7 +5353,30 @@ public partial class MainWindowViewModel
             }
         }
 
-        public async Task RemoveBMSDirectoryFromRootFolderAndSave(string dir)
+        internal async Task RequestRemoveBmsSearchRootAsync(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir) || !LongPathFileSystem.DirectoryExists(dir))
+            {
+                return;
+            }
+
+            UiDialogResult confirmation = await schemaDialogs.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Msg_unregister_root_folder,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Cancel));
+            if (!MainWindowViewModel.ToUiConfirmationDecision(
+                confirmation,
+                "treeViewLibraryFolderContextMenuItemUnregisterRootFolder"))
+            {
+                return;
+            }
+
+            await RemoveBmsSearchRootAndSaveAsync(dir);
+        }
+
+        private async Task RemoveBmsSearchRootAndSaveAsync(string dir)
         {
             if (string.IsNullOrWhiteSpace(dir))
             {
@@ -5361,7 +5384,12 @@ public partial class MainWindowViewModel
             }
             if (ApplicationSettings.OperationModeLR2DB)
             {
-                RemoveBMSDirectoryFromLR2Config(dir, saveImmediately: true);
+                Exception removalFailure = RemoveBMSDirectoryFromLR2Config(dir, saveImmediately: true);
+                if (removalFailure != null)
+                {
+                    await PresentBmsSearchRootRemovalFailureAsync(removalFailure);
+                    return;
+                }
                 if (isSearchRootsChanged)
                 {
                     ApplyRuntimeSearchRootsForCurrentMode();
@@ -5382,11 +5410,32 @@ public partial class MainWindowViewModel
                 }
                 return;
             }
-            RemoveStandaloneBmsRootPath(dir);
+            List<string> previousStandaloneRoots = [.. StandaloneBmsRootPathList];
+            string previousStandaloneSelection = SelectedStandaloneBmsRootPath;
+            string previousStandaloneSerializedPaths = ApplicationSettings.StandaloneBmsRootPaths;
+            string previousLegacyBmsRootPath = ApplicationSettings.BMSRootPath;
+            Exception standaloneRemovalFailure = RemoveStandaloneBmsRootPath(dir);
+            if (standaloneRemovalFailure != null)
+            {
+                await PresentBmsSearchRootRemovalFailureAsync(standaloneRemovalFailure);
+                return;
+            }
             if (isSearchRootsChanged)
             {
-                PersistStandaloneBmsRootPathsToSettings();
-                saveSettings();
+                try
+                {
+                    PersistStandaloneBmsRootPathsToSettings();
+                    saveSettings();
+                }
+                catch
+                {
+                    RestoreStandaloneBmsRootRemovalState(
+                        previousStandaloneRoots,
+                        previousStandaloneSelection,
+                        previousStandaloneSerializedPaths,
+                        previousLegacyBmsRootPath);
+                    throw;
+                }
                 ApplyRuntimeSearchRootsForCurrentMode();
                 if (isBMSDirectoryRemoved)
                 {
@@ -5409,17 +5458,25 @@ public partial class MainWindowViewModel
         {
             if (OperationModeLR2DB)
             {
-                RemoveBMSDirectoryFromLR2Config(dir, saveImmediately: false);
+                Exception removalFailure = RemoveBMSDirectoryFromLR2Config(dir, saveImmediately: false);
+                if (removalFailure != null)
+                {
+                    MainWindowViewModel.ShowUiMessage(removalFailure.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+                }
                 return;
             }
-            RemoveStandaloneBmsRootPath(dir);
+            Exception standaloneRemovalFailure = RemoveStandaloneBmsRootPath(dir);
+            if (standaloneRemovalFailure != null)
+            {
+                MainWindowViewModel.ShowUiMessage(standaloneRemovalFailure.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+            }
         }
 
-        private void RemoveStandaloneBmsRootPath(string dir)
+        private Exception RemoveStandaloneBmsRootPath(string dir)
         {
             if (string.IsNullOrWhiteSpace(dir))
             {
-                return;
+                return null;
             }
             try
             {
@@ -5444,14 +5501,15 @@ public partial class MainWindowViewModel
                 RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                 RaisePropertyChanged(() => BMSInstallDir);
                 RaiseValidationStateChanged();
+                return null;
             }
             catch (Exception ex)
             {
-                MainWindowViewModel.ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+                return ex;
             }
         }
 
-        private void RemoveBMSDirectoryFromLR2Config(string dir, bool saveImmediately)
+        private Exception RemoveBMSDirectoryFromLR2Config(string dir, bool saveImmediately)
         {
             if (dir == null)
             {
@@ -5479,16 +5537,15 @@ public partial class MainWindowViewModel
                 {
                     throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveBmsInstallDir);
                 }
-                if (lr2config.RemoveBMSSearchDirectories([dir]))
+                bool removed = saveImmediately
+                    ? lr2config.RemoveBMSSearchDirectoriesAndSave([dir])
+                    : lr2config.RemoveBMSSearchDirectories([dir]);
+                if (removed)
                 {
                     isSearchRootsChanged = true;
                     if (string.Equals(selectedLR2ConfigBmsDirectory, dir, StringComparison.OrdinalIgnoreCase))
                     {
                         selectedLR2ConfigBmsDirectory = LR2ConfigBMSDirectories.FirstOrDefault();
-                    }
-                    if (saveImmediately)
-                    {
-                        lr2config.Save();
                     }
                     RaisePropertyChanged(() => LR2ConfigBMSDirectories);
                     RaisePropertyChanged(() => AvailableBMSDirectories);
@@ -5500,11 +5557,46 @@ public partial class MainWindowViewModel
                         isBMSDirectoryRemoved = true;
                     }
                 }
+                return null;
             }
             catch (Exception ex)
             {
-                MainWindowViewModel.ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+                return ex;
             }
+        }
+
+        private void RestoreStandaloneBmsRootRemovalState(
+            IReadOnlyList<string> previousRoots,
+            string previousSelection,
+            string previousSerializedPaths,
+            string previousLegacyBmsRootPath)
+        {
+            StandaloneBmsRootPathList.Clear();
+            foreach (string path in previousRoots ?? [])
+            {
+                StandaloneBmsRootPathList.Add(path);
+            }
+            ApplicationSettings.StandaloneBmsRootPaths = previousSerializedPaths;
+            ApplicationSettings.BMSRootPath = previousLegacyBmsRootPath;
+            SelectedStandaloneBmsRootPath = previousSelection;
+            RaisePropertyChanged(() => StandaloneBmsRootPathList);
+            RaisePropertyChanged(() => AvailableBMSDirectories);
+            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+            RaisePropertyChanged(() => BMSInstallDir);
+            RaiseValidationStateChanged();
+            isSearchRootsChanged = false;
+            isBMSDirectoryRemoved = false;
+        }
+
+        private async Task PresentBmsSearchRootRemovalFailureAsync(Exception exception)
+        {
+            UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
+                exception.Message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK));
+            UiDialogRoute.ThrowIfNotShown(result, "treeViewLibraryFolderContextMenuItemUnregisterRootFolder failure notification");
         }
 
         internal async Task RunAudioDeviceTestAsync()

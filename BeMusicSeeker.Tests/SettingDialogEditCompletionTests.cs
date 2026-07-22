@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -9,6 +10,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Windows;
@@ -23,6 +25,319 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingDialogEditCompletionTests
 {
+    [TestMethod]
+    public async Task RequestRemoveBmsSearchRootAsync_AcceptedStandaloneRoot_PersistsAndReloads()
+    {
+        string root = CreateTemporaryRoot();
+        string secondRoot = Path.Combine(root, "second");
+        string installRoot = CreateTemporaryRoot();
+        Directory.CreateDirectory(secondRoot);
+        Directory.CreateDirectory(installRoot);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.BMSInstallDir = installRoot;
+            settings.StandaloneBmsRootPaths = string.Join(Environment.NewLine, root, secondRoot);
+            settings.BMSRootPath = root;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            int reloadCount = 0;
+            MainWindowViewModel owner = new();
+            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+                owner,
+                settingsSession.Reload,
+                settingsSession.Save,
+                settingsSession,
+                reloadFileDiff: () =>
+                {
+                    reloadCount++;
+                    return Task.CompletedTask;
+                },
+                schemaDialogs: dialogs);
+
+            await dialog.RequestRemoveBmsSearchRootAsync(root);
+
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
+            CollectionAssert.DoesNotContain(
+                MainWindowViewModel.SettingDialogViewModel.DeserializeStandaloneBmsRootPaths(settings.StandaloneBmsRootPaths).ToArray(),
+                root);
+            Assert.AreEqual(secondRoot, settings.BMSRootPath, settings.BMSRootPath ?? "(null)");
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.AreEqual(1, reloadCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(installRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RequestRemoveBmsSearchRootAsync_CancelLeavesStandaloneSettingsUnchanged()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            string before = settingsSession.Values.StandaloneBmsRootPaths;
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+            };
+            MainWindowViewModel owner = new();
+            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+                owner,
+                settingsSession.Reload,
+                settingsSession.Save,
+                settingsSession,
+                schemaDialogs: dialogs);
+
+            await dialog.RequestRemoveBmsSearchRootAsync(root);
+
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            Assert.AreEqual(before, settingsSession.Values.StandaloneBmsRootPaths);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RequestRemoveBmsSearchRootAsync_BlankOrMissingRoot_DoesNotShowConfirmation()
+    {
+        string root = CreateTemporaryRoot();
+        string missing = Path.Combine(root, "missing");
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            MainWindowViewModel owner = new();
+            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+                owner,
+                settingsSession.Reload,
+                settingsSession.Save,
+                settingsSession,
+                schemaDialogs: dialogs);
+
+            await dialog.RequestRemoveBmsSearchRootAsync(string.Empty);
+            await dialog.RequestRemoveBmsSearchRootAsync(missing);
+
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RequestRemoveBmsSearchRootAsync_ConfirmationFailure_IsPropagatedBeforeMutation()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("dialog failure"))
+            };
+            MainWindowViewModel owner = new();
+            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+                owner,
+                settingsSession.Reload,
+                settingsSession.Save,
+                settingsSession,
+                schemaDialogs: dialogs);
+
+            Exception? exception = null;
+            try
+            {
+                await dialog.RequestRemoveBmsSearchRootAsync(root);
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            Assert.IsNotNull(exception);
+            StringAssert.Contains(exception!.Message, "failed");
+            Assert.AreEqual(0, settingsSession.SaveCount);
+            CollectionAssert.Contains(
+                MainWindowViewModel.SettingDialogViewModel.DeserializeStandaloneBmsRootPaths(settingsSession.Values.StandaloneBmsRootPaths).ToArray(),
+                root);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RequestRemoveBmsSearchRootAsync_AcceptedLr2Root_SavesConfigWithoutSettingsSave()
+    {
+        string root = CreateTemporaryRoot();
+        string bmsRoot = Path.Combine(root, "bms");
+        string otherRoot = Path.Combine(root, "other");
+        string installRoot = CreateTemporaryRoot();
+        Directory.CreateDirectory(bmsRoot);
+        Directory.CreateDirectory(otherRoot);
+        Directory.CreateDirectory(installRoot);
+        string configPath = Path.Combine(root, "config.xml");
+        File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(bmsRoot);
+            settings.OperationModeLR2DB = true;
+            settings.LR2ConfigXmlPath = configPath;
+            settings.BMSInstallDir = installRoot;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            MainWindowViewModel owner = new();
+            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+                owner,
+                settingsSession.Reload,
+                settingsSession.Save,
+                settingsSession,
+                schemaDialogs: dialogs);
+            var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+            config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
+            typeof(MainWindowViewModel)
+                .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(owner, config);
+
+            await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
+
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories().ToArray(), bmsRoot);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories().ToArray(), otherRoot);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+            CollectionAssert.DoesNotContain(
+                new BeMusicSeeker.Models.LR2.LR2Config(configPath).GetBMSSearchDirectories().ToArray(),
+                bmsRoot);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(installRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RequestRemoveBmsSearchRootAsync_StandaloneSaveFailure_RestoresInMemoryState()
+    {
+        string root = CreateTemporaryRoot();
+        string installRoot = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.BMSInstallDir = installRoot;
+            var settingsSession = new CountingSettingsEditSession(settings)
+            {
+                SaveFailure = new IOException("settings save failure")
+            };
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            MainWindowViewModel owner = new();
+            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+                owner,
+                settingsSession.Reload,
+                settingsSession.Save,
+                settingsSession,
+                schemaDialogs: dialogs);
+
+            Exception? exception = null;
+            try
+            {
+                await dialog.RequestRemoveBmsSearchRootAsync(root);
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+
+            Assert.IsNotNull(exception);
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.AreEqual(0, dialogs.MessageCount);
+            CollectionAssert.Contains(
+                MainWindowViewModel.SettingDialogViewModel.DeserializeStandaloneBmsRootPaths(settings.StandaloneBmsRootPaths).ToArray(),
+                root);
+            CollectionAssert.Contains(dialog.StandaloneBmsRootPathList.ToArray(), root);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(installRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RequestRemoveBmsSearchRootAsync_Lr2SaveFailure_RestoresConfigAndPresentsFailure()
+    {
+        string root = CreateTemporaryRoot();
+        string bmsRoot = Path.Combine(root, "bms");
+        string otherRoot = Path.Combine(root, "other");
+        string installRoot = CreateTemporaryRoot();
+        Directory.CreateDirectory(bmsRoot);
+        Directory.CreateDirectory(otherRoot);
+        Directory.CreateDirectory(installRoot);
+        string configPath = Path.Combine(root, "config.xml");
+        File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(bmsRoot);
+            settings.OperationModeLR2DB = true;
+            settings.LR2ConfigXmlPath = configPath;
+            settings.BMSInstallDir = installRoot;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            MainWindowViewModel owner = new();
+            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+                owner,
+                settingsSession.Reload,
+                settingsSession.Save,
+                settingsSession,
+                schemaDialogs: dialogs);
+            var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+            config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
+            typeof(MainWindowViewModel)
+                .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(owner, config);
+            SetPrivateField(config, "_configPath", Path.Combine(root, "missing", "config.xml"));
+
+            await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
+
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories().ToArray(), bmsRoot);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories().ToArray(), otherRoot);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(installRoot, recursive: true);
+        }
+    }
+
     [TestMethod]
     public async Task ApplySettingsAsync_ChangedNormalSetting_SavesBeforeClosing()
     {
@@ -822,6 +1137,49 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
+    private sealed class RecordingRootDialogService : IUiDialogService
+    {
+        internal UiDialogResult ConfirmationResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
+
+        internal int ConfirmationCount { get; private set; }
+
+        internal int MessageCount { get; private set; }
+
+        internal string LastMessageText { get; private set; } = string.Empty;
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            MessageCount++;
+            LastMessageText = request.MessageBoxText;
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
+        {
+            ConfirmationCount++;
+            return Task.FromResult(ConfirmationResult);
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
     private sealed class CountingSettingsEditSession : ISettingsEditSession
     {
         internal CountingSettingsEditSession(Settings values)
@@ -830,6 +1188,8 @@ public sealed class SettingDialogEditCompletionTests
         }
 
         internal Action? SaveObserved { get; set; }
+
+        internal Exception? SaveFailure { get; set; }
 
         internal bool BlockSave { get; set; }
 
@@ -849,6 +1209,10 @@ public sealed class SettingDialogEditCompletionTests
         {
             SaveCount++;
             SaveObserved?.Invoke();
+            if (SaveFailure != null)
+            {
+                throw SaveFailure;
+            }
             if (BlockSave)
             {
                 SaveEntered.Set();

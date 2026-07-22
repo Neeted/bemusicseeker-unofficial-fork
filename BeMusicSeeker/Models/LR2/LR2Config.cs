@@ -292,6 +292,32 @@ public class LR2Config : XDocument
         }
     }
 
+    internal bool RemoveBMSSearchDirectoriesAndSave(IEnumerable<string> dirs = null)
+    {
+        using (new WriterGuard(rwlock))
+        {
+            XDocument snapshot = new(this);
+            bool removed = RemoveBMSSearchDirectories(dirs);
+            if (!removed)
+            {
+                return false;
+            }
+
+            try
+            {
+                Save(ConfigPath, SaveOptions.None);
+                return true;
+            }
+            catch
+            {
+                XDocument restored = new(snapshot);
+                RemoveNodes();
+                Add(restored.Nodes());
+                throw;
+            }
+        }
+    }
+
     public int GetWindowSizeX()
     {
         using (new ReaderGuard(rwlock))
