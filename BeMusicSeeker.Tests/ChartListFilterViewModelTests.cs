@@ -11,7 +11,7 @@ public sealed class ChartListFilterViewModelTests
     [TestMethod]
     public void ModeFilter_RejectsNoneButRefreshesBindingState()
     {
-        var filters = new ChartListFilterViewModel();
+        var filters = CreateFilters();
         int changeCount = 0;
         List<string> propertyNames = [];
         filters.ModeFilterChanged += (_, _) => changeCount++;
@@ -30,7 +30,7 @@ public sealed class ChartListFilterViewModelTests
     [TestMethod]
     public void CaptureSnapshot_PreservesRawKeywordAndCanonicalModeTogether()
     {
-        var filters = new ChartListFilterViewModel();
+        var filters = CreateFilters();
         int changeCount = 0;
         filters.KeywordFilterChanged += (_, _) => changeCount++;
 
@@ -44,20 +44,66 @@ public sealed class ChartListFilterViewModelTests
     }
 
     [TestMethod]
-    public void MainWindowLegacyFilterProperties_ForwardToChartFilterOwner()
+    public void KeywordSearchPresentation_UsesContextCandidatesAndPersistedHistory()
     {
-        var viewModel = new MainWindowViewModel();
+        var store = new InMemoryKeywordSearchHistorySettingsStore
+        {
+            KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["title:old"])
+        };
+        var filters = new ChartListFilterViewModel(store);
 
-        viewModel.ModeFilter = MainWindowViewModel.ModeFilterType._7KEYS;
-        viewModel.KeywordFilter = " title:alpha ";
+        filters.UpdateKeywordSearchContext(GridKeywordSearchContext.ChartList, []);
+        filters.KeywordFilter = "memo:alpha";
 
-        Assert.AreEqual(ChartModeFilter._7KEYS, viewModel.ChartFilters.ModeFilter);
-        Assert.AreEqual(" title:alpha ", viewModel.ChartFilters.KeywordFilter);
-        Assert.AreEqual(MainWindowViewModel.ModeFilterType._7KEYS, viewModel.ModeFilter);
-        Assert.AreEqual(" title:alpha ", viewModel.KeywordFilter);
+        StringAssert.Contains(filters.KeywordSearchWarningText, "memo");
 
-        viewModel.ModeFilter = MainWindowViewModel.ModeFilterType.None;
+        filters.UpdateKeywordSearchContext(
+            GridKeywordSearchContext.PlaylistDetail,
+            ["Beta", "Alpha", "alpha"]);
+        StringAssert.Contains(filters.KeywordSearchHelpText, "memo");
 
-        Assert.AreEqual(ChartModeFilter._7KEYS, viewModel.ChartFilters.ModeFilter);
+        filters.RefreshKeywordSearchSuggestions("playlist:a", "playlist:a".Length, forceHistory: false);
+        Assert.AreEqual(1, filters.KeywordSearchSuggestions.Count);
+        Assert.AreEqual(KeywordSearchSuggestionKind.Value, filters.KeywordSearchSuggestions[0].Kind);
+        Assert.AreEqual("Alpha", filters.KeywordSearchSuggestions[0].DisplayText);
+        Assert.IsTrue(filters.IsKeywordSearchSuggestionPopupOpen);
+
+        filters.CloseKeywordSearchSuggestions();
+        Assert.IsFalse(filters.IsKeywordSearchSuggestionPopupOpen);
+
+        filters.RefreshKeywordSearchSuggestions(string.Empty, 0, forceHistory: true);
+        Assert.AreEqual(1, filters.KeywordSearchSuggestions.Count);
+        Assert.AreEqual("title:old", filters.KeywordSearchSuggestions[0].DisplayText);
+
+        filters.CommitKeywordSearchHistory("title:new");
+        Assert.AreEqual("title:new", KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory)[0]);
+    }
+
+    [TestMethod]
+    public void KeywordFilter_UpdatesWarningAndContextHelpNotifications()
+    {
+        var filters = CreateFilters();
+        List<string> propertyNames = [];
+        filters.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+
+        filters.UpdateKeywordSearchContext(GridKeywordSearchContext.PlayHistory, []);
+        filters.KeywordFilter = "memo:alpha";
+
+        Assert.IsTrue(propertyNames.Contains(nameof(ChartListFilterViewModel.KeywordSearchWarningText)));
+        Assert.IsTrue(propertyNames.Contains(nameof(ChartListFilterViewModel.HasKeywordSearchWarning)));
+        Assert.IsTrue(propertyNames.Contains(nameof(ChartListFilterViewModel.KeywordSearchHelpText)));
+        Assert.IsTrue(filters.KeywordSearchHelpText.IndexOf("finalized", StringComparison.OrdinalIgnoreCase) >= 0);
+    }
+
+    private static ChartListFilterViewModel CreateFilters()
+    {
+        return new ChartListFilterViewModel(new InMemoryKeywordSearchHistorySettingsStore());
+    }
+
+    private sealed class InMemoryKeywordSearchHistorySettingsStore : IKeywordSearchHistorySettingsStore
+    {
+        public string KeywordSearchHistory { get; set; } = string.Empty;
+
+        public string PlaylistSummaryKeywordSearchHistory { get; set; } = string.Empty;
     }
 }

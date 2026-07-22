@@ -168,9 +168,16 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             throw new ArgumentNullException(nameof(request));
         }
-        ApplyPlaylistPropertyPresentation(() => RequestPlaylistSummaryDataRefresh(
-            request.Reason,
-            request.RebuildAsync));
+        ApplyPlaylistPropertyPresentation(() =>
+        {
+            if (request.Reason.StartsWith("playlist_property_", StringComparison.Ordinal))
+            {
+                PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);
+            }
+            RequestPlaylistSummaryDataRefresh(
+                request.Reason,
+                request.RebuildAsync);
+        });
     }
 
     private void ForwardPlaylistEntriesChanged(
@@ -181,8 +188,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             throw new ArgumentNullException(nameof(request));
         }
-        ApplyPlaylistPropertyPresentation(
-            () => PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible));
+        ApplyPlaylistPropertyPresentation(() =>
+        {
+            PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);
+            PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible);
+        });
     }
 
     private void ForwardPlaylistOperationNotificationPresentationRequested(

@@ -376,6 +376,7 @@ internal sealed class ApplicationComposition
             bmsPlayerFactory,
             uiDispatcherProvider,
             playbackSettingsStore,
+            keywordSearchHistorySettingsStore,
             chartFileOperations,
             mainViewLog,
             dispatchMainChartListAction,
@@ -570,6 +571,7 @@ internal sealed class MainWindowChildComposition
         Func<IBMSPlayer> bmsPlayerFactory,
         Func<Dispatcher> uiDispatcherProvider,
         IPlaybackSettingsStore playbackSettingsStore,
+        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
         ChartFileOperationSynchronizer chartFileOperations,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
@@ -643,7 +645,7 @@ internal sealed class MainWindowChildComposition
             new WpfPlaybackDialogService(new UiDialogCoordinator()),
             exception => NLogWrapper.TraceLogger?.Warn(exception),
             chartFileOperations);
-        ChartFilters = new ChartListFilterViewModel();
+        ChartFilters = new ChartListFilterViewModel(keywordSearchHistorySettingsStore);
         PlayHistory = new PlayHistoryWorkflowOwner();
         PendingPackageWorkflow = new PendingPackageWorkflowOwner(
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),

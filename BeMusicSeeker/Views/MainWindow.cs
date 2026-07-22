@@ -1909,7 +1909,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else
         {
-            viewModel.RefreshKeywordSearchSuggestions(textBox.Text, textBox.CaretIndex, forceHistory);
+            viewModel.ChartFilters.RefreshKeywordSearchSuggestions(textBox.Text, textBox.CaretIndex, forceHistory);
         }
     }
 
@@ -1925,7 +1925,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else
         {
-            viewModel.CommitKeywordSearchHistory(textBox.Text);
+            viewModel.ChartFilters.CommitKeywordSearchHistory(textBox.Text);
         }
     }
 
@@ -2014,7 +2014,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private bool IsKeywordSearchSuggestionPopupOpen(bool isPlaylistSummary)
     {
         return base.DataContext is MainWindowViewModel viewModel
-            && (isPlaylistSummary ? viewModel.PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen : viewModel.IsKeywordSearchSuggestionPopupOpen);
+            && (isPlaylistSummary ? viewModel.PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen : viewModel.ChartFilters.IsKeywordSearchSuggestionPopupOpen);
     }
 
     private void CloseKeywordSearchSuggestions(bool isPlaylistSummary)
@@ -2029,7 +2029,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else
         {
-            viewModel.CloseKeywordSearchSuggestions();
+            viewModel.ChartFilters.CloseKeywordSearchSuggestions();
         }
     }
 

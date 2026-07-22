@@ -15,10 +15,10 @@ public sealed class KeywordSearchPresentationTests
     [TestMethod]
     public void BuildKeywordSearchWarningText_UsesContextSpecificFields()
     {
-        string chartListWarning = MainWindowViewModel.BuildKeywordSearchWarningText("memo:alpha", GridKeywordSearchContext.ChartList);
-        string playlistDetailWarning = MainWindowViewModel.BuildKeywordSearchWarningText("memo:alpha", GridKeywordSearchContext.PlaylistDetail);
-        string summaryWarning = MainWindowViewModel.BuildKeywordSearchWarningText("memo:alpha", GridKeywordSearchContext.PlaylistSummary);
-        string playHistoryWarning = MainWindowViewModel.BuildKeywordSearchWarningText("finalized:false memo:alpha", GridKeywordSearchContext.PlayHistory);
+        string chartListWarning = KeywordSearchPresentationText.BuildWarningText("memo:alpha", GridKeywordSearchContext.ChartList);
+        string playlistDetailWarning = KeywordSearchPresentationText.BuildWarningText("memo:alpha", GridKeywordSearchContext.PlaylistDetail);
+        string summaryWarning = KeywordSearchPresentationText.BuildWarningText("memo:alpha", GridKeywordSearchContext.PlaylistSummary);
+        string playHistoryWarning = KeywordSearchPresentationText.BuildWarningText("finalized:false memo:alpha", GridKeywordSearchContext.PlayHistory);
 
         StringAssert.Contains(chartListWarning, "memo");
         Assert.AreEqual(string.Empty, playlistDetailWarning);
@@ -30,7 +30,7 @@ public sealed class KeywordSearchPresentationTests
     [TestMethod]
     public void BuildKeywordSearchWarningText_ReportsInvalidSyntax()
     {
-        string warning = MainWindowViewModel.BuildKeywordSearchWarningText("title: - | title:re:[", GridKeywordSearchContext.ChartList);
+        string warning = KeywordSearchPresentationText.BuildWarningText("title: - | title:re:[", GridKeywordSearchContext.ChartList);
 
         StringAssert.Contains(warning, "title");
         StringAssert.Contains(warning, "-");
@@ -52,10 +52,10 @@ public sealed class KeywordSearchPresentationTests
     [TestMethod]
     public void BuildKeywordSearchHelpText_ContainsContextFields()
     {
-        string chartListHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.ChartList);
-        string playlistDetailHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.PlaylistDetail);
-        string summaryHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.PlaylistSummary);
-        string playHistoryHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.PlayHistory);
+        string chartListHelp = KeywordSearchPresentationText.BuildHelpText(GridKeywordSearchContext.ChartList);
+        string playlistDetailHelp = KeywordSearchPresentationText.BuildHelpText(GridKeywordSearchContext.PlaylistDetail);
+        string summaryHelp = KeywordSearchPresentationText.BuildHelpText(GridKeywordSearchContext.PlaylistSummary);
+        string playHistoryHelp = KeywordSearchPresentationText.BuildHelpText(GridKeywordSearchContext.PlayHistory);
 
         StringAssert.Contains(chartListHelp, "sha256");
         StringAssert.Contains(chartListHelp, "clear");
@@ -73,9 +73,9 @@ public sealed class KeywordSearchPresentationTests
     [TestMethod]
     public void BuildKeywordSearchSuggestionHeaderText_DescribesSuggestionKind()
     {
-        string fieldHeader = MainWindowViewModel.BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind.Field);
-        string valueHeader = MainWindowViewModel.BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind.Value);
-        string historyHeader = MainWindowViewModel.BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind.History);
+        string fieldHeader = KeywordSearchPresentationText.BuildSuggestionHeaderText(KeywordSearchSuggestionKind.Field);
+        string valueHeader = KeywordSearchPresentationText.BuildSuggestionHeaderText(KeywordSearchSuggestionKind.Value);
+        string historyHeader = KeywordSearchPresentationText.BuildSuggestionHeaderText(KeywordSearchSuggestionKind.History);
 
         Assert.IsFalse(string.IsNullOrWhiteSpace(fieldHeader));
         Assert.IsFalse(string.IsNullOrWhiteSpace(valueHeader));
@@ -88,7 +88,7 @@ public sealed class KeywordSearchPresentationTests
     [TestMethod]
     public void BuildKeywordSearchHistorySuggestions_ReplacesWholeSearchText()
     {
-        KeywordSearchSuggestionItem suggestion = MainWindowViewModel.BuildKeywordSearchHistorySuggestions(["title:alpha"], "current")
+        KeywordSearchSuggestionItem suggestion = KeywordSearchPresentationText.BuildHistorySuggestions(["title:alpha"], "current")
             [0];
 
         string applied = suggestion.Apply("current", out int caretIndex);

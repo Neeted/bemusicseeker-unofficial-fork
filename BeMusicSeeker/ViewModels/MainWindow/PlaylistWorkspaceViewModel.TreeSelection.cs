@@ -32,6 +32,13 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler PlaylistTablesPresentationChanged;
 
+    internal event EventHandler PlaylistKeywordValueCandidatesChanged;
+
+    private void DispatchPlaylistKeywordValueCandidatesChanged()
+    {
+        dispatchPresentation(() => PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty));
+    }
+
     internal event EventHandler<PlaylistEntriesHydrationVersionChangedEventArgs> PlaylistEntriesHydrationRequested;
 
     internal event EventHandler<PlaylistEntriesHydrationVersionChangedEventArgs> PlaylistEntriesHydrationCompleted;

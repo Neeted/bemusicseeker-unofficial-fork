@@ -771,6 +771,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool playlistTablesReaderLockHeld = false;
         bool referenceDisplayRefreshRequired = false;
         bool referenceSortInvalidationPublishedByEntryChange = false;
+        bool playlistKeywordValueCandidatesChanged = false;
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
         BeginPlaylistSyncProgressOperation();
         try
@@ -861,6 +862,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return;
             }
+            playlistKeywordValueCandidatesChanged = acceptedChanges.Any(change =>
+                !string.Equals(change.OriginalName, change.DesiredName, StringComparison.Ordinal));
             summaryRefreshRequired = true;
 
             var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
@@ -1028,6 +1031,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                 if (playlistTablesReaderLockHeld)
                 {
                     tables.FreeReaderLockBMSTables();
+                    playlistTablesReaderLockHeld = false;
+                }
+                if (playlistKeywordValueCandidatesChanged)
+                {
+                    DispatchPlaylistKeywordValueCandidatesChanged();
                 }
                 if (referenceDisplayRefreshRequired && !referenceSortInvalidationPublishedByEntryChange)
                 {

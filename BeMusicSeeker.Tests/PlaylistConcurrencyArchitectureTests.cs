@@ -604,10 +604,11 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void KeywordSearchHistory_UsesSettingsStoreBoundary()
     {
-        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText(
+        string chartFilterSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
-            "MainWindowViewModel.cs");
+            "MainWindow",
+            "ChartListFilterViewModel.cs");
         string playlistWorkspaceKeywordSearchSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
@@ -619,12 +620,12 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "MainWindow",
             "PlaylistWorkspaceViewModel.cs");
 
-        StringAssert.Contains(mainWindowSource, "keywordSearchHistorySettingsStore.KeywordSearchHistory");
+        StringAssert.Contains(chartFilterSource, "keywordSearchHistorySettingsStore.KeywordSearchHistory");
         StringAssert.Contains(playlistWorkspaceSource, "keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory");
         Assert.IsFalse(playlistWorkspaceKeywordSearchSource.Contains("ConfigureKeywordSearchHistory"));
         StringAssert.Contains(playlistWorkspaceKeywordSearchSource, "IKeywordSearchHistorySettingsStore playlistSummaryKeywordSearchHistorySettingsStore");
-        Assert.IsFalse(mainWindowSource.Contains("Settings.Default.KeywordSearchHistory"));
-        Assert.IsFalse(mainWindowSource.Contains("Settings.Default.PlaylistSummaryKeywordSearchHistory"));
+        Assert.IsFalse(chartFilterSource.Contains("Settings.Default.KeywordSearchHistory"));
+        Assert.IsFalse(chartFilterSource.Contains("Settings.Default.PlaylistSummaryKeywordSearchHistory"));
         Assert.IsFalse(playlistWorkspaceKeywordSearchSource.Contains("Settings.Default.KeywordSearchHistory"));
         Assert.IsFalse(playlistWorkspaceKeywordSearchSource.Contains("Settings.Default.PlaylistSummaryKeywordSearchHistory"));
     }

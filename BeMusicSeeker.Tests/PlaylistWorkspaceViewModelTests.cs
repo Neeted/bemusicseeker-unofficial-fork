@@ -335,7 +335,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "RaiseRequiredEvent(");
         StringAssert.Contains(workspaceSource, "            PlaylistReferenceSortInvalidationRequested,");
         StringAssert.Contains(workspaceSource, "private void ForwardPlaylistEntriesChanged(");
-        StringAssert.Contains(workspaceSource, "() => PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible)");
+        StringAssert.Contains(workspaceSource, "PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);");
+        StringAssert.Contains(workspaceSource, "PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible);");
         Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistWorkspaceEntriesChangedEventArgs", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal Task AddRowsToFolderAsync(");
         StringAssert.Contains(workspaceSource, "internal Task DeleteEntriesAsync(");
@@ -481,6 +482,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool RemapCurrentPlaylistDetailFolderSelection(");
         StringAssert.Contains(workspaceSource, "internal bool MarkCurrentPlaylistDetailEntriesChanged(");
         StringAssert.Contains(bulkEditSource, "PublishEntriesChanged(table, refreshSummaryIfVisible: false);");
+        StringAssert.Contains(bulkEditSource, "DispatchPlaylistKeywordValueCandidatesChanged();");
         StringAssert.Contains(workspaceSource, "internal long ClearPlaylistDetailSelection()");
         Assert.AreEqual(-1, logicalSource.IndexOf("TryExecuteCurrentPlaylistSummarySelection", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("TryActivateCurrentPlaylistDetailSelection", StringComparison.Ordinal));

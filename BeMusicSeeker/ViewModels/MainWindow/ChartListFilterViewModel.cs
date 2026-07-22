@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
@@ -10,9 +13,36 @@ public sealed class ChartListFilterViewModel : ViewModel
 {
     private readonly object syncRoot = new();
 
+    private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
+
+    private readonly List<string> keywordSearchHistory = [];
+
     private ChartModeFilter modeFilter = ChartModeFilter.All;
 
-    private string keywordFilter;
+    private string keywordFilter = string.Empty;
+
+    private GridKeywordSearchContext keywordSearchContext = GridKeywordSearchContext.ChartList;
+
+    private IReadOnlyList<string> playlistNameCandidates = [];
+
+    private string keywordSearchWarningText = string.Empty;
+
+    private bool isKeywordSearchHelpOpen;
+
+    private readonly ObservableCollection<KeywordSearchSuggestionItem> keywordSearchSuggestions = [];
+
+    private bool isKeywordSearchSuggestionPopupOpen;
+
+    private string keywordSearchSuggestionHeaderText = string.Empty;
+
+    internal ChartListFilterViewModel(IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore)
+    {
+        this.keywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
+            ?? throw new ArgumentNullException(nameof(keywordSearchHistorySettingsStore));
+        keywordSearchHistory.AddRange(
+            KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.KeywordSearchHistory));
+        UpdateKeywordSearchPresentation(raiseHelpText: false);
+    }
 
     /// <summary>
     /// Raised after the mode filter has changed so the shell can coordinate feature workflows.
@@ -87,8 +117,179 @@ public sealed class ChartListFilterViewModel : ViewModel
                 keywordFilter = value;
             }
             RaisePropertyChanged(nameof(KeywordFilter));
+            UpdateKeywordSearchPresentation(raiseHelpText: false);
             KeywordFilterChanged?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    /// <summary>
+    /// Gets the warning text for the active normal chart search context.
+    /// </summary>
+    public string KeywordSearchWarningText => keywordSearchWarningText;
+
+    /// <summary>
+    /// Gets whether the active normal chart search has a warning.
+    /// </summary>
+    public bool HasKeywordSearchWarning => !string.IsNullOrWhiteSpace(keywordSearchWarningText);
+
+    /// <summary>
+    /// Gets the help text for the active normal chart search context.
+    /// </summary>
+    public string KeywordSearchHelpText => KeywordSearchPresentationText.BuildHelpText(keywordSearchContext);
+
+    /// <summary>
+    /// Gets or sets whether the normal chart search help popup is open.
+    /// </summary>
+    public bool IsKeywordSearchHelpOpen
+    {
+        get => isKeywordSearchHelpOpen;
+        set
+        {
+            if (isKeywordSearchHelpOpen == value)
+            {
+                return;
+            }
+            isKeywordSearchHelpOpen = value;
+            RaisePropertyChanged(nameof(IsKeywordSearchHelpOpen));
+        }
+    }
+
+    /// <summary>
+    /// Gets the normal chart search field, value, and history suggestions.
+    /// </summary>
+    public ObservableCollection<KeywordSearchSuggestionItem> KeywordSearchSuggestions => keywordSearchSuggestions;
+
+    /// <summary>
+    /// Gets or sets whether the normal chart search suggestion popup is open.
+    /// </summary>
+    public bool IsKeywordSearchSuggestionPopupOpen
+    {
+        get => isKeywordSearchSuggestionPopupOpen;
+        set
+        {
+            if (isKeywordSearchSuggestionPopupOpen == value)
+            {
+                return;
+            }
+            isKeywordSearchSuggestionPopupOpen = value;
+            RaisePropertyChanged(nameof(IsKeywordSearchSuggestionPopupOpen));
+        }
+    }
+
+    /// <summary>
+    /// Gets the normal chart search suggestion popup header.
+    /// </summary>
+    public string KeywordSearchSuggestionHeaderText => keywordSearchSuggestionHeaderText;
+
+    internal GridKeywordSearchContext CurrentKeywordSearchContext => keywordSearchContext;
+
+    /// <summary>
+    /// Updates the context and immutable playlist-name candidate snapshot used by normal search presentation.
+    /// </summary>
+    internal void UpdateKeywordSearchContext(
+        GridKeywordSearchContext context,
+        IEnumerable<string> playlistNameCandidates)
+    {
+        keywordSearchContext = context;
+        this.playlistNameCandidates = [.. (playlistNameCandidates ?? []).Where(name => !string.IsNullOrWhiteSpace(name))];
+        UpdateKeywordSearchPresentation(raiseHelpText: true);
+    }
+
+    /// <summary>
+    /// Refreshes normal chart search field, value, and history suggestions.
+    /// </summary>
+    internal void RefreshKeywordSearchSuggestions(string keywordFilter, int caretIndex, bool forceHistory)
+    {
+        GridKeywordSearchCompletionResult fieldCompletion = GridKeywordSearchCompletion.CreateFieldCompletion(
+            keywordFilter,
+            caretIndex,
+            keywordSearchContext);
+        if (fieldCompletion.Items.Count > 0)
+        {
+            SetKeywordSearchSuggestions(fieldCompletion.Items, KeywordSearchSuggestionKind.Field);
+            return;
+        }
+
+        if (GridKeywordSearchCompletion.IsPlaylistValueCompletionContext(
+            keywordFilter,
+            caretIndex,
+            keywordSearchContext))
+        {
+            GridKeywordSearchCompletionResult playlistValueCompletion = GridKeywordSearchCompletion.CreatePlaylistValueCompletion(
+                keywordFilter,
+                caretIndex,
+                keywordSearchContext,
+                playlistNameCandidates);
+            if (playlistValueCompletion.Items.Count > 0)
+            {
+                SetKeywordSearchSuggestions(playlistValueCompletion.Items, KeywordSearchSuggestionKind.Value);
+                return;
+            }
+        }
+
+        if (forceHistory)
+        {
+            SetKeywordSearchSuggestions(
+                KeywordSearchPresentationText.BuildHistorySuggestions(keywordSearchHistory, keywordFilter),
+                KeywordSearchSuggestionKind.History);
+            return;
+        }
+
+        SetKeywordSearchSuggestions([], KeywordSearchSuggestionKind.Field);
+    }
+
+    /// <summary>
+    /// Closes the normal chart search suggestion popup.
+    /// </summary>
+    internal void CloseKeywordSearchSuggestions()
+    {
+        IsKeywordSearchSuggestionPopupOpen = false;
+    }
+
+    /// <summary>
+    /// Commits the normal chart search value to the persisted serialized history.
+    /// </summary>
+    internal void CommitKeywordSearchHistory(string keywordFilter)
+    {
+        IReadOnlyList<string> nextHistory = KeywordSearchHistoryStore.AddEntry(keywordSearchHistory, keywordFilter);
+        keywordSearchHistory.Clear();
+        keywordSearchHistory.AddRange(nextHistory);
+        keywordSearchHistorySettingsStore.KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(keywordSearchHistory);
+    }
+
+    private void UpdateKeywordSearchPresentation(bool raiseHelpText)
+    {
+        string nextWarningText = KeywordSearchPresentationText.BuildWarningText(keywordFilter, keywordSearchContext);
+        if (!string.Equals(keywordSearchWarningText, nextWarningText, StringComparison.Ordinal))
+        {
+            keywordSearchWarningText = nextWarningText;
+            RaisePropertyChanged(nameof(KeywordSearchWarningText));
+            RaisePropertyChanged(nameof(HasKeywordSearchWarning));
+        }
+        if (raiseHelpText)
+        {
+            RaisePropertyChanged(nameof(KeywordSearchHelpText));
+        }
+    }
+
+    private void SetKeywordSearchSuggestions(
+        IReadOnlyList<KeywordSearchSuggestionItem> suggestions,
+        KeywordSearchSuggestionKind kind)
+    {
+        keywordSearchSuggestions.Clear();
+        foreach (KeywordSearchSuggestionItem suggestion in suggestions ?? [])
+        {
+            keywordSearchSuggestions.Add(suggestion);
+        }
+        string nextHeaderText = keywordSearchSuggestions.Count == 0
+            ? string.Empty
+            : KeywordSearchPresentationText.BuildSuggestionHeaderText(kind);
+        if (!string.Equals(keywordSearchSuggestionHeaderText, nextHeaderText, StringComparison.Ordinal))
+        {
+            keywordSearchSuggestionHeaderText = nextHeaderText;
+            RaisePropertyChanged(nameof(KeywordSearchSuggestionHeaderText));
+        }
+        IsKeywordSearchSuggestionPopupOpen = keywordSearchSuggestions.Count > 0;
     }
 
     /// <summary>

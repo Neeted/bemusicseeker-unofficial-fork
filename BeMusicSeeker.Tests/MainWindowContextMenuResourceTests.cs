@@ -29,6 +29,10 @@ public sealed class MainWindowContextMenuResourceTests
         string repositoryRoot = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string viewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string rootViewModel = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
         string regularOwner = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs"));
         string playlistRequestOwner = File.ReadAllText(Path.Combine(
             repositoryRoot,
@@ -41,10 +45,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(5, CountOccurrences(xaml, "{Binding ChartFilters.ModeFilter, Source={StaticResource vm}"));
         StringAssert.Contains(xaml, "{Binding ChartFilters.KeywordFilter");
         StringAssert.Contains(viewModel, "public ChartListFilterViewModel ChartFilters");
-        StringAssert.Contains(viewModel, "public ModeFilterType ModeFilter");
-        StringAssert.Contains(viewModel, "public string KeywordFilter");
-        Assert.IsFalse(viewModel.Contains("private ModeFilterType _ModeFilter"));
-        Assert.IsFalse(viewModel.Contains("private string _KeywordFilter"));
+        Assert.IsFalse(rootViewModel.Contains("public ModeFilterType ModeFilter"));
+        Assert.IsFalse(rootViewModel.Contains("public string KeywordFilter"));
+        Assert.IsFalse(rootViewModel.Contains("ModeFilterType"));
+        Assert.IsFalse(rootViewModel.Contains("private string _KeywordFilter"));
+        StringAssert.Contains(viewModel, "ChartFilters.UpdateKeywordSearchContext(");
         StringAssert.Contains(viewModel, "PlaylistWorkspace.RequestDetailRefresh(");
         StringAssert.Contains(viewModel, "ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode)");
         StringAssert.Contains(viewModel, "CapturePlaylistOpenReadinessSnapshot()");
@@ -594,7 +599,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string viewExecutionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.ViewExecution.cs");
-        string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "private GridKeywordSearchContext GetCurrentKeywordSearchContext");
+        string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "private GridKeywordSearchContext GetCurrentChartKeywordSearchContext");
         string displayTargetRefreshOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargetRefresh.cs");
         string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void BeginChartPackageMutation");
         string playlistStoreNotifications = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs");
@@ -643,10 +648,15 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewExecutionCode, "QueueDisplayTargetRefresh(");
         StringAssert.Contains(viewExecutionCode, "QueueKeywordFilterRefresh(");
         StringAssert.Contains(flushPendingUiRefresh, "RefreshPlayHistoryDisplayTargets();");
+        StringAssert.Contains(flushPendingUiRefresh, "PlaylistWorkspace.RefreshPlaylistTreePresentation();");
+        StringAssert.Contains(flushPendingUiRefresh, "UpdateChartKeywordSearchContext();");
         StringAssert.Contains(viewModelCode, "PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;");
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.PlaylistKeywordValueCandidatesChanged += PlaylistWorkspacePlaylistKeywordValueCandidatesChanged;");
         StringAssert.Contains(viewModelCode, "PlaylistWorkspace.PlaylistEntriesHydrationCompleted += PlaylistWorkspacePlaylistEntriesHydrationCompleted;");
         StringAssert.Contains(playlistStoreNotifications, "PlaylistTablesPresentationChanged?.Invoke(this, EventArgs.Empty);");
         StringAssert.Contains(playlistStoreNotifications, "PlaylistEntriesHydrationCompleted?.Invoke(");
+        string playlistPropertyEditing = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PropertyEditing.cs");
+        StringAssert.Contains(playlistPropertyEditing, "PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);");
         StringAssert.Contains(viewModelCode, "if (PlayHistory.SelectedDisplayTarget.UsesProjection)");
         StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.QueueDisplayTargetRefresh(");
         Assert.IsFalse(viewModelCode.Contains("playHistoryKeywordFilterQueuedRevision"));

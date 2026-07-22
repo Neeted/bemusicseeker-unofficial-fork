@@ -1376,7 +1376,7 @@ public sealed class ApplicationCompositionTests
             keywordSearchHistorySettingsStore: store);
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-        viewModel.CommitKeywordSearchHistory("new");
+        viewModel.ChartFilters.CommitKeywordSearchHistory("new");
         viewModel.PlaylistWorkspace.CommitPlaylistSummaryKeywordSearchHistory("summary-new");
 
         Assert.AreEqual("new", KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory)[0]);

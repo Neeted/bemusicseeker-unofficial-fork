@@ -881,8 +881,8 @@ public sealed class BmsPlaylistUpdateTests
             CollectionAssert.AreEqual(
                 Array.Empty<string>(),
                 viewModel.PlaylistWorkspace.GetPlaylistKeywordValueCandidates().ToArray());
-            viewModel.RefreshKeywordSearchSuggestions("playlist:a", "playlist:a".Length, forceHistory: false);
-            Assert.AreEqual(0, viewModel.KeywordSearchSuggestions.Count);
+            viewModel.ChartFilters.RefreshKeywordSearchSuggestions("playlist:a", "playlist:a".Length, forceHistory: false);
+            Assert.AreEqual(0, viewModel.ChartFilters.KeywordSearchSuggestions.Count);
 
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -892,31 +892,36 @@ public sealed class BmsPlaylistUpdateTests
                 new[] { "Alpha", "Beta", "zeta" },
                 viewModel.PlaylistWorkspace.GetPlaylistKeywordValueCandidates().ToArray());
 
+            IReadOnlyList<string> playlistNameCandidates = viewModel.PlaylistWorkspace.GetPlaylistKeywordValueCandidates();
+
             playlist.AcquireWriterLockBMSTables();
             playlist.FreeWriterLockBMSTables();
 
             typeof(MainWindowViewModel)
                 .GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, MainViewUpdateMode.PlaylistFilterSelected);
-            viewModel.RefreshKeywordSearchSuggestions("playlist:a", "playlist:a".Length, forceHistory: false);
+            viewModel.ChartFilters.UpdateKeywordSearchContext(GridKeywordSearchContext.PlaylistDetail, playlistNameCandidates);
+            viewModel.ChartFilters.RefreshKeywordSearchSuggestions("playlist:a", "playlist:a".Length, forceHistory: false);
 
-            Assert.AreEqual(1, viewModel.KeywordSearchSuggestions.Count);
-            Assert.AreEqual(KeywordSearchSuggestionKind.Value, viewModel.KeywordSearchSuggestions[0].Kind);
-            Assert.AreEqual("Alpha", viewModel.KeywordSearchSuggestions[0].DisplayText);
+            Assert.AreEqual(1, viewModel.ChartFilters.KeywordSearchSuggestions.Count);
+            Assert.AreEqual(KeywordSearchSuggestionKind.Value, viewModel.ChartFilters.KeywordSearchSuggestions[0].Kind);
+            Assert.AreEqual("Alpha", viewModel.ChartFilters.KeywordSearchSuggestions[0].DisplayText);
 
             typeof(MainWindowViewModel)
                 .GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, MainViewUpdateMode.FolderFilterSelected);
-            viewModel.RefreshKeywordSearchSuggestions("playlist:b", "playlist:b".Length, forceHistory: false);
-            Assert.AreEqual(1, viewModel.KeywordSearchSuggestions.Count);
-            Assert.AreEqual("Beta", viewModel.KeywordSearchSuggestions[0].DisplayText);
+            viewModel.ChartFilters.UpdateKeywordSearchContext(GridKeywordSearchContext.ChartList, playlistNameCandidates);
+            viewModel.ChartFilters.RefreshKeywordSearchSuggestions("playlist:b", "playlist:b".Length, forceHistory: false);
+            Assert.AreEqual(1, viewModel.ChartFilters.KeywordSearchSuggestions.Count);
+            Assert.AreEqual("Beta", viewModel.ChartFilters.KeywordSearchSuggestions[0].DisplayText);
 
             typeof(MainWindowViewModel)
                 .GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, MainViewUpdateMode.PlayHistorySelected);
-            viewModel.RefreshKeywordSearchSuggestions("playlist:z", "playlist:z".Length, forceHistory: false);
-            Assert.AreEqual(1, viewModel.KeywordSearchSuggestions.Count);
-            Assert.AreEqual("zeta", viewModel.KeywordSearchSuggestions[0].DisplayText);
+            viewModel.ChartFilters.UpdateKeywordSearchContext(GridKeywordSearchContext.PlayHistory, playlistNameCandidates);
+            viewModel.ChartFilters.RefreshKeywordSearchSuggestions("playlist:z", "playlist:z".Length, forceHistory: false);
+            Assert.AreEqual(1, viewModel.ChartFilters.KeywordSearchSuggestions.Count);
+            Assert.AreEqual("zeta", viewModel.ChartFilters.KeywordSearchSuggestions[0].DisplayText);
         }
         finally
         {
@@ -965,6 +970,9 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreSame(playlist.BMSTables, viewModel.PlaylistWorkspace.PlaylistTreeTables);
             Assert.AreEqual(2, viewModel.PlaylistWorkspace.PlaylistTreeTables.Count);
             Assert.AreEqual(1, playlistTablesPresentationChangedCount);
+            viewModel.ChartFilters.RefreshKeywordSearchSuggestions("playlist:a", "playlist:a".Length, forceHistory: false);
+            Assert.AreEqual(1, viewModel.ChartFilters.KeywordSearchSuggestions.Count);
+            Assert.AreEqual("Added", viewModel.ChartFilters.KeywordSearchSuggestions[0].DisplayText);
 
             DispatcherCollection<BMSTable> replacement = new(
                 new ObservableCollection<BMSTable>([new BMSTable { name = "Replacement" }]),
@@ -1314,6 +1322,17 @@ public sealed class BmsPlaylistUpdateTests
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
+            int playlistKeywordValueCandidatesChangedCount = 0;
+            viewModel.PlaylistWorkspace.PlaylistKeywordValueCandidatesChanged += (_, _) => playlistKeywordValueCandidatesChangedCount++;
+            viewModel.ChartFilters.UpdateKeywordSearchContext(
+                GridKeywordSearchContext.PlaylistDetail,
+                viewModel.PlaylistWorkspace.GetPlaylistKeywordValueCandidates());
+            viewModel.ChartFilters.RefreshKeywordSearchSuggestions(
+                "playlist:l",
+                "playlist:l".Length,
+                forceHistory: false);
+            Assert.AreEqual(1, viewModel.ChartFilters.KeywordSearchSuggestions.Count);
+            Assert.AreEqual("Local Name", viewModel.ChartFilters.KeywordSearchSuggestions[0].DisplayText);
             viewModel.PlaylistWorkspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("1"));
             viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive = true;
             int detailReloadCount = 0;
@@ -1333,6 +1352,13 @@ public sealed class BmsPlaylistUpdateTests
                 });
 
             Assert.AreEqual("External:Name", table.name);
+            viewModel.ChartFilters.RefreshKeywordSearchSuggestions(
+                "playlist:e",
+                "playlist:e".Length,
+                forceHistory: false);
+            Assert.AreEqual(1, viewModel.ChartFilters.KeywordSearchSuggestions.Count);
+            Assert.AreEqual("External:Name", viewModel.ChartFilters.KeywordSearchSuggestions[0].DisplayText);
+            Assert.AreEqual(1, playlistKeywordValueCandidatesChangedCount);
             Assert.AreEqual("★", table.symbol);
             Assert.AreEqual("★", table.compat_prefix);
             Assert.AreEqual(BMSTable.CreateDefaultOutputDirectoryName("External:Name"), table.Output_dir);

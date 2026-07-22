@@ -138,22 +138,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     }
 
     /// <summary>
-    /// Compatibility name for callers compiled against the former nested chart mode filter.
-    /// The main-window binding uses <see cref="ChartFilters"/> instead.
-    /// </summary>
-    [Flags]
-    public enum ModeFilterType
-    {
-        None = 0,
-        _5KEYS = 1,
-        _7KEYS = 2,
-        _9KEYS = 4,
-        _10KEYS = 8,
-        _14KEYS = 0x10,
-        All = 0x1F
-    }
-
-    /// <summary>
     /// 起動・リロード進捗の対象 operation 種別です。
     /// </summary>
     internal enum StartupProgressOperationKind
@@ -398,8 +382,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private readonly Action saveSettings;
 
-    private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
-
     private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
 
     internal IPlayHistoryDisplaySettingsStore PlayHistoryDisplaySettingsStore => playHistoryDisplaySettingsStore;
@@ -502,18 +484,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private long startupProgressOperationTokenSeed;
 
     private bool _IsStartupUiInteractionBlocked;
-
-    private string _KeywordSearchWarningText = string.Empty;
-
-    private bool _IsKeywordSearchHelpOpen;
-
-    private readonly ObservableCollection<KeywordSearchSuggestionItem> _KeywordSearchSuggestions = [];
-
-    private readonly List<string> keywordSearchHistory = [];
-
-    private bool _IsKeywordSearchSuggestionPopupOpen;
-
-    private string _KeywordSearchSuggestionHeaderText = string.Empty;
 
     private readonly DispatcherCollection<string> _sortedBmsParentFolderList = new(DispatcherHelper.UIDispatcher);
 
@@ -645,38 +615,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     internal static string NormalizePlaylistKeywordFilter(string keywordFilter)
     {
         return PlaylistRequestFactory.NormalizeKeywordFilter(keywordFilter);
-    }
-
-    internal static string BuildKeywordSearchWarningText(string keywordFilter, GridKeywordSearchContext context)
-    {
-        return KeywordSearchPresentationText.BuildWarningText(keywordFilter, context);
-    }
-
-    internal static string BuildKeywordSearchHelpText(GridKeywordSearchContext context)
-    {
-        return KeywordSearchPresentationText.BuildHelpText(context);
-    }
-
-    /// <summary>
-    /// 検索候補 popup の見出しを返します。
-    /// field 補完と履歴は同じ popup に載るため、候補種別に応じて表示を切り替えます。
-    /// </summary>
-    /// <param name="kind">候補種別。</param>
-    /// <returns>popup 見出し。</returns>
-    internal static string BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind kind)
-    {
-        return KeywordSearchPresentationText.BuildSuggestionHeaderText(kind);
-    }
-
-    /// <summary>
-    /// 検索履歴候補を作ります。
-    /// </summary>
-    /// <param name="history">履歴一覧。</param>
-    /// <param name="currentText">現在の検索文字列。</param>
-    /// <returns>履歴候補一覧。</returns>
-    internal static IReadOnlyList<KeywordSearchSuggestionItem> BuildKeywordSearchHistorySuggestions(IEnumerable<string> history, string currentText)
-    {
-        return KeywordSearchPresentationText.BuildHistorySuggestions(history, currentText);
     }
 
     /// <summary>
@@ -1501,6 +1439,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             var stopwatch2 = Stopwatch.StartNew();
             RefreshPlayHistoryDisplayTargets();
             PlaylistWorkspace.RefreshPlaylistTreePresentation();
+            UpdateChartKeywordSearchContext();
             stopwatch2.Stop();
             num2 = stopwatch2.ElapsedMilliseconds;
         }
@@ -2675,31 +2614,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
 
-    /// <summary>
-    /// Compatibility forwarder for callers that still address the former root filter property.
-    /// </summary>
-    public ModeFilterType ModeFilter
-    {
-        get => (ModeFilterType)(int)ChartFilters.ModeFilter;
-        set
-        {
-            ChartFilters.ModeFilter = (ChartModeFilter)(int)value;
-            if (value == ModeFilterType.None)
-            {
-                RaisePropertyChanged("ModeFilter");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Compatibility forwarder for callers that still address the former root keyword property.
-    /// </summary>
-    public string KeywordFilter
-    {
-        get => ChartFilters.KeywordFilter;
-        set => ChartFilters.KeywordFilter = value;
-    }
-
     private void ChartFiltersModeFilterChanged(object sender, EventArgs e)
     {
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
@@ -2708,7 +2622,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             return;
         }
 
-        RaisePropertyChanged("ModeFilter");
         if (PlaylistWorkspace.TryRequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters))
         {
             return;
@@ -2719,8 +2632,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private void ChartFiltersKeywordFilterChanged(object sender, EventArgs e)
     {
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
-        RaisePropertyChanged("KeywordFilter");
-        UpdateKeywordSearchPresentation();
         if (PlaylistWorkspace.TryRequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters))
         {
             return;
@@ -2746,94 +2657,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
-    public string KeywordSearchWarningText => _KeywordSearchWarningText;
-
-    public bool HasKeywordSearchWarning => !string.IsNullOrWhiteSpace(_KeywordSearchWarningText);
-
-    public string KeywordSearchHelpText => BuildKeywordSearchHelpText(GetCurrentKeywordSearchContext());
-
-    public bool IsKeywordSearchHelpOpen
-    {
-        get
-        {
-            return _IsKeywordSearchHelpOpen;
-        }
-        set
-        {
-            if (_IsKeywordSearchHelpOpen != value)
-            {
-                _IsKeywordSearchHelpOpen = value;
-                RaisePropertyChanged("IsKeywordSearchHelpOpen");
-            }
-        }
-    }
-
-    /// <summary>
-    /// 通常検索欄に表示する field 補完・履歴候補です。
-    /// </summary>
-    public ObservableCollection<KeywordSearchSuggestionItem> KeywordSearchSuggestions => _KeywordSearchSuggestions;
-
-    /// <summary>
-    /// 通常検索欄の候補 popup が開いているかどうかを取得または設定します。
-    /// </summary>
-    public bool IsKeywordSearchSuggestionPopupOpen
-    {
-        get
-        {
-            return _IsKeywordSearchSuggestionPopupOpen;
-        }
-        set
-        {
-            if (_IsKeywordSearchSuggestionPopupOpen != value)
-            {
-                _IsKeywordSearchSuggestionPopupOpen = value;
-                RaisePropertyChanged("IsKeywordSearchSuggestionPopupOpen");
-            }
-        }
-    }
-
-    /// <summary>
-    /// 通常検索欄の候補 popup 見出しです。
-    /// </summary>
-    public string KeywordSearchSuggestionHeaderText => _KeywordSearchSuggestionHeaderText;
-
-    internal GridKeywordSearchContext CurrentKeywordSearchContext => GetCurrentKeywordSearchContext();
-
-    /// <summary>
-    /// 通常検索欄の補完・履歴候補を更新します。
-    /// </summary>
-    /// <param name="keywordFilter">検索欄の現在値。</param>
-    /// <param name="caretIndex">現在の caret 位置。</param>
-    /// <param name="forceHistory">field 補完が無い時に履歴を表示するか。</param>
-    internal void RefreshKeywordSearchSuggestions(string keywordFilter, int caretIndex, bool forceHistory)
-    {
-        RefreshKeywordSearchSuggestions(
-            _KeywordSearchSuggestions,
-            GetCurrentKeywordSearchContext(),
-            keywordSearchHistory,
-            keywordFilter,
-            caretIndex,
-            forceHistory);
-    }
-
-    /// <summary>
-    /// 通常検索欄の候補 popup を閉じます。
-    /// </summary>
-    internal void CloseKeywordSearchSuggestions()
-    {
-        IsKeywordSearchSuggestionPopupOpen = false;
-    }
-
-    /// <summary>
-    /// 通常検索欄の検索履歴へ現在値を追加します。
-    /// </summary>
-    /// <param name="keywordFilter">保存する検索文字列。</param>
-    internal void CommitKeywordSearchHistory(string keywordFilter)
-    {
-        ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.AddEntry(keywordSearchHistory, keywordFilter));
-        keywordSearchHistorySettingsStore.KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(keywordSearchHistory);
-    }
-
     private void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true)
     {
         PlayHistory.ReplaceDisplayTargetCatalog(
@@ -2852,7 +2675,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         dispatcher.BeginInvoke(refresh, DispatcherPriority.Background);
     }
 
-    private GridKeywordSearchContext GetCurrentKeywordSearchContext()
+    private GridKeywordSearchContext GetCurrentChartKeywordSearchContext()
     {
         if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
         {
@@ -2863,68 +2686,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             : GridKeywordSearchContext.ChartList;
     }
 
-    private void UpdateKeywordSearchPresentation()
+    private void UpdateChartKeywordSearchContext()
     {
-        string warningText = BuildKeywordSearchWarningText(ChartFilters.KeywordFilter, GetCurrentKeywordSearchContext());
-        if (!string.Equals(_KeywordSearchWarningText, warningText, StringComparison.Ordinal))
-        {
-            _KeywordSearchWarningText = warningText;
-            RaisePropertyChanged("KeywordSearchWarningText");
-            RaisePropertyChanged("HasKeywordSearchWarning");
-        }
-        RaisePropertyChanged("KeywordSearchHelpText");
-    }
-
-    private void RefreshKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, GridKeywordSearchContext context, IReadOnlyList<string> history, string keywordFilter, int caretIndex, bool forceHistory)
-    {
-        GridKeywordSearchCompletionResult fieldCompletion = GridKeywordSearchCompletion.CreateFieldCompletion(keywordFilter, caretIndex, context);
-        if (fieldCompletion.Items.Count > 0)
-        {
-            SetKeywordSearchSuggestions(targetSuggestions, fieldCompletion.Items, KeywordSearchSuggestionKind.Field);
-            return;
-        }
-        if (GridKeywordSearchCompletion.IsPlaylistValueCompletionContext(keywordFilter, caretIndex, context))
-        {
-            IReadOnlyList<string> playlistNameCandidates = context == GridKeywordSearchContext.PlaylistSummary
-                ? []
-                : PlaylistWorkspace.GetPlaylistKeywordValueCandidates();
-            GridKeywordSearchCompletionResult playlistValueCompletion = GridKeywordSearchCompletion.CreatePlaylistValueCompletion(
-                keywordFilter,
-                caretIndex,
-                context,
-                playlistNameCandidates);
-            if (playlistValueCompletion.Items.Count > 0)
-            {
-                SetKeywordSearchSuggestions(targetSuggestions, playlistValueCompletion.Items, KeywordSearchSuggestionKind.Value);
-                return;
-            }
-        }
-        if (forceHistory)
-        {
-            IReadOnlyList<KeywordSearchSuggestionItem> historySuggestions = BuildKeywordSearchHistorySuggestions(history, keywordFilter);
-            SetKeywordSearchSuggestions(targetSuggestions, historySuggestions, KeywordSearchSuggestionKind.History);
-            return;
-        }
-        SetKeywordSearchSuggestions(targetSuggestions, [], KeywordSearchSuggestionKind.Field);
-    }
-
-    private void SetKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, IReadOnlyList<KeywordSearchSuggestionItem> suggestions, KeywordSearchSuggestionKind kind)
-    {
-        targetSuggestions.Clear();
-        foreach (KeywordSearchSuggestionItem suggestion in suggestions ?? [])
-        {
-            targetSuggestions.Add(suggestion);
-        }
-        string headerText = targetSuggestions.Count == 0 ? string.Empty : BuildKeywordSearchSuggestionHeaderText(kind);
-        _KeywordSearchSuggestionHeaderText = headerText;
-        RaisePropertyChanged("KeywordSearchSuggestionHeaderText");
-        IsKeywordSearchSuggestionPopupOpen = targetSuggestions.Count > 0;
-    }
-
-    private static void ReplaceKeywordSearchHistory(List<string> target, IEnumerable<string> source)
-    {
-        target.Clear();
-        target.AddRange(source ?? []);
+        GridKeywordSearchContext context = GetCurrentChartKeywordSearchContext();
+        IReadOnlyList<string> playlistNameCandidates = context == GridKeywordSearchContext.PlaylistSummary
+            ? []
+            : PlaylistWorkspace.GetPlaylistKeywordValueCandidates();
+        ChartFilters.UpdateKeywordSearchContext(context, playlistNameCandidates);
     }
 
     public bool IsWriteLockHeldInitializeBMSFiles
@@ -3045,7 +2813,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         completeFirstStartup = composition.CompleteFirstStartup;
         reloadSettings = composition.ReloadSettings;
         saveSettings = composition.SaveSettings;
-        keywordSearchHistorySettingsStore = composition.KeywordSearchHistorySettingsStore;
         playHistoryDisplaySettingsStore = composition.PlayHistoryDisplaySettingsStore;
         MainChartList = composition.CreateMainChartListViewModel(
             DispatchMainChartListPresentationAction,
@@ -3133,6 +2900,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested += PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
         PlaylistWorkspace.PlaylistUrlAcquisitionSummaryReady += PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady;
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
+        PlaylistWorkspace.PlaylistKeywordValueCandidatesChanged += PlaylistWorkspacePlaylistKeywordValueCandidatesChanged;
         PlaylistWorkspace.PlaylistEntriesHydrationRequested += PlaylistWorkspacePlaylistEntriesHydrationRequested;
         PlaylistWorkspace.PlaylistEntriesHydrationCompleted += PlaylistWorkspacePlaylistEntriesHydrationCompleted;
         PlaylistWorkspace.PlaylistExternalSyncQueued += PlaylistWorkspacePlaylistExternalSyncQueued;
@@ -3207,6 +2975,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         ChartFilters = childComposition.ChartFilters;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
+        UpdateChartKeywordSearchContext();
         PlayHistory = childComposition.PlayHistory;
         PackageInstallWorkflow = childComposition.PackageInstallWorkflow;
         PackageInstallWorkflow.StatusChanged += PackageInstallWorkflowStatusChanged;
@@ -3300,7 +3069,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             FormatTextForLog);
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
-        ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.KeywordSearchHistory));
         PlayHistory.RestoreDisplayTargetIdentity(playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = applicationComposition.CreateSettingDialogViewModel(this);
@@ -3398,7 +3166,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
         if (request.KeywordPresentationRefreshRequired)
         {
-            UpdateKeywordSearchPresentation();
+            UpdateChartKeywordSearchContext();
         }
         RefreshChartRowsView(request.RefreshMode);
     }
@@ -3413,7 +3181,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
         if (request.KeywordPresentationRefreshRequired)
         {
-            UpdateKeywordSearchPresentation();
+            UpdateChartKeywordSearchContext();
         }
         if (request.RefreshRequested)
         {
@@ -3431,7 +3199,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
         if (request.KeywordPresentationRefreshRequired)
         {
-            UpdateKeywordSearchPresentation();
+            UpdateChartKeywordSearchContext();
         }
         RefreshChartRowsView(request.Mode, request.Parameter);
     }
@@ -3495,14 +3263,14 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             }
             if (request.SummaryModeChanged)
             {
-                UpdateKeywordSearchPresentation();
+                UpdateChartKeywordSearchContext();
             }
             return;
         }
         PlaylistDetailSelection selection = request.Detail;
         if (request.SummaryModeChanged)
         {
-            UpdateKeywordSearchPresentation();
+            UpdateChartKeywordSearchContext();
         }
         RefreshChartRowsView(
             selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
@@ -3587,7 +3355,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
         if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
         {
-            UpdateKeywordSearchPresentation();
+            UpdateChartKeywordSearchContext();
         }
         PlaylistWorkspace.ClearPlaylistDetailSelection();
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
@@ -3596,7 +3364,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
             treeViewFilterParameterSelected = request;
         }
-        UpdateKeywordSearchPresentation();
+        UpdateChartKeywordSearchContext();
         if (previousOperationSection != CurrentMainViewOperationSection)
         {
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
@@ -4833,7 +4601,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private void PlaylistWorkspacePlaylistTablesPresentationChanged(object sender, EventArgs e)
     {
+        UpdateChartKeywordSearchContext();
         PlayHistory.QueueDisplayTargetCatalogRefresh();
+    }
+
+    private void PlaylistWorkspacePlaylistKeywordValueCandidatesChanged(object sender, EventArgs e)
+    {
+        UpdateChartKeywordSearchContext();
     }
 
     private void PlaylistWorkspacePlaylistEntriesHydrationRequested(
@@ -5081,7 +4855,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                 parameter = NormalizeDuplicateViewParameter(parameter);
             }
             SetTreeViewFilterSelection(mode, parameter);
-            UpdateKeywordSearchPresentation();
+            UpdateChartKeywordSearchContext();
         }
         if (previousOperationSection != CurrentMainViewOperationSection)
         {
