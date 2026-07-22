@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <UserControl x:Class="BeMusicSeeker.Views.SettingDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:qc="http://QuickConverter.CodePlex.com/" xmlns:sys="clr-namespace:System;assembly=mscorlib" xmlns:prop="clr-namespace:BeMusicSeeker.Properties" x:Name="settingDialog">
-  <Grid Name="settingDialogRootGrid" IsEnabled="{Binding settingDialog.IsEditCompletionEnabled}">
+  <Grid Name="settingDialogRootGrid" IsEnabled="{Binding IsEditCompletionEnabled}">
     <Grid Name="settingDialogOperationGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
     <FrameworkElement.Resources>
       <ResourceDictionary>
@@ -143,18 +143,18 @@
       <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
           <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Name="buttonOK" Content="OK" MinWidth="64" Margin="0,0,8,0" Click="buttonOKClick" />
-            <Button Name="buttonCancel" Content="Cancel" MinWidth="64" IsEnabled="{Binding settingDialog.IsEditCancellationEnabled}" Command="{Binding settingDialog.CancelCommand}" />
+            <Button Name="buttonCancel" Content="Cancel" MinWidth="64" IsEnabled="{Binding IsEditCancellationEnabled}" Command="{Binding CancelCommand}" />
           </StackPanel>
           <TabControl DockPanel.Dock="Top">
             <TabItem Name="tabItemGeneral" FontFamily="Meiryo UI" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.General, Mode=OneWay}">
               <StackPanel>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}">
-                  <ComboBox Height="24" IsReadOnly="True" Width="150" MaxDropDownHeight="260" VerticalContentAlignment="Center" HorizontalAlignment="Center" ItemsSource="{Binding settingDialog.Languages, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.Language}" />
+                  <ComboBox Height="24" IsReadOnly="True" Width="150" MaxDropDownHeight="260" VerticalContentAlignment="Center" HorizontalAlignment="Center" ItemsSource="{Binding Languages, Mode=OneWay}" SelectedItem="{Binding Path=Language}" />
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode, Mode=OneWay}">
                   <StackPanel>
-                    <RadioButton Name="radioButtonNotUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Not_use_LR2DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB, Converter={qc:QuickConverter '!$P', ConvertBack='!$value'}}" />
-                    <RadioButton Name="radioButtonUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_LR2_DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB}" />
+                    <RadioButton Name="radioButtonNotUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Not_use_LR2DB, Mode=OneWay}" IsChecked="{Binding OperationModeLR2DB, Converter={qc:QuickConverter '!$P', ConvertBack='!$value'}}" />
+                    <RadioButton Name="radioButtonUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_LR2_DB, Mode=OneWay}" IsChecked="{Binding OperationModeLR2DB}" />
                     <Grid Margin="20,2,10,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
                       <Grid.RowDefinitions>
                         <RowDefinition Height="20" />
@@ -164,13 +164,13 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                       </Grid.ColumnDefinitions>
-                      <TextBlock Grid.Row="0" Grid.Column="1" Width="270" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding settingDialog.Lr2PlayHistorySchemaDetailText, Mode=OneWay}">
+                      <TextBlock Grid.Row="0" Grid.Column="1" Width="270" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Lr2PlayHistorySchemaDetailText, Mode=OneWay}">
                         <TextBlock.Style>
                           <Style TargetType="{x:Type TextBlock}">
                             <Setter Property="FontWeight" Value="Normal" />
                             <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
                             <Style.Triggers>
-                              <DataTrigger Binding="{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Value="True">
+                              <DataTrigger Binding="{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Value="True">
                                 <Setter Property="FontWeight" Value="SemiBold" />
                                 <Setter Property="Foreground" Value="{DynamicResource App.WarningTextBrush}" />
                               </DataTrigger>
@@ -179,12 +179,12 @@
                         </TextBlock.Style>
                         <Run Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_label, Mode=OneWay}" />
                         <Run Text=": " />
-                        <Run Text="{Binding settingDialog.Lr2PlayHistorySchemaStatusText, Mode=OneWay}" />
+                        <Run Text="{Binding Lr2PlayHistorySchemaStatusText, Mode=OneWay}" />
                       </TextBlock>
-                      <Button Grid.Row="1" Grid.Column="0" Width="190" Height="24" HorizontalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
-                      <Button Grid.Row="1" Grid.Column="1" Width="130" Height="24" HorizontalAlignment="Center" Content="{Binding settingDialog.Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
+                      <Button Grid.Row="1" Grid.Column="0" Width="190" Height="24" HorizontalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" IsEnabled="{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
+                      <Button Grid.Row="1" Grid.Column="1" Width="130" Height="24" HorizontalAlignment="Center" Content="{Binding Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
                     </Grid>
-                    <Grid Margin="10,0,0,4" IsEnabled="{Binding settingDialog.IsBmsSearchRootEditorEnabled}">
+                    <Grid Margin="10,0,0,4" IsEnabled="{Binding IsBmsSearchRootEditorEnabled}">
                       <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -194,8 +194,8 @@
                         <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Standalone_BMSDirectories, Mode=OneWay}" />
                       </DockPanel>
                       <DockPanel Grid.Row="1" LastChildFill="True">
-                        <Button Width="75" DockPanel.Dock="Right" Height="24" Margin="4,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_BMSDirectory, Mode=OneWay}" Command="{Binding settingDialog.RemoveDirCommand}" CommandParameter="{Binding settingDialog.SelectedBmsSearchRootPath}" />
-                        <ListBox Height="58" AllowDrop="True" Drop="bmsSearchRootPathListBoxDrop" PreviewDragEnter="bmsSearchRootPathListBoxDragOver" PreviewDragOver="bmsSearchRootPathListBoxDragOver" ItemsSource="{Binding settingDialog.AvailableBMSDirectories}" SelectedItem="{Binding settingDialog.SelectedBmsSearchRootPath, Mode=TwoWay}" />
+                        <Button Width="75" DockPanel.Dock="Right" Height="24" Margin="4,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_BMSDirectory, Mode=OneWay}" Command="{Binding RemoveDirCommand}" CommandParameter="{Binding SelectedBmsSearchRootPath}" />
+                        <ListBox Height="58" AllowDrop="True" Drop="bmsSearchRootPathListBoxDrop" PreviewDragEnter="bmsSearchRootPathListBoxDragOver" PreviewDragOver="bmsSearchRootPathListBoxDragOver" ItemsSource="{Binding AvailableBMSDirectories}" SelectedItem="{Binding SelectedBmsSearchRootPath, Mode=TwoWay}" />
                       </DockPanel>
                     </Grid>
                     <DockPanel LastChildFill="False">
@@ -208,7 +208,7 @@
                         </UIElement.IsEnabled>
                       </Button>
                       <TextBox Name="textBox" Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" Width="225">
-                        <Binding x:Name="bindingLR2RootPath" Path="settingDialog.LR2RootPath" />
+                        <Binding x:Name="bindingLR2RootPath" Path="LR2RootPath" />
                         <UIElement.IsEnabled>
                           <MultiBinding Converter="{StaticResource expanderDetailedLR2PathConverter}">
                             <Binding Path="IsChecked" ElementName="radioButtonUseLR2" />
@@ -221,23 +221,23 @@
                     <Expander Name="expanderDetailedLR2Path" Margin="10,0,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details, Mode=OneWay}">
                       <Expander.IsExpanded>
                         <MultiBinding Mode="OneTime" Converter="{StaticResource lr2DetailedPathAutoExpandConverter}">
-                          <Binding Path="settingDialog.LR2RootPath" />
-                          <Binding Path="settingDialog.LR2SongDBPath" />
-                          <Binding Path="settingDialog.LR2ConfigXmlPath" />
+                          <Binding Path="LR2RootPath" />
+                          <Binding Path="LR2SongDBPath" />
+                          <Binding Path="LR2ConfigXmlPath" />
                         </MultiBinding>
                       </Expander.IsExpanded>
                       <StackPanel>
                         <DockPanel LastChildFill="False">
                           <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}" Click="browseLr2SongDbPathButtonClick" />
                           <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
-                            <Binding x:Name="bindingLR2SongDBPath" Path="settingDialog.LR2SongDBPath" />
+                            <Binding x:Name="bindingLR2SongDBPath" Path="LR2SongDBPath" />
                           </TextBox>
                           <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_songDB, Mode=OneWay}" />
                         </DockPanel>
                         <DockPanel LastChildFill="False">
                           <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}" Click="browseLr2ConfigPathButtonClick" />
                           <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
-                            <Binding x:Name="bindingLR2ConfigPath" Path="settingDialog.LR2ConfigXmlPath" />
+                            <Binding x:Name="bindingLR2ConfigPath" Path="LR2ConfigXmlPath" />
                           </TextBox>
                           <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_configXml, Mode=OneWay}" />
                         </DockPanel>
@@ -250,23 +250,23 @@
                     <DockPanel LastChildFill="False">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" Click="browseBeatorajaRootPathButtonClick" />
                       <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
-                        <Binding x:Name="bindingBeatorajaRootPath" Path="settingDialog.BeatorajaRootPath" />
+                        <Binding x:Name="bindingBeatorajaRootPath" Path="BeatorajaRootPath" />
                       </TextBox>
                       <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_beatoraja_root, Mode=OneWay}" />
                     </DockPanel>
                     <Button Height="24" Margin="0,2,0,4" Padding="12,0" HorizontalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Import_beatoraja_table_urls_button, Mode=OneWay}" Click="importBeatorajaTableUrlsButtonClick" />
-                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_scoreDB, Mode=OneWay}" IsChecked="{Binding settingDialog.UseBeatorajaScoreDb}" />
+                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_scoreDB, Mode=OneWay}" IsChecked="{Binding UseBeatorajaScoreDb}" />
                     <DockPanel LastChildFill="False">
-                      <ComboBox Width="160" Height="24" DockPanel.Dock="Right" IsEnabled="{Binding settingDialog.UseBeatorajaScoreDb}" ItemsSource="{Binding settingDialog.AvailableBeatorajaPlayers}" SelectedItem="{Binding settingDialog.BeatorajaPlayerId}" />
+                      <ComboBox Width="160" Height="24" DockPanel.Dock="Right" IsEnabled="{Binding UseBeatorajaScoreDb}" ItemsSource="{Binding AvailableBeatorajaPlayers}" SelectedItem="{Binding BeatorajaPlayerId}" />
                       <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Beatoraja_player, Mode=OneWay}" />
                     </DockPanel>
-                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_bmt_output, Mode=OneWay}" IsChecked="{Binding settingDialog.EnableBeatorajaBmtOutput}" />
-                    <DockPanel LastChildFill="False" Margin="16,0,0,0" IsEnabled="{Binding settingDialog.EnableBeatorajaBmtOutput}">
-                      <ComboBox Width="180" Height="24" DockPanel.Dock="Right" ItemsSource="{Binding settingDialog.BeatorajaBmtHashOutputModeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key" SelectedValue="{Binding settingDialog.BeatorajaBmtHashOutputMode, Mode=TwoWay}" />
+                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_bmt_output, Mode=OneWay}" IsChecked="{Binding EnableBeatorajaBmtOutput}" />
+                    <DockPanel LastChildFill="False" Margin="16,0,0,0" IsEnabled="{Binding EnableBeatorajaBmtOutput}">
+                      <ComboBox Width="180" Height="24" DockPanel.Dock="Right" ItemsSource="{Binding BeatorajaBmtHashOutputModeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key" SelectedValue="{Binding BeatorajaBmtHashOutputMode, Mode=TwoWay}" />
                       <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Beatoraja_bmt_hash_output_mode, Mode=OneWay}" />
                     </DockPanel>
-                    <CheckBox Height="20" Margin="16,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keep_beatoraja_bmt_files_when_output_disabled, Mode=OneWay}" IsChecked="{Binding settingDialog.KeepBeatorajaBmtFilesWhenOutputDisabled}" />
-                    <CheckBox Height="20" Margin="16,0,0,0" IsEnabled="{Binding settingDialog.EnableBeatorajaBmtOutput}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Register_beatoraja_bmt_urls, Mode=OneWay}" IsChecked="{Binding settingDialog.RegisterBeatorajaBmtUrls}" />
+                    <CheckBox Height="20" Margin="16,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keep_beatoraja_bmt_files_when_output_disabled, Mode=OneWay}" IsChecked="{Binding KeepBeatorajaBmtFilesWhenOutputDisabled}" />
+                    <CheckBox Height="20" Margin="16,0,0,0" IsEnabled="{Binding EnableBeatorajaBmtOutput}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Register_beatoraja_bmt_urls, Mode=OneWay}" IsChecked="{Binding RegisterBeatorajaBmtUrls}" />
                   </StackPanel>
                 </GroupBox>
               </StackPanel>
@@ -276,34 +276,34 @@
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}">
                   <StackPanel>
                     <DockPanel LastChildFill="False" Margin="0,0,0,4">
-                      <ComboBox Name="comboBoxAppearanceTheme" Width="120" Height="24" DockPanel.Dock="Right" ItemsSource="{Binding settingDialog.AppearanceThemeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key" SelectedValue="{Binding settingDialog.AppearanceTheme, Mode=TwoWay}" />
+                      <ComboBox Name="comboBoxAppearanceTheme" Width="120" Height="24" DockPanel.Dock="Right" ItemsSource="{Binding AppearanceThemeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key" SelectedValue="{Binding AppearanceTheme, Mode=TwoWay}" />
                       <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}" />
                     </DockPanel>
                     <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table, Mode=OneWay}" Margin="0,2,0,6">
                       <StackPanel>
                         <DockPanel LastChildFill="False" Margin="0,0,0,3">
-                          <TextBox Width="48" Height="24" DockPanel.Dock="Right" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Text="{Binding settingDialog.CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:F0}}" />
-                          <Slider Width="160" Height="24" DockPanel.Dock="Right" Minimum="8" Maximum="18" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding settingDialog.CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                          <TextBox Width="48" Height="24" DockPanel.Dock="Right" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Text="{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:F0}}" />
+                          <Slider Width="160" Height="24" DockPanel.Dock="Right" Minimum="8" Maximum="18" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                           <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_font_size, Mode=OneWay}" />
                         </DockPanel>
                         <DockPanel LastChildFill="False" Margin="0,0,0,3">
-                          <TextBox Width="48" Height="24" DockPanel.Dock="Right" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Text="{Binding settingDialog.CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:F0}}" />
-                          <Slider Width="160" Height="24" DockPanel.Dock="Right" Minimum="16" Maximum="40" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding settingDialog.CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                          <TextBox Width="48" Height="24" DockPanel.Dock="Right" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Text="{Binding CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:F0}}" />
+                          <Slider Width="160" Height="24" DockPanel.Dock="Right" Minimum="16" Maximum="40" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                           <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_row_height, Mode=OneWay}" />
                         </DockPanel>
                         <DockPanel LastChildFill="False" Margin="0,0,0,4">
-                          <TextBox Width="48" Height="24" DockPanel.Dock="Right" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Text="{Binding settingDialog.CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:F0}}" />
-                          <Slider Width="160" Height="24" DockPanel.Dock="Right" Minimum="18" Maximum="48" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding settingDialog.CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                          <TextBox Width="48" Height="24" DockPanel.Dock="Right" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Text="{Binding CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:F0}}" />
+                          <Slider Width="160" Height="24" DockPanel.Dock="Right" Minimum="18" Maximum="48" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                           <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_header_height, Mode=OneWay}" />
                         </DockPanel>
                         <Button Height="24" Padding="12,0" HorizontalAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_reset_defaults, Mode=OneWay}" Click="resetCustomTableAppearanceDefaultsButtonClick" />
                       </StackPanel>
                     </GroupBox>
-                    <CheckBox Name="checkBoxUseExternalPanelImage" IsChecked="{Binding settingDialog.UseExternalPanelImage}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}" />
+                    <CheckBox Name="checkBoxUseExternalPanelImage" IsChecked="{Binding UseExternalPanelImage}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}" />
                     <DockPanel LastChildFill="False" IsEnabled="{Binding IsChecked, ElementName=checkBoxUseExternalPanelImage}">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" Click="browseStagefilePathButtonClick" />
                       <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
-                        <Binding x:Name="bindingStagefilePath" Path="settingDialog.StagefilePath" />
+                        <Binding x:Name="bindingStagefilePath" Path="StagefilePath" />
                       </TextBox>
                       <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_StageFile, Mode=OneWay}" />
                     </DockPanel>
@@ -317,7 +317,7 @@
                   <StackPanel>
                     <Label Height="28" DockPanel.Dock="Top" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Use, Mode=OneWay}" />
                     <DockPanel LastChildFill="False">
-                      <RadioButton Name="radioButtonInternalPlayer" Height="20" GroupName="Player" Margin="30,0,0,0" IsChecked="{Binding settingDialog.UseInternalPlayer}" DockPanel.Dock="Top" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Name_Internal, Mode=OneWay}" />
+                      <RadioButton Name="radioButtonInternalPlayer" Height="20" GroupName="Player" Margin="30,0,0,0" IsChecked="{Binding UseInternalPlayer}" DockPanel.Dock="Top" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Name_Internal, Mode=OneWay}" />
                       <DockPanel Dock="Bottom">
                         <StackPanel DockPanel.Dock="Bottom">
                           <TextBlock Margin="0,0,5,5" HorizontalAlignment="Right" Width="294" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Internal_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsChecked, ElementName=radioButtonInternalPlayer}" />
@@ -325,46 +325,46 @@
                       </DockPanel>
                     </DockPanel>
                     <DockPanel LastChildFill="False">
-                      <RadioButton Name="radioButtonPlayuBMplay" Content="uBMplay: " Height="20" GroupName="Player" Margin="30,2,0,0" VerticalAlignment="Top" IsChecked="{Binding settingDialog.UsePlayeruBMplay}" />
+                      <RadioButton Name="radioButtonPlayuBMplay" Content="uBMplay: " Height="20" GroupName="Player" Margin="30,2,0,0" VerticalAlignment="Top" IsChecked="{Binding UsePlayeruBMplay}" />
                       <DockPanel Dock="Right">
                         <StackPanel DockPanel.Dock="Bottom">
                           <TextBlock Margin="5" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_uBMplay_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsChecked, ElementName=radioButtonPlayuBMplay}" />
                         </StackPanel>
                         <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayuBMplay}" Click="browseUbmplayPathButtonClick" />
                         <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayuBMplay}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
-                          <Binding x:Name="bindinguBMplayPath" Path="settingDialog.uBMplayPath" />
+                          <Binding x:Name="bindinguBMplayPath" Path="uBMplayPath" />
                         </TextBox>
                       </DockPanel>
                     </DockPanel>
                     <DockPanel LastChildFill="False">
-                      <RadioButton Name="radioButtonPlayBMIIDXView" Content="BMIIDXView2015: " Height="20" GroupName="Player" Margin="30,2,0,0" VerticalAlignment="Top" IsChecked="{Binding settingDialog.UsePlayerBMIIDXView}" />
+                      <RadioButton Name="radioButtonPlayBMIIDXView" Content="BMIIDXView2015: " Height="20" GroupName="Player" Margin="30,2,0,0" VerticalAlignment="Top" IsChecked="{Binding UsePlayerBMIIDXView}" />
                       <DockPanel Dock="Right">
                         <StackPanel DockPanel.Dock="Bottom">
                           <TextBlock Margin="5" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_BMIIDXView_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsChecked, ElementName=radioButtonPlayBMIIDXView}" />
                         </StackPanel>
                         <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayBMIIDXView}" Click="browseBmIdxViewPathButtonClick" />
                         <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayBMIIDXView}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
-                          <Binding x:Name="bindingBMIIDXViewPath" Path="settingDialog.BMIIDXViewPath" />
+                          <Binding x:Name="bindingBMIIDXViewPath" Path="BMIIDXViewPath" />
                         </TextBox>
                       </DockPanel>
                     </DockPanel>
                     <DockPanel LastChildFill="False">
-                      <RadioButton Name="radioButtonPlayLR2body" Content="LR2: " Height="20" GroupName="Player" Margin="30,2,0,0" VerticalAlignment="Top" IsChecked="{Binding settingDialog.UsePlayerLR2body}" />
+                      <RadioButton Name="radioButtonPlayLR2body" Content="LR2: " Height="20" GroupName="Player" Margin="30,2,0,0" VerticalAlignment="Top" IsChecked="{Binding UsePlayerLR2body}" />
                       <DockPanel Dock="Right">
                         <DockPanel Dock="Bottom">
-                          <CheckBox DockPanel.Dock="Bottom" Height="18" HorizontalAlignment="Left" Margin="5,5,5,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_LR2_savewpos, Mode=OneWay}" IsChecked="{Binding settingDialog.IsSaveLR2bodyWindowPosition}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" />
-                          <ComboBox DockPanel.Dock="Right" DisplayMemberPath="Key" SelectedValuePath="Value" SelectedIndex="0" Width="130" Height="25" HorizontalContentAlignment="Right" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" ItemsSource="{Binding settingDialog.LR2bodyResolutions, Mode=OneWay}" SelectedValue="{Binding settingDialog.LR2bodyResolution}" />
+                          <CheckBox DockPanel.Dock="Bottom" Height="18" HorizontalAlignment="Left" Margin="5,5,5,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_LR2_savewpos, Mode=OneWay}" IsChecked="{Binding IsSaveLR2bodyWindowPosition}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" />
+                          <ComboBox DockPanel.Dock="Right" DisplayMemberPath="Key" SelectedValuePath="Value" SelectedIndex="0" Width="130" Height="25" HorizontalContentAlignment="Right" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" ItemsSource="{Binding LR2bodyResolutions, Mode=OneWay}" SelectedValue="{Binding LR2bodyResolution}" />
                           <TextBlock Margin="5,5,5,0" DockPanel.Dock="Left" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_LR2_wsize, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" />
                         </DockPanel>
                         <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" Click="browseLr2RootPathButtonClick" />
-                        <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" Text="{Binding settingDialog.LR2bodyPath, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}" />
+                        <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" Text="{Binding LR2bodyPath, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>
                   </StackPanel>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Movie_playback, Mode=OneWay}">
                   <StackPanel>
-                    <CheckBox Margin="5" IsChecked="{Binding settingDialog.UseExternalWebBrowser}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Movie_playback_exbrowser, Mode=OneWay}" />
+                    <CheckBox Margin="5" IsChecked="{Binding UseExternalWebBrowser}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Movie_playback_exbrowser, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
               </StackPanel>
@@ -375,29 +375,29 @@
                   <StackPanel>
                     <DockPanel Margin="0,5" Height="35">
                       <DockPanel Width="229">
-                        <ComboBox Name="comboBoxPlayerDriver" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.PlayerDriverNames, Mode=OneWay}" SelectedIndex="{Binding settingDialog.PlayerDriverIndex, Mode=TwoWay}" />
+                        <ComboBox Name="comboBoxPlayerDriver" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerDriverNames, Mode=OneWay}" SelectedIndex="{Binding PlayerDriverIndex, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_driver, Mode=OneWay}" />
                       </DockPanel>
                       <DockPanel Width="229">
-                        <ComboBox SelectedValuePath="Driver" DisplayMemberPath="FriendlyName" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.PlayerDeviceNames, Mode=OneWay}" SelectedValue="{Binding settingDialog.PlayerDevice, Mode=TwoWay}" />
+                        <ComboBox SelectedValuePath="Driver" DisplayMemberPath="FriendlyName" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerDeviceNames, Mode=OneWay}" SelectedValue="{Binding PlayerDevice, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_device, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>
                     <DockPanel Height="35">
                       <DockPanel Width="229" IsEnabled="{qc:Binding '$P != 0 &amp;&amp; $P != 1', P={Binding SelectedIndex, ElementName=comboBoxPlayerDriver}}">
-                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.PlayerSampleRateNames, Mode=OneWay}" SelectedValue="{Binding settingDialog.PlayerSampleRate, Mode=TwoWay}" />
+                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerSampleRateNames, Mode=OneWay}" SelectedValue="{Binding PlayerSampleRate, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_samplerate, Mode=OneWay}" />
                       </DockPanel>
                       <DockPanel Width="229" IsEnabled="{qc:Binding '$P != 0 &amp;&amp; $P != 1', P={Binding SelectedIndex, ElementName=comboBoxPlayerDriver}}">
-                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.PlayerFormatNames, Mode=OneWay}" SelectedValue="{Binding settingDialog.PlayerFormat, Mode=TwoWay}" />
+                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerFormatNames, Mode=OneWay}" SelectedValue="{Binding PlayerFormat, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_format, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>
                     <DockPanel Margin="0,5">
                       <StackPanel>
-                        <CheckBox Name="checkBoxWasapiLowLatency" Margin="0,0,0,10" HorizontalAlignment="Right" IsEnabled="{qc:Binding '$P == 1 || $P == 2', P={Binding SelectedIndex, ElementName=comboBoxPlayerDriver}}" IsChecked="{Binding settingDialog.PlayerWASAPIParam, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency, Mode=OneWay}" />
+                        <CheckBox Name="checkBoxWasapiLowLatency" Margin="0,0,0,10" HorizontalAlignment="Right" IsEnabled="{qc:Binding '$P == 1 || $P == 2', P={Binding SelectedIndex, ElementName=comboBoxPlayerDriver}}" IsChecked="{Binding PlayerWASAPIParam, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency, Mode=OneWay}" />
                         <DockPanel Width="315" Margin="0,0,0,5" IsEnabled="{qc:MultiBinding '$P1 == 1 &amp;&amp; $P2 ? False : True', P1={Binding SelectedIndex, ElementName=comboBoxPlayerDriver}, P2={Binding IsChecked, ElementName=checkBoxWasapiLowLatency}}">
-                          <TextBlock DockPanel.Dock="Right" Width="35" TextAlignment="Center" VerticalAlignment="Center" Text="{Binding settingDialog.PlayerBufferSize, Mode=OneWay}">
+                          <TextBlock DockPanel.Dock="Right" Width="35" TextAlignment="Center" VerticalAlignment="Center" Text="{Binding PlayerBufferSize, Mode=OneWay}">
                             <FrameworkElement.Style>
                               <Style TargetType="{x:Type TextBlock}">
                                 <Style.Triggers>
@@ -409,7 +409,7 @@
                             </FrameworkElement.Style>
                           </TextBlock>
                           <Label DockPanel.Dock="Left" Width="80" HorizontalAlignment="Right" VerticalAlignment="Center" HorizontalContentAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_buffersize, Mode=OneWay}" />
-                          <Slider Maximum="100" LargeChange="2" DockPanel.Dock="Right" IsSnapToTickEnabled="True" SmallChange="1" VerticalAlignment="Center" Value="{Binding settingDialog.PlayerBufferSize, Mode=TwoWay}" />
+                          <Slider Maximum="100" LargeChange="2" DockPanel.Dock="Right" IsSnapToTickEnabled="True" SmallChange="1" VerticalAlignment="Center" Value="{Binding PlayerBufferSize, Mode=TwoWay}" />
                         </DockPanel>
                         <DockPanel Width="315">
                           <TextBlock DockPanel.Dock="Right" Width="35" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlaybackPanel.PlayerVolume, Mode=OneWay, StringFormat={}{0}%}" />
@@ -418,10 +418,10 @@
                         </DockPanel>
                       </StackPanel>
                       <GroupBox Margin="20,0" DockPanel.Dock="Right" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_latency, Mode=OneWay}">
-                        <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding settingDialog.PlayerLatency, Mode=OneWay, StringFormat={}{0:N1}ms?}" />
+                        <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding PlayerLatency, Mode=OneWay, StringFormat={}{0:N1}ms?}" />
                       </GroupBox>
                     </DockPanel>
-                    <Button Margin="10" Width="200" HorizontalAlignment="Center" VerticalContentAlignment="Center" IsEnabled="{Binding settingDialog.IsAudioDeviceTestAvailable, Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_test, Mode=OneWay}" Click="buttonPlayerTestClick" />
+                    <Button Margin="10" Width="200" HorizontalAlignment="Center" VerticalContentAlignment="Center" IsEnabled="{Binding IsAudioDeviceTestAvailable, Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_test, Mode=OneWay}" Click="buttonPlayerTestClick" />
                     <Label DockPanel.Dock="Bottom" Padding="5,2,5,5" HorizontalContentAlignment="Left" HorizontalAlignment="Left" Margin="20,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc1, Mode=OneWay}" />
                     <Label DockPanel.Dock="Bottom" Padding="5,2,5,5" HorizontalContentAlignment="Left" HorizontalAlignment="Left" Margin="20,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc2, Mode=OneWay}" />
                   </StackPanel>
@@ -434,11 +434,11 @@
                   <StackPanel>
                     <DockPanel Margin="0,5">
                       <DockPanel Width="229">
-                        <ComboBox Name="comboBoxEncoder" IsSynchronizedWithCurrentItem="True" Height="24" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" IsReadOnly="True" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.EncoderNames, Mode=OneWay}" SelectedIndex="{Binding settingDialog.EncoderIndex, Mode=TwoWay}" SelectionChanged="comboBoxEncoderSelectionChanged" />
+                        <ComboBox Name="comboBoxEncoder" IsSynchronizedWithCurrentItem="True" Height="24" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" IsReadOnly="True" VerticalContentAlignment="Center" ItemsSource="{Binding EncoderNames, Mode=OneWay}" SelectedIndex="{Binding EncoderIndex, Mode=TwoWay}" SelectionChanged="comboBoxEncoderSelectionChanged" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_filetype, Mode=OneWay}" />
                       </DockPanel>
                       <DockPanel Dock="Right" Width="229" Margin="0,5" IsEnabled="{qc:Binding '($P != 0 &amp;&amp; $P != 4) ? True : False', P={Binding SelectedIndex, ElementName=comboBoxEncoder, Mode=OneWay}}">
-                        <TextBlock DockPanel.Dock="Right" Width="30" VerticalAlignment="Center" FlowDirection="RightToLeft" Text="{Binding settingDialog.EncoderQuality, Mode=OneWay, StringFormat={}{0:N1}}">
+                        <TextBlock DockPanel.Dock="Right" Width="30" VerticalAlignment="Center" FlowDirection="RightToLeft" Text="{Binding EncoderQuality, Mode=OneWay, StringFormat={}{0:N1}}">
                           <FrameworkElement.Style>
                             <Style TargetType="{x:Type TextBlock}">
                               <Style.Triggers>
@@ -449,28 +449,28 @@
                             </Style>
                           </FrameworkElement.Style>
                         </TextBlock>
-                        <Slider Maximum="1" LargeChange="0.2" TickFrequency="0.1" TickPlacement="TopLeft" Width="126" DockPanel.Dock="Right" IsSnapToTickEnabled="True" Value="{Binding settingDialog.EncoderQuality, Mode=TwoWay}" />
+                        <Slider Maximum="1" LargeChange="0.2" TickFrequency="0.1" TickPlacement="TopLeft" Width="126" DockPanel.Dock="Right" IsSnapToTickEnabled="True" Value="{Binding EncoderQuality, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_quality, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>
                     <DockPanel>
                       <DockPanel Width="229">
-                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.PlayerSampleRateNames, Mode=OneWay}" SelectedValue="{Binding settingDialog.EncoderSampleRate, Mode=TwoWay}" />
+                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerSampleRateNames, Mode=OneWay}" SelectedValue="{Binding EncoderSampleRate, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_samplerate, Mode=OneWay}" />
                       </DockPanel>
                       <DockPanel Width="229">
-                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.PlayerFormatNames, Mode=OneWay}" SelectedValue="{Binding settingDialog.EncoderFormat, Mode=TwoWay}" />
+                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerFormatNames, Mode=OneWay}" SelectedValue="{Binding EncoderFormat, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" Margin="0,0,7,0" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_format, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>
                     <DockPanel Margin="0,5">
                       <DockPanel Width="229">
-                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.EncoderNormalizationNames, Mode=OneWay}" SelectedValue="{Binding settingDialog.EncoderNormalization, Mode=TwoWay}" />
+                        <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding EncoderNormalizationNames, Mode=OneWay}" SelectedValue="{Binding EncoderNormalization, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_normalize, Mode=OneWay}" />
                       </DockPanel>
                       <DockPanel Dock="Right" Width="229" Margin="0,5">
-                        <TextBlock DockPanel.Dock="Right" Width="30" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="RightToLeft" Text="{Binding settingDialog.EncoderAmplifier, Mode=OneWay, StringFormat=x{0:N1}}" />
-                        <Slider Maximum="1.5" LargeChange="0.2" TickFrequency="0.1" TickPlacement="TopLeft" Width="126" DockPanel.Dock="Right" Minimum="0.5" IsSnapToTickEnabled="True" Value="{Binding settingDialog.EncoderAmplifier, Mode=TwoWay}" />
+                        <TextBlock DockPanel.Dock="Right" Width="30" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="RightToLeft" Text="{Binding EncoderAmplifier, Mode=OneWay, StringFormat=x{0:N1}}" />
+                        <Slider Maximum="1.5" LargeChange="0.2" TickFrequency="0.1" TickPlacement="TopLeft" Width="126" DockPanel.Dock="Right" Minimum="0.5" IsSnapToTickEnabled="True" Value="{Binding EncoderAmplifier, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_gain, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>
@@ -485,7 +485,7 @@
                           <Label Content="%HASH% : MD5" />
                         </UniformGrid>
                       </GroupBox>
-                      <TextBox Height="24" DockPanel.Dock="Right" Width="320" VerticalContentAlignment="Center" Text="{Binding settingDialog.EncodeFileNameFormat}" />
+                      <TextBox Height="24" DockPanel.Dock="Right" Width="320" VerticalContentAlignment="Center" Text="{Binding EncodeFileNameFormat}" />
                       <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Left" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_filename, Mode=OneWay}" />
                     </DockPanel>
                   </StackPanel>
@@ -494,7 +494,7 @@
                   <DockPanel ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_encoder_tooltip, Mode=OneWay}">
                     <Label DockPanel.Dock="Bottom" Padding="5,2,5,5" HorizontalContentAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_encoder_desc, Mode=OneWay}" />
                     <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" Click="browseEncoderExeDirButtonClick" />
-                    <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" Width="245" VerticalContentAlignment="Center" Text="{Binding settingDialog.EncoderExeDir, Mode=OneWay}" />
+                    <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" Width="245" VerticalContentAlignment="Center" Text="{Binding EncoderExeDir, Mode=OneWay}" />
                     <Label Height="28" DockPanel.Dock="Left" HorizontalContentAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_encoder_dir, Mode=OneWay}" />
                   </DockPanel>
                 </GroupBox>
@@ -502,17 +502,17 @@
             </TabItem>
             <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}">
               <StackPanel>
-                <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.CustomFolder, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}">
+                <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.CustomFolder, Mode=OneWay}" IsEnabled="{Binding OperationModeLR2DB}">
                   <StackPanel>
                     <DockPanel>
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" Click="browseLr2CustomFolderOutputDirButtonClick" />
-                      <TextBox Name="customFolderOutputTextBox" Height="24" IsReadOnly="True" HorizontalAlignment="Right" Width="245" DockPanel.Dock="Right" VerticalContentAlignment="Center" Margin="0" Padding="3,0,0,0" Text="{Binding settingDialog.LR2CustomFolderOutputDir}" />
+                      <TextBox Name="customFolderOutputTextBox" Height="24" IsReadOnly="True" HorizontalAlignment="Right" Width="245" DockPanel.Dock="Right" VerticalContentAlignment="Center" Margin="0" Padding="3,0,0,0" Text="{Binding LR2CustomFolderOutputDir}" />
                       <Label Height="28" DockPanel.Dock="Right" HorizontalAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output, Mode=OneWay}" />
                     </DockPanel>
                     <DockPanel LastChildFill="False">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" Click="browseLr2CustomFolderAsRootOutputDirButtonClick" />
                       <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" Margin="0" Padding="3,0,0,0" Width="{Binding ActualWidth, ElementName=customFolderOutputTextBox, Mode=OneWay}">
-                        <Binding x:Name="bindingLR2CustomFolderAsRootOutputDir" Path="settingDialog.LR2CustomFolderAsRootOutputDir" />
+                        <Binding x:Name="bindingLR2CustomFolderAsRootOutputDir" Path="LR2CustomFolderAsRootOutputDir" />
                       </TextBox>
                       <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_root, Mode=OneWay}" />
                     </DockPanel>
@@ -524,29 +524,29 @@
                         </StackPanel>
                         <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
                           <Button DockPanel.Dock="Right" Width="75" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_folder, Mode=OneWay}" Click="buttonRenameCustomFolderAdditionalOutputBaseClicked" />
-                          <TextBox DockPanel.Dock="Right" Width="210" Height="24" VerticalContentAlignment="Center" Text="{Binding settingDialog.SelectedCustomFolderAdditionalOutputBaseName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                          <TextBox DockPanel.Dock="Right" Width="210" Height="24" VerticalContentAlignment="Center" Text="{Binding SelectedCustomFolderAdditionalOutputBaseName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                           <Label DockPanel.Dock="Left" Height="28" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_additional_name, Mode=OneWay}" />
                         </DockPanel>
-                        <ListBox Height="72" ItemsSource="{Binding settingDialog.CustomFolderAdditionalOutputBaseDirList}" SelectedItem="{Binding settingDialog.SelectedCustomFolderAdditionalOutputBaseDir, Mode=TwoWay}" />
+                        <ListBox Height="72" ItemsSource="{Binding CustomFolderAdditionalOutputBaseDirList}" SelectedItem="{Binding SelectedCustomFolderAdditionalOutputBaseDir, Mode=TwoWay}" />
                       </DockPanel>
                     </GroupBox>
                     <GroupBox Margin="0,6,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_default_folder_types, Mode=OneWay}">
                       <DockPanel>
                         <TextBlock DockPanel.Dock="Bottom" TextWrapping="Wrap" Margin="4,4,4,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_default_folder_types_desc, Mode=OneWay}" />
                         <UniformGrid Columns="2" Margin="4,0,4,0">
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputAllSongsFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputUserFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputLevelFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputAlphabetFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputClearFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputDJLevelFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputCategoryAllFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_etc, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_etc_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputOtherFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_random, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_random_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputRandomFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputBpmSortFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputBpSortFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputPlayCountSortFolder, Mode=TwoWay}" />
-                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_last_play_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_last_play_sort_tooltip, Mode=OneWay}" IsChecked="{Binding settingDialog.DefaultOutputLastPlaySortFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputAllSongsFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputUserFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputLevelFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputAlphabetFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputClearFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputDJLevelFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputCategoryAllFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_etc, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_etc_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputOtherFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_random, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_random_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputRandomFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputBpmSortFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputBpSortFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputPlayCountSortFolder, Mode=TwoWay}" />
+                          <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_last_play_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_last_play_sort_tooltip, Mode=OneWay}" IsChecked="{Binding DefaultOutputLastPlaySortFolder, Mode=TwoWay}" />
                         </UniformGrid>
                       </DockPanel>
                     </GroupBox>
@@ -555,26 +555,26 @@
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_table_uri, Mode=OneWay}">
                   <StackPanel>
-                    <TextBox Height="24" VerticalContentAlignment="Center" Text="{Binding settingDialog.TableListURL}" />
+                    <TextBox Height="24" VerticalContentAlignment="Center" Text="{Binding TableListURL}" />
                   </StackPanel>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_md5_url_mapping_tsv_uri, Mode=OneWay}">
                   <StackPanel>
-                    <TextBox Height="24" VerticalContentAlignment="Center" Text="{Binding settingDialog.PlaylistMd5UrlMappingTsvUri}" />
-                    <CheckBox Margin="0,6,0,0" IsChecked="{Binding settingDialog.EnablePlaylistUrlCompletion}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_url_completion_enable, Mode=OneWay}" />
-                    <CheckBox Margin="0,2,0,0" IsChecked="{Binding settingDialog.OverwritePlaylistUrlsWithCompletion}" IsEnabled="{Binding settingDialog.EnablePlaylistUrlCompletion}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_url_completion_overwrite, Mode=OneWay}" />
-                    <CheckBox Margin="0,2,0,0" IsChecked="{Binding settingDialog.EnableStellaFullPlaylistUrlCompletion}" IsEnabled="{Binding settingDialog.EnablePlaylistUrlCompletion}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_url_completion_stella_full_enable, Mode=OneWay}" />
+                    <TextBox Height="24" VerticalContentAlignment="Center" Text="{Binding PlaylistMd5UrlMappingTsvUri}" />
+                    <CheckBox Margin="0,6,0,0" IsChecked="{Binding EnablePlaylistUrlCompletion}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_url_completion_enable, Mode=OneWay}" />
+                    <CheckBox Margin="0,2,0,0" IsChecked="{Binding OverwritePlaylistUrlsWithCompletion}" IsEnabled="{Binding EnablePlaylistUrlCompletion}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_url_completion_overwrite, Mode=OneWay}" />
+                    <CheckBox Margin="0,2,0,0" IsChecked="{Binding EnableStellaFullPlaylistUrlCompletion}" IsEnabled="{Binding EnablePlaylistUrlCompletion}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_url_completion_stella_full_enable, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset, Mode=OneWay}">
                   <DockPanel LastChildFill="True">
                     <StackPanel DockPanel.Dock="Right" Width="92" Margin="6,0,0,0">
                       <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add, Mode=OneWay}" Click="buttonAddPlayHistoryFolderDisplayPresetClicked" />
-                      <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanRemovePlayHistoryFolderDisplayPreset}" Click="buttonRemovePlayHistoryFolderDisplayPresetClicked" />
-                      <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_edit, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanEditPlayHistoryFolderDisplayPreset}" Click="buttonEditPlayHistoryFolderDisplayPresetClicked" />
+                      <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" IsEnabled="{Binding CanRemovePlayHistoryFolderDisplayPreset}" Click="buttonRemovePlayHistoryFolderDisplayPresetClicked" />
+                      <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_edit, Mode=OneWay}" IsEnabled="{Binding CanEditPlayHistoryFolderDisplayPreset}" Click="buttonEditPlayHistoryFolderDisplayPresetClicked" />
                     </StackPanel>
                     <TextBlock DockPanel.Dock="Bottom" TextWrapping="Wrap" Margin="0,6,0,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_desc, Mode=OneWay}" />
-                    <ListBox Height="104" ItemsSource="{Binding settingDialog.PlayHistoryFolderDisplayPresets}" SelectedItem="{Binding settingDialog.SelectedPlayHistoryFolderDisplayPreset, Mode=TwoWay}" DisplayMemberPath="Name" />
+                    <ListBox Height="104" ItemsSource="{Binding PlayHistoryFolderDisplayPresets}" SelectedItem="{Binding SelectedPlayHistoryFolderDisplayPreset, Mode=TwoWay}" DisplayMemberPath="Name" />
                   </DockPanel>
                 </GroupBox>
               </StackPanel>
@@ -585,7 +585,7 @@
                   <DockPanel>
                     <Label Height="28" DockPanel.Dock="Left" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_Dst, Mode=OneWay}" />
                     <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add, Mode=OneWay}" Click="addBmsInstallDirButtonClick" />
-                    <ComboBox Height="24" IsReadOnly="True" HorizontalAlignment="Right" Width="245" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.AvailableBMSDirectories, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.BMSInstallDir}" />
+                    <ComboBox Height="24" IsReadOnly="True" HorizontalAlignment="Right" Width="245" VerticalContentAlignment="Center" ItemsSource="{Binding AvailableBMSDirectories, Mode=OneWay}" SelectedItem="{Binding Path=BMSInstallDir}" />
                   </DockPanel>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_new_folder, Mode=OneWay}">
@@ -598,10 +598,10 @@
                           <Label Content="%TITLE% : タイトル名" />
                         </UniformGrid>
                       </GroupBox>
-                      <TextBox Height="24" DockPanel.Dock="Right" Width="320" VerticalContentAlignment="Center" Text="{Binding settingDialog.FolderNameFormat}" />
+                      <TextBox Height="24" DockPanel.Dock="Right" Width="320" VerticalContentAlignment="Center" Text="{Binding FolderNameFormat}" />
                       <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Left" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_foldername, Mode=OneWay}" />
                     </DockPanel>
-                    <CheckBox Margin="5" IsChecked="{Binding settingDialog.UseOnlyShiftJISChars}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_desc, Mode=OneWay}" />
+                    <CheckBox Margin="5" IsChecked="{Binding UseOnlyShiftJISChars}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_desc, Mode=OneWay}" />
                   </DockPanel>
                 </GroupBox>
               </StackPanel>
@@ -620,39 +620,39 @@
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_unistall, Mode=OneWay}">
                   <StackPanel>
-                    <Button Margin="10,10,10,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_unistall_desc, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB, Mode=OneWay}" Click="detailTabItemUninstallButtonClicked" />
-                    <Button Margin="10,0,10,10" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_uninstall, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanUninstallLr2PlayHistorySchema, Mode=OneWay}" Click="uninstallLr2PlayHistorySchemaButtonClicked" />
+                    <Button Margin="10,10,10,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_unistall_desc, Mode=OneWay}" IsEnabled="{Binding OperationModeLR2DB, Mode=OneWay}" Click="detailTabItemUninstallButtonClicked" />
+                    <Button Margin="10,0,10,10" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_uninstall, Mode=OneWay}" IsEnabled="{Binding CanUninstallLr2PlayHistorySchema, Mode=OneWay}" Click="uninstallLr2PlayHistorySchemaButtonClicked" />
                   </StackPanel>
                 </GroupBox>
                 <GroupBox>
                   <HeaderedContentControl.Header>
-                    <CheckBox IsChecked="{Binding settingDialog.IsLR2BackupEnabled}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_lr2backup_optimize, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}" />
+                    <CheckBox IsChecked="{Binding IsLR2BackupEnabled}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_lr2backup_optimize, Mode=OneWay}" IsEnabled="{Binding OperationModeLR2DB}" />
                   </HeaderedContentControl.Header>
-                  <StackPanel IsEnabled="{Binding settingDialog.IsLR2BackupEnabled}">
+                  <StackPanel IsEnabled="{Binding IsLR2BackupEnabled}">
                     <DockPanel LastChildFill="False">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" Click="browseLr2BackupPathButtonClick" />
                       <TextBox Height="24" IsReadOnly="True" Width="250" DockPanel.Dock="Right" Margin="0,0,5,0" VerticalContentAlignment="Center">
-                        <Binding x:Name="bindingLR2BackupPath" Path="settingDialog.LR2BackupPath" />
+                        <Binding x:Name="bindingLR2BackupPath" Path="LR2BackupPath" />
                       </TextBox>
                       <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Left" Margin="5,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_lr2backup_saveto, Mode=OneWay}" />
                     </DockPanel>
                     <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Target, Mode=OneWay}">
                       <UniformGrid ScrollViewer.VerticalScrollBarVisibility="Disabled" UseLayoutRounding="False" Columns="3" Margin="5,5,5,0">
-                        <CheckBox Content="config.xml" IsChecked="{Binding settingDialog.LR2BackupTarget, ConverterParameter=Config, Converter={StaticResource backupTargetConverter}}" />
-                        <CheckBox Content="song.db" IsChecked="{Binding settingDialog.LR2BackupTarget, ConverterParameter=SongDB, Converter={StaticResource backupTargetConverter}}" />
-                        <CheckBox IsChecked="{Binding settingDialog.LR2BackupTarget, ConverterParameter=ScoreDB, Converter={StaticResource backupTargetConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ScoreDB, Mode=OneWay}" />
+                        <CheckBox Content="config.xml" IsChecked="{Binding LR2BackupTarget, ConverterParameter=Config, Converter={StaticResource backupTargetConverter}}" />
+                        <CheckBox Content="song.db" IsChecked="{Binding LR2BackupTarget, ConverterParameter=SongDB, Converter={StaticResource backupTargetConverter}}" />
+                        <CheckBox IsChecked="{Binding LR2BackupTarget, ConverterParameter=ScoreDB, Converter={StaticResource backupTargetConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ScoreDB, Mode=OneWay}" />
                       </UniformGrid>
                     </GroupBox>
                     <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Schedule, Mode=OneWay}">
                       <StackPanel>
                         <UniformGrid ScrollViewer.VerticalScrollBarVisibility="Disabled" UseLayoutRounding="False" Columns="2" Margin="5,5,5,0">
                           <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Daily, Mode=OneWay}" IsChecked="{Binding settingDialog.LR2BackupSpan, Converter={qc:QuickConverter '$P == 1', ConvertBack='$value ? 1 : 0'}}" />
-                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Weekly, Mode=OneWay}" IsChecked="{Binding settingDialog.LR2BackupSpan, Converter={qc:QuickConverter '$P == 7', ConvertBack='$value ? 7 : 0'}}" />
-                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Monthly, Mode=OneWay}" IsChecked="{Binding settingDialog.LR2BackupSpan, Converter={qc:QuickConverter '$P == 30', ConvertBack='$value ? 30 : 0'}}" />
+                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Daily, Mode=OneWay}" IsChecked="{Binding LR2BackupSpan, Converter={qc:QuickConverter '$P == 1', ConvertBack='$value ? 1 : 0'}}" />
+                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Weekly, Mode=OneWay}" IsChecked="{Binding LR2BackupSpan, Converter={qc:QuickConverter '$P == 7', ConvertBack='$value ? 7 : 0'}}" />
+                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Monthly, Mode=OneWay}" IsChecked="{Binding LR2BackupSpan, Converter={qc:QuickConverter '$P == 30', ConvertBack='$value ? 30 : 0'}}" />
                           </StackPanel>
                           <DockPanel LastChildFill="False">
-                            <ComboBox DockPanel.Dock="Right" SelectedIndex="9" VerticalContentAlignment="Center" Width="50" Margin="10,0,5,0" Height="24" SelectedValue="{Binding settingDialog.LR2BackupNum}">
+                            <ComboBox DockPanel.Dock="Right" SelectedIndex="9" VerticalContentAlignment="Center" Width="50" Margin="10,0,5,0" Height="24" SelectedValue="{Binding LR2BackupNum}">
                               <ItemsControl.ItemsSource>
                                 <x:ArrayExtension Type="{x:Type sys:Int32}">
                                   <sys:Int32>1</sys:Int32>
@@ -671,7 +671,7 @@
                             <Label HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_numgen, Mode=OneWay}" />
                           </DockPanel>
                         </UniformGrid>
-                        <TextBlock Margin="5,5,5,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding settingDialog.IsLR2BackupEnabled}" />
+                        <TextBlock Margin="5,5,5,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsLR2BackupEnabled}" />
                       </StackPanel>
                     </GroupBox>
                   </StackPanel>
@@ -682,35 +682,35 @@
               <StackPanel>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_message_diag, Mode=OneWay}">
                   <StackPanel>
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowScoreViewerRegisterConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_chartview, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowDiffBMSInstallConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_diff_install, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowDuplicateFileCheckConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_duplicate_file_check, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowRecommUpdatedMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_recommend, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding ShowScoreViewerRegisterConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_chartview, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding ShowDiffBMSInstallConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_diff_install, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding ShowDuplicateFileCheckConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_duplicate_file_check, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding ShowRecommUpdatedMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_recommend, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_initialization_settings, Mode=OneWay}">
                   <StackPanel>
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ScanBmsFilesOnStartup}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_scan_bms_files_on_startup, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.SkipInitPlaylistLoad}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcheck_playlists, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.StartupSelectInstallPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_startup_select_install_pending, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.EnableReadOptimizedPragmas}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_db_read_optimized_pragmas, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding ScanBmsFilesOnStartup}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_scan_bms_files_on_startup, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding SkipInitPlaylistLoad}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcheck_playlists, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding StartupSelectInstallPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_startup_select_install_pending, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding EnableReadOptimizedPragmas}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_db_read_optimized_pragmas, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_lr2_integration_settings, Mode=OneWay}">
                   <StackPanel>
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.UpdateLr2IrRankingCacheOnStartup}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_update_lr2ir_ranking_cache_on_startup, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.EstimateOfflineScoreRanking}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_estimate_offline_score_ranking, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.EnableDownloadLr2IrScoreAndDetectUnsent}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_download_lr2ir_score_and_detect_unsent, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding UpdateLr2IrRankingCacheOnStartup}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_update_lr2ir_ranking_cache_on_startup, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding EstimateOfflineScoreRanking}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_estimate_offline_score_ranking, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding EnableDownloadLr2IrScoreAndDetectUnsent}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_download_lr2ir_score_and_detect_unsent, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}">
                   <StackPanel>
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.EnableAutoInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_download_and_install, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.KeepInstallablePackagesPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_keep_installable_pending, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.AutoApplyAmbiguousInstallDestination}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_auto_apply_ambiguous_install_destination, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.DeletePendingPackageSourceAfterInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_delete_pending_source_after_install, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.EnableSmartComponentOverwrite}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_smart_component_overwrite, Mode=OneWay}" />
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.KeepSmartOverwriteProtectedFilesByRenaming}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_keep_smart_overwrite_protected_by_rename, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding EnableAutoInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_download_and_install, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding KeepInstallablePackagesPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_keep_installable_pending, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding AutoApplyAmbiguousInstallDestination}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_auto_apply_ambiguous_install_destination, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding DeletePendingPackageSourceAfterInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_delete_pending_source_after_install, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding EnableSmartComponentOverwrite}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_smart_component_overwrite, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding KeepSmartOverwriteProtectedFilesByRenaming}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_keep_smart_overwrite_protected_by_rename, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
               </StackPanel>

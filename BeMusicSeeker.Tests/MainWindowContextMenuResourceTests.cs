@@ -714,8 +714,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(displayTargetOwner, "preferredDisplayTargetIdentity");
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Play_history_display_target_folder_only_set_format));
         StringAssert.Contains(settingDialogXaml, "Path=Resources.Play_history_folder_display_preset, Mode=OneWay");
-        StringAssert.Contains(settingDialogXaml, "ItemsSource=\"{Binding settingDialog.PlayHistoryFolderDisplayPresets}\"");
-        Assert.IsFalse(settingDialogXaml.Contains("ItemsSource=\"{Binding settingDialog.PlayHistoryFolderDisplayPresetPlaylistOptions}\""));
+        StringAssert.Contains(settingDialogXaml, "ItemsSource=\"{Binding PlayHistoryFolderDisplayPresets}\"");
+        Assert.IsFalse(settingDialogXaml.Contains("ItemsSource=\"{Binding PlayHistoryFolderDisplayPresetPlaylistOptions}\""));
         StringAssert.Contains(editDialogXaml, "ItemsSource=\"{Binding PlaylistOptions}\"");
         StringAssert.Contains(editDialogXaml, "Path=Resources.Play_history_folder_display_preset_playlists, Mode=OneWay");
         StringAssert.Contains(editDialogXaml, "Click=\"SaveAndClose\"");
@@ -1651,8 +1651,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "Path=Resources.Beatoraja_player");
         StringAssert.Contains(xaml, "Path=Resources.Use_beatoraja_bmt_output");
         StringAssert.Contains(xaml, "Path=Resources.Beatoraja_bmt_hash_output_mode");
-        StringAssert.Contains(xaml, "ItemsSource=\"{Binding settingDialog.BeatorajaBmtHashOutputModeOptions}\"");
-        StringAssert.Contains(xaml, "SelectedValue=\"{Binding settingDialog.BeatorajaBmtHashOutputMode, Mode=TwoWay}\"");
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding BeatorajaBmtHashOutputModeOptions}\"");
+        StringAssert.Contains(xaml, "SelectedValue=\"{Binding BeatorajaBmtHashOutputMode, Mode=TwoWay}\"");
         StringAssert.Contains(xaml, "Path=Resources.Keep_beatoraja_bmt_files_when_output_disabled");
         StringAssert.Contains(xaml, "Path=Resources.Register_beatoraja_bmt_urls");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaRootPath");
@@ -1713,7 +1713,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playlistTab, "Path=Resources.Playlist_url_completion_enable");
         StringAssert.Contains(playlistTab, "Path=Resources.Playlist_url_completion_overwrite");
         StringAssert.Contains(playlistTab, "Path=Resources.Playlist_url_completion_stella_full_enable");
-        StringAssert.Contains(playlistTab, "IsChecked=\"{Binding settingDialog.EnableStellaFullPlaylistUrlCompletion}\"");
+        StringAssert.Contains(playlistTab, "IsChecked=\"{Binding EnableStellaFullPlaylistUrlCompletion}\"");
         Assert.IsTrue(playlistTab.IndexOf("Path=Resources.Playlist_url_completion_enable", StringComparison.Ordinal) < playlistTab.IndexOf("Path=Resources.Playlist_url_completion_overwrite", StringComparison.Ordinal));
         Assert.IsTrue(playlistTab.IndexOf("Path=Resources.Playlist_url_completion_overwrite", StringComparison.Ordinal) < playlistTab.IndexOf("Path=Resources.Playlist_url_completion_stella_full_enable", StringComparison.Ordinal));
     }
@@ -1747,9 +1747,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "Path=Resources.Standalone_BMSDirectories");
         StringAssert.Contains(xaml, "Path=Resources.Add_BMSDirectory");
         StringAssert.Contains(xaml, "Path=Resources.Remove_BMSDirectory");
-        StringAssert.Contains(xaml, "ItemsSource=\"{Binding settingDialog.AvailableBMSDirectories}\"");
-        StringAssert.Contains(xaml, "SelectedItem=\"{Binding settingDialog.SelectedBmsSearchRootPath, Mode=TwoWay}\"");
-        StringAssert.Contains(xaml, "Command=\"{Binding settingDialog.RemoveDirCommand}\"");
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding AvailableBMSDirectories}\"");
+        StringAssert.Contains(xaml, "SelectedItem=\"{Binding SelectedBmsSearchRootPath, Mode=TwoWay}\"");
+        StringAssert.Contains(xaml, "Command=\"{Binding RemoveDirCommand}\"");
         Assert.IsFalse(xaml.Contains("ToolTip=\"未実装\""));
         StringAssert.Contains(viewModelCode, "ApplicationSettings.StandaloneBmsRootPaths");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidStandaloneBmsRootPaths");
@@ -1912,9 +1912,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(settingDialogCode.Contains("ShouldCloseSettingsWithoutSave"));
         Assert.IsFalse(settingDialogCode.Contains("IsNeedRestartForSaveOrCancel"));
         StringAssert.Contains(settingDialogXaml, "Click=\"buttonOKClick\"");
-        Assert.IsFalse(settingDialogXaml.Contains("settingDialog.ApplyCommand"));
-        StringAssert.Contains(settingDialogXaml, "Command=\"{Binding settingDialog.CancelCommand}\"");
-        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding settingDialog.IsEditCompletionEnabled}\"");
+        Assert.IsFalse(settingDialogXaml.Contains("Command=\"{Binding ApplyCommand}\""));
+        StringAssert.Contains(settingDialogXaml, "Command=\"{Binding CancelCommand}\"");
+        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsEditCompletionEnabled}\"");
+        Assert.IsFalse(settingDialogXaml.Contains("{Binding settingDialog."));
+        StringAssert.Contains(mainWindowXaml, "<v:SettingDialog x:Name=\"settingDialog\" DataContext=\"{Binding settingDialog}\"");
         StringAssert.Contains(settingDialogCode, "private async void buttonOKClick(object sender, RoutedEventArgs e)");
         StringAssert.Contains(settingDialogCode, "await GetSettingDialogViewModel()");
         StringAssert.Contains(settingDialogCode, "ApplySettingsAsync()");
@@ -1972,14 +1974,15 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainWindowCode, "InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;");
         StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(initialSetupLanguageDialog);");
         StringAssert.Contains(mainWindowCode, "viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;");
-        StringAssert.Contains(mainWindow, "<v:InitialSetupLanguageDialog x:Name=\"initialSetupLanguageDialog\"");
-        StringAssert.Contains(initialDialog, "ItemsSource=\"{Binding settingDialog.Languages, Mode=OneWay}\"");
-        StringAssert.Contains(initialDialog, "SelectedItem=\"{Binding Path=settingDialog.Language}\"");
+        StringAssert.Contains(mainWindow, "<v:InitialSetupLanguageDialog x:Name=\"initialSetupLanguageDialog\" DataContext=\"{Binding settingDialog}\"");
+        StringAssert.Contains(initialDialog, "ItemsSource=\"{Binding Languages, Mode=OneWay}\"");
+        StringAssert.Contains(initialDialog, "SelectedItem=\"{Binding Path=Language}\"");
         StringAssert.Contains(initialDialog, "Resources.Msg_init_settings");
         StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogTitle");
         StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogContinue");
         Assert.IsFalse(initialDialogCode.Contains("MainWindow"));
-        StringAssert.Contains(initialDialog, "Command=\"{Binding settingDialog.OpenCommand}\"");
+        StringAssert.Contains(initialDialog, "Command=\"{Binding OpenCommand}\"");
+        Assert.IsFalse(initialDialog.Contains("{Binding settingDialog."));
     }
 
     [TestMethod]
@@ -2236,8 +2239,8 @@ public sealed class MainWindowContextMenuResourceTests
             "public string Language",
             "public SettingDialogViewModel(MainWindowViewModel owner)");
 
-        StringAssert.Contains(xaml, "IsChecked=\"{Binding settingDialog.UseInternalPlayer}\"");
-        StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.IsAudioDeviceTestAvailable, Mode=OneWay}\"");
+        StringAssert.Contains(xaml, "IsChecked=\"{Binding UseInternalPlayer}\"");
+        StringAssert.Contains(xaml, "IsEnabled=\"{Binding IsAudioDeviceTestAvailable, Mode=OneWay}\"");
         StringAssert.Contains(viewModelCode, "public bool IsEditCompletionEnabled => !IsEditCompletionInProgress && !IsAudioDeviceTestInProgress;");
         StringAssert.Contains(viewModelCode, "public bool IsEditCancellationEnabled => !IsEditCompletionInProgress");
         StringAssert.Contains(viewModelCode, "if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress)");
@@ -2274,7 +2277,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public bool CheckValidation(out string errMsg)",
             "public async Task SaveSettings()");
 
-        Assert.IsFalse(xaml.Contains("IsEnabled=\"{Binding settingDialog.CanSaveSettings"));
+        Assert.IsFalse(xaml.Contains("IsEnabled=\"{Binding CanSaveSettings"));
         StringAssert.Contains(checkValidation, "if (!IsBMSInstallDirValid())");
         StringAssert.Contains(checkValidation, "Resources.Error_InvalidBmsInstallDir");
         Assert.IsFalse(checkValidation.Contains("OperationModeLR2DB && !IsBMSInstallDirValid()"));
@@ -2404,8 +2407,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile"));
         StringAssert.Contains(settingDialogXaml, "<Grid Margin=\"20,2,10,4\" IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\">");
         StringAssert.Contains(settingDialogXaml, "HorizontalAlignment=\"Center\"");
-        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding settingDialog.CanRequestLr2SongDbSyncDataResync, Mode=OneWay}\"");
-        StringAssert.Contains(manualResyncClickHandler, "viewModel.settingDialog is not MainWindowViewModel.SettingDialogViewModel settingDialogViewModel");
+        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}\"");
+        StringAssert.Contains(manualResyncClickHandler, "MainWindowViewModel viewModel = GetMainWindowViewModel();");
+        StringAssert.Contains(manualResyncClickHandler, "MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();");
         StringAssert.Contains(manualResyncClickHandler, "if (!settingDialogViewModel.CanRequestLr2SongDbSyncDataResync)");
         StringAssert.Contains(settingDialogCode, "await settingDialogViewModel.RequestLr2SongDbSyncAsync();");
         StringAssert.Contains(manualResyncClickHandler, "HideThisOverlay();");
@@ -3879,13 +3883,13 @@ public sealed class MainWindowContextMenuResourceTests
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
 
         Assert.AreEqual(1, CountOccurrences(xaml, "<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}\">"));
-        Assert.AreEqual(1, CountOccurrences(xaml, "ItemsSource=\"{Binding settingDialog.AppearanceThemeOptions}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "SelectedValue=\"{Binding settingDialog.AppearanceTheme, Mode=TwoWay}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "ItemsSource=\"{Binding AppearanceThemeOptions}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "SelectedValue=\"{Binding AppearanceTheme, Mode=TwoWay}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_theme, Mode=OneWay"));
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_table, Mode=OneWay"));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding settingDialog.CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding settingDialog.CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding settingDialog.CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"resetCustomTableAppearanceDefaultsButtonClick\""));
     }
 
@@ -3906,11 +3910,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type ComboBox}\" BasedOn=\"{StaticResource {x:Type ComboBox}}\">");
         StringAssert.Contains(xaml, "x:Key=\"styleWrappingSettingCheckBox\"");
         StringAssert.Contains(xaml, "TextWrapping=\"Wrap\"");
-        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowScoreViewerRegisterConfirmMsg}\"");
-        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowDiffBMSInstallConfirmMsg}\"");
-        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowDuplicateFileCheckConfirmMsg}\"");
+        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding ShowScoreViewerRegisterConfirmMsg}\"");
+        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding ShowDiffBMSInstallConfirmMsg}\"");
+        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding ShowDuplicateFileCheckConfirmMsg}\"");
         StringAssert.Contains(xaml, "Path=Resources.Details_show_diag_duplicate_file_check, Mode=OneWay");
-        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowRecommUpdatedMsg}\"");
+        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding ShowRecommUpdatedMsg}\"");
         StringAssert.Contains(xaml, "Path=Resources.Details_initialization_settings, Mode=OneWay");
         StringAssert.Contains(xaml, "Path=Resources.Details_lr2_integration_settings, Mode=OneWay");
         StringAssert.Contains(xaml, "<GroupBox Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}\">");

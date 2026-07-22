@@ -16,6 +16,7 @@ using SQLite;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class Lr2PlayHistorySchemaUiTests
 {
     [TestMethod]
@@ -280,21 +281,21 @@ public sealed class Lr2PlayHistorySchemaUiTests
         string playHistorySchemaUi = ExtractBetween(
             xaml,
             "<Grid Margin=\"20,2,10,4\" IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\">",
-            "<Grid Margin=\"10,0,0,4\" IsEnabled=\"{Binding settingDialog.IsBmsSearchRootEditorEnabled}\">");
+            "<Grid Margin=\"10,0,0,4\" IsEnabled=\"{Binding IsBmsSearchRootEditorEnabled}\">");
 
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Lr2_play_history_schema_label, Mode=OneWay"));
         Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"refreshLr2PlayHistorySchemaButtonClicked\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"installLr2PlayHistorySchemaButtonClicked\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"repairLr2PlayHistorySchemaButtonClicked\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"installOrRepairLr2PlayHistorySchemaButtonClicked\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Text=\"{Binding settingDialog.Lr2PlayHistorySchemaStatusText, Mode=OneWay}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "ToolTip=\"{Binding settingDialog.Lr2PlayHistorySchemaDetailText, Mode=OneWay}\""));
-        StringAssert.Contains(xaml, "Content=\"{Binding settingDialog.Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}\"");
-        StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\"");
-        StringAssert.Contains(xaml, "DataTrigger Binding=\"{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\" Value=\"True\"");
+        Assert.AreEqual(1, CountOccurrences(xaml, "Text=\"{Binding Lr2PlayHistorySchemaStatusText, Mode=OneWay}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "ToolTip=\"{Binding Lr2PlayHistorySchemaDetailText, Mode=OneWay}\""));
+        StringAssert.Contains(xaml, "Content=\"{Binding Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}\"");
+        StringAssert.Contains(xaml, "IsEnabled=\"{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\"");
+        StringAssert.Contains(xaml, "DataTrigger Binding=\"{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\" Value=\"True\"");
         StringAssert.Contains(xaml, "Value=\"{DynamicResource App.WarningTextBrush}\"");
         StringAssert.Contains(xaml, "Click=\"uninstallLr2PlayHistorySchemaButtonClicked\"");
-        StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.CanUninstallLr2PlayHistorySchema, Mode=OneWay}\"");
+        StringAssert.Contains(xaml, "IsEnabled=\"{Binding CanUninstallLr2PlayHistorySchema, Mode=OneWay}\"");
         StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_title, Mode=OneWay");
         StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_desc, Mode=OneWay");
         StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_score_db, Mode=OneWay");

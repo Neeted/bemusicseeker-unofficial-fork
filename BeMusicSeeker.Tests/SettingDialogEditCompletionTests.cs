@@ -514,7 +514,7 @@ public sealed class SettingDialogEditCompletionTests
                 settingDialogViewModel.BeatorajaPlayerId = "player2";
                 var settingDialog = new SettingDialog
                 {
-                    DataContext = viewModel
+                    DataContext = settingDialogViewModel
                 };
                 Button button = (Button)typeof(SettingDialog)
                     .GetField("buttonOK", BindingFlags.Instance | BindingFlags.NonPublic)!
