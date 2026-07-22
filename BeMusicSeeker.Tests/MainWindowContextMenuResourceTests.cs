@@ -1034,6 +1034,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void PackageCatalogHandlersDelegateConfirmationAndMutationToWorkflowOwner()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string ownerCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
@@ -1107,6 +1108,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(ownerCode, "dialogs.ConfirmAsync(");
         StringAssert.Contains(ownerCode, "store.RemoveAll(");
         StringAssert.Contains(ownerCode, "store.RemovePackages(");
+        StringAssert.Contains(ownerCode, "internal event EventHandler<PackageCatalogMutationPhaseEventArgs> MutationPhasePublished;");
+        StringAssert.Contains(viewModelCode, "PackageCatalog.MutationPhasePublished += PackageCatalogMutationPhasePublished;");
+        Assert.IsFalse(ownerCode.Contains("IPackageCatalogMutationPresentation"));
+        Assert.IsFalse(ownerCode.Contains("NoOpPackageCatalogMutationPresentation"));
+        Assert.IsFalse(viewModelCode.Contains("IPackageCatalogMutationPresentation"));
+        Assert.IsFalse(viewModelCode.Contains("packageCatalogPresentation"));
         Assert.IsFalse(ownerCode.Contains("ConfirmRemovePackage"));
         Assert.IsFalse(ownerCode.Contains("PackageCatalogConfirmationResult"));
     }

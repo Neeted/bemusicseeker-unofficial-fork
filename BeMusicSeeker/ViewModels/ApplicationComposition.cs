@@ -339,7 +339,6 @@ internal sealed class ApplicationComposition
         ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
         Func<BMSLibrary> zeroNoteLibraryProvider = null,
         Func<BMSLibrary> packageCatalogLibraryProvider = null,
-        IPackageCatalogMutationPresentation packageCatalogPresentation = null,
         IDuplicateMaintenanceActivityPort duplicateMaintenanceActivity = null,
         IDuplicateMaintenanceRefreshPort duplicateMaintenanceRefresh = null,
         IUiDialogService duplicateMaintenanceDialogService = null,
@@ -402,7 +401,6 @@ internal sealed class ApplicationComposition
             scoreViewerRegistrationWorkflow ?? CreateScoreViewerRegistrationWorkflowOwner(),
             zeroNoteLibraryProvider,
             packageCatalogLibraryProvider,
-            packageCatalogPresentation,
             duplicateMaintenanceActivity,
             duplicateMaintenanceRefresh,
             duplicateMaintenanceDialogService,
@@ -594,7 +592,6 @@ internal sealed class MainWindowChildComposition
         ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
         Func<BMSLibrary> zeroNoteLibraryProvider = null,
         Func<BMSLibrary> packageCatalogLibraryProvider = null,
-        IPackageCatalogMutationPresentation packageCatalogPresentation = null,
         IDuplicateMaintenanceActivityPort duplicateMaintenanceActivity = null,
         IDuplicateMaintenanceRefreshPort duplicateMaintenanceRefresh = null,
         IUiDialogService duplicateMaintenanceDialogService = null,
@@ -706,7 +703,6 @@ internal sealed class MainWindowChildComposition
         PackageCatalogWorkflow = new PackageCatalogWorkflowOwner(
             packageCatalogLibraryProvider ?? (() => null),
             chartFileOperations,
-            packageCatalogPresentation ?? new NoOpPackageCatalogMutationPresentation(),
             installDestinationDialogService);
         DuplicateMaintenanceWorkflow = new DuplicateMaintenanceWorkflowOwner(
             duplicateMaintenanceLibraryProvider ?? throw new ArgumentNullException(nameof(duplicateMaintenanceLibraryProvider)),

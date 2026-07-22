@@ -244,13 +244,8 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var mutationFailure = new InvalidOperationException("remove failed");
         var cleanupFailure = new InvalidOperationException("cleanup failed");
         var store = new RecordingStore(events) { Failure = mutationFailure };
-        var presentation = new RecordingPresentation(events) { EndActivityFailure = cleanupFailure };
-        var owner = new PackageCatalogWorkflowOwner(
-            CreateLibrary,
-            new ChartFileOperationSynchronizer(),
-            presentation,
-            AcceptedDialogs(),
-            store);
+        var phaseObserver = new RecordingPhaseObserver(events) { EndActivityFailure = cleanupFailure };
+        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), phaseObserver);
 
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Installed,
@@ -273,13 +268,13 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var synchronizer = new ChartFileOperationSynchronizer();
         var events = new List<string>();
         var store = new RecordingStore(events);
-        var presentation = new RecordingPresentation(events);
+        var phaseObserver = new RecordingPhaseObserver(events);
         var owner = new PackageCatalogWorkflowOwner(
             CreateLibrary,
             synchronizer,
-            presentation,
             AcceptedDialogs(),
             store);
+        owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
         using var gateHeld = new ManualResetEventSlim();
         using var releaseGate = new ManualResetEventSlim();
         var gateThread = new Thread(() =>
@@ -296,7 +291,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         Task<PackageCatalogMutationResult> removal = owner.ClearAllAsync(PackageCatalogSection.Installed);
         try
         {
-            Task activityStarted = presentation.ActivityStarted;
+            Task activityStarted = phaseObserver.ActivityStarted;
             Assert.AreSame(
                 activityStarted,
                 await Task.WhenAny(activityStarted, Task.Delay(TimeSpan.FromSeconds(5))));
@@ -317,14 +312,17 @@ public sealed class PackageCatalogWorkflowOwnerTests
         Func<BMSLibrary> libraryProvider,
         List<string> events,
         IPackageCatalogStore store,
-        IUiDialogService dialogs)
+        IUiDialogService dialogs,
+        RecordingPhaseObserver? phaseObserver = null)
     {
-        return new PackageCatalogWorkflowOwner(
+        phaseObserver ??= new RecordingPhaseObserver(events);
+        var owner = new PackageCatalogWorkflowOwner(
             libraryProvider,
             new ChartFileOperationSynchronizer(),
-            new RecordingPresentation(events),
             dialogs,
             store);
+        owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
+        return owner;
     }
 
     private static FakeUiDialogService AcceptedDialogs()
@@ -353,12 +351,12 @@ public sealed class PackageCatalogWorkflowOwnerTests
             ChartOperationCapabilities.UpdateInstallDestination);
     }
 
-    private sealed class RecordingPresentation : IPackageCatalogMutationPresentation
+    private sealed class RecordingPhaseObserver
     {
         private readonly List<string> events;
         private readonly TaskCompletionSource<bool> activityStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal RecordingPresentation(List<string> events)
+        internal RecordingPhaseObserver(List<string> events)
         {
             this.events = events;
         }
@@ -367,20 +365,22 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
         internal Task ActivityStarted => activityStarted.Task;
 
-        public void BeginActivity()
+        internal void OnPhasePublished(object sender, PackageCatalogMutationPhaseEventArgs e)
         {
-            events.Add("activity-start");
-            activityStarted.TrySetResult(true);
-        }
-
-        public void BeginRefreshSuppression() => events.Add("suppression-start");
-
-        public void EndRefreshSuppression() => events.Add("suppression-end");
-
-        public void EndActivity()
-        {
-            events.Add("activity-end");
-            if (EndActivityFailure != null)
+            events.Add(e.Phase switch
+            {
+                PackageCatalogMutationPhase.ActivityStarted => "activity-start",
+                PackageCatalogMutationPhase.RefreshSuppressionStarted => "suppression-start",
+                PackageCatalogMutationPhase.RefreshSuppressionEnded => "suppression-end",
+                PackageCatalogMutationPhase.ActivityEnded => "activity-end",
+                _ => throw new ArgumentOutOfRangeException(nameof(e.Phase), e.Phase, "Unsupported package catalog mutation phase.")
+            });
+            if (e.Phase == PackageCatalogMutationPhase.ActivityStarted)
+            {
+                activityStarted.TrySetResult(true);
+            }
+            if (e.Phase == PackageCatalogMutationPhase.ActivityEnded
+                && EndActivityFailure != null)
             {
                 throw EndActivityFailure;
             }

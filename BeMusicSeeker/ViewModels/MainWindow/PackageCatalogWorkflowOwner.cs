@@ -9,15 +9,22 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal interface IPackageCatalogMutationPresentation
+internal enum PackageCatalogMutationPhase
 {
-    void BeginActivity();
+    ActivityStarted,
+    RefreshSuppressionStarted,
+    RefreshSuppressionEnded,
+    ActivityEnded
+}
 
-    void BeginRefreshSuppression();
+internal sealed class PackageCatalogMutationPhaseEventArgs : EventArgs
+{
+    internal PackageCatalogMutationPhaseEventArgs(PackageCatalogMutationPhase phase)
+    {
+        Phase = phase;
+    }
 
-    void EndRefreshSuppression();
-
-    void EndActivity();
+    internal PackageCatalogMutationPhase Phase { get; }
 }
 
 internal interface IPackageCatalogStore
@@ -75,20 +82,19 @@ internal sealed class PackageCatalogWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
-    private readonly IPackageCatalogMutationPresentation presentation;
     private readonly IUiDialogService dialogs;
     private readonly IPackageCatalogStore store;
+
+    internal event EventHandler<PackageCatalogMutationPhaseEventArgs> MutationPhasePublished;
 
     internal PackageCatalogWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
-        IPackageCatalogMutationPresentation presentation,
         IUiDialogService dialogs,
         IPackageCatalogStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
-        this.presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.store = store ?? new BmsLibraryPackageCatalogStore();
     }
@@ -174,10 +180,10 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             dialogScope = library.BeginOperationDialogScope();
             activityStarted = true;
-            presentation.BeginActivity();
+            PublishMutationPhase(PackageCatalogMutationPhase.ActivityStarted);
             operationGate = chartFileOperations.Enter();
             suppressionStarted = true;
-            presentation.BeginRefreshSuppression();
+            PublishMutationPhase(PackageCatalogMutationPhase.RefreshSuppressionStarted);
             mutation(library);
         }
         catch (Exception ex)
@@ -188,7 +194,9 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             if (suppressionStarted)
             {
-                CaptureCleanupFailure(presentation.EndRefreshSuppression, failures);
+                CaptureCleanupFailure(
+                    () => PublishMutationPhase(PackageCatalogMutationPhase.RefreshSuppressionEnded),
+                    failures);
             }
             if (operationGate != null)
             {
@@ -196,7 +204,9 @@ internal sealed class PackageCatalogWorkflowOwner
             }
             if (activityStarted)
             {
-                CaptureCleanupFailure(presentation.EndActivity, failures);
+                CaptureCleanupFailure(
+                    () => PublishMutationPhase(PackageCatalogMutationPhase.ActivityEnded),
+                    failures);
             }
             if (dialogScope != null)
             {
@@ -211,6 +221,13 @@ internal sealed class PackageCatalogWorkflowOwner
             _ => PackageCatalogMutationResult.Failed(
                 new AggregateException(failures.Select(failure => failure.SourceException))),
         };
+    }
+
+    private void PublishMutationPhase(PackageCatalogMutationPhase phase)
+    {
+        MutationPhasePublished?.Invoke(
+            this,
+            new PackageCatalogMutationPhaseEventArgs(phase));
     }
 
     private PackageCatalogMutationResult ConfirmRemoval(string message, string routeName)
@@ -324,24 +341,5 @@ internal sealed class BmsLibraryPackageCatalogStore : IPackageCatalogStore
             return (package.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(target.PackageEntry) == true);
         }
         return (package.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(target.Chart) == true);
-    }
-}
-
-internal sealed class NoOpPackageCatalogMutationPresentation : IPackageCatalogMutationPresentation
-{
-    public void BeginActivity()
-    {
-    }
-
-    public void BeginRefreshSuppression()
-    {
-    }
-
-    public void EndRefreshSuppression()
-    {
-    }
-
-    public void EndActivity()
-    {
     }
 }

@@ -46,7 +46,7 @@ namespace BeMusicSeeker.ViewModels;
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort
+public partial class MainWindowViewModel : ViewModel, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -1460,24 +1460,27 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
-    void IPackageCatalogMutationPresentation.BeginActivity()
+    private void PackageCatalogMutationPhasePublished(
+        object sender,
+        PackageCatalogMutationPhaseEventArgs e)
     {
-        BeginChartPackageMutation();
-    }
-
-    void IPackageCatalogMutationPresentation.BeginRefreshSuppression()
-    {
-        BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-    }
-
-    void IPackageCatalogMutationPresentation.EndRefreshSuppression()
-    {
-        EndUiUpdateSuppression();
-    }
-
-    void IPackageCatalogMutationPresentation.EndActivity()
-    {
-        EndChartPackageMutation();
+        switch (e.Phase)
+        {
+            case PackageCatalogMutationPhase.ActivityStarted:
+                BeginChartPackageMutation();
+                break;
+            case PackageCatalogMutationPhase.RefreshSuppressionStarted:
+                BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
+                break;
+            case PackageCatalogMutationPhase.RefreshSuppressionEnded:
+                EndUiUpdateSuppression();
+                break;
+            case PackageCatalogMutationPhase.ActivityEnded:
+                EndChartPackageMutation();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(e.Phase), e.Phase, "Unsupported package catalog mutation phase.");
+        }
     }
 
     void IDuplicateMaintenanceActivityPort.BeginActivity()
@@ -2592,7 +2595,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             new UiDialogCoordinator(),
             zeroNoteLibraryProvider: () => files,
             packageCatalogLibraryProvider: () => files,
-            packageCatalogPresentation: this,
             duplicateMaintenanceActivity: this,
             duplicateMaintenanceRefresh: this,
             duplicateMaintenanceDialogService: new UiDialogCoordinator(),
@@ -2649,6 +2651,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PackageCatalog = childComposition.PackageCatalogWorkflow;
+        PackageCatalog.MutationPhasePublished += PackageCatalogMutationPhasePublished;
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
         SelectedChartMutations = childComposition.SelectedChartMutations;
         SelectedChartExternalActions = childComposition.SelectedChartExternalActions;
