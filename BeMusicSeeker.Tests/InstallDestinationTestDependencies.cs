@@ -10,42 +10,6 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Tests;
 
-internal sealed class TestInstallDestinationMutationPresentation : IPendingPackageMutationPresentation
-{
-    public void BeginActivity()
-    {
-    }
-
-    public void BeginRefreshSuppression(PendingPackageRefreshScope scope)
-    {
-    }
-
-    public void EndRefreshSuppression()
-    {
-    }
-
-    public void EndActivity()
-    {
-    }
-
-    public void UpdateTransientStates(IEnumerable<ChartFile> charts)
-    {
-    }
-
-    public void InvalidateInstallDestinationSort()
-    {
-    }
-
-    public void RefreshIdentitySortKey()
-    {
-    }
-
-    public void RequestDisplayRefresh()
-    {
-    }
-
-}
-
 internal sealed class NoOpPendingPackageMutationPlaybackPort : IPendingPackageMutationPlaybackPort
 {
     public void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)

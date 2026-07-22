@@ -600,14 +600,13 @@ public sealed class PendingPackageWorkflowOwnerTests
             };
             var failure = new InvalidOperationException("activity end failed");
             var presentation = new RecordingPresentation(events) { EndActivityFailure = failure };
-            var owner = new PendingPackageWorkflowOwner(
+            var owner = CreateOwner(
                 () => library,
-                new ChartFileOperationSynchronizer(),
-                presentation,
-                new NoOpPendingPackageMutationPlaybackPort(),
+                events,
+                store,
                 AcceptedDialogs(),
-                DefaultSettings,
-                store);
+                presentation: presentation,
+                playback: new NoOpPendingPackageMutationPlaybackPort());
 
             InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => owner.SearchPackagesAsync(
@@ -663,14 +662,13 @@ public sealed class PendingPackageWorkflowOwnerTests
                 EndRefreshSuppressionFailure = suppressionFailure,
                 EndActivityFailure = activityFailure
             };
-            var owner = new PendingPackageWorkflowOwner(
+            var owner = CreateOwner(
                 () => library,
-                new ChartFileOperationSynchronizer(),
-                presentation,
-                new NoOpPendingPackageMutationPlaybackPort(),
+                events,
+                store,
                 AcceptedDialogs(),
-                DefaultSettings,
-                store);
+                presentation: presentation,
+                playback: new NoOpPendingPackageMutationPlaybackPort());
 
             AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
                 () => owner.SearchPackagesAsync(
@@ -711,14 +709,13 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
         };
-        var owner = new PendingPackageWorkflowOwner(
+        var owner = CreateOwner(
             CreateLibrary,
-            new ChartFileOperationSynchronizer(),
-            presentation,
-            playback,
+            events,
+            store,
             dialogs,
-            DefaultSettings,
-            store);
+            presentation: presentation,
+            playback: playback);
 
         PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync([package]);
 
@@ -786,16 +783,15 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
-        var owner = new PendingPackageWorkflowOwner(
+        var owner = CreateOwner(
             CreateLibrary,
-            new ChartFileOperationSynchronizer(),
-            new RecordingPresentation(events),
-            new NoOpPendingPackageMutationPlaybackPort(),
+            events,
+            store,
             dialogs,
-            () => new InstallDestinationWorkflowSettingsSnapshot(
+            playback: new NoOpPendingPackageMutationPlaybackPort(),
+            settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(
                 showManualInstallConfirmation: true,
-                deletePendingPackageSourceAfterInstall: true),
-            store);
+                deletePendingPackageSourceAfterInstall: true));
         PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync(
             [ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())])]);
 
@@ -819,16 +815,15 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.Failed(failure)
         };
-        var owner = new PendingPackageWorkflowOwner(
+        var owner = CreateOwner(
             CreateLibrary,
-            new ChartFileOperationSynchronizer(),
-            new RecordingPresentation(events),
-            new NoOpPendingPackageMutationPlaybackPort(),
+            events,
+            store,
             dialogs,
-            () => new InstallDestinationWorkflowSettingsSnapshot(
+            playback: new NoOpPendingPackageMutationPlaybackPort(),
+            settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(
                 showManualInstallConfirmation: true,
-                deletePendingPackageSourceAfterInstall: true),
-            store);
+                deletePendingPackageSourceAfterInstall: true));
 
         PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync(
             [ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())])]);
@@ -851,14 +846,13 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             EndRefreshSuppressionFailure = cleanupFailure
         };
-        var owner = new PendingPackageWorkflowOwner(
+        var owner = CreateOwner(
             CreateLibrary,
-            new ChartFileOperationSynchronizer(),
-            presentation,
-            new RecordingPlayback(events),
+            events,
+            store,
             AcceptedDialogs(),
-            DefaultSettings,
-            store);
+            presentation: presentation,
+            playback: new RecordingPlayback(events));
 
         PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync(
             [ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())])]);
@@ -997,14 +991,13 @@ public sealed class PendingPackageWorkflowOwnerTests
         var dialogs = new FakeUiDialogService();
         dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
         dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes));
-        var owner = new PendingPackageWorkflowOwner(
+        var owner = CreateOwner(
             CreateLibrary,
-            new ChartFileOperationSynchronizer(),
-            presentation,
-            playback,
+            events,
+            store,
             dialogs,
-            DefaultSettings,
-            store);
+            presentation: presentation,
+            playback: playback);
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
             [CreateTarget(chart, ChartOperationCapabilities.RepairInstalledLocation)],
             out RepairInstalledLocationRequest request));
@@ -1103,14 +1096,13 @@ public sealed class PendingPackageWorkflowOwnerTests
         var store = new RecordingStore(events) { PendingBmsFormatCharts = [chart] };
         var presentation = new RecordingPresentation(events);
         var playback = new RecordingPlayback(events);
-        var owner = new PendingPackageWorkflowOwner(
+        var owner = CreateOwner(
             CreateLibrary,
-            new ChartFileOperationSynchronizer(),
-            presentation,
-            playback,
+            events,
+            store,
             AcceptedDialogs(),
-            DefaultSettings,
-            store);
+            presentation: presentation,
+            playback: playback);
 
         await owner.RenamePendingZeroNoteChartsAsync();
 
@@ -1150,14 +1142,13 @@ public sealed class PendingPackageWorkflowOwnerTests
         var dialogs = AcceptedDialogs();
         var presentation = new RecordingPresentation(events);
         var playback = new RecordingPlayback(events);
-        var owner = new PendingPackageWorkflowOwner(
+        var owner = CreateOwner(
             CreateLibrary,
-            new ChartFileOperationSynchronizer(),
-            presentation,
-            playback,
+            events,
+            store,
             dialogs,
-            DefaultSettings,
-            store);
+            presentation: presentation,
+            playback: playback);
 
         await owner.OverwriteInstalledOnlyPendingPackageResourcesAsync();
 
@@ -1266,14 +1257,13 @@ public sealed class PendingPackageWorkflowOwnerTests
         var synchronizer = new ChartFileOperationSynchronizer();
         var events = new List<string>();
         var store = new RecordingStore(events);
-        var owner = new PendingPackageWorkflowOwner(
+        var owner = CreateOwner(
             CreateLibrary,
-            synchronizer,
-            new RecordingPresentation(events),
-            new NoOpPendingPackageMutationPlaybackPort(),
+            events,
+            store,
             AcceptedDialogs(),
-            DefaultSettings,
-            store);
+            playback: new NoOpPendingPackageMutationPlaybackPort(),
+            chartFileOperations: synchronizer);
         using var gateHeld = new ManualResetEventSlim();
         using var releaseGate = new ManualResetEventSlim();
         Task gateHolder = Task.Run(() =>
@@ -1307,18 +1297,24 @@ public sealed class PendingPackageWorkflowOwnerTests
         IPendingPackageStore store,
         IUiDialogService dialogs,
         Func<string, ExplorerOpenResult>? explorerOpener = null,
-        Func<string, ExplorerOpenResult>? fileExplorerOpener = null)
+        Func<string, ExplorerOpenResult>? fileExplorerOpener = null,
+        RecordingPresentation? presentation = null,
+        IPendingPackageMutationPlaybackPort? playback = null,
+        ChartFileOperationSynchronizer? chartFileOperations = null,
+        Func<InstallDestinationWorkflowSettingsSnapshot>? settingsProvider = null)
     {
-        return new PendingPackageWorkflowOwner(
+        presentation ??= new RecordingPresentation(events);
+        var owner = new PendingPackageWorkflowOwner(
             libraryProvider,
-            new ChartFileOperationSynchronizer(),
-            new RecordingPresentation(events),
-            new RecordingPlayback(events),
+            chartFileOperations ?? new ChartFileOperationSynchronizer(),
+            playback ?? new RecordingPlayback(events),
             dialogs,
-            DefaultSettings,
+            settingsProvider ?? DefaultSettings,
             store,
             explorerOpener,
             fileExplorerOpener);
+        owner.WorkflowChanged += presentation.OnWorkflowChanged;
+        return owner;
     }
 
     private static FakeUiDialogService AcceptedDialogs()
@@ -1381,7 +1377,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             PackageChartEntry.FromChart(chart));
     }
 
-    private sealed class RecordingPresentation : IPendingPackageMutationPresentation
+    private sealed class RecordingPresentation
     {
         private readonly List<string> events;
 
@@ -1396,40 +1392,57 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal PendingPackageRefreshScope LastRefreshScope { get; private set; }
 
-        public void BeginActivity() => events.Add("activity-start");
-
-        public void BeginRefreshSuppression(PendingPackageRefreshScope scope)
+        internal void OnWorkflowChanged(
+            object sender,
+            PendingPackageWorkflowChangedEventArgs e)
         {
-            LastRefreshScope = scope;
-            events.Add("suppression-start");
-        }
-
-        public void EndRefreshSuppression()
-        {
-            events.Add("suppression-end");
-            if (EndRefreshSuppressionFailure != null)
+            switch (e)
             {
-                throw EndRefreshSuppressionFailure;
+                case PendingPackageActivityChangedEventArgs activityChanged:
+                    events.Add(activityChanged.IsActive ? "activity-start" : "activity-end");
+                    if (!activityChanged.IsActive && EndActivityFailure != null)
+                    {
+                        throw EndActivityFailure;
+                    }
+                    break;
+                case PendingPackageRefreshSuppressionChangedEventArgs suppressionChanged:
+                    if (suppressionChanged.IsSuppressed)
+                    {
+                        LastRefreshScope = suppressionChanged.Scope
+                            ?? throw new InvalidOperationException("Refresh suppression scope was not published.");
+                        events.Add("suppression-start");
+                    }
+                    else
+                    {
+                        events.Add("suppression-end");
+                        if (EndRefreshSuppressionFailure != null)
+                        {
+                            throw EndRefreshSuppressionFailure;
+                        }
+                    }
+                    break;
+                case PendingPackageMutationAppliedEventArgs mutationApplied:
+                    if (mutationApplied.ChangedCharts.Count > 0)
+                    {
+                        events.Add("transient");
+                    }
+                    if (mutationApplied.InstallDestinationStateChanged)
+                    {
+                        events.Add("invalidate");
+                    }
+                    if (mutationApplied.IdentitySortKeyChanged)
+                    {
+                        events.Add("identity-refresh");
+                    }
+                    if (mutationApplied.DisplayStateChanged)
+                    {
+                        events.Add("display-refresh");
+                    }
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(e), e, "Unsupported pending-package workflow change.");
             }
         }
-
-        public void EndActivity()
-        {
-            events.Add("activity-end");
-            if (EndActivityFailure != null)
-            {
-                throw EndActivityFailure;
-            }
-        }
-
-        public void UpdateTransientStates(IEnumerable<ChartFile> charts) => events.Add("transient");
-
-        public void InvalidateInstallDestinationSort() => events.Add("invalidate");
-
-        public void RefreshIdentitySortKey() => events.Add("identity-refresh");
-
-        public void RequestDisplayRefresh() => events.Add("display-refresh");
-
     }
 
     private sealed class RecordingPlayback : IPendingPackageMutationPlaybackPort

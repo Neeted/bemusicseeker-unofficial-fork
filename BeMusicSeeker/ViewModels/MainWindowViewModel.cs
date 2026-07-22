@@ -46,7 +46,7 @@ namespace BeMusicSeeker.ViewModels;
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort
+public partial class MainWindowViewModel : ViewModel, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -1559,60 +1559,71 @@ public partial class MainWindowViewModel : ViewModel, IPendingPackageMutationPre
         InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
     }
 
-    void IPendingPackageMutationPresentation.BeginActivity()
+    private void PendingPackageWorkflowChanged(
+        object sender,
+        PendingPackageWorkflowChangedEventArgs e)
     {
-        BeginChartPackageMutation();
-    }
-
-    void IPendingPackageMutationPresentation.BeginRefreshSuppression(
-        PendingPackageRefreshScope scope)
-    {
-        UiRefreshChannel refreshMask = scope switch
+        switch (e)
         {
-            PendingPackageRefreshScope.DestinationState =>
-                UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
-            PendingPackageRefreshScope.PackageMutation =>
-                UiRefreshChannel.LibraryMainView
-                | UiRefreshChannel.InstallTree
-                | UiRefreshChannel.LibraryFolderTree
-                | UiRefreshChannel.DuplicateTree,
-            _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "Unsupported install-destination refresh scope.")
-        };
-        BeginUiUpdateSuppression(refreshMask);
-    }
-
-    void IPendingPackageMutationPresentation.EndRefreshSuppression()
-    {
-        EndUiUpdateSuppression();
-    }
-
-    void IPendingPackageMutationPresentation.EndActivity()
-    {
-        EndChartPackageMutation();
-    }
-
-    void IPendingPackageMutationPresentation.UpdateTransientStates(IEnumerable<ChartFile> charts)
-    {
-        MainChartList.RowProjection.UpdateTransientStates(charts, forceInstallDestinationProjection: true);
-    }
-
-    void IPendingPackageMutationPresentation.InvalidateInstallDestinationSort()
-    {
-        InvalidateNormalLibrarySortDependency(
-            MainViewDataDependency.InstallDestination,
-            NormalLibraryInstallDestinationChangedReason);
-    }
-
-    void IPendingPackageMutationPresentation.RefreshIdentitySortKey()
-    {
-        RefreshLibraryMainViewForDataDependency(
-            MainViewDataDependency.IdentitySortKey,
-            NormalLibraryInstallDestinationChangedReason);
-    }
-
-    void IPendingPackageMutationPresentation.RequestDisplayRefresh()
-    {
-        MainChartList.RequestDisplayRefresh();
+            case PendingPackageActivityChangedEventArgs activityChanged:
+                if (activityChanged.IsActive)
+                {
+                    BeginChartPackageMutation();
+                }
+                else
+                {
+                    EndChartPackageMutation();
+                }
+                break;
+            case PendingPackageRefreshSuppressionChangedEventArgs suppressionChanged:
+                if (!suppressionChanged.IsSuppressed)
+                {
+                    EndUiUpdateSuppression();
+                    break;
+                }
+                UiRefreshChannel refreshMask = suppressionChanged.Scope switch
+                {
+                    PendingPackageRefreshScope.DestinationState =>
+                        UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
+                    PendingPackageRefreshScope.PackageMutation =>
+                        UiRefreshChannel.LibraryMainView
+                        | UiRefreshChannel.InstallTree
+                        | UiRefreshChannel.LibraryFolderTree
+                        | UiRefreshChannel.DuplicateTree,
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(suppressionChanged.Scope),
+                        suppressionChanged.Scope,
+                        "Unsupported install-destination refresh scope.")
+                };
+                BeginUiUpdateSuppression(refreshMask);
+                break;
+            case PendingPackageMutationAppliedEventArgs mutationApplied:
+                if (mutationApplied.ChangedCharts.Count > 0)
+                {
+                    MainChartList.RowProjection.UpdateTransientStates(
+                        mutationApplied.ChangedCharts,
+                        forceInstallDestinationProjection: true);
+                }
+                if (mutationApplied.InstallDestinationStateChanged)
+                {
+                    InvalidateNormalLibrarySortDependency(
+                        MainViewDataDependency.InstallDestination,
+                        NormalLibraryInstallDestinationChangedReason);
+                }
+                if (mutationApplied.IdentitySortKeyChanged)
+                {
+                    RefreshLibraryMainViewForDataDependency(
+                        MainViewDataDependency.IdentitySortKey,
+                        NormalLibraryInstallDestinationChangedReason);
+                }
+                if (mutationApplied.DisplayStateChanged)
+                {
+                    MainChartList.RequestDisplayRefresh();
+                }
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(e), e, "Unsupported pending-package workflow change.");
+        }
     }
 
     private void RunChartPackageMutation(
@@ -2573,12 +2584,11 @@ public partial class MainWindowViewModel : ViewModel, IPendingPackageMutationPre
             chartFileOperations,
             LogMainViewBuild,
             DispatchMainChartListAction,
-            LogMainViewBuildWarning,
-            ExecutePackageInstallMutation,
-            DispatchPackageInstallUi,
-            () => files,
-            this,
-            new UiDialogCoordinator(),
+             LogMainViewBuildWarning,
+             ExecutePackageInstallMutation,
+             DispatchPackageInstallUi,
+             () => files,
+             new UiDialogCoordinator(),
             ReportPackageInstallWorkflowNotificationFailure,
             (library, progress, cancellationToken) => library.RescanAllOwnedChartMaintenance(progress, cancellationToken),
             action => Task.Run(action),
@@ -2662,6 +2672,7 @@ public partial class MainWindowViewModel : ViewModel, IPendingPackageMutationPre
         Lr2SongDbSyncWorkflow = childComposition.Lr2SongDbSyncWorkflow;
         RankingCacheDownloadWorkflow = childComposition.RankingCacheDownloadWorkflow;
         PendingPackages = childComposition.PendingPackageWorkflow;
+        PendingPackages.WorkflowChanged += PendingPackageWorkflowChanged;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => ShellShutdownWorkflow?.IsShutdownRequested == true,

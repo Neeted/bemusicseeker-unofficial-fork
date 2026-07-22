@@ -3044,8 +3044,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("private void InvalidateNormalLibrarySortKeys(string reason)"));
         StringAssert.Contains(viewModelCode, "regularChartListOwner.InvalidateIdentitySortKeys(clearSourceRows)");
         StringAssert.Contains(viewModelCode, "regularChartListOwner.InvalidateSortCacheByDependency(dependency");
-        StringAssert.Contains(installDestinationOwnerCode, "presentation.InvalidateInstallDestinationSort()");
-        StringAssert.Contains(viewModelCode, "void IPendingPackageMutationPresentation.InvalidateInstallDestinationSort()");
+        StringAssert.Contains(installDestinationOwnerCode, "PublishMutationApplied(");
+        StringAssert.Contains(viewModelCode, "mutationApplied.InstallDestinationStateChanged");
         StringAssert.Contains(viewModelCode, "MainViewDataDependency.InstallDestination");
         StringAssert.Contains(viewModelCode, "InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance");
         StringAssert.Contains(viewModelCode, "InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning");
@@ -3475,6 +3475,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(ownerCode, "store.DeletePendingPackageSources(");
         StringAssert.Contains(ownerCode, "store.RenamePendingZeroNoteCharts(");
         StringAssert.Contains(ownerCode, "store.OverwriteInstalledOnlyPendingPackageResources(");
+        StringAssert.Contains(viewModelCode, "PendingPackages.WorkflowChanged += PendingPackageWorkflowChanged;");
+        Assert.IsFalse(ownerCode.Contains("IPendingPackageMutationPresentation"));
+        Assert.IsFalse(ownerCode.Contains("pendingPackagePresentation"));
+        Assert.IsFalse(ownerCode.Contains("presentation."));
+        Assert.IsFalse(viewModelCode.Contains("IPendingPackageMutationPresentation"));
+        Assert.IsFalse(viewModelCode.Contains("pendingPackagePresentation"));
     }
 
     [TestMethod]

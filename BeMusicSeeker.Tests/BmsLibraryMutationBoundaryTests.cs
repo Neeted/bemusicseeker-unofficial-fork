@@ -128,7 +128,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(executeInstallMethod, "PendingPackageRefreshScope.PackageMutation");
         StringAssert.Contains(installDestinationBoundary, "BeginOperationDialogScope()");
         StringAssert.Contains(installDestinationBoundary, "operationGate = chartFileOperations.Enter()");
-        StringAssert.Contains(installDestinationBoundary, "presentation.BeginRefreshSuppression(refreshScope)");
+        StringAssert.Contains(installDestinationBoundary, "PublishRefreshSuppressionChanged(isSuppressed: true");
         StringAssert.Contains(installDestinationBoundary, "CaptureCleanupFailure(dialogScope.Flush, failures)");
         StringAssert.Contains(installDestinationBoundary, "ThrowFailures(failures)");
         StringAssert.Contains(repairInstallDestinationMethod, "Execute(library =>");

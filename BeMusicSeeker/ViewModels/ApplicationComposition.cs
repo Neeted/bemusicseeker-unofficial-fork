@@ -320,7 +320,6 @@ internal sealed class ApplicationComposition
         Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
         Action<Action> dispatchPackageInstallUi,
         Func<BMSLibrary> installDestinationLibraryProvider,
-        IPendingPackageMutationPresentation pendingPackagePresentation,
         IUiDialogService installDestinationDialogService,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
         Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
@@ -381,7 +380,6 @@ internal sealed class ApplicationComposition
             installPackageBatch,
             dispatchPackageInstallUi,
             installDestinationLibraryProvider,
-            pendingPackagePresentation,
             installDestinationDialogService,
             installDestinationSettingsProvider,
             reportPackageInstallWorkflowNotificationFailure,
@@ -572,7 +570,6 @@ internal sealed class MainWindowChildComposition
         Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
         Action<Action> dispatchPackageInstallUi,
         Func<BMSLibrary> installDestinationLibraryProvider,
-        IPendingPackageMutationPresentation pendingPackagePresentation,
         IUiDialogService installDestinationDialogService,
         Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
@@ -643,7 +640,6 @@ internal sealed class MainWindowChildComposition
         PendingPackageWorkflow = new PendingPackageWorkflowOwner(
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
             chartFileOperations,
-            pendingPackagePresentation ?? throw new ArgumentNullException(nameof(pendingPackagePresentation)),
             PlaybackPanel,
             installDestinationDialogService ?? throw new ArgumentNullException(nameof(installDestinationDialogService)),
             installDestinationSettingsProvider ?? throw new ArgumentNullException(nameof(installDestinationSettingsProvider)));

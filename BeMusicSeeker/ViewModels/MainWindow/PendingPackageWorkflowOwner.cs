@@ -18,6 +18,58 @@ internal enum PendingPackageRefreshScope
     PackageMutation
 }
 
+internal abstract class PendingPackageWorkflowChangedEventArgs : EventArgs
+{
+}
+
+internal sealed class PendingPackageActivityChangedEventArgs : PendingPackageWorkflowChangedEventArgs
+{
+    internal PendingPackageActivityChangedEventArgs(bool isActive)
+    {
+        IsActive = isActive;
+    }
+
+    internal bool IsActive { get; }
+}
+
+internal sealed class PendingPackageRefreshSuppressionChangedEventArgs : PendingPackageWorkflowChangedEventArgs
+{
+    internal PendingPackageRefreshSuppressionChangedEventArgs(
+        bool isSuppressed,
+        PendingPackageRefreshScope? scope)
+    {
+        IsSuppressed = isSuppressed;
+        Scope = scope;
+    }
+
+    internal bool IsSuppressed { get; }
+
+    internal PendingPackageRefreshScope? Scope { get; }
+}
+
+internal sealed class PendingPackageMutationAppliedEventArgs : PendingPackageWorkflowChangedEventArgs
+{
+    internal PendingPackageMutationAppliedEventArgs(
+        IEnumerable<ChartFile> changedCharts = null,
+        bool installDestinationStateChanged = false,
+        bool identitySortKeyChanged = false,
+        bool displayStateChanged = false)
+    {
+        ChangedCharts = Array.AsReadOnly(changedCharts?.ToArray() ?? Array.Empty<ChartFile>());
+        InstallDestinationStateChanged = installDestinationStateChanged;
+        IdentitySortKeyChanged = identitySortKeyChanged;
+        DisplayStateChanged = displayStateChanged;
+    }
+
+    internal IReadOnlyList<ChartFile> ChangedCharts { get; }
+
+    internal bool InstallDestinationStateChanged { get; }
+
+    internal bool IdentitySortKeyChanged { get; }
+
+    internal bool DisplayStateChanged { get; }
+}
+
 internal sealed class PendingPackageMutationResult
 {
     private PendingPackageMutationResult(bool succeeded, Exception failure, bool shouldApplyView)
@@ -52,25 +104,6 @@ internal sealed class PendingPackageMutationResult
             failure ?? throw new ArgumentNullException(nameof(failure)),
             true);
     }
-}
-
-internal interface IPendingPackageMutationPresentation
-{
-    void BeginActivity();
-
-    void BeginRefreshSuppression(PendingPackageRefreshScope scope);
-
-    void EndRefreshSuppression();
-
-    void EndActivity();
-
-    void UpdateTransientStates(IEnumerable<ChartFile> charts);
-
-    void InvalidateInstallDestinationSort();
-
-    void RefreshIdentitySortKey();
-
-    void RequestDisplayRefresh();
 }
 
 internal interface IPendingPackageMutationPlaybackPort
@@ -158,7 +191,6 @@ internal sealed class PendingPackageWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
-    private readonly IPendingPackageMutationPresentation presentation;
     private readonly IPendingPackageMutationPlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly IPendingPackageStore store;
@@ -166,10 +198,11 @@ internal sealed class PendingPackageWorkflowOwner
     private readonly Func<string, ExplorerOpenResult> explorerOpener;
     private readonly Func<string, ExplorerOpenResult> fileExplorerOpener;
 
+    internal event EventHandler<PendingPackageWorkflowChangedEventArgs> WorkflowChanged;
+
     internal PendingPackageWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
-        IPendingPackageMutationPresentation presentation,
         IPendingPackageMutationPlaybackPort playback,
         IUiDialogService dialogs,
         Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
@@ -179,7 +212,6 @@ internal sealed class PendingPackageWorkflowOwner
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
-        this.presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
@@ -280,8 +312,9 @@ internal sealed class PendingPackageWorkflowOwner
         return RunSearchAsync(kind, () =>
         {
             Execute(library => store.SearchPackages(library, kind, packageSnapshot));
-            presentation.InvalidateInstallDestinationSort();
-            presentation.RefreshIdentitySortKey();
+            PublishMutationApplied(
+                installDestinationStateChanged: true,
+                identitySortKeyChanged: true);
         });
     }
 
@@ -297,10 +330,11 @@ internal sealed class PendingPackageWorkflowOwner
             Execute(library =>
             {
                 IReadOnlyList<ChartFile> changedCharts = store.SearchPending(library, request);
-                presentation.UpdateTransientStates(changedCharts);
+                PublishChangedCharts(changedCharts);
             });
-            presentation.InvalidateInstallDestinationSort();
-            presentation.RefreshIdentitySortKey();
+            PublishMutationApplied(
+                installDestinationStateChanged: true,
+                identitySortKeyChanged: true);
         });
     }
 
@@ -316,9 +350,9 @@ internal sealed class PendingPackageWorkflowOwner
             Execute(library =>
             {
                 IReadOnlyList<ChartFile> changedCharts = store.ClearPackages(packageSnapshot);
-                presentation.UpdateTransientStates(changedCharts);
+                PublishChangedCharts(changedCharts);
             }, requiresLibrary: false);
-            presentation.InvalidateInstallDestinationSort();
+            PublishMutationApplied(installDestinationStateChanged: true);
         });
     }
 
@@ -334,10 +368,10 @@ internal sealed class PendingPackageWorkflowOwner
             if (Execute(library =>
             {
                 IReadOnlyList<ChartFile> changedCharts = store.ClearPending(library, request);
-                presentation.UpdateTransientStates(changedCharts);
+                PublishChangedCharts(changedCharts);
             }))
             {
-                presentation.InvalidateInstallDestinationSort();
+                PublishMutationApplied(installDestinationStateChanged: true);
             }
         });
     }
@@ -352,8 +386,8 @@ internal sealed class PendingPackageWorkflowOwner
         return Task.Run(() => Execute(library =>
         {
             IReadOnlyList<ChartFile> changedCharts = store.SearchCorrect(library, request);
-            presentation.UpdateTransientStates(changedCharts);
-            presentation.InvalidateInstallDestinationSort();
+            PublishChangedCharts(changedCharts);
+            PublishMutationApplied(installDestinationStateChanged: true);
         }));
     }
 
@@ -369,10 +403,10 @@ internal sealed class PendingPackageWorkflowOwner
             if (Execute(library =>
             {
                 IReadOnlyList<ChartFile> changedCharts = store.ClearCorrect(library, request);
-                presentation.UpdateTransientStates(changedCharts);
+                PublishChangedCharts(changedCharts);
             }))
             {
-                presentation.InvalidateInstallDestinationSort();
+                PublishMutationApplied(installDestinationStateChanged: true);
             }
         });
     }
@@ -391,10 +425,11 @@ internal sealed class PendingPackageWorkflowOwner
             Execute(library => changedChart = store.SetPending(library, request, destinationDirectory));
             if (changedChart != null)
             {
-                presentation.UpdateTransientStates([changedChart]);
-                presentation.InvalidateInstallDestinationSort();
+                PublishChangedCharts([changedChart]);
             }
-            presentation.RequestDisplayRefresh();
+            PublishMutationApplied(
+                installDestinationStateChanged: changedChart != null,
+                displayStateChanged: true);
         });
     }
 
@@ -1061,14 +1096,14 @@ internal sealed class PendingPackageWorkflowOwner
         {
             dialogScope = library?.BeginOperationDialogScope();
             activityStarted = true;
-            presentation.BeginActivity();
+            PublishActivityChanged(isActive: true);
             operationGate = chartFileOperations.Enter();
             if (playbackTargets != null)
             {
                 playback.StopIfPlayingCharts(playbackTargets);
             }
             suppressionStarted = true;
-            presentation.BeginRefreshSuppression(refreshScope);
+            PublishRefreshSuppressionChanged(isSuppressed: true, refreshScope);
             mutation(library);
         }
         catch (Exception ex)
@@ -1079,7 +1114,9 @@ internal sealed class PendingPackageWorkflowOwner
         {
             if (suppressionStarted)
             {
-                CaptureCleanupFailure(presentation.EndRefreshSuppression, failures);
+                CaptureCleanupFailure(
+                    () => PublishRefreshSuppressionChanged(isSuppressed: false, refreshScope: null),
+                    failures);
             }
             if (operationGate != null)
             {
@@ -1087,7 +1124,9 @@ internal sealed class PendingPackageWorkflowOwner
             }
             if (activityStarted)
             {
-                CaptureCleanupFailure(presentation.EndActivity, failures);
+                CaptureCleanupFailure(
+                    () => PublishActivityChanged(isActive: false),
+                    failures);
             }
             if (dialogScope != null)
             {
@@ -1097,6 +1136,42 @@ internal sealed class PendingPackageWorkflowOwner
         }
         ThrowFailures(failures);
         return true;
+    }
+
+    private void PublishActivityChanged(bool isActive)
+    {
+        WorkflowChanged?.Invoke(
+            this,
+            new PendingPackageActivityChangedEventArgs(isActive));
+    }
+
+    private void PublishRefreshSuppressionChanged(
+        bool isSuppressed,
+        PendingPackageRefreshScope? refreshScope)
+    {
+        WorkflowChanged?.Invoke(
+            this,
+            new PendingPackageRefreshSuppressionChangedEventArgs(isSuppressed, refreshScope));
+    }
+
+    private void PublishChangedCharts(IEnumerable<ChartFile> changedCharts)
+    {
+        PublishMutationApplied(changedCharts: changedCharts);
+    }
+
+    private void PublishMutationApplied(
+        IEnumerable<ChartFile> changedCharts = null,
+        bool installDestinationStateChanged = false,
+        bool identitySortKeyChanged = false,
+        bool displayStateChanged = false)
+    {
+        WorkflowChanged?.Invoke(
+            this,
+            new PendingPackageMutationAppliedEventArgs(
+                changedCharts,
+                installDestinationStateChanged,
+                identitySortKeyChanged,
+                displayStateChanged));
     }
 
     private T Read<T>(Func<BMSLibrary, T> operation)
