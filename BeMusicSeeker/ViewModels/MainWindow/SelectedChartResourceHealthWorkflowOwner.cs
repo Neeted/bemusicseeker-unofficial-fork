@@ -9,11 +9,6 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal interface ISelectedChartResourceHealthRefreshPort
-{
-    void RefreshAfterRescan();
-}
-
 internal interface ISelectedChartResourceHealthStore
 {
     MaintenanceWorkflowResult RescanResourceHealthCharts(
@@ -59,18 +54,17 @@ internal sealed class SelectedChartResourceHealthWorkflowResult
 internal sealed class SelectedChartResourceHealthWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
-    private readonly ISelectedChartResourceHealthRefreshPort refresh;
     private readonly IUiDialogService dialogs;
     private readonly ISelectedChartResourceHealthStore store;
 
+    internal event EventHandler RescanCompleted;
+
     internal SelectedChartResourceHealthWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
-        ISelectedChartResourceHealthRefreshPort refresh,
         IUiDialogService dialogs,
         ISelectedChartResourceHealthStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
-        this.refresh = refresh ?? throw new ArgumentNullException(nameof(refresh));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.store = store ?? new BmsLibrarySelectedChartResourceHealthStore();
     }
@@ -99,7 +93,7 @@ internal sealed class SelectedChartResourceHealthWorkflowOwner
                 return SelectedChartResourceHealthWorkflowResult.CanceledByLibrary;
             }
 
-            refresh.RefreshAfterRescan();
+            RescanCompleted?.Invoke(this, EventArgs.Empty);
             return SelectedChartResourceHealthWorkflowResult.Completed;
         }
         catch (Exception ex)

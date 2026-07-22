@@ -17,19 +17,24 @@ namespace BeMusicSeeker.Tests;
 public sealed class SelectedChartResourceHealthWorkflowOwnerTests
 {
     [TestMethod]
-    public async Task RescanAsync_UsesStoreAndRefreshesAfterCompletion()
+    public async Task RescanAsync_UsesStoreAndPublishesCompletionAfterSuccess()
     {
         var store = new RecordingStore();
-        var refresh = new RecordingRefreshPort();
         var dialogs = new RecordingDialogService();
-        SelectedChartResourceHealthWorkflowOwner owner = CreateOwner(store, refresh, dialogs);
+        SelectedChartResourceHealthWorkflowOwner owner = CreateOwner(store, dialogs);
+        int completionCalls = 0;
+        owner.RescanCompleted += (_, _) =>
+        {
+            Assert.AreEqual(1, store.RescanCalls);
+            completionCalls++;
+        };
         ChartResourceHealthRequest request = CreateRequest();
 
         SelectedChartResourceHealthWorkflowResult result = await owner.RescanAsync(request);
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(1, store.RescanCalls);
-        Assert.AreEqual(1, refresh.RefreshCalls);
+        Assert.AreEqual(1, completionCalls);
         Assert.AreEqual(0, dialogs.MessageCalls);
     }
 
@@ -37,12 +42,13 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
     public async Task RescanAsync_WhenLibraryBlocksMutation_ShowsWarningWithoutRefresh()
     {
         var store = new RecordingStore { RescanResult = new MaintenanceWorkflowResult { Canceled = true } };
-        var refresh = new RecordingRefreshPort();
         var dialogs = new RecordingDialogService
         {
             MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
         };
-        SelectedChartResourceHealthWorkflowOwner owner = CreateOwner(store, refresh, dialogs);
+        SelectedChartResourceHealthWorkflowOwner owner = CreateOwner(store, dialogs);
+        int completionCalls = 0;
+        owner.RescanCompleted += (_, _) => completionCalls++;
 
         SelectedChartResourceHealthWorkflowResult result = await owner.RescanAsync(CreateRequest());
 
@@ -50,7 +56,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         Assert.IsTrue(result.Canceled);
         Assert.IsNull(result.Failure);
         Assert.AreEqual(1, store.RescanCalls);
-        Assert.AreEqual(0, refresh.RefreshCalls);
+        Assert.AreEqual(0, completionCalls);
         Assert.AreEqual(1, dialogs.MessageCalls);
         StringAssert.Contains(dialogs.LastMessage, BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning);
     }
@@ -59,19 +65,36 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
     public async Task RescanAsync_WhenBlockedWarningCannotBeShown_ReturnsFailure()
     {
         var store = new RecordingStore { RescanResult = new MaintenanceWorkflowResult { Canceled = true } };
-        var refresh = new RecordingRefreshPort();
         var dialogs = new RecordingDialogService
         {
             MessageResult = UiDialogResult.Failed(new InvalidOperationException("dialog unavailable"))
         };
-        SelectedChartResourceHealthWorkflowOwner owner = CreateOwner(store, refresh, dialogs);
+        SelectedChartResourceHealthWorkflowOwner owner = CreateOwner(store, dialogs);
+        int completionCalls = 0;
+        owner.RescanCompleted += (_, _) => completionCalls++;
 
         SelectedChartResourceHealthWorkflowResult result = await owner.RescanAsync(CreateRequest());
 
         Assert.IsFalse(result.Succeeded);
         Assert.IsFalse(result.Canceled);
         Assert.IsNotNull(result.Failure);
-        Assert.AreEqual(0, refresh.RefreshCalls);
+        Assert.AreEqual(0, completionCalls);
+    }
+
+    [TestMethod]
+    public async Task RescanAsync_WhenCompletionObserverFails_ReturnsFailure()
+    {
+        var store = new RecordingStore();
+        var failure = new InvalidOperationException("resource health presentation failed");
+        SelectedChartResourceHealthWorkflowOwner owner = CreateOwner(store, new RecordingDialogService());
+        owner.RescanCompleted += (_, _) => throw failure;
+
+        SelectedChartResourceHealthWorkflowResult result = await owner.RescanAsync(CreateRequest());
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsFalse(result.Canceled);
+        Assert.AreSame(failure, result.Failure);
+        Assert.AreEqual(1, store.RescanCalls);
     }
 
     [TestMethod]
@@ -80,7 +103,6 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         var store = new RecordingStore();
         SelectedChartResourceHealthWorkflowOwner owner = CreateOwner(
             store,
-            new RecordingRefreshPort(),
             new RecordingDialogService());
 
         SelectedChartResourceHealthWorkflowResult ignored = owner.SetWarningsIgnored(CreateRequest());
@@ -100,12 +122,10 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
 
     private static SelectedChartResourceHealthWorkflowOwner CreateOwner(
         RecordingStore store,
-        RecordingRefreshPort refresh,
         RecordingDialogService dialogs)
     {
         return new SelectedChartResourceHealthWorkflowOwner(
             () => (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary)),
-            refresh,
             dialogs,
             store);
     }
@@ -144,13 +164,6 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
             null,
             file,
             null);
-    }
-
-    private sealed class RecordingRefreshPort : ISelectedChartResourceHealthRefreshPort
-    {
-        internal int RefreshCalls { get; private set; }
-
-        public void RefreshAfterRescan() => RefreshCalls++;
     }
 
     private sealed class RecordingStore : ISelectedChartResourceHealthStore

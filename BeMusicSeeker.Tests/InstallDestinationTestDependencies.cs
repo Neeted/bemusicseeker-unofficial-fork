@@ -110,10 +110,3 @@ internal sealed class NoOpSelectedChartMutationRefreshPort : ISelectedChartMutat
     {
     }
 }
-
-internal sealed class NoOpSelectedChartResourceHealthRefreshPort : ISelectedChartResourceHealthRefreshPort
-{
-    public void RefreshAfterRescan()
-    {
-    }
-}

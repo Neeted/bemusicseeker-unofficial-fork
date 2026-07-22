@@ -6277,7 +6277,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string lr2FolderPath = Path.Combine(tableDirectory, "0000.lr2folder");
             File.WriteAllText(lr2FolderPath, "#TITLE Normal Output", Encoding.GetEncoding("shift_jis"));
             Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
-            var library = new BMSLibrary(scope.SongDbPath)
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = outputBase,
+                LR2CustomFolderAdditionalOutputBaseDirs = [],
+                LR2CustomFolderOutputBaseDirRootType = string.Empty
+            };
+            var library = new BMSLibrary(scope.SongDbPath, null, null, null, () => options)
             {
                 SearchTargets = [bmsRoot],
                 BMSFiles = []
@@ -6286,13 +6293,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 work().GetAwaiter().GetResult();
                 return true;
-            };
-            var options = new BmsLibraryOptionsSnapshot
-            {
-                OperationModeLR2DB = true,
-                LR2CustomFolderOutputBaseDir = outputBase,
-                LR2CustomFolderAdditionalOutputBaseDirs = [],
-                LR2CustomFolderOutputBaseDirRootType = string.Empty
             };
             InvokeCaptureLr2SongDbSyncScanSurface(library, options, [bmsRoot], new SongTableFileCheckResult
             {

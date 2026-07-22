@@ -46,7 +46,7 @@ namespace BeMusicSeeker.ViewModels;
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort, ISelectedChartResourceHealthRefreshPort
+public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -1556,14 +1556,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
     }
 
-    void ISelectedChartResourceHealthRefreshPort.RefreshAfterRescan()
-    {
-        RefreshResourceHealthViewsAfterMaintenanceChanged(
-            "maintenance_hydration_completed",
-            "maintenance_changed",
-            invalidateSortDependency: false);
-    }
-
     void IPendingPackageMutationPresentation.BeginActivity()
     {
         BeginChartPackageMutation();
@@ -2610,7 +2602,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             selectedChartMutationRefresh: this,
             selectedChartMutationDialogService: new UiDialogCoordinator(),
             selectedChartMutationLibraryProvider: () => files,
-            selectedChartResourceHealthRefresh: this,
             selectedChartResourceHealthDialogService: new UiDialogCoordinator(),
             selectedChartResourceHealthLibraryProvider: () => files,
             maintenanceRescanDialogService: new UiDialogCoordinator(),
@@ -2662,6 +2653,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         SelectedChartMutations = childComposition.SelectedChartMutations;
         SelectedChartExternalActions = childComposition.SelectedChartExternalActions;
         SelectedChartResourceHealth = childComposition.SelectedChartResourceHealth;
+        SelectedChartResourceHealth.RescanCompleted += SelectedChartResourceHealthRescanCompleted;
         ChartInfoParseFailureRemoval = childComposition.ChartInfoParseFailureRemoval;
         SelectedChartAudioConversion = childComposition.SelectedChartAudioConversion;
         Lr2SongDbSyncWorkflow = childComposition.Lr2SongDbSyncWorkflow;
@@ -5108,6 +5100,14 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     }
 
     private void MaintenanceRescanWorkflowCompletionPublished(MaintenanceRescanCompletionReceipt receipt)
+    {
+        RefreshResourceHealthViewsAfterMaintenanceChanged(
+            "maintenance_hydration_completed",
+            "maintenance_changed",
+            invalidateSortDependency: false);
+    }
+
+    private void SelectedChartResourceHealthRescanCompleted(object sender, EventArgs e)
     {
         RefreshResourceHealthViewsAfterMaintenanceChanged(
             "maintenance_hydration_completed",

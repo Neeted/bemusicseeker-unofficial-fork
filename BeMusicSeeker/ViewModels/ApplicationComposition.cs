@@ -349,7 +349,6 @@ internal sealed class ApplicationComposition
         ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
         IUiDialogService selectedChartMutationDialogService = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
-        ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
         IUiDialogService selectedChartResourceHealthDialogService = null,
         Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
         IUiDialogService maintenanceRescanDialogService = null,
@@ -413,7 +412,6 @@ internal sealed class ApplicationComposition
             selectedChartMutationRefresh,
             selectedChartMutationDialogService,
             selectedChartMutationLibraryProvider,
-            selectedChartResourceHealthRefresh,
             selectedChartResourceHealthDialogService,
             selectedChartResourceHealthLibraryProvider,
             maintenanceRescanDialogService,
@@ -606,7 +604,6 @@ internal sealed class MainWindowChildComposition
         ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
         IUiDialogService selectedChartMutationDialogService = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
-        ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
         IUiDialogService selectedChartResourceHealthDialogService = null,
         Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
         IUiDialogService maintenanceRescanDialogService = null,
@@ -733,7 +730,6 @@ internal sealed class MainWindowChildComposition
             selectedChartExternalActionUrlLauncher ?? LaunchExternalUrl);
         SelectedChartResourceHealth = new SelectedChartResourceHealthWorkflowOwner(
             selectedChartResourceHealthLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthLibraryProvider)),
-            selectedChartResourceHealthRefresh ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthRefresh)),
             selectedChartResourceHealthDialogService ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthDialogService)));
         ChartInfoParseFailureRemoval = new ChartInfoParseFailureRemovalWorkflowOwner(
             chartInfoParseFailureRemovalLibraryProvider ?? throw new ArgumentNullException(nameof(chartInfoParseFailureRemovalLibraryProvider)),

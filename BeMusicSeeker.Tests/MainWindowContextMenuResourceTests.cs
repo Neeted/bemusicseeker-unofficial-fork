@@ -2916,8 +2916,11 @@ public sealed class MainWindowContextMenuResourceTests
         string maintenanceCompletionHandler = ExtractMethodBody(
             rootViewModelCode,
             "private void MaintenanceRescanWorkflowCompletionPublished(MaintenanceRescanCompletionReceipt receipt)");
-        StringAssert.Contains(resourceHealthOwnerCode, "ISelectedChartResourceHealthRefreshPort");
-        StringAssert.Contains(resourceHealthOwnerCode, "refresh.RefreshAfterRescan()");
+        StringAssert.Contains(resourceHealthOwnerCode, "internal event EventHandler RescanCompleted;");
+        StringAssert.Contains(resourceHealthOwnerCode, "RescanCompleted?.Invoke(this, EventArgs.Empty);");
+        StringAssert.Contains(rootViewModelCode, "SelectedChartResourceHealth.RescanCompleted += SelectedChartResourceHealthRescanCompleted;");
+        Assert.IsFalse(rootViewModelCode.Contains("ISelectedChartResourceHealthRefreshPort"));
+        Assert.IsFalse(rootViewModelCode.Contains("selectedChartResourceHealthRefresh"));
         Assert.IsFalse(rootViewModelCode.Contains("ForceResourceHealthCheckCharts("));
         Assert.IsFalse(rootViewModelCode.Contains("SetChartResourceWarningsIgnored("));
         StringAssert.Contains(maintenanceCompletionHandler, "RefreshResourceHealthViewsAfterMaintenanceChanged");
