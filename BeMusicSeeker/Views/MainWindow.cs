@@ -6267,16 +6267,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary);
+        e.Handled = true;
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        if (ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request)
-            && viewModel.FolderAutoRenameWorkflow?.IsActive != true)
-        {
-            viewModel.FolderAutoRenameWorkflow.StartSelected(request);
-        }
-        e.Handled = true;
+        viewModel.FolderAutoRenameWorkflow.RequestStartSelected(targets);
     }
 
     private async void tableContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)

@@ -23,7 +23,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            ChartFolderAutoRenameRequest request = CreateSelectedRequest();
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             ChartFolderAutoRenameRequest observedRequest = null!;
             var events = new List<string>();
             var completion = new ManualResetEventSlim(false);
@@ -71,14 +71,14 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 }
             };
 
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)));
             Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
             CollectionAssert.AreEqual(
                 new[] { "initial", "progress", "terminal", "completion", "terminal-published" },
                 events.ToArray());
             Assert.IsNotNull(receipt);
-            Assert.AreSame(request, observedRequest);
+            Assert.AreSame(targets[0].Chart, observedRequest.Charts[0]);
             Assert.IsFalse(receipt.AllFolders);
             Assert.IsTrue(receipt.RefreshRequired);
         }
@@ -308,7 +308,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            ChartFolderAutoRenameRequest request = CreateSelectedRequest();
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var notifications = new Queue<Action>();
             int completionCount = 0;
             var owner = new FolderAutoRenameWorkflowOwner(
@@ -331,15 +331,15 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.CompletionPublished += _ => Interlocked.Increment(ref completionCount);
 
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(owner.IsActive);
-            Assert.IsFalse(owner.StartSelected(request));
+            Assert.IsFalse(owner.RequestStartSelected(targets));
 
             DrainNotifications(notifications);
 
             Assert.IsTrue(owner.IsIdle);
             Assert.AreEqual(1, completionCount);
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             DrainNotifications(notifications);
             Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
             Assert.AreEqual(2, completionCount);
@@ -359,7 +359,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            ChartFolderAutoRenameRequest request = CreateSelectedRequest();
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var started = new ManualResetEventSlim(false);
             var completed = new ManualResetEventSlim(false);
             var owner = new FolderAutoRenameWorkflowOwner(
@@ -377,9 +377,9 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.CompletionPublished += _ => completed.Set();
 
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
-            Assert.IsFalse(owner.StartSelected(request));
+            Assert.IsFalse(owner.RequestStartSelected(targets));
             release.Set();
             Assert.IsTrue(completed.Wait(TimeSpan.FromSeconds(5)));
             Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
@@ -405,7 +405,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         {
             BMSLibrary first = CreateLibrary(firstRoot, "song.db");
             BMSLibrary second = CreateLibrary(secondRoot, "song.db");
-            ChartFolderAutoRenameRequest request = CreateSelectedRequest();
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var firstStarted = new ManualResetEventSlim(false);
             var secondStarted = new ManualResetEventSlim(false);
             var completion = new ManualResetEventSlim(false);
@@ -436,14 +436,14 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 completion.Set();
             };
 
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)));
             owner.AttachLibrary(second);
             releaseFirst.Set();
             Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
             Assert.AreEqual(0, completionCount);
 
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(secondStarted.Wait(TimeSpan.FromSeconds(5)));
             Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(1, completionCount);
@@ -471,7 +471,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         {
             BMSLibrary first = CreateLibrary(firstRoot, "song.db");
             BMSLibrary second = CreateLibrary(secondRoot, "song.db");
-            ChartFolderAutoRenameRequest request = CreateSelectedRequest();
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             int resetCount = 0;
             var owner = new FolderAutoRenameWorkflowOwner(
                 (current, selectedRequest, progress) =>
@@ -503,7 +503,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             };
             owner.AttachLibrary(first);
 
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)));
             owner.AttachLibrary(second);
             releaseFirst.Set();
@@ -529,7 +529,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            ChartFolderAutoRenameRequest request = CreateSelectedRequest();
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var started = new ManualResetEventSlim(false);
             var owner = new FolderAutoRenameWorkflowOwner(
                 (current, selectedRequest, progress) =>
@@ -545,10 +545,10 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
 
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
             owner.RequestShutdown();
-            Assert.IsFalse(owner.StartSelected(request));
+            Assert.IsFalse(owner.RequestStartSelected(targets));
             release.Set();
             Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
         }
@@ -567,7 +567,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            ChartFolderAutoRenameRequest request = CreateSelectedRequest();
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var failure = new ManualResetEventSlim(false);
             Exception observed = null!;
             var owner = new FolderAutoRenameWorkflowOwner(
@@ -585,7 +585,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.FailurePublished += _ => failure.Set();
 
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(failure.IsSet);
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
             Assert.IsTrue(owner.IsIdle);
@@ -604,7 +604,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            ChartFolderAutoRenameRequest request = CreateSelectedRequest();
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             int workflowFailures = 0;
             int notificationFailures = 0;
             var owner = new FolderAutoRenameWorkflowOwner(
@@ -618,7 +618,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
 
-            Assert.IsTrue(owner.StartSelected(request));
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(owner.IsIdle);
             Assert.AreEqual(1, workflowFailures);
             Assert.IsTrue(notificationFailures > 0);
@@ -646,7 +646,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         return new BMSLibrary(path, null, null, string.Empty);
     }
 
-    private static ChartFolderAutoRenameRequest CreateSelectedRequest()
+    private static IReadOnlyList<ChartOperationTarget> CreateSelectedTargets()
     {
         var bmsFile = new TestableBmsFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         {
@@ -661,8 +661,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             isPending: false,
             isPlaylistMissing: false,
             ChartOperationCapabilities.MoveInLibrary);
-        Assert.IsTrue(ChartFolderAutoRenameRequest.TryCreate([target], out ChartFolderAutoRenameRequest request));
-        return request;
+        return [target];
     }
 
     private static void DeleteRoot(string root)

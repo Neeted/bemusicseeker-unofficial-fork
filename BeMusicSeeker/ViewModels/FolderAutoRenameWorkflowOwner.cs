@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -166,9 +167,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
     }
 
-    internal bool StartSelected(ChartFolderAutoRenameRequest request)
+    internal bool RequestStartSelected(IReadOnlyList<ChartOperationTarget> targets)
     {
-        if (request?.HasTargets != true)
+        if (!ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request))
         {
             return false;
         }

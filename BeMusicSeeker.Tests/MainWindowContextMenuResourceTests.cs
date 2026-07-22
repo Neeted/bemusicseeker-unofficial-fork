@@ -2589,13 +2589,15 @@ public sealed class MainWindowContextMenuResourceTests
             "private void RegularChartListOwnerNormalLibraryRefreshApplied");
 
         StringAssert.Contains(autoRenameClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
-        StringAssert.Contains(autoRenameClick, "ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request)");
-        StringAssert.Contains(autoRenameClick, "viewModel.FolderAutoRenameWorkflow.StartSelected(request);");
+        StringAssert.Contains(autoRenameClick, "viewModel.FolderAutoRenameWorkflow.RequestStartSelected(targets);");
         Assert.IsFalse(autoRenameClick.Contains("Task.Run"));
         Assert.IsFalse(autoRenameClick.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(autoRenameClick.Contains("targetSnapshot"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
+        Assert.IsFalse(autoRenameClick.Contains("ChartFolderAutoRenameRequest.TryCreate"));
+        Assert.IsFalse(autoRenameClick.Contains("FolderAutoRenameWorkflow.IsActive"));
+        Assert.IsFalse(autoRenameClick.Contains("FolderAutoRenameWorkflow.StartSelected"));
         StringAssert.Contains(autoRenameAllClick, "await viewModel.FolderAutoRenameWorkflow");
         StringAssert.Contains(autoRenameAllClick, "RequestStartAllAsync(path)");
         StringAssert.Contains(autoRenameAllClick, "e.Handled = true;");
