@@ -30,7 +30,7 @@ public sealed class LibraryChartRowSortEngineTests
         LibraryChartRow regularLevel12 = CreateLibraryChartRow("z_regular_12.bms", "Regular12", level: 12);
         LibraryChartRow regularLevel3 = CreateLibraryChartRow("m_regular_3.bms", "Regular3", level: 3);
         List<LibraryChartRow> source = [regularLevel12, regularLevel3];
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Level),
             Direction = ListSortDirection.Ascending
@@ -56,7 +56,7 @@ public sealed class LibraryChartRowSortEngineTests
         LibraryChartRow folder10 = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder10");
         LibraryChartRow folder2 = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder2");
 
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Folder),
             Direction = ListSortDirection.Ascending
@@ -78,7 +78,7 @@ public sealed class LibraryChartRowSortEngineTests
         LibraryChartRow folder10 = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder10");
         LibraryChartRow folder2 = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder2");
 
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Folder),
             Direction = ListSortDirection.Ascending
@@ -100,7 +100,7 @@ public sealed class LibraryChartRowSortEngineTests
         LibraryChartRow row1 = CreateLibraryChartRow("b.bms", "bbb", level: 1);
         LibraryChartRow row2 = CreateLibraryChartRow("a.bms", "AAA", level: 1);
 
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Title),
             Direction = ListSortDirection.Ascending
@@ -118,7 +118,7 @@ public sealed class LibraryChartRowSortEngineTests
     {
         LibraryChartRow title10 = CreateLibraryChartRow("z_item10.bms", "item10", level: 1);
         LibraryChartRow title2 = CreateLibraryChartRow("a_item2.bms", "item2", level: 1);
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Title),
             Direction = ListSortDirection.Ascending
@@ -139,7 +139,7 @@ public sealed class LibraryChartRowSortEngineTests
     {
         LibraryChartRow title10 = CreateLibraryChartRow("z_item10.bms", "item10", level: 1);
         LibraryChartRow title2 = CreateLibraryChartRow("a_item2.bms", "item2", level: 1);
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Title),
             Direction = ListSortDirection.Ascending
@@ -716,7 +716,7 @@ public sealed class LibraryChartRowSortEngineTests
     {
         LibraryChartRow level12 = CreateLibraryChartRow("z_level12.bms", "Level12", level: 12);
         LibraryChartRow level3 = CreateLibraryChartRow("a_level3.bms", "Level3", level: 3);
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Level),
             Direction = ListSortDirection.Ascending
@@ -734,7 +734,7 @@ public sealed class LibraryChartRowSortEngineTests
     {
         LibraryChartRow folder10 = CreateLibraryChartRow("z_folder10.bms", "Z", level: 1, folder: "folder10");
         LibraryChartRow folder2 = CreateLibraryChartRow("a_folder2.bms", "A", level: 1, folder: "folder2");
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Folder),
             Direction = ListSortDirection.Ascending
@@ -789,12 +789,12 @@ public sealed class LibraryChartRowSortEngineTests
             new PlaylistSummaryRow { PlaylistId = 3, Name = "C", TotalCharts = 20 }
         ];
 
-        var asc = new MainWindowViewModel.cSortParameters
+        var asc = new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistSummaryRow.TotalCharts),
             Direction = ListSortDirection.Ascending
         };
-        var desc = new MainWindowViewModel.cSortParameters
+        var desc = new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistSummaryRow.TotalCharts),
             Direction = ListSortDirection.Descending
@@ -820,7 +820,7 @@ public sealed class LibraryChartRowSortEngineTests
             new PlaylistSummaryRow { PlaylistId = 3, Name = "C", FolderName = "folder-c" }
         ];
 
-        var sort = new MainWindowViewModel.cSortParameters
+        var sort = new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistSummaryRow.FolderName),
             Direction = ListSortDirection.Ascending
@@ -839,12 +839,12 @@ public sealed class LibraryChartRowSortEngineTests
         PlaylistDetailSourceRow hardAaa = CreatePlaylistDetailSourceRow("z_hard_aaa.bms", "Hard AAA", ClearType.HARD, RankType.AAA);
         PlaylistDetailSourceRow easyAa = CreatePlaylistDetailSourceRow("a_easy_aa.bms", "Easy AA", ClearType.EASY, RankType.AA);
 
-        var clearSort = new MainWindowViewModel.cSortParameters
+        var clearSort = new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.clear),
             Direction = ListSortDirection.Ascending
         };
-        var rankSort = new MainWindowViewModel.cSortParameters
+        var rankSort = new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.rank),
             Direction = ListSortDirection.Ascending
@@ -899,7 +899,7 @@ public sealed class LibraryChartRowSortEngineTests
         LibraryChartRow easy = CreateLibraryChartRow("a_easy.bms", "Easy", 1, clear: ClearType.EASY);
         LibraryChartRow failed = CreateLibraryChartRow("b_failed.bms", "Failed", 1, clear: ClearType.FAILED);
 
-        var clearSort = new MainWindowViewModel.cSortParameters
+        var clearSort = new ChartListSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.clear),
             Direction = ListSortDirection.Ascending
@@ -947,7 +947,7 @@ public sealed class LibraryChartRowSortEngineTests
 
     private static void AssertTypedSort(string columnName, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
     {
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = columnName,
             Direction = ListSortDirection.Ascending
@@ -961,7 +961,7 @@ public sealed class LibraryChartRowSortEngineTests
 
     private static void AssertLibraryChartSort(string columnName, ListSortDirection direction, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
     {
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = columnName,
             Direction = direction
@@ -1094,7 +1094,7 @@ public sealed class LibraryChartRowSortEngineTests
         public int? karinotes { get; set; }
     }
 
-    private static ChartListSortSpecification ToSortSpecification(MainWindowViewModel.cSortParameters sort)
+    private static ChartListSortSpecification ToSortSpecification(ChartListSortParameters sort)
     {
         return ChartListSortSpecification.Create(
             sort?.ColumnsName,

@@ -35,7 +35,7 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailSourceRow zetaRow = CreateSourceRow("11111111111111111111111111111111", "Zeta", 7);
         PlaylistDetailSourceRow alphaRow = CreateSourceRow("22222222222222222222222222222222", "Alpha", 7);
         var sourceRows = new PlaylistDetailSourceRow[] { zetaRow, alphaRow };
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
@@ -72,7 +72,7 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailSourceRow alphaRow = CreateSourceRow("22222222222222222222222222222222", "Alpha", 5);
         PlaylistDetailSourceRow bravoRow = CreateSourceRow("33333333333333333333333333333333", "Bravo", 7, memo: "target");
         var sourceRows = new PlaylistDetailSourceRow[] { zetaRow, alphaRow, bravoRow };
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
@@ -644,7 +644,7 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailSourceRow zetaRow = CreateSourceRow("11111111111111111111111111111111", "Zeta", 7);
         PlaylistDetailSourceRow alphaRow = CreateSourceRow("22222222222222222222222222222222", "Alpha", 7);
         var sourceRows = new PlaylistDetailSourceRow[] { zetaRow, alphaRow };
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
@@ -685,7 +685,7 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailSourceRow matchedRow = CreateSourceRow("33333333333333333333333333333333", "Matched", 7, memo: "special memo");
         PlaylistDetailSourceRow filteredRow = CreateSourceRow("44444444444444444444444444444444", "Filtered", 7, comment: "ordinary");
         var sourceRows = new PlaylistDetailSourceRow[] { matchedRow, filteredRow };
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
@@ -732,7 +732,7 @@ public sealed class PlaylistViewPipelineTests
             sourceRows,
             keywordFilter: "title:Matched memo:special md5:333333 sha256:abab",
             modeFilter: ChartModeFilter.All,
-            sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
+            sortParameters: new ChartListSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
             out string _,
             out int keywordCount,
             out int modeCount,
@@ -756,7 +756,7 @@ public sealed class PlaylistViewPipelineTests
             [matchedRow],
             keywordFilter: "unknown:Matched",
             modeFilter: ChartModeFilter.All,
-            sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
+            sortParameters: new ChartListSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
             out string _,
             out int keywordCount,
             out int modeCount,
@@ -792,7 +792,7 @@ public sealed class PlaylistViewPipelineTests
             [matchedRow, filteredRow],
             keywordFilter: "memo:\"special memo\" -comment:ordinary md5:333333|555555 sha256:abab|efef title:re:^matched",
             modeFilter: ChartModeFilter.All,
-            sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
+            sortParameters: new ChartListSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
             out string _,
             out int keywordCount,
             out int modeCount,
@@ -813,7 +813,7 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailSourceRow sevenKeysRow = CreateSourceRow("55555555555555555555555555555555", "SevenKeys", 7);
         PlaylistDetailSourceRow fourteenKeysRow = CreateSourceRow("66666666666666666666666666666666", "FourteenKeys", 14);
         var sourceRows = new PlaylistDetailSourceRow[] { sevenKeysRow, fourteenKeysRow };
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
@@ -844,7 +844,7 @@ public sealed class PlaylistViewPipelineTests
     {
         PlaylistDetailSourceRow alphaRow = CreateSourceRow("77777777777777777777777777777777", "Alpha", 7);
         var sourceRows = new PlaylistDetailSourceRow[] { alphaRow };
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
@@ -888,7 +888,7 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailSourceRow entryLevelTwelve = CreateSourceRow("88888888888888888888888888888888", "Twelve", 7, entryLevel: 12);
         PlaylistDetailSourceRow entryLevelTwoPointFive = CreateSourceRow("99999999999999999999999999999999", "TwoPointFive", 7, entryLevel: 2.5);
         PlaylistDetailSourceRow entryLevelThree = CreateSourceRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Three", 7, entryLevel: 3);
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.Level),
             Direction = ListSortDirection.Ascending
@@ -916,7 +916,7 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_NormalizesKeywordAndFolderForDedup()
     {
         var table = new BMSTable();
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
@@ -963,12 +963,12 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistIdentity_KeywordModeAndSortOnlyChangePresentationIdentity()
     {
         var table = new BMSTable();
-        var titleAscending = new MainWindowViewModel.cSortParameters
+        var titleAscending = new ChartListSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
         };
-        var titleDescending = new MainWindowViewModel.cSortParameters
+        var titleDescending = new ChartListSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Descending
@@ -3922,7 +3922,7 @@ public sealed class PlaylistViewPipelineTests
             [highNotesRow, lowNotesRow],
             keywordFilter: "notes:>=2000 feature:random level:12",
             modeFilter: ChartModeFilter.All,
-            sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(PlaylistDetailRow.ChartNotes), Direction = ListSortDirection.Descending },
+            sortParameters: new ChartListSortParameters { ColumnsName = nameof(PlaylistDetailRow.ChartNotes), Direction = ListSortDirection.Descending },
             out string _,
             out int keywordCount,
             out int modeCount,

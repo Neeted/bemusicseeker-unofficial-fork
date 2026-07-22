@@ -1840,7 +1840,7 @@ public sealed class PlayHistoryReadModelTests
 
         bool unknown = PlayHistorySortEngine.TrySort(
             projected.Rows,
-            new MainWindowViewModel.cSortParameters { ColumnsName = "LibraryChartRowOnlyColumn", Direction = ListSortDirection.Ascending },
+            new ChartListSortParameters { ColumnsName = "LibraryChartRowOnlyColumn", Direction = ListSortDirection.Ascending },
             out _,
             out string unknownProfile);
 
@@ -1852,6 +1852,7 @@ public sealed class PlayHistoryReadModelTests
     public void MainChartListSortRequest_KeepsPlayHistorySortSeparateFromMainSort()
     {
         var viewModel = new MainWindowViewModel();
+        var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
@@ -1860,14 +1861,15 @@ public sealed class PlayHistoryReadModelTests
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
         viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
         Assert.IsTrue(SpinWait.SpinUntil(
-            () => viewModel.SortParameters?.ColumnsName == nameof(BMSFile.Title),
+            () => regularOwner.CaptureSortParameters()?.ColumnsName == nameof(BMSFile.Title),
             TimeSpan.FromSeconds(5)));
 
-        Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
-        Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
-        Assert.IsNull(viewModel.PlayHistorySortParameters);
-        Assert.AreEqual(viewModel.SortParameters.ColumnsName, viewModel.MainChartList.SortParameters.ColumnsName);
-        Assert.AreEqual(viewModel.SortParameters.Direction, viewModel.MainChartList.SortParameters.Direction);
+        ChartListSortParameters regularSort = regularOwner.CaptureSortParameters();
+        Assert.AreEqual(nameof(BMSFile.Title), regularSort.ColumnsName);
+        Assert.AreEqual(ListSortDirection.Ascending, regularSort.Direction);
+        Assert.IsNull(viewModel.PlayHistory.CaptureSortParameters(out _));
+        Assert.AreEqual(regularSort.ColumnsName, viewModel.MainChartList.SortParameters.ColumnsName);
+        Assert.AreEqual(regularSort.Direction, viewModel.MainChartList.SortParameters.Direction);
 
         SetPrivateField(
             viewModel,
@@ -1877,21 +1879,23 @@ public sealed class PlayHistoryReadModelTests
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
         Assert.IsTrue(SpinWait.SpinUntil(
-            () => viewModel.PlayHistorySortParameters?.ColumnsName == nameof(PlayHistoryRow.PlayedAt),
+            () => viewModel.PlayHistory.CaptureSortParameters(out _)?.ColumnsName == nameof(PlayHistoryRow.PlayedAt),
             TimeSpan.FromSeconds(5)));
 
-        Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
-        Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
-        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
-        Assert.AreEqual(ListSortDirection.Descending, viewModel.PlayHistorySortParameters.Direction);
-        Assert.AreEqual(viewModel.PlayHistorySortParameters.ColumnsName, viewModel.MainChartList.SortParameters.ColumnsName);
-        Assert.AreEqual(viewModel.PlayHistorySortParameters.Direction, viewModel.MainChartList.SortParameters.Direction);
+        ChartListSortParameters playHistorySort = viewModel.PlayHistory.CaptureSortParameters(out _);
+        Assert.AreEqual(nameof(BMSFile.Title), regularOwner.CaptureSortParameters().ColumnsName);
+        Assert.AreEqual(ListSortDirection.Ascending, regularOwner.CaptureSortParameters().Direction);
+        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistorySort.ColumnsName);
+        Assert.AreEqual(ListSortDirection.Descending, playHistorySort.Direction);
+        Assert.AreEqual(playHistorySort.ColumnsName, viewModel.MainChartList.SortParameters.ColumnsName);
+        Assert.AreEqual(playHistorySort.Direction, viewModel.MainChartList.SortParameters.Direction);
     }
 
     [TestMethod]
     public void MainChartListSortRequest_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
     {
         var viewModel = new MainWindowViewModel();
+        var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
@@ -1901,12 +1905,13 @@ public sealed class PlayHistoryReadModelTests
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
         Assert.IsTrue(SpinWait.SpinUntil(
-            () => viewModel.PlayHistorySortParameters?.ColumnsName == nameof(PlayHistoryRow.PlayedAt),
+            () => viewModel.PlayHistory.CaptureSortParameters(out _)?.ColumnsName == nameof(PlayHistoryRow.PlayedAt),
             TimeSpan.FromSeconds(5)));
 
-        Assert.IsNull(viewModel.SortParameters);
-        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
-        Assert.AreEqual(ListSortDirection.Descending, viewModel.PlayHistorySortParameters.Direction);
+        ChartListSortParameters playHistorySort = viewModel.PlayHistory.CaptureSortParameters(out _);
+        Assert.IsNull(regularOwner.CaptureSortParameters());
+        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistorySort.ColumnsName);
+        Assert.AreEqual(ListSortDirection.Descending, playHistorySort.Direction);
         Assert.IsNull(viewModel.MainChartList.SortParameters);
 
         SetPrivateField(
@@ -1916,24 +1921,25 @@ public sealed class PlayHistoryReadModelTests
 
         viewModel.MainChartList.SetSortPresentation(
             new MainChartListSortPresentation(
-                viewModel.PlayHistorySortParameters.ColumnsName,
-                viewModel.PlayHistorySortParameters.Direction),
+                playHistorySort.ColumnsName,
+                playHistorySort.Direction),
             MainChartListSortTarget.Regular);
         viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
         viewModel.MainChartList.SetSortPresentation(
             new MainChartListSortPresentation(
-                viewModel.PlayHistorySortParameters.ColumnsName,
-                viewModel.PlayHistorySortParameters.Direction),
+                playHistorySort.ColumnsName,
+                playHistorySort.Direction),
             MainChartListSortTarget.PlayHistory);
         Assert.IsTrue(SpinWait.SpinUntil(
-            () => viewModel.SortParameters?.ColumnsName == nameof(BMSFile.Title),
+            () => regularOwner.CaptureSortParameters()?.ColumnsName == nameof(BMSFile.Title),
             TimeSpan.FromSeconds(5)));
 
-        Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
-        Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
-        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
-        Assert.AreEqual(viewModel.PlayHistorySortParameters.ColumnsName, viewModel.MainChartList.SortParameters.ColumnsName);
-        Assert.AreEqual(viewModel.PlayHistorySortParameters.Direction, viewModel.MainChartList.SortParameters.Direction);
+        ChartListSortParameters regularSort = regularOwner.CaptureSortParameters();
+        Assert.AreEqual(nameof(BMSFile.Title), regularSort.ColumnsName);
+        Assert.AreEqual(ListSortDirection.Ascending, regularSort.Direction);
+        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistorySort.ColumnsName);
+        Assert.AreEqual(playHistorySort.ColumnsName, viewModel.MainChartList.SortParameters.ColumnsName);
+        Assert.AreEqual(playHistorySort.Direction, viewModel.MainChartList.SortParameters.Direction);
     }
 
     [TestMethod]

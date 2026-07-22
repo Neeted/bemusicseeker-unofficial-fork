@@ -130,14 +130,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     public PlayHistoryWorkflowOwner PlayHistory { get; }
 
     /// <summary>
-    /// Compatibility name for callers compiled against the former nested sort contract.
-    /// New code uses the feature-owned <see cref="global::BeMusicSeeker.ViewModels.ChartListSortParameters"/>.
-    /// </summary>
-    public class cSortParameters : ChartListSortParameters
-    {
-    }
-
-    /// <summary>
     /// 起動・リロード進捗の対象 operation 種別です。
     /// </summary>
     internal enum StartupProgressOperationKind
@@ -2427,63 +2419,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             .Where(chart => chart != null)];
     }
 
-    public cSortParameters SortParameters =>
-        ToCompatibilitySortParameters(regularChartListOwner?.CaptureSortParameters());
-
-    public cSortParameters PlayHistorySortParameters
-    {
-        get
-        {
-            ChartListSortParameters value = playHistoryWorkflowOwner.CaptureSortParameters(out _);
-            return ToCompatibilitySortParameters(value);
-        }
-        private set
-        {
-            SetPlayHistorySortParameters(value);
-        }
-    }
-
-    private void SetPlayHistorySortParameters(ChartListSortParameters value)
-    {
-        bool changed = playHistoryWorkflowOwner.UpdateSortParameters(value);
-        if (changed)
-        {
-            RaisePropertyChanged("PlayHistorySortParameters");
-            if (CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory)
-            {
-                SyncMainChartListSortPresentation();
-            }
-        }
-    }
-
-    private static cSortParameters ToCompatibilitySortParameters(ChartListSortParameters value)
-    {
-        ChartListSortParameters clone = CloneSortParameters(value);
-        return clone == null
-            ? null
-            : new cSortParameters
-            {
-                ColumnsName = clone.ColumnsName,
-                Direction = clone.Direction
-            };
-    }
-
-    private static ChartListSortParameters CloneSortParameters(ChartListSortParameters value)
-    {
-        return value == null
-            ? null
-            : new ChartListSortParameters
-            {
-                ColumnsName = value.ColumnsName,
-                Direction = value.Direction
-            };
-    }
-
     private void SyncMainChartListSortPresentation()
     {
         bool isPlayHistory = CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory;
         ChartListSortParameters sortParameters = isPlayHistory
-            ? PlayHistorySortParameters
+            ? playHistoryWorkflowOwner.CaptureSortParameters(out _)
             : CaptureActiveMainViewSortParameters();
         MainChartList.SetSortPresentation(
             CreateMainChartListSortPresentation(sortParameters),
@@ -3324,7 +3264,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private void RegularChartListOwnerSortChanged(object sender, MainChartListSortRequestedEventArgs request)
     {
-        RaisePropertyChanged(nameof(SortParameters));
         if (CurrentMainViewOperationSection != MainViewOperationSection.PlayHistory && !IsPlaylistDetailWorkflowActive)
         {
             SyncMainChartListSortPresentation();
@@ -3333,7 +3272,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private void PlayHistorySortChanged(object sender, MainChartListSortRequestedEventArgs request)
     {
-        RaisePropertyChanged("PlayHistorySortParameters");
         if (CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory)
         {
             SyncMainChartListSortPresentation();
@@ -4911,7 +4849,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             filters);
         if (regularResult.WasCommitted && regularResult.SortWasReset)
         {
-            RaisePropertyChanged(nameof(SortParameters));
             if (CurrentMainViewOperationSection != MainViewOperationSection.PlayHistory)
             {
                 SyncMainChartListSortPresentation();

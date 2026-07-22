@@ -2883,6 +2883,7 @@ public sealed class ChartListVirtualViewTests
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
         var viewModel = new MainWindowViewModel();
+        RegularChartListOwner regularOwner = viewModel.RegularChartList;
         BMSFile zeta = CreateFile(Path.Combine(tempRootPath, "zeta.bms"), "Zeta", tempRootPath);
         BMSFile alpha = CreateFile(Path.Combine(tempRootPath, "alpha.bms"), "Alpha", tempRootPath, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var duplicateGroup = new DuplicateGroup(
@@ -2900,10 +2901,10 @@ public sealed class ChartListVirtualViewTests
             viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
             viewModel.MainChartList.RequestSort("UnsupportedColumn", ListSortDirection.Descending);
             Assert.IsTrue(SpinWait.SpinUntil(
-                () => viewModel.SortParameters == null && viewModel.MainChartList.Rows is ChartListVirtualView,
+                () => regularOwner.CaptureSortParameters() == null && viewModel.MainChartList.Rows is ChartListVirtualView,
                 TimeSpan.FromSeconds(5)));
 
-            Assert.IsNull(viewModel.SortParameters);
+            Assert.IsNull(regularOwner.CaptureSortParameters());
             var view = viewModel.MainChartList.Rows as ChartListVirtualView;
             Assert.IsNotNull(view);
             Assert.AreEqual(2, view.Count);
@@ -3347,7 +3348,7 @@ public sealed class ChartListVirtualViewTests
             sourceRows,
             order,
             MaterializeSourceRow);
-        var sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new ChartListSortParameters
         {
             ColumnsName = columnName,
             Direction = direction

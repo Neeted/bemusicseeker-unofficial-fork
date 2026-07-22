@@ -468,7 +468,7 @@ public sealed class PlaylistSummaryAggregationTests
             rows,
             "a",
             PlaylistOwnedFilter.OwnedIncomplete,
-            new MainWindowViewModel.cSortParameters
+            new ChartListSortParameters
             {
                 ColumnsName = nameof(PlaylistSummaryRow.Name),
                 Direction = System.ComponentModel.ListSortDirection.Ascending
@@ -510,7 +510,7 @@ public sealed class PlaylistSummaryAggregationTests
             rows,
             "name:alpha foldername:folderalpha prefix:A symbol:A header:header-alpha data:data-alpha",
             PlaylistOwnedFilter.All,
-            new MainWindowViewModel.cSortParameters
+            new ChartListSortParameters
             {
                 ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
                 Direction = System.ComponentModel.ListSortDirection.Ascending
@@ -538,7 +538,7 @@ public sealed class PlaylistSummaryAggregationTests
             rows,
             "md5:aaaaaaaa",
             PlaylistOwnedFilter.All,
-            new MainWindowViewModel.cSortParameters
+            new ChartListSortParameters
             {
                 ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
                 Direction = System.ComponentModel.ListSortDirection.Ascending
@@ -577,7 +577,7 @@ public sealed class PlaylistSummaryAggregationTests
             rows,
             "name:\"alpha pack\" symbol:A|C -id:20 name:re:^alpha",
             PlaylistOwnedFilter.All,
-            new MainWindowViewModel.cSortParameters
+            new ChartListSortParameters
             {
                 ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
                 Direction = System.ComponentModel.ListSortDirection.Ascending
