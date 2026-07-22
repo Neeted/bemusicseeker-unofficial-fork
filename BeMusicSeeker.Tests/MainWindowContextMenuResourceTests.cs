@@ -459,7 +459,7 @@ public sealed class MainWindowContextMenuResourceTests
             .ToString(SaveOptions.DisableFormatting);
 
         StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
-        StringAssert.Contains(summaryRow, "P0={Binding IsPlayHistoryViewActive}");
+        StringAssert.Contains(summaryRow, "P0={Binding PlayHistory.IsViewActive}");
         StringAssert.Contains(summaryRow, "P1={Binding PlaylistWorkspace.IsPlaylistSummaryMode}");
         StringAssert.Contains(summaryRow, "ItemsSource=\"{Binding PlayHistory.SummaryCards}\"");
         StringAssert.Contains(summaryRow, "Text=\"{Binding PlayHistory.SummaryDiagnosticText}\"");
@@ -472,6 +472,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding IsSelected}\" Value=\"True\">");
         StringAssert.Contains(summaryRow, "App.WarningTextBrush");
         StringAssert.Contains(viewModelCode, "DiagnosticText = diagnosticSummaryText");
+        StringAssert.Contains(playHistoryWorkflowCode, "public bool IsViewActive");
+        Assert.IsFalse(rootViewModelCode.Contains("IsPlayHistoryViewActive"));
+        StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.Deactivate(clearViewActivity: false);");
         StringAssert.Contains(viewExecutionCode, "ApplySortedRows(");
         Assert.IsFalse(viewModelCode.Contains("playHistoryWorkflowOwner.ApplySortedRows("));
         Assert.IsFalse(viewModelCode.Contains("playHistoryWorkflowOwner.ApplyTerminal("));
@@ -689,7 +692,7 @@ public sealed class MainWindowContextMenuResourceTests
         string saveSettings = ExtractBetween(viewModelCode, "public async Task SaveSettings()", "public async Task SaveSettingsForInitialInitialize()");
         string saveSettingsCore = ExtractBetween(viewModelCode, "private async Task SaveSettingsCore", "public void SaveOperationModeForRestart");
 
-        StringAssert.Contains(toolbar, "Visibility=\"{Binding IsPlayHistoryViewActive");
+        StringAssert.Contains(toolbar, "Visibility=\"{Binding PlayHistory.IsViewActive");
         StringAssert.Contains(toolbar, "ItemsSource=\"{Binding PlayHistory.DisplayTargets}\"");
         StringAssert.Contains(toolbar, "SelectedValue=\"{Binding PlayHistory.SelectedDisplayTargetIdentity, Mode=TwoWay}\"");
         StringAssert.Contains(toolbar, "SelectedValuePath=\"Identity\"");

@@ -3092,6 +3092,57 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void WorkflowOwner_PublishesViewActiveFromRequestLifecycle()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        List<bool> activeNotifications = [];
+        owner.PropertyChanged += (_, args) =>
+        {
+            if (string.Equals(args.PropertyName, nameof(PlayHistoryWorkflowOwner.IsViewActive), StringComparison.Ordinal))
+            {
+                activeNotifications.Add(owner.IsViewActive);
+            }
+        };
+
+        Assert.IsFalse(owner.IsViewActive);
+        PlayHistoryViewRequest first = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            string.Empty,
+            displayTargetRevision: 0);
+
+        Assert.IsTrue(owner.IsViewActive);
+        Assert.IsTrue(owner.IsCurrentRequest(first.RequestId));
+        Assert.AreEqual(1, activeNotifications.Count);
+        Assert.IsTrue(activeNotifications[0]);
+
+        owner.Deactivate(clearViewActivity: false);
+        Assert.IsTrue(owner.IsViewActive, "A data refresh may cancel the request while keeping the play-history shell selected.");
+        Assert.AreEqual(1, activeNotifications.Count);
+
+        owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            "reloaded",
+            string.Empty,
+            displayTargetRevision: 0);
+        Assert.IsTrue(owner.IsViewActive);
+        Assert.AreEqual(1, activeNotifications.Count, "Restoring a request in the selected view does not change activity.");
+
+        owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            "next",
+            string.Empty,
+            displayTargetRevision: 0);
+        Assert.AreEqual(1, activeNotifications.Count, "Replacing an active request keeps the owner active.");
+
+        owner.Deactivate();
+
+        Assert.IsFalse(owner.IsViewActive);
+        Assert.AreEqual(2, activeNotifications.Count);
+        Assert.IsFalse(activeNotifications[1]);
+    }
+
+    [TestMethod]
     public void WorkflowOwner_PeriodActivationFailureDoesNotLeaveRequestLifecycleActive()
     {
         var owner = new PlayHistoryWorkflowOwner();

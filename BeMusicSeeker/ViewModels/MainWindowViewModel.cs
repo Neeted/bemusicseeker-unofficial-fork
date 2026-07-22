@@ -2097,8 +2097,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     internal ChartOperationSourceScope CurrentMainViewChartOperationSourceScope => ResolveMainViewChartOperationSourceScope(CurrentMainViewOperationSection);
 
-    public bool IsPlayHistoryViewActive => CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory;
-
     internal static MainViewOperationSection ResolveMainViewOperationSection(MainViewUpdateMode mode)
     {
         return mode switch
@@ -2451,7 +2449,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         if (changed)
         {
             RaisePropertyChanged("PlayHistorySortParameters");
-            if (IsPlayHistoryViewActive)
+            if (CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory)
             {
                 SyncMainChartListSortPresentation();
             }
@@ -2483,7 +2481,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private void SyncMainChartListSortPresentation()
     {
-        bool isPlayHistory = IsPlayHistoryViewActive;
+        bool isPlayHistory = CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory;
         ChartListSortParameters sortParameters = isPlayHistory
             ? PlayHistorySortParameters
             : CaptureActiveMainViewSortParameters();
@@ -3252,12 +3250,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
         if (request.IsSummary)
         {
-            bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
+            MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
             SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
             PlayHistory.ClearSummaryPresentation();
-            if (wasPlayHistoryViewActive != IsPlayHistoryViewActive)
+            if (previousOperationSection != CurrentMainViewOperationSection)
             {
-                RaisePropertyChanged(() => IsPlayHistoryViewActive);
                 RaisePropertyChanged(() => CurrentMainViewOperationSection);
                 SyncMainChartListSortPresentation();
             }
@@ -3328,7 +3325,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private void RegularChartListOwnerSortChanged(object sender, MainChartListSortRequestedEventArgs request)
     {
         RaisePropertyChanged(nameof(SortParameters));
-        if (!IsPlayHistoryViewActive && !IsPlaylistDetailWorkflowActive)
+        if (CurrentMainViewOperationSection != MainViewOperationSection.PlayHistory && !IsPlaylistDetailWorkflowActive)
         {
             SyncMainChartListSortPresentation();
         }
@@ -3337,7 +3334,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private void PlayHistorySortChanged(object sender, MainChartListSortRequestedEventArgs request)
     {
         RaisePropertyChanged("PlayHistorySortParameters");
-        if (IsPlayHistoryViewActive)
+        if (CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory)
         {
             SyncMainChartListSortPresentation();
         }
@@ -3369,7 +3366,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
-            RaisePropertyChanged(() => IsPlayHistoryViewActive);
             SyncMainChartListSortPresentation();
         }
 
@@ -3384,8 +3380,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             : regularChartListOwner.IsCurrentSortRequest(request);
         if (isCurrent
             && (request.Target == MainChartListSortTarget.PlayHistory
-                ? IsPlayHistoryViewActive
-                : !IsPlayHistoryViewActive && !IsPlaylistDetailWorkflowActive))
+                ? CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory
+                : CurrentMainViewOperationSection != MainViewOperationSection.PlayHistory && !IsPlaylistDetailWorkflowActive))
         {
             RefreshChartRowsView(MainViewUpdateMode.SortUpdated, expectedSortTarget: request.Target);
         }
@@ -3719,7 +3715,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     internal void InvalidatePlayHistoryReadCache(string reason)
     {
-        playHistoryWorkflowOwner.Deactivate();
+        playHistoryWorkflowOwner.Deactivate(clearViewActivity: false);
         playHistoryWorkflowOwner.InvalidateReadCache();
         LogPlayHistoryEvent("play_history_read_cache_invalidated", "reason=" + (reason ?? string.Empty));
     }
@@ -4790,7 +4786,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         MainChartListSortTarget? expectedSortTarget = null)
     {
         if (expectedSortTarget.HasValue
-            && expectedSortTarget.Value != (IsPlayHistoryViewActive
+            && expectedSortTarget.Value != (CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory
                 ? MainChartListSortTarget.PlayHistory
                 : MainChartListSortTarget.Regular))
         {
@@ -4861,7 +4857,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
-            RaisePropertyChanged(() => IsPlayHistoryViewActive);
             SyncMainChartListSortPresentation();
         }
         ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(mode, requestedMode, treeViewFilterTypeSelected, files != null);
@@ -4917,7 +4912,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         if (regularResult.WasCommitted && regularResult.SortWasReset)
         {
             RaisePropertyChanged(nameof(SortParameters));
-            if (!IsPlayHistoryViewActive)
+            if (CurrentMainViewOperationSection != MainViewOperationSection.PlayHistory)
             {
                 SyncMainChartListSortPresentation();
             }

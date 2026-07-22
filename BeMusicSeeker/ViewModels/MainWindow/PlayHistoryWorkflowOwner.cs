@@ -23,6 +23,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
     private ListenerCommand<PlayHistorySummaryCard> toggleSummaryFilterCommand;
     private Func<bool> isViewRefreshShutdownRequested;
     private Action<PlayHistoryViewRequest> refreshView;
+    private bool isViewActive;
     internal PlayHistoryWorkflowOwner()
     {
         PresentationState.CurrentSortSnapshot = new SortSnapshot(null, null, revision: 0L);
@@ -127,6 +128,20 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
     public IReadOnlyList<PlayHistorySummaryCard> SummaryCards => PresentationState.SummaryCards;
 
     public string SummaryDiagnosticText => PresentationState.DiagnosticText;
+
+    /// <summary>
+    /// Gets whether the play-history view is selected in the shell.
+    /// </summary>
+    public bool IsViewActive
+    {
+        get
+        {
+            lock (PresentationState.SyncRoot)
+            {
+                return isViewActive;
+            }
+        }
+    }
 
     public ListenerCommand<PlayHistorySummaryCard> ToggleSummaryFilterCommand =>
         toggleSummaryFilterCommand ??= new ListenerCommand<PlayHistorySummaryCard>(ToggleSummaryFilterCard);
@@ -1440,9 +1455,12 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
     {
         CancellationTokenSource previousCancellation;
         PlayHistoryViewRequest request;
+        bool wasViewActive;
         lock (PresentationState.SyncRoot)
         {
+            wasViewActive = isViewActive;
             previousCancellation = InvalidateRequestUnsafe();
+            isViewActive = true;
             PresentationState.RequestCancellation = new CancellationTokenSource();
             PresentationState.CurrentKeywordIdentity = keywordIdentity ?? string.Empty;
             PresentationState.CurrentDisplayTargetIdentity = displayTargetIdentity ?? string.Empty;
@@ -1455,6 +1473,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
             ActiveRequest = request;
         }
         Cancel(previousCancellation);
+        if (!wasViewActive)
+        {
+            RaisePropertyChanged(nameof(IsViewActive));
+        }
         return request;
     }
 
@@ -2027,13 +2049,19 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         }
     }
 
-    internal void Deactivate(Action deactivateSelection = null)
+    internal void Deactivate(Action deactivateSelection = null, bool clearViewActivity = true)
     {
         CancellationTokenSource cancellation;
         ExceptionDispatchInfo deactivationException = null;
+        bool wasViewActive;
         lock (PresentationState.SyncRoot)
         {
+            wasViewActive = isViewActive && clearViewActivity;
             cancellation = InvalidateRequestUnsafe();
+            if (clearViewActivity)
+            {
+                isViewActive = false;
+            }
             try
             {
                 deactivateSelection?.Invoke();
@@ -2044,6 +2072,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
             }
         }
         Cancel(cancellation);
+        if (wasViewActive)
+        {
+            RaisePropertyChanged(nameof(IsViewActive));
+        }
         if (deactivationException != null)
         {
             deactivationException.Throw();
