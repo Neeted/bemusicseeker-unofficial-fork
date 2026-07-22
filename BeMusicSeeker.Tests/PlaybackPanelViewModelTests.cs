@@ -800,6 +800,27 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    public void PlaybackPanel_ImplementsMutationPlaybackPortsWithBmsFiltering()
+    {
+        string chartPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackPorts", "chart.bms");
+        var player = new FakeBmsPlayer();
+        PlaybackPanelViewModel panel = CreatePanel(player);
+
+        panel.BeginPlayback(new TestBmsFile(chartPath), 0);
+        ((IDuplicateMaintenancePlaybackPort)panel).StopPlaybackForCharts(
+            [CreatePlaybackTargetChart(ChartFileKind.Bmson, chartPath)]);
+        Assert.AreEqual(0, player.CloseProcessCount);
+
+        ((IDuplicateMaintenancePlaybackPort)panel).StopPlaybackForCharts(
+            [CreatePlaybackTargetChart(ChartFileKind.Bms, chartPath)]);
+        Assert.AreEqual(1, player.CloseProcessCount);
+
+        panel.BeginPlayback(new TestBmsFile(chartPath), 0);
+        ((ISelectedChartAudioConversionPlaybackPort)panel).StopPlayback();
+        Assert.AreEqual(2, player.CloseProcessCount);
+    }
+
+    [TestMethod]
     public void BmiIdxView_RegistersSuppliedExitHandlerForAutoAdvance()
     {
         string source = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "BMIIDXView2015.cs");
@@ -1058,6 +1079,27 @@ public sealed class PlaybackPanelViewModelTests
             new FakePlaybackDialogService(),
             _ => { },
             new ChartFileOperationSynchronizer());
+    }
+
+    private static ChartFile CreatePlaybackTargetChart(ChartFileKind kind, string path)
+    {
+        return new ChartFile(
+            kind,
+            path,
+            "playback-port-hash",
+            null,
+            "Title",
+            "Title",
+            "Artist",
+            "Genre",
+            "Folder",
+            string.Empty,
+            string.Empty,
+            null,
+            null,
+            null,
+            kind == ChartFileKind.Bms ? new BMSFile { path = path } : null,
+            null);
     }
 
     private static PlaybackPanelViewModel CreateTemporaryInstallPanel(

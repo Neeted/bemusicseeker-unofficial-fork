@@ -46,7 +46,7 @@ namespace BeMusicSeeker.ViewModels;
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, IDuplicateMaintenancePlaybackPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort, ISelectedChartMutationPlaybackPort, ISelectedChartResourceHealthRefreshPort, ISelectedChartAudioConversionPlaybackPort
+public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort, ISelectedChartResourceHealthRefreshPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -1504,16 +1504,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         EndChartPackageMutation();
     }
 
-    void IDuplicateMaintenancePlaybackPort.StopPlaybackForMerge()
-    {
-        PlaybackPanel.StopPlayback(closeProcess: true);
-    }
-
-    void IDuplicateMaintenancePlaybackPort.StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
-    {
-        PlaybackPanel.StopIfPlayingCharts(GetBmsFormatCharts(charts));
-    }
-
     void IDuplicateMaintenanceRefreshPort.BeginRefreshPriorityWindow(string reason)
     {
         PlaylistWorkspace.BeginDuplicateRefreshPriorityWindow(reason);
@@ -1564,26 +1554,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     void ISelectedChartMutationRefreshPort.ApplyEncodingRefresh()
     {
         InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
-    }
-
-    void ISelectedChartMutationPlaybackPort.StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts)
-    {
-        PlaybackPanel.StopIfPlayingCharts(charts);
-    }
-
-    void ISelectedChartMutationPlaybackPort.StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts)
-    {
-        PlaybackPanel.StopIfPlayingLibraryCharts(charts);
-    }
-
-    void ISelectedChartMutationPlaybackPort.StopPlaybackForChartDirectories(IReadOnlyList<string> directories)
-    {
-        PlaybackPanel.StopIfPlayingChartDirectories(directories);
-    }
-
-    void ISelectedChartAudioConversionPlaybackPort.StopPlayback()
-    {
-        PlaybackPanel.StopPlayback(closeProcess: true);
     }
 
     void ISelectedChartResourceHealthRefreshPort.RefreshAfterRescan()
@@ -1648,11 +1618,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     void IPendingPackageMutationPresentation.RequestDisplayRefresh()
     {
         MainChartList.RequestDisplayRefresh();
-    }
-
-    void IPendingPackageMutationPresentation.StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
-    {
-        PlaybackPanel.StopIfPlayingCharts(charts);
     }
 
     private void RunChartPackageMutation(
@@ -2638,13 +2603,11 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             packageCatalogPresentation: this,
             duplicateMaintenanceActivity: this,
             duplicateMaintenanceRefresh: this,
-            duplicateMaintenancePlayback: this,
             duplicateMaintenanceDialogService: new UiDialogCoordinator(),
             showDuplicateFileCheckConfirmProvider: () => ApplicationSettings.ShowDuplicateFileCheckConfirmMsg,
             duplicateMaintenanceLibraryProvider: () => files,
             selectedChartMutationActivity: this,
             selectedChartMutationRefresh: this,
-            selectedChartMutationPlayback: this,
             selectedChartMutationDialogService: new UiDialogCoordinator(),
             selectedChartMutationLibraryProvider: () => files,
             selectedChartResourceHealthRefresh: this,
@@ -2653,7 +2616,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             maintenanceRescanDialogService: new UiDialogCoordinator(),
             chartInfoParseFailureRemovalDialogService: new UiDialogCoordinator(),
             chartInfoParseFailureRemovalLibraryProvider: () => files,
-            selectedChartAudioConversionPlayback: this,
             selectedChartAudioConversionDialogService: new UiDialogCoordinator(),
             lr2SongDbSyncWorkflow: new Lr2SongDbSyncWorkflowOwner(
                 new BmsLr2SongDbSyncWorkflowRuntime(
@@ -4378,11 +4340,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             return;
         }
         RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-    }
-
-    private static List<ChartFile> GetBmsFormatCharts(IEnumerable<ChartFile> charts)
-    {
-        return [.. (charts ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
     /// <summary>

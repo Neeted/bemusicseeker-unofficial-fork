@@ -604,6 +604,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 () => library,
                 new ChartFileOperationSynchronizer(),
                 presentation,
+                new NoOpPendingPackageMutationPlaybackPort(),
                 AcceptedDialogs(),
                 DefaultSettings,
                 store);
@@ -666,6 +667,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 () => library,
                 new ChartFileOperationSynchronizer(),
                 presentation,
+                new NoOpPendingPackageMutationPlaybackPort(),
                 AcceptedDialogs(),
                 DefaultSettings,
                 store);
@@ -704,6 +706,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
         var store = new RecordingStore(events);
         var presentation = new RecordingPresentation(events);
+        var playback = new RecordingPlayback(events);
         var dialogs = new FakeUiDialogService
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
@@ -712,6 +715,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             presentation,
+            playback,
             dialogs,
             DefaultSettings,
             store);
@@ -733,7 +737,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             },
             events);
         Assert.AreEqual(PendingPackageRefreshScope.PackageMutation, presentation.LastRefreshScope);
-        Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
+        Assert.AreEqual(chart.Path, playback.StoppedCharts.Single().Path);
         Assert.IsTrue(store.ApprovedNormalInstallOverridePackages.Contains(package));
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride, dialogs.ConfirmationRequest!.MessageBoxText);
     }
@@ -786,6 +790,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             new RecordingPresentation(events),
+            new NoOpPendingPackageMutationPlaybackPort(),
             dialogs,
             () => new InstallDestinationWorkflowSettingsSnapshot(
                 showManualInstallConfirmation: true,
@@ -818,6 +823,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             new RecordingPresentation(events),
+            new NoOpPendingPackageMutationPlaybackPort(),
             dialogs,
             () => new InstallDestinationWorkflowSettingsSnapshot(
                 showManualInstallConfirmation: true,
@@ -849,6 +855,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             presentation,
+            new RecordingPlayback(events),
             AcceptedDialogs(),
             DefaultSettings,
             store);
@@ -986,6 +993,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             ]
         };
         var presentation = new RecordingPresentation(events);
+        var playback = new RecordingPlayback(events);
         var dialogs = new FakeUiDialogService();
         dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
         dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes));
@@ -993,6 +1001,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             presentation,
+            playback,
             dialogs,
             DefaultSettings,
             store);
@@ -1015,7 +1024,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             },
             events);
         Assert.AreEqual(PendingPackageRefreshScope.PackageMutation, presentation.LastRefreshScope);
-        Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
+        Assert.AreEqual(chart.Path, playback.StoppedCharts.Single().Path);
         CollectionAssert.AreEqual(
             new[] { chart.Path },
             store.ApprovedDuplicateRemovalChartPaths.ToArray());
@@ -1093,10 +1102,12 @@ public sealed class PendingPackageWorkflowOwnerTests
         ChartFile chart = CreateChart();
         var store = new RecordingStore(events) { PendingBmsFormatCharts = [chart] };
         var presentation = new RecordingPresentation(events);
+        var playback = new RecordingPlayback(events);
         var owner = new PendingPackageWorkflowOwner(
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             presentation,
+            playback,
             AcceptedDialogs(),
             DefaultSettings,
             store);
@@ -1115,7 +1126,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 "activity-end"
             },
             events);
-        Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
+        Assert.AreEqual(chart.Path, playback.StoppedCharts.Single().Path);
     }
 
     [TestMethod]
@@ -1138,10 +1149,12 @@ public sealed class PendingPackageWorkflowOwnerTests
         };
         var dialogs = AcceptedDialogs();
         var presentation = new RecordingPresentation(events);
+        var playback = new RecordingPlayback(events);
         var owner = new PendingPackageWorkflowOwner(
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             presentation,
+            playback,
             dialogs,
             DefaultSettings,
             store);
@@ -1160,7 +1173,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 "activity-end"
             },
             events);
-        Assert.AreEqual(chart.Path, presentation.StoppedCharts.Single().Path);
+        Assert.AreEqual(chart.Path, playback.StoppedCharts.Single().Path);
         StringAssert.Contains(dialogs.MessageRequest!.MessageBoxText, "1");
     }
 
@@ -1257,6 +1270,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             CreateLibrary,
             synchronizer,
             new RecordingPresentation(events),
+            new NoOpPendingPackageMutationPlaybackPort(),
             AcceptedDialogs(),
             DefaultSettings,
             store);
@@ -1299,6 +1313,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             libraryProvider,
             new ChartFileOperationSynchronizer(),
             new RecordingPresentation(events),
+            new RecordingPlayback(events),
             dialogs,
             DefaultSettings,
             store,
@@ -1381,8 +1396,6 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal PendingPackageRefreshScope LastRefreshScope { get; private set; }
 
-        internal IReadOnlyList<ChartFile> StoppedCharts { get; private set; } = [];
-
         public void BeginActivity() => events.Add("activity-start");
 
         public void BeginRefreshSuppression(PendingPackageRefreshScope scope)
@@ -1416,6 +1429,19 @@ public sealed class PendingPackageWorkflowOwnerTests
         public void RefreshIdentitySortKey() => events.Add("identity-refresh");
 
         public void RequestDisplayRefresh() => events.Add("display-refresh");
+
+    }
+
+    private sealed class RecordingPlayback : IPendingPackageMutationPlaybackPort
+    {
+        private readonly List<string> events;
+
+        internal RecordingPlayback(List<string> events)
+        {
+            this.events = events;
+        }
+
+        internal IReadOnlyList<ChartFile> StoppedCharts { get; private set; } = [];
 
         public void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
         {

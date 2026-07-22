@@ -342,13 +342,11 @@ internal sealed class ApplicationComposition
         IPackageCatalogMutationPresentation packageCatalogPresentation = null,
         IDuplicateMaintenanceActivityPort duplicateMaintenanceActivity = null,
         IDuplicateMaintenanceRefreshPort duplicateMaintenanceRefresh = null,
-        IDuplicateMaintenancePlaybackPort duplicateMaintenancePlayback = null,
         IUiDialogService duplicateMaintenanceDialogService = null,
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
         Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
         ISelectedChartMutationActivityPort selectedChartMutationActivity = null,
         ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
-        ISelectedChartMutationPlaybackPort selectedChartMutationPlayback = null,
         IUiDialogService selectedChartMutationDialogService = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
         ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
@@ -360,7 +358,6 @@ internal sealed class ApplicationComposition
         Func<Action, Task> chartInfoParseFailureRemovalScheduler = null,
         Func<SelectedChartAudioConversionSettingsSnapshot> selectedChartAudioConversionSettingsProvider = null,
         Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
-        ISelectedChartAudioConversionPlaybackPort selectedChartAudioConversionPlayback = null,
         IUiDialogService selectedChartAudioConversionDialogService = null,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
@@ -409,13 +406,11 @@ internal sealed class ApplicationComposition
             packageCatalogPresentation,
             duplicateMaintenanceActivity,
             duplicateMaintenanceRefresh,
-            duplicateMaintenancePlayback,
             duplicateMaintenanceDialogService,
             showDuplicateFileCheckConfirmProvider,
             duplicateMaintenanceLibraryProvider,
             selectedChartMutationActivity,
             selectedChartMutationRefresh,
-            selectedChartMutationPlayback,
             selectedChartMutationDialogService,
             selectedChartMutationLibraryProvider,
             selectedChartResourceHealthRefresh,
@@ -429,8 +424,6 @@ internal sealed class ApplicationComposition
                 ?? (() => SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(settingsEditSession.Values)),
             selectedChartAudioConversionEncoderFallback
                 ?? (encoder => settingsEditSession.Values.Encoder = encoder),
-            selectedChartAudioConversionPlayback
-                ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionPlayback)),
             selectedChartAudioConversionDialogService,
             selectedChartAudioConversionExecutor,
             lr2SongDbSyncWorkflow,
@@ -606,13 +599,11 @@ internal sealed class MainWindowChildComposition
         IPackageCatalogMutationPresentation packageCatalogPresentation = null,
         IDuplicateMaintenanceActivityPort duplicateMaintenanceActivity = null,
         IDuplicateMaintenanceRefreshPort duplicateMaintenanceRefresh = null,
-        IDuplicateMaintenancePlaybackPort duplicateMaintenancePlayback = null,
         IUiDialogService duplicateMaintenanceDialogService = null,
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
         Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
         ISelectedChartMutationActivityPort selectedChartMutationActivity = null,
         ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
-        ISelectedChartMutationPlaybackPort selectedChartMutationPlayback = null,
         IUiDialogService selectedChartMutationDialogService = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
         ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
@@ -624,7 +615,6 @@ internal sealed class MainWindowChildComposition
         Func<Action, Task> chartInfoParseFailureRemovalScheduler = null,
         Func<SelectedChartAudioConversionSettingsSnapshot> selectedChartAudioConversionSettingsProvider = null,
         Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
-        ISelectedChartAudioConversionPlaybackPort selectedChartAudioConversionPlayback = null,
         IUiDialogService selectedChartAudioConversionDialogService = null,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
@@ -660,6 +650,7 @@ internal sealed class MainWindowChildComposition
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
             chartFileOperations,
             pendingPackagePresentation ?? throw new ArgumentNullException(nameof(pendingPackagePresentation)),
+            PlaybackPanel,
             installDestinationDialogService ?? throw new ArgumentNullException(nameof(installDestinationDialogService)),
             installDestinationSettingsProvider ?? throw new ArgumentNullException(nameof(installDestinationSettingsProvider)));
         RegularChartListOwner = new RegularChartListOwner(
@@ -725,7 +716,7 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             duplicateMaintenanceActivity ?? throw new ArgumentNullException(nameof(duplicateMaintenanceActivity)),
             duplicateMaintenanceRefresh ?? throw new ArgumentNullException(nameof(duplicateMaintenanceRefresh)),
-            duplicateMaintenancePlayback ?? throw new ArgumentNullException(nameof(duplicateMaintenancePlayback)),
+            PlaybackPanel,
             duplicateMaintenanceDialogService ?? throw new ArgumentNullException(nameof(duplicateMaintenanceDialogService)),
             showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)));
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
@@ -733,7 +724,7 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             selectedChartMutationActivity ?? throw new ArgumentNullException(nameof(selectedChartMutationActivity)),
             selectedChartMutationRefresh ?? throw new ArgumentNullException(nameof(selectedChartMutationRefresh)),
-            selectedChartMutationPlayback ?? throw new ArgumentNullException(nameof(selectedChartMutationPlayback)),
+            PlaybackPanel,
             selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)));
         SelectedChartExternalActions = new SelectedChartExternalActionWorkflowOwner(
             selectedChartExternalActionFileExists ?? LongPathFileSystem.FileExists,
@@ -751,8 +742,7 @@ internal sealed class MainWindowChildComposition
         SelectedChartAudioConversion = new SelectedChartAudioConversionWorkflowOwner(
             selectedChartAudioConversionSettingsProvider ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionSettingsProvider)),
             selectedChartAudioConversionEncoderFallback ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionEncoderFallback)),
-            selectedChartAudioConversionPlayback
-                ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionPlayback)),
+            PlaybackPanel,
             selectedChartAudioConversionDialogService ?? new UiDialogCoordinator(),
             selectedChartAudioConversionExecutor);
         Lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow

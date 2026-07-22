@@ -3531,6 +3531,7 @@ public sealed class RegularChartListOwnerTests
               () => null!,
               new ChartFileOperationSynchronizer(),
               new TestInstallDestinationMutationPresentation(),
+              new NoOpPendingPackageMutationPlaybackPort(),
               new TestUiDialogService(),
               () => new InstallDestinationWorkflowSettingsSnapshot(
                   showManualInstallConfirmation: false,

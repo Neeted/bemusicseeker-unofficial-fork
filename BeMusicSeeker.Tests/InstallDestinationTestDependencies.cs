@@ -44,6 +44,10 @@ internal sealed class TestInstallDestinationMutationPresentation : IPendingPacka
     {
     }
 
+}
+
+internal sealed class NoOpPendingPackageMutationPlaybackPort : IPendingPackageMutationPlaybackPort
+{
     public void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
     {
     }
@@ -107,31 +111,9 @@ internal sealed class NoOpSelectedChartMutationRefreshPort : ISelectedChartMutat
     }
 }
 
-internal sealed class NoOpSelectedChartMutationPlaybackPort : ISelectedChartMutationPlaybackPort
-{
-    public void StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts)
-    {
-    }
-
-    public void StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts)
-    {
-    }
-
-    public void StopPlaybackForChartDirectories(IReadOnlyList<string> directories)
-    {
-    }
-}
-
 internal sealed class NoOpSelectedChartResourceHealthRefreshPort : ISelectedChartResourceHealthRefreshPort
 {
     public void RefreshAfterRescan()
-    {
-    }
-}
-
-internal sealed class NoOpSelectedChartAudioConversionPlaybackPort : ISelectedChartAudioConversionPlaybackPort
-{
-    public void StopPlayback()
     {
     }
 }

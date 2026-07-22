@@ -71,6 +71,10 @@ internal interface IPendingPackageMutationPresentation
     void RefreshIdentitySortKey();
 
     void RequestDisplayRefresh();
+}
+
+internal interface IPendingPackageMutationPlaybackPort
+{
 
     void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts);
 }
@@ -155,6 +159,7 @@ internal sealed class PendingPackageWorkflowOwner
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
     private readonly IPendingPackageMutationPresentation presentation;
+    private readonly IPendingPackageMutationPlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly IPendingPackageStore store;
     private readonly Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider;
@@ -165,6 +170,7 @@ internal sealed class PendingPackageWorkflowOwner
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
         IPendingPackageMutationPresentation presentation,
+        IPendingPackageMutationPlaybackPort playback,
         IUiDialogService dialogs,
         Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
         IPendingPackageStore store = null,
@@ -174,6 +180,7 @@ internal sealed class PendingPackageWorkflowOwner
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
+        this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.store = store ?? new BmsLibraryPendingPackageStore();
@@ -1058,7 +1065,7 @@ internal sealed class PendingPackageWorkflowOwner
             operationGate = chartFileOperations.Enter();
             if (playbackTargets != null)
             {
-                presentation.StopIfPlayingCharts(playbackTargets);
+                playback.StopIfPlayingCharts(playbackTargets);
             }
             suppressionStarted = true;
             presentation.BeginRefreshSuppression(refreshScope);

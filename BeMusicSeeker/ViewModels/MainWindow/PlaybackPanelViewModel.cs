@@ -14,7 +14,11 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>
 /// Owns the playback adapter and telemetry exposed by the playback panel.
 /// </summary>
-public sealed class PlaybackPanelViewModel : ViewModel
+public sealed class PlaybackPanelViewModel : ViewModel,
+    IDuplicateMaintenancePlaybackPort,
+    ISelectedChartMutationPlaybackPort,
+    IPendingPackageMutationPlaybackPort,
+    ISelectedChartAudioConversionPlaybackPort
 {
     private readonly IPlaybackUiDispatcher uiDispatcher;
 
@@ -154,6 +158,46 @@ public sealed class PlaybackPanelViewModel : ViewModel
             throw new InvalidOperationException("Playback library is already attached.");
         }
         this.library = library;
+    }
+
+    void IDuplicateMaintenancePlaybackPort.StopPlaybackForMerge()
+    {
+        StopPlayback(closeProcess: true);
+    }
+
+    void IDuplicateMaintenancePlaybackPort.StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
+    {
+        StopIfPlayingCharts(GetBmsFormatCharts(charts));
+    }
+
+    void ISelectedChartMutationPlaybackPort.StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts)
+    {
+        StopIfPlayingCharts(charts);
+    }
+
+    void ISelectedChartMutationPlaybackPort.StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts)
+    {
+        StopIfPlayingLibraryCharts(charts);
+    }
+
+    void ISelectedChartMutationPlaybackPort.StopPlaybackForChartDirectories(IReadOnlyList<string> directories)
+    {
+        StopIfPlayingChartDirectories(directories);
+    }
+
+    void IPendingPackageMutationPlaybackPort.StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
+    {
+        StopIfPlayingCharts(charts);
+    }
+
+    void ISelectedChartAudioConversionPlaybackPort.StopPlayback()
+    {
+        StopPlayback(closeProcess: true);
+    }
+
+    private static List<ChartFile> GetBmsFormatCharts(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
     internal event EventHandler PlaybackStarting;

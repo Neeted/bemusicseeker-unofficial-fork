@@ -693,16 +693,3 @@ internal sealed class NoOpDuplicateMaintenanceRefreshPort : IDuplicateMaintenanc
     {
     }
 }
-
-internal sealed class NoOpDuplicateMaintenancePlaybackPort : IDuplicateMaintenancePlaybackPort
-{
-
-    public void StopPlaybackForMerge()
-    {
-    }
-
-    public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
-    {
-    }
-
-}
