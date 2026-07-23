@@ -3306,6 +3306,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        PlaylistRootContextMenuAvailability availability =
+            mainWindowViewModel.PlaylistWorkspace.CapturePlaylistRootContextMenuAvailability();
         MenuItem menuItem = null;
         MenuItem menuItem2 = null;
         MenuItem menuItem3 = null;
@@ -3339,20 +3341,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem != null)
         {
-            menuItem.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanOpenPlaylistEditDialog;
+            menuItem.IsEnabled = availability.CanCreatePlaylist;
         }
         if (menuItem2 != null)
         {
-            menuItem2.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin;
+            menuItem2.IsEnabled = availability.CanLoadPlaylistUri;
         }
         if (menuItem3 != null)
         {
-            menuItem3.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin
-                && !mainWindowViewModel.PlaylistWorkspace.IsLoadingExternalCollectionBMSTables;
+            menuItem3.IsEnabled = availability.CanLoadPlaylistCollection;
         }
         if (menuItem4 != null)
         {
-            menuItem4.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin;
+            menuItem4.IsEnabled = availability.CanLoadBuiltInTables;
         }
     }
 
@@ -3399,7 +3400,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (base.DataContext is MainWindowViewModel viewModel
             && viewModel.PlaylistWorkspace != null
-            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin)
+            && viewModel.PlaylistWorkspace.CapturePlaylistRootContextMenuAvailability().CanLoadPlaylistUri)
         {
             ShowOverlayDialog(loadPlaylistURIDialog);
         }

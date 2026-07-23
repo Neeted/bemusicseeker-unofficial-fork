@@ -200,7 +200,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool IsWriteLockHeldBMSTablesInitializeMin");
         StringAssert.Contains(workspaceSource, "internal bool IsWriteLockHeldAnyBMSTable");
         StringAssert.Contains(workspaceSource, "internal bool IsPlaylistUpdating");
-        StringAssert.Contains(mainWindowSource, "mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin");
+        StringAssert.Contains(mainWindowSource, "CapturePlaylistRootContextMenuAvailability()");
         StringAssert.Contains(mainWindowSource, "PlaylistWorkspace?.IsPlaylistUpdating");
         Assert.AreEqual(-1, rootSource.IndexOf("RunPlaylistOperationWithNotifications", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("playlistLibraryIndexSync", StringComparison.Ordinal));
@@ -836,6 +836,53 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void PlaylistRootContextMenuAvailability_UsesWorkspaceOwnedStateSnapshot()
+    {
+        PlaylistWorkspaceViewModel unavailableWorkspace = CreateDetailWorkspace(out _);
+        PlaylistRootContextMenuAvailability unavailable =
+            unavailableWorkspace.CapturePlaylistRootContextMenuAvailability();
+
+        Assert.IsFalse(unavailable.CanCreatePlaylist);
+        Assert.IsFalse(unavailable.CanLoadPlaylistUri);
+        Assert.IsFalse(unavailable.CanLoadPlaylistCollection);
+        Assert.IsFalse(unavailable.CanLoadBuiltInTables);
+
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            PlaylistWorkspaceViewModel initializedWorkspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            PlaylistRootContextMenuAvailability initialized =
+                initializedWorkspace.CapturePlaylistRootContextMenuAvailability();
+
+            Assert.IsTrue(initialized.CanCreatePlaylist);
+            Assert.IsTrue(initialized.CanLoadPlaylistUri);
+            Assert.IsTrue(initialized.CanLoadPlaylistCollection);
+            Assert.IsTrue(initialized.CanLoadBuiltInTables);
+        }
+        finally
+        {
+            if (Directory.Exists(Path.GetDirectoryName(databasePath)!))
+            {
+                Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ExternalPlaylistSourceRequestsPreserveNullSourceAndMalformedUriContracts()
     {
         string databasePath = Path.Combine(
@@ -952,12 +999,24 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("BMSExternalTableListExt", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("IsLoadingExternalCollectionBMSTables", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal void LoadExternalTableCollection(Uri tableListUrl)");
+        StringAssert.Contains(workspaceSource, "internal PlaylistRootContextMenuAvailability CapturePlaylistRootContextMenuAvailability()");
         StringAssert.Contains(workspaceSource, "BMSPlaylist.GetBMSTableInfo(tableListUrl)");
         StringAssert.Contains(workspaceSource, "BuildExternalTableListCatalog(tableInfo)");
         StringAssert.Contains(mainWindowXaml, "ItemsSource=\"{Binding PlaylistWorkspace.BMSExternalTableListExt.Children}\"");
         Assert.AreEqual(-1, mainWindowXaml.IndexOf("ItemsSource=\"{Binding BMSExternalTableListExt.Children}\"", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "mainWindowViewModel.PlaylistWorkspace.IsLoadingExternalCollectionBMSTables");
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("mainWindowViewModel.IsLoadingExternalCollectionBMSTables", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "CanLoadPlaylistCollection");
+        string rootMenuHandler = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private void treeViewPlaylistRootContextMenuOpend(");
+        string loadUriHandler = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private void treeViewPlaylistRootContextMenuItemLoadPlaylistURLClick(");
+        StringAssert.Contains(rootMenuHandler, "CapturePlaylistRootContextMenuAvailability()");
+        Assert.AreEqual(-1, rootMenuHandler.IndexOf("IsWriteLockHeldBMSTablesInitializeMin", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootMenuHandler.IndexOf("IsLoadingExternalCollectionBMSTables", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootMenuHandler.IndexOf("CanOpenPlaylistEditDialog", StringComparison.Ordinal));
+        StringAssert.Contains(loadUriHandler, "CapturePlaylistRootContextMenuAvailability().CanLoadPlaylistUri");
+        Assert.AreEqual(-1, loadUriHandler.IndexOf("IsWriteLockHeldBMSTablesInitializeMin", StringComparison.Ordinal));
     }
 
     [TestMethod]

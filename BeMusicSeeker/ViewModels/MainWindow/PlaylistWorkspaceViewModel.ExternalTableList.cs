@@ -30,10 +30,10 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>
     /// Gets whether the external table-list catalog is being loaded.
     /// </summary>
-    internal bool IsLoadingExternalCollectionBMSTables
+    private bool IsLoadingExternalCollectionBMSTables
     {
         get => isLoadingExternalTableList;
-        private set
+        set
         {
             if (isLoadingExternalTableList != value)
             {
@@ -41,6 +41,18 @@ public sealed partial class PlaylistWorkspaceViewModel
                 RaisePropertyChanged(nameof(IsLoadingExternalCollectionBMSTables));
             }
         }
+    }
+
+    internal PlaylistRootContextMenuAvailability CapturePlaylistRootContextMenuAvailability()
+    {
+        bool minimumInitializationLockHeld = IsWriteLockHeldBMSTablesInitializeMin;
+        return new PlaylistRootContextMenuAvailability(
+            canCreatePlaylist: !minimumInitializationLockHeld
+                && !IsWriteLockHeldBMSTables
+                && !IsWriteLockHeldAnyBMSTable,
+            canLoadPlaylistUri: !minimumInitializationLockHeld,
+            canLoadPlaylistCollection: !minimumInitializationLockHeld && !IsLoadingExternalCollectionBMSTables,
+            canLoadBuiltInTables: !minimumInitializationLockHeld);
     }
 
     /// <summary>
@@ -107,4 +119,27 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         return catalog;
     }
+}
+
+internal sealed class PlaylistRootContextMenuAvailability
+{
+    internal PlaylistRootContextMenuAvailability(
+        bool canCreatePlaylist,
+        bool canLoadPlaylistUri,
+        bool canLoadPlaylistCollection,
+        bool canLoadBuiltInTables)
+    {
+        CanCreatePlaylist = canCreatePlaylist;
+        CanLoadPlaylistUri = canLoadPlaylistUri;
+        CanLoadPlaylistCollection = canLoadPlaylistCollection;
+        CanLoadBuiltInTables = canLoadBuiltInTables;
+    }
+
+    internal bool CanCreatePlaylist { get; }
+
+    internal bool CanLoadPlaylistUri { get; }
+
+    internal bool CanLoadPlaylistCollection { get; }
+
+    internal bool CanLoadBuiltInTables { get; }
 }
