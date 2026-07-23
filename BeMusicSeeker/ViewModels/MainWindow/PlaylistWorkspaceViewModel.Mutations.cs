@@ -142,6 +142,16 @@ public sealed partial class PlaylistWorkspaceViewModel
             && AreDropCandidateRows(rows);
     }
 
+    internal PlaylistFolderContextMenuAvailability CapturePlaylistFolderContextMenuAvailability(
+        BMSTable table,
+        PlaylistFolderNode folder)
+    {
+        bool canEdit = table != null
+            && !table.is_external_sync
+            && folder?.IsEditable == true;
+        return new PlaylistFolderContextMenuAvailability(canEdit, canEdit);
+    }
+
     private void AddRowsToFolder(
         IEnumerable<object> rows,
         BMSTable table,
@@ -498,6 +508,19 @@ internal sealed class PlaylistWorkspaceMutationRejectedEventArgs : EventArgs
     }
 
     internal PlaylistWorkspaceMutationKind Kind { get; }
+}
+
+internal sealed class PlaylistFolderContextMenuAvailability
+{
+    internal PlaylistFolderContextMenuAvailability(bool canDelete, bool canRename)
+    {
+        CanDelete = canDelete;
+        CanRename = canRename;
+    }
+
+    internal bool CanDelete { get; }
+
+    internal bool CanRename { get; }
 }
 
 internal sealed class PlaylistOperationNotificationPresentationRequestedEventArgs : EventArgs

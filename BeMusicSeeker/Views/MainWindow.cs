@@ -3672,7 +3672,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistTableFolderContextMenuOpend(object sender, RoutedEventArgs e)
     {
-        if (sender is not ContextMenu contextMenu || base.DataContext is not MainWindowViewModel)
+        if (sender is not ContextMenu contextMenu
+            || base.DataContext is not MainWindowViewModel mainWindowViewModel)
         {
             return;
         }
@@ -3707,8 +3708,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        menuItem.IsEnabled = !bMSTable.is_external_sync && folderNode.IsEditable;
-        menuItem2.IsEnabled = !bMSTable.is_external_sync && folderNode.IsEditable;
+        PlaylistFolderContextMenuAvailability availability =
+            mainWindowViewModel.PlaylistWorkspace
+                .CapturePlaylistFolderContextMenuAvailability(bMSTable, folderNode);
+        menuItem.IsEnabled = availability.CanDelete;
+        menuItem2.IsEnabled = availability.CanRename;
     }
 
     /// <summary>

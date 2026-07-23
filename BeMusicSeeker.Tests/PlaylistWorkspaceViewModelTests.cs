@@ -1206,6 +1206,61 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void PlaylistFolderContextMenuAvailability_IsOwnedByWorkspace()
+    {
+        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
+        StringAssert.Contains(
+            workspaceSource,
+            "internal PlaylistFolderContextMenuAvailability CapturePlaylistFolderContextMenuAvailability(");
+        StringAssert.Contains(workspaceSource, "internal sealed class PlaylistFolderContextMenuAvailability");
+
+        string handler = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private void treeViewPlaylistTableFolderContextMenuOpend(");
+        StringAssert.Contains(handler, "CapturePlaylistFolderContextMenuAvailability(bMSTable, folderNode)");
+        StringAssert.Contains(handler, "menuItem.IsEnabled = availability.CanDelete;");
+        StringAssert.Contains(handler, "menuItem2.IsEnabled = availability.CanRename;");
+        foreach (string directDecision in new[] { "bMSTable.is_external_sync", "folderNode.IsEditable" })
+        {
+            Assert.AreEqual(-1, handler.IndexOf(directDecision, StringComparison.Ordinal), directDecision);
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistFolderContextMenuAvailability_PreservesEditabilityPolicy()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        BMSTable localTable = new();
+
+        PlaylistFolderContextMenuAvailability normal =
+            workspace.CapturePlaylistFolderContextMenuAvailability(
+                localTable,
+                PlaylistFolderNode.CreateFolder("Folder"));
+        Assert.IsTrue(normal.CanDelete);
+        Assert.IsTrue(normal.CanRename);
+
+        PlaylistFolderContextMenuAvailability special =
+            workspace.CapturePlaylistFolderContextMenuAvailability(
+                localTable,
+                PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned));
+        Assert.IsFalse(special.CanDelete);
+        Assert.IsFalse(special.CanRename);
+
+        PlaylistFolderContextMenuAvailability external =
+            workspace.CapturePlaylistFolderContextMenuAvailability(
+                new BMSTable { is_external_sync = true },
+                PlaylistFolderNode.CreateFolder("Folder"));
+        Assert.IsFalse(external.CanDelete);
+        Assert.IsFalse(external.CanRename);
+
+        PlaylistFolderContextMenuAvailability missing =
+            workspace.CapturePlaylistFolderContextMenuAvailability(localTable, null);
+        Assert.IsFalse(missing.CanDelete);
+        Assert.IsFalse(missing.CanRename);
+    }
+
+    [TestMethod]
     public void PlaylistTableContextMenuAvailability_PreservesAllActionPolicyFields()
     {
         PlaylistWorkspaceViewModel unavailableWorkspace = CreateDetailWorkspace(out _);
