@@ -547,10 +547,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
 
-    private Uri _BrowserSource;
-
-    private string _BrowserHtml;
-
     private readonly RegularChartListOwner regularChartListOwner;
 
     private long lastMainViewBuildRequestId;
@@ -2481,38 +2477,6 @@ public partial class MainWindowViewModel : ViewModel
             return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
                 ? (int)regular.Mode
                 : Volatile.Read(ref lastMainViewBuildMode);
-        }
-    }
-
-    public Uri BrowserSource
-    {
-        get
-        {
-            return _BrowserSource;
-        }
-        set
-        {
-            if (!(_BrowserSource == value))
-            {
-                _BrowserSource = value;
-                RaisePropertyChanged("BrowserSource");
-            }
-        }
-    }
-
-    public string BrowserHtml
-    {
-        get
-        {
-            return _BrowserHtml;
-        }
-        set
-        {
-            if (!(_BrowserHtml == value))
-            {
-                _BrowserHtml = value;
-                RaisePropertyChanged("BrowserHtml");
-            }
         }
     }
 

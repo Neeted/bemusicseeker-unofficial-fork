@@ -5,45 +5,34 @@
 ## 対象範囲
 
 - プレイヤーパネルの `MOVIE_PLAYER` 表示状態。
-- `BrowserHtml` を `WebBrowser` に流し込む埋め込み表示。
+- 埋め込み `WebBrowser` view-host の残存状態。
 - 外部ブラウザ利用設定 `UseExternalWebBrowser`。
 
 プレイリスト行の右クリックメニューにあった `動画を開く` / `入手先を検索` は対象外であり、現行 UI からは削除済み。これらが利用していた Ribbit / LR2IR song info cache 由来の動画 URL、ダウンロード候補、コメント中 URL の収集も現行機能には含めない。
 
-## 残っている機能
+## 残っている状態
 
 ### パネル状態
 
 プレイヤーパネル状態は `Settings.Default.PlayerPanelState` に保存され、standalone `PlayerPanelState` の `BMS_PLAYER` / `MOVIE_PLAYER` / `TITLE_SMALL` の組み合わせで扱う。
 
-`MOVIE_PLAYER` が有効な場合、メインウィンドウは通常の BMS プレイヤー領域ではなくブラウザ領域を表示する。プレイヤー制御部の回転ボタンからも `BMS_PLAYER` と `MOVIE_PLAYER` の切り替え候補が生成される。
+`MOVIE_PLAYER` の serialized value は設定互換性のため保持される。ただし動画 payload の production writer はなく、現行のパネルでは動画面を選択できない。プレイヤー制御部の回転処理も movie surface を unavailable として扱う。
 
 ### 埋め込みブラウザ
 
-動画表示領域は `MainWindow.xaml` の `WebBrowser` で、`MainWindowViewModel.BrowserHtml` が `WebBrowserUtility.Html` にバインドされる。
-
-`MOVIE_PLAYER` は、次の条件を満たすときだけ有効なパネル状態として扱う。
-
-- `webBrowser` が生成済みである。
-- `webBrowser.IsEnabled` が `true` である。
-- `MainWindowViewModel.BrowserHtml` が `null` ではない。
-
-`WebBrowser.LoadCompleted` が発火すると、現在のパネル状態は `MOVIE_PLAYER` に切り替わる。
+`WebBrowser` は後続の `MIG-03` platform closure まで view-host residual として XAML に残るが、現行パネルでは常に `Collapsed` である。`BrowserHtml`、`BrowserSource`、HTML attached binding は削除済みで、動画面の payload や `LoadCompleted` による状態切り替えは行わない。
 
 ### 外部ブラウザ設定
 
 設定画面には `動画再生` グループと `外部ブラウザで再生する` 設定が残る。
 
-`UseExternalWebBrowser` は `WebBrowser.IsEnabled` に反転してバインドされる。つまり、この設定が `true` の場合は埋め込み `WebBrowser` が無効になり、`MOVIE_PLAYER` は有効なパネル状態にならない。
+`UseExternalWebBrowser` の既存設定値と設定画面は persisted compatibility のため当面残る。現行の WebBrowser host は常に collapsed なので、この設定は movie surface の選択可否を変えない。
 
 ## 現行の入口
 
-現行コードには `BrowserHtml` と `SetMoviePlayerHeader` が残っているが、プレイリスト行の右クリックから YouTube / ニコニコ動画を設定する入口は削除済み。
-
-そのため、通常操作で新しく動画 URL を選び、`BrowserHtml` に埋め込み HTML を設定する明確な UI 導線は残っていない。
+プレイリスト行の右クリックから YouTube / ニコニコ動画を設定する入口と、埋め込み HTML を生成する production route は削除済み。
 
 ## 残る課題
 
-- `MOVIE_PLAYER`、`BrowserHtml`、`SetMoviePlayerHeader`、`UseExternalWebBrowser`、設定画面の `動画再生` グループを今後も維持するか決める必要がある。
-- 維持する場合は、外部 API に依存しない動画 URL 入力または譜面メタデータ由来の入口を改めて設計する必要がある。
-- 維持しない場合は、パネル状態、設定、converter、XAML、リソースを含めた動画再生面の完全撤去を別タスクとして行う。
+- `MOVIE_PLAYER` の persisted value、`UseExternalWebBrowser` 設定、設定画面の `動画再生` グループは、setting key / serialized value を維持したまま後続の platform/settings 方針で整理する。
+- `WebBrowser` host の完全撤去は `MIG-03` の WPF platform closure で判断する。

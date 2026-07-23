@@ -9,7 +9,6 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
@@ -23,7 +22,7 @@ public partial class PlaybackPanelView : UserControl
     private const double CompactPanelHeight = 110d;
     private const double ExpandedPanelHeight = 286d;
     public static readonly DependencyProperty OverlayVisibilityProperty = DependencyProperty.Register(nameof(OverlayVisibility), typeof(Visibility), typeof(PlaybackPanelView), new PropertyMetadata(Visibility.Collapsed));
-    public static readonly DependencyProperty BrowserHtmlProperty = DependencyProperty.Register(nameof(BrowserHtml), typeof(string), typeof(PlaybackPanelView), new PropertyMetadata(null));
+    public static readonly DependencyProperty EffectivePlayerPanelStateProperty = DependencyProperty.Register(nameof(EffectivePlayerPanelState), typeof(PlayerPanelState), typeof(PlaybackPanelView), new PropertyMetadata(PlayerPanelState.TITLE_LARGE));
     public static readonly DependencyProperty SettingsCommandProperty = DependencyProperty.Register(nameof(SettingsCommand), typeof(ICommand), typeof(PlaybackPanelView), new PropertyMetadata(null));
     private readonly PlaybackPreviousButtonGesture previousButtonGesture = new();
     private DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
@@ -42,7 +41,7 @@ public partial class PlaybackPanelView : UserControl
     public event RoutedEventHandler PlaybackStarting;
     public event RoutedEventHandler PlaybackStarted;
     public Visibility OverlayVisibility { get => (Visibility)GetValue(OverlayVisibilityProperty); set => SetValue(OverlayVisibilityProperty, value); }
-    public string BrowserHtml { get => (string)GetValue(BrowserHtmlProperty); set => SetValue(BrowserHtmlProperty, value); }
+    public PlayerPanelState EffectivePlayerPanelState { get => (PlayerPanelState)GetValue(EffectivePlayerPanelStateProperty); private set => SetValue(EffectivePlayerPanelStateProperty, value); }
     public ICommand SettingsCommand { get => (ICommand)GetValue(SettingsCommandProperty); set => SetValue(SettingsCommandProperty, value); }
     public IntPtr PlayerHostHandle => _panel.Handle;
     private PlaybackPanelViewModel PlaybackPanel => DataContext as PlaybackPanelViewModel ?? throw new InvalidOperationException("Playback panel DataContext is unavailable.");
@@ -179,7 +178,7 @@ public partial class PlaybackPanelView : UserControl
             || e.PropertyName == nameof(PlaybackPanelViewModel.UsesLr2Body)
             || e.PropertyName == nameof(PlaybackPanelViewModel.UsesBmiIdxView))
         {
-            EnsureSelectedSurfaceAvailable();
+            ApplySelectedSurface(subscribedPlaybackPanel.PlayerPanelState);
         }
     }
 
@@ -262,7 +261,6 @@ public partial class PlaybackPanelView : UserControl
     }
     private void ShowBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Visible);
     private void CollapseBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Collapsed);
-    private void ShowBrowser() => RestoreVisibilityBinding(webBrowser, Visibility.Visible);
     private void CollapseBrowser() => RestoreVisibilityBinding(webBrowser, Visibility.Collapsed);
     private static void RestoreVisibilityBinding(UIElement element, Visibility visibility)
     {
@@ -273,27 +271,13 @@ public partial class PlaybackPanelView : UserControl
     }
 
     public void RestoreSelectedSurface() => ApplySelectedSurface(PlaybackPanel.PlayerPanelState);
-    public void RotatePanelState() => Dispatcher.BeginInvoke((Action)(() => gridBMSPlayerControlsRotatePanelStateButtonClicked()), DispatcherPriority.ContextIdle);
     public void EnsureSelectedSurfaceAvailable()
     {
-        if (!IsSelectedSurfaceAvailable())
-        {
-            RotatePanelState();
-        }
+        ApplySelectedSurface(PlaybackPanel.PlayerPanelState);
     }
-
-    private bool IsSelectedSurfaceAvailable() => PlaybackPanel.CanSelectPanelState(
-        PlaybackPanel.PlayerPanelState,
-        IsBmsPlayerSurfaceAvailable(),
-        IsMoviePlayerSurfaceAvailable());
 
     public bool TrySelectBmsPlayerSurface() => PlaybackPanel.TrySelectPanelState(
         PlayerPanelState.BMS_PLAYER,
-        IsBmsPlayerSurfaceAvailable(),
-        IsMoviePlayerSurfaceAvailable());
-
-    private bool TrySelectMoviePlayerSurface() => PlaybackPanel.TrySelectPanelState(
-        PlayerPanelState.MOVIE_PLAYER,
         IsBmsPlayerSurfaceAvailable(),
         IsMoviePlayerSurfaceAvailable());
 
@@ -306,12 +290,38 @@ public partial class PlaybackPanelView : UserControl
         return PlaybackPanel.UsesBmiIdxView;
     }
 
-    private bool IsMoviePlayerSurfaceAvailable() => webBrowser != null && webBrowser.IsEnabled && BrowserHtml != null;
+    private bool IsMoviePlayerSurfaceAvailable() => false;
+
+    internal static PlayerPanelState ResolveSurfaceState(
+        PlayerPanelState requestedState,
+        bool bmsPlayerSurfaceAvailable,
+        bool moviePlayerSurfaceAvailable)
+    {
+        PlayerPanelState resolvedState = requestedState;
+        if (resolvedState.HasFlag(PlayerPanelState.MOVIE_PLAYER) && !moviePlayerSurfaceAvailable)
+        {
+            resolvedState &= ~PlayerPanelState.MOVIE_PLAYER;
+            if (bmsPlayerSurfaceAvailable)
+            {
+                resolvedState |= PlayerPanelState.BMS_PLAYER;
+            }
+        }
+        if (resolvedState.HasFlag(PlayerPanelState.BMS_PLAYER) && !bmsPlayerSurfaceAvailable)
+        {
+            resolvedState &= ~PlayerPanelState.BMS_PLAYER;
+        }
+        return resolvedState;
+    }
 
     private void ApplySelectedSurface(PlayerPanelState state)
     {
-        if (state.HasFlag(PlayerPanelState.BMS_PLAYER)) ShowBmsPlayer(); else CollapseBmsPlayer();
-        if (state.HasFlag(PlayerPanelState.MOVIE_PLAYER)) ShowBrowser(); else CollapseBrowser();
+        PlayerPanelState resolvedState = ResolveSurfaceState(
+            state,
+            IsBmsPlayerSurfaceAvailable(),
+            IsMoviePlayerSurfaceAvailable());
+        EffectivePlayerPanelState = resolvedState;
+        if (resolvedState.HasFlag(PlayerPanelState.BMS_PLAYER)) ShowBmsPlayer(); else CollapseBmsPlayer();
+        CollapseBrowser();
     }
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked(object sender = null, RoutedEventArgs e = null)
     {
@@ -321,14 +331,8 @@ public partial class PlaybackPanelView : UserControl
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked2(object sender, RoutedEventArgs e) => PlaybackPanel.ToggleCompactPanel();
     private void windowsFormsHostIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (!IsSelectedSurfaceAvailable())
-        {
-            gridBMSPlayerControlsRotatePanelStateButtonClicked();
-        }
+        ApplySelectedSurface(PlaybackPanel.PlayerPanelState);
     }
-    private static void forbidNavigating(object sender, NavigatingCancelEventArgs e) => e.Cancel = true;
-    private void webBrowserLoadCompleted(object sender, NavigationEventArgs e) { webBrowser.Navigating += forbidNavigating; TrySelectMoviePlayerSurface(); }
-
     private void gridBMSPlayerControlsNextButtonClicked(object sender, MouseButtonEventArgs e)
     {
         if (DataContext is PlaybackPanelViewModel viewModel)

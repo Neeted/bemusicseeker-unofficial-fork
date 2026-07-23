@@ -458,7 +458,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             viewModel.PlaybackPanel.AttachParentHandle(playbackPanelView.PlayerHostHandle);
         }
-        playbackPanelView.RotatePanelState();
+        playbackPanelView.EnsureSelectedSurfaceAvailable();
     }
 
     private void MainWindow_PlaylistUrlInstallTreeExpansionRequested()

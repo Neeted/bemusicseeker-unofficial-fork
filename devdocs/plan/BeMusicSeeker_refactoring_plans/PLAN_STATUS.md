@@ -18,7 +18,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `UI05-R4 Remaining binding/callback audit — planner required`
+sequence cursor: `UI05-R4-B Playlist summary selection view-host handoff`
 
 目的:
 

@@ -869,6 +869,23 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    public void PlaybackPanelViewResolvesUnavailableMovieSurfaceWithoutChangingRequestedState()
+    {
+        Assert.AreEqual(
+            PlayerPanelState.BMS_PLAYER,
+            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.MOVIE_PLAYER, true, false));
+        Assert.AreEqual(
+            PlayerPanelState.TITLE_LARGE,
+            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.MOVIE_PLAYER, false, false));
+        Assert.AreEqual(
+            PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER,
+            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.TITLE_SMALL | PlayerPanelState.MOVIE_PLAYER, true, false));
+        Assert.AreEqual(
+            PlayerPanelState.MOVIE_PLAYER,
+            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.MOVIE_PLAYER, true, true));
+    }
+
+    [TestMethod]
     public void PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart()
     {
         RunOnSta(delegate
