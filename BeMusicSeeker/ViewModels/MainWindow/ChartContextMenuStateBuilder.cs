@@ -28,11 +28,9 @@ internal static class ChartContextMenuStateBuilder
 
         bool isInstallListSelected = request.IsPendingSelected || request.IsInstalledSelected;
         bool isPlaylistContext = request.IsPlaylistSelected || request.IsPlaylistRow;
-        bool isBmsonContextRow = request.RowTarget?.Chart.Kind == ChartFileKind.Bmson;
         bool hasBmsonSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bmson);
         bool hasBmsSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bms);
         bool hasResourceHealthTarget = HasCapability(selectedTargets, ChartOperationCapabilities.RunResourceHealthCheck);
-        bool canOpenLr2Ir = request.RowTarget?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true;
         bool canOpenInstallDestination = request.RowTarget?.HasCapability(ChartOperationCapabilities.UpdateInstallDestination) == true && !request.IsPlaylistRow;
         bool canShowResourceHealthMenu = ShouldShowResourceHealthContextMenu(isPlaylistContext, selectedTargets);
         bool canMoveSelectedFiles = !request.IsPendingSelected;
@@ -52,14 +50,10 @@ internal static class ChartContextMenuStateBuilder
             request.IsPlaylistSelected,
             isInstallListSelected,
             isPlaylistContext,
-            request.RowTarget,
-            request.RowTarget?.Chart?.Path,
             selectedTargets,
-            isBmsonContextRow,
             hasBmsonSelection,
             hasBmsSelection,
             hasResourceHealthTarget,
-            canOpenLr2Ir,
             canOpenInstallDestination,
             canShowResourceHealthMenu,
             canMoveSelectedFiles,

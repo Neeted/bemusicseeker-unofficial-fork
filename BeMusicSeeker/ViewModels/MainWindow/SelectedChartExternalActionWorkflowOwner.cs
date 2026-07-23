@@ -35,9 +35,34 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         this.urlLauncher = urlLauncher ?? throw new ArgumentNullException(nameof(urlLauncher));
     }
 
-    internal void Execute(ChartOperationTarget target, SelectedChartExternalActionKind action)
+    internal bool CanExecute(ChartOperationTarget target, SelectedChartExternalActionKind action)
     {
         if (target?.Chart == null)
+        {
+            return false;
+        }
+
+        switch (action)
+        {
+            case SelectedChartExternalActionKind.OpenExplorer:
+                return TryGetExistingPath(target, ChartOperationCapabilities.OpenFolder, out _);
+            case SelectedChartExternalActionKind.OpenFile:
+                return TryGetExistingPath(target, ChartOperationCapabilities.OpenFile, out _);
+            case SelectedChartExternalActionKind.OpenLr2Ir:
+                return target.HasCapability(ChartOperationCapabilities.UseLr2Ir)
+                    && IsValidMd5(target.Chart.Md5?.Trim());
+            case SelectedChartExternalActionKind.OpenMocha:
+            case SelectedChartExternalActionKind.OpenMinIr:
+                return target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256)
+                    && IsValidSha256(GetRepositorySha256(target));
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action, null);
+        }
+    }
+
+    internal void Execute(ChartOperationTarget target, SelectedChartExternalActionKind action)
+    {
+        if (!CanExecute(target, action))
         {
             return;
         }
@@ -63,28 +88,12 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
                 }
                 return;
             case SelectedChartExternalActionKind.OpenLr2Ir:
-                if (!target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
-                {
-                    return;
-                }
                 string md5 = target.Chart.Md5?.Trim();
-                if (!IsValidMd5(md5))
-                {
-                    return;
-                }
                 urlLauncher("https://bms-ir.org/new/song?songmd5=" + md5 + "&view=both");
                 return;
             case SelectedChartExternalActionKind.OpenMocha:
             case SelectedChartExternalActionKind.OpenMinIr:
-                if (!target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256))
-                {
-                    return;
-                }
                 string sha256 = GetRepositorySha256(target);
-                if (!IsValidSha256(sha256))
-                {
-                    return;
-                }
                 sha256 = sha256.Trim().ToLowerInvariant();
                 string url = action == SelectedChartExternalActionKind.OpenMocha
                     ? "https://mocha-repository.info/song.php?sha256=" + sha256

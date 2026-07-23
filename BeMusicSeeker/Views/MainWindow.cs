@@ -4789,11 +4789,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             GetSelectedChartTargets(isPendingSelected)));
         bool isInstallListSelected = contextMenuState.IsInstallListSelected;
         bool isPlaylistContext = contextMenuState.IsPlaylistContext;
-        string chartPath = contextMenuState.ChartPath;
+        string chartPath = rowTarget?.Chart?.Path;
         IReadOnlyList<ChartOperationTarget> selectedTargets = contextMenuState.SelectedTargets;
-        bool isBmsonContextRow = contextMenuState.IsBmsonContextRow;
         bool hasBmsonSelection = contextMenuState.HasBmsonSelection;
         bool hasBmsSelection = contextMenuState.HasBmsSelection;
+        bool canOpenExplorer = mainWindowViewModel.SelectedChartExternalActions.CanExecute(
+            rowTarget,
+            SelectedChartExternalActionKind.OpenExplorer);
+        bool canOpenFile = mainWindowViewModel.SelectedChartExternalActions.CanExecute(
+            rowTarget,
+            SelectedChartExternalActionKind.OpenFile);
+        bool canOpenLr2Ir = mainWindowViewModel.SelectedChartExternalActions.CanExecute(
+            rowTarget,
+            SelectedChartExternalActionKind.OpenLr2Ir);
+        bool canOpenMocha = mainWindowViewModel.SelectedChartExternalActions.CanExecute(
+            rowTarget,
+            SelectedChartExternalActionKind.OpenMocha);
+        bool canOpenMinIr = mainWindowViewModel.SelectedChartExternalActions.CanExecute(
+            rowTarget,
+            SelectedChartExternalActionKind.OpenMinIr);
         calcelAllContextMenuTasks();
         initContextMenuTasks();
         MenuItem menuItem = null;
@@ -4973,8 +4987,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             menuItemOpenDocument.IsEnabled = false;
             if (!string.IsNullOrWhiteSpace(chartPath) && LongPathFileSystem.FileExists(chartPath))
             {
-                menuItem3.IsEnabled = true;
-                menuItem4.IsEnabled = true;
+                menuItem3.IsEnabled = canOpenExplorer;
+                menuItem4.IsEnabled = canOpenFile;
                 menuItemOpenDocument.Visibility = Visibility.Visible;
                 changeSubmenuOpenDocumentTask = Task.Run(delegate
                 {
@@ -5030,21 +5044,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItemOpenLr2Ir != null)
         {
-            bool canOpenLr2Ir = contextMenuState.CanOpenLr2Ir;
             menuItemOpenLr2Ir.Visibility = canOpenLr2Ir ? Visibility.Visible : Visibility.Collapsed;
             menuItemOpenLr2Ir.IsEnabled = canOpenLr2Ir;
         }
-        string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
-        bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
         if (menuItemOpenMocha != null)
         {
-            menuItemOpenMocha.Visibility = canOpenRepository ? Visibility.Visible : Visibility.Collapsed;
-            menuItemOpenMocha.IsEnabled = canOpenRepository;
+            menuItemOpenMocha.Visibility = canOpenMocha ? Visibility.Visible : Visibility.Collapsed;
+            menuItemOpenMocha.IsEnabled = canOpenMocha;
         }
         if (menuItemOpenMinIr != null)
         {
-            menuItemOpenMinIr.Visibility = canOpenRepository ? Visibility.Visible : Visibility.Collapsed;
-            menuItemOpenMinIr.IsEnabled = canOpenRepository;
+            menuItemOpenMinIr.Visibility = canOpenMinIr ? Visibility.Visible : Visibility.Collapsed;
+            menuItemOpenMinIr.IsEnabled = canOpenMinIr;
         }
         if (menuItem7 != null)
         {
@@ -5304,11 +5315,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
         GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget rowTarget);
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
-        string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
-        bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
+        bool canOpenLr2Ir = mainWindowViewModel.SelectedChartExternalActions.CanExecute(
+            rowTarget,
+            SelectedChartExternalActionKind.OpenLr2Ir);
+        bool canOpenMocha = mainWindowViewModel.SelectedChartExternalActions.CanExecute(
+            rowTarget,
+            SelectedChartExternalActionKind.OpenMocha);
+        bool canOpenMinIr = mainWindowViewModel.SelectedChartExternalActions.CanExecute(
+            rowTarget,
+            SelectedChartExternalActionKind.OpenMinIr);
         bool canOpenScoreViewer = mainWindowViewModel.ScoreViewerRegistration.HasScoreViewerTarget([rowTarget]);
         bool canUpdateRanking = mainWindowViewModel.RankingCacheDownloadWorkflow.CanRequestRanking([rowTarget]);
-        bool canOpenLr2Ir = rowTarget?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true;
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
         PlaylistUrlContextMenuAvailability playlistUrlAvailability =
             mainWindowViewModel.PlaylistWorkspace.CapturePlaylistUrlContextMenuAvailability(
@@ -5323,9 +5340,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     item.IsEnabled = canOpenLr2Ir;
                     break;
                 case "tableContextMenuItemOpenMocha":
+                    item.Visibility = canOpenMocha ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = canOpenMocha;
+                    break;
                 case "tableContextMenuItemOpenMinIR":
-                    item.Visibility = canOpenRepository ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = canOpenRepository;
+                    item.Visibility = canOpenMinIr ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = canOpenMinIr;
                     break;
                 case "tableContextMenuItemOpenURL":
                     if (item is MenuItem openUrlMenuItem)
@@ -5361,7 +5381,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
-        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenRepository=" + canOpenRepository + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenMocha=" + canOpenMocha + " canOpenMinIr=" + canOpenMinIr + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
     }
 
     private void playHistoryContextMenuOpened(object sender, RoutedEventArgs e)

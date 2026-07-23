@@ -884,11 +884,8 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.IsTrue(state.IsInstallListSelected);
         Assert.IsFalse(state.IsPlaylistContext);
-        Assert.AreSame(rowTarget, state.RowTarget);
-        Assert.AreEqual(rowTarget.Chart.Path, state.ChartPath);
         Assert.AreEqual(1, state.SelectedTargets.Count);
         Assert.AreSame(rowTarget, state.SelectedTargets[0]);
-        Assert.IsFalse(state.IsBmsonContextRow);
         Assert.IsFalse(state.HasBmsonSelection);
         Assert.IsTrue(state.HasBmsSelection);
         Assert.IsFalse(state.CanMoveSelectedFiles);
@@ -918,7 +915,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(state.IsPlaylistContext);
         Assert.AreEqual(1, state.SelectedTargets.Count);
         Assert.AreSame(selectedTarget, state.SelectedTargets[0]);
-        Assert.IsFalse(state.IsBmsonContextRow);
         Assert.IsTrue(state.HasResourceHealthTarget);
         Assert.IsFalse(state.CanShowResourceHealthMenu);
         Assert.IsTrue(state.HasBmsonSelection);
@@ -999,7 +995,6 @@ public sealed class MainWindowContextMenuResourceTests
             selectedTargets: [rowTarget]));
 
         Assert.IsTrue(state.HasResourceHealthTarget);
-        Assert.IsTrue(state.CanOpenLr2Ir);
         Assert.IsTrue(state.CanOpenInstallDestination);
         Assert.IsTrue(state.CanShowResourceHealthMenu);
         Assert.IsTrue(state.CanMoveSelectedFiles);
@@ -3248,6 +3243,14 @@ public sealed class MainWindowContextMenuResourceTests
             mainWindowCode,
             "private void tableContextMenuItemOpenMinIRClick",
             "private async void tableContextMenuItemOpenURLClick");
+        string normalMenu = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuOpened",
+            "private void tableContextMenuPlaylistMissingOpened");
+        string playlistMissingMenu = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuPlaylistMissingOpened",
+            "private void playHistoryContextMenuOpened");
 
         StringAssert.Contains(explorerClick, "SelectedChartExternalActionKind.OpenExplorer");
         StringAssert.Contains(fileClick, "SelectedChartExternalActionKind.OpenFile");
@@ -3265,8 +3268,16 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowCode.Contains("GetMochaSongUrl"));
         Assert.IsFalse(mainWindowCode.Contains("GetMinIrSongUrl"));
         Assert.IsFalse(mainWindowCode.Contains("OpenRepositoryUrlForRow"));
+        StringAssert.Contains(normalMenu, "SelectedChartExternalActions.CanExecute(");
+        StringAssert.Contains(playlistMissingMenu, "SelectedChartExternalActions.CanExecute(");
+        Assert.IsFalse(normalMenu.Contains("GetRepositorySha256(row)"));
+        Assert.IsFalse(playlistMissingMenu.Contains("GetRepositorySha256(row)"));
+        Assert.IsFalse(normalMenu.Contains("contextMenuState.CanOpenLr2Ir"));
+        Assert.IsFalse(normalMenu.Contains("contextMenuState.ChartPath"));
+        Assert.IsFalse(normalMenu.Contains("contextMenuState.RowTarget"));
         StringAssert.Contains(viewModelCode, "SelectedChartExternalActions = childComposition.SelectedChartExternalActions;");
         StringAssert.Contains(ownerCode, "SelectedChartExternalActionKind.OpenExplorer");
+        StringAssert.Contains(ownerCode, "internal bool CanExecute(");
         StringAssert.Contains(ownerCode, "bms-ir.org/new/song?songmd5=");
         StringAssert.Contains(ownerCode, "mocha-repository.info/song.php?sha256=");
         StringAssert.Contains(ownerCode, "gaftalk.com/minir/#/viewer/song/");

@@ -18,14 +18,10 @@ internal sealed class ChartContextMenuState
         bool isPlaylistSelected,
         bool isInstallListSelected,
         bool isPlaylistContext,
-        ChartOperationTarget rowTarget,
-        string chartPath,
         IReadOnlyList<ChartOperationTarget> selectedTargets,
-        bool isBmsonContextRow,
         bool hasBmsonSelection,
         bool hasBmsSelection,
         bool hasResourceHealthTarget,
-        bool canOpenLr2Ir,
         bool canOpenInstallDestination,
         bool canShowResourceHealthMenu,
         bool canMoveSelectedFiles,
@@ -43,14 +39,10 @@ internal sealed class ChartContextMenuState
         IsPlaylistSelected = isPlaylistSelected;
         IsInstallListSelected = isInstallListSelected;
         IsPlaylistContext = isPlaylistContext;
-        RowTarget = rowTarget;
-        ChartPath = chartPath;
         SelectedTargets = selectedTargets ?? throw new ArgumentNullException(nameof(selectedTargets));
-        IsBmsonContextRow = isBmsonContextRow;
         HasBmsonSelection = hasBmsonSelection;
         HasBmsSelection = hasBmsSelection;
         HasResourceHealthTarget = hasResourceHealthTarget;
-        CanOpenLr2Ir = canOpenLr2Ir;
         CanOpenInstallDestination = canOpenInstallDestination;
         CanShowResourceHealthMenu = canShowResourceHealthMenu;
         CanMoveSelectedFiles = canMoveSelectedFiles;
@@ -75,21 +67,13 @@ internal sealed class ChartContextMenuState
 
     internal bool IsPlaylistContext { get; }
 
-    internal ChartOperationTarget RowTarget { get; }
-
-    internal string ChartPath { get; }
-
     internal IReadOnlyList<ChartOperationTarget> SelectedTargets { get; }
-
-    internal bool IsBmsonContextRow { get; }
 
     internal bool HasBmsonSelection { get; }
 
     internal bool HasBmsSelection { get; }
 
     internal bool HasResourceHealthTarget { get; }
-
-    internal bool CanOpenLr2Ir { get; }
 
     internal bool CanOpenInstallDestination { get; }
 

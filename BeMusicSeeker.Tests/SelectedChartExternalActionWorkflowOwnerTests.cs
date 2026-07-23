@@ -187,6 +187,65 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(0, launcherCalls);
     }
 
+    [TestMethod]
+    public void CanExecute_UsesExistingEligibilityWithoutInvokingLaunchers()
+    {
+        int launchCalls = 0;
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            fileExists: _ => true,
+            explorerOpen: _ =>
+            {
+                launchCalls++;
+                return new ExplorerOpenResult();
+            },
+            associatedFileLauncher: _ => launchCalls++,
+            urlLauncher: _ => launchCalls++);
+        ChartOperationTarget target = CreateTarget(
+            @"C:\Songs\alpha.bms",
+            ChartOperationCapabilities.OpenFolder
+                | ChartOperationCapabilities.OpenFile
+                | ChartOperationCapabilities.UseLr2Ir
+                | ChartOperationCapabilities.OpenRepositoryBySha256,
+            md5: new string('a', 32),
+            sha256: new string('b', 64));
+
+        Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenExplorer));
+        Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenFile));
+        Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenLr2Ir));
+        Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenMocha));
+        Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenMinIr));
+        Assert.AreEqual(0, launchCalls);
+    }
+
+    [TestMethod]
+    public void CanExecute_RejectsMissingPathCapabilityAndMalformedIdentifiers()
+    {
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(fileExists: _ => false);
+        ChartOperationTarget noCapability = CreateTarget(
+            @"C:\Songs\alpha.bms",
+            ChartOperationCapabilities.None,
+            md5: new string('a', 32),
+            sha256: new string('b', 64));
+        ChartOperationTarget invalidMd5 = CreateTarget(
+            @"C:\Songs\beta.bms",
+            ChartOperationCapabilities.UseLr2Ir,
+            md5: "not-md5");
+        ChartOperationTarget invalidSha256 = CreateTarget(
+            @"C:\Songs\gamma.bms",
+            ChartOperationCapabilities.OpenRepositoryBySha256,
+            sha256: "not-sha256");
+        ChartOperationTarget fallbackSha256 = CreateTarget(
+            @"C:\Songs\delta.bms",
+            ChartOperationCapabilities.OpenRepositoryBySha256,
+            chartInfo: new LR2SongDBExtended.chart_info { sha256 = new string('c', 64) });
+
+        Assert.IsFalse(owner.CanExecute(noCapability, SelectedChartExternalActionKind.OpenExplorer));
+        Assert.IsFalse(owner.CanExecute(noCapability, SelectedChartExternalActionKind.OpenFile));
+        Assert.IsFalse(owner.CanExecute(invalidMd5, SelectedChartExternalActionKind.OpenLr2Ir));
+        Assert.IsFalse(owner.CanExecute(invalidSha256, SelectedChartExternalActionKind.OpenMocha));
+        Assert.IsTrue(owner.CanExecute(fallbackSha256, SelectedChartExternalActionKind.OpenMinIr));
+    }
+
     private static SelectedChartExternalActionWorkflowOwner CreateOwner(
         Func<string, bool>? fileExists = null,
         Func<string, ExplorerOpenResult>? explorerOpen = null,
