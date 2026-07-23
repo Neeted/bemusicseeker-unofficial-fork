@@ -24,6 +24,10 @@ public sealed class LibraryFolderTreeViewModel : ViewModel
 
     private readonly Action<string> logWarning;
 
+    private readonly Func<string, bool> directoryExists;
+
+    private readonly Func<string, ExplorerOpenResult> openDirectory;
+
     private BMSLibrary library;
 
     private bool parentFolderListViewInitialized;
@@ -33,11 +37,29 @@ public sealed class LibraryFolderTreeViewModel : ViewModel
     private long refreshRequestVersion;
 
     internal LibraryFolderTreeViewModel(
+        Func<string, bool> directoryExists,
+        Func<string, ExplorerOpenResult> openDirectory,
         Action<string> log = null,
         Action<string> logWarning = null)
     {
+        this.directoryExists = directoryExists ?? throw new ArgumentNullException(nameof(directoryExists));
+        this.openDirectory = openDirectory ?? throw new ArgumentNullException(nameof(openDirectory));
         this.log = log ?? (_ => { });
         this.logWarning = logWarning ?? (_ => { });
+    }
+
+    /// <summary>
+    /// Opens a library folder through the injected filesystem and Explorer gateways.
+    /// Missing folders remain a silent no-op, matching the former context-menu behavior.
+    /// </summary>
+    internal void OpenFolderInExplorer(string path)
+    {
+        if (!directoryExists(path))
+        {
+            return;
+        }
+
+        openDirectory(path);
     }
 
     /// <summary>

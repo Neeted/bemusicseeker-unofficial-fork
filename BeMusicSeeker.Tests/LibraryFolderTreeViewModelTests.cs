@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -43,7 +44,9 @@ public sealed class LibraryFolderTreeViewModelTests
 
                 var library = new BMSLibrary(songDbPath);
                 library.SearchTargets = [firstRoot, secondRoot, firstRoot];
-                var owner = new LibraryFolderTreeViewModel();
+                var owner = new LibraryFolderTreeViewModel(
+                    _ => true,
+                    _ => new ExplorerOpenResult());
                 int parentFolderPropertyChanges = 0;
                 int cacheRefreshRequests = 0;
                 owner.PropertyChanged += (_, args) =>
@@ -85,5 +88,65 @@ public sealed class LibraryFolderTreeViewModelTests
                 Directory.Delete(tempRootPath, recursive: true);
             }
         }
+    }
+
+    [TestMethod]
+    public void OpenFolderInExplorer_ValidatesBeforeOpeningExactlyOnce()
+    {
+        List<string> validationPaths = [];
+        List<string> openedPaths = [];
+        var owner = new LibraryFolderTreeViewModel(
+            path =>
+            {
+                validationPaths.Add(path);
+                return true;
+            },
+            path =>
+            {
+                openedPaths.Add(path);
+                return new ExplorerOpenResult
+                {
+                    Kind = ExplorerOpenResultKind.OpenedDirectory,
+                    RequestedPath = path,
+                    OpenedPath = path
+                };
+            });
+
+        owner.OpenFolderInExplorer("C:\\Library");
+
+        CollectionAssert.AreEqual(new[] { "C:\\Library" }, validationPaths);
+        CollectionAssert.AreEqual(new[] { "C:\\Library" }, openedPaths);
+    }
+
+    [TestMethod]
+    public void OpenFolderInExplorer_MissingFolderDoesNotInvokeExplorer()
+    {
+        var owner = new LibraryFolderTreeViewModel(
+            _ => false,
+            _ => throw new AssertFailedException("Explorer should not be invoked for a missing folder."));
+
+        owner.OpenFolderInExplorer("C:\\Missing");
+    }
+
+    [TestMethod]
+    public void OpenFolderInExplorer_PreservesFailedExplorerResultWithoutFallback()
+    {
+        int openCount = 0;
+        var owner = new LibraryFolderTreeViewModel(
+            _ => true,
+            path =>
+            {
+                openCount++;
+                return new ExplorerOpenResult
+                {
+                    Kind = ExplorerOpenResultKind.Failed,
+                    RequestedPath = path,
+                    FailureReason = "shell_failed"
+                };
+            });
+
+        owner.OpenFolderInExplorer("C:\\Library");
+
+        Assert.AreEqual(1, openCount);
     }
 }

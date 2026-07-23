@@ -248,8 +248,11 @@ public sealed class ExplorerOpenServiceTests
     [TestMethod]
     public void MainWindowExplorerContextMenusUseExplorerOpenService()
     {
-        string root = FindRepositoryRoot();
         string mainWindow = SourceTextTestHelper.ReadMainWindowSourceText();
+        string applicationComposition = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "ApplicationComposition.cs");
         string selectedChartExternalActionOwner = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
@@ -258,7 +261,14 @@ public sealed class ExplorerOpenServiceTests
 
         Assert.IsFalse(mainWindow.Contains("Process.Start(\"EXPLORER.EXE\""));
         StringAssert.Contains(selectedChartExternalActionOwner, "Func<string, ExplorerOpenResult> explorerOpen");
-        StringAssert.Contains(mainWindow, "ExplorerOpenService.OpenDirectory");
+        string libraryFolderHandler = SourceTextTestHelper.ExtractMethodBody(
+            mainWindow,
+            "private void treeViewLibraryFolderContextMenuItemOpenExplorerClick(");
+        StringAssert.Contains(libraryFolderHandler, "viewModel.LibraryFolderTree.OpenFolderInExplorer(text)");
+        Assert.IsFalse(libraryFolderHandler.Contains("LongPathFileSystem.DirectoryExists"));
+        Assert.IsFalse(libraryFolderHandler.Contains("ExplorerOpenService.OpenDirectory"));
+        StringAssert.Contains(applicationComposition, "LongPathFileSystem.DirectoryExists");
+        StringAssert.Contains(applicationComposition, "ExplorerOpenService.OpenDirectory");
     }
 
     [TestMethod]

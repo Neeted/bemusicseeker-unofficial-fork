@@ -383,6 +383,8 @@ internal sealed class ApplicationComposition
             installDestinationLibraryProvider,
             installDestinationDialogService,
             installDestinationSettingsProvider,
+            LongPathFileSystem.DirectoryExists,
+            ExplorerOpenService.OpenDirectory,
             reportPackageInstallWorkflowNotificationFailure,
             maintenanceRescanExecutor,
             maintenanceRescanScheduler,
@@ -569,6 +571,8 @@ internal sealed class MainWindowChildComposition
         Func<BMSLibrary> installDestinationLibraryProvider,
         IUiDialogService installDestinationDialogService,
         Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider,
+        Func<string, bool> libraryFolderTreeDirectoryExists,
+        Func<string, ExplorerOpenResult> libraryFolderTreeExplorerOpen,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
         Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
@@ -626,7 +630,11 @@ internal sealed class MainWindowChildComposition
             exception => NLogWrapper.TraceLogger?.Warn(exception),
             chartFileOperations);
         ChartFilters = new ChartListFilterViewModel(keywordSearchHistorySettingsStore);
-        LibraryFolderTree = new LibraryFolderTreeViewModel(libraryFolderTreeLog, libraryFolderTreeLogWarning);
+        LibraryFolderTree = new LibraryFolderTreeViewModel(
+            libraryFolderTreeDirectoryExists,
+            libraryFolderTreeExplorerOpen,
+            libraryFolderTreeLog,
+            libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();
         MaintenanceTree = new MaintenanceTreeViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();

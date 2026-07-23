@@ -3831,16 +3831,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewLibraryFolderContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || !(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
         {
             return;
         }
         string text = placementTarget.Header.ToString();
-        if (!LongPathFileSystem.DirectoryExists(text))
-        {
-            return;
-        }
-        ExplorerOpenService.OpenDirectory(text);
+        viewModel.LibraryFolderTree.OpenFolderInExplorer(text);
     }
 
     private async void treeViewLibraryFolderContextMenuItemReloadClick(object sender, RoutedEventArgs e)
