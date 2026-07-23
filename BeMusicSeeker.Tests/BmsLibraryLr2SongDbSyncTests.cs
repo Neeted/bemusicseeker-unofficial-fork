@@ -3415,49 +3415,54 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     public void CreateLr2SongDbSyncInputWithoutScanSurface_UsesTargetFolderInfoOnly()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
-        try
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string packDirectory = Path.Combine(rootDirectory, "Pack");
+        string songDirectory = Path.Combine(packDirectory, "Song");
+        string unrelatedDirectory = Path.Combine(rootDirectory, "Other");
+        Directory.CreateDirectory(songDirectory);
+        Directory.CreateDirectory(unrelatedDirectory);
+        string chartPath = Path.Combine(songDirectory, "chart.bms");
+        string packFolderInfoPath = Path.Combine(packDirectory, "folderinfo.txt");
+        string songTextPath = Path.Combine(songDirectory, "readme.txt");
+        string unrelatedFolderInfoPath = Path.Combine(unrelatedDirectory, "folderinfo.txt");
+        File.WriteAllText(chartPath, "#TITLE Test");
+        File.WriteAllText(packFolderInfoPath, "#TITLE Pack", Encoding.GetEncoding("shift_jis"));
+        File.WriteAllText(songTextPath, "notes", Encoding.UTF8);
+        File.WriteAllText(unrelatedFolderInfoPath, "#TITLE Other", Encoding.GetEncoding("shift_jis"));
+        var options = new BmsLibraryOptionsSnapshot
         {
-            Settings.Default.OperationModeLR2DB = true;
-            ResetLr2FolderDiscoverySettings();
-            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-            string packDirectory = Path.Combine(rootDirectory, "Pack");
-            string songDirectory = Path.Combine(packDirectory, "Song");
-            string unrelatedDirectory = Path.Combine(rootDirectory, "Other");
-            Directory.CreateDirectory(songDirectory);
-            Directory.CreateDirectory(unrelatedDirectory);
-            string chartPath = Path.Combine(songDirectory, "chart.bms");
-            string packFolderInfoPath = Path.Combine(packDirectory, "folderinfo.txt");
-            string songTextPath = Path.Combine(songDirectory, "readme.txt");
-            string unrelatedFolderInfoPath = Path.Combine(unrelatedDirectory, "folderinfo.txt");
-            File.WriteAllText(chartPath, "#TITLE Test");
-            File.WriteAllText(packFolderInfoPath, "#TITLE Pack", Encoding.GetEncoding("shift_jis"));
-            File.WriteAllText(songTextPath, "notes", Encoding.UTF8);
-            File.WriteAllText(unrelatedFolderInfoPath, "#TITLE Other", Encoding.GetEncoding("shift_jis"));
-            var library = new BMSLibrary(scope.SongDbPath)
-            {
-                SearchTargets = [rootDirectory],
-                BMSFiles =
-                [
-                    new TestableBmsFile
-                    {
-                        path = chartPath
-                    }
-                ]
-            };
-
-            object input = InvokeCreateLr2SongDbSyncInput(library);
-            List<string> folderInfoFilePaths = GetInputStringList(input, "FolderInfoFilePaths").ToList();
-            List<string> textFileDirectories = GetInputStringList(input, "TextFileDirectories").ToList();
-
-            CollectionAssert.Contains(folderInfoFilePaths, packFolderInfoPath);
-            CollectionAssert.DoesNotContain(folderInfoFilePaths, unrelatedFolderInfoPath);
-            CollectionAssert.Contains(textFileDirectories, songDirectory);
-            CollectionAssert.DoesNotContain(textFileDirectories, unrelatedDirectory);
-        }
-        finally
+            OperationModeLR2DB = true,
+            LR2RootPath = string.Empty,
+            LR2CustomFolderOutputBaseDir = string.Empty,
+            LR2CustomFolderAdditionalOutputBaseDirs = [],
+            LR2CustomFolderOutputBaseDirRootType = string.Empty,
+            EnableDownloadLr2IrScoreAndDetectUnsent = false
+        };
+        var library = new BMSLibrary(
+            scope.SongDbPath,
+            () => null!,
+            null,
+            "test",
+            () => options)
         {
-            ResetTouchedSettings();
-        }
+            SearchTargets = [rootDirectory],
+            BMSFiles =
+            [
+                new TestableBmsFile
+                {
+                    path = chartPath
+                }
+            ]
+        };
+
+        object input = InvokeCreateLr2SongDbSyncInput(library);
+        List<string> folderInfoFilePaths = GetInputStringList(input, "FolderInfoFilePaths").ToList();
+        List<string> textFileDirectories = GetInputStringList(input, "TextFileDirectories").ToList();
+
+        CollectionAssert.Contains(folderInfoFilePaths, packFolderInfoPath);
+        CollectionAssert.DoesNotContain(folderInfoFilePaths, unrelatedFolderInfoPath);
+        CollectionAssert.Contains(textFileDirectories, songDirectory);
+        CollectionAssert.DoesNotContain(textFileDirectories, unrelatedDirectory);
     }
 
     [TestMethod]

@@ -87,6 +87,21 @@ internal class UiMessageRequest
 internal sealed class UiConfirmationRequest : UiMessageRequest
 {
     /// <summary>
+    /// 標準の OK/Cancel・Question・Cancel default の確認要求を初期化します。
+    /// </summary>
+    /// <param name="messageBoxText">表示する本文。</param>
+    /// <param name="caption">dialog title。</param>
+    internal UiConfirmationRequest(string messageBoxText, string caption)
+        : this(
+            messageBoxText,
+            caption,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Cancel)
+    {
+    }
+
+    /// <summary>
     /// 確認 dialog 表示要求を初期化します。
     /// </summary>
     /// <param name="messageBoxText">表示する本文。</param>

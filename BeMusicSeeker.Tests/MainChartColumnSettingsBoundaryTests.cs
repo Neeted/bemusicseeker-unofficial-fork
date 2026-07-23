@@ -1,6 +1,9 @@
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
+using System.Threading.Tasks;
+using System.Windows;
 
 namespace BeMusicSeeker.Tests;
 
@@ -8,12 +11,17 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainChartColumnSettingsBoundaryTests
 {
     [TestMethod]
-    public void CompositionSharesColumnSettingsStoreAcrossMainTableAndSummaryCoordinator()
+    public async Task CompositionSharesColumnSettingsStoreAcrossMainTableAndSummaryCoordinator()
     {
         var store = new FakeMainChartColumnSettingsStore();
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+        };
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
-            mainChartColumnSettingsStore: store);
+            mainChartColumnSettingsStore: store,
+            playlistWorkspaceDialogService: dialogs);
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
         MainChartListColumnSelection selection = viewModel.MainChartList.LoadColumnSetting(
@@ -22,7 +30,7 @@ public sealed class MainChartColumnSettingsBoundaryTests
         Assert.AreSame(store.MainColumns, selection.ColumnsSettings);
         Assert.AreSame(store.PlaylistSummaryColumns, selection.PlaylistSummaryColumnsSettings);
 
-        viewModel.PlaylistWorkspace.ResetPlaylistSummaryColumnsToDefault();
+        await viewModel.PlaylistWorkspace.ResetPlaylistSummaryColumnsToDefaultAsync();
 
         Assert.AreSame(store.PlaylistSummaryColumns, viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings);
         Assert.AreEqual(1, store.ResetPlaylistSummaryCallCount);

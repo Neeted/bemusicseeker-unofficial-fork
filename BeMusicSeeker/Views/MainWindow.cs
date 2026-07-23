@@ -1399,7 +1399,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void playlistSummaryInitializeColumnSetting(object sender, RoutedEventArgs e)
+    private async void playlistSummaryInitializeColumnSetting(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("playlist_summary_column_setting_initialize"))
         {
@@ -1409,7 +1409,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel mainWindowViewModel)
         {
             e.Handled = true;
-            mainWindowViewModel.PlaylistWorkspace.TryResetPlaylistSummaryColumnsToDefault();
+            await mainWindowViewModel.PlaylistWorkspace.ResetPlaylistSummaryColumnsToDefaultAsync()
+                .LoggingAndPropagate("playlistSummaryInitializeColumnSetting");
         }
     }
 

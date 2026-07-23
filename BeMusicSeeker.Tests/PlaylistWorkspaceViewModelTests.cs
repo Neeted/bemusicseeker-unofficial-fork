@@ -174,7 +174,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.AreEqual(-1, handlerSource.IndexOf("Task.Run", StringComparison.Ordinal), summarySortHandler);
             StringAssert.Contains(handlerSource, "Async(");
         }
-        StringAssert.Contains(workspaceSource, "internal void ResetPlaylistSummaryColumnsToDefault()");
+        StringAssert.Contains(workspaceSource, "internal async Task ResetPlaylistSummaryColumnsToDefaultAsync()");
         StringAssert.Contains(workspaceSource, "private bool isPlaylistTreeExpanded = true;");
         StringAssert.Contains(workspaceSource, "public bool IsPlaylistTreeExpanded");
         StringAssert.Contains(mainWindowXaml, "IsExpanded=\"{Binding PlaylistWorkspace.IsPlaylistTreeExpanded, Mode=TwoWay}\"");
@@ -231,12 +231,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, mainWindowSource.IndexOf("viewModel.IsPlaylistDetailViewActive", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive");
         Assert.AreEqual(-1, mainWindowSource.IndexOf("mainWindowViewModel.PlaylistSummaryColumns", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "mainWindowViewModel.PlaylistWorkspace.TryResetPlaylistSummaryColumnsToDefault();");
+        StringAssert.Contains(mainWindowSource, "await mainWindowViewModel.PlaylistWorkspace.ResetPlaylistSummaryColumnsToDefaultAsync()");
         string playlistSummaryColumnResetSource = SourceTextTestHelper.ExtractMethodBody(
             mainWindowSource,
-            "private void playlistSummaryInitializeColumnSetting(");
+            "private async void playlistSummaryInitializeColumnSetting(");
         Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf(".ResetPlaylistSummaryColumnsToDefault();", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf("TryResetPlaylistSummaryColumnsToDefault", StringComparison.Ordinal));
         string recommendedImportSource = SourceTextTestHelper.ExtractMethodBody(
             mainWindowSource,
             "private void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(");
@@ -396,8 +396,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistTableLevelOverwriteConfirmationRequested", StringComparison.Ordinal));
         StringAssert.Contains(levelOverwriteSource, "internal async Task OverwriteAsync(BMSTable table)");
         StringAssert.Contains(levelOverwriteSource, "ReplaceBmsFileLevelByTableEntryLevel(table)");
-        StringAssert.Contains(workspaceSource, "PlaylistSummaryColumnResetConfirmationRequested");
-        StringAssert.Contains(workspaceSource, "internal bool TryResetPlaylistSummaryColumnsToDefault()");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistSummaryColumnResetConfirmationRequested", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal async Task ResetPlaylistSummaryColumnsToDefaultAsync()");
         StringAssert.Contains(workspaceSource, "PlaylistRecommendedTableImportConfirmationRequested");
         StringAssert.Contains(workspaceSource, "internal bool TryEnqueueRecommendedPlaylistImport(string rawTag)");
         StringAssert.Contains(workspaceSource, "if (request.Lr2Id == 0 || !request.Confirmed)");
@@ -406,7 +406,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested += PlaylistWorkspacePlaylistSummaryColumnResetConfirmationRequested;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested += PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
         Assert.IsFalse(logicalSource.Contains("PlaylistWorkspace.PlaylistImportNotificationsFlushRequested"));
@@ -1770,26 +1770,54 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void PlaylistWorkspaceSummaryColumnResetRequiresConfirmation()
+    public async Task PlaylistWorkspaceSummaryColumnResetRequiresConfirmation()
     {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistWorkspaceDialogService: dialogs);
         var originalSettings = workspace.PlaylistSummaryColumnsSettings;
-        bool confirmationRequested = false;
-        workspace.PlaylistSummaryColumnResetConfirmationRequested += (_, request) =>
+        int notificationCount = 0;
+        workspace.PropertyChanged += (_, e) =>
         {
-            confirmationRequested = true;
-            request.Confirmed = false;
+            if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
+            {
+                notificationCount++;
+            }
         };
 
-        Assert.IsFalse(workspace.TryResetPlaylistSummaryColumnsToDefault());
-        Assert.IsTrue(confirmationRequested);
+        await workspace.ResetPlaylistSummaryColumnsToDefaultAsync();
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Msg_init_column_settings,
+            dialogs.LastConfirmationRequest.MessageBoxText);
+        Assert.AreEqual(MessageBoxButton.OKCancel, dialogs.LastConfirmationRequest.Button);
+        Assert.AreEqual(MessageBoxResult.Cancel, dialogs.LastConfirmationRequest.DefaultResult);
         Assert.AreSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
+        Assert.AreEqual(0, notificationCount);
 
-        confirmationRequested = false;
-        workspace.PlaylistSummaryColumnResetConfirmationRequested += (_, request) => request.Confirmed = true;
-        Assert.IsTrue(workspace.TryResetPlaylistSummaryColumnsToDefault());
-        Assert.IsTrue(confirmationRequested);
+        dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        await workspace.ResetPlaylistSummaryColumnsToDefaultAsync();
         Assert.AreNotSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
+        Assert.AreEqual(1, notificationCount);
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryColumnResetPropagatesDialogFailure()
+    {
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
+        };
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistWorkspaceDialogService: dialogs);
+        PlaylistSummaryColumnSettings originalSettings = workspace.PlaylistSummaryColumnsSettings;
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => workspace.ResetPlaylistSummaryColumnsToDefaultAsync());
+
+        Assert.AreSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
     }
 
     [TestMethod]
@@ -3686,7 +3714,11 @@ public sealed class PlaylistWorkspaceViewModelTests
         viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
         viewModel.PropertyChanged += (_, e) => rootPropertyNames.Add(e.PropertyName);
 
-        viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings = columns;
+        PlaylistColumnPresentationCommit columnCommit =
+            viewModel.PlaylistWorkspace.CommitColumnPresentationWithoutNotification(
+                Visibility.Collapsed,
+                columns);
+        viewModel.PlaylistWorkspace.PublishColumnPresentation(columnCommit);
         viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
         viewModel.PlaylistWorkspace.UseAsyncChartRowsViewBinding = false;
         viewModel.PlaylistWorkspace.GridHeaderText = "Playlist summary";

@@ -3438,11 +3438,15 @@ public sealed class RegularChartListOwnerTests
 
     [TestMethod]
     [DoNotParallelize]
-    public void PlaylistSummaryColumnSettings_ResetCreatesDefaultSettingsAndPublishesWorkspace()
+    public async Task PlaylistSummaryColumnSettings_ResetCreatesDefaultSettingsAndPublishesWorkspace()
     {
         PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
         try
         {
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
                 new MainChartListViewModel(action => action()),
@@ -3479,10 +3483,12 @@ public sealed class RegularChartListOwnerTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogs);
             var oldSettings = new PlaylistSummaryColumnSettings();
             Settings.Default.PlaylistSummaryColumnsSettings = oldSettings;
-            workspace.PlaylistSummaryColumnsSettings = oldSettings;
+            workspace.CommitColumnPresentationWithoutNotification(
+                workspace.ColumnSettingsVisibilityForPlaylist,
+                oldSettings);
             int notificationCount = 0;
             workspace.PropertyChanged += (_, e) =>
             {
@@ -3492,7 +3498,7 @@ public sealed class RegularChartListOwnerTests
                 }
             };
 
-            workspace.ResetPlaylistSummaryColumnsToDefault();
+            await workspace.ResetPlaylistSummaryColumnsToDefaultAsync();
 
             Assert.AreNotSame(oldSettings, Settings.Default.PlaylistSummaryColumnsSettings);
             Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);

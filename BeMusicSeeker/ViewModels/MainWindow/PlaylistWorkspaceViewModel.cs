@@ -53,6 +53,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore;
 
+    private readonly IUiDialogService playlistWorkspaceDialogService;
+
     private readonly SemaphoreSlim manualReloadSemaphore = new(1, 1);
 
     private readonly PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
@@ -251,16 +253,15 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             dispatchPresentation,
             playlistReloadCleanupShutdownRequestedProvider,
             playlistReloadLog);
-        IUiDialogService resolvedPlaylistWorkspaceDialogService =
-            playlistWorkspaceDialogService ?? new UiDialogCoordinator();
+        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
         PlaylistRemovalWorkflow = new PlaylistRemovalWorkflowOwner(
-            resolvedPlaylistWorkspaceDialogService,
+            this.playlistWorkspaceDialogService,
             getPlaylistStore,
             getPlaylistLibrary,
             getLr2Config,
             customFolderOutputSettingsProvider);
         PlaylistTableLevelOverwriteWorkflow = new PlaylistTableLevelOverwriteWorkflowOwner(
-            resolvedPlaylistWorkspaceDialogService,
+            this.playlistWorkspaceDialogService,
             getPlaylistLibrary);
         PlaylistRemovalWorkflow.ReferenceSortInvalidationRequested +=
             (_, _) => RequestPlaylistReferenceSortInvalidation();
@@ -303,11 +304,41 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         propertySaveService.PlaylistOperationNotificationPresentationRequested += ForwardPlaylistOperationNotificationPresentationRequested;
     }
 
-    internal void ResetPlaylistSummaryColumnsToDefault()
+    internal async Task ResetPlaylistSummaryColumnsToDefaultAsync()
     {
+        UiDialogResult result = await playlistWorkspaceDialogService.ConfirmAsync(
+                new UiConfirmationRequest(
+                    BeMusicSeeker.Properties.Resources.Msg_init_column_settings,
+                    BeMusicSeeker.Properties.Resources.Confirm))
+            .ConfigureAwait(true);
+        if (result == null)
+        {
+            throw new InvalidOperationException(
+                "Playlist summary column reset confirmation returned no dialog result.");
+        }
+        if (!result.IsAccepted)
+        {
+            if (result.Status is UiDialogStatus.Rejected
+                or UiDialogStatus.CancelledByUser
+                or UiDialogStatus.ClosedByUser)
+            {
+                return;
+            }
+
+            throw result.Exception
+                ?? new InvalidOperationException(
+                    "Playlist summary column reset confirmation could not be displayed ("
+                    + result.Status
+                    + ").");
+        }
+
         IMainChartColumnSettingsStore store = playlistSummaryColumnSettingsStore
             ?? throw new InvalidOperationException("Playlist summary column settings store is not configured.");
-        PlaylistSummaryColumnsSettings = store.ResetPlaylistSummary();
+        PlaylistSummaryColumnSettings settings = store.ResetPlaylistSummary();
+        PlaylistColumnPresentationCommit commit = CommitColumnPresentationWithoutNotification(
+            ColumnSettingsVisibilityForPlaylist,
+            settings);
+        PublishColumnPresentation(commit);
     }
 
     internal Task ApplyCurrentVisibleBmtOrderAsync(IEnumerable<PlaylistSummaryRow> visibleRows)
@@ -973,21 +1004,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     }
 
     /// <summary>
-    /// Gets or sets playlist summary column settings.
+    /// Gets the playlist summary column settings.
     /// </summary>
     public PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings
     {
         get => playlistSummaryColumnsSettings;
-        internal set
-        {
-            if (ReferenceEquals(playlistSummaryColumnsSettings, value))
-            {
-                return;
-            }
-
-            playlistSummaryColumnsSettings = value;
-            RaisePropertyChanged(nameof(PlaylistSummaryColumnsSettings));
-        }
     }
 
     /// <summary>
