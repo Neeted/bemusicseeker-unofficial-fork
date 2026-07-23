@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -15,6 +16,7 @@ using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -25,6 +27,60 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingDialogEditCompletionTests
 {
+    [TestMethod]
+    public void SettingDialogVolumeBinding_UsesComposedPlaybackOwner()
+    {
+        RunOnStaDispatcherThread(() =>
+        {
+            string root = CreateTemporaryRoot();
+            try
+            {
+                var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+                var player = new RecordingPlaybackPlayer();
+                MainWindowViewModel viewModel = new ApplicationComposition(
+                        settingsEditSession: settingsSession,
+                        defaultBmsPlayerFactory: () => player)
+                    .CreateMainWindowViewModel();
+                var settingDialog = new SettingDialog
+                {
+                    DataContext = viewModel.settingDialog,
+                    PlaybackPanel = viewModel.PlaybackPanel
+                };
+                settingDialog.Measure(new Size(1000, 800));
+                settingDialog.Arrange(new Rect(0, 0, 1000, 800));
+                settingDialog.UpdateLayout();
+
+                Slider volumeSlider = FindDescendants<Slider>(settingDialog)
+                    .Single(slider => slider.GetBindingExpression(Slider.ValueProperty)?.ParentBinding.Path?.Path == "PlaybackPanel.PlayerVolume");
+                TextBlock volumeText = FindDescendants<TextBlock>(settingDialog)
+                    .Single(textBlock => textBlock.GetBindingExpression(TextBlock.TextProperty)?.ParentBinding.Path?.Path == "PlaybackPanel.PlayerVolume");
+
+                int firstVolume = settingsSession.Values.uBMplayVolume == 100
+                    ? settingsSession.Values.uBMplayVolume - 1
+                    : settingsSession.Values.uBMplayVolume + 1;
+                volumeSlider.Value = firstVolume;
+                settingDialog.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+
+                Assert.AreEqual(firstVolume, viewModel.PlaybackPanel.PlayerVolume);
+                Assert.AreEqual(firstVolume, settingsSession.Values.uBMplayVolume);
+                Assert.AreEqual(1, player.VolumeChangedCount);
+                Assert.AreEqual(firstVolume + "%", volumeText.Text);
+
+                int secondVolume = firstVolume == 0 ? 1 : firstVolume - 1;
+                viewModel.PlaybackPanel.PlayerVolume = secondVolume;
+                settingDialog.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+
+                Assert.AreEqual(secondVolume, volumeSlider.Value);
+                Assert.AreEqual(secondVolume + "%", volumeText.Text);
+                Assert.AreEqual(2, player.VolumeChangedCount);
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_AcceptedStandaloneRoot_PersistsAndReloads()
     {
@@ -1103,6 +1159,43 @@ public sealed class SettingDialogEditCompletionTests
             .Invoke(instance, arguments);
     }
 
+    private static IEnumerable<T> FindDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        var pending = new Stack<DependencyObject>();
+        var visited = new HashSet<DependencyObject>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            DependencyObject current = pending.Pop();
+            if (!visited.Add(current))
+            {
+                continue;
+            }
+
+            if (current is T typedCurrent)
+            {
+                yield return typedCurrent;
+            }
+
+            if (current is Visual || current is System.Windows.Media.Media3D.Visual3D)
+            {
+                for (int index = 0; index < VisualTreeHelper.GetChildrenCount(current); index++)
+                {
+                    pending.Push(VisualTreeHelper.GetChild(current, index));
+                }
+            }
+
+            foreach (object logicalChild in LogicalTreeHelper.GetChildren(current))
+            {
+                if (logicalChild is DependencyObject dependencyObject)
+                {
+                    pending.Push(dependencyObject);
+                }
+            }
+        }
+    }
+
     private static void RunOnStaDispatcherThread(Action action)
     {
         Exception? exception = null;
@@ -1218,6 +1311,113 @@ public sealed class SettingDialogEditCompletionTests
                 SaveEntered.Set();
                 ReleaseSave.Wait();
             }
+        }
+    }
+
+    private sealed class RecordingPlaybackPlayer : IBMSPlayer
+    {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public string ExePath { get; set; } = string.Empty;
+
+        public IntPtr ParentHandle { private get; set; }
+
+        public TimeSpan Duration => TimeSpan.Zero;
+
+        public TimeSpan CurrentTime { get; set; }
+
+        public TimeSpan StopTime => TimeSpan.Zero;
+
+        public TimeSpan BmsDuration => TimeSpan.Zero;
+
+        public TimeSpan MusicDuration => TimeSpan.Zero;
+
+        public int CurrentVoices => 0;
+
+        public int MaxVoices => 0;
+
+        public int NoteDensity => 0;
+
+        public int NoteDensityMax => 0;
+
+        public int Bpm => 0;
+
+        public int MinBpm => 0;
+
+        public int MaxBpm => 0;
+
+        public double Total => 0;
+
+        public int Combo => 0;
+
+        public int Notes => 0;
+
+        public int Measure => 0;
+
+        public int LastMeasure => 0;
+
+        public int VolumeChangedCount { get; private set; }
+
+        public void Raise(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        public void CloseProcess()
+        {
+        }
+
+        public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
+        {
+        }
+
+        public void RestartPlayingBMSfile()
+        {
+        }
+
+        public void PausePlayingBMSfileToggle()
+        {
+        }
+
+        public void FastForwardPlayingBMSfileStart()
+        {
+        }
+
+        public void FastForwardPlayingBMSfileEnd()
+        {
+        }
+
+        public void FastBackwardPlayingBMSfileStart()
+        {
+        }
+
+        public void FastBackwardPlayingBMSfileEnd()
+        {
+        }
+
+        public void ShowInfo()
+        {
+        }
+
+        public void ShowEffect()
+        {
+        }
+
+        public void ChangePlayside()
+        {
+        }
+
+        public void IncreaseHighSpeed()
+        {
+        }
+
+        public void DecreaseHighSpeed()
+        {
+        }
+
+        public void VolumeChanged()
+        {
+            VolumeChangedCount++;
         }
     }
 

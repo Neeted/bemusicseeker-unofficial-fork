@@ -25,9 +25,21 @@ namespace BeMusicSeeker.Views;
 /// </summary>
 public partial class SettingDialog : UserControl, IComponentConnector
 {
+    public static readonly DependencyProperty PlaybackPanelProperty = DependencyProperty.Register(
+        nameof(PlaybackPanel),
+        typeof(PlaybackPanelViewModel),
+        typeof(SettingDialog),
+        new PropertyMetadata(null));
+
     internal Binding bindingLR2CustomFolderOutputDir;
 
     internal Binding bindingBMSInstallDir;
+
+    public PlaybackPanelViewModel PlaybackPanel
+    {
+        get => (PlaybackPanelViewModel)GetValue(PlaybackPanelProperty);
+        set => SetValue(PlaybackPanelProperty, value);
+    }
 
     private static void ThrowIfPickerFailed(UiDialogStatus status, Exception exception, string routeName)
     {

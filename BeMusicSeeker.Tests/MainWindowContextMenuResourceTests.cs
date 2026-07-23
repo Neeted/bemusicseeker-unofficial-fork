@@ -2065,6 +2065,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsEditCompletionEnabled}\"");
         Assert.IsFalse(settingDialogXaml.Contains("{Binding settingDialog."));
         StringAssert.Contains(mainWindowXaml, "<v:SettingDialog x:Name=\"settingDialog\" DataContext=\"{Binding settingDialog}\"");
+        StringAssert.Contains(mainWindowXaml, "PlaybackPanel=\"{Binding DataContext.PlaybackPanel, ElementName=window}\"");
+        StringAssert.Contains(settingDialogXaml, "ElementName=settingDialog, Mode=OneWay");
+        StringAssert.Contains(settingDialogXaml, "ElementName=settingDialog, Mode=TwoWay");
+        StringAssert.Contains(settingDialogCode, "DependencyProperty PlaybackPanelProperty");
+        StringAssert.Contains(settingDialogCode, "public PlaybackPanelViewModel PlaybackPanel");
         StringAssert.Contains(settingDialogCode, "private async void buttonOKClick(object sender, RoutedEventArgs e)");
         StringAssert.Contains(settingDialogCode, "await GetSettingDialogViewModel()");
         StringAssert.Contains(settingDialogCode, "ApplySettingsAsync()");
