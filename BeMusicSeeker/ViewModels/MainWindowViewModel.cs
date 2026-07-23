@@ -147,191 +147,6 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// 起動・リロード進捗の対象 operation 種別です。
     /// </summary>
-    internal enum StartupProgressOperationKind
-    {
-        None,
-        Startup,
-        ReloadFileDiff,
-        ScoreOnly,
-        FullReinitialize,
-        ReloadTables
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗の内部フェーズ集合です。
-    /// </summary>
-    [Flags]
-    private enum StartupProgressPhase
-    {
-        None = 0,
-        CoreInitializeStarted = 1,
-        StartupReadyData = 2,
-        StartupReadyUi = 4,
-        StartupReadyOperable = 8,
-        PlaylistReferenceApplied = 16,
-        ExternalPlaylistSyncDone = 32,
-        ScoreHydrationDone = 64,
-        RankingRefreshDone = 128,
-        MaintenanceDeferredDone = 256,
-        ChartDigestBackfillDone = 512,
-        ChartInfoBackfillDone = 1024,
-        ChartInfoHydrationDone = 2048,
-        PlaylistEntriesHydrationDone = 4096,
-        LibraryDatabaseLoadDone = 8192,
-        LibraryFileEnumerationDone = 16384,
-        LibraryFileDiffDone = 32768,
-        InstallableMaintenanceDeferredDone = 65536,
-        Lr2SongDbSyncDone = 131072,
-        StartupBackgroundTasksDone = 262144
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗の内部状態です。
-    /// UI 表示は Completed/Expected フェーズ集合から再計算します。
-    /// </summary>
-    private sealed class StartupProgressState
-    {
-        internal long OperationToken;
-
-        internal StartupProgressOperationKind OperationKind;
-
-        internal bool IsActive;
-
-        internal bool IsFailed;
-
-        internal bool IsRetryableFailure;
-
-        internal string FailureSubLabel = string.Empty;
-
-        internal StartupProgressPhase CompletedPhases;
-
-        internal StartupProgressPhase ExpectedPhases;
-
-        internal StartupProgressPhase RequestedPhases;
-
-        internal StartupProgressPhase SkippedPhases;
-
-        internal int ScoreHydrationBaselineCompletedVersion;
-
-        internal int ScoreHydrationRequestedBaselineVersion;
-
-        internal int RequiredScoreHydrationCompletedVersion;
-
-        internal int RankingRefreshBaselineCompletedVersion;
-
-        internal int RankingRefreshRequestedBaselineVersion;
-
-        internal int RequiredRankingRefreshCompletedVersion;
-
-        internal int MaintenanceRequestedBaselineVersion;
-
-        internal int InstallableMaintenanceRequestedBaselineVersion;
-
-        internal int ChartDigestBackfillBaselineCompletedVersion;
-
-        internal int ChartInfoBackfillBaselineCompletedVersion;
-
-        internal int ChartInfoHydrationBaselineCompletedVersion;
-
-        internal int Lr2SongDbSyncBaselineCompletedVersion;
-
-        internal int PlaylistEntriesHydrationBaselineCompletedVersion;
-
-        internal int LibraryDatabaseLoadBaselineCompletedVersion;
-
-        internal int LibraryFileEnumerationBaselineCompletedVersion;
-
-        internal int LibraryFileDiffBaselineCompletedVersion;
-
-        internal int RequiredPlaylistReferenceVersion;
-
-        internal bool PlaylistReferenceFromHydrationRequested;
-
-        internal int RequiredExternalSyncVersion;
-
-        internal int RequiredPlaylistEntriesHydrationCompletedVersion;
-
-        internal int RequiredMaintenanceCompletedVersion;
-
-        internal int RequiredInstallableMaintenanceCompletedVersion;
-
-        internal int RequiredChartDigestBackfillCompletedVersion;
-
-        internal int RequiredChartInfoBackfillCompletedVersion;
-
-        internal int RequiredChartInfoHydrationCompletedVersion;
-
-        internal int RequiredLr2SongDbSyncCompletedVersion;
-
-        internal int ChartDigestBackfillTotalCount;
-
-        internal int ChartDigestBackfillProcessedCount;
-
-        internal string ChartDigestBackfillCurrentPath = string.Empty;
-
-        internal int ChartInfoBackfillTotalCount;
-
-        internal int ChartInfoBackfillProcessedCount;
-
-        internal string ChartInfoBackfillCurrentPath = string.Empty;
-
-        internal int ChartInfoHydrationTotalCount;
-
-        internal int ChartInfoHydrationAppliedCount;
-
-        internal int Lr2SongDbSyncTotalCount;
-
-        internal int Lr2SongDbSyncProcessedCount;
-
-        internal string Lr2SongDbSyncStage = string.Empty;
-
-        internal int Lr2SongDbSyncStageProcessedCount;
-
-        internal int Lr2SongDbSyncStageTotalCount;
-
-        internal BMSLibrary.LibraryInitializationProgressStage LibraryInitializationProgressStage;
-
-        internal string LibraryInitializationProgressScannerLabel = string.Empty;
-
-        internal int LibraryInitializationProgressTotalCount;
-
-        internal int LibraryInitializationProgressProcessedCount;
-
-        internal string LibraryInitializationProgressCurrentPath = string.Empty;
-
-        internal bool CompletionHideScheduled;
-
-        internal DateTime? LastCompletedAtUtc;
-    }
-
-    internal sealed class StartupProgressTestResult
-    {
-        internal int ExpectedCount { get; set; }
-
-        internal int CompletedCount { get; set; }
-
-        internal int RequestedCount { get; set; }
-
-        internal int SkippedCount { get; set; }
-
-        internal int IgnoredRequestCount { get; set; }
-
-        internal int IgnoredCompleteCount { get; set; }
-
-        internal string Label { get; set; } = string.Empty;
-
-        internal string SubLabel { get; set; } = string.Empty;
-
-        internal bool IsCompleted { get; set; }
-
-        internal bool IsFailed { get; set; }
-
-        internal double ProgressValue { get; set; }
-
-        internal double ProgressMaximum { get; set; }
-    }
-
-    [Flags]
     private enum UiRefreshChannel
     {
         None = 0,
@@ -399,6 +214,268 @@ public partial class MainWindowViewModel : ViewModel
             ?? throw new InvalidOperationException("Startup settings provider returned null.");
     }
 
+    private StartupProgressVersionSnapshot CaptureStartupProgressVersionSnapshot()
+    {
+        return new StartupProgressVersionSnapshot
+        {
+            ScoreHydrationCompletedVersion = files?.ScoreHydrationCompletedVersion ?? 0,
+            ScoreHydrationRequestedVersion = files?.ScoreHydrationRequestedVersion ?? 0,
+            RankingRefreshCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
+            RankingRefreshRequestedVersion = files?.RankingRefreshRequestedVersion ?? 0,
+            MaintenanceHydrationRequestedVersion = files?.MaintenanceHydrationRequestedVersion ?? 0,
+            InstallableMaintenanceDeferredRequestedVersion = files?.InstallableMaintenanceDeferredRequestedVersion ?? 0,
+            ChartDigestBackfillCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
+            ChartInfoBackfillCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
+            ChartInfoHydrationCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
+            ChartInfoBackfillRequestedVersion = files?.ChartInfoBackfillRequestedVersion ?? 0,
+            Lr2SongDbSyncCompletedVersion = files?.Lr2SongDbSyncCompletedVersion ?? 0,
+            PlaylistEntriesHydrationCompletedVersion = tables?.PlaylistEntriesHydrationCompletedVersion ?? 0,
+            LibraryDatabaseLoadCompletedVersion = files?.LibraryDatabaseLoadCompletedVersion ?? 0,
+            LibraryFileEnumerationCompletedVersion = files?.LibraryFileEnumerationCompletedVersion ?? 0,
+            LibraryFileDiffCompletedVersion = files?.LibraryFileDiffCompletedVersion ?? 0
+        };
+    }
+
+    private void PrepareStartupProgressOperation(
+        StartupProgressOperationKind operationKind,
+        long operationToken)
+    {
+        lock (startupBackgroundTaskProgressSynchronization)
+        {
+            lock (lockUiSuppression)
+            {
+                deferredStartupPresentationMask = UiRefreshChannel.None;
+                deferredStartupPresentationOperationToken = operationToken;
+                deferredStartupPresentationInFlightMask = UiRefreshChannel.None;
+                deferredStartupPresentationInFlightOperationToken = 0L;
+            }
+            startupBackgroundTaskScheduler.Reset(
+                operationKind != StartupProgressOperationKind.Startup && startupReadyOperableReached);
+            lock (startupInitializationCompletionLock)
+            {
+                startupInitializationCompleteStopwatch = operationKind == StartupProgressOperationKind.Startup
+                    ? Stopwatch.StartNew()
+                    : null;
+                startupInitializationCompleteLogged = false;
+                startupInitializationCompleteRetryQueued = false;
+                startupCompletionContinuationToken = 0L;
+            }
+        }
+    }
+
+    private void DispatchStartupProgressPresentation(Action action)
+    {
+        Dispatcher dispatcher = DispatcherHelper.UIDispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            action();
+        }
+        else
+        {
+            dispatcher.BeginInvoke(action);
+        }
+    }
+
+    private bool IsStartupCompletionTokenCurrent(long expectedOperationToken)
+    {
+        if (expectedOperationToken == 0L
+            || startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(expectedOperationToken))
+        {
+            return true;
+        }
+        if (startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken() != 0L)
+        {
+            return false;
+        }
+        lock (startupInitializationCompletionLock)
+        {
+            return startupCompletionContinuationToken == expectedOperationToken;
+        }
+    }
+
+    private void TryLogStartupInitializationComplete(long expectedOperationToken = 0L)
+    {
+        if (expectedOperationToken != 0L
+            && !IsStartupCompletionTokenCurrent(expectedOperationToken))
+        {
+            return;
+        }
+        StartupProgressOperationKind currentOperationKind = startupProgressWorkflowOwner.CurrentOperationKind;
+        bool startupCompletionContinuation = currentOperationKind == StartupProgressOperationKind.None
+            && expectedOperationToken != 0L
+            && IsStartupCompletionTokenCurrent(expectedOperationToken);
+        if (currentOperationKind != StartupProgressOperationKind.Startup
+            && !startupCompletionContinuation)
+        {
+            ShowInitialSetupCompletionMessageIfPending(expectedOperationToken, requireBackgroundTasksIdle: true);
+            return;
+        }
+        bool completionAlreadyLogged;
+        lock (startupInitializationCompletionLock)
+        {
+            completionAlreadyLogged = startupInitializationCompleteLogged;
+        }
+        if (completionAlreadyLogged)
+        {
+            ShowInitialSetupCompletionMessageIfPending(expectedOperationToken, requireBackgroundTasksIdle: true);
+            return;
+        }
+
+        long elapsedMs;
+        lock (startupBackgroundTaskProgressSynchronization)
+        {
+            lock (startupInitializationCompletionLock)
+            {
+                if (expectedOperationToken != 0L
+                    && !IsStartupCompletionTokenCurrent(expectedOperationToken))
+                {
+                    return;
+                }
+                startupCompletionContinuationToken = expectedOperationToken;
+                if (startupInitializationCompleteLogged || startupInitializationCompleteStopwatch == null)
+                {
+                    return;
+                }
+                if (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle)
+                {
+                    QueueStartupInitializationCompleteRetryUnsafe(expectedOperationToken);
+                    return;
+                }
+                startupInitializationCompleteLogged = true;
+                elapsedMs = startupInitializationCompleteStopwatch.ElapsedMilliseconds;
+            }
+        }
+        if (expectedOperationToken != 0L
+            && !IsStartupCompletionTokenCurrent(expectedOperationToken))
+        {
+            return;
+        }
+        LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
+        LogUiSuppression(startupBackgroundTaskScheduler.BuildSummaryLog(elapsedMs));
+        if (!QueueDeferredStartupPresentationFlushAfterInitialization(expectedOperationToken))
+        {
+            if (expectedOperationToken != 0L
+                && !IsStartupCompletionTokenCurrent(expectedOperationToken))
+            {
+                return;
+            }
+            SchedulePostStartupBestEffortWarmups("startup_initialization_complete", expectedOperationToken);
+        }
+    }
+
+    private bool QueueDeferredStartupPresentationFlushAfterInitialization(long expectedOperationToken = 0L)
+    {
+        if (expectedOperationToken != 0L
+            && !IsStartupCompletionTokenCurrent(expectedOperationToken))
+        {
+            return false;
+        }
+        if (!TryTakeDeferredStartupPresentationMask(expectedOperationToken, out UiRefreshChannel mask))
+        {
+            return false;
+        }
+        Action flush = delegate
+        {
+            if (expectedOperationToken != 0L
+                && !IsStartupCompletionTokenCurrent(expectedOperationToken))
+            {
+                return;
+            }
+            var stopwatch = Stopwatch.StartNew();
+            LogUiSuppression("startup_presentation_flush start mask=" + mask);
+            long flushOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken() == expectedOperationToken
+                ? expectedOperationToken
+                : 0L;
+            FlushPendingUiRefresh(mask, flushOperationToken, allowStartupPresentationDefer: false, logReadiness: false);
+            CompleteDeferredStartupPresentationFlush(expectedOperationToken);
+            stopwatch.Stop();
+            LogUiSuppression("startup_presentation_flush done elapsedMs=" + stopwatch.ElapsedMilliseconds + " mask=" + mask);
+            SchedulePostStartupBestEffortWarmups("startup_presentation_flush_done", expectedOperationToken);
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            flush();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(flush);
+        }
+        return true;
+    }
+
+    private void ShowInitialSetupCompletionMessageIfPending(
+        long expectedOperationToken = 0L,
+        bool requireBackgroundTasksIdle = false)
+    {
+        if (expectedOperationToken != 0L
+            && !IsStartupCompletionTokenCurrent(expectedOperationToken))
+        {
+            return;
+        }
+        if (!initialSetupCompletionMessagePending)
+        {
+            return;
+        }
+        if (requireBackgroundTasksIdle
+            && (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle))
+        {
+            lock (startupInitializationCompletionLock)
+            {
+                QueueStartupInitializationCompleteRetryUnsafe(expectedOperationToken);
+            }
+            return;
+        }
+        Action showMessage = delegate
+        {
+            if (expectedOperationToken != 0L
+                && !IsStartupCompletionTokenCurrent(expectedOperationToken))
+            {
+                return;
+            }
+            if (requireBackgroundTasksIdle
+                && (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle))
+            {
+                lock (startupInitializationCompletionLock)
+                {
+                    QueueStartupInitializationCompleteRetryUnsafe(expectedOperationToken);
+                }
+                return;
+            }
+            if (!initialSetupCompletionMessagePending)
+            {
+                return;
+            }
+            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, "Initial setup completion notification");
+            initialSetupCompletionMessagePending = false;
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            showMessage();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(showMessage);
+        }
+    }
+
+    private void QueueStartupInitializationCompleteRetryUnsafe(long expectedOperationToken = 0L)
+    {
+        if (startupInitializationCompleteRetryQueued)
+        {
+            return;
+        }
+        startupInitializationCompleteRetryQueued = true;
+        Task.Run(async delegate
+        {
+            await Task.Delay(250).ConfigureAwait(false);
+            lock (startupInitializationCompletionLock)
+            {
+                startupInitializationCompleteRetryQueued = false;
+            }
+            TryLogStartupInitializationComplete(expectedOperationToken);
+        });
+    }
+
     private LR2Config lr2config;
 
     private PropertyChangedEventListener listenerForBMSLibrary;
@@ -425,9 +502,17 @@ public partial class MainWindowViewModel : ViewModel
 
     private UiRefreshChannel deferredStartupPresentationMask = UiRefreshChannel.None;
 
+    private long deferredStartupPresentationOperationToken;
+
+    private UiRefreshChannel deferredStartupPresentationInFlightMask = UiRefreshChannel.None;
+
+    private long deferredStartupPresentationInFlightOperationToken;
+
     private readonly object lockUiSuppression = new();
 
     private readonly object startupInitializationCompletionLock = new();
+
+    private readonly object startupBackgroundTaskProgressSynchronization = new();
 
     private readonly StartupBackgroundTaskSchedulerOwner startupBackgroundTaskScheduler;
 
@@ -436,6 +521,8 @@ public partial class MainWindowViewModel : ViewModel
     private bool startupInitializationCompleteLogged;
 
     private bool startupInitializationCompleteRetryQueued;
+
+    private long startupCompletionContinuationToken;
 
     private Stopwatch startupReadyInstallStopwatch;
 
@@ -476,11 +563,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private long playlistSyncProgressUiVersion;
 
-    private readonly object startupProgressLock = new();
-
-    private StartupProgressState startupProgressState = new();
-
-    private long startupProgressOperationTokenSeed;
+    private readonly StartupProgressWorkflowOwner startupProgressWorkflowOwner;
 
     private bool _IsStartupUiInteractionBlocked;
 
@@ -810,63 +893,27 @@ public partial class MainWindowViewModel : ViewModel
         {
             return false;
         }
-        long operationToken = GetActiveStartupProgressOperationToken();
-        if (!ShouldDeferStartupPresentationRefresh(channel, operationToken))
-        {
-            return false;
-        }
+        long operationToken;
         UiRefreshChannel deferredChannel = channel & StartupDeferredPresentationChannels;
         if (deferredChannel == UiRefreshChannel.None)
         {
             return false;
         }
-        UiRefreshChannel pendingMask;
-        lock (lockUiSuppression)
+        if (!TryAddDeferredStartupPresentationMask(deferredChannel, out operationToken, out UiRefreshChannel pendingMask))
         {
-            deferredStartupPresentationMask |= deferredChannel;
-            pendingMask = deferredStartupPresentationMask;
+            return false;
         }
         LogUiSuppression("startup_presentation_deferred reason=" + (reason ?? string.Empty) + " channel=" + deferredChannel + " pending=" + pendingMask);
         return true;
     }
 
-    private bool ShouldDeferStartupPresentationRefresh(UiRefreshChannel channel, long operationToken)
-    {
-        if ((channel & StartupDeferredPresentationChannels) == 0)
-        {
-            return false;
-        }
-        if (!IsStartupProgressOperationTokenCurrent(operationToken))
-        {
-            return false;
-        }
-        bool initializationCompleteLogged;
-        lock (startupInitializationCompletionLock)
-        {
-            initializationCompleteLogged = startupInitializationCompleteLogged;
-        }
-        if (initializationCompleteLogged)
-        {
-            return false;
-        }
-        lock (startupProgressLock)
-        {
-            return startupProgressState.IsActive && startupProgressState.OperationKind == StartupProgressOperationKind.Startup;
-        }
-    }
-
     private UiRefreshChannel DeferStartupPresentationChannels(UiRefreshChannel mask, long operationToken, string reason)
     {
         UiRefreshChannel deferredChannel = GetStartupPresentationDeferredChannels(mask, reason, CanShowStartupBasicLibraryMainView(treeViewFilterTypeSelected));
-        if (deferredChannel == UiRefreshChannel.None || !ShouldDeferStartupPresentationRefresh(deferredChannel, operationToken))
+        if (deferredChannel == UiRefreshChannel.None
+            || !TryAddDeferredStartupPresentationMask(deferredChannel, operationToken, out UiRefreshChannel pendingMask))
         {
             return mask;
-        }
-        UiRefreshChannel pendingMask;
-        lock (lockUiSuppression)
-        {
-            deferredStartupPresentationMask |= deferredChannel;
-            pendingMask = deferredStartupPresentationMask;
         }
         LogUiSuppression("startup_presentation_deferred reason=" + (reason ?? string.Empty) + " channel=" + deferredChannel + " pending=" + pendingMask);
         return mask & ~deferredChannel;
@@ -876,6 +923,97 @@ public partial class MainWindowViewModel : ViewModel
     {
         return currentTreeMode == MainViewUpdateMode.FolderFilterSelected
             || currentTreeMode == MainViewUpdateMode.FullScanAllChartsFilterSelected;
+    }
+
+    private bool TryAddDeferredStartupPresentationMask(
+        UiRefreshChannel deferredChannel,
+        out long operationToken,
+        out UiRefreshChannel pendingMask)
+    {
+        lock (startupBackgroundTaskProgressSynchronization)
+        {
+            operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+            return TryAddDeferredStartupPresentationMask(deferredChannel, operationToken, out pendingMask);
+        }
+    }
+
+    private bool TryAddDeferredStartupPresentationMask(
+        UiRefreshChannel deferredChannel,
+        long operationToken,
+        out UiRefreshChannel pendingMask)
+    {
+        pendingMask = UiRefreshChannel.None;
+        if (deferredChannel == UiRefreshChannel.None)
+        {
+            return false;
+        }
+        lock (startupBackgroundTaskProgressSynchronization)
+        {
+            if (operationToken == 0L
+                || !startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(operationToken)
+                || !startupProgressWorkflowOwner.IsOperationActive
+                || startupProgressWorkflowOwner.CurrentOperationKind != StartupProgressOperationKind.Startup)
+            {
+                return false;
+            }
+            lock (startupInitializationCompletionLock)
+            {
+                if (startupInitializationCompleteLogged)
+                {
+                    return false;
+                }
+                lock (lockUiSuppression)
+                {
+                    NormalizeDeferredStartupPresentationMaskUnsafe(operationToken);
+                    deferredStartupPresentationOperationToken = operationToken;
+                    deferredStartupPresentationMask |= deferredChannel;
+                    pendingMask = deferredStartupPresentationMask;
+                    return true;
+                }
+            }
+        }
+    }
+
+    private bool TryTakeDeferredStartupPresentationMask(
+        long expectedOperationToken,
+        out UiRefreshChannel mask)
+    {
+        lock (startupBackgroundTaskProgressSynchronization)
+        {
+            lock (lockUiSuppression)
+            {
+                if (expectedOperationToken != 0L
+                    && deferredStartupPresentationOperationToken != expectedOperationToken)
+                {
+                    mask = UiRefreshChannel.None;
+                    return false;
+                }
+                mask = deferredStartupPresentationMask;
+                deferredStartupPresentationMask = UiRefreshChannel.None;
+                deferredStartupPresentationOperationToken = 0L;
+                if (mask != UiRefreshChannel.None)
+                {
+                    deferredStartupPresentationInFlightMask = mask;
+                    deferredStartupPresentationInFlightOperationToken = expectedOperationToken;
+                }
+                return mask != UiRefreshChannel.None;
+            }
+        }
+    }
+
+    private void CompleteDeferredStartupPresentationFlush(long operationToken)
+    {
+        lock (startupBackgroundTaskProgressSynchronization)
+        {
+            lock (lockUiSuppression)
+            {
+                if (deferredStartupPresentationInFlightOperationToken == operationToken)
+                {
+                    deferredStartupPresentationInFlightMask = UiRefreshChannel.None;
+                    deferredStartupPresentationInFlightOperationToken = 0L;
+                }
+            }
+        }
     }
 
     private static UiRefreshChannel GetStartupBasicPresentationChannels(bool includeLibraryMainView)
@@ -933,9 +1071,40 @@ public partial class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(request));
         }
-        lock (lockUiSuppression)
+        lock (startupBackgroundTaskProgressSynchronization)
         {
-            request(suppressUiUpdateDepth > 0);
+            bool startupCompletionLogged;
+            lock (startupInitializationCompletionLock)
+            {
+                startupCompletionLogged = startupInitializationCompleteLogged;
+            }
+            lock (lockUiSuppression)
+            {
+                long activeOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+                long operationToken = activeOperationToken != 0L
+                    ? activeOperationToken
+                    : startupCompletionContinuationToken;
+                NormalizeDeferredStartupPresentationMaskUnsafe(operationToken);
+                bool startupOperationActive = !startupCompletionLogged
+                    && operationToken != 0L
+                    && startupProgressWorkflowOwner.IsOperationActive
+                    && startupProgressWorkflowOwner.CurrentOperationKind == StartupProgressOperationKind.Startup;
+                UiRefreshChannel summaryMask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
+                bool startupPresentationFlushInFlight = operationToken != 0L
+                    && deferredStartupPresentationInFlightOperationToken == operationToken
+                    && (deferredStartupPresentationInFlightMask & summaryMask) != UiRefreshChannel.None;
+                if (startupOperationActive)
+                {
+                    deferredStartupPresentationOperationToken = operationToken;
+                    deferredStartupPresentationMask |= summaryMask;
+                }
+                bool startupPresentationDeferred = operationToken != 0L
+                    && (startupOperationActive
+                        || startupPresentationFlushInFlight
+                        || (deferredStartupPresentationOperationToken == operationToken
+                            && (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None));
+                request(suppressUiUpdateDepth > 0 || startupPresentationDeferred);
+            }
         }
     }
 
@@ -945,42 +1114,61 @@ public partial class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(request));
         }
-        lock (lockUiSuppression)
+        lock (startupBackgroundTaskProgressSynchronization)
         {
-            UiRefreshChannel summaryMask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
-            bool deferred = suppressUiUpdateDepth > 0
-                || (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None;
-            request(deferred);
-            if (suppressUiUpdateDepth > 0)
+            bool startupCompletionLogged;
+            lock (startupInitializationCompletionLock)
             {
-                pendingUiRefreshMask |= suppressedUiRefreshMask & summaryMask;
+                startupCompletionLogged = startupInitializationCompleteLogged;
+            }
+            lock (lockUiSuppression)
+            {
+                long activeOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+                long operationToken = activeOperationToken != 0L
+                    ? activeOperationToken
+                    : startupCompletionContinuationToken;
+                NormalizeDeferredStartupPresentationMaskUnsafe(operationToken);
+                bool startupOperationActive = !startupCompletionLogged
+                    && operationToken != 0L
+                    && startupProgressWorkflowOwner.IsOperationActive
+                    && startupProgressWorkflowOwner.CurrentOperationKind == StartupProgressOperationKind.Startup;
+                UiRefreshChannel summaryMask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
+                bool startupPresentationFlushInFlight = operationToken != 0L
+                    && deferredStartupPresentationInFlightOperationToken == operationToken
+                    && (deferredStartupPresentationInFlightMask & summaryMask) != UiRefreshChannel.None;
+                if (startupOperationActive)
+                {
+                    deferredStartupPresentationOperationToken = operationToken;
+                    deferredStartupPresentationMask |= summaryMask;
+                }
+                bool deferred = suppressUiUpdateDepth > 0
+                    || (operationToken != 0L
+                        && (startupOperationActive
+                            || startupPresentationFlushInFlight
+                            || (deferredStartupPresentationOperationToken == operationToken
+                                && (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None)));
+                request(deferred);
+                if (suppressUiUpdateDepth > 0)
+                {
+                    pendingUiRefreshMask |= suppressedUiRefreshMask & summaryMask;
+                }
             }
         }
     }
 
-    private long GetActiveStartupProgressOperationToken()
+    private void NormalizeDeferredStartupPresentationMaskUnsafe(long operationToken)
     {
-        lock (startupProgressLock)
+        if (deferredStartupPresentationMask != UiRefreshChannel.None
+            && deferredStartupPresentationOperationToken != operationToken)
         {
-            return startupProgressState.IsActive ? startupProgressState.OperationToken : 0L;
-        }
-    }
-
-    private bool IsStartupProgressOperationTokenCurrent(long operationToken)
-    {
-        if (operationToken == 0L)
-        {
-            return true;
-        }
-        lock (startupProgressLock)
-        {
-            return startupProgressState.IsActive && startupProgressState.OperationToken == operationToken;
+            deferredStartupPresentationMask = UiRefreshChannel.None;
+            deferredStartupPresentationOperationToken = 0L;
         }
     }
 
     private void EndUiUpdateSuppression()
     {
-        long operationToken = GetActiveStartupProgressOperationToken();
+        long operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
         UiRefreshChannel uiRefreshChannel = UiRefreshChannel.None;
         bool playlistSummaryRefreshPending;
         int suppressDepth = 0;
@@ -1019,7 +1207,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
         {
-            if (!IsStartupProgressOperationTokenCurrent(operationToken))
+            if (!startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(operationToken))
             {
                 LogUiSuppression("ui_suppress flush_skipped_stale token=" + operationToken + " mask=" + uiRefreshChannel
                     + " playlistSummaryRefreshPending=" + playlistSummaryRefreshPending);
@@ -1040,7 +1228,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void TryLogStartupReadyData()
     {
-        TryLogStartupReadyData(GetActiveStartupProgressOperationToken());
+        TryLogStartupReadyData(startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
     }
 
     private void TryLogStartupReadyData(long operationToken)
@@ -1049,19 +1237,19 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (!IsStartupProgressOperationTokenCurrent(operationToken))
+        if (!startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(operationToken))
         {
             return;
         }
         LogUiSuppression("startup_ready_data elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds);
         startupReadyDataLogged = true;
         startupReadyDataReached = true;
-        MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyData);
+        startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyData, operationToken);
     }
 
     private void TryLogStartupReadyUi(UiRefreshChannel mask)
     {
-        TryLogStartupReadyUi(mask, GetActiveStartupProgressOperationToken());
+        TryLogStartupReadyUi(mask, startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
     }
 
     private void TryLogStartupReadyUi(UiRefreshChannel mask, long operationToken)
@@ -1074,7 +1262,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (!IsStartupProgressOperationTokenCurrent(operationToken))
+        if (!startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(operationToken))
         {
             return;
         }
@@ -1082,7 +1270,7 @@ public partial class MainWindowViewModel : ViewModel
         LogUiSuppression("startup_ready_ui elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds + " playlistRefreshed=" + flag.ToString().ToLowerInvariant());
         startupReadyUiLogged = true;
         startupReadyUiReached = true;
-        MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyUi);
+        startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyUi, operationToken);
     }
 
     private static bool IsStartupReadyUiMaskSatisfied(UiRefreshChannel mask)
@@ -1110,7 +1298,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void TryLogStartupReadyInstall(UiRefreshChannel mask)
     {
-        TryLogStartupReadyInstall(mask, GetActiveStartupProgressOperationToken());
+        TryLogStartupReadyInstall(mask, startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
     }
 
     private void TryLogStartupReadyInstall(UiRefreshChannel mask, long operationToken)
@@ -1123,7 +1311,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (!IsStartupProgressOperationTokenCurrent(operationToken))
+        if (!startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(operationToken))
         {
             return;
         }
@@ -1140,7 +1328,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void TryLogStartupReadyOperable()
     {
-        TryLogStartupReadyOperable(GetActiveStartupProgressOperationToken());
+        TryLogStartupReadyOperable(startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
     }
 
     private void TryLogStartupReadyOperable(long operationToken)
@@ -1149,7 +1337,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (!IsStartupProgressOperationTokenCurrent(operationToken))
+        if (!startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(operationToken))
         {
             return;
         }
@@ -1157,32 +1345,9 @@ public partial class MainWindowViewModel : ViewModel
         startupReadyOperableStopwatch = null;
         startupReadyOperableReached = true;
         SetStartupUiInteractionBlocked(false);
-        MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
+        startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
         startupBackgroundTaskScheduler.Start();
-        TryCompleteStartupBackgroundTasksPhaseIfIdle();
-    }
-
-    private void TryCompleteStartupBackgroundTasksPhaseIfIdle()
-    {
-        if (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle)
-        {
-            return;
-        }
-
-        bool shouldComplete;
-        lock (startupProgressLock)
-        {
-            StartupProgressPhase expectedExceptBackgroundTasks =
-                startupProgressState.ExpectedPhases & ~StartupProgressPhase.StartupBackgroundTasksDone;
-            shouldComplete = startupProgressState.IsActive
-                && (startupProgressState.ExpectedPhases & StartupProgressPhase.StartupBackgroundTasksDone) != 0
-                && (startupProgressState.CompletedPhases & StartupProgressPhase.StartupBackgroundTasksDone) == 0
-                && (startupProgressState.CompletedPhases & expectedExceptBackgroundTasks) == expectedExceptBackgroundTasks;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupBackgroundTasksDone);
-        }
+        startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
     }
 
     private void RefreshLibraryMainViewForCurrentFilter()
@@ -1301,7 +1466,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        LibraryFolderTree.ScheduleDeferredRefresh(GetActiveStartupProgressOperationToken());
+        LibraryFolderTree.ScheduleDeferredRefresh(startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
     }
 
     private void LibraryFolderTreeDeferredRefreshCompleted(
@@ -1344,7 +1509,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
     {
-        FlushPendingUiRefresh(mask, GetActiveStartupProgressOperationToken());
+        FlushPendingUiRefresh(mask, startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
     }
 
     private void FlushPendingUiRefresh(UiRefreshChannel mask, long operationToken)
@@ -2095,9 +2260,11 @@ public partial class MainWindowViewModel : ViewModel
             + " referenceTablesGeneration=" + regularChartListOwner.ReferenceTablesGeneration);
     }
 
-    private void SchedulePostStartupBestEffortWarmups(string reason)
+    private void SchedulePostStartupBestEffortWarmups(string reason, long operationToken)
     {
-        Lr2SongDbSyncWorkflow.SchedulePostStartupSync(reason);
+        Lr2SongDbSyncWorkflow.SchedulePostStartupSync(
+            reason,
+            () => TryLogStartupInitializationComplete(operationToken));
         ScheduleVirtualNormalLibraryOrderPrewarm(reason);
     }
 
@@ -2372,13 +2539,10 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            lock (startupProgressLock)
-            {
-                return _IsStartupUiInteractionBlocked
-                    || (startupProgressState.IsActive
-                        && (!startupProgressState.IsFailed || !startupProgressState.IsRetryableFailure))
-                    || IsChartPackageMutationInProgress;
-            }
+            return _IsStartupUiInteractionBlocked
+                || (startupProgressWorkflowOwner.IsOperationActive
+                    && (!startupProgressWorkflowOwner.IsFailed || !startupProgressWorkflowOwner.IsRetryableFailure))
+                || IsChartPackageMutationInProgress;
         }
     }
 
@@ -2501,7 +2665,23 @@ public partial class MainWindowViewModel : ViewModel
             LogUiSuppressionWarning,
             LogShutdown,
             FormatTextForLog,
-            TryCompleteStartupBackgroundTasksPhaseIfIdle);
+            (generation, revision) =>
+            {
+                startupProgressWorkflowOwner?.TryCompleteStartupBackgroundTasksPhaseIfIdle(
+                    schedulerGeneration: generation,
+                    schedulerRevision: revision);
+            },
+            startupBackgroundTaskProgressSynchronization);
+        startupProgressWorkflowOwner = new StartupProgressWorkflowOwner(
+            CaptureStartupProgressVersionSnapshot,
+            PrepareStartupProgressOperation,
+            () => SetStartupUiInteractionBlocked(false),
+            DispatchStartupProgressPresentation,
+            LogUiSuppression,
+            TryLogStartupInitializationComplete,
+            () => startupBackgroundTaskScheduler.IsStarted && startupBackgroundTaskScheduler.IsIdle,
+            (generation, revision) => startupBackgroundTaskScheduler.IsCurrentIdleSnapshot(generation, revision),
+            startupBackgroundTaskProgressSynchronization);
         treeViewFilterTypeSelected = ApplicationSettings.StartupSelectInstallPending
             ? MainViewUpdateMode.PendingInstallFolderSelected
             : MainViewUpdateMode.FolderFilterSelected;
@@ -2612,6 +2792,7 @@ public partial class MainWindowViewModel : ViewModel
              DispatchPackageInstallUi,
              () => files,
              new UiDialogCoordinator(),
+            startupProgressWorkflowOwner,
             ReportPackageInstallWorkflowNotificationFailure,
             (library, progress, cancellationToken) => library.RescanAllOwnedChartMaintenance(progress, cancellationToken),
             action => Task.Run(action),
@@ -2726,7 +2907,7 @@ public partial class MainWindowViewModel : ViewModel
             advanceRevision: false);
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => PlayHistory.QueueKeywordFilterRefresh(
             NormalizePlaylistKeywordFilter(ChartFilters.KeywordFilter));
-        ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
+        startupProgressWorkflowOwner.PropertyChanged += StartupProgressWorkflowOwnerPropertyChanged;
         PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;
         PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;
         regularChartListOwner = childComposition.RegularChartListOwner;
@@ -3193,15 +3374,20 @@ public partial class MainWindowViewModel : ViewModel
     }
 
 
-    private void ProgressHubPropertyChanged(object sender, PropertyChangedEventArgs e)
+    private void StartupProgressWorkflowOwnerPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        if (e?.PropertyName != nameof(OperationProgressHubViewModel.IsStartupProgressActive))
+        if (e?.PropertyName == nameof(StartupProgressWorkflowOwner.IsOperationActive)
+            || e.PropertyName == nameof(StartupProgressWorkflowOwner.IsFailed)
+            || e.PropertyName == nameof(StartupProgressWorkflowOwner.IsRetryableFailure))
         {
-            return;
+            RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
         }
+    }
 
-        RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
-        ProgressHub.UpdateLr2SongDbSyncStatusSuppression(IsStartupProgressBlockingLr2SongDbSyncStatus());
+    private void UpdateLr2SongDbSyncRuntimeStatus(Lr2SongDbSyncStatusSnapshot snapshot)
+    {
+        ProgressHub.UpdateLr2SongDbSyncStatus(
+            Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.Now));
     }
 
     private static void LogShutdown(string message)
@@ -3320,7 +3506,7 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         await _semaphore.WaitAsync();
-        long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
+        long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
         bool scheduleDeferredExternalSync = false;
         try
         {
@@ -3333,13 +3519,13 @@ public partial class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            FailStartupProgressOperation(ex.Message);
+            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
             throw;
         }
         finally
         {
             EndUiUpdateSuppression();
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
+            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
             _semaphore.Release();
         }
         if (scheduleDeferredExternalSync)
@@ -3350,7 +3536,7 @@ public partial class MainWindowViewModel : ViewModel
                 publishReferenceReceipt: true,
                 operationToken: operationToken);
         }
-        SkipUnrequestedStartupProgressPhases(
+        startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
             "ReloadTables:scheduled",
             operationToken,
             StartupProgressPhase.PlaylistEntriesHydrationDone,
@@ -3369,7 +3555,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         LogInitStage("start", "ReloadScoresOnly");
         await _semaphore.WaitAsync();
-        long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
+        long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
@@ -3385,7 +3571,7 @@ public partial class MainWindowViewModel : ViewModel
             RefreshLibraryMainViewForCurrentFilter();
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
                 "score_only_reload");
-            SkipUnrequestedStartupProgressPhases(
+            startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
                 "ReloadScoresOnly:scheduled",
                 operationToken,
                 StartupProgressPhase.ScoreHydrationDone,
@@ -3393,16 +3579,16 @@ public partial class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            FailStartupProgressOperation(ex.Message);
+            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
             throw;
         }
         finally
         {
             EndUiUpdateSuppression();
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
+            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
             LogInitStage("ui_suppress_end_called", "ReloadScoresOnly");
             _semaphore.Release();
-            MarkStartupProgressFailureCleanupComplete(operationToken);
+            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
         }
     }
 
@@ -3421,7 +3607,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         LogInitStage("start", "ReloadFileDiff");
         await _semaphore.WaitAsync();
-        long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
+        long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
@@ -3439,7 +3625,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue("ReloadFileDiff", operationToken);
             LogInitStage("deferred_playlist_ref_queued", "ReloadFileDiff");
-            SkipUnrequestedStartupProgressPhases(
+            startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
                 "ReloadFileDiff:scheduled",
                 operationToken,
                 StartupProgressPhase.PlaylistReferenceApplied,
@@ -3447,16 +3633,16 @@ public partial class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            FailStartupProgressOperation(ex.Message);
+            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
             throw;
         }
         finally
         {
             EndUiUpdateSuppression();
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
+            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
             LogInitStage("ui_suppress_end_called", "ReloadFileDiff");
             _semaphore.Release();
-            MarkStartupProgressFailureCleanupComplete(operationToken);
+            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
         }
     }
 
@@ -3469,7 +3655,7 @@ public partial class MainWindowViewModel : ViewModel
         LogInitStage("start", "FullReinitialize");
         bool scheduleDeferredPlaylistRef = false;
         await _semaphore.WaitAsync();
-        long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
+        long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
         try
         {
             InvalidatePlayHistoryReadCache("full_reinitialize");
@@ -3489,13 +3675,13 @@ public partial class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            FailStartupProgressOperation(ex.Message);
+            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
             throw;
         }
         finally
         {
             EndUiUpdateSuppression();
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
+            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
             LogInitStage("ui_suppress_end_called", "FullReinitialize");
             _semaphore.Release();
         }
@@ -3504,7 +3690,7 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue("FullReinitialize", operationToken);
             LogInitStage("deferred_playlist_ref_queued", "FullReinitialize");
         }
-        SkipUnrequestedStartupProgressPhases(
+        startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
             "FullReinitialize:scheduled",
             operationToken,
             StartupProgressPhase.PlaylistReferenceApplied,
@@ -3846,11 +4032,11 @@ public partial class MainWindowViewModel : ViewModel
             {
                 PlaybackPanel.ReplacePlayer(configuredBmsPlayer);
             }
-            operationToken = StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         }
         catch (Exception ex)
         {
-            FailStartupProgressOperation(ex.Message);
+            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
             ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup library construction failure notification");
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
@@ -3871,43 +4057,43 @@ public partial class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress, delegate
         {
-            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressScannerLabel, delegate
         {
-            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressTotalCount, delegate
         {
-            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressProcessedCount, delegate
         {
-            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressCurrentPath, delegate
         {
-            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryDatabaseLoadCompletedVersion, delegate
         {
-            TryCompleteStartupProgressLibraryDatabaseLoad(files.LibraryDatabaseLoadCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressLibraryDatabaseLoad(files.LibraryDatabaseLoadCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryFileEnumerationCompletedVersion, delegate
         {
-            TryCompleteStartupProgressLibraryFileEnumeration(files.LibraryFileEnumerationCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressLibraryFileEnumeration(files.LibraryFileEnumerationCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryFileDiffCompletedVersion, delegate
         {
-            TryCompleteStartupProgressLibraryFileDiff(files.LibraryFileDiffCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressLibraryFileDiff(files.LibraryFileDiffCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationRequestedVersion, delegate
         {
-            TrackStartupProgressScoreHydrationRequested(files.ScoreHydrationRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressScoreHydrationRequested(files.ScoreHydrationRequestedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationCompletedVersion, delegate
         {
-            TryCompleteStartupProgressScoreHydration(files.ScoreHydrationCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressScoreHydration(files.ScoreHydrationCompletedVersion);
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;
@@ -3935,11 +4121,11 @@ public partial class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshRequestedVersion, delegate
         {
-            TrackStartupProgressRankingRefreshRequested(files.RankingRefreshRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressRankingRefreshRequested(files.RankingRefreshRequestedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshCompletedVersion, delegate
         {
-            TryCompleteStartupProgressRankingRefresh(files.RankingRefreshCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressRankingRefresh(files.RankingRefreshCompletedVersion);
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;
@@ -3956,47 +4142,47 @@ public partial class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationRequestedVersion, delegate
         {
-            TrackStartupProgressMaintenanceRequested(files.MaintenanceHydrationRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressMaintenanceRequested(files.MaintenanceHydrationRequestedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationCompletedVersion, delegate
         {
-            TryCompleteStartupProgressMaintenance(files.MaintenanceHydrationCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressMaintenance(files.MaintenanceHydrationCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredRequestedVersion, delegate
         {
-            TrackStartupProgressInstallableMaintenanceRequested(files.InstallableMaintenanceDeferredRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressInstallableMaintenanceRequested(files.InstallableMaintenanceDeferredRequestedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredCompletedVersion, delegate
         {
-            TryCompleteStartupProgressInstallableMaintenance(files.InstallableMaintenanceDeferredCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressInstallableMaintenance(files.InstallableMaintenanceDeferredCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillRequestedVersion, delegate
         {
-            TrackStartupProgressChartDigestBackfillRequested(files.ChartDigestBackfillRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressChartDigestBackfillRequested(files.ChartDigestBackfillRequestedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillCompletedVersion, delegate
         {
-            TryCompleteStartupProgressChartDigestBackfill(files.ChartDigestBackfillCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressChartDigestBackfill(files.ChartDigestBackfillCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillTotalCount, delegate
         {
-            UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillProcessedCount, delegate
         {
-            UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillCurrentPath, delegate
         {
-            UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillRequestedVersion, delegate
         {
-            TrackStartupProgressChartInfoBackfillRequested(files.ChartInfoBackfillRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressChartInfoBackfillRequested(files.ChartInfoBackfillRequestedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillCompletedVersion, delegate
         {
-            TryCompleteStartupProgressChartInfoBackfill(files.ChartInfoBackfillCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressChartInfoBackfill(files.ChartInfoBackfillCompletedVersion);
             if ((files?.ChartInfoBackfillDigestBackfilledCount ?? 0) > 0)
             {
                 InvalidateNormalLibraryIdentitySortKeys(NormalLibraryChartInfoDigestBackfilledReason);
@@ -4005,44 +4191,44 @@ public partial class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillTotalCount, delegate
         {
-            UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillProcessedCount, delegate
         {
-            UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillCurrentPath, delegate
         {
-            UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationRequestedVersion, delegate
         {
-            TrackStartupProgressChartInfoHydrationRequested(files.ChartInfoHydrationRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressChartInfoHydrationRequested(files.ChartInfoHydrationRequestedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationCompletedVersion, delegate
         {
-            TryCompleteStartupProgressChartInfoHydration(files.ChartInfoHydrationCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressChartInfoHydration(files.ChartInfoHydrationCompletedVersion);
             RefreshChartInfoDependentViews();
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationTotalCount, delegate
         {
-            UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationAppliedCount, delegate
         {
-            UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncRequestedVersion, delegate
         {
-            TrackStartupProgressLr2SongDbSyncRequested(files.Lr2SongDbSyncRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressLr2SongDbSyncRequested(files.Lr2SongDbSyncRequestedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncCompletedVersion, delegate
         {
-            TryCompleteStartupProgressLr2SongDbSync(files.Lr2SongDbSyncCompletedVersion);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressLr2SongDbSync(files.Lr2SongDbSyncCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncFailedVersion, delegate
         {
-            TryFailStartupProgressLr2SongDbSync(files.Lr2SongDbSyncFailedVersion, files.Lr2SongDbSyncFailureMessage);
+            startupProgressWorkflowOwner.TryFailStartupProgressLr2SongDbSync(files.Lr2SongDbSyncFailedVersion, files.Lr2SongDbSyncFailureMessage);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStatusVersion, delegate
         {
@@ -4050,23 +4236,23 @@ public partial class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncTotalCount, delegate
         {
-            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
+            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncProcessedCount, delegate
         {
-            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
+            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStage, delegate
         {
-            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
+            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStageProcessedCount, delegate
         {
-            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
+            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStageTotalCount, delegate
         {
-            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
+            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.PendingEstimateQueueStatusVersion, delegate
         {
@@ -4179,7 +4365,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            FailStartupProgressOperation(ex.Message);
+            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
             ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup library initialization failure notification");
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text4 = Assembly.GetEntryAssembly().GetName().Version.ToString();
@@ -4193,7 +4379,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             EndUiUpdateSuppression();
             LogInitStage("ui_suppress_end_called", "Initialize");
-            MarkStartupProgressFailureCleanupComplete(operationToken);
+            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
         }
         if (firstStartupProvider())
         {
@@ -4215,7 +4401,7 @@ public partial class MainWindowViewModel : ViewModel
                 publishReferenceReceipt: true,
                 operationToken: operationToken);
         }
-        SkipUnrequestedStartupProgressPhases(
+        startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
             "Initialize:scheduled",
             operationToken,
             StartupProgressPhase.PlaylistEntriesHydrationDone,
@@ -4247,7 +4433,9 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistEntriesHydrationVersionChangedEventArgs e)
     {
-        TrackStartupProgressPlaylistEntriesHydrationRequested(e?.Version ?? 0);
+        startupProgressWorkflowOwner.TrackStartupProgressPlaylistEntriesHydrationRequested(
+            e?.Version ?? 0,
+            startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
     }
 
     private void PlaylistWorkspacePlaylistEntriesHydrationCompleted(
@@ -4255,12 +4443,9 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistEntriesHydrationVersionChangedEventArgs e)
     {
         int version = e?.Version ?? 0;
-        TryCompleteStartupProgressPlaylistEntriesHydration(version);
-        if (ShouldCompletePlaylistReferenceFromHydration(version))
-        {
-            TrackStartupProgressPlaylistReferenceRequest("PlaylistEntriesHydration", version);
-            TryCompleteStartupProgressPlaylistReference(version);
-        }
+        long operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+        startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistEntriesHydration(version, operationToken);
+        startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistReferenceFromHydration(version, operationToken);
         if (PlayHistory.SelectedDisplayTarget.UsesProjection)
         {
             playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
@@ -4272,16 +4457,17 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistExternalSyncRequestEventArgs request)
     {
-        if (request == null || !IsStartupProgressOperationTokenCurrent(request.OperationToken))
+        if (request == null || !startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(request.OperationToken))
         {
             return;
         }
-        TrackStartupProgressExternalSyncRequest(request.Reason, request.Version);
+        startupProgressWorkflowOwner.TrackStartupProgressExternalSyncRequest(request.Reason, request.Version, request.OperationToken);
         if (request.PublishesReferenceReceipt)
         {
-            TrackStartupProgressPlaylistReferenceRequest(
+            startupProgressWorkflowOwner.TrackStartupProgressPlaylistReferenceRequest(
                 "DeferredExternalSync:" + request.Reason,
-                request.Version);
+                request.Version,
+                request.OperationToken);
         }
     }
 
@@ -4289,59 +4475,60 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistExternalSyncCompletionEventArgs completion)
     {
-        if (completion == null || !IsStartupProgressOperationTokenCurrent(completion.OperationToken))
+        if (completion == null || !startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(completion.OperationToken))
         {
             return;
         }
         if (completion.WasSkipped && completion.PublishesReferenceReceipt)
         {
-            TryCompleteStartupProgressPlaylistReference(completion.Version);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistReference(completion.Version, completion.OperationToken);
         }
-        TryCompleteStartupProgressExternalSync(completion.Version);
+        startupProgressWorkflowOwner.TryCompleteStartupProgressExternalSync(completion.Version, completion.OperationToken);
     }
 
     private void PlaylistWorkspacePlaylistExternalSyncReferenceApplied(
         object sender,
         PlaylistExternalSyncReferenceAppliedEventArgs request)
     {
-        if (request == null || !IsStartupProgressOperationTokenCurrent(request.OperationToken))
+        if (request == null || !startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(request.OperationToken))
         {
             return;
         }
-        TryCompleteStartupProgressPlaylistReference(request.Version);
+        startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistReference(request.Version, request.OperationToken);
     }
 
     private void PlaylistReferenceApplyWorkflowQueued(
         object sender,
         PlaylistReferenceApplyQueuedEventArgs request)
     {
-        if (request == null || !IsStartupProgressOperationTokenCurrent(request.OperationToken))
+        if (request == null || !startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(request.OperationToken))
         {
             return;
         }
-        TrackStartupProgressPlaylistReferenceRequest(request.Reason, request.Version);
-        TrackStartupProgressPlaylistEntriesHydrationDirectRequest(
+        startupProgressWorkflowOwner.TrackStartupProgressPlaylistReferenceRequest(request.Reason, request.Version, request.OperationToken);
+        startupProgressWorkflowOwner.TrackStartupProgressPlaylistEntriesHydrationDirectRequest(
             request.Version,
-            "playlist_ref_deferred:" + request.Reason);
+            "playlist_ref_deferred:" + request.Reason,
+            request.OperationToken);
     }
 
     private void PlaylistReferenceApplyWorkflowCompleted(
         object sender,
         PlaylistReferenceApplyCompletedEventArgs completion)
     {
-        if (completion == null || !IsStartupProgressOperationTokenCurrent(completion.OperationToken))
+        if (completion == null || !startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(completion.OperationToken))
         {
             return;
         }
-        TryCompleteStartupProgressPlaylistEntriesHydration(completion.Version);
-        TryCompleteStartupProgressPlaylistReference(completion.Version);
+        startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistEntriesHydration(completion.Version, completion.OperationToken);
+        startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistReference(completion.Version, completion.OperationToken);
     }
 
     private void PlaylistReferenceApplyWorkflowPresentationRequested(
         object sender,
         PlaylistReferenceApplyPresentationRequestedEventArgs request)
     {
-        if (request == null || !IsStartupProgressOperationTokenCurrent(request.OperationToken))
+        if (request == null || !startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(request.OperationToken))
         {
             return;
         }
@@ -5379,1746 +5566,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
         }
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗の状態を開始し、基準版数を初期化します。
-    /// </summary>
-    /// <param name="operationKind">進捗対象の operation 種別。</param>
-    private long StartStartupProgressOperation(StartupProgressOperationKind operationKind)
-    {
-        ResetStartupBackgroundTaskSchedulerState(operationKind);
-        if (operationKind == StartupProgressOperationKind.Startup)
-        {
-            startupInitializationCompleteStopwatch = Stopwatch.StartNew();
-            startupInitializationCompleteLogged = false;
-        }
-        var state = new StartupProgressState
-        {
-            OperationKind = operationKind,
-            OperationToken = Interlocked.Increment(ref startupProgressOperationTokenSeed),
-            IsActive = true,
-            CompletedPhases = StartupProgressPhase.CoreInitializeStarted,
-            ExpectedPhases = GetInitialExpectedStartupProgressPhases(operationKind),
-            ScoreHydrationBaselineCompletedVersion = files?.ScoreHydrationCompletedVersion ?? 0,
-            ScoreHydrationRequestedBaselineVersion = files?.ScoreHydrationRequestedVersion ?? 0,
-            RankingRefreshBaselineCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
-            RankingRefreshRequestedBaselineVersion = files?.RankingRefreshRequestedVersion ?? 0,
-            MaintenanceRequestedBaselineVersion = files?.MaintenanceHydrationRequestedVersion ?? 0,
-            InstallableMaintenanceRequestedBaselineVersion = files?.InstallableMaintenanceDeferredRequestedVersion ?? 0,
-            ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
-            ChartInfoBackfillBaselineCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
-            ChartInfoHydrationBaselineCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
-            Lr2SongDbSyncBaselineCompletedVersion = files?.Lr2SongDbSyncCompletedVersion ?? 0,
-            PlaylistEntriesHydrationBaselineCompletedVersion = tables?.PlaylistEntriesHydrationCompletedVersion ?? 0,
-            LibraryDatabaseLoadBaselineCompletedVersion = files?.LibraryDatabaseLoadCompletedVersion ?? 0,
-            LibraryFileEnumerationBaselineCompletedVersion = files?.LibraryFileEnumerationCompletedVersion ?? 0,
-            LibraryFileDiffBaselineCompletedVersion = files?.LibraryFileDiffCompletedVersion ?? 0
-        };
-        lock (startupProgressLock)
-        {
-            startupProgressState = state;
-        }
-        RaisePropertyChanged(() => IsLibraryOperationInProgress);
-        RecomputeStartupProgressPresentation();
-        return state.OperationToken;
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗を失敗表示へ切り替えます。
-    /// </summary>
-    /// <param name="subLabel">失敗時に表示する補足文言。</param>
-    private void FailStartupProgressOperation(string subLabel)
-    {
-        SetStartupUiInteractionBlocked(false);
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive)
-            {
-                return;
-            }
-            startupProgressState.IsFailed = true;
-            startupProgressState.FailureSubLabel = subLabel ?? string.Empty;
-            startupProgressState.CompletionHideScheduled = false;
-        }
-        RecomputeStartupProgressPresentation();
-    }
-
-    private void MarkStartupProgressFailureCleanupComplete(long operationToken)
-    {
-        bool retryable = false;
-        lock (startupProgressLock)
-        {
-            if (startupProgressState.IsActive
-                && startupProgressState.OperationToken == operationToken
-                && (startupProgressState.OperationKind == StartupProgressOperationKind.ScoreOnly
-                    || startupProgressState.OperationKind == StartupProgressOperationKind.ReloadFileDiff
-                    || startupProgressState.OperationKind == StartupProgressOperationKind.Startup)
-                && startupProgressState.IsFailed)
-            {
-                startupProgressState.IsRetryableFailure = true;
-                retryable = true;
-            }
-        }
-
-        if (retryable)
-        {
-            RaisePropertyChanged(() => IsLibraryOperationInProgress);
-        }
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗のフェーズを完了済みにします。
-    /// </summary>
-    /// <param name="phase">完了したフェーズ。</param>
-    private void MarkStartupProgressPhaseCompleted(StartupProgressPhase phase)
-    {
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive)
-            {
-                return;
-            }
-            startupProgressState.CompletedPhases |= phase;
-            if (phase == StartupProgressPhase.RankingRefreshDone
-                || phase == StartupProgressPhase.MaintenanceDeferredDone
-                || phase == StartupProgressPhase.InstallableMaintenanceDeferredDone)
-            {
-                startupProgressState.LastCompletedAtUtc = DateTime.UtcNow;
-            }
-        }
-        RecomputeStartupProgressPresentation();
-        if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
-        {
-            TryCompleteStartupBackgroundTasksPhaseIfIdle();
-        }
-    }
-
-    private void ResetStartupBackgroundTaskSchedulerState(StartupProgressOperationKind operationKind)
-    {
-        startupBackgroundTaskScheduler.Reset(
-            operationKind != StartupProgressOperationKind.Startup && startupReadyOperableReached);
-        lock (lockUiSuppression)
-        {
-            deferredStartupPresentationMask = UiRefreshChannel.None;
-        }
-        lock (startupInitializationCompletionLock)
-        {
-            startupInitializationCompleteStopwatch = null;
-            startupInitializationCompleteLogged = false;
-            startupInitializationCompleteRetryQueued = false;
-        }
-    }
-
-    private void SkipStartupProgressPhaseIfExpected(StartupProgressPhase phase, string reason)
-    {
-        bool skipped = false;
-        StartupProgressOperationKind operationKind = StartupProgressOperationKind.None;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & phase) == 0 || (startupProgressState.CompletedPhases & phase) != 0)
-            {
-                return;
-            }
-            operationKind = startupProgressState.OperationKind;
-            startupProgressState.CompletedPhases |= phase;
-            startupProgressState.SkippedPhases |= phase;
-            skipped = true;
-        }
-        if (skipped)
-        {
-            LogUiSuppression("startup_progress_phase_skipped operation=" + operationKind + " phase=" + phase + " reason=" + (reason ?? string.Empty));
-            RecomputeStartupProgressPresentation();
-            if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
-            {
-                TryCompleteStartupBackgroundTasksPhaseIfIdle();
-            }
-        }
-    }
-
-    private void SkipUnrequestedStartupProgressPhases(string reason, params StartupProgressPhase[] phases)
-    {
-        SkipUnrequestedStartupProgressPhases(reason, 0L, phases);
-    }
-
-    private void SkipUnrequestedStartupProgressPhases(string reason, long operationToken, params StartupProgressPhase[] phases)
-    {
-        if (phases == null || phases.Length == 0)
-        {
-            return;
-        }
-        if (operationToken != 0L && !IsStartupProgressOperationTokenCurrent(operationToken))
-        {
-            return;
-        }
-        foreach (StartupProgressPhase phase in phases)
-        {
-            bool shouldSkip;
-            lock (startupProgressLock)
-            {
-                shouldSkip = startupProgressState.IsActive
-                    && (startupProgressState.ExpectedPhases & phase) != 0
-                    && (startupProgressState.RequestedPhases & phase) == 0
-                    && (startupProgressState.CompletedPhases & phase) == 0;
-            }
-            if (shouldSkip)
-            {
-                SkipStartupProgressPhaseIfExpected(phase, reason);
-            }
-        }
-    }
-
-    private bool TryTrackStartupProgressPhaseRequest(StartupProgressPhase phase, int version, string reason, Action<StartupProgressState> updateRequiredVersion)
-    {
-        bool ignored = false;
-        bool requestAfterSkip = false;
-        StartupProgressOperationKind operationKind = StartupProgressOperationKind.None;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive)
-            {
-                return false;
-            }
-            operationKind = startupProgressState.OperationKind;
-            if ((startupProgressState.ExpectedPhases & phase) == 0)
-            {
-                ignored = true;
-            }
-            else
-            {
-                startupProgressState.RequestedPhases |= phase;
-                updateRequiredVersion?.Invoke(startupProgressState);
-                requestAfterSkip = (startupProgressState.SkippedPhases & phase) != 0;
-                if ((startupProgressState.CompletedPhases & phase) == 0)
-                {
-                    startupProgressState.CompletionHideScheduled = false;
-                }
-            }
-        }
-        if (ignored)
-        {
-            LogUiSuppression("startup_progress_request_ignored operation=" + operationKind + " phase=" + phase + " reason=not_expected requestReason=" + (reason ?? string.Empty) + " version=" + version);
-            return false;
-        }
-        if (requestAfterSkip)
-        {
-            LogUiSuppression("startup_progress_request_after_skip operation=" + operationKind + " phase=" + phase + " requestReason=" + (reason ?? string.Empty) + " version=" + version);
-        }
-        RecomputeStartupProgressPresentation();
-        return true;
-    }
-
-    private static bool RequiresStartupProgressRequestBeforeCompletion(StartupProgressPhase phase)
-    {
-        return phase != StartupProgressPhase.CoreInitializeStarted
-            && phase != StartupProgressPhase.StartupReadyData
-            && phase != StartupProgressPhase.StartupReadyUi
-            && phase != StartupProgressPhase.StartupReadyOperable
-            && phase != StartupProgressPhase.LibraryDatabaseLoadDone
-            && phase != StartupProgressPhase.LibraryFileEnumerationDone
-            && phase != StartupProgressPhase.LibraryFileDiffDone
-            && phase != StartupProgressPhase.StartupBackgroundTasksDone;
-    }
-
-    private static bool CanCompleteStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase)
-    {
-        return (state.ExpectedPhases & phase) != 0
-            && (!RequiresStartupProgressRequestBeforeCompletion(phase) || (state.RequestedPhases & phase) != 0);
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗で deferred playlist 参照適用を待機対象に追加します。
-    /// </summary>
-    /// <param name="reason">要求理由。</param>
-    /// <param name="version">要求版数。</param>
-    private void TrackStartupProgressPlaylistReferenceRequest(string reason, int version)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && ShouldTrackStartupProgressPlaylistReference(reason, startupProgressState.OperationKind);
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.PlaylistReferenceApplied,
-            version,
-            reason,
-            state => state.RequiredPlaylistReferenceVersion = Math.Max(state.RequiredPlaylistReferenceVersion, version));
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗で deferred playlist 参照適用完了を反映します。
-    /// </summary>
-    /// <param name="version">完了版数。</param>
-    private void TryCompleteStartupProgressPlaylistReference(int version)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.PlaylistReferenceApplied))
-            {
-                return;
-            }
-            shouldComplete = version >= startupProgressState.RequiredPlaylistReferenceVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.PlaylistReferenceApplied);
-        }
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗で deferred 外部プレイリスト同期を待機対象に追加します。
-    /// </summary>
-    /// <param name="reason">要求理由。</param>
-    /// <param name="version">要求版数。</param>
-    private void TrackStartupProgressExternalSyncRequest(string reason, int version)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && ShouldTrackStartupProgressExternalSync(reason, startupProgressState.OperationKind);
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ExternalPlaylistSyncDone,
-            version,
-            reason,
-            state => state.RequiredExternalSyncVersion = Math.Max(state.RequiredExternalSyncVersion, version));
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗で deferred 外部プレイリスト同期完了を反映します。
-    /// </summary>
-    /// <param name="version">完了版数。</param>
-    private void TryCompleteStartupProgressExternalSync(int version)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ExternalPlaylistSyncDone))
-            {
-                return;
-            }
-            shouldComplete = version >= startupProgressState.RequiredExternalSyncVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ExternalPlaylistSyncDone);
-        }
-    }
-
-    /// <summary>
-    /// maintenance deferred 要求を起動・リロード進捗へ反映します。
-    /// </summary>
-    /// <param name="requestedVersion">要求版数。</param>
-    private void TrackStartupProgressMaintenanceRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.MaintenanceRequestedBaselineVersion;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.MaintenanceDeferredDone,
-            requestedVersion,
-            "maintenance_deferred",
-            state => state.RequiredMaintenanceCompletedVersion = Math.Max(state.RequiredMaintenanceCompletedVersion, requestedVersion));
-    }
-
-    /// <summary>
-    /// installable maintenance deferred 要求を起動・リロード進捗へ反映します。
-    /// </summary>
-    /// <param name="requestedVersion">要求版数。</param>
-    private void TrackStartupProgressInstallableMaintenanceRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.InstallableMaintenanceRequestedBaselineVersion;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.InstallableMaintenanceDeferredDone,
-            requestedVersion,
-            "installable_maintenance_deferred",
-            state => state.RequiredInstallableMaintenanceCompletedVersion = Math.Max(state.RequiredInstallableMaintenanceCompletedVersion, requestedVersion));
-    }
-
-    private void TrackStartupProgressScoreHydrationRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ScoreHydrationRequestedBaselineVersion;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ScoreHydrationDone,
-            requestedVersion,
-            "score_hydration",
-            state => state.RequiredScoreHydrationCompletedVersion = Math.Max(state.RequiredScoreHydrationCompletedVersion, requestedVersion));
-    }
-
-    private void TrackStartupProgressRankingRefreshRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.RankingRefreshRequestedBaselineVersion;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.RankingRefreshDone,
-            requestedVersion,
-            "ranking_refresh",
-            state => state.RequiredRankingRefreshCompletedVersion = Math.Max(state.RequiredRankingRefreshCompletedVersion, requestedVersion));
-    }
-
-    private void TrackStartupProgressChartDigestBackfillRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ChartDigestBackfillBaselineCompletedVersion;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ChartDigestBackfillDone,
-            requestedVersion,
-            "chart_digest_backfill",
-            state => state.RequiredChartDigestBackfillCompletedVersion = Math.Max(state.RequiredChartDigestBackfillCompletedVersion, requestedVersion));
-    }
-
-    private void TrackStartupProgressChartInfoBackfillRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ChartInfoBackfillBaselineCompletedVersion;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ChartInfoBackfillDone,
-            requestedVersion,
-            "chart_info_backfill",
-            state => state.RequiredChartInfoBackfillCompletedVersion = Math.Max(state.RequiredChartInfoBackfillCompletedVersion, requestedVersion));
-    }
-
-    private void TrackStartupProgressChartInfoHydrationRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        int expectedBackfillVersion;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ChartInfoHydrationBaselineCompletedVersion;
-            expectedBackfillVersion = (files?.ChartInfoBackfillRequestedVersion ?? 0) + 1;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ChartInfoHydrationDone,
-            requestedVersion,
-            "chart_info_hydration",
-            state => state.RequiredChartInfoHydrationCompletedVersion = Math.Max(state.RequiredChartInfoHydrationCompletedVersion, requestedVersion));
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ChartInfoBackfillDone,
-            expectedBackfillVersion,
-            "chart_info_backfill_after_hydration",
-            state => state.RequiredChartInfoBackfillCompletedVersion = Math.Max(state.RequiredChartInfoBackfillCompletedVersion, expectedBackfillVersion));
-    }
-
-    private void TrackStartupProgressLr2SongDbSyncRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.Lr2SongDbSyncBaselineCompletedVersion;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.Lr2SongDbSyncDone,
-            requestedVersion,
-            "lr2_song_db_sync",
-            state => state.RequiredLr2SongDbSyncCompletedVersion = Math.Max(state.RequiredLr2SongDbSyncCompletedVersion, requestedVersion));
-    }
-
-    private void TrackStartupProgressPlaylistEntriesHydrationRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.PlaylistEntriesHydrationBaselineCompletedVersion;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        lock (startupProgressLock)
-        {
-            if (startupProgressState.IsActive)
-            {
-                startupProgressState.PlaylistReferenceFromHydrationRequested = true;
-            }
-        }
-        TrackStartupProgressPlaylistEntriesHydrationDirectRequest(requestedVersion, "playlist_entries_hydration");
-    }
-
-    private bool ShouldCompletePlaylistReferenceFromHydration(int completedVersion)
-    {
-        lock (startupProgressLock)
-        {
-            return startupProgressState.IsActive
-                && startupProgressState.PlaylistReferenceFromHydrationRequested
-                && completedVersion >= startupProgressState.RequiredPlaylistEntriesHydrationCompletedVersion;
-        }
-    }
-
-    private void TrackStartupProgressPlaylistEntriesHydrationDirectRequest(int requestedVersion, string reason)
-    {
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.PlaylistEntriesHydrationDone,
-            requestedVersion,
-            reason,
-            state => state.RequiredPlaylistEntriesHydrationCompletedVersion = Math.Max(state.RequiredPlaylistEntriesHydrationCompletedVersion, requestedVersion));
-    }
-
-    private void UpdateStartupProgressChartDigestBackfillStatus(int totalCount, int processedCount, string currentPath)
-    {
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartDigestBackfillDone))
-            {
-                return;
-            }
-            startupProgressState.ChartDigestBackfillTotalCount = totalCount;
-            startupProgressState.ChartDigestBackfillProcessedCount = processedCount;
-            startupProgressState.ChartDigestBackfillCurrentPath = currentPath ?? string.Empty;
-        }
-        RecomputeStartupProgressPresentation();
-    }
-
-    private void UpdateStartupProgressLibraryInitializationStatus(BMSLibrary.LibraryInitializationProgressStage stage, string scannerLabel, int totalCount, int processedCount, string currentPath)
-    {
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive)
-            {
-                return;
-            }
-            startupProgressState.LibraryInitializationProgressStage = stage;
-            startupProgressState.LibraryInitializationProgressScannerLabel = scannerLabel ?? string.Empty;
-            startupProgressState.LibraryInitializationProgressTotalCount = Math.Max(0, totalCount);
-            startupProgressState.LibraryInitializationProgressProcessedCount = Math.Max(0, processedCount);
-            startupProgressState.LibraryInitializationProgressCurrentPath = currentPath ?? string.Empty;
-        }
-        RecomputeStartupProgressPresentation();
-    }
-
-    private void UpdateStartupProgressChartInfoBackfillStatus(int totalCount, int processedCount, string currentPath)
-    {
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoBackfillDone))
-            {
-                return;
-            }
-            startupProgressState.ChartInfoBackfillTotalCount = totalCount;
-            startupProgressState.ChartInfoBackfillProcessedCount = processedCount;
-            startupProgressState.ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
-        }
-        RecomputeStartupProgressPresentation();
-    }
-
-    private void UpdateStartupProgressChartInfoHydrationStatus(int totalCount, int appliedCount)
-    {
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoHydrationDone))
-            {
-                return;
-            }
-            startupProgressState.ChartInfoHydrationTotalCount = totalCount;
-            startupProgressState.ChartInfoHydrationAppliedCount = appliedCount;
-        }
-        RecomputeStartupProgressPresentation();
-    }
-
-    private void UpdateStartupProgressLr2SongDbSyncStatus(
-        int totalCount,
-        int processedCount,
-        string stage,
-        int stageProcessedCount,
-        int stageTotalCount)
-    {
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone))
-            {
-                return;
-            }
-            startupProgressState.Lr2SongDbSyncTotalCount = totalCount;
-            startupProgressState.Lr2SongDbSyncProcessedCount = processedCount;
-            startupProgressState.Lr2SongDbSyncStage = stage ?? string.Empty;
-            startupProgressState.Lr2SongDbSyncStageProcessedCount = Math.Max(0, stageProcessedCount);
-            startupProgressState.Lr2SongDbSyncStageTotalCount = Math.Max(0, stageTotalCount);
-        }
-        RecomputeStartupProgressPresentation();
-    }
-
-    private void TryCompleteStartupProgressLibraryDatabaseLoad(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.LibraryDatabaseLoadDone) == 0)
-            {
-                return;
-            }
-            shouldComplete = completedVersion > startupProgressState.LibraryDatabaseLoadBaselineCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.LibraryDatabaseLoadDone);
-        }
-    }
-
-    private void TryCompleteStartupProgressLibraryFileEnumeration(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.LibraryFileEnumerationDone) == 0)
-            {
-                return;
-            }
-            shouldComplete = completedVersion > startupProgressState.LibraryFileEnumerationBaselineCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.LibraryFileEnumerationDone);
-        }
-    }
-
-    private void TryCompleteStartupProgressLibraryFileDiff(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.LibraryFileDiffDone) == 0)
-            {
-                return;
-            }
-            shouldComplete = completedVersion > startupProgressState.LibraryFileDiffBaselineCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.LibraryFileDiffDone);
-        }
-    }
-
-    private void TryCompleteStartupProgressChartDigestBackfill(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartDigestBackfillDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredChartDigestBackfillCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartDigestBackfillDone);
-        }
-    }
-
-    private void TryCompleteStartupProgressChartInfoBackfill(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoBackfillDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredChartInfoBackfillCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartInfoBackfillDone);
-        }
-    }
-
-    private void TryCompleteStartupProgressChartInfoHydration(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoHydrationDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredChartInfoHydrationCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartInfoHydrationDone);
-        }
-    }
-
-    private void TryCompleteStartupProgressLr2SongDbSync(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredLr2SongDbSyncCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.Lr2SongDbSyncDone);
-        }
-    }
-
-    private void TryFailStartupProgressLr2SongDbSync(int failedVersion, string message)
-    {
-        bool shouldFail = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone))
-            {
-                return;
-            }
-            shouldFail = failedVersion >= startupProgressState.RequiredLr2SongDbSyncCompletedVersion
-                && failedVersion > startupProgressState.Lr2SongDbSyncBaselineCompletedVersion;
-            if (shouldFail)
-            {
-                startupProgressState.IsFailed = true;
-                startupProgressState.FailureSubLabel = string.IsNullOrWhiteSpace(message)
-                    ? GetStartupProgressSubLabel(startupProgressState)
-                    : message;
-                startupProgressState.CompletionHideScheduled = false;
-            }
-        }
-        if (shouldFail)
-        {
-            RecomputeStartupProgressPresentation();
-        }
-    }
-
-    private void UpdateLr2SongDbSyncRuntimeStatus(Lr2SongDbSyncStatusSnapshot snapshot)
-    {
-        ProgressHub.UpdateLr2SongDbSyncStatus(
-            Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.Now),
-            IsStartupProgressBlockingLr2SongDbSyncStatus());
-    }
-
-    private bool IsStartupProgressBlockingLr2SongDbSyncStatus()
-    {
-        lock (startupProgressLock)
-        {
-            return startupProgressState.IsActive
-                && !startupProgressState.IsFailed
-                && CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone);
-        }
-    }
-
-    private void TryCompleteStartupProgressPlaylistEntriesHydration(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.PlaylistEntriesHydrationDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredPlaylistEntriesHydrationCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.PlaylistEntriesHydrationDone);
-        }
-    }
-
-    /// <summary>
-    /// maintenance deferred 完了を起動・リロード進捗へ反映します。
-    /// </summary>
-    /// <param name="completedVersion">完了版数。</param>
-    private void TryCompleteStartupProgressMaintenance(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.MaintenanceDeferredDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredMaintenanceCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.MaintenanceDeferredDone);
-        }
-    }
-
-    /// <summary>
-    /// installable maintenance deferred 完了を起動・リロード進捗へ反映します。
-    /// </summary>
-    /// <param name="completedVersion">完了版数。</param>
-    private void TryCompleteStartupProgressInstallableMaintenance(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.InstallableMaintenanceDeferredDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredInstallableMaintenanceCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.InstallableMaintenanceDeferredDone);
-        }
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗で deferred score hydration 完了を反映します。
-    /// </summary>
-    /// <param name="completedVersion">完了版数。</param>
-    private void TryCompleteStartupProgressScoreHydration(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ScoreHydrationDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredScoreHydrationCompletedVersion
-                && completedVersion > startupProgressState.ScoreHydrationBaselineCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ScoreHydrationDone);
-        }
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗で deferred ranking refresh 完了を反映します。
-    /// </summary>
-    /// <param name="completedVersion">完了版数。</param>
-    private void TryCompleteStartupProgressRankingRefresh(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.RankingRefreshDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredRankingRefreshCompletedVersion
-                && completedVersion > startupProgressState.RankingRefreshBaselineCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.RankingRefreshDone);
-        }
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗の表示を現在の内部状態から再計算します。
-    /// </summary>
-    private void RecomputeStartupProgressPresentation()
-    {
-        bool isActive;
-        string label;
-        string subLabel;
-        double value;
-        double maximum;
-        bool shouldHideLater = false;
-        long hideOperationToken = 0L;
-        long reflectOperationToken = 0L;
-        bool operationCompletedForLog = false;
-        StartupProgressOperationKind operationKindForLog = StartupProgressOperationKind.None;
-        lock (startupProgressLock)
-        {
-            StartupProgressState state = startupProgressState;
-            isActive = state.IsActive;
-            reflectOperationToken = state.OperationToken;
-            operationKindForLog = state.OperationKind;
-            if (!isActive)
-            {
-                label = string.Empty;
-                subLabel = string.Empty;
-                value = 0.0;
-                maximum = 1.0;
-            }
-            else
-            {
-                maximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
-                value = CountCompletedExpectedStartupProgressPhases(state);
-                if (TryGetStartupProgressStageValue(state, out double stageValue, out double stageMaximum))
-                {
-                    value = stageValue;
-                    maximum = stageMaximum;
-                }
-                bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
-                bool operationCompleted = !state.IsFailed && AreExpectedStartupProgressPhasesCompleted(state);
-                operationCompletedForLog = operationCompleted;
-                if (state.IsFailed)
-                {
-                    label = GetStartupProgressFailedLabel(state.OperationKind);
-                    subLabel = !string.IsNullOrWhiteSpace(state.FailureSubLabel) ? state.FailureSubLabel : GetStartupProgressSubLabel(state);
-                }
-                else if (operationCompleted)
-                {
-                    label = GetStartupProgressCompletedLabel(state.OperationKind);
-                    subLabel = string.Empty;
-                    if (!state.CompletionHideScheduled)
-                    {
-                        state.CompletionHideScheduled = true;
-                        startupProgressState = state;
-                        shouldHideLater = true;
-                        hideOperationToken = state.OperationToken;
-                    }
-                }
-                else if (operableCompleted)
-                {
-                    label = BeMusicSeeker.Properties.Resources.Statusbar_progress_operable_background;
-                    subLabel = GetStartupProgressSubLabel(state);
-                }
-                else
-                {
-                    label = GetStartupProgressRunningLabel(state.OperationKind);
-                    subLabel = GetStartupProgressSubLabel(state);
-                }
-            }
-        }
-        if (operationCompletedForLog && operationKindForLog == StartupProgressOperationKind.Startup)
-        {
-            TryLogStartupInitializationComplete();
-        }
-        Action reflect = delegate
-        {
-            lock (startupProgressLock)
-            {
-                if (isActive)
-                {
-                    if (!startupProgressState.IsActive || startupProgressState.OperationToken != reflectOperationToken)
-                    {
-                        return;
-                    }
-                }
-                else if (startupProgressState.IsActive)
-                {
-                    return;
-                }
-            }
-            ProgressHub.UpdateStartupProgress(isActive, label, subLabel, value, maximum);
-            ProgressHub.UpdateLr2SongDbSyncStatusSuppression(IsStartupProgressBlockingLr2SongDbSyncStatus());
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-        }
-        if (shouldHideLater)
-        {
-            ScheduleStartupProgressHide(hideOperationToken);
-        }
-    }
-
-    private void TryLogStartupInitializationComplete()
-    {
-        long elapsedMs;
-        lock (startupInitializationCompletionLock)
-        {
-            if (startupInitializationCompleteLogged || startupInitializationCompleteStopwatch == null)
-            {
-                return;
-            }
-            if (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle)
-            {
-                QueueStartupInitializationCompleteRetryUnsafe();
-                return;
-            }
-            startupInitializationCompleteLogged = true;
-            elapsedMs = startupInitializationCompleteStopwatch.ElapsedMilliseconds;
-        }
-        LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
-        LogUiSuppression(startupBackgroundTaskScheduler.BuildSummaryLog(elapsedMs));
-        if (!QueueDeferredStartupPresentationFlushAfterInitialization())
-        {
-            SchedulePostStartupBestEffortWarmups("startup_initialization_complete");
-            ShowInitialSetupCompletionMessageIfPending();
-        }
-    }
-
-    private bool QueueDeferredStartupPresentationFlushAfterInitialization()
-    {
-        UiRefreshChannel mask;
-        lock (lockUiSuppression)
-        {
-            mask = deferredStartupPresentationMask;
-            deferredStartupPresentationMask = UiRefreshChannel.None;
-        }
-        if (mask == UiRefreshChannel.None)
-        {
-            return false;
-        }
-        Action flush = delegate
-        {
-            var stopwatch = Stopwatch.StartNew();
-            LogUiSuppression("startup_presentation_flush start mask=" + mask);
-            FlushPendingUiRefresh(mask, GetActiveStartupProgressOperationToken(), allowStartupPresentationDefer: false, logReadiness: false);
-            stopwatch.Stop();
-            LogUiSuppression("startup_presentation_flush done elapsedMs=" + stopwatch.ElapsedMilliseconds + " mask=" + mask);
-            SchedulePostStartupBestEffortWarmups("startup_presentation_flush_done");
-            ShowInitialSetupCompletionMessageIfPending();
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            flush();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(flush);
-        }
-        return true;
-    }
-
-    private void ShowInitialSetupCompletionMessageIfPending()
-    {
-        if (!initialSetupCompletionMessagePending)
-        {
-            return;
-        }
-        initialSetupCompletionMessagePending = false;
-        Action showMessage = delegate
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, "Initial setup completion notification");
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            showMessage();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(showMessage);
-        }
-    }
-
-    private void QueueStartupInitializationCompleteRetryUnsafe()
-    {
-        if (startupInitializationCompleteRetryQueued)
-        {
-            return;
-        }
-        startupInitializationCompleteRetryQueued = true;
-        Task.Run(async delegate
-        {
-            await Task.Delay(250).ConfigureAwait(false);
-            lock (startupInitializationCompletionLock)
-            {
-                startupInitializationCompleteRetryQueued = false;
-            }
-            TryLogStartupInitializationComplete();
-        });
-    }
-
-    /// <summary>
-    /// 完了表示後に起動・リロード進捗を非表示にします。
-    /// </summary>
-    /// <param name="operationToken">非表示対象の operation token。</param>
-    private void ScheduleStartupProgressHide(long operationToken)
-    {
-        Task.Run(async delegate
-        {
-            await Task.Delay(2000).ConfigureAwait(false);
-            bool shouldClear = false;
-            lock (startupProgressLock)
-            {
-                if (startupProgressState.IsActive && !startupProgressState.IsFailed && startupProgressState.OperationToken == operationToken && startupProgressState.CompletionHideScheduled)
-                {
-                    startupProgressState = new StartupProgressState();
-                    shouldClear = true;
-                }
-            }
-            if (shouldClear)
-            {
-                RecomputeStartupProgressPresentation();
-            }
-        });
-    }
-
-    /// <summary>
-    /// operation 種別に応じた進行中ラベルを返します。
-    /// </summary>
-    /// <param name="operationKind">operation 種別。</param>
-    /// <returns>進行中ラベル。</returns>
-    private static string GetStartupProgressRunningLabel(StartupProgressOperationKind operationKind)
-    {
-        return operationKind switch
-        {
-            StartupProgressOperationKind.ReloadFileDiff => BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_files,
-            StartupProgressOperationKind.ScoreOnly => BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_scores,
-            StartupProgressOperationKind.FullReinitialize => BeMusicSeeker.Properties.Resources.Statusbar_progress_full_reinitialize,
-            StartupProgressOperationKind.ReloadTables => BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_tables,
-            _ => BeMusicSeeker.Properties.Resources.Statusbar_progress_startup,
-        };
-    }
-
-    /// <summary>
-    /// operation 種別に応じた完了ラベルを返します。
-    /// </summary>
-    /// <param name="operationKind">operation 種別。</param>
-    /// <returns>完了ラベル。</returns>
-    private static string GetStartupProgressCompletedLabel(StartupProgressOperationKind operationKind)
-    {
-        if (operationKind == StartupProgressOperationKind.Startup)
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete;
-        }
-        if (operationKind == StartupProgressOperationKind.FullReinitialize)
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete_reinitialize;
-        }
-        if (operationKind == StartupProgressOperationKind.ScoreOnly)
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete_scores;
-        }
-        return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete_reload;
-    }
-
-    /// <summary>
-    /// operation 種別に応じた失敗ラベルを返します。
-    /// </summary>
-    /// <param name="operationKind">operation 種別。</param>
-    /// <returns>失敗ラベル。</returns>
-    private static string GetStartupProgressFailedLabel(StartupProgressOperationKind operationKind)
-    {
-        if (operationKind == StartupProgressOperationKind.Startup)
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed;
-        }
-        if (operationKind == StartupProgressOperationKind.FullReinitialize)
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed_reinitialize;
-        }
-        if (operationKind == StartupProgressOperationKind.ScoreOnly)
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed_scores;
-        }
-        return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed_reload;
-    }
-
-    /// <summary>
-    /// 現在の未完了フェーズに対応するサブラベルを返します。
-    /// </summary>
-    /// <param name="state">進捗状態。</param>
-    /// <returns>サブラベル。</returns>
-    private static string GetStartupProgressSubLabel(StartupProgressState state)
-    {
-        if (!IsStartupProgressLibraryLoadCompleted(state))
-        {
-            return GetStartupProgressLibraryLoadSubLabel(state);
-        }
-        if (!IsStartupProgressUiPrepareCompleted(state))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ui_prepare;
-        }
-        if ((state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) == 0)
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ui_prepare;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistEntriesHydrationDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_load;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoHydrationDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoBackfillDone))
-        {
-            string fileName = string.IsNullOrWhiteSpace(state.ChartInfoBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartInfoBackfillCurrentPath);
-            return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info, state.ChartInfoBackfillProcessedCount, state.ChartInfoBackfillTotalCount, fileName);
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartDigestBackfillDone))
-        {
-            string fileName = string.IsNullOrWhiteSpace(state.ChartDigestBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartDigestBackfillCurrentPath);
-            return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info, state.ChartDigestBackfillProcessedCount, state.ChartDigestBackfillTotalCount, fileName);
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.Lr2SongDbSyncDone))
-        {
-            int displayedProcessedCount = state.Lr2SongDbSyncStageTotalCount > 0
-                ? state.Lr2SongDbSyncStageProcessedCount
-                : state.Lr2SongDbSyncProcessedCount;
-            int displayedTotalCount = state.Lr2SongDbSyncStageTotalCount > 0
-                ? state.Lr2SongDbSyncStageTotalCount
-                : state.Lr2SongDbSyncTotalCount;
-            return FormatStartupProgressCountLabel(
-                BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_song_db_sync,
-                displayedProcessedCount,
-                displayedTotalCount,
-                FormatLr2SongDbSyncStageLabel(state.Lr2SongDbSyncStage));
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) || !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_ref;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ScoreHydrationDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_score_hydration;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.RankingRefreshDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ranking_refresh;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.MaintenanceDeferredDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_maintenance;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.InstallableMaintenanceDeferredDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_installable_maintenance;
-        }
-        return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
-    }
-
-    private static string FormatLr2SongDbSyncStageLabel(string stage)
-    {
-        return string.IsNullOrWhiteSpace(stage)
-            ? string.Empty
-            : stage.Replace('_', ' ');
-    }
-
-    private static bool TryGetStartupProgressStageValue(StartupProgressState state, out double value, out double maximum)
-    {
-        value = 0.0;
-        maximum = 1.0;
-        if (state == null
-            || !state.IsActive
-            || state.IsFailed
-            || !CanCompleteStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone)
-            || state.Lr2SongDbSyncStageTotalCount <= 0)
-        {
-            return false;
-        }
-
-        maximum = Math.Max(1.0, state.Lr2SongDbSyncStageTotalCount);
-        value = Math.Max(0.0, Math.Min(maximum, state.Lr2SongDbSyncStageProcessedCount));
-        return true;
-    }
-
-    private static string GetStartupProgressLibraryLoadSubLabel(StartupProgressState state)
-    {
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.LibraryDatabaseLoadDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_library_db_load;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.LibraryFileEnumerationDone))
-        {
-            string scanner = state.LibraryInitializationProgressScannerLabel;
-            if (!string.IsNullOrWhiteSpace(scanner))
-            {
-                return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_enumeration + " (" + scanner + ")";
-            }
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_enumeration;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.LibraryFileDiffDone))
-        {
-            if (state.LibraryInitializationProgressTotalCount > 0)
-            {
-                string fileName = string.IsNullOrWhiteSpace(state.LibraryInitializationProgressCurrentPath) ? string.Empty : Path.GetFileName(state.LibraryInitializationProgressCurrentPath);
-                return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_diff, state.LibraryInitializationProgressProcessedCount, state.LibraryInitializationProgressTotalCount, fileName);
-            }
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_diff;
-        }
-        return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_library_load;
-    }
-
-    private static string FormatStartupProgressCountLabel(string phaseLabel, int processedCount, int totalCount, string fileName)
-    {
-        string prefix = "[" + Math.Max(0, processedCount) + "/" + Math.Max(0, totalCount) + "] " + (phaseLabel ?? string.Empty);
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            return prefix;
-        }
-        return prefix + " " + fileName;
-    }
-
-    /// <summary>
-    /// ライブラリ読込フェーズが完了済みかどうかを返します。
-    /// </summary>
-    private static bool IsStartupProgressLibraryLoadCompleted(StartupProgressState state)
-    {
-        if (state.OperationKind == StartupProgressOperationKind.Startup)
-        {
-            return (state.CompletedPhases & StartupProgressPhase.StartupReadyData) != 0;
-        }
-        return (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
-    }
-
-    /// <summary>
-    /// 画面準備フェーズが完了済みかどうかを返します。
-    /// </summary>
-    private static bool IsStartupProgressUiPrepareCompleted(StartupProgressState state)
-    {
-        if (state.OperationKind == StartupProgressOperationKind.Startup)
-        {
-            return (state.CompletedPhases & StartupProgressPhase.StartupReadyUi) != 0;
-        }
-        return (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
-    }
-
-    /// <summary>
-    /// プレイリスト参照/保守更新フェーズが完了済みかどうかを返します。
-    /// </summary>
-    private static bool IsStartupProgressReferencePhaseCompleted(StartupProgressState state)
-    {
-        return IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied)
-            && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone)
-            && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.MaintenanceDeferredDone)
-            && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.InstallableMaintenanceDeferredDone);
-    }
-
-    private static int CountExpectedStartupProgressPhases(StartupProgressState state)
-    {
-        int count = 0;
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.CoreInitializeStarted, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryDatabaseLoadDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryFileEnumerationDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryFileDiffDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyData, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyUi, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyOperable, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistReferenceApplied, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistEntriesHydrationDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.MaintenanceDeferredDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.InstallableMaintenanceDeferredDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
-        return count;
-    }
-
-    private static StartupProgressPhase GetInitialExpectedStartupProgressPhases(StartupProgressOperationKind operationKind)
-    {
-        return operationKind switch
-        {
-            StartupProgressOperationKind.Startup => StartupProgressPhase.CoreInitializeStarted
-                                | StartupProgressPhase.LibraryDatabaseLoadDone
-                                | StartupProgressPhase.LibraryFileEnumerationDone
-                                | StartupProgressPhase.LibraryFileDiffDone
-                                | StartupProgressPhase.StartupReadyData
-                                | StartupProgressPhase.StartupReadyUi
-                                | StartupProgressPhase.StartupReadyOperable
-                                | StartupProgressPhase.PlaylistReferenceApplied
-                                | StartupProgressPhase.ExternalPlaylistSyncDone
-                                | StartupProgressPhase.ScoreHydrationDone
-                                | StartupProgressPhase.RankingRefreshDone
-                                | StartupProgressPhase.MaintenanceDeferredDone
-                                | StartupProgressPhase.InstallableMaintenanceDeferredDone
-                                | StartupProgressPhase.ChartDigestBackfillDone
-                                | StartupProgressPhase.ChartInfoBackfillDone
-                                | StartupProgressPhase.ChartInfoHydrationDone
-                                | StartupProgressPhase.Lr2SongDbSyncDone
-                                | StartupProgressPhase.PlaylistEntriesHydrationDone
-                                | StartupProgressPhase.StartupBackgroundTasksDone,
-            StartupProgressOperationKind.FullReinitialize => StartupProgressPhase.CoreInitializeStarted
-                                | StartupProgressPhase.LibraryDatabaseLoadDone
-                                | StartupProgressPhase.LibraryFileEnumerationDone
-                                | StartupProgressPhase.LibraryFileDiffDone
-                                | StartupProgressPhase.StartupReadyOperable
-                                | StartupProgressPhase.PlaylistReferenceApplied
-                                | StartupProgressPhase.ScoreHydrationDone
-                                | StartupProgressPhase.RankingRefreshDone
-                                | StartupProgressPhase.MaintenanceDeferredDone
-                                | StartupProgressPhase.InstallableMaintenanceDeferredDone
-                                | StartupProgressPhase.ChartDigestBackfillDone
-                                | StartupProgressPhase.ChartInfoBackfillDone
-                                | StartupProgressPhase.ChartInfoHydrationDone
-                                | StartupProgressPhase.Lr2SongDbSyncDone
-                                | StartupProgressPhase.PlaylistEntriesHydrationDone,
-            StartupProgressOperationKind.ReloadFileDiff => StartupProgressPhase.CoreInitializeStarted
-                                | StartupProgressPhase.LibraryFileEnumerationDone
-                                | StartupProgressPhase.LibraryFileDiffDone
-                                | StartupProgressPhase.StartupReadyOperable
-                                | StartupProgressPhase.PlaylistReferenceApplied
-                                | StartupProgressPhase.PlaylistEntriesHydrationDone,
-            StartupProgressOperationKind.ScoreOnly => StartupProgressPhase.CoreInitializeStarted
-                                | StartupProgressPhase.StartupReadyOperable
-                                | StartupProgressPhase.ScoreHydrationDone
-                                | StartupProgressPhase.RankingRefreshDone,
-            StartupProgressOperationKind.ReloadTables => StartupProgressPhase.CoreInitializeStarted
-                                | StartupProgressPhase.StartupReadyOperable
-                                | StartupProgressPhase.PlaylistReferenceApplied
-                                | StartupProgressPhase.ExternalPlaylistSyncDone
-                                | StartupProgressPhase.PlaylistEntriesHydrationDone,
-            _ => StartupProgressPhase.CoreInitializeStarted | StartupProgressPhase.StartupReadyOperable,
-        };
-    }
-
-    private static int CountCompletedExpectedStartupProgressPhases(StartupProgressState state)
-    {
-        int count = 0;
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.CoreInitializeStarted, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryDatabaseLoadDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryFileEnumerationDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryFileDiffDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyData, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyUi, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyOperable, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistReferenceApplied, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistEntriesHydrationDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.MaintenanceDeferredDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.InstallableMaintenanceDeferredDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
-        return count;
-    }
-
-    internal static StartupProgressTestResult ReduceStartupProgressForTest(string operationKindName, params string[] actions)
-    {
-        StartupProgressOperationKind operationKind = ParseStartupProgressOperationKindForTest(operationKindName);
-        var state = new StartupProgressState
-        {
-            OperationKind = operationKind,
-            IsActive = true,
-            ExpectedPhases = GetInitialExpectedStartupProgressPhases(operationKind),
-            CompletedPhases = StartupProgressPhase.CoreInitializeStarted
-        };
-        int ignoredRequests = 0;
-        int ignoredCompletes = 0;
-        foreach (string rawAction in actions ?? [])
-        {
-            if (string.IsNullOrWhiteSpace(rawAction))
-            {
-                continue;
-            }
-            string[] parts = rawAction.Split([':'], 2);
-            if (parts.Length != 2)
-            {
-                throw new ArgumentException("Action must be formatted as verb:PhaseName.", nameof(actions));
-            }
-            string verb = parts[0].Trim();
-            if (string.Equals(verb, "request", StringComparison.OrdinalIgnoreCase))
-            {
-                StartupProgressPhase phase = ParseStartupProgressPhaseForTest(parts[1].Trim());
-                if ((state.ExpectedPhases & phase) == 0)
-                {
-                    ignoredRequests++;
-                    continue;
-                }
-                state.RequestedPhases |= phase;
-            }
-            else if (string.Equals(verb, "complete", StringComparison.OrdinalIgnoreCase))
-            {
-                StartupProgressPhase phase = ParseStartupProgressPhaseForTest(parts[1].Trim());
-                if (CanCompleteStartupProgressPhase(state, phase))
-                {
-                    state.CompletedPhases |= phase;
-                }
-                else
-                {
-                    ignoredCompletes++;
-                }
-            }
-            else if (string.Equals(verb, "skip", StringComparison.OrdinalIgnoreCase))
-            {
-                StartupProgressPhase phase = ParseStartupProgressPhaseForTest(parts[1].Trim());
-                if ((state.ExpectedPhases & phase) != 0 && (state.RequestedPhases & phase) == 0)
-                {
-                    state.CompletedPhases |= phase;
-                    state.SkippedPhases |= phase;
-                }
-            }
-            else if (string.Equals(verb, "fail", StringComparison.OrdinalIgnoreCase))
-            {
-                state.IsFailed = true;
-                state.FailureSubLabel = parts[1].Trim();
-                state.CompletionHideScheduled = false;
-            }
-            else if (string.Equals(verb, "library", StringComparison.OrdinalIgnoreCase))
-            {
-                string[] statusParts = parts[1].Split('|');
-                state.LibraryInitializationProgressStage = (BMSLibrary.LibraryInitializationProgressStage)Enum.Parse(typeof(BMSLibrary.LibraryInitializationProgressStage), statusParts[0], ignoreCase: true);
-                if (statusParts.Length > 1)
-                {
-                    state.LibraryInitializationProgressTotalCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
-                }
-                if (statusParts.Length > 2)
-                {
-                    state.LibraryInitializationProgressProcessedCount = int.Parse(statusParts[2], CultureInfo.InvariantCulture);
-                }
-                if (statusParts.Length > 3)
-                {
-                    state.LibraryInitializationProgressCurrentPath = statusParts[3];
-                }
-                if (statusParts.Length > 4)
-                {
-                    state.LibraryInitializationProgressScannerLabel = statusParts[4];
-                }
-            }
-            else if (string.Equals(verb, "chartinfo", StringComparison.OrdinalIgnoreCase))
-            {
-                string[] statusParts = parts[1].Split('|');
-                if (statusParts.Length > 0)
-                {
-                    state.ChartInfoBackfillTotalCount = int.Parse(statusParts[0], CultureInfo.InvariantCulture);
-                }
-                if (statusParts.Length > 1)
-                {
-                    state.ChartInfoBackfillProcessedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
-                }
-                if (statusParts.Length > 2)
-                {
-                    state.ChartInfoBackfillCurrentPath = statusParts[2];
-                }
-            }
-            else if (string.Equals(verb, "hydrate", StringComparison.OrdinalIgnoreCase))
-            {
-                string[] statusParts = parts[1].Split('|');
-                if (statusParts.Length > 0)
-                {
-                    state.ChartInfoHydrationTotalCount = int.Parse(statusParts[0], CultureInfo.InvariantCulture);
-                }
-                if (statusParts.Length > 1)
-                {
-                    state.ChartInfoHydrationAppliedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
-                }
-            }
-            else if (string.Equals(verb, "lr2songdbsync", StringComparison.OrdinalIgnoreCase))
-            {
-                string[] statusParts = parts[1].Split('|');
-                if (statusParts.Length > 0)
-                {
-                    state.Lr2SongDbSyncTotalCount = int.Parse(statusParts[0], CultureInfo.InvariantCulture);
-                }
-                if (statusParts.Length > 1)
-                {
-                    state.Lr2SongDbSyncProcessedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
-                }
-                if (statusParts.Length > 2)
-                {
-                    state.Lr2SongDbSyncStage = statusParts[2];
-                }
-                if (statusParts.Length > 3)
-                {
-                    state.Lr2SongDbSyncStageTotalCount = int.Parse(statusParts[3], CultureInfo.InvariantCulture);
-                }
-                if (statusParts.Length > 4)
-                {
-                    state.Lr2SongDbSyncStageProcessedCount = int.Parse(statusParts[4], CultureInfo.InvariantCulture);
-                }
-            }
-            else
-            {
-                throw new ArgumentException("Unsupported action verb: " + verb, nameof(actions));
-            }
-        }
-        bool completed = AreExpectedStartupProgressPhasesCompleted(state);
-        bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
-        string label = state.IsFailed
-            ? GetStartupProgressFailedLabel(operationKind)
-            : completed
-            ? GetStartupProgressCompletedLabel(operationKind)
-            : (operableCompleted ? BeMusicSeeker.Properties.Resources.Statusbar_progress_operable_background : GetStartupProgressRunningLabel(operationKind));
-        string subLabel = state.IsFailed
-            ? (!string.IsNullOrWhiteSpace(state.FailureSubLabel) ? state.FailureSubLabel : GetStartupProgressSubLabel(state))
-            : completed ? string.Empty : GetStartupProgressSubLabel(state);
-        double progressMaximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
-        double progressValue = CountCompletedExpectedStartupProgressPhases(state);
-        if (TryGetStartupProgressStageValue(state, out double stageValue, out double stageMaximum))
-        {
-            progressValue = stageValue;
-            progressMaximum = stageMaximum;
-        }
-        return new StartupProgressTestResult
-        {
-            ExpectedCount = CountExpectedStartupProgressPhases(state),
-            CompletedCount = CountCompletedExpectedStartupProgressPhases(state),
-            RequestedCount = CountStartupProgressPhases(state.RequestedPhases & state.ExpectedPhases),
-            SkippedCount = CountStartupProgressPhases(state.SkippedPhases & state.ExpectedPhases),
-            IgnoredRequestCount = ignoredRequests,
-            IgnoredCompleteCount = ignoredCompletes,
-            Label = label,
-            SubLabel = subLabel,
-            IsCompleted = completed,
-            IsFailed = state.IsFailed,
-            ProgressValue = progressValue,
-            ProgressMaximum = progressMaximum
-        };
-    }
-
-    internal static int GetInitialStartupProgressExpectedCountForTest(string operationKindName)
-    {
-        var state = new StartupProgressState
-        {
-            OperationKind = ParseStartupProgressOperationKindForTest(operationKindName),
-            ExpectedPhases = GetInitialExpectedStartupProgressPhases(ParseStartupProgressOperationKindForTest(operationKindName))
-        };
-        return CountExpectedStartupProgressPhases(state);
-    }
-
-    private static int CountStartupProgressPhases(StartupProgressPhase phases)
-    {
-        int count = 0;
-        CountStartupProgressPhase(phases, StartupProgressPhase.CoreInitializeStarted, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.LibraryDatabaseLoadDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.LibraryFileEnumerationDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.LibraryFileDiffDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.StartupReadyData, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.StartupReadyUi, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.StartupReadyOperable, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.PlaylistReferenceApplied, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.PlaylistEntriesHydrationDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.MaintenanceDeferredDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.InstallableMaintenanceDeferredDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.ChartDigestBackfillDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoHydrationDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoBackfillDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.ScoreHydrationDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.RankingRefreshDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
-        return count;
-    }
-
-    private static void CountStartupProgressPhase(StartupProgressPhase phases, StartupProgressPhase phase, ref int count)
-    {
-        if ((phases & phase) != 0)
-        {
-            count++;
-        }
-    }
-
-    private static StartupProgressOperationKind ParseStartupProgressOperationKindForTest(string operationKindName)
-    {
-        return (StartupProgressOperationKind)Enum.Parse(typeof(StartupProgressOperationKind), operationKindName, ignoreCase: true);
-    }
-
-    private static StartupProgressPhase ParseStartupProgressPhaseForTest(string phaseName)
-    {
-        return (StartupProgressPhase)Enum.Parse(typeof(StartupProgressPhase), phaseName, ignoreCase: true);
-    }
-
-    private static void CountExpectedStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase, ref int count)
-    {
-        if (IsStartupProgressPhaseExpected(state, phase))
-        {
-            count++;
-        }
-    }
-
-    private static void CountCompletedExpectedStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase, ref int count)
-    {
-        if (IsStartupProgressPhaseExpected(state, phase) && (state.CompletedPhases & phase) != 0)
-        {
-            count++;
-        }
-    }
-
-    private static bool AreExpectedStartupProgressPhasesCompleted(StartupProgressState state)
-    {
-        StartupProgressPhase expected = state.ExpectedPhases;
-        return expected == StartupProgressPhase.None || (state.CompletedPhases & expected) == expected;
-    }
-
-    /// <summary>
-    /// 指定フェーズが待機対象かどうかを返します。
-    /// </summary>
-    private static bool IsStartupProgressPhaseExpected(StartupProgressState state, StartupProgressPhase phase)
-    {
-        return (state.ExpectedPhases & phase) != 0;
-    }
-
-    /// <summary>
-    /// 指定フェーズが完了済み、または待機対象外かどうかを返します。
-    /// </summary>
-    private static bool IsStartupProgressPhaseCompletedOrNotExpected(StartupProgressState state, StartupProgressPhase phase)
-    {
-        return !IsStartupProgressPhaseExpected(state, phase) || (state.CompletedPhases & phase) != 0;
-    }
-
-    /// <summary>
-    /// deferred playlist 参照要求を現在の operation 進捗へ関連付けるかどうかを返します。
-    /// </summary>
-    private static bool ShouldTrackStartupProgressPlaylistReference(string reason, StartupProgressOperationKind operationKind)
-    {
-        return operationKind switch
-        {
-            StartupProgressOperationKind.Startup => string.Equals(reason, "Initialize", StringComparison.Ordinal) || string.Equals(reason, "DeferredExternalSync:Initialize", StringComparison.Ordinal) || string.Equals(reason, "PlaylistEntriesHydration", StringComparison.Ordinal),
-            StartupProgressOperationKind.ReloadFileDiff => string.Equals(reason, "ReloadFileDiff", StringComparison.Ordinal) || string.Equals(reason, "PlaylistEntriesHydration", StringComparison.Ordinal),
-            StartupProgressOperationKind.FullReinitialize => string.Equals(reason, "FullReinitialize", StringComparison.Ordinal) || string.Equals(reason, "PlaylistEntriesHydration", StringComparison.Ordinal),
-            StartupProgressOperationKind.ReloadTables => string.Equals(reason, "DeferredExternalSync:ReloadTables", StringComparison.Ordinal) || string.Equals(reason, "PlaylistEntriesHydration", StringComparison.Ordinal),
-            _ => false,
-        };
-    }
-
-    /// <summary>
-    /// deferred 外部プレイリスト同期要求を現在の operation 進捗へ関連付けるかどうかを返します。
-    /// </summary>
-    private static bool ShouldTrackStartupProgressExternalSync(string reason, StartupProgressOperationKind operationKind)
-    {
-        return operationKind switch
-        {
-            StartupProgressOperationKind.Startup => string.Equals(reason, "Initialize", StringComparison.Ordinal),
-            StartupProgressOperationKind.ReloadTables => string.Equals(reason, "ReloadTables", StringComparison.Ordinal),
-            _ => false,
-        };
     }
 
     private void ShowPlaylistLoadFailure(Exception ex)

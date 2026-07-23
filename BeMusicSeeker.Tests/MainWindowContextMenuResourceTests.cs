@@ -1389,13 +1389,18 @@ public sealed class MainWindowContextMenuResourceTests
             "BeMusicSeeker",
             "Views",
             "MainWindow.cs");
+        string startupProgressOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "StartupProgressWorkflowOwner.cs");
 
         Assert.AreEqual("{Binding ProgressHub}", GetAttributeValue(statusBar, "DataContext"));
-        AssertStatusBarBinding(statusBar, "IsStartupProgressActive");
-        AssertStatusBarBinding(statusBar, "StartupProgressLabel");
-        AssertStatusBarBinding(statusBar, "StartupProgressSubLabel");
-        AssertStatusBarBinding(statusBar, "StartupProgressMaximum");
-        AssertStatusBarBinding(statusBar, "StartupProgressValue");
+        AssertStatusBarBinding(statusBar, "StartupProgress.IsActive");
+        AssertStatusBarBinding(statusBar, "StartupProgress.Label");
+        AssertStatusBarBinding(statusBar, "StartupProgress.SubLabel");
+        AssertStatusBarBinding(statusBar, "StartupProgress.Maximum");
+        AssertStatusBarBinding(statusBar, "StartupProgress.Value");
         AssertStatusBarBinding(statusBar, "IsInstallPipelineStatusActive");
         AssertStatusBarBinding(statusBar, "InstallPipelineLabel");
         AssertStatusBarBinding(statusBar, "InstallPipelineSubLabel");
@@ -1431,8 +1436,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowViewModelCode.Contains("public string StartupProgressSubLabel"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public double StartupProgressValue"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public double StartupProgressMaximum"));
-        StringAssert.Contains(mainWindowViewModelCode, "ProgressHub.UpdateStartupProgress(isActive, label, subLabel, value, maximum);");
-        StringAssert.Contains(mainWindowViewModelCode, "nameof(OperationProgressHubViewModel.IsStartupProgressActive)");
+        StringAssert.Contains(startupProgressOwnerCode, "ApplyPresentation(isActive, label, subLabel, value, maximum);");
+        Assert.IsFalse(mainWindowViewModelCode.Contains("UpdateStartupProgress(isActive"));
         AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusProgressMaximum");
         AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusProgressValue");
         Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsLr2SongDbSyncStatusActive"));
@@ -1446,17 +1451,14 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsLr2SongDbSyncCancelVisible"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsLr2SongDbSyncCleanupVisible"));
         StringAssert.Contains(mainWindowViewModelCode, "ProgressHub.UpdateLr2SongDbSyncStatus(");
-        StringAssert.Contains(mainWindowViewModelCode, "ProgressHub.UpdateLr2SongDbSyncStatusSuppression(");
         string startupProgressRecompute = ExtractMethodBody(
-            mainWindowViewModelCode,
-            "private void RecomputeStartupProgressPresentation()");
-        StringAssert.Contains(startupProgressRecompute, "ProgressHub.UpdateLr2SongDbSyncStatusSuppression(IsStartupProgressBlockingLr2SongDbSyncStatus());");
-        Assert.IsTrue(
-            startupProgressRecompute.IndexOf("ProgressHub.UpdateStartupProgress(", StringComparison.Ordinal)
-            < startupProgressRecompute.IndexOf("ProgressHub.UpdateLr2SongDbSyncStatusSuppression(", StringComparison.Ordinal));
+            startupProgressOwnerCode,
+            "internal void RecomputeStartupProgressPresentation(long expectedOperationToken = 0L)");
+        StringAssert.Contains(startupProgressRecompute, "ApplyPresentation(isActive, label, subLabel, value, maximum);");
+        Assert.IsFalse(startupProgressRecompute.Contains("ProgressHub."));
         string progressHubHandler = ExtractMethodBody(
             mainWindowViewModelCode,
-            "private void ProgressHubPropertyChanged(object sender, PropertyChangedEventArgs e)");
+            "private void StartupProgressWorkflowOwnerPropertyChanged(object sender, PropertyChangedEventArgs e)");
         Assert.IsFalse(progressHubHandler.Contains("RaisePropertyChanged(propertyName)"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("ShouldShowLr2SongDbSyncStatusForTest"));
 
@@ -2108,6 +2110,11 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string startupProgressOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "StartupProgressWorkflowOwner.cs");
         string compositionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"));
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
@@ -2132,11 +2139,11 @@ public sealed class MainWindowContextMenuResourceTests
             "PlaylistWorkspaceViewModel.ExternalPlaylistSync.cs");
 
         StringAssert.Contains(viewModelCode, "public bool IsLibraryOperationInProgress");
-        StringAssert.Contains(viewModelCode, "private long GetActiveStartupProgressOperationToken()");
-        StringAssert.Contains(viewModelCode, "private bool IsStartupProgressOperationTokenCurrent(long operationToken)");
+        StringAssert.Contains(startupProgressOwnerCode, "internal long GetActiveStartupProgressOperationToken()");
+        StringAssert.Contains(startupProgressOwnerCode, "internal bool IsStartupProgressOperationTokenCurrent(long operationToken)");
         StringAssert.Contains(viewModelCode, "playlistSyncProgressUiVersion");
         StringAssert.Contains(viewModelCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion))");
-        StringAssert.Contains(viewModelCode, "startupProgressState.OperationKind == StartupProgressOperationKind.ReloadFileDiff");
+        StringAssert.Contains(startupProgressOwnerCode, "startupProgressState.OperationKind == StartupProgressOperationKind.ReloadFileDiff");
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
         StringAssert.Contains(reloadFileDiff, ".LoggingAndPropagate(\"ReloadFileDiff\")");
         Assert.IsTrue(
@@ -2189,8 +2196,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(appSchemaStartupPreflight, "ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult, startupSettings.LR2SongDBPath);");
         Assert.IsFalse(repairAppOwnedSchema.Contains("RepairChartDigestMapConsistency"));
         Assert.IsFalse(repairAppOwnedSchema.Contains("BMSFile.GetSHA256Hash"));
-        StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending()");
-        StringAssert.Contains(viewModelCode, "ShowInitialSetupCompletionMessageIfPending();");
+        StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending(");
+        StringAssert.Contains(viewModelCode, "long expectedOperationToken = 0L");
+        StringAssert.Contains(viewModelCode, "ShowInitialSetupCompletionMessageIfPending(expectedOperationToken, requireBackgroundTasksIdle: true);");
         StringAssert.Contains(endSuppression, "FlushPendingUiRefresh(uiRefreshChannel, operationToken)");
         StringAssert.Contains(reloadFileDiff, "PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(\"ReloadFileDiff\", operationToken);");
         StringAssert.Contains(reinitialize, "PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(\"FullReinitialize\", operationToken);");

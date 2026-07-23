@@ -175,8 +175,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(
             hydrationCompletion.IndexOf("QueuePlaylistReferenceApply(", StringComparison.Ordinal) >= 0,
             "Hydration receipt consumption must not enqueue a mutable table resnapshot route.");
-        StringAssert.Contains(hydrationCompletion, "TrackStartupProgressPlaylistReferenceRequest(");
-        StringAssert.Contains(hydrationCompletion, "TryCompleteStartupProgressPlaylistReference(");
+        StringAssert.Contains(hydrationCompletion, "TryCompleteStartupProgressPlaylistReferenceFromHydration(");
     }
 
     [TestMethod]

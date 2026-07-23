@@ -383,9 +383,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 request.Complete(null);
                 return;
             }
+            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel
+                ?? throw new InvalidOperationException("MainWindowViewModel is required to present the update dialog.");
             UiWindowDialogResult<UpdateAssetInfo> dialogResult = await new UiDialogCoordinator()
                 .ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>(
-                    () => new UpdateAvailableDialog(request.Result, (base.DataContext as MainWindowViewModel)?.ProgressHub),
+                    () => new UpdateAvailableDialog(request.Result, viewModel.ProgressHub),
                     dialog => dialog.SelectedAsset,
                     this));
             ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Update available dialog");

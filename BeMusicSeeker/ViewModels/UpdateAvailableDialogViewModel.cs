@@ -15,16 +15,13 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
     public UpdateAvailableDialogViewModel(UpdateCheckResult updateCheckResult, OperationProgressHubViewModel progressHub)
     {
         UpdateCheckResult = updateCheckResult ?? throw new ArgumentNullException(nameof(updateCheckResult));
-        this.progressHub = progressHub;
+        this.progressHub = progressHub ?? throw new ArgumentNullException(nameof(progressHub));
         Packages = new ObservableCollection<UpdatePackageOption>((UpdateCheckResult.Assets ?? [])
             .OrderBy(GetAssetDisplayPriority)
             .ThenBy(asset => asset?.FileName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             .Select(UpdatePackageOption.Create));
         selectedPackage = Packages.FirstOrDefault();
-        if (progressHub != null)
-        {
-            progressHub.PropertyChanged += ProgressHubPropertyChanged;
-        }
+        progressHub.StartupProgress.PropertyChanged += StartupProgressPropertyChanged;
     }
 
     public event PropertyChangedEventHandler PropertyChanged;
@@ -55,7 +52,7 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
 
     public bool HasSelectableAssets => Packages.Count > 0;
 
-    public bool CanStartUpdate => HasSelectableAssets && progressHub?.IsStartupProgressActive != true;
+    public bool CanStartUpdate => HasSelectableAssets && progressHub?.StartupProgress.IsActive != true;
 
     public string StartBlockedReason => CanStartUpdate ? string.Empty : Resources.UpdateDialog_StartupBlocked;
 
@@ -78,15 +75,12 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
 
     public void Dispose()
     {
-        if (progressHub != null)
-        {
-            progressHub.PropertyChanged -= ProgressHubPropertyChanged;
-        }
+        progressHub.StartupProgress.PropertyChanged -= StartupProgressPropertyChanged;
     }
 
-    private void ProgressHubPropertyChanged(object sender, PropertyChangedEventArgs e)
+    private void StartupProgressPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(OperationProgressHubViewModel.IsStartupProgressActive))
+        if (e.PropertyName == nameof(StartupProgressWorkflowOwner.IsActive))
         {
             RaisePropertyChanged(nameof(CanStartUpdate));
             RaisePropertyChanged(nameof(StartBlockedReason));

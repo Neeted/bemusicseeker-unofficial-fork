@@ -14,7 +14,7 @@ public sealed class OperationProgressHubViewModelTests
     public void InstallPipelinePresentation_UsesPlaylistDropEstimateThenPendingPriority()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var hub = new OperationProgressHubViewModel();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
         hub.UpdatePendingEstimateQueueStatus(new PendingInstallEstimateQueueStatusSnapshot
         {
@@ -69,7 +69,7 @@ public sealed class OperationProgressHubViewModelTests
     public void InstallPipelinePresentation_NormalizesEmptyMaximumAndInactiveState()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var hub = new OperationProgressHubViewModel();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
         hub.UpdateDropInstallQueueStatus(new DropInstallQueueStatusSnapshot
         {
@@ -89,7 +89,7 @@ public sealed class OperationProgressHubViewModelTests
     public void FolderAutoRenamePresentation_NormalizesProgressAndClearsOnCompletion()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var hub = new OperationProgressHubViewModel();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
         hub.UpdateFolderAutoRenameProgress(new FolderAutoRenameProgressSnapshot
         {
@@ -123,7 +123,7 @@ public sealed class OperationProgressHubViewModelTests
     public void PlaylistSyncPresentation_UsesNormalizedValuesAndCurrentTableName()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var hub = new OperationProgressHubViewModel();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         var changedProperties = new List<string>();
         hub.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
 
@@ -153,7 +153,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void PlaylistSyncPresentation_InactiveSnapshotClearsState()
     {
-        var hub = new OperationProgressHubViewModel();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         hub.UpdatePlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
             IsActive = true,
@@ -175,25 +175,25 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void StartupProgressPresentation_AppliesValuesInBindingOrder()
     {
-        var hub = new OperationProgressHubViewModel();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         var changedProperties = new List<string>();
-        hub.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+        hub.StartupProgress.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
 
-        hub.UpdateStartupProgress(true, "running", "phase", 2.0, 5.0);
+        hub.StartupProgress.ApplyPresentation(true, "running", "phase", 2.0, 5.0);
 
-        Assert.IsTrue(hub.IsStartupProgressActive);
-        Assert.AreEqual("running", hub.StartupProgressLabel);
-        Assert.AreEqual("phase", hub.StartupProgressSubLabel);
-        Assert.AreEqual(2.0, hub.StartupProgressValue);
-        Assert.AreEqual(5.0, hub.StartupProgressMaximum);
+        Assert.IsTrue(hub.StartupProgress.IsActive);
+        Assert.AreEqual("running", hub.StartupProgress.Label);
+        Assert.AreEqual("phase", hub.StartupProgress.SubLabel);
+        Assert.AreEqual(2.0, hub.StartupProgress.Value);
+        Assert.AreEqual(5.0, hub.StartupProgress.Maximum);
         CollectionAssert.AreEqual(
             new[]
             {
-                nameof(hub.IsStartupProgressActive),
-                nameof(hub.StartupProgressLabel),
-                nameof(hub.StartupProgressSubLabel),
-                nameof(hub.StartupProgressValue),
-                nameof(hub.StartupProgressMaximum)
+                nameof(StartupProgressWorkflowOwner.IsActive),
+                nameof(StartupProgressWorkflowOwner.Label),
+                nameof(StartupProgressWorkflowOwner.SubLabel),
+                nameof(StartupProgressWorkflowOwner.Value),
+                nameof(StartupProgressWorkflowOwner.Maximum)
             },
             changedProperties);
     }
@@ -201,23 +201,23 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void StartupProgressPresentation_InactiveAndNullValuesClearState()
     {
-        var hub = new OperationProgressHubViewModel();
-        hub.UpdateStartupProgress(true, "running", "phase", 2.0, 5.0);
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        hub.StartupProgress.ApplyPresentation(true, "running", "phase", 2.0, 5.0);
 
-        hub.UpdateStartupProgress(false, null, null, 0.0, 1.0);
+        hub.StartupProgress.ApplyPresentation(false, null, null, 0.0, 1.0);
 
-        Assert.IsFalse(hub.IsStartupProgressActive);
-        Assert.AreEqual(string.Empty, hub.StartupProgressLabel);
-        Assert.AreEqual(string.Empty, hub.StartupProgressSubLabel);
-        Assert.AreEqual(0.0, hub.StartupProgressValue);
-        Assert.AreEqual(1.0, hub.StartupProgressMaximum);
+        Assert.IsFalse(hub.StartupProgress.IsActive);
+        Assert.AreEqual(string.Empty, hub.StartupProgress.Label);
+        Assert.AreEqual(string.Empty, hub.StartupProgress.SubLabel);
+        Assert.AreEqual(0.0, hub.StartupProgress.Value);
+        Assert.AreEqual(1.0, hub.StartupProgress.Maximum);
     }
 
     [TestMethod]
     public void Lr2SongDbSyncPresentation_UsesRuntimeStatusAndSuppression()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var hub = new OperationProgressHubViewModel();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(
             new Lr2SongDbSyncStatusSnapshot
             {
@@ -228,7 +228,7 @@ public sealed class OperationProgressHubViewModelTests
             },
             new DateTime(2026, 6, 5, 12, 0, 0));
 
-        hub.UpdateLr2SongDbSyncStatus(status, startupProgressBlocksStatus: false);
+        hub.UpdateLr2SongDbSyncStatus(status);
 
         Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
         Assert.AreEqual(status.StatusText, hub.Lr2SongDbSyncStatusLabel);
@@ -240,7 +240,8 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
         Assert.IsTrue(hub.IsLr2SongDbSyncCancelVisible);
 
-        hub.UpdateLr2SongDbSyncStatusSuppression(startupProgressBlocksStatus: true);
+        hub.StartupProgress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        hub.StartupProgress.TrackStartupProgressLr2SongDbSyncRequested(1);
 
         Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
         Assert.AreEqual(string.Empty, hub.Lr2SongDbSyncStatusLabel);
@@ -253,7 +254,7 @@ public sealed class OperationProgressHubViewModelTests
     public void Lr2SongDbSyncPresentation_UsesCleanupForStartupScanBlockersAndClearsNotNeeded()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var hub = new OperationProgressHubViewModel();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         Lr2SongDbSyncRuntimeStatus blockers = Lr2SongDbSyncStatusMapper.Create(
             new Lr2SongDbSyncStatusSnapshot
             {
@@ -263,14 +264,14 @@ public sealed class OperationProgressHubViewModelTests
             },
             DateTime.MinValue);
 
-        hub.UpdateLr2SongDbSyncStatus(blockers, startupProgressBlocksStatus: false);
+        hub.UpdateLr2SongDbSyncStatus(blockers);
 
         Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
         Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
         Assert.IsTrue(hub.IsLr2SongDbSyncCleanupVisible);
 
-        hub.UpdateLr2SongDbSyncStatus(null, startupProgressBlocksStatus: false);
+        hub.UpdateLr2SongDbSyncStatus(null);
 
         Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
         Assert.AreEqual(string.Empty, hub.Lr2SongDbSyncStatusLabel);

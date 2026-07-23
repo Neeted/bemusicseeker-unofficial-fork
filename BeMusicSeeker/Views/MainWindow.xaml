@@ -908,7 +908,7 @@
             <Style TargetType="{x:Type StatusBar}">
               <Setter Property="Visibility" Value="Collapsed" />
               <Style.Triggers>
-                <DataTrigger Binding="{Binding IsStartupProgressActive}" Value="True">
+                <DataTrigger Binding="{Binding StartupProgress.IsActive}" Value="True">
                   <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsInstallPipelineStatusActive}" Value="True">
@@ -933,7 +933,7 @@
             <Style x:Key="styleStartupProgressStatusBarItem" TargetType="{x:Type StatusBarItem}">
               <Setter Property="Visibility" Value="Collapsed" />
               <Style.Triggers>
-                <DataTrigger Binding="{Binding IsStartupProgressActive}" Value="True">
+                <DataTrigger Binding="{Binding StartupProgress.IsActive}" Value="True">
                   <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
               </Style.Triggers>
@@ -1028,19 +1028,19 @@
             </Style>
           </StatusBar.Resources>
           <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
-            <TextBlock Text="{Binding StartupProgressLabel}" />
+            <TextBlock Text="{Binding StartupProgress.Label}" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
             <Separator />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
-            <TextBlock Width="200" TextTrimming="CharacterEllipsis" Text="{Binding StartupProgressSubLabel}" ToolTip="{Binding StartupProgressSubLabel}" />
+            <TextBlock Width="200" TextTrimming="CharacterEllipsis" Text="{Binding StartupProgress.SubLabel}" ToolTip="{Binding StartupProgress.SubLabel}" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
             <Separator />
           </StatusBarItem>
             <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
-              <ProgressBar Width="160" Height="14" Minimum="0" Maximum="{Binding StartupProgressMaximum, Mode=OneWay}" Value="{Binding StartupProgressValue, Mode=OneWay}" />
+              <ProgressBar Width="160" Height="14" Minimum="0" Maximum="{Binding StartupProgress.Maximum, Mode=OneWay}" Value="{Binding StartupProgress.Value, Mode=OneWay}" />
             </StatusBarItem>
             <StatusBarItem Style="{StaticResource styleInstallPipelineStatusBarItem}">
               <TextBlock Text="{Binding InstallPipelineLabel}" />

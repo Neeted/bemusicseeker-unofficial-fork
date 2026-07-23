@@ -18,7 +18,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `planner required`
+sequence cursor: `UI05-R4 Binding and composition closure — planner required`
 
 目的:
 

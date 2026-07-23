@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Livet;
@@ -54,16 +55,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private double playlistSyncProgressMaximum;
 
-    private bool isStartupProgressActive;
-
-    private string startupProgressLabel = string.Empty;
-
-    private string startupProgressSubLabel = string.Empty;
-
-    private double startupProgressValue;
-
-    private double startupProgressMaximum;
-
     private bool isLr2SongDbSyncStatusActive;
 
     private string lr2SongDbSyncStatusLabel = string.Empty;
@@ -86,8 +77,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
 
-    private bool isStartupProgressBlockingLr2SongDbSyncStatus;
-
     private DropInstallQueueStatusSnapshot dropInstallQueueStatus = new();
 
     private PendingInstallEstimateQueueStatusSnapshot pendingInstallQueueStatus = new();
@@ -95,6 +84,14 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private InstallEstimationProgressSnapshot installEstimationProgress = new();
 
     private PlaylistUrlDownloadStatusSnapshot playlistUrlDownloadStatus = PlaylistUrlDownloadStatusSnapshot.Inactive;
+
+    public StartupProgressWorkflowOwner StartupProgress { get; }
+
+    internal OperationProgressHubViewModel(StartupProgressWorkflowOwner startupProgress)
+    {
+        StartupProgress = startupProgress ?? throw new ArgumentNullException(nameof(startupProgress));
+        StartupProgress.PropertyChanged += StartupProgressPropertyChanged;
+    }
 
     /// <summary>
     /// Gets whether install, drop-install, playlist URL download, or estimate status is visible.
@@ -381,60 +378,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
     }
 
     /// <summary>
-    /// Gets whether startup or reload progress is visible.
-    /// </summary>
-    public bool IsStartupProgressActive
-    {
-        get => isStartupProgressActive;
-        internal set => SetValue(ref isStartupProgressActive, value, nameof(IsStartupProgressActive));
-    }
-
-    /// <summary>
-    /// Gets the primary startup or reload progress label.
-    /// </summary>
-    public string StartupProgressLabel
-    {
-        get => startupProgressLabel;
-        internal set => SetStringValue(ref startupProgressLabel, value, nameof(StartupProgressLabel));
-    }
-
-    /// <summary>
-    /// Gets the secondary startup or reload progress label.
-    /// </summary>
-    public string StartupProgressSubLabel
-    {
-        get => startupProgressSubLabel;
-        internal set => SetStringValue(ref startupProgressSubLabel, value, nameof(StartupProgressSubLabel));
-    }
-
-    /// <summary>
-    /// Gets the current startup or reload progress value.
-    /// </summary>
-    public double StartupProgressValue
-    {
-        get => startupProgressValue;
-        internal set => SetValue(ref startupProgressValue, value, nameof(StartupProgressValue));
-    }
-
-    /// <summary>
-    /// Gets the startup or reload progress maximum.
-    /// </summary>
-    public double StartupProgressMaximum
-    {
-        get => startupProgressMaximum;
-        internal set => SetValue(ref startupProgressMaximum, value, nameof(StartupProgressMaximum));
-    }
-
-    internal void UpdateStartupProgress(bool isActive, string label, string subLabel, double value, double maximum)
-    {
-        IsStartupProgressActive = isActive;
-        StartupProgressLabel = label;
-        StartupProgressSubLabel = subLabel;
-        StartupProgressValue = value;
-        StartupProgressMaximum = maximum;
-    }
-
-    /// <summary>
     /// Gets whether LR2 song DB sync status is visible.
     /// </summary>
     public bool IsLr2SongDbSyncStatusActive
@@ -524,23 +467,21 @@ public sealed class OperationProgressHubViewModel : ViewModel
         internal set => SetValue(ref isLr2SongDbSyncCleanupVisible, value, nameof(IsLr2SongDbSyncCleanupVisible));
     }
 
-    internal void UpdateLr2SongDbSyncStatus(Lr2SongDbSyncRuntimeStatus status, bool startupProgressBlocksStatus)
+    internal void UpdateLr2SongDbSyncStatus(Lr2SongDbSyncRuntimeStatus status)
     {
         latestLr2SongDbSyncStatus = status ?? Lr2SongDbSyncStatusMapper.CreateNone();
-        isStartupProgressBlockingLr2SongDbSyncStatus = startupProgressBlocksStatus;
         RecomputeLr2SongDbSyncStatusPresentation();
     }
 
-    internal void UpdateLr2SongDbSyncStatusSuppression(bool startupProgressBlocksStatus)
+    private void StartupProgressPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        isStartupProgressBlockingLr2SongDbSyncStatus = startupProgressBlocksStatus;
         RecomputeLr2SongDbSyncStatusPresentation();
     }
 
     private void RecomputeLr2SongDbSyncStatusPresentation()
     {
         Lr2SongDbSyncRuntimeStatus status = latestLr2SongDbSyncStatus ?? Lr2SongDbSyncStatusMapper.CreateNone();
-        bool isActive = status.HasWarningStatus && !isStartupProgressBlockingLr2SongDbSyncStatus;
+        bool isActive = status.HasWarningStatus && !StartupProgress.IsStartupProgressBlockingLr2SongDbSyncStatus;
         IsLr2SongDbSyncStatusActive = isActive;
         Lr2SongDbSyncStatusLabel = isActive ? status.StatusText : string.Empty;
         Lr2SongDbSyncStatusSubLabel = isActive ? status.ProgressText : string.Empty;

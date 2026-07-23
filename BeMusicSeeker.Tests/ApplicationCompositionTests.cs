@@ -513,9 +513,10 @@ public sealed class ApplicationCompositionTests
             folderAutoRenameDialogService: new TestUiDialogService(),
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
-            chartInfoParseFailureRemovalLibraryProvider: () => null!,
-            lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
-            rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner());
+             chartInfoParseFailureRemovalLibraryProvider: () => null!,
+             lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
+             rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner(),
+             startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());
 
         try
         {
@@ -625,9 +626,10 @@ public sealed class ApplicationCompositionTests
             folderAutoRenameDialogService: new TestUiDialogService(),
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
-            chartInfoParseFailureRemovalLibraryProvider: () => null!,
-                lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
-                rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner());
+             chartInfoParseFailureRemovalLibraryProvider: () => null!,
+                 lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
+                 rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner(),
+                 startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -749,9 +751,10 @@ public sealed class ApplicationCompositionTests
             folderAutoRenameDialogService: new TestUiDialogService(),
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
-            chartInfoParseFailureRemovalLibraryProvider: () => null!,
-                lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
-                rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner());
+             chartInfoParseFailureRemovalLibraryProvider: () => null!,
+                 lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
+                 rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner(),
+                 startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

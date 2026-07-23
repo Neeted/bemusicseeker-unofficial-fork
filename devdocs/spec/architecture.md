@@ -26,8 +26,11 @@
 - `App`
   - process startup、settings upgrade、logging、global exception handling。
 - `MainWindowViewModel`
-  - startup / reload / install / playlist operation の入口。
-  - startup background scheduler と progress 表示を管理する。
+  - startup / reload / install / playlist operation の入口と shell orchestration。
+  - startup background scheduler を composition し、child owner の terminal fact を shell へ接続する。
+- `StartupProgressWorkflowOwner`
+  - startup / reload operation token、phase/version freshness、failure、hide scheduling、progress presentation の正本。
+  - `OperationProgressHubViewModel.StartupProgress` として status-bar binding に公開する。
 - `BMSLibrary`
   - 所持 catalog、pending package、resource index、score snapshot、install operation の正本。
 - `BMSPlaylist`

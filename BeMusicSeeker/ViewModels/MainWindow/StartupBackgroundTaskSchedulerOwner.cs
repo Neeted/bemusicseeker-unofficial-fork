@@ -65,6 +65,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private readonly object syncRoot = new();
 
+    private readonly object progressSynchronization;
+
     private readonly Func<bool> isShutdownRequested;
 
     private readonly Action<string> logInfo;
@@ -75,7 +77,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private readonly Func<string, string> formatTextForLog;
 
-    private readonly Action schedulerIdleChanged;
+    private readonly Action<long, long> schedulerIdleChanged;
 
     private readonly List<Request> queue = [];
 
@@ -95,13 +97,16 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private long generation;
 
+    private long idleRevision;
+
     internal StartupBackgroundTaskSchedulerOwner(
         Func<bool> isShutdownRequested,
         Action<string> logInfo,
         Action<string> logWarning,
         Action<string> logShutdown,
         Func<string, string> formatTextForLog,
-        Action schedulerIdleChanged)
+        Action<long, long> schedulerIdleChanged,
+        object progressSynchronization)
     {
         this.isShutdownRequested = isShutdownRequested ?? throw new ArgumentNullException(nameof(isShutdownRequested));
         this.logInfo = logInfo ?? throw new ArgumentNullException(nameof(logInfo));
@@ -109,7 +114,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         this.logShutdown = logShutdown ?? throw new ArgumentNullException(nameof(logShutdown));
         this.formatTextForLog = formatTextForLog ?? throw new ArgumentNullException(nameof(formatTextForLog));
         this.schedulerIdleChanged = schedulerIdleChanged ?? throw new ArgumentNullException(nameof(schedulerIdleChanged));
+        this.progressSynchronization = progressSynchronization ?? throw new ArgumentNullException(nameof(progressSynchronization));
     }
+
+    internal object ProgressSynchronization => progressSynchronization;
 
     internal bool IsStarted
     {
@@ -126,9 +134,34 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     {
         get
         {
+            lock (progressSynchronization)
+            {
+                lock (syncRoot)
+                {
+                    return queue.Count == 0 && runningCount == 0;
+                }
+            }
+        }
+    }
+
+    internal bool IsCurrentGeneration(long candidateGeneration)
+    {
+        lock (syncRoot)
+        {
+            return generation == candidateGeneration;
+        }
+    }
+
+    internal bool IsCurrentIdleSnapshot(long candidateGeneration, long candidateRevision)
+    {
+        lock (progressSynchronization)
+        {
             lock (syncRoot)
             {
-                return queue.Count == 0 && runningCount == 0;
+                return generation == candidateGeneration
+                    && idleRevision == candidateRevision
+                    && queue.Count == 0
+                    && runningCount == 0;
             }
         }
     }
@@ -155,46 +188,50 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         string normalizedLane = GetLane(normalizedName);
         int priority = GetPriority(normalizedName);
         bool shouldStartWorker;
-        lock (syncRoot)
+        lock (progressSynchronization)
         {
-            if (isShutdownRequested())
+            lock (syncRoot)
             {
-                logInfo("startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested_after_lock");
-                return false;
-            }
-            RecordQueuedUnsafe(normalizedName, normalizedReason, normalizedDependency, normalizedLane);
-            long requestVersion = ++version;
-            latestRequestVersionByName[normalizedName] = requestVersion;
-            Request existing = queue.LastOrDefault(item => string.Equals(item.CoalesceKey, normalizedName, StringComparison.OrdinalIgnoreCase));
-            if (existing != null)
-            {
-                existing.Reason = normalizedReason;
-                existing.Dependency = normalizedDependency;
-                existing.Lane = normalizedLane;
-                existing.Priority = priority;
-                existing.Version = requestVersion;
-                existing.Work = work;
-                existing.Discard = discard;
-                logInfo("startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " coalesceKey=" + normalizedName + " replaced=true");
-            }
-            else
-            {
-                queue.Add(new Request
+                if (isShutdownRequested())
                 {
-                    Name = normalizedName,
-                    Reason = normalizedReason,
-                    Dependency = normalizedDependency,
-                    Lane = normalizedLane,
-                    CoalesceKey = normalizedName,
-                    Priority = priority,
-                    Version = requestVersion,
-                    Generation = generation,
-                    Work = work,
-                    Discard = discard
-                });
+                    logInfo("startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested_after_lock");
+                    return false;
+                }
+                RecordQueuedUnsafe(normalizedName, normalizedReason, normalizedDependency, normalizedLane);
+                idleRevision++;
+                long requestVersion = ++version;
+                latestRequestVersionByName[normalizedName] = requestVersion;
+                Request existing = queue.LastOrDefault(item => string.Equals(item.CoalesceKey, normalizedName, StringComparison.OrdinalIgnoreCase));
+                if (existing != null)
+                {
+                    existing.Reason = normalizedReason;
+                    existing.Dependency = normalizedDependency;
+                    existing.Lane = normalizedLane;
+                    existing.Priority = priority;
+                    existing.Version = requestVersion;
+                    existing.Work = work;
+                    existing.Discard = discard;
+                    logInfo("startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " coalesceKey=" + normalizedName + " replaced=true");
+                }
+                else
+                {
+                    queue.Add(new Request
+                    {
+                        Name = normalizedName,
+                        Reason = normalizedReason,
+                        Dependency = normalizedDependency,
+                        Lane = normalizedLane,
+                        CoalesceKey = normalizedName,
+                        Priority = priority,
+                        Version = requestVersion,
+                        Generation = generation,
+                        Work = work,
+                        Discard = discard
+                    });
+                }
+                logInfo("startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority);
+                shouldStartWorker = started;
             }
-            logInfo("startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority);
-            shouldStartWorker = started;
         }
         if (shouldStartWorker)
         {
@@ -206,14 +243,18 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     internal void Start()
     {
         bool shouldStartWorker;
-        lock (syncRoot)
+        lock (progressSynchronization)
         {
-            if (started)
+            lock (syncRoot)
             {
-                return;
+                if (started)
+                {
+                    return;
+                }
+                started = true;
+                idleRevision++;
+                shouldStartWorker = queue.Count > 0;
             }
-            started = true;
-            shouldStartWorker = queue.Count > 0;
         }
         logInfo("startup_background_task scheduler_start");
         if (shouldStartWorker)
@@ -229,23 +270,27 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     internal void Reset(bool startImmediately)
     {
         bool shouldStartWorker;
-        lock (syncRoot)
+        lock (progressSynchronization)
         {
-            generation++;
-            for (int i = 0; i < queue.Count; i++)
+            lock (syncRoot)
             {
-                Request request = queue[i];
-                request.Generation = generation;
-                request.Version = ++version;
-                latestRequestVersionByName[request.Name] = request.Version;
+                generation++;
+                idleRevision++;
+                for (int i = 0; i < queue.Count; i++)
+                {
+                    Request request = queue[i];
+                    request.Generation = generation;
+                    request.Version = ++version;
+                    latestRequestVersionByName[request.Name] = request.Version;
+                }
+                metrics.Clear();
+                foreach (Request request in queue)
+                {
+                    RecordQueuedUnsafe(request.Name, request.Reason, request.Dependency, request.Lane);
+                }
+                started = startImmediately;
+                shouldStartWorker = started && queue.Count > 0;
             }
-            metrics.Clear();
-            foreach (Request request in queue)
-            {
-                RecordQueuedUnsafe(request.Name, request.Reason, request.Dependency, request.Lane);
-            }
-            started = startImmediately;
-            shouldStartWorker = started && queue.Count > 0;
         }
         if (shouldStartWorker)
         {
@@ -260,33 +305,37 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         int discardedCount = 0;
         int drainQueuedCount;
         List<Request> discardedRequests = null;
-        lock (syncRoot)
+        lock (progressSynchronization)
         {
-            originalQueuedCount = queue.Count;
-            for (int i = queue.Count - 1; i >= 0; i--)
+            lock (syncRoot)
             {
-                Request request = queue[i];
-                if (IsRequiredForShutdown(request.Name))
+                originalQueuedCount = queue.Count;
+                for (int i = queue.Count - 1; i >= 0; i--)
                 {
-                    continue;
+                    Request request = queue[i];
+                    if (IsRequiredForShutdown(request.Name))
+                    {
+                        continue;
+                    }
+                    queue.RemoveAt(i);
+                    RecordDiscardedUnsafe(request, reason);
+                    discardedRequests ??= [];
+                    discardedRequests.Add(request);
+                    discardedCount++;
                 }
-                queue.RemoveAt(i);
-                RecordDiscardedUnsafe(request, reason);
-                discardedRequests ??= [];
-                discardedRequests.Add(request);
-                discardedCount++;
+                drainQueuedCount = queue.Count;
+                if (drainQueuedCount > 0)
+                {
+                    started = true;
+                }
+                idleRevision++;
+                shouldStartWorker = drainQueuedCount > 0;
+                logShutdown("startup_background_task drain_queued reason=" + formatTextForLog(reason)
+                    + " queued=" + originalQueuedCount
+                    + " drainQueued=" + drainQueuedCount
+                    + " discarded=" + discardedCount
+                    + " running=" + runningCount);
             }
-            drainQueuedCount = queue.Count;
-            if (drainQueuedCount > 0)
-            {
-                started = true;
-            }
-            shouldStartWorker = drainQueuedCount > 0;
-            logShutdown("startup_background_task drain_queued reason=" + formatTextForLog(reason)
-                + " queued=" + originalQueuedCount
-                + " drainQueued=" + drainQueuedCount
-                + " discarded=" + discardedCount
-                + " running=" + runningCount);
         }
         if (discardedRequests != null)
         {
@@ -395,24 +444,28 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             Request request = null;
             int laneRunningCount = 0;
             int totalRunningCount = 0;
-            lock (syncRoot)
+            lock (progressSynchronization)
             {
-                if (!started || runningCount >= GetTotalConcurrency())
+                lock (syncRoot)
                 {
-                    return;
+                    if (!started || runningCount >= GetTotalConcurrency())
+                    {
+                        return;
+                    }
+                    int index = FindNextRequestIndexUnsafe();
+                    if (index < 0)
+                    {
+                        return;
+                    }
+                    request = queue[index];
+                    queue.RemoveAt(index);
+                    idleRevision++;
+                    runningCount++;
+                    runningCountByLane.TryGetValue(request.Lane, out int runningInLane);
+                    runningCountByLane[request.Lane] = runningInLane + 1;
+                    laneRunningCount = runningInLane + 1;
+                    totalRunningCount = runningCount;
                 }
-                int index = FindNextRequestIndexUnsafe();
-                if (index < 0)
-                {
-                    return;
-                }
-                request = queue[index];
-                queue.RemoveAt(index);
-                runningCount++;
-                runningCountByLane.TryGetValue(request.Lane, out int runningInLane);
-                runningCountByLane[request.Lane] = runningInLane + 1;
-                laneRunningCount = runningInLane + 1;
-                totalRunningCount = runningCount;
             }
             StartWorker(request, laneRunningCount, totalRunningCount);
         }
@@ -476,25 +529,29 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             }
             finally
             {
-                lock (syncRoot)
+                lock (progressSynchronization)
                 {
-                    if (!completedRequestVersionByName.TryGetValue(request.Name, out long completedVersion)
-                        || request.Version > completedVersion)
+                    lock (syncRoot)
                     {
-                        completedRequestVersionByName[request.Name] = request.Version;
-                    }
-                    runningCount = Math.Max(0, runningCount - 1);
-                    if (!string.IsNullOrWhiteSpace(request.Lane)
-                        && runningCountByLane.TryGetValue(request.Lane, out int runningInLane))
-                    {
-                        runningInLane = Math.Max(0, runningInLane - 1);
-                        if (runningInLane == 0)
+                        if (!completedRequestVersionByName.TryGetValue(request.Name, out long completedVersion)
+                            || request.Version > completedVersion)
                         {
-                            runningCountByLane.Remove(request.Lane);
+                            completedRequestVersionByName[request.Name] = request.Version;
                         }
-                        else
+                        runningCount = Math.Max(0, runningCount - 1);
+                        idleRevision++;
+                        if (!string.IsNullOrWhiteSpace(request.Lane)
+                            && runningCountByLane.TryGetValue(request.Lane, out int runningInLane))
                         {
-                            runningCountByLane[request.Lane] = runningInLane;
+                            runningInLane = Math.Max(0, runningInLane - 1);
+                            if (runningInLane == 0)
+                            {
+                                runningCountByLane.Remove(request.Lane);
+                            }
+                            else
+                            {
+                                runningCountByLane[request.Lane] = runningInLane;
+                            }
                         }
                     }
                 }
@@ -619,7 +676,17 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     {
         try
         {
-            schedulerIdleChanged();
+            long notificationGeneration;
+            long notificationRevision;
+            lock (progressSynchronization)
+            {
+                lock (syncRoot)
+                {
+                    notificationGeneration = generation;
+                    notificationRevision = idleRevision;
+                }
+            }
+            schedulerIdleChanged(notificationGeneration, notificationRevision);
         }
         catch (Exception exception)
         {

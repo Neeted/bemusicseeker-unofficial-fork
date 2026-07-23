@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
@@ -169,17 +170,37 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         QueueCore(reason, force: false);
     }
 
-    internal void SchedulePostStartupSync(string reason)
+    internal void SchedulePostStartupSync(string reason, Action queued = null)
     {
         if (!CanRun())
         {
+            queued?.Invoke();
             return;
         }
 
         string fullGenerationReason = "post_startup_" + (reason ?? string.Empty);
         ScheduleBackground(
             "PostStartupLr2SongDbSync",
-            () => QueueCore(fullGenerationReason, force: false));
+            () =>
+            {
+                ExceptionDispatchInfo failure = null;
+                try
+                {
+                    QueueCore(fullGenerationReason, force: false);
+                }
+                catch (Exception exception)
+                {
+                    failure = ExceptionDispatchInfo.Capture(exception);
+                }
+                try
+                {
+                    queued?.Invoke();
+                }
+                finally
+                {
+                    failure?.Throw();
+                }
+            });
     }
 
     internal void SyncFolderDataAfterSettingsChange(string reason)

@@ -39,7 +39,8 @@ public sealed class UpdateAvailableDialogViewModelTests
             ],
             "https://example.test/releases/v2.2.0.0");
 
-        using var viewModel = new UpdateAvailableDialogViewModel(result, null);
+        using var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        using var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
 
         Assert.AreEqual(2, viewModel.Packages.Count);
         Assert.AreEqual("app", viewModel.Packages[0].Asset.Kind);
@@ -64,14 +65,14 @@ public sealed class UpdateAvailableDialogViewModelTests
                 IncludesChartInfoMetadata = false
             }],
             "https://example.test/releases/v2.2.0.0");
-        var progressHub = new OperationProgressHubViewModel();
+        var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         using var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
 
         Assert.IsTrue(viewModel.CanStartUpdate);
-        progressHub.IsStartupProgressActive = true;
+        progressHub.StartupProgress.ApplyPresentation(true, "startup", "", 0.0, 1.0);
         Assert.IsFalse(viewModel.CanStartUpdate);
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.UpdateDialog_StartupBlocked, viewModel.StartBlockedReason);
-        progressHub.IsStartupProgressActive = false;
+        progressHub.StartupProgress.ApplyPresentation(false, null, null, 0.0, 1.0);
         Assert.IsTrue(viewModel.CanStartUpdate);
     }
 
@@ -79,13 +80,13 @@ public sealed class UpdateAvailableDialogViewModelTests
     public void DisposeStopsListeningToProgressHub()
     {
         UpdateCheckResult result = UpdateCheckResult.NoUpdate("1.0.0.0");
-        var progressHub = new OperationProgressHubViewModel();
+        var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
         int notifications = 0;
         viewModel.PropertyChanged += (_, _) => notifications++;
 
         viewModel.Dispose();
-        progressHub.IsStartupProgressActive = true;
+        progressHub.StartupProgress.ApplyPresentation(true, "startup", "", 0.0, 1.0);
 
         Assert.AreEqual(0, notifications);
     }

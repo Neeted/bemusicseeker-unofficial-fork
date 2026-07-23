@@ -2,7 +2,7 @@
 
 ## 概要
 
-ステータスバーの初期化・リロード進捗は `MainWindowViewModel` の `StartupProgressPhase` を基に表示する。
+ステータスバーの初期化・リロード進捗は `StartupProgressWorkflowOwner` の `StartupProgressPhase` を基に表示する。`MainWindowViewModel` は operation の orchestration と shell coordination を担当し、進捗 state と表示 writer は owner が保持する。
 
 起動時の app schema preflight / repair は、`BMSLibrary.Initialize()` 本体に入る前の前提整備として扱う。詳細は `devdocs/spec/startup-initialization-flow.md` を参照する。
 
@@ -10,12 +10,12 @@
 
 表示は `MainWindow.xaml` のステータスバーに出る。
 
-- main label: `StartupProgressLabel`
-- sub label: `StartupProgressSubLabel`
-- progress value: `StartupProgressValue`
-- progress maximum: `StartupProgressMaximum`
+- main label: `ProgressHub.StartupProgress.Label`
+- sub label: `ProgressHub.StartupProgress.SubLabel`
+- progress value: `ProgressHub.StartupProgress.Value`
+- progress maximum: `ProgressHub.StartupProgress.Maximum`
 
-`StartupProgressSubLabel` は幅 200、長い文字列は省略表示し、tooltip に全文を出す。
+`ProgressHub.StartupProgress.SubLabel` は幅 200、長い文字列は省略表示し、tooltip に全文を出す。表示の active 判定は `ProgressHub.StartupProgress.IsActive` を使う。
 
 ## 計算モデル
 

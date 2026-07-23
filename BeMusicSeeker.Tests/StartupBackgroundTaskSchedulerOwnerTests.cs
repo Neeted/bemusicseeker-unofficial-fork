@@ -479,7 +479,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         var notified = new ManualResetEventSlim();
         bool observedIdle = false;
         bool idleProbeSucceeded = false;
-        owner = CreateOwner(schedulerIdleChanged: () =>
+        owner = CreateOwner(schedulerIdleChanged: (_, _) =>
         {
             observedIdle = owner.IsIdle;
             idleProbeSucceeded = ProbeOwnerFromAnotherThread(owner);
@@ -535,7 +535,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
     private static StartupBackgroundTaskSchedulerOwner CreateOwner(
         Func<bool>? isShutdownRequested = null,
-        Action? schedulerIdleChanged = null)
+        Action<long, long>? schedulerIdleChanged = null)
     {
         return new StartupBackgroundTaskSchedulerOwner(
             isShutdownRequested ?? (() => false),
@@ -543,7 +543,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             _ => { },
             _ => { },
             value => value ?? string.Empty,
-            schedulerIdleChanged ?? (() => { }));
+            schedulerIdleChanged ?? ((_, _) => { }),
+            new object());
     }
 
     private static async Task WaitForIdleAsync(StartupBackgroundTaskSchedulerOwner owner)

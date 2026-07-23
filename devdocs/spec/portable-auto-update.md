@@ -47,7 +47,7 @@ asset 種別:
 
 `update.json` に asset がある場合、通常版と metadata 同梱版を選択できる。通常版を先頭に表示し、初期選択も通常版にする。
 
-更新適用ボタンは `MainWindowViewModel.IsStartupProgressActive` が `false` のときのみ有効になる。これは起動初期化の進捗ゲージが消えた後に更新適用へ進ませるためで、永続設定としては保持しない。
+更新適用ボタンは `ProgressHub.StartupProgress.IsActive` が `false` のときのみ有効になる。これは起動初期化の進捗ゲージが消えた後に更新適用へ進ませるためで、永続設定としては保持しない。
 
 更新適用ボタンを押した場合も Release ページを開く。これにより、自動更新開始前にユーザーが配布ページやリリースノートを確認できる。
 

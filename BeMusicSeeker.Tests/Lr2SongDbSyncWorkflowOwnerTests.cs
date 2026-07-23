@@ -165,6 +165,35 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         Assert.AreEqual(0, runtime.QueueCalls.Count);
     }
 
+    [TestMethod]
+    public void PostStartupSync_InvokesContinuationAfterQueueAttempt()
+    {
+        var runtime = new RecordingRuntime();
+        var owner = CreateOwner(runtime);
+        int continuationCount = 0;
+
+        owner.SchedulePostStartupSync("initialization_complete", () => continuationCount++);
+
+        Assert.AreEqual(1, runtime.QueueCalls.Count);
+        Assert.AreEqual("post_startup_initialization_complete", runtime.QueueCalls[0].Reason);
+        Assert.AreEqual(1, continuationCount);
+    }
+
+    [TestMethod]
+    public void PostStartupSync_InvokesContinuationWhenQueueFailsAndPreservesFailure()
+    {
+        var failure = new InvalidOperationException("queue failure");
+        var runtime = new RecordingRuntime { QueueFailure = failure };
+        var owner = CreateOwner(runtime);
+        int continuationCount = 0;
+
+        InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
+            () => owner.SchedulePostStartupSync("initialization_complete", () => continuationCount++));
+
+        Assert.AreSame(failure, thrown);
+        Assert.AreEqual(1, continuationCount);
+    }
+
     private static Lr2SongDbSyncWorkflowOwner CreateOwner(
         RecordingRuntime runtime,
         RecordingDialogService dialogs = null!)
@@ -199,6 +228,8 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
 
         internal Exception CleanupFailure { get; set; } = null!;
 
+        internal Exception QueueFailure { get; set; } = null!;
+
         bool ILr2SongDbSyncWorkflowRuntime.IsLr2ModeEnabled => IsLr2ModeEnabled;
 
         bool ILr2SongDbSyncWorkflowRuntime.IsLibraryAvailable => IsLibraryAvailable;
@@ -211,6 +242,10 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         {
             Events.Add("queue:" + reason);
             QueueCalls.Add(new QueueCall(reason, force, allowIncompleteToQueue));
+            if (QueueFailure != null)
+            {
+                throw QueueFailure;
+            }
             prepareGeneratedData?.Invoke();
         }
 

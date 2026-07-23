@@ -324,6 +324,7 @@ internal sealed class ApplicationComposition
         Action<Action> dispatchPackageInstallUi,
         Func<BMSLibrary> installDestinationLibraryProvider,
         IUiDialogService installDestinationDialogService,
+        StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
         Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
@@ -383,6 +384,7 @@ internal sealed class ApplicationComposition
             installDestinationSettingsProvider,
             LongPathFileSystem.DirectoryExists,
             ExplorerOpenService.OpenDirectory,
+            startupProgressWorkflowOwner,
             reportPackageInstallWorkflowNotificationFailure,
             maintenanceRescanExecutor,
             maintenanceRescanScheduler,
@@ -571,6 +573,7 @@ internal sealed class MainWindowChildComposition
         Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider,
         Func<string, bool> libraryFolderTreeDirectoryExists,
         Func<string, ExplorerOpenResult> libraryFolderTreeExplorerOpen,
+        StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
         Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
@@ -614,7 +617,7 @@ internal sealed class MainWindowChildComposition
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
-        ProgressHub = new OperationProgressHubViewModel();
+        ProgressHub = new OperationProgressHubViewModel(startupProgressWorkflowOwner);
         if (bmsPlayerFactory == null)
         {
             throw new ArgumentNullException(nameof(bmsPlayerFactory));
