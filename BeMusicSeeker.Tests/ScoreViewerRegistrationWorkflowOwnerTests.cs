@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -11,6 +12,88 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ScoreViewerRegistrationWorkflowOwnerTests
 {
+    [TestMethod]
+    public void SelectionQueries_UseScoreViewerCapabilityAndLocalFileAvailability()
+    {
+        string localPath = Path.GetTempFileName();
+        try
+        {
+            ScoreViewerRegistrationWorkflowOwner owner = CreateOwner(
+                new RecordingGateway(),
+                new RecordingInteraction());
+            ChartOperationTarget localTarget = CreateTarget(
+                "local",
+                localPath,
+                ChartOperationCapabilities.UseScoreViewer);
+            ChartOperationTarget hashOnlyTarget = CreateTarget(
+                "hash-only",
+                null,
+                ChartOperationCapabilities.UseScoreViewer);
+            ChartOperationTarget unsupportedTarget = CreateTarget(
+                "unsupported",
+                localPath,
+                ChartOperationCapabilities.None);
+
+            Assert.IsTrue(owner.HasScoreViewerTarget([localTarget, unsupportedTarget]));
+            Assert.IsTrue(owner.HasScoreViewerTarget([hashOnlyTarget]));
+            Assert.IsFalse(owner.HasScoreViewerTarget([unsupportedTarget]));
+            Assert.IsTrue(owner.CanRegisterScoreViewer([localTarget]));
+            Assert.IsFalse(owner.CanRegisterScoreViewer([hashOnlyTarget]));
+            Assert.IsFalse(owner.CanRegisterScoreViewer([unsupportedTarget]));
+        }
+        finally
+        {
+            File.Delete(localPath);
+        }
+    }
+
+    [TestMethod]
+    public async Task RunAsync_ChartTargetsProjectsEffectiveSingleTargetAndOpensViewer()
+    {
+        var gateway = new RecordingGateway();
+        var interaction = new RecordingInteraction();
+        ScoreViewerRegistrationWorkflowOwner owner = CreateOwner(gateway, interaction);
+
+        ScoreViewerRegistrationResult result = await owner.RunAsync(
+            [
+                CreateTarget("ignored", null, ChartOperationCapabilities.None),
+                CreateTarget("effective", null, ChartOperationCapabilities.UseScoreViewer),
+                CreateTarget(null, null, ChartOperationCapabilities.UseScoreViewer)
+            ],
+            "chart_targets_single");
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual(1, result.Items.Count);
+        Assert.AreEqual("effective", result.Items[0].Hash);
+        Assert.AreEqual(ScoreViewerRegistrationItemStatus.HashOnly, result.Items[0].Status);
+        Assert.AreEqual(1, interaction.ConfirmationCount);
+        Assert.AreEqual(result.LastViewUrl, interaction.OpenedUrl);
+        Assert.AreEqual(0, gateway.StatusHashes.Count);
+    }
+
+    [TestMethod]
+    public async Task RunAsync_ChartTargetsKeepsMultipleEffectiveTargetsWithoutAutoOpen()
+    {
+        var interaction = new RecordingInteraction();
+        ScoreViewerRegistrationWorkflowOwner owner = CreateOwner(
+            new RecordingGateway(),
+            interaction);
+
+        ScoreViewerRegistrationResult result = await owner.RunAsync(
+            [
+                CreateTarget("first", null, ChartOperationCapabilities.UseScoreViewer),
+                CreateTarget("ignored", null, ChartOperationCapabilities.None),
+                CreateTarget("second", null, ChartOperationCapabilities.UseScoreViewer)
+            ],
+            "chart_targets_multiple");
+
+        Assert.IsNotNull(result);
+        CollectionAssert.AreEqual(
+            new[] { "first", "second" },
+            result.Items.Select(item => item.Hash).ToArray());
+        Assert.IsNull(interaction.OpenedUrl);
+    }
+
     [TestMethod]
     public async Task RunAsync_HashOnlyTargetSkipsNetworkAndOpensSingleViewer()
     {
@@ -192,6 +275,38 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
             interaction,
             () => showSingleTargetConfirmation,
             (exception, message) => warning?.Invoke((exception, message)));
+    }
+
+    private static ChartOperationTarget CreateTarget(
+        string? md5,
+        string? path,
+        ChartOperationCapabilities capabilities)
+    {
+        ChartFile chart = new(
+            ChartFileKind.Bms,
+            path!,
+            md5!,
+            sha256: null,
+            title: md5 ?? string.Empty,
+            rawTitle: md5 ?? string.Empty,
+            artist: string.Empty,
+            genre: string.Empty,
+            folder: string.Empty,
+            tag: string.Empty,
+            levelText: string.Empty,
+            level: null,
+            mode: null,
+            chartInfo: null,
+            bmsFile: null,
+            bmsonSong: null);
+        return new ChartOperationTarget(
+            chart,
+            null,
+            ChartOperationSourceScope.Library,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            capabilities);
     }
 
     private sealed class RecordingGateway : IScoreViewerRegistrationGateway

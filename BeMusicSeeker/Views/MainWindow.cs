@@ -1605,25 +1605,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return true;
     }
 
-    private List<ScoreViewerTarget> GetSelectedGridScoreViewerTargets()
-    {
-        return [.. GetSelectedGridRowsSnapshot().Select(TryCreateScoreViewerTarget).Where(target => target != null)];
-    }
-
-    private ScoreViewerTarget TryCreateScoreViewerTarget(object row)
-    {
-        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseScoreViewer))
-        {
-            return null;
-        }
-        string hash = target.Chart.Md5;
-        if (string.IsNullOrWhiteSpace(hash))
-        {
-            return null;
-        }
-        return new ScoreViewerTarget(hash, target.Chart.Path, target.Chart.Title);
-    }
-
     private static ContextMenu GetOwningContextMenu(object source)
     {
         object current = source;
@@ -5038,29 +5019,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 menuItemOpenDocument.Visibility = Visibility.Collapsed;
             }
         }
-        bool flag = false;
-        bool hasScoreViewerTarget = contextMenuState.HasScoreViewerTarget;
-        if (menuItem18 != null && selectedTargets.Count > 1)
-        {
-            menuItem18.Header = BeMusicSeeker.Properties.Resources.Register_chart_with_viewer;
-            flag = (menuItem18.IsEnabled = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer) && !string.IsNullOrWhiteSpace(target.Chart.Path) && LongPathFileSystem.FileExists(target.Chart.Path)));
-        }
-        else if (menuItem18 != null)
-        {
-            menuItem18.Header = BeMusicSeeker.Properties.Resources.Open_chart_viewer;
-            flag = selectedTargets.Count == 1
-                && selectedTargets[0].HasCapability(ChartOperationCapabilities.UseScoreViewer)
-                && !string.IsNullOrWhiteSpace(selectedTargets[0].Chart.Path)
-                && LongPathFileSystem.FileExists(selectedTargets[0].Chart.Path);
-            menuItem18.IsEnabled = flag;
-        }
         if (menuItem18 != null)
         {
+            bool hasScoreViewerTarget = mainWindowViewModel.ScoreViewerRegistration.HasScoreViewerTarget(selectedTargets);
+            menuItem18.Header = selectedTargets.Count > 1
+                ? BeMusicSeeker.Properties.Resources.Register_chart_with_viewer
+                : BeMusicSeeker.Properties.Resources.Open_chart_viewer;
             menuItem18.Visibility = hasScoreViewerTarget ? Visibility.Visible : Visibility.Collapsed;
-        }
-        if (menuItem19 != null)
-        {
-            menuItem19.IsEnabled = flag;
+            menuItem18.IsEnabled = mainWindowViewModel.ScoreViewerRegistration.CanRegisterScoreViewer(selectedTargets);
         }
         if (menuItemOpenLr2Ir != null)
         {
@@ -5340,7 +5306,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
         string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
         bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
-        bool canOpenScoreViewer = rowTarget?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true;
+        bool canOpenScoreViewer = mainWindowViewModel.ScoreViewerRegistration.HasScoreViewerTarget([rowTarget]);
         bool canUpdateRanking = mainWindowViewModel.RankingCacheDownloadWorkflow.CanRequestRanking([rowTarget]);
         bool canOpenLr2Ir = rowTarget?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true;
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
@@ -5761,18 +5727,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<ScoreViewerTarget> targets = GetSelectedGridScoreViewerTargets();
-        if (targets.Count == 0)
-        {
-            e.Handled = true;
-            return;
-        }
+        List<ChartOperationTarget> targets = GetSelectedChartTargets();
         e.Handled = true;
         if (base.DataContext is MainWindowViewModel viewModel)
         {
             await viewModel.ScoreViewerRegistration.RunAsync(
                 targets,
-                openSingleViewerOnSuccess: targets.Count == 1,
                 "tableContextMenuItemRegisterBMSFileToScoreViwer");
         }
     }

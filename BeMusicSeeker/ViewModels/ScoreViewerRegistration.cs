@@ -205,6 +205,40 @@ internal sealed class ScoreViewerRegistrationWorkflowOwner
         this.warningLog = warningLog ?? throw new ArgumentNullException(nameof(warningLog));
     }
 
+    internal bool HasScoreViewerTarget(IEnumerable<ChartOperationTarget> targets)
+    {
+        return (targets ?? []).Any(target => target?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true);
+    }
+
+    internal bool CanRegisterScoreViewer(IEnumerable<ChartOperationTarget> targets)
+    {
+        return (targets ?? []).Any(target =>
+            target?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true
+            && !string.IsNullOrWhiteSpace(target.Chart.Path)
+            && LongPathFileSystem.FileExists(target.Chart.Path));
+    }
+
+    internal async Task<ScoreViewerRegistrationResult> RunAsync(
+        IReadOnlyList<ChartOperationTarget> targets,
+        string logName)
+    {
+        if (targets == null || targets.Count == 0)
+        {
+            return null;
+        }
+
+        List<ScoreViewerTarget> projectedTargets = ProjectTargets(targets);
+        if (projectedTargets.Count == 0)
+        {
+            return null;
+        }
+
+        return await RunAsync(
+            projectedTargets,
+            openSingleViewerOnSuccess: projectedTargets.Count == 1,
+            logName);
+    }
+
     internal async Task<ScoreViewerRegistrationResult> RunAsync(
         IReadOnlyList<ScoreViewerTarget> targets,
         bool openSingleViewerOnSuccess,
@@ -280,6 +314,18 @@ internal sealed class ScoreViewerRegistrationWorkflowOwner
             }
         }
         return new ScoreViewerRegistrationPlan(items);
+    }
+
+    private static List<ScoreViewerTarget> ProjectTargets(IEnumerable<ChartOperationTarget> targets)
+    {
+        return [.. (targets ?? [])
+            .Where(target =>
+                target?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true
+                && !string.IsNullOrWhiteSpace(target.Chart.Md5))
+            .Select(target => new ScoreViewerTarget(
+                target.Chart.Md5,
+                target.Chart.Path,
+                target.Chart.Title))];
     }
 
     internal ScoreViewerRegistrationResult Complete(ScoreViewerRegistrationPlan plan, bool uploadConfirmed)

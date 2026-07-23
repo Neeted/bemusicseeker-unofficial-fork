@@ -24,7 +24,6 @@ internal sealed class ChartContextMenuState
         bool isBmsonContextRow,
         bool hasBmsonSelection,
         bool hasBmsSelection,
-        bool hasScoreViewerTarget,
         bool hasResourceHealthTarget,
         bool canOpenLr2Ir,
         bool canOpenInstallDestination,
@@ -50,7 +49,6 @@ internal sealed class ChartContextMenuState
         IsBmsonContextRow = isBmsonContextRow;
         HasBmsonSelection = hasBmsonSelection;
         HasBmsSelection = hasBmsSelection;
-        HasScoreViewerTarget = hasScoreViewerTarget;
         HasResourceHealthTarget = hasResourceHealthTarget;
         CanOpenLr2Ir = canOpenLr2Ir;
         CanOpenInstallDestination = canOpenInstallDestination;
@@ -88,8 +86,6 @@ internal sealed class ChartContextMenuState
     internal bool HasBmsonSelection { get; }
 
     internal bool HasBmsSelection { get; }
-
-    internal bool HasScoreViewerTarget { get; }
 
     internal bool HasResourceHealthTarget { get; }
 

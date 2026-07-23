@@ -949,6 +949,35 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ScoreViewerContextMenus_DelegateSelectionAndAvailabilityToOwner()
+    {
+        string mainWindow = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Views",
+            "MainWindow.cs");
+        string normalMenu = ExtractBetween(
+            mainWindow,
+            "private void tableContextMenuOpened",
+            "private void tableContextMenuPlaylistMissingOpened");
+        string playlistMissingMenu = ExtractBetween(
+            mainWindow,
+            "private void tableContextMenuPlaylistMissingOpened",
+            "private void playHistoryContextMenuOpened");
+        string clickHandler = ExtractMethodBody(
+            mainWindow,
+            "private async void tableContextMenuItemRegisterBMSFileToScoreViwer");
+
+        StringAssert.Contains(normalMenu, "ScoreViewerRegistration.HasScoreViewerTarget(selectedTargets)");
+        StringAssert.Contains(normalMenu, "ScoreViewerRegistration.CanRegisterScoreViewer(selectedTargets)");
+        StringAssert.Contains(playlistMissingMenu, "ScoreViewerRegistration.HasScoreViewerTarget([rowTarget])");
+        StringAssert.Contains(clickHandler, "GetSelectedChartTargets()");
+        StringAssert.Contains(clickHandler, "viewModel.ScoreViewerRegistration.RunAsync(");
+        Assert.IsFalse(mainWindow.Contains("GetSelectedGridScoreViewerTargets"));
+        Assert.IsFalse(mainWindow.Contains("TryCreateScoreViewerTarget"));
+        Assert.IsFalse(normalMenu.Contains("HasScoreViewerTarget ="));
+    }
+
+    [TestMethod]
     public void ChartContextMenuStateBuilder_ResolvesCapabilityPolicy()
     {
         ChartOperationTarget rowTarget = CreateContextMenuTarget(
@@ -969,7 +998,6 @@ public sealed class MainWindowContextMenuResourceTests
             rowTarget: rowTarget,
             selectedTargets: [rowTarget]));
 
-        Assert.IsTrue(state.HasScoreViewerTarget);
         Assert.IsTrue(state.HasResourceHealthTarget);
         Assert.IsTrue(state.CanOpenLr2Ir);
         Assert.IsTrue(state.CanOpenInstallDestination);
