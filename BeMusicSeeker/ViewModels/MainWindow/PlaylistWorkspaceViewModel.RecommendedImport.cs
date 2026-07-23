@@ -35,7 +35,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             return false;
         }
 
-        EnqueueExternalPlaylistBMSTableImport(uri);
+        EnqueueExternalPlaylistBMSTableImports([uri]);
         return true;
     }
 }

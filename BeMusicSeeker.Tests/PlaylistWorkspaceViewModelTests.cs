@@ -421,7 +421,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;");
-        StringAssert.Contains(workspaceSource, "internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)");
+        StringAssert.Contains(workspaceSource, "internal bool TryEnqueueExternalPlaylistCollectionImport(BMSTableSimple source)");
+        StringAssert.Contains(workspaceSource, "internal bool TryEnqueueBuiltInExternalPlaylistImport(string rawTag)");
         StringAssert.Contains(workspaceSource, "internal ExternalPlaylistUriSubmissionResult SubmitExternalPlaylistUriText(string input)");
         StringAssert.Contains(workspaceSource, "private static ExternalPlaylistUriParseResult ParseExternalPlaylistUriInput(string input)");
         StringAssert.Contains(workspaceSource, "private void EnqueueExternalPlaylistBMSTableImports(IEnumerable<Uri> uris)");
@@ -813,6 +814,120 @@ public sealed class PlaylistWorkspaceViewModelTests
                 summary.Outcomes.Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
             CollectionAssert.AreEqual(
                 new[] { "FirstImport", "SecondImport" },
+                playlist.BMSTables.Select(table => table.name).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ExternalPlaylistSourceRequestsApplyLockGateBeforeUriConstruction()
+    {
+        PlaylistWorkspaceViewModel lockedWorkspace = CreateDetailWorkspace(out _);
+
+        Assert.IsFalse(lockedWorkspace.TryEnqueueExternalPlaylistCollectionImport(
+            new BMSTableSimple { url = new Uri("https://example.test/collection.json") }));
+        Assert.IsFalse(lockedWorkspace.TryEnqueueBuiltInExternalPlaylistImport("http://["));
+    }
+
+    [TestMethod]
+    public void ExternalPlaylistSourceRequestsPreserveNullSourceAndMalformedUriContracts()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+
+            Assert.IsFalse(workspace.TryEnqueueExternalPlaylistCollectionImport(new BMSTableSimple()));
+            Assert.ThrowsException<UriFormatException>(
+                () => workspace.TryEnqueueBuiltInExternalPlaylistImport("http://["));
+        }
+        finally
+        {
+            if (Directory.Exists(Path.GetDirectoryName(databasePath)!))
+            {
+                Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task ExternalPlaylistSourceRequests_QueueCatalogAndBuiltInImportsInOrder()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string firstHeaderPath = Path.Combine(tempDirectory, "catalog.json");
+            string firstDataPath = Path.Combine(tempDirectory, "catalog-data.json");
+            string secondHeaderPath = Path.Combine(tempDirectory, "walkure.json");
+            string secondDataPath = Path.Combine(tempDirectory, "walkure-data.json");
+            File.WriteAllText(firstHeaderPath, "{\"name\":\"CatalogImport\",\"symbol\":\"C\",\"output_dir\":\"CatalogImport\",\"data_url\":\"./catalog-data.json\"}");
+            File.WriteAllText(firstDataPath, "[{\"md5\":\"cccccccccccccccccccccccccccccccc\",\"title\":\"Catalog song\",\"artist\":\"Artist\",\"level\":\"3\"}]");
+            File.WriteAllText(secondHeaderPath, "{\"name\":\"WalkureImport\",\"symbol\":\"W\",\"output_dir\":\"WalkureImport\",\"data_url\":\"./walkure-data.json\"}");
+            File.WriteAllText(secondDataPath, "[{\"md5\":\"dddddddddddddddddddddddddddddddd\",\"title\":\"Walkure song\",\"artist\":\"Artist\",\"level\":\"4\"}]");
+
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var library = new BMSLibrary(songDbPath);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library);
+            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
+                summaryReady.TrySetResult(request.Summary);
+
+            bool catalogAccepted = workspace.TryEnqueueExternalPlaylistCollectionImport(
+                new BMSTableSimple { url = new Uri(firstHeaderPath) });
+            bool builtInAccepted = workspace.TryEnqueueBuiltInExternalPlaylistImport(
+                new Uri(secondHeaderPath).AbsoluteUri);
+
+            Assert.IsTrue(catalogAccepted);
+            Assert.IsTrue(builtInAccepted);
+            Task completed = await Task.WhenAny(summaryReady.Task, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+            Assert.AreSame(summaryReady.Task, completed);
+            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task.ConfigureAwait(false);
+
+            Assert.AreEqual(2, summary.ImportedCount);
+            CollectionAssert.AreEqual(
+                new[] { new Uri(firstHeaderPath).AbsoluteUri, new Uri(secondHeaderPath).AbsoluteUri },
+                summary.Outcomes.Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "CatalogImport", "WalkureImport" },
                 playlist.BMSTables.Select(table => table.name).ToArray());
         }
         finally

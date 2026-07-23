@@ -1656,8 +1656,16 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(menuSnippet, "<Setter Property=\"MenuItem.StaysOpenOnClick\" Value=\"False\" />");
         StringAssert.Contains(menuSnippet, "ItemsSource=\"{Binding PlaylistWorkspace.BMSExternalTableListExt.Children}\"");
         Assert.IsFalse(menuSnippet.Contains("ItemsSource=\"{Binding BMSExternalTableListExt.Children}\""));
-        StringAssert.Contains(code, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(dataContext.url);");
-        StringAssert.Contains(code, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(uri);");
+        string collectionHandler = SourceTextTestHelper.ExtractMethodBody(
+            code,
+            "private void treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick(");
+        string walkureHandler = SourceTextTestHelper.ExtractMethodBody(
+            code,
+            "private void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(");
+        StringAssert.Contains(collectionHandler, "viewModel.PlaylistWorkspace.TryEnqueueExternalPlaylistCollectionImport(menuItem.DataContext as BMSTableSimple);");
+        StringAssert.Contains(walkureHandler, "viewModel.PlaylistWorkspace.TryEnqueueBuiltInExternalPlaylistImport((string)menuItem.Tag);");
+        Assert.AreEqual(-1, collectionHandler.IndexOf("IsWriteLockHeldBMSTablesInitializeMin", StringComparison.Ordinal));
+        Assert.AreEqual(-1, walkureHandler.IndexOf("new Uri((string)menuItem.Tag)", StringComparison.Ordinal));
         StringAssert.Contains(dialogCode, "SubmitExternalPlaylistUriText(textBoxURIInput.Text)");
         Assert.AreEqual(-1, dialogCode.IndexOf("EnqueueExternalPlaylistBMSTableImports(", StringComparison.Ordinal));
         Assert.AreEqual(-1, dialogCode.IndexOf("ParsePlaylistUriInput(", StringComparison.Ordinal));

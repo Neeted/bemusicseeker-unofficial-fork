@@ -18,9 +18,25 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<ExternalPlaylistImportSummaryRefreshFailedEventArgs> ExternalPlaylistImportSummaryRefreshFailed;
 
-    internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)
+    internal bool TryEnqueueExternalPlaylistCollectionImport(BMSTableSimple source)
     {
+        if (IsWriteLockHeldBMSTablesInitializeMin || source?.url == null)
+        {
+            return false;
+        }
+        EnqueueExternalPlaylistBMSTableImports([source.url]);
+        return true;
+    }
+
+    internal bool TryEnqueueBuiltInExternalPlaylistImport(string rawTag)
+    {
+        if (IsWriteLockHeldBMSTablesInitializeMin)
+        {
+            return false;
+        }
+        Uri uri = new(rawTag);
         EnqueueExternalPlaylistBMSTableImports([uri]);
+        return true;
     }
 
     internal ExternalPlaylistUriSubmissionResult SubmitExternalPlaylistUriText(string input)

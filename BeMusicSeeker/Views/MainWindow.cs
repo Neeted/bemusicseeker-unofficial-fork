@@ -3411,17 +3411,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem menuItem)
-        {
-            return;
-        }
         if (base.DataContext is MainWindowViewModel viewModel
             && viewModel.PlaylistWorkspace != null
-            && menuItem.DataContext is BMSTableSimple dataContext
-            && !(dataContext.url == null)
-            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin)
+            && sender is MenuItem menuItem)
         {
-            viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(dataContext.url);
+            viewModel.PlaylistWorkspace.TryEnqueueExternalPlaylistCollectionImport(menuItem.DataContext as BMSTableSimple);
         }
     }
 
@@ -3433,11 +3427,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (base.DataContext is MainWindowViewModel viewModel
             && viewModel.PlaylistWorkspace != null
-            && sender is MenuItem menuItem
-            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin)
+            && sender is MenuItem menuItem)
         {
-            var uri = new Uri((string)menuItem.Tag);
-            viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(uri);
+            viewModel.PlaylistWorkspace.TryEnqueueBuiltInExternalPlaylistImport((string)menuItem.Tag);
         }
     }
 
