@@ -876,8 +876,6 @@ public sealed class MainWindowContextMenuResourceTests
 
         ChartContextMenuState state = ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(
             isPlaylistRow: false,
-            rowUrl: null!,
-            rowUrlDiff: null!,
             isPendingSelected: true,
             isInstalledSelected: false,
             isPlaylistSelected: false,
@@ -910,8 +908,6 @@ public sealed class MainWindowContextMenuResourceTests
 
         ChartContextMenuState state = ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(
             isPlaylistRow: true,
-            rowUrl: new Uri("https://example.test/main"),
-            rowUrlDiff: new Uri("https://example.test/diff"),
             isPendingSelected: false,
             isInstalledSelected: false,
             isPlaylistSelected: false,
@@ -920,8 +916,6 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.IsFalse(state.IsInstallListSelected);
         Assert.IsTrue(state.IsPlaylistContext);
-        Assert.AreEqual(new Uri("https://example.test/main"), state.RowUrl);
-        Assert.AreEqual(new Uri("https://example.test/diff"), state.RowUrlDiff);
         Assert.AreEqual(1, state.SelectedTargets.Count);
         Assert.AreSame(selectedTarget, state.SelectedTargets[0]);
         Assert.IsFalse(state.IsBmsonContextRow);
@@ -969,8 +963,6 @@ public sealed class MainWindowContextMenuResourceTests
 
         ChartContextMenuState state = ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(
             isPlaylistRow: false,
-            rowUrl: null!,
-            rowUrlDiff: null!,
             isPendingSelected: false,
             isInstalledSelected: false,
             isPlaylistSelected: false,
@@ -1235,6 +1227,9 @@ public sealed class MainWindowContextMenuResourceTests
         string method = ExtractBetween(code, "private void tableContextMenuOpened", "private void tableContextMenuPlaylistMissingOpened");
 
         StringAssert.Contains(method, "ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(");
+        StringAssert.Contains(method, "CapturePlaylistUrlContextMenuAvailability(");
+        Assert.IsFalse(method.Contains("BuildPlaylistUrlTargets("));
+        Assert.IsFalse(method.Contains("BuildPlaylistExternalPackageMd5Targets("));
         Assert.IsFalse(method.Contains("selectedTargets.Add(rowTarget)"));
     }
 
@@ -4372,6 +4367,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainWindowCode, "viewModel.PlaylistWorkspace.RunSinglePlaylistUrlAsync(url)");
         StringAssert.Contains(mainWindowCode, "RunPlaylistUrlActionAsync(GetEffectiveContextMenuRows(contextRow)");
         StringAssert.Contains(mainWindowCode, "RunPlaylistExternalPackageLookupAsync(GetEffectiveContextMenuRows(contextRow))");
+        StringAssert.Contains(mainWindowCode, "CapturePlaylistUrlContextMenuAvailability(");
+        Assert.IsFalse(mainWindowCode.Contains("CanStartPlaylistExternalPackageLookup"));
+        Assert.IsFalse(mainWindowCode.Contains("BuildPlaylistUrlTargets("));
+        Assert.IsFalse(mainWindowCode.Contains("BuildPlaylistExternalPackageMd5Targets("));
         Assert.IsFalse(mainWindowCode.Contains("DownloadPlaylistUrlCandidateAsync"));
         Assert.IsFalse(mainWindowCode.Contains("playlistUrlBulkDownload"));
         StringAssert.Contains(mainWindowCode, "viewModel.PlaylistWorkspace.PlaylistUrlInstallTreeExpansionRequested += MainWindow_PlaylistUrlInstallTreeExpansionRequested");
@@ -4388,6 +4387,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(workspaceCode, "DownloadCandidateAsync");
         StringAssert.Contains(workspaceCode, "RunPlaylistUrlActionAsync");
         StringAssert.Contains(workspaceCode, "RunPlaylistExternalPackageLookupAsync");
+        StringAssert.Contains(workspaceCode, "CapturePlaylistUrlContextMenuAvailability(");
         Assert.IsFalse(workspaceCode.Contains("PlaylistUrlAcquisitionConfirmationRequested"));
         Assert.IsFalse(workspaceCode.Contains("PlaylistUrlAcquisitionNotificationRequested"));
         Assert.IsFalse(workspaceCode.Contains("PlaylistUrlAcquisitionSummaryReady"));

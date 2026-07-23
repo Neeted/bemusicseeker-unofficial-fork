@@ -41,6 +41,33 @@ internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
     internal string LabelFormat { get; }
 }
 
+internal sealed class PlaylistUrlContextMenuAvailability
+{
+    internal PlaylistUrlContextMenuAvailability(
+        bool isPlaylistContext,
+        bool isBulkContext,
+        bool canOpenUrl,
+        bool canOpenDiffUrl,
+        bool canFindExternalPackage)
+    {
+        IsPlaylistContext = isPlaylistContext;
+        IsBulkContext = isBulkContext;
+        CanOpenUrl = canOpenUrl;
+        CanOpenDiffUrl = canOpenDiffUrl;
+        CanFindExternalPackage = canFindExternalPackage;
+    }
+
+    internal bool IsPlaylistContext { get; }
+
+    internal bool IsBulkContext { get; }
+
+    internal bool CanOpenUrl { get; }
+
+    internal bool CanOpenDiffUrl { get; }
+
+    internal bool CanFindExternalPackage { get; }
+}
+
 public sealed partial class PlaylistWorkspaceViewModel
 {
     private const int PlaylistUrlDownloadLargeSelectionWarningThreshold = 50;
@@ -120,6 +147,48 @@ public sealed partial class PlaylistWorkspaceViewModel
         List<object> rowSnapshot = [.. (rows ?? []).Where(row => row != null)];
         return RunExternalPackageLookupAsync(
             PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets(rowSnapshot));
+    }
+
+    internal PlaylistUrlContextMenuAvailability CapturePlaylistUrlContextMenuAvailability(
+        object contextRow,
+        IEnumerable<object> effectiveRows)
+    {
+        bool isPlaylistContext = GridRowResolver.IsPlaylistRow(contextRow);
+        if (!isPlaylistContext)
+        {
+            return new PlaylistUrlContextMenuAvailability(
+                isPlaylistContext: false,
+                isBulkContext: false,
+                canOpenUrl: false,
+                canOpenDiffUrl: false,
+                canFindExternalPackage: false);
+        }
+
+        List<object> rowSnapshot = [.. (effectiveRows ?? []).Where(row => row != null)];
+        bool isBulkContext = rowSnapshot.Count > 1;
+        bool isDownloadRunning = IsPlaylistUrlDownloadRunning;
+        bool canOpenUrl = isBulkContext
+            ? !isDownloadRunning
+                && PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(rowSnapshot, isDiffUrl: false).Count > 0
+            : !isDownloadRunning
+                && GridRowResolver.GetUrl(contextRow) is Uri url
+                && url.IsAbsoluteUri;
+        bool canOpenDiffUrl = isBulkContext
+            ? !isDownloadRunning
+                && PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(rowSnapshot, isDiffUrl: true).Count > 0
+            : !isDownloadRunning
+                && GridRowResolver.GetUrlDiff(contextRow) is Uri diffUrl
+                && diffUrl.IsAbsoluteUri;
+        bool canFindExternalPackage = !isDownloadRunning
+            && !playlistUrlInstallQueueActiveProvider()
+            && PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets(rowSnapshot).Count > 0;
+
+        return new PlaylistUrlContextMenuAvailability(
+            isPlaylistContext,
+            isBulkContext,
+            canOpenUrl,
+            canOpenDiffUrl,
+            canFindExternalPackage);
     }
 
     internal async Task RunSinglePlaylistUrlAsync(Uri url)

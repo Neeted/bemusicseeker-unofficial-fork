@@ -13,8 +13,6 @@ internal sealed class ChartContextMenuRequest
     /// </summary>
     internal ChartContextMenuRequest(
         bool isPlaylistRow,
-        Uri rowUrl,
-        Uri rowUrlDiff,
         bool isPendingSelected,
         bool isInstalledSelected,
         bool isPlaylistSelected,
@@ -22,8 +20,6 @@ internal sealed class ChartContextMenuRequest
         IEnumerable<ChartOperationTarget> selectedTargets)
     {
         IsPlaylistRow = isPlaylistRow;
-        RowUrl = rowUrl;
-        RowUrlDiff = rowUrlDiff;
         IsPendingSelected = isPendingSelected;
         IsInstalledSelected = isInstalledSelected;
         IsPlaylistSelected = isPlaylistSelected;
@@ -32,10 +28,6 @@ internal sealed class ChartContextMenuRequest
     }
 
     internal bool IsPlaylistRow { get; }
-
-    internal Uri RowUrl { get; }
-
-    internal Uri RowUrlDiff { get; }
 
     internal bool IsPendingSelected { get; }
 

@@ -13,8 +13,6 @@ internal sealed class ChartContextMenuState
     /// </summary>
     internal ChartContextMenuState(
         bool isPlaylistRow,
-        Uri rowUrl,
-        Uri rowUrlDiff,
         bool isPendingSelected,
         bool isInstalledSelected,
         bool isPlaylistSelected,
@@ -42,8 +40,6 @@ internal sealed class ChartContextMenuState
         bool canDeleteInstallPackages)
     {
         IsPlaylistRow = isPlaylistRow;
-        RowUrl = rowUrl;
-        RowUrlDiff = rowUrlDiff;
         IsPendingSelected = isPendingSelected;
         IsInstalledSelected = isInstalledSelected;
         IsPlaylistSelected = isPlaylistSelected;
@@ -72,10 +68,6 @@ internal sealed class ChartContextMenuState
     }
 
     internal bool IsPlaylistRow { get; }
-
-    internal Uri RowUrl { get; }
-
-    internal Uri RowUrlDiff { get; }
 
     internal bool IsPendingSelected { get; }
 

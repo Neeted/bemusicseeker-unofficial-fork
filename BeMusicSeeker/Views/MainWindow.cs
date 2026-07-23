@@ -4798,8 +4798,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         _lastOpenedContextMenu = contextMenu;
         bool isPlaylistRow = GridRowResolver.IsPlaylistRow(row);
-        Uri rowUrl = GridRowResolver.GetUrl(row);
-        Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
         MainViewOperationSection effectiveSection = mainWindowViewModel.CurrentMainViewOperationSection;
         bool isPendingSelected = IsPendingMainViewSection(effectiveSection);
         bool isInstalledSelected = IsInstalledMainViewSection(effectiveSection);
@@ -4816,8 +4814,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         ChartContextMenuState contextMenuState = ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(
             isPlaylistRow,
-            rowUrl,
-            rowUrlDiff,
             isPendingSelected,
             isInstalledSelected,
             isPlaylistSelected,
@@ -4965,29 +4961,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
-        bool isBulkPlaylistUrlContext = effectivePlaylistUrlRows.Count > 1;
+        PlaylistUrlContextMenuAvailability playlistUrlAvailability =
+            mainWindowViewModel.PlaylistWorkspace.CapturePlaylistUrlContextMenuAvailability(
+                row,
+                effectivePlaylistUrlRows);
         if (isPlaylistRow)
         {
             if (menuItem != null)
             {
-                menuItem.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url : BeMusicSeeker.Properties.Resources.Open_Url;
+                menuItem.Header = playlistUrlAvailability.IsBulkContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url : BeMusicSeeker.Properties.Resources.Open_Url;
                 menuItem.Visibility = Visibility.Visible;
-                menuItem.IsEnabled = !IsPlaylistUrlDownloadRunning && (isBulkPlaylistUrlContext
-                    ? PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: false).Count > 0
-                    : rowUrl != null && rowUrl.IsAbsoluteUri);
+                menuItem.IsEnabled = playlistUrlAvailability.CanOpenUrl;
             }
             if (menuItem2 != null)
             {
-                menuItem2.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff : BeMusicSeeker.Properties.Resources.Open_Url_diff;
+                menuItem2.Header = playlistUrlAvailability.IsBulkContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff : BeMusicSeeker.Properties.Resources.Open_Url_diff;
                 menuItem2.Visibility = Visibility.Visible;
-                menuItem2.IsEnabled = !IsPlaylistUrlDownloadRunning && (isBulkPlaylistUrlContext
-                    ? PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
-                    : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
+                menuItem2.IsEnabled = playlistUrlAvailability.CanOpenDiffUrl;
             }
             if (menuItemFindExternalPackage != null)
             {
                 menuItemFindExternalPackage.Visibility = Visibility.Visible;
-                menuItemFindExternalPackage.IsEnabled = CanStartPlaylistExternalPackageLookup(effectivePlaylistUrlRows);
+                menuItemFindExternalPackage.IsEnabled = playlistUrlAvailability.CanFindExternalPackage;
             }
         }
         else
@@ -5349,18 +5344,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         _lastOpenedContextMenu = contextMenu;
+        if (base.DataContext is not MainWindowViewModel mainWindowViewModel)
+        {
+            return;
+        }
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
-        Uri rowUrl = GridRowResolver.GetUrl(row);
-        Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
         GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget rowTarget);
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
         string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
         bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
         bool canOpenScoreViewer = rowTarget?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true;
-        bool canUpdateRanking = rowTarget?.HasCapability(ChartOperationCapabilities.UpdateRanking) == true && base.DataContext is MainWindowViewModel viewModel && viewModel.LR2ID != 0;
+        bool canUpdateRanking = rowTarget?.HasCapability(ChartOperationCapabilities.UpdateRanking) == true && mainWindowViewModel.LR2ID != 0;
         bool canOpenLr2Ir = rowTarget?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true;
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
-        bool isBulkPlaylistUrlContext = effectivePlaylistUrlRows.Count > 1;
+        PlaylistUrlContextMenuAvailability playlistUrlAvailability =
+            mainWindowViewModel.PlaylistWorkspace.CapturePlaylistUrlContextMenuAvailability(
+                row,
+                effectivePlaylistUrlRows);
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
             switch (item.Name)
@@ -5377,26 +5377,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 case "tableContextMenuItemOpenURL":
                     if (item is MenuItem openUrlMenuItem)
                     {
-                        openUrlMenuItem.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url : BeMusicSeeker.Properties.Resources.Open_Url;
+                        openUrlMenuItem.Header = playlistUrlAvailability.IsBulkContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url : BeMusicSeeker.Properties.Resources.Open_Url;
                     }
                     item.Visibility = Visibility.Visible;
-                    item.IsEnabled = !IsPlaylistUrlDownloadRunning && (isBulkPlaylistUrlContext
-                        ? PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: false).Count > 0
-                        : rowUrl != null && rowUrl.IsAbsoluteUri);
+                    item.IsEnabled = playlistUrlAvailability.CanOpenUrl;
                     break;
                 case "tableContextMenuItemOpenURLdiff":
                     if (item is MenuItem openUrlDiffMenuItem)
                     {
-                        openUrlDiffMenuItem.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff : BeMusicSeeker.Properties.Resources.Open_Url_diff;
+                        openUrlDiffMenuItem.Header = playlistUrlAvailability.IsBulkContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff : BeMusicSeeker.Properties.Resources.Open_Url_diff;
                     }
                     item.Visibility = Visibility.Visible;
-                    item.IsEnabled = !IsPlaylistUrlDownloadRunning && (isBulkPlaylistUrlContext
-                        ? PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
-                        : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
+                    item.IsEnabled = playlistUrlAvailability.CanOpenDiffUrl;
                     break;
                 case "tableContextMenuItemFindExternalPackage":
                     item.Visibility = Visibility.Visible;
-                    item.IsEnabled = CanStartPlaylistExternalPackageLookup(effectivePlaylistUrlRows);
+                    item.IsEnabled = playlistUrlAvailability.CanFindExternalPackage;
                     break;
                 case "tableContextMenuItemDeleteEntry":
                     item.Visibility = Visibility.Visible;
@@ -5412,7 +5408,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
-        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenRepository=" + canOpenRepository + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenRepository=" + canOpenRepository + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
     }
 
     private void playHistoryContextMenuOpened(object sender, RoutedEventArgs e)
@@ -5716,15 +5712,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         return [contextRow];
     }
-
-    private bool CanStartPlaylistExternalPackageLookup(IEnumerable<object> rows)
-    {
-        return !IsPlaylistUrlDownloadRunning
-            && base.DataContext is MainWindowViewModel viewModel
-            && !viewModel.PackageInstallWorkflow.IsActive
-            && PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets(rows).Count > 0;
-    }
-
 
     private void tableContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
     {

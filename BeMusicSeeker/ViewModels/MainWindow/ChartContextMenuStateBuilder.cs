@@ -49,8 +49,6 @@ internal static class ChartContextMenuStateBuilder
 
         return new ChartContextMenuState(
             request.IsPlaylistRow,
-            request.RowUrl,
-            request.RowUrlDiff,
             request.IsPendingSelected,
             request.IsInstalledSelected,
             request.IsPlaylistSelected,
