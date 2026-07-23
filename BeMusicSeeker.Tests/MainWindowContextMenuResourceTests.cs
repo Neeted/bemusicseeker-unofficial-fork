@@ -1658,8 +1658,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(menuSnippet.Contains("ItemsSource=\"{Binding BMSExternalTableListExt.Children}\""));
         StringAssert.Contains(code, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(dataContext.url);");
         StringAssert.Contains(code, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(uri);");
-        StringAssert.Contains(dialogCode, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);");
-        StringAssert.Contains(dialogCode, "ParsePlaylistUriInput(textBoxURIInput.Text)");
+        StringAssert.Contains(dialogCode, "SubmitExternalPlaylistUriText(textBoxURIInput.Text)");
+        Assert.AreEqual(-1, dialogCode.IndexOf("EnqueueExternalPlaylistBMSTableImports(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, dialogCode.IndexOf("ParsePlaylistUriInput(", StringComparison.Ordinal));
         StringAssert.Contains(dialogCode, "AppendUriInputLine(textBoxURIInput.Text, result.FileName)");
         StringAssert.Contains(dialogXaml, "AcceptsReturn=\"True\"");
         StringAssert.Contains(dialogXaml, "VerticalContentAlignment=\"Top\"");

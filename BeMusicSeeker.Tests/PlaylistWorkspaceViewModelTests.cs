@@ -422,6 +422,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;");
         StringAssert.Contains(workspaceSource, "internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)");
+        StringAssert.Contains(workspaceSource, "internal ExternalPlaylistUriSubmissionResult SubmitExternalPlaylistUriText(string input)");
+        StringAssert.Contains(workspaceSource, "private static ExternalPlaylistUriParseResult ParseExternalPlaylistUriInput(string input)");
+        StringAssert.Contains(workspaceSource, "private void EnqueueExternalPlaylistBMSTableImports(IEnumerable<Uri> uris)");
         StringAssert.Contains(workspaceSource, "private async Task DrainExternalPlaylistImportQueueAsync()");
         StringAssert.Contains(workspaceSource, "internal bool CompleteImportedPlaylistRegistrations(");
         StringAssert.Contains(workspaceSource, "RequestPlaylistSummaryDataRefresh(");
@@ -736,6 +739,89 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(
             -1,
             playlistSummaryPropertyEditSource.IndexOf("Msg_error_unexpected", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void SubmitExternalPlaylistUriText_AllInvalidReturnsValidationFactsWithoutEnqueueing()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+
+        ExternalPlaylistUriSubmissionResult result = workspace.SubmitExternalPlaylistUriText("  not-a-uri  \r\n\t");
+
+        Assert.IsFalse(result.HasValidUris);
+        Assert.IsTrue(result.HasInvalidLines);
+        CollectionAssert.AreEqual(new[] { "not-a-uri" }, result.InvalidLines.ToList());
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task SubmitExternalPlaylistUriText_QueuesValidUrisInInputOrderAndCompletesImport()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string firstHeaderPath = Path.Combine(tempDirectory, "first.json");
+            string firstDataPath = Path.Combine(tempDirectory, "first-data.json");
+            string secondHeaderPath = Path.Combine(tempDirectory, "second.json");
+            string secondDataPath = Path.Combine(tempDirectory, "second-data.json");
+            File.WriteAllText(firstHeaderPath, "{\"name\":\"FirstImport\",\"symbol\":\"F\",\"output_dir\":\"FirstImport\",\"data_url\":\"./first-data.json\"}");
+            File.WriteAllText(firstDataPath, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"First song\",\"artist\":\"Artist\",\"level\":\"1\"}]");
+            File.WriteAllText(secondHeaderPath, "{\"name\":\"SecondImport\",\"symbol\":\"S\",\"output_dir\":\"SecondImport\",\"data_url\":\"./second-data.json\"}");
+            File.WriteAllText(secondDataPath, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Second song\",\"artist\":\"Artist\",\"level\":\"2\"}]");
+
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var library = new BMSLibrary(songDbPath);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library);
+            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
+                summaryReady.TrySetResult(request.Summary);
+
+            string firstUri = new Uri(firstHeaderPath).AbsoluteUri;
+            string secondUri = new Uri(secondHeaderPath).AbsoluteUri;
+            ExternalPlaylistUriSubmissionResult submission = workspace.SubmitExternalPlaylistUriText(
+                firstUri + "\r\nnot-a-uri\r\n \r\n" + secondUri);
+
+            Assert.IsTrue(submission.HasValidUris);
+            Assert.AreEqual(2, submission.ValidUriCount);
+            CollectionAssert.AreEqual(new[] { "not-a-uri" }, submission.InvalidLines.ToList());
+            Task completed = await Task.WhenAny(summaryReady.Task, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+            Assert.AreSame(summaryReady.Task, completed);
+            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task.ConfigureAwait(false);
+
+            Assert.AreEqual(2, summary.ImportedCount);
+            Assert.AreEqual(0, summary.FailedCount);
+            CollectionAssert.AreEqual(
+                new[] { firstUri, secondUri },
+                summary.Outcomes.Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "FirstImport", "SecondImport" },
+                playlist.BMSTables.Select(table => table.name).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]

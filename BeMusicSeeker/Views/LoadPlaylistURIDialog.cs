@@ -12,23 +12,6 @@ namespace BeMusicSeeker.Views;
 
 public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 {
-    internal sealed class PlaylistUriInputParseResult
-    {
-        internal PlaylistUriInputParseResult(IEnumerable<Uri> validUris, IEnumerable<string> invalidLines)
-        {
-            ValidUris = [.. (validUris ?? [])];
-            InvalidLines = [.. (invalidLines ?? [])];
-        }
-
-        internal IReadOnlyList<Uri> ValidUris { get; }
-
-        internal IReadOnlyList<string> InvalidLines { get; }
-
-        internal bool HasValidUris => ValidUris.Count > 0;
-
-        internal bool HasInvalidLines => InvalidLines.Count > 0;
-    }
-
     public LoadPlaylistURIDialog()
     {
         InitializeComponent();
@@ -53,18 +36,18 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
     {
         if (base.DataContext is MainWindowViewModel viewModel)
         {
-            PlaylistUriInputParseResult parseResult = ParsePlaylistUriInput(textBoxURIInput.Text);
-            if (!parseResult.HasValidUris)
+            ExternalPlaylistUriSubmissionResult submission = viewModel.PlaylistWorkspace
+                .SubmitExternalPlaylistUriText(textBoxURIInput.Text);
+            if (!submission.HasValidUris)
             {
                 UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Playlist_uri_input_no_valid_uri, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                 return;
             }
             textBoxURIInput.Text = string.Empty;
             GetDialogHost().HideOverlayDialog(this);
-            viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);
-            if (parseResult.HasInvalidLines)
+            if (submission.HasInvalidLines)
             {
-                ShowInvalidUriLines(parseResult.InvalidLines);
+                ShowInvalidUriLines(submission.InvalidLines);
             }
         }
     }
@@ -87,30 +70,6 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
             textBoxURIInput.Text = AppendUriInputLine(textBoxURIInput.Text, result.FileName);
             textBoxURIInput.CaretIndex = textBoxURIInput.Text.Length;
         }
-    }
-
-    internal static PlaylistUriInputParseResult ParsePlaylistUriInput(string input)
-    {
-        List<Uri> validUris = [];
-        List<string> invalidLines = [];
-        string[] lines = (input ?? string.Empty).Split(["\r\n", "\n", "\r"], StringSplitOptions.None);
-        foreach (string line in lines)
-        {
-            string trimmedLine = (line ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(trimmedLine))
-            {
-                continue;
-            }
-            if (Uri.TryCreate(trimmedLine, UriKind.Absolute, out Uri uri))
-            {
-                validUris.Add(uri);
-            }
-            else
-            {
-                invalidLines.Add(trimmedLine);
-            }
-        }
-        return new PlaylistUriInputParseResult(validUris, invalidLines);
     }
 
     internal static string AppendUriInputLine(string currentText, string line)

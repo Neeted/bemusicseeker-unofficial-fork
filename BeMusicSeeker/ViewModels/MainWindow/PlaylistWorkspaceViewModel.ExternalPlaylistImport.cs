@@ -23,7 +23,41 @@ public sealed partial class PlaylistWorkspaceViewModel
         EnqueueExternalPlaylistBMSTableImports([uri]);
     }
 
-    internal void EnqueueExternalPlaylistBMSTableImports(IEnumerable<Uri> uris)
+    internal ExternalPlaylistUriSubmissionResult SubmitExternalPlaylistUriText(string input)
+    {
+        ExternalPlaylistUriParseResult parseResult = ParseExternalPlaylistUriInput(input);
+        if (parseResult.ValidUris.Count > 0)
+        {
+            EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);
+        }
+        return new ExternalPlaylistUriSubmissionResult(parseResult.ValidUris.Count, parseResult.InvalidLines);
+    }
+
+    private static ExternalPlaylistUriParseResult ParseExternalPlaylistUriInput(string input)
+    {
+        List<Uri> validUris = [];
+        List<string> invalidLines = [];
+        string[] lines = (input ?? string.Empty).Split(["\r\n", "\n", "\r"], StringSplitOptions.None);
+        foreach (string line in lines)
+        {
+            string trimmedLine = (line ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(trimmedLine))
+            {
+                continue;
+            }
+            if (Uri.TryCreate(trimmedLine, UriKind.Absolute, out Uri uri))
+            {
+                validUris.Add(uri);
+            }
+            else
+            {
+                invalidLines.Add(trimmedLine);
+            }
+        }
+        return new ExternalPlaylistUriParseResult(validUris, invalidLines);
+    }
+
+    private void EnqueueExternalPlaylistBMSTableImports(IEnumerable<Uri> uris)
     {
         if (externalPlaylistImportQueue.EnqueueRange(uris))
         {
@@ -403,6 +437,36 @@ public sealed partial class PlaylistWorkspaceViewModel
             ?? throw new InvalidOperationException("External playlist import info logging is not configured."))
             (message ?? string.Empty);
     }
+
+    private sealed class ExternalPlaylistUriParseResult
+    {
+        internal ExternalPlaylistUriParseResult(IEnumerable<Uri> validUris, IEnumerable<string> invalidLines)
+        {
+            ValidUris = [.. (validUris ?? [])];
+            InvalidLines = [.. (invalidLines ?? [])];
+        }
+
+        internal IReadOnlyList<Uri> ValidUris { get; }
+
+        internal IReadOnlyList<string> InvalidLines { get; }
+    }
+}
+
+internal sealed class ExternalPlaylistUriSubmissionResult
+{
+    internal ExternalPlaylistUriSubmissionResult(int validUriCount, IEnumerable<string> invalidLines)
+    {
+        ValidUriCount = Math.Max(0, validUriCount);
+        InvalidLines = [.. (invalidLines ?? [])];
+    }
+
+    internal int ValidUriCount { get; }
+
+    internal IReadOnlyList<string> InvalidLines { get; }
+
+    internal bool HasValidUris => ValidUriCount > 0;
+
+    internal bool HasInvalidLines => InvalidLines.Count > 0;
 }
 
 internal sealed class ExternalPlaylistImportQueueSummaryReadyEventArgs : EventArgs
