@@ -4808,6 +4808,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bool canOpenMinIr = mainWindowViewModel.SelectedChartExternalActions.CanExecute(
             rowTarget,
             SelectedChartExternalActionKind.OpenMinIr);
+        bool canOpenInstallDestination = mainWindowViewModel.PendingPackages.CanOpenInstallDestination(
+            rowTarget,
+            selectedTargets,
+            isPendingSelected,
+            isPlaylistRow);
         calcelAllContextMenuTasks();
         initContextMenuTasks();
         MenuItem menuItem = null;
@@ -5075,7 +5080,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         NLogWrapper.FileLogger?.Info("playlist_context_menu rowType=" + row?.GetType().FullName + " isPlaylistRow=" + isPlaylistRow + " isPlaylistContext=" + isPlaylistContext + " isNotOwned=" + isNotOwnedPlaylistRow + " section=" + effectiveSection + " treeSection=" + _currentTreeSelectionSection + " sourceScope=" + sourceScope + " kind=" + rowTarget?.Chart.Kind + " path=" + (chartPath ?? string.Empty));
         if (menuItemOpenInstallDestination != null)
         {
-            bool canOpenInstallDestination = contextMenuState.CanOpenInstallDestination;
             menuItemOpenInstallDestination.Visibility = (canOpenInstallDestination ? Visibility.Visible : Visibility.Collapsed);
             menuItemOpenInstallDestination.IsEnabled = canOpenInstallDestination;
         }

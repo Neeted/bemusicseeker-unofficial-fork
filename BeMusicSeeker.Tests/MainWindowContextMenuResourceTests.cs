@@ -995,7 +995,6 @@ public sealed class MainWindowContextMenuResourceTests
             selectedTargets: [rowTarget]));
 
         Assert.IsTrue(state.HasResourceHealthTarget);
-        Assert.IsTrue(state.CanOpenInstallDestination);
         Assert.IsTrue(state.CanShowResourceHealthMenu);
         Assert.IsTrue(state.CanMoveSelectedFiles);
         Assert.IsTrue(state.CanDeleteFiles);
@@ -3308,6 +3307,14 @@ public sealed class MainWindowContextMenuResourceTests
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string viewModelCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string pendingPackageOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PendingPackageWorkflowOwner.cs");
+        string normalMenu = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuOpened",
+            "private void tableContextMenuPlaylistMissingOpened");
+        string chartContextMenuStateCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "ChartContextMenuState.cs");
         string forceInstall = ExtractBetween(
             mainWindowCode,
             "private async void forceInstallSelectedPendingCharts",
@@ -3483,6 +3490,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("SearchInstallDestinationForPendingPackages"));
         Assert.IsFalse(viewModelCode.Contains("SearchMergeDestinationForPendingPackages"));
         Assert.IsFalse(viewModelCode.Contains("ClearInstallDestinationForPendingPackages"));
+        StringAssert.Contains(normalMenu, "PendingPackages.CanOpenInstallDestination(");
+        Assert.IsFalse(normalMenu.Contains("contextMenuState.CanOpenInstallDestination"));
+        StringAssert.Contains(pendingPackageOwnerCode, "internal bool CanOpenInstallDestination(");
+        Assert.IsFalse(chartContextMenuStateCode.Contains("CanOpenInstallDestination"));
         StringAssert.Contains(openInstallDestination, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(openInstallDestination, ".OpenInstallDestinationForChartsAsync(targets)");
         StringAssert.Contains(openInstallDestination, ".LoggingAndPropagate(\"tableContextMenuItemOpenInstallDestinationClick\")");

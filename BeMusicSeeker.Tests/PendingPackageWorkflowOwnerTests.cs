@@ -20,6 +20,59 @@ namespace BeMusicSeeker.Tests;
 public sealed class PendingPackageWorkflowOwnerTests
 {
     [TestMethod]
+    public void CanOpenInstallDestination_RequiresPendingSectionAndEffectiveTargetCapability()
+    {
+        var owner = CreateOwner(
+            () => null!,
+            [],
+            new RecordingStore([]),
+            AcceptedDialogs());
+        ChartOperationTarget pendingTarget = CreateTarget(CreateChart());
+        ChartOperationTarget unsupportedTarget = CreateTarget(
+            CreateChart(),
+            ChartOperationCapabilities.None);
+        ChartOperationTarget missingTarget = new(
+            CreateChart(),
+            null,
+            ChartOperationSourceScope.PlaylistMissing,
+            isOwned: false,
+            isPending: false,
+            isPlaylistMissing: true,
+            ChartOperationCapabilities.UpdateInstallDestination);
+
+        Assert.IsTrue(owner.CanOpenInstallDestination(
+            pendingTarget,
+            [pendingTarget],
+            isPendingSection: true,
+            isPlaylistRow: false));
+        Assert.IsTrue(owner.CanOpenInstallDestination(
+            pendingTarget,
+            [],
+            isPendingSection: true,
+            isPlaylistRow: false));
+        Assert.IsFalse(owner.CanOpenInstallDestination(
+            pendingTarget,
+            [unsupportedTarget],
+            isPendingSection: true,
+            isPlaylistRow: false));
+        Assert.IsFalse(owner.CanOpenInstallDestination(
+            pendingTarget,
+            [pendingTarget],
+            isPendingSection: false,
+            isPlaylistRow: false));
+        Assert.IsFalse(owner.CanOpenInstallDestination(
+            pendingTarget,
+            [pendingTarget],
+            isPendingSection: true,
+            isPlaylistRow: true));
+        Assert.IsFalse(owner.CanOpenInstallDestination(
+            missingTarget,
+            [missingTarget],
+            isPendingSection: true,
+            isPlaylistRow: false));
+    }
+
+    [TestMethod]
     public async Task OpenInstallDestinationForChartsAsync_UsesDirectDestinationAndOpensIt()
     {
         TestResourceInitializer.EnsureJapaneseResources();

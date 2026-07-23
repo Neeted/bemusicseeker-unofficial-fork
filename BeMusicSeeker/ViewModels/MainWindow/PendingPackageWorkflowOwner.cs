@@ -220,6 +220,25 @@ internal sealed class PendingPackageWorkflowOwner
         this.fileExplorerOpener = fileExplorerOpener ?? ExplorerOpenService.OpenFileAndSelect;
     }
 
+    internal bool CanOpenInstallDestination(
+        ChartOperationTarget rowTarget,
+        IEnumerable<ChartOperationTarget> selectedTargets,
+        bool isPendingSection,
+        bool isPlaylistRow)
+    {
+        if (!isPendingSection || isPlaylistRow || rowTarget?.IsPlaylistMissing == true)
+        {
+            return false;
+        }
+
+        IReadOnlyList<ChartOperationTarget> targets = [.. (selectedTargets ?? [])];
+        if (targets.Count == 0 && rowTarget != null)
+        {
+            targets = [rowTarget];
+        }
+        return targets.Any(target => target?.HasCapability(ChartOperationCapabilities.UpdateInstallDestination) == true);
+    }
+
     internal async Task OpenInstallDestinationForChartsAsync(
         IEnumerable<ChartOperationTarget> targets)
     {

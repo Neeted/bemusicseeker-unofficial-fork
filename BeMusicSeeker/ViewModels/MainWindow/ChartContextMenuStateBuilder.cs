@@ -31,7 +31,6 @@ internal static class ChartContextMenuStateBuilder
         bool hasBmsonSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bmson);
         bool hasBmsSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bms);
         bool hasResourceHealthTarget = HasCapability(selectedTargets, ChartOperationCapabilities.RunResourceHealthCheck);
-        bool canOpenInstallDestination = request.RowTarget?.HasCapability(ChartOperationCapabilities.UpdateInstallDestination) == true && !request.IsPlaylistRow;
         bool canShowResourceHealthMenu = ShouldShowResourceHealthContextMenu(isPlaylistContext, selectedTargets);
         bool canMoveSelectedFiles = !request.IsPendingSelected;
         bool canDeleteFiles = HasCapability(selectedTargets, ChartOperationCapabilities.RemoveFromLibrary)
@@ -54,7 +53,6 @@ internal static class ChartContextMenuStateBuilder
             hasBmsonSelection,
             hasBmsSelection,
             hasResourceHealthTarget,
-            canOpenInstallDestination,
             canShowResourceHealthMenu,
             canMoveSelectedFiles,
             canDeleteFiles,

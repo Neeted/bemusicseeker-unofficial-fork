@@ -22,7 +22,6 @@ internal sealed class ChartContextMenuState
         bool hasBmsonSelection,
         bool hasBmsSelection,
         bool hasResourceHealthTarget,
-        bool canOpenInstallDestination,
         bool canShowResourceHealthMenu,
         bool canMoveSelectedFiles,
         bool canDeleteFiles,
@@ -43,7 +42,6 @@ internal sealed class ChartContextMenuState
         HasBmsonSelection = hasBmsonSelection;
         HasBmsSelection = hasBmsSelection;
         HasResourceHealthTarget = hasResourceHealthTarget;
-        CanOpenInstallDestination = canOpenInstallDestination;
         CanShowResourceHealthMenu = canShowResourceHealthMenu;
         CanMoveSelectedFiles = canMoveSelectedFiles;
         CanDeleteFiles = canDeleteFiles;
@@ -74,8 +72,6 @@ internal sealed class ChartContextMenuState
     internal bool HasBmsSelection { get; }
 
     internal bool HasResourceHealthTarget { get; }
-
-    internal bool CanOpenInstallDestination { get; }
 
     internal bool CanShowResourceHealthMenu { get; }
 
