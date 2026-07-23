@@ -708,7 +708,8 @@ internal sealed class MainWindowChildComposition
             duplicateMaintenanceDialogService ?? throw new ArgumentNullException(nameof(duplicateMaintenanceDialogService)),
             showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)),
             LongPathFileSystem.DirectoryExists,
-            ExplorerOpenService.OpenDirectory);
+            ExplorerOpenService.OpenDirectory,
+            MaintenanceTree.CaptureNextDuplicateGroupHeader);
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,

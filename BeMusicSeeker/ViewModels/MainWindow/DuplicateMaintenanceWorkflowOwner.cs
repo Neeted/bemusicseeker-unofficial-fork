@@ -88,215 +88,17 @@ internal interface IDuplicateMaintenanceStore
     void RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts);
 }
 
-internal interface IDuplicateMaintenanceOperation
-{
-    string SelectionHeader { get; }
-}
-
-internal sealed class DuplicateFolderMergeRequest
-{
-    internal DuplicateFolderMergeRequest(
-        string sourceDirectory,
-        string destinationDirectory,
-        IEnumerable<string> folders,
-        string groupHeader,
-        string selectionHeader)
-    {
-        SourceDirectory = sourceDirectory;
-        DestinationDirectory = destinationDirectory;
-        Folders = (folders ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder)).ToArray();
-        GroupHeader = groupHeader;
-        SelectionHeader = selectionHeader;
-    }
-
-    internal string SourceDirectory { get; }
-
-    internal string DestinationDirectory { get; }
-
-    internal IReadOnlyList<string> Folders { get; }
-
-    internal string GroupHeader { get; }
-
-    internal string SelectionHeader { get; }
-}
-
-internal sealed class DuplicateHashCleanupRequest
-{
-    internal DuplicateHashCleanupRequest(
-        string folderPath,
-        IEnumerable<ChartFile> charts,
-        string selectionHeader)
-    {
-        FolderPath = folderPath;
-        Charts = (charts ?? []).Where(chart => chart != null).ToArray();
-        SelectionHeader = selectionHeader;
-    }
-
-    internal string FolderPath { get; }
-
-    internal IReadOnlyList<ChartFile> Charts { get; }
-
-    internal string SelectionHeader { get; }
-}
-
-internal sealed class DuplicateMaintenanceConfirmationResult
-{
-    private DuplicateMaintenanceConfirmationResult(
-        bool accepted,
-        DuplicateFolderMergeOperation operation,
-        Exception failure)
-    {
-        Accepted = accepted;
-        Operation = operation;
-        Failure = failure;
-    }
-
-    internal bool Accepted { get; }
-
-    internal DuplicateFolderMergeOperation Operation { get; }
-
-    internal Exception Failure { get; }
-
-    internal static DuplicateMaintenanceConfirmationResult AcceptedResult { get; } = new(true, null, null);
-
-    internal static DuplicateMaintenanceConfirmationResult Rejected { get; } = new(false, null, null);
-
-    internal static DuplicateMaintenanceConfirmationResult AcceptedOperation(DuplicateFolderMergeOperation operation)
-    {
-        return new DuplicateMaintenanceConfirmationResult(
-            true,
-            operation ?? throw new ArgumentNullException(nameof(operation)),
-            null);
-    }
-
-    internal static DuplicateMaintenanceConfirmationResult Failed(Exception failure)
-    {
-        return new DuplicateMaintenanceConfirmationResult(
-            false,
-            null,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
-    }
-}
-
-internal sealed class DuplicateFolderMergeOperation : IDuplicateMaintenanceOperation
-{
-    internal DuplicateFolderMergeOperation(DuplicateFolderMergeRequest request)
-    {
-        Request = request ?? throw new ArgumentNullException(nameof(request));
-    }
-
-    internal DuplicateFolderMergeRequest Request { get; }
-
-    public string SelectionHeader => Request.SelectionHeader;
-}
-
-internal sealed class DuplicateHashCleanupPlan
-{
-    internal DuplicateHashCleanupPlan(
-        string folderPath,
-        IEnumerable<ChartFile> chartsToRemove,
-        string selectionHeader)
-    {
-        FolderPath = folderPath;
-        ChartsToRemove = (chartsToRemove ?? []).Where(chart => chart != null).ToArray();
-        SelectionHeader = selectionHeader;
-    }
-
-    internal string FolderPath { get; }
-
-    internal IReadOnlyList<ChartFile> ChartsToRemove { get; }
-
-    internal string SelectionHeader { get; }
-}
-
-internal sealed class DuplicateHashCleanupOperation : IDuplicateMaintenanceOperation
-{
-    internal DuplicateHashCleanupOperation(DuplicateHashCleanupPlan plan)
-    {
-        Plan = plan ?? throw new ArgumentNullException(nameof(plan));
-    }
-
-    internal DuplicateHashCleanupPlan Plan { get; }
-
-    public string SelectionHeader => Plan.SelectionHeader;
-}
-
-internal sealed class DuplicateHashCleanupConfirmationResult
-{
-    private DuplicateHashCleanupConfirmationResult(
-        bool accepted,
-        bool hasWork,
-        DuplicateHashCleanupPlan plan,
-        DuplicateHashCleanupOperation operation,
-        Exception failure)
-    {
-        Accepted = accepted;
-        HasWork = hasWork;
-        Plan = plan;
-        Operation = operation;
-        Failure = failure;
-    }
-
-    internal bool Accepted { get; }
-
-    internal bool HasWork { get; }
-
-    internal DuplicateHashCleanupPlan Plan { get; }
-
-    internal DuplicateHashCleanupOperation Operation { get; }
-
-    internal Exception Failure { get; }
-
-    internal static DuplicateHashCleanupConfirmationResult NoWork(string selectionHeader)
-    {
-        return new DuplicateHashCleanupConfirmationResult(
-            accepted: true,
-            hasWork: false,
-            plan: new DuplicateHashCleanupPlan(null, [], selectionHeader),
-            operation: null,
-            failure: null);
-    }
-
-    internal static DuplicateHashCleanupConfirmationResult AcceptedResult(DuplicateHashCleanupPlan plan)
-    {
-        return new DuplicateHashCleanupConfirmationResult(
-            accepted: true,
-            hasWork: true,
-            plan ?? throw new ArgumentNullException(nameof(plan)),
-            operation: new DuplicateHashCleanupOperation(plan),
-            failure: null);
-    }
-
-    internal static DuplicateHashCleanupConfirmationResult Rejected(DuplicateHashCleanupPlan plan)
-    {
-        return new DuplicateHashCleanupConfirmationResult(
-            accepted: false,
-            hasWork: true,
-            plan,
-            operation: null,
-            failure: null);
-    }
-
-    internal static DuplicateHashCleanupConfirmationResult Failed(Exception failure)
-    {
-        return new DuplicateHashCleanupConfirmationResult(
-            accepted: false,
-            hasWork: false,
-            plan: null,
-            operation: null,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
-    }
-}
-
 internal sealed class DuplicateMaintenanceMutationResult
 {
     private DuplicateMaintenanceMutationResult(
         bool succeeded,
         string selectionHeader,
+        int removedChartCount,
         Exception failure)
     {
         Succeeded = succeeded;
         SelectionHeader = selectionHeader;
+        RemovedChartCount = removedChartCount;
         Failure = failure;
     }
 
@@ -304,18 +106,36 @@ internal sealed class DuplicateMaintenanceMutationResult
 
     internal string SelectionHeader { get; }
 
+    internal int RemovedChartCount { get; }
+
     internal Exception Failure { get; }
 
-    internal static DuplicateMaintenanceMutationResult Completed(string selectionHeader)
+    internal static DuplicateMaintenanceMutationResult Completed(
+        string selectionHeader,
+        int removedChartCount = 0)
     {
-        return new DuplicateMaintenanceMutationResult(true, selectionHeader, null);
+        return new DuplicateMaintenanceMutationResult(true, selectionHeader, removedChartCount, null);
     }
 
-    internal static DuplicateMaintenanceMutationResult Failed(string selectionHeader, Exception failure)
+    internal static DuplicateMaintenanceMutationResult Rejected(string selectionHeader)
+    {
+        return new DuplicateMaintenanceMutationResult(false, selectionHeader, 0, null);
+    }
+
+    internal static DuplicateMaintenanceMutationResult NoWork(string selectionHeader)
+    {
+        return new DuplicateMaintenanceMutationResult(false, selectionHeader, 0, null);
+    }
+
+    internal static DuplicateMaintenanceMutationResult Failed(
+        string selectionHeader,
+        Exception failure,
+        int removedChartCount = 0)
     {
         return new DuplicateMaintenanceMutationResult(
             false,
             selectionHeader,
+            removedChartCount,
             failure ?? throw new ArgumentNullException(nameof(failure)));
     }
 }
@@ -332,9 +152,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
     private readonly Func<string, ExplorerOpenResult> duplicateFolderExplorerOpen;
 
+    private readonly Func<DuplicateGroup, string> duplicateGroupNextHeaderProvider;
+
     private readonly IDuplicateMaintenanceStore store;
-    private readonly object operationLock = new();
-    private readonly HashSet<IDuplicateMaintenanceOperation> issuedOperations = [];
 
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
@@ -344,6 +164,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Func<bool> showConfirmationProvider,
         Func<string, bool> duplicateFolderDirectoryExists,
         Func<string, ExplorerOpenResult> duplicateFolderExplorerOpen,
+        Func<DuplicateGroup, string> duplicateGroupNextHeaderProvider,
         IDuplicateMaintenanceStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
@@ -355,10 +176,95 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             ?? throw new ArgumentNullException(nameof(duplicateFolderDirectoryExists));
         this.duplicateFolderExplorerOpen = duplicateFolderExplorerOpen
             ?? throw new ArgumentNullException(nameof(duplicateFolderExplorerOpen));
+        this.duplicateGroupNextHeaderProvider = duplicateGroupNextHeaderProvider
+            ?? throw new ArgumentNullException(nameof(duplicateGroupNextHeaderProvider));
         this.store = store ?? new BmsLibraryDuplicateMaintenanceStore();
     }
 
     internal event EventHandler<DuplicateMaintenanceWorkflowChangedEventArgs> WorkflowChanged;
+
+    private sealed class FolderMergeRequest
+    {
+        internal FolderMergeRequest(
+            string sourceDirectory,
+            string destinationDirectory,
+            IEnumerable<string> folders,
+            string selectionHeader)
+        {
+            SourceDirectory = sourceDirectory;
+            DestinationDirectory = destinationDirectory;
+            Folders = (folders ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder)).ToArray();
+            SelectionHeader = selectionHeader;
+        }
+
+        internal string SourceDirectory { get; }
+
+        internal string DestinationDirectory { get; }
+
+        internal IReadOnlyList<string> Folders { get; }
+
+        internal string SelectionHeader { get; }
+    }
+
+    private sealed class HashCleanupRequest
+    {
+        internal HashCleanupRequest(
+            string folderPath,
+            IEnumerable<ChartFile> charts,
+            string selectionHeader)
+        {
+            FolderPath = folderPath;
+            Charts = (charts ?? []).Where(chart => chart != null).ToArray();
+            SelectionHeader = selectionHeader;
+        }
+
+        internal string FolderPath { get; }
+
+        internal IReadOnlyList<ChartFile> Charts { get; }
+
+        internal string SelectionHeader { get; }
+    }
+
+    private sealed class HashCleanupPlan
+    {
+        internal HashCleanupPlan(
+            string folderPath,
+            IEnumerable<ChartFile> chartsToRemove,
+            string selectionHeader)
+        {
+            FolderPath = folderPath;
+            ChartsToRemove = (chartsToRemove ?? []).Where(chart => chart != null).ToArray();
+            SelectionHeader = selectionHeader;
+        }
+
+        internal string FolderPath { get; }
+
+        internal IReadOnlyList<ChartFile> ChartsToRemove { get; }
+
+        internal string SelectionHeader { get; }
+    }
+
+    private sealed class ConfirmationDecision
+    {
+        private ConfirmationDecision(bool accepted, Exception failure)
+        {
+            Accepted = accepted;
+            Failure = failure;
+        }
+
+        internal bool Accepted { get; }
+
+        internal Exception Failure { get; }
+
+        internal static ConfirmationDecision AcceptedResult { get; } = new(true, null);
+
+        internal static ConfirmationDecision Rejected { get; } = new(false, null);
+
+        internal static ConfirmationDecision Failed(Exception failure)
+        {
+            return new ConfirmationDecision(false, failure ?? throw new ArgumentNullException(nameof(failure)));
+        }
+    }
 
     internal IReadOnlyList<string> CaptureDuplicateFolderMergeDestinations(
         DuplicateGroup duplicateGroup,
@@ -414,9 +320,83 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         duplicateFolderExplorerOpen(path);
     }
 
-    internal DuplicateMaintenanceConfirmationResult ConfirmFolderMerge(DuplicateFolderMergeRequest request)
+    private FolderMergeRequest CreateFolderMergeRequest(
+        string sourceDirectory,
+        string destinationDirectory,
+        DuplicateGroup duplicateGroup)
     {
+        if (duplicateGroup == null)
+        {
+            throw new ArgumentNullException(nameof(duplicateGroup));
+        }
+        int folderCount = duplicateGroup.Folders?.Count ?? 0;
+        string selectionHeader = folderCount >= 3
+            ? duplicateGroup.Header
+            : duplicateGroupNextHeaderProvider(duplicateGroup);
+        return new FolderMergeRequest(
+            sourceDirectory,
+            destinationDirectory,
+            duplicateGroup.Folders,
+            selectionHeader);
+    }
+
+    private HashCleanupRequest CreateHashCleanupRequest(
+        DuplicateGroup duplicateGroup,
+        string folderPath)
+    {
+        if (duplicateGroup == null)
+        {
+            throw new ArgumentNullException(nameof(duplicateGroup));
+        }
+        return new HashCleanupRequest(
+            folderPath,
+            duplicateGroup.ChartFiles,
+            duplicateGroupNextHeaderProvider(duplicateGroup));
+    }
+
+    internal Task<DuplicateMaintenanceMutationResult> RunFolderMergeAsync(
+        string sourceDirectory,
+        string destinationDirectory,
+        DuplicateGroup duplicateGroup)
+    {
+        FolderMergeRequest request = CreateFolderMergeRequest(
+            sourceDirectory,
+            destinationDirectory,
+            duplicateGroup);
         ValidateFolderMergeRequest(request);
+        return RunFolderMergeCoreAsync(request);
+    }
+
+    internal Task<DuplicateMaintenanceMutationResult> RunHashCleanupAsync(
+        DuplicateGroup duplicateGroup,
+        string folderPath)
+    {
+        HashCleanupRequest request = CreateHashCleanupRequest(duplicateGroup, folderPath);
+        ValidateHashCleanupRequest(request);
+        List<ChartFile> chartsInFolder = [.. request.Charts
+            .Where(chart => IsChartInFolder(chart, request.FolderPath))];
+        List<ChartFile> deletionList;
+        try
+        {
+            deletionList = BuildHashCleanupDeletionList(chartsInFolder);
+        }
+        catch (Exception exception)
+        {
+            return Task.FromResult(
+                DuplicateMaintenanceMutationResult.Failed(request.SelectionHeader, exception));
+        }
+        if (deletionList.Count == 0)
+        {
+            return Task.FromResult(
+                DuplicateMaintenanceMutationResult.NoWork(request.SelectionHeader));
+        }
+        return RunHashCleanupCoreAsync(
+            new HashCleanupPlan(request.FolderPath, deletionList, request.SelectionHeader));
+    }
+
+    private async Task<DuplicateMaintenanceMutationResult> RunFolderMergeCoreAsync(
+        FolderMergeRequest request)
+    {
         string message = BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder
             + Environment.NewLine
             + Environment.NewLine
@@ -427,29 +407,22 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             + BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination
             + ": "
             + request.DestinationDirectory;
-        DuplicateMaintenanceConfirmationResult confirmation = ConfirmIfNeeded(
+        ConfirmationDecision confirmation = await ConfirmIfNeededAsync(
             message,
             "Duplicate folder merge confirmation");
+        if (confirmation.Failure != null)
+        {
+            return DuplicateMaintenanceMutationResult.Failed(
+                request.SelectionHeader,
+                confirmation.Failure);
+        }
         if (!confirmation.Accepted)
         {
-            return confirmation;
+            return DuplicateMaintenanceMutationResult.Rejected(request.SelectionHeader);
         }
-        var operation = new DuplicateFolderMergeOperation(request);
-        RegisterOperation(operation);
-        return DuplicateMaintenanceConfirmationResult.AcceptedOperation(operation);
-    }
 
-    internal Task<DuplicateMaintenanceMutationResult> MergeFolderAsync(DuplicateFolderMergeOperation operation)
-    {
-        if (operation == null)
-        {
-            throw new ArgumentNullException(nameof(operation));
-        }
-        ConsumeOperation(operation);
-        DuplicateFolderMergeRequest request = operation.Request;
-        ValidateFolderMergeRequest(request);
-        return Task.Run(() => ExecuteMutation(
-            operation,
+        return await Task.Run(() => ExecuteMutation(
+            request.SelectionHeader,
             library => store.MergeFolder(
                 library,
                 request.SourceDirectory,
@@ -459,112 +432,76 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             "merge_folder"));
     }
 
-    internal DuplicateHashCleanupConfirmationResult ConfirmHashCleanup(DuplicateHashCleanupRequest request)
+    private async Task<DuplicateMaintenanceMutationResult> RunHashCleanupCoreAsync(
+        HashCleanupPlan plan)
     {
-        ValidateHashCleanupRequest(request);
-        try
+        ConfirmationDecision confirmation = await ConfirmIfNeededAsync(
+            string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, plan.ChartsToRemove.Count),
+            "Duplicate hash cleanup confirmation");
+        if (confirmation.Failure != null)
         {
-            List<ChartFile> chartsInFolder = [.. request.Charts.Where(chart => IsChartInFolder(chart, request.FolderPath))];
-            List<ChartFile> deletionList = BuildHashCleanupDeletionList(chartsInFolder);
-            if (deletionList.Count == 0)
-            {
-                return DuplicateHashCleanupConfirmationResult.NoWork(request.SelectionHeader);
-            }
+            return DuplicateMaintenanceMutationResult.Failed(
+                plan.SelectionHeader,
+                confirmation.Failure,
+                plan.ChartsToRemove.Count);
+        }
+        if (!confirmation.Accepted)
+        {
+            return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionHeader);
+        }
 
-            var plan = new DuplicateHashCleanupPlan(
-                request.FolderPath,
-                deletionList,
-                request.SelectionHeader);
-            if (!showConfirmationProvider())
-            {
-                DuplicateHashCleanupConfirmationResult accepted = DuplicateHashCleanupConfirmationResult.AcceptedResult(plan);
-                RegisterOperation(accepted.Operation);
-                return accepted;
-            }
-
-            DuplicateMaintenanceConfirmationResult confirmation = ConfirmIfNeeded(
-                string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, deletionList.Count),
-                "Duplicate hash cleanup confirmation");
-            if (confirmation.Failure != null)
-            {
-                return DuplicateHashCleanupConfirmationResult.Failed(confirmation.Failure);
-            }
-            if (!confirmation.Accepted)
-            {
-                return DuplicateHashCleanupConfirmationResult.Rejected(plan);
-            }
-            DuplicateHashCleanupConfirmationResult acceptedAfterPrompt = DuplicateHashCleanupConfirmationResult.AcceptedResult(plan);
-            RegisterOperation(acceptedAfterPrompt.Operation);
-            return acceptedAfterPrompt;
-        }
-        catch (Exception exception)
-        {
-            return DuplicateHashCleanupConfirmationResult.Failed(exception);
-        }
-    }
-
-    internal Task<DuplicateMaintenanceMutationResult> CleanupHashAsync(DuplicateHashCleanupOperation operation)
-    {
-        if (operation == null)
-        {
-            throw new ArgumentNullException(nameof(operation));
-        }
-        ConsumeOperation(operation);
-        DuplicateHashCleanupPlan plan = operation.Plan;
-        if (plan.ChartsToRemove.Count == 0)
-        {
-            return Task.FromResult(DuplicateMaintenanceMutationResult.Completed(plan.SelectionHeader));
-        }
-        return Task.Run(() => ExecuteMutation(
-            operation,
+        return await Task.Run(() => ExecuteMutation(
+            plan.SelectionHeader,
             library => store.RemoveCharts(library, plan.ChartsToRemove),
             () => playback.StopPlaybackForCharts(plan.ChartsToRemove),
-            refreshPriorityReason: null));
+            refreshPriorityReason: null,
+            plan.ChartsToRemove.Count));
     }
 
-    private DuplicateMaintenanceConfirmationResult ConfirmIfNeeded(string message, string routeName)
+    private async Task<ConfirmationDecision> ConfirmIfNeededAsync(string message, string routeName)
     {
         try
         {
             if (!showConfirmationProvider())
             {
-                return DuplicateMaintenanceConfirmationResult.AcceptedResult;
+                return ConfirmationDecision.AcceptedResult;
             }
-            UiDialogResult result = dialogs.ConfirmAsync(new UiConfirmationRequest(
+            UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
                 message,
                 BeMusicSeeker.Properties.Resources.Confirm,
                 MessageBoxButton.OKCancel,
                 MessageBoxImage.Question,
-                MessageBoxResult.Cancel)).GetAwaiter().GetResult();
+                MessageBoxResult.Cancel));
             if (result == null)
             {
-                return DuplicateMaintenanceConfirmationResult.Failed(
+                return ConfirmationDecision.Failed(
                     new InvalidOperationException(routeName + " returned no result."));
             }
             return result.Status switch
             {
-                UiDialogStatus.Accepted => DuplicateMaintenanceConfirmationResult.AcceptedResult,
-                UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => DuplicateMaintenanceConfirmationResult.Rejected,
+                UiDialogStatus.Accepted => ConfirmationDecision.AcceptedResult,
+                UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => ConfirmationDecision.Rejected,
                 UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes
-                    ? DuplicateMaintenanceConfirmationResult.AcceptedResult
-                    : DuplicateMaintenanceConfirmationResult.Rejected,
-                _ => DuplicateMaintenanceConfirmationResult.Failed(
+                    ? ConfirmationDecision.AcceptedResult
+                    : ConfirmationDecision.Rejected,
+                _ => ConfirmationDecision.Failed(
                     new InvalidOperationException(
                         routeName + " could not be displayed (" + result.Status + ").",
-                        result.Exception)),
+                        result.Exception))
             };
         }
         catch (Exception exception)
         {
-            return DuplicateMaintenanceConfirmationResult.Failed(exception);
+            return ConfirmationDecision.Failed(exception);
         }
     }
 
     private DuplicateMaintenanceMutationResult ExecuteMutation(
-        IDuplicateMaintenanceOperation operation,
+        string selectionHeader,
         Action<BMSLibrary> mutation,
         Action stopPlayback,
-        string refreshPriorityReason)
+        string refreshPriorityReason,
+        int removedChartCount = 0)
     {
         var failures = new List<ExceptionDispatchInfo>();
         BMSLibrary library = null;
@@ -579,7 +516,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             if (library == null)
             {
                 return DuplicateMaintenanceMutationResult.Failed(
-                    operation.SelectionHeader,
+                    selectionHeader,
                     new InvalidOperationException("Duplicate maintenance library is not available."));
             }
             dialogScope = library.BeginOperationDialogScope();
@@ -632,13 +569,14 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         }
         if (failures.Count == 0)
         {
-            return DuplicateMaintenanceMutationResult.Completed(operation.SelectionHeader);
+            return DuplicateMaintenanceMutationResult.Completed(selectionHeader, removedChartCount);
         }
         return DuplicateMaintenanceMutationResult.Failed(
-            operation.SelectionHeader,
+            selectionHeader,
             failures.Count == 1
                 ? failures[0].SourceException
-                : new AggregateException(failures.Select(failure => failure.SourceException)));
+                : new AggregateException(failures.Select(failure => failure.SourceException)),
+            removedChartCount);
     }
 
     private void PublishActivityChanged(bool isActive)
@@ -705,7 +643,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         return chart.Path.StartsWith(normalizedFolderPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static void ValidateFolderMergeRequest(DuplicateFolderMergeRequest request)
+    private static void ValidateFolderMergeRequest(FolderMergeRequest request)
     {
         if (request == null)
         {
@@ -725,7 +663,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         }
     }
 
-    private static void ValidateHashCleanupRequest(DuplicateHashCleanupRequest request)
+    private static void ValidateHashCleanupRequest(HashCleanupRequest request)
     {
         if (request == null)
         {
@@ -749,24 +687,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         }
     }
 
-    private void RegisterOperation(IDuplicateMaintenanceOperation operation)
-    {
-        lock (operationLock)
-        {
-            issuedOperations.Add(operation);
-        }
-    }
-
-    private void ConsumeOperation(IDuplicateMaintenanceOperation operation)
-    {
-        lock (operationLock)
-        {
-            if (!issuedOperations.Remove(operation))
-            {
-                throw new InvalidOperationException("Duplicate maintenance operation was not confirmed by this owner or was already consumed.");
-            }
-        }
-    }
 }
 
 internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanceStore

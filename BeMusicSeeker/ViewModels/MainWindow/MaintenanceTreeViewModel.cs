@@ -122,6 +122,18 @@ public sealed class MaintenanceTreeViewModel : ViewModel
         RaisePropertyChanged(nameof(DuplicateChartGroups));
     }
 
+    internal string CaptureNextDuplicateGroupHeader(DuplicateGroup duplicateGroup)
+    {
+        if (duplicateGroup == null || DuplicateChartGroups == null)
+        {
+            return null;
+        }
+        int currentIndex = DuplicateChartGroups.IndexOf(duplicateGroup);
+        return currentIndex >= 0 && currentIndex + 1 < DuplicateChartGroups.Count
+            ? DuplicateChartGroups[currentIndex + 1].Header
+            : null;
+    }
+
     private void RaiseBusyStateProperties()
     {
         RaisePropertyChanged(nameof(IsWriteLockHeldInitializdBMSFilesHealthStatus));

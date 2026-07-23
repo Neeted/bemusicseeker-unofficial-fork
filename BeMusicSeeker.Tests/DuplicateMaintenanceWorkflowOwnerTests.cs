@@ -17,27 +17,29 @@ namespace BeMusicSeeker.Tests;
 public sealed class DuplicateMaintenanceWorkflowOwnerTests
 {
     [TestMethod]
-    public async Task MergeFolderAsync_PreservesMutationBoundaryAndReceipt()
+    public async Task RunFolderMergeAsync_PreservesMutationBoundaryAndReceipt()
     {
         var events = new List<string>();
         var store = new RecordingStore(events);
         var presentation = new RecordingPresentation(events);
-        var owner = CreateOwner(events, presentation, AcceptedDialogs(), store);
-        var request = new DuplicateFolderMergeRequest(
-            @"C:\\Songs\\Source",
-            @"C:\\Songs\\Destination",
-            [@"C:\\Songs\\Source", @"C:\\Songs\\Destination"],
-            "Group",
-            "Next group");
+        var owner = CreateOwner(
+            events,
+            presentation,
+            AcceptedDialogs(),
+            store,
+            duplicateGroupNextHeaderProvider: _ => "Next group");
+        string source = @"C:\Songs\Source";
+        string destination = @"C:\Songs\Destination";
 
-        DuplicateMaintenanceConfirmationResult confirmation = owner.ConfirmFolderMerge(request);
-        Assert.IsTrue(confirmation.Accepted);
-        DuplicateMaintenanceMutationResult result = await owner.MergeFolderAsync(confirmation.Operation);
+        DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(
+            source,
+            destination,
+            new DuplicateGroup([], [source, destination]));
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual("Next group", result.SelectionHeader);
-        Assert.AreEqual(request.SourceDirectory, store.SourceDirectory);
-        Assert.AreEqual(request.DestinationDirectory, store.DestinationDirectory);
+        Assert.AreEqual(source, store.SourceDirectory);
+        Assert.AreEqual(destination, store.DestinationDirectory);
         CollectionAssert.AreEqual(
             new[]
             {
@@ -54,38 +56,75 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void ConfirmFolderMerge_RejectsFolderOutsideGroup()
+    public async Task RunFolderMergeAsync_AwaitsConfirmationWithoutBlockingCaller()
     {
-        var owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
-        var request = new DuplicateFolderMergeRequest(
-            @"C:\\Songs\\Source",
-            @"C:\\Songs\\Destination",
-            [@"C:\\Songs\\Source", @"C:\\Songs\\Other"],
-            "Group",
-            null);
+        var confirmation = new TaskCompletionSource<UiDialogResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var dialogs = new FakeUiDialogService { PendingConfirmation = confirmation };
+        var owner = CreateOwner(
+            [],
+            new RecordingPresentation([]),
+            dialogs,
+            new RecordingStore([]));
+        string source = @"C:\Songs\Source";
+        string destination = @"C:\Songs\Destination";
 
-        Assert.ThrowsException<ArgumentException>(() => owner.ConfirmFolderMerge(request));
+        Task<DuplicateMaintenanceMutationResult> resultTask = owner.RunFolderMergeAsync(
+            source,
+            destination,
+            new DuplicateGroup([], [source, destination]));
+
+        Assert.IsFalse(resultTask.IsCompleted);
+        confirmation.SetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        DuplicateMaintenanceMutationResult result = await resultTask;
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNotNull(dialogs.ConfirmationRequest);
     }
 
     [TestMethod]
-    public void ConfirmHashCleanup_ChoosesShortestNameWhenWriteTimesMatch()
+    public void RunFolderMergeAsync_RejectsFolderOutsideGroup()
     {
-        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateMaintenance_" + Guid.NewGuid().ToString("N"));
+        string source = @"C:\Songs\Source";
+        string destination = @"C:\Songs\Destination";
+        var owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
+
+        Assert.ThrowsException<ArgumentException>(() => owner.RunFolderMergeAsync(
+            source,
+            destination,
+            new DuplicateGroup([], [source, @"C:\Songs\Other"])));
+    }
+
+    [TestMethod]
+    public async Task RunHashCleanupAsync_ChoosesShortestNameAndReturnsRemovalCount()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_DuplicateMaintenance_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try
         {
             ChartFile keeper = CreateChart(Path.Combine(root, "a.bms"), "same-hash");
             ChartFile duplicate = CreateChart(Path.Combine(root, "long-name.bms"), "same-hash");
+            var store = new RecordingStore([]);
             var dialogs = AcceptedDialogs();
-            var owner = CreateOwner([], new RecordingPresentation([]), dialogs, new RecordingStore([]));
-            var request = new DuplicateHashCleanupRequest(root, [keeper, duplicate], "Next group");
+            var owner = CreateOwner(
+                [],
+                new RecordingPresentation([]),
+                dialogs,
+                store,
+                duplicateGroupNextHeaderProvider: _ => "Next group");
 
-            DuplicateHashCleanupConfirmationResult confirmation = owner.ConfirmHashCleanup(request);
+            DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(
+                new DuplicateGroup([keeper, duplicate], [root]),
+                root);
 
-            Assert.IsTrue(confirmation.Accepted);
-            Assert.IsTrue(confirmation.HasWork);
-            CollectionAssert.AreEqual(new[] { duplicate }, (System.Collections.ICollection)confirmation.Plan.ChartsToRemove);
-            StringAssert.Contains(dialogs.ConfirmationRequest.MessageBoxText, "1");
+            Assert.IsTrue(result.Succeeded);
+            Assert.AreEqual(1, result.RemovedChartCount);
+            Assert.AreEqual("Next group", result.SelectionHeader);
+            CollectionAssert.AreEqual(new[] { duplicate }, (System.Collections.ICollection)store.Charts);
+            Assert.IsNotNull(dialogs.ConfirmationRequest);
+            StringAssert.Contains(dialogs.ConfirmationRequest!.MessageBoxText, "1");
         }
         finally
         {
@@ -97,37 +136,54 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task CleanupHashAsync_UsesChartSnapshotAndSelectionReceipt()
+    public async Task RunHashCleanupAsync_NoWorkDoesNotStartMutation()
     {
         var events = new List<string>();
-        var store = new RecordingStore(events);
-        var presentation = new RecordingPresentation(events);
-        var owner = CreateOwner(events, presentation, AcceptedDialogs(), store);
-        ChartFile chart = CreateChart(@"C:\\Songs\\a.bms", "hash");
-        ChartFile duplicate = CreateChart(@"C:\\Songs\\long-name.bms", "hash");
-        DuplicateHashCleanupConfirmationResult confirmation = owner.ConfirmHashCleanup(
-            new DuplicateHashCleanupRequest(@"C:\\Songs", [chart, duplicate], "Next group"));
+        var dialogs = AcceptedDialogs();
+        var owner = CreateOwner(
+            events,
+            new RecordingPresentation(events),
+            dialogs,
+            new RecordingStore(events));
+        ChartFile chart = CreateChart(@"C:\Songs\a.bms", "hash");
 
-        DuplicateMaintenanceMutationResult result = await owner.CleanupHashAsync(confirmation.Operation);
+        DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(
+            new DuplicateGroup([chart], [@"C:\Songs"]),
+            @"C:\Songs");
 
-        Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual("Next group", result.SelectionHeader);
-        CollectionAssert.AreEqual(new[] { duplicate }, (System.Collections.ICollection)store.Charts);
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "activity-start",
-                "stop-charts",
-                "suppression-start",
-                "store-remove",
-                "suppression-end",
-                "activity-end"
-            },
-            events);
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.AreEqual(0, result.RemovedChartCount);
+        Assert.IsNull(dialogs.ConfirmationRequest);
+        CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
     [TestMethod]
-    public async Task MergeFolderAsync_ObserverCleanupFailureIsAggregatedAfterPriorityRelease()
+    public async Task RunHashCleanupAsync_RejectionDoesNotStartMutation()
+    {
+        var events = new List<string>();
+        var owner = CreateOwner(
+            events,
+            new RecordingPresentation(events),
+            new FakeUiDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+            },
+            new RecordingStore(events));
+        ChartFile first = CreateChart(@"C:\Songs\a.bms", "hash");
+        ChartFile second = CreateChart(@"C:\Songs\long-name.bms", "hash");
+
+        DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(
+            new DuplicateGroup([first, second], [@"C:\Songs"]),
+            @"C:\Songs");
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.AreEqual(0, events.Count);
+    }
+
+    [TestMethod]
+    public async Task RunFolderMergeAsync_ObserverCleanupFailureIsAggregatedAfterPriorityRelease()
     {
         var events = new List<string>();
         var store = new RecordingStore(events);
@@ -135,16 +191,19 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         {
             EndActivityFailure = new InvalidOperationException("activity cleanup failed")
         };
-        var owner = CreateOwner(events, presentation, AcceptedDialogs(), store);
-        var request = new DuplicateFolderMergeRequest(
-            @"C:\\Songs\\Source",
-            @"C:\\Songs\\Destination",
-            [@"C:\\Songs\\Source", @"C:\\Songs\\Destination"],
-            "Group",
-            "Next group");
+        var owner = CreateOwner(
+            events,
+            presentation,
+            AcceptedDialogs(),
+            store,
+            duplicateGroupNextHeaderProvider: _ => "Next group");
+        string source = @"C:\Songs\Source";
+        string destination = @"C:\Songs\Destination";
 
-        DuplicateMaintenanceConfirmationResult confirmation = owner.ConfirmFolderMerge(request);
-        DuplicateMaintenanceMutationResult result = await owner.MergeFolderAsync(confirmation.Operation);
+        DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(
+            source,
+            destination,
+            new DuplicateGroup([], [source, destination]));
 
         Assert.IsFalse(result.Succeeded);
         StringAssert.Contains(result.Failure.Message, "activity cleanup failed");
@@ -164,46 +223,26 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void ConfirmHashCleanup_RejectionDoesNotCreateMutationPlanForExecution()
-    {
-        ChartFile first = CreateChart(@"C:\\Songs\\a.bms", "hash");
-        ChartFile second = CreateChart(@"C:\\Songs\\long-name.bms", "hash");
-        var owner = CreateOwner(
-            [],
-            new RecordingPresentation([]),
-            new FakeUiDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel) },
-            new RecordingStore([]));
-
-        DuplicateHashCleanupConfirmationResult confirmation = owner.ConfirmHashCleanup(
-            new DuplicateHashCleanupRequest(@"C:\\Songs", [first, second], null));
-
-        Assert.IsFalse(confirmation.Accepted);
-        Assert.IsTrue(confirmation.HasWork);
-        Assert.IsNotNull(confirmation.Plan);
-        Assert.IsNull(confirmation.Operation);
-    }
-
-    [TestMethod]
     public void DuplicateFolderInteractionQueries_PreserveDestinationAndKeyboardPolicy()
     {
         var owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
-        var group = new DuplicateGroup([], [@"C:\\A", @"C:\\B", @"C:\\C"]);
+        var group = new DuplicateGroup([], [@"C:\A", @"C:\B", @"C:\C"]);
 
         CollectionAssert.AreEqual(
-            new[] { @"C:\\B", @"C:\\C" },
-            (System.Collections.ICollection)owner.CaptureDuplicateFolderMergeDestinations(group, @"C:\\A"));
-        DuplicateFolderKeyboardAction menuAction = owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\\A");
+            new[] { @"C:\B", @"C:\C" },
+            (System.Collections.ICollection)owner.CaptureDuplicateFolderMergeDestinations(group, @"C:\A"));
+        DuplicateFolderKeyboardAction menuAction = owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\A");
         Assert.AreEqual(DuplicateFolderKeyboardActionKind.OpenContextMenu, menuAction.Kind);
 
-        group.Folders = [@"C:\\A", @"C:\\B"];
-        DuplicateFolderKeyboardAction mergeAction = owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\\A");
+        group.Folders = [@"C:\A", @"C:\B"];
+        DuplicateFolderKeyboardAction mergeAction = owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\A");
         Assert.AreEqual(DuplicateFolderKeyboardActionKind.Merge, mergeAction.Kind);
-        Assert.AreEqual(@"C:\\B", mergeAction.DestinationPath);
+        Assert.AreEqual(@"C:\B", mergeAction.DestinationPath);
 
-        group.Folders = [@"C:\\A"];
+        group.Folders = [@"C:\A"];
         Assert.AreEqual(
             DuplicateFolderKeyboardActionKind.Cleanup,
-            owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\\A").Kind);
+            owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\A").Kind);
     }
 
     [TestMethod]
@@ -215,7 +254,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             new RecordingPresentation([]),
             AcceptedDialogs(),
             new RecordingStore([]),
-            directoryExists: path => path == @"C:\\Existing",
+            directoryExists: path => path == @"C:\Existing",
             explorerOpen: path =>
             {
                 openCount++;
@@ -227,8 +266,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 };
             });
 
-        owner.OpenDuplicateFolderInExplorer(@"C:\\Missing");
-        owner.OpenDuplicateFolderInExplorer(@"C:\\Existing");
+        owner.OpenDuplicateFolderInExplorer(@"C:\Missing");
+        owner.OpenDuplicateFolderInExplorer(@"C:\Existing");
 
         Assert.AreEqual(1, openCount);
     }
@@ -239,16 +278,19 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         IUiDialogService dialogs,
         RecordingStore store,
         Func<string, bool>? directoryExists = null,
-        Func<string, ExplorerOpenResult>? explorerOpen = null)
+        Func<string, ExplorerOpenResult>? explorerOpen = null,
+        Func<DuplicateGroup, string>? duplicateGroupNextHeaderProvider = null,
+        bool showConfirmation = true)
     {
         var owner = new DuplicateMaintenanceWorkflowOwner(
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
             presentation,
             dialogs,
-            () => true,
+            () => showConfirmation,
             directoryExists ?? (_ => true),
             explorerOpen ?? (_ => new ExplorerOpenResult()),
+            duplicateGroupNextHeaderProvider ?? (_ => (string)null!),
             store);
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
         return owner;
@@ -331,7 +373,6 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         public void StopPlaybackForMerge() => events.Add("stop-merge");
 
         public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts) => events.Add("stop-charts");
-
     }
 
     private sealed class RecordingStore : IDuplicateMaintenanceStore
@@ -365,15 +406,21 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
     private sealed class FakeUiDialogService : IUiDialogService
     {
-        internal UiDialogResult ConfirmationResult { get; set; } = null!;
+        internal UiDialogResult? ConfirmationResult { get; set; }
 
-        internal UiConfirmationRequest ConfirmationRequest { get; private set; } = null!;
+        internal TaskCompletionSource<UiDialogResult>? PendingConfirmation { get; set; }
+
+        internal UiConfirmationRequest? ConfirmationRequest { get; private set; }
 
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
             ConfirmationRequest = request;
+            if (PendingConfirmation != null)
+            {
+                return PendingConfirmation.Task;
+            }
             return Task.FromResult(ConfirmationResult ?? throw new InvalidOperationException("Confirmation result was not configured."));
         }
 
@@ -388,5 +435,4 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
-
 }

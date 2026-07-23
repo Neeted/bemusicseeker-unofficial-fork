@@ -4337,7 +4337,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.DuplicateMaintenanceWorkflow.OpenDuplicateFolderInExplorer(dataContext);
     }
 
-    private void treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick(object sender, RoutedEventArgs e)
+    private async void treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("tree_duplicate_merge_into"))
         {
@@ -4362,86 +4362,34 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         TreeViewItem groupTreeItem = WPFUtil.FindVisualParent<TreeViewItem>(tag);
         var duplicateGroup = groupTreeItem?.DataContext as DuplicateGroup;
         e.Handled = true;
-        _ = ExecuteDuplicateFolderMergeAsync(srcPath, dstPath, duplicateGroup);
+        if (base.DataContext is not MainWindowViewModel viewModel || duplicateGroup == null)
+        {
+            return;
+        }
+        DuplicateMaintenanceMutationResult result = await viewModel.DuplicateMaintenanceWorkflow
+            .RunFolderMergeAsync(srcPath, dstPath, duplicateGroup);
+        await ApplyDuplicateFolderMergeResultAsync(result, srcPath, dstPath, viewModel);
     }
 
-    private async Task ExecuteDuplicateFolderMergeAsync(string srcPath, string dstPath, DuplicateGroup duplicateGroup)
+    private async Task ApplyDuplicateFolderMergeResultAsync(
+        DuplicateMaintenanceMutationResult result,
+        string sourcePath,
+        string destinationPath,
+        MainWindowViewModel viewModel)
     {
-        if (ShouldBlockChartPackageMutationInteraction("duplicate_merge_execute"))
-        {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        if (duplicateGroup == null
-            || string.IsNullOrWhiteSpace(srcPath)
-            || string.IsNullOrWhiteSpace(dstPath))
-        {
-            return;
-        }
-
-        DuplicateFolderMergeRequest request = CreateDuplicateFolderMergeRequest(
-            srcPath,
-            dstPath,
-            duplicateGroup,
-            viewModel);
-        DuplicateMaintenanceConfirmationResult confirmation = viewModel.DuplicateMaintenanceWorkflow
-            .ConfirmFolderMerge(request);
-        if (!confirmation.Accepted)
-        {
-            if (confirmation.Failure != null)
-            {
-                NLogWrapper.FileLogger?.Warn(confirmation.Failure, "duplicate_merge_confirmation_failed");
-            }
-            return;
-        }
-
-        DuplicateMaintenanceMutationResult result = await viewModel.DuplicateMaintenanceWorkflow
-            .MergeFolderAsync(confirmation.Operation);
         if (!result.Succeeded)
         {
-            NLogWrapper.FileLogger?.Warn(result.Failure, "duplicate_merge_failed");
+            if (result.Failure != null)
+            {
+                NLogWrapper.FileLogger?.Warn(result.Failure, "duplicate_merge_failed");
+            }
             return;
         }
         NLogWrapper.FileLogger?.Info(string.Format(
             BeMusicSeeker.Properties.Resources.Msg_merge_bms_completed,
-            Path.GetFileName(srcPath),
-            Path.GetFileName(dstPath)));
+            Path.GetFileName(sourcePath),
+            Path.GetFileName(destinationPath)));
         await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionHeader, viewModel);
-    }
-
-    private static DuplicateFolderMergeRequest CreateDuplicateFolderMergeRequest(
-        string sourceDirectory,
-        string destinationDirectory,
-        DuplicateGroup duplicateGroup,
-        MainWindowViewModel viewModel)
-    {
-        int folderCount = duplicateGroup?.Folders?.Count ?? 0;
-        string selectionHeader = folderCount >= 3
-            ? duplicateGroup.Header
-            : CaptureNextDuplicateGroupHeader(viewModel, duplicateGroup);
-        return new DuplicateFolderMergeRequest(
-            sourceDirectory,
-            destinationDirectory,
-            duplicateGroup?.Folders,
-            duplicateGroup?.Header,
-            selectionHeader);
-    }
-
-    private static string CaptureNextDuplicateGroupHeader(
-        MainWindowViewModel viewModel,
-        DuplicateGroup duplicateGroup)
-    {
-        if (viewModel?.MaintenanceTree?.DuplicateChartGroups == null || duplicateGroup == null)
-        {
-            return null;
-        }
-        int currentIndex = viewModel.MaintenanceTree.DuplicateChartGroups.IndexOf(duplicateGroup);
-        return currentIndex >= 0 && currentIndex + 1 < viewModel.MaintenanceTree.DuplicateChartGroups.Count
-            ? viewModel.MaintenanceTree.DuplicateChartGroups[currentIndex + 1].Header
-            : null;
     }
 
     private async Task ApplyDuplicateMaintenanceSelectionAsync(string header, MainWindowViewModel viewModel)
@@ -4744,13 +4692,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (action.Kind == DuplicateFolderKeyboardActionKind.Merge)
         {
             e.Handled = true;
-            await ExecuteDuplicateFolderMergeAsync(srcPath, action.DestinationPath, duplicateGroup);
+            if (ShouldBlockChartPackageMutationInteraction("duplicate_merge_execute"))
+            {
+                return;
+            }
+            DuplicateMaintenanceMutationResult result = await viewModel.DuplicateMaintenanceWorkflow
+                .RunFolderMergeAsync(srcPath, action.DestinationPath, duplicateGroup);
+            await ApplyDuplicateFolderMergeResultAsync(
+                result,
+                srcPath,
+                action.DestinationPath,
+                viewModel);
         }
         else if (action.Kind == DuplicateFolderKeyboardActionKind.Cleanup)
         {
             // フォルダが1つの場合: ハッシュ重複BMSファイルの整理
             e.Handled = true;
-            await ExecuteDuplicateHashCleanupAsync(duplicateGroup, srcPath);
+            DuplicateMaintenanceMutationResult result = await viewModel.DuplicateMaintenanceWorkflow
+                .RunHashCleanupAsync(duplicateGroup, srcPath);
+            await ApplyDuplicateHashCleanupResultAsync(result, srcPath, viewModel);
         }
         else if (action.Kind == DuplicateFolderKeyboardActionKind.OpenContextMenu)
         {
@@ -4766,41 +4726,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// 各ハッシュグループごとに1つだけ残し、残りをごみ箱へ移動する。
     /// 保持ルール: 更新日時が最も古いものを優先、同日時ならファイル名が最も短いものを優先。
     /// </summary>
-    private async Task ExecuteDuplicateHashCleanupAsync(DuplicateGroup duplicateGroup, string folderPath)
+    private async Task ApplyDuplicateHashCleanupResultAsync(
+        DuplicateMaintenanceMutationResult result,
+        string folderPath,
+        MainWindowViewModel viewModel)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        if (duplicateGroup == null || string.IsNullOrWhiteSpace(folderPath))
-        {
-            return;
-        }
-        DuplicateHashCleanupRequest request = new(
-            folderPath,
-            duplicateGroup?.ChartFiles,
-            CaptureNextDuplicateGroupHeader(viewModel, duplicateGroup));
-        DuplicateHashCleanupConfirmationResult confirmation = viewModel.DuplicateMaintenanceWorkflow
-            .ConfirmHashCleanup(request);
-        if (!confirmation.Accepted || !confirmation.HasWork)
-        {
-            if (confirmation.Failure != null)
-            {
-                NLogWrapper.FileLogger?.Warn(confirmation.Failure, "duplicate_hash_cleanup_confirmation_failed");
-            }
-            return;
-        }
-
-        DuplicateMaintenanceMutationResult result = await viewModel.DuplicateMaintenanceWorkflow
-            .CleanupHashAsync(confirmation.Operation);
         if (!result.Succeeded)
         {
-            NLogWrapper.FileLogger?.Warn(result.Failure, "duplicate_hash_cleanup_failed");
+            if (result.Failure != null)
+            {
+                NLogWrapper.FileLogger?.Warn(result.Failure, "duplicate_hash_cleanup_failed");
+            }
             return;
         }
         NLogWrapper.FileLogger?.Info(string.Format(
             "Cleaned up {0} duplicate hash BMS file(s) in folder: {1}",
-            confirmation.Plan.ChartsToRemove.Count,
+            result.RemovedChartCount,
             Path.GetFileName(folderPath)));
         await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionHeader, viewModel);
     }

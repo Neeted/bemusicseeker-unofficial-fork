@@ -5000,8 +5000,24 @@ public sealed class MainWindowContextMenuResourceTests
             "CaptureDuplicateFolderKeyboardAction(duplicateGroup, srcPath)");
         Assert.IsFalse(duplicateKeyHandler.Contains("duplicateGroup.Folders.Count"));
         Assert.IsFalse(duplicateKeyHandler.Contains("FirstOrDefault(f => !f.Equals"));
-        Assert.IsFalse(mainWindowCode.Contains("private void ExecuteDuplicateFolderMerge("));
-        Assert.IsFalse(mainWindowCode.Contains("private void ExecuteDuplicateHashCleanup("));
+        StringAssert.Contains(duplicateKeyHandler, "RunFolderMergeAsync(");
+        StringAssert.Contains(duplicateKeyHandler, "RunHashCleanupAsync(");
+        string duplicateMergeHandler = ExtractMethodBody(
+            mainWindowCode,
+            "private async void treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick(");
+        StringAssert.Contains(duplicateMergeHandler, "RunFolderMergeAsync(");
+        Assert.IsFalse(mainWindowCode.Contains("ExecuteDuplicateFolderMergeAsync("));
+        Assert.IsFalse(mainWindowCode.Contains("ExecuteDuplicateHashCleanupAsync("));
+        Assert.IsFalse(mainWindowCode.Contains("ConfirmFolderMerge("));
+        Assert.IsFalse(mainWindowCode.Contains("ConfirmHashCleanup("));
+        Assert.IsFalse(mainWindowCode.Contains("DuplicateFolderMergeOperation"));
+        Assert.IsFalse(mainWindowCode.Contains("DuplicateHashCleanupOperation"));
+        Assert.IsFalse(mainWindowCode.Contains("DuplicateMaintenanceConfirmationResult"));
+        Assert.IsFalse(mainWindowCode.Contains("DuplicateHashCleanupConfirmationResult"));
+        Assert.IsFalse(ownerCode.Contains("ConfirmFolderMerge("));
+        Assert.IsFalse(ownerCode.Contains("ConfirmHashCleanup("));
+        Assert.IsFalse(ownerCode.Contains("IDuplicateMaintenanceOperation"));
+        Assert.IsFalse(ownerCode.Contains("issuedOperations"));
     }
 
     [TestMethod]
