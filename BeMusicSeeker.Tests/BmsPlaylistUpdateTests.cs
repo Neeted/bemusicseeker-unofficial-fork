@@ -3015,10 +3015,11 @@ public sealed class BmsPlaylistUpdateTests
 
             currentSettings = initialSettings;
             table.Output_dir = null;
-            bool inlineSaved = await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            bool inlineSaved = (await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 new PlaylistSummaryRow { TableRef = table },
                 nameof(PlaylistSummaryRow.Symbol),
-                "DSS2");
+                "DSS2",
+                commit: true)).IsApplied;
             Assert.IsTrue(inlineSaved);
             Assert.AreEqual("DSS2", table.symbol);
             Assert.IsNull(table.output_dir);
@@ -3552,7 +3553,12 @@ public sealed class BmsPlaylistUpdateTests
             }
             var library = new BMSLibrary(songDbPath);
             LR2Config config = CreateLr2Config(tempDirectory, Path.Combine(tempDirectory, "ManualBmsRoot"));
-            var viewModel = new MainWindowViewModel();
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            var viewModel = new ApplicationComposition(
+                playlistWorkspaceDialogService: dialogs).CreateMainWindowViewModel();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -3570,70 +3576,80 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsTrue(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(row, nameof(PlaylistSummaryRow.Symbol)));
             Assert.IsFalse(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(row, "Unsupported"));
 
-            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            Assert.IsTrue((await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.Name),
-                "  Inline Renamed  "));
+                "  Inline Renamed  ",
+                commit: true)).IsApplied);
             Assert.AreEqual("Inline Renamed", table.name);
-            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            Assert.IsTrue((await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.FolderName),
-                "  Inline Folder  "));
+                "  Inline Folder  ",
+                commit: true)).IsApplied);
             Assert.AreEqual("Inline Folder", table.Output_dir);
-            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            Assert.IsTrue((await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.CompatPrefix),
-                "  PREFIX"));
+                "  PREFIX",
+                commit: true)).IsApplied);
             Assert.AreEqual("PREFIX", table.compat_prefix);
-            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            Assert.IsTrue((await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.Symbol),
-                "  INL  "));
+                "  INL  ",
+                commit: true)).IsApplied);
             Assert.AreEqual("INL", table.symbol);
 
             long refreshGenerationBeforeNoOp = viewModel.PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration;
-            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            Assert.IsTrue((await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.Name),
-                " Inline Renamed "));
+                " Inline Renamed ",
+                commit: true)).IsApplied);
             Assert.AreEqual("Inline Renamed", table.name);
             Assert.AreEqual(refreshGenerationBeforeNoOp, viewModel.PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration);
 
             table.name = null;
             long refreshGenerationBeforeNullNoOp = viewModel.PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration;
-            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            Assert.IsTrue((await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.Name),
-                string.Empty));
+                string.Empty,
+                commit: true)).IsApplied);
             Assert.IsNull(table.name);
             Assert.AreEqual(refreshGenerationBeforeNullNoOp, viewModel.PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration);
 
             Settings.Default.OperationModeLR2DB = true;
-            var conflictViewModel = new MainWindowViewModel();
+            var conflictViewModel = new ApplicationComposition(
+                playlistWorkspaceDialogService: dialogs).CreateMainWindowViewModel();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(conflictViewModel, playlist);
             string outputDirectoryBeforeConflict = table.Output_dir;
-            Assert.IsFalse(await conflictViewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            Assert.IsFalse((await conflictViewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.FolderName),
-                "Conflict"));
+                "Conflict",
+                commit: true)).IsApplied);
             Assert.AreEqual(outputDirectoryBeforeConflict, table.Output_dir);
             Settings.Default.OperationModeLR2DB = false;
-            Assert.IsFalse(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            Assert.IsFalse((await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 row,
                 "Unsupported",
-                "value"));
+                "value",
+                commit: true)).IsApplied);
 
             var staleRow = new PlaylistSummaryRow
             {
                 TableRef = new BMSTable { playlist_id = 7399, name = "Stale" }
             };
             Assert.IsFalse(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(staleRow, nameof(PlaylistSummaryRow.Name)));
-            Assert.IsFalse(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+            Assert.IsFalse((await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 staleRow,
                 nameof(PlaylistSummaryRow.Name),
-                "Should not persist"));
+                "Should not persist",
+                commit: true)).IsApplied);
         }
         finally
         {

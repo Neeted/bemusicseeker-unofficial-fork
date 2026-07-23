@@ -10,6 +10,22 @@ namespace BeMusicSeeker.Views.Dialogs;
 internal class UiMessageRequest
 {
     /// <summary>
+    /// 標準の OK・Hand・OK default の error 通知要求を初期化します。
+    /// </summary>
+    /// <param name="messageBoxText">表示する本文。</param>
+    /// <param name="caption">dialog title。</param>
+    /// <returns>error 通知用の表示要求。</returns>
+    internal static UiMessageRequest CreateError(string messageBoxText, string caption)
+    {
+        return new UiMessageRequest(
+            messageBoxText,
+            caption,
+            MessageBoxButton.OK,
+            MessageBoxImage.Hand,
+            MessageBoxResult.OK);
+    }
+
+    /// <summary>
     /// message box 表示要求を初期化します。
     /// </summary>
     /// <param name="messageBoxText">表示する本文。</param>

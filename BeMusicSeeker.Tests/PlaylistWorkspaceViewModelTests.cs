@@ -705,6 +705,30 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, playlistSummarySortRequested.IndexOf("Task.Run", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistSummarySortRequested.IndexOf("Logging", StringComparison.Ordinal));
         StringAssert.Contains(playlistSummarySortRequested, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
+        StringAssert.Contains(
+            workspaceSource,
+            "internal async Task<PlaylistSummaryPropertyEditCompletion> CompleteSummaryPropertyEditAsync(");
+        Assert.AreEqual(
+            -1,
+            workspaceSource.IndexOf("internal async Task<bool> ApplySummaryPropertyEditAsync(", StringComparison.Ordinal));
+        string playlistSummaryPropertyEditSource = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private async void customTablePlaylistSummary_CellEditEnded(");
+        StringAssert.Contains(
+            playlistSummaryPropertyEditSource,
+            "CompleteSummaryPropertyEditAsync(");
+        StringAssert.Contains(
+            playlistSummaryPropertyEditSource,
+            "customTablePlaylistSummary?.RefreshDisplay();");
+        Assert.AreEqual(
+            -1,
+            playlistSummaryPropertyEditSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
+        Assert.AreEqual(
+            -1,
+            playlistSummaryPropertyEditSource.IndexOf("Msg_invalid_setting", StringComparison.Ordinal));
+        Assert.AreEqual(
+            -1,
+            playlistSummaryPropertyEditSource.IndexOf("Msg_error_unexpected", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -1285,7 +1309,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public async Task ApplySummaryPropertyEdit_RetriesPendingFollowUpWithoutReapplyingPrefixRewrite()
+    public async Task CompleteSummaryPropertyEdit_RetriesPendingFollowUpWithoutReapplyingPrefixRewrite()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -1340,11 +1364,16 @@ public sealed class PlaylistWorkspaceViewModelTests
                 () => library,
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library,
-                propertySaveService: service);
+                propertySaveService: service,
+                playlistWorkspaceDialogService: dialogs);
             workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => { };
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             int prefixPresentationCount = 0;
@@ -1357,24 +1386,59 @@ public sealed class PlaylistWorkspaceViewModelTests
             };
             PlaylistSummaryRow row = new() { TableRef = table };
 
-            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                async () => await workspace.ApplySummaryPropertyEditAsync(
+            PlaylistSummaryPropertyEditCompletion failedCompletion =
+                await workspace.CompleteSummaryPropertyEditAsync(
                     row,
                     nameof(PlaylistSummaryRow.CompatPrefix),
-                    "★"));
+                    "★",
+                    commit: true);
 
-            Assert.AreEqual("test inline prefix presentation failure", failure.Message);
+            Assert.IsTrue(failedCompletion.RefreshRequired);
+            Assert.IsFalse(failedCompletion.IsApplied);
+            StringAssert.Contains(
+                dialogs.LastMessageRequest.MessageBoxText,
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected);
             CollectionAssert.AreEqual(
                 new[] { "★Alpha", "★★Alpha" },
                 table.entries.Select(candidate => candidate.folder).ToArray());
-            Assert.IsTrue(await workspace.ApplySummaryPropertyEditAsync(
+            Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.CompatPrefix),
-                "★"));
+                "★",
+                commit: true)).IsApplied);
             Assert.AreEqual(2, prefixPresentationCount);
             CollectionAssert.AreEqual(
                 new[] { "★Alpha", "★★Alpha" },
                 table.entries.Select(candidate => candidate.folder).ToArray());
+            PlaylistSummaryPropertyEditCompletion invalidCompletion =
+                await workspace.CompleteSummaryPropertyEditAsync(
+                    row,
+                    "Unsupported",
+                    "value",
+                    commit: true);
+            Assert.IsTrue(invalidCompletion.RefreshRequired);
+            Assert.IsFalse(invalidCompletion.IsApplied);
+            Assert.AreEqual(
+                BeMusicSeeker.Properties.Resources.Msg_invalid_setting,
+                dialogs.LastMessageRequest.MessageBoxText);
+
+            dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable);
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+                workspace.CompleteSummaryPropertyEditAsync(
+                    row,
+                    "Unsupported",
+                    "value",
+                    commit: true));
+
+            dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+            PlaylistSummaryPropertyEditCompletion noOpCompletion =
+                await workspace.CompleteSummaryPropertyEditAsync(
+                    row,
+                    nameof(PlaylistSummaryRow.Name),
+                    "ignored",
+                    commit: false);
+            Assert.IsFalse(noOpCompletion.IsApplied);
+            Assert.IsFalse(noOpCompletion.RefreshRequired);
             using var verify = new LR2SongDBExtended(songDbPath);
             CollectionAssert.AreEqual(
                 new[] { "★Alpha", "★★Alpha" },

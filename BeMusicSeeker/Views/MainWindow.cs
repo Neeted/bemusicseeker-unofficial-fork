@@ -1319,28 +1319,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!e.Commit
-            || e.Row is not PlaylistSummaryRow playlistSummaryRow
-            || playlistSummaryRow.TableRef == null)
-        {
-            return;
-        }
-
-        try
-        {
-            bool applied = await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+        PlaylistSummaryRow playlistSummaryRow = e.Row as PlaylistSummaryRow;
+        PlaylistSummaryPropertyEditCompletion completion =
+            await viewModel.PlaylistWorkspace.CompleteSummaryPropertyEditAsync(
                 playlistSummaryRow,
                 e.EditPropertyName,
-                e.Text);
-            if (!applied)
-            {
-                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                customTablePlaylistSummary?.RefreshDisplay();
-            }
-        }
-        catch (Exception ex)
+                e.Text,
+                e.Commit)
+            .Logging("customTablePlaylistSummary_CellEditEnded");
+        if (completion.RefreshRequired)
         {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             customTablePlaylistSummary?.RefreshDisplay();
         }
     }

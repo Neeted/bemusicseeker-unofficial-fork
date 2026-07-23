@@ -3,6 +3,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -324,7 +325,68 @@ public sealed partial class PlaylistWorkspaceViewModel
             && propertySaveService?.ContainsActiveTable(row.TableRef) == true;
     }
 
-    internal async Task<bool> ApplySummaryPropertyEditAsync(
+    internal async Task<PlaylistSummaryPropertyEditCompletion> CompleteSummaryPropertyEditAsync(
+        PlaylistSummaryRow row,
+        string propertyName,
+        string text,
+        bool commit)
+    {
+        if (!commit || row?.TableRef == null)
+        {
+            return PlaylistSummaryPropertyEditCompletion.NoOp;
+        }
+
+        bool applied;
+        try
+        {
+            applied = await ApplySummaryPropertyEditCoreAsync(row, propertyName, text);
+        }
+        catch (Exception exception)
+        {
+            await ShowSummaryPropertyEditMessageAsync(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected
+                + Environment.NewLine
+                + Environment.NewLine
+                + exception.Message,
+                "Playlist summary property edit unexpected error");
+            return PlaylistSummaryPropertyEditCompletion.RequiresRefresh;
+        }
+
+        if (applied)
+        {
+            return PlaylistSummaryPropertyEditCompletion.Success;
+        }
+
+        await ShowSummaryPropertyEditMessageAsync(
+            BeMusicSeeker.Properties.Resources.Msg_invalid_setting,
+            "Playlist summary property edit validation error");
+        return PlaylistSummaryPropertyEditCompletion.RequiresRefresh;
+    }
+
+    private async Task ShowSummaryPropertyEditMessageAsync(string message, string routeName)
+    {
+        UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
+                UiMessageRequest.CreateError(
+                    message,
+                    BeMusicSeeker.Properties.Resources.Error))
+            .ConfigureAwait(true);
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " returned no dialog result.");
+        }
+        if (result.Status is UiDialogStatus.Accepted
+            or UiDialogStatus.Rejected
+            or UiDialogStatus.CancelledByUser
+            or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+        throw result.Exception
+            ?? new InvalidOperationException(
+                routeName + " could not be displayed (" + result.Status + ").");
+    }
+
+    private async Task<bool> ApplySummaryPropertyEditCoreAsync(
         PlaylistSummaryRow row,
         string propertyName,
         string text)
@@ -553,4 +615,26 @@ internal sealed class PlaylistSummaryPendingPropertySave
     internal PlaylistPropertySaveCommit Commit { get; }
 
     internal PlaylistPropertyEditSession Session { get; }
+}
+
+internal sealed class PlaylistSummaryPropertyEditCompletion
+{
+    private PlaylistSummaryPropertyEditCompletion(bool applied, bool refreshRequired)
+    {
+        IsApplied = applied;
+        RefreshRequired = refreshRequired;
+    }
+
+    internal static PlaylistSummaryPropertyEditCompletion NoOp { get; } =
+        new(false, refreshRequired: false);
+
+    internal static PlaylistSummaryPropertyEditCompletion Success { get; } =
+        new(true, refreshRequired: false);
+
+    internal static PlaylistSummaryPropertyEditCompletion RequiresRefresh { get; } =
+        new(false, refreshRequired: true);
+
+    internal bool IsApplied { get; }
+
+    internal bool RefreshRequired { get; }
 }
