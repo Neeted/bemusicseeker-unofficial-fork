@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -246,17 +249,141 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.IsTrue(owner.CanExecute(fallbackSha256, SelectedChartExternalActionKind.OpenMinIr));
     }
 
+    [TestMethod]
+    public async Task QueryRelatedDocuments_ReturnsTextBeforeHtmlCandidates()
+    {
+        var requests = new List<string>();
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            directoryNameResolver: _ => @"C:\Songs",
+            relatedDocumentFileEnumerator: (_, pattern) =>
+            {
+                requests.Add(pattern);
+                return pattern == "*.txt"
+                    ? [@"C:\Songs\readme.txt"]
+                    : [@"C:\Songs\manual.html"];
+            });
+
+        RelatedDocumentQueryReceipt receipt = await owner.QueryRelatedDocumentsAsync(
+            CreateTarget(@"C:\Songs\alpha.bms", ChartOperationCapabilities.None),
+            CancellationToken.None);
+
+        Assert.AreEqual(RelatedDocumentQueryStatus.Available, receipt.Status);
+        CollectionAssert.AreEqual(
+            new[] { @"C:\Songs\readme.txt", @"C:\Songs\manual.html" },
+            receipt.Paths.ToArray());
+        CollectionAssert.AreEqual(new[] { "*.txt", "*.htm?" }, requests);
+    }
+
+    [TestMethod]
+    public async Task QueryRelatedDocuments_MissingChartPathDoesNotEnumerate()
+    {
+        int enumerationCalls = 0;
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            fileExists: _ => false,
+            relatedDocumentFileEnumerator: (_, _) =>
+            {
+                enumerationCalls++;
+                return [];
+            });
+
+        RelatedDocumentQueryReceipt receipt = await owner.QueryRelatedDocumentsAsync(
+            CreateTarget(@"C:\Songs\missing.bms", ChartOperationCapabilities.None),
+            CancellationToken.None);
+
+        Assert.AreEqual(RelatedDocumentQueryStatus.Unavailable, receipt.Status);
+        Assert.AreEqual(0, enumerationCalls);
+    }
+
+    [TestMethod]
+    public async Task QueryRelatedDocuments_DistinguishesEmptyAndEnumerationFailure()
+    {
+        SelectedChartExternalActionWorkflowOwner emptyOwner = CreateOwner(
+            relatedDocumentFileEnumerator: (_, _) => []);
+        SelectedChartExternalActionWorkflowOwner failedOwner = CreateOwner(
+            relatedDocumentFileEnumerator: (_, _) => throw new IOException("enumeration failed"));
+        ChartOperationTarget target = CreateTarget(@"C:\Songs\alpha.bms", ChartOperationCapabilities.None);
+
+        RelatedDocumentQueryReceipt empty = await emptyOwner.QueryRelatedDocumentsAsync(target, CancellationToken.None);
+        RelatedDocumentQueryReceipt failed = await failedOwner.QueryRelatedDocumentsAsync(target, CancellationToken.None);
+
+        Assert.AreEqual(RelatedDocumentQueryStatus.Empty, empty.Status);
+        Assert.AreEqual(RelatedDocumentQueryStatus.Failed, failed.Status);
+    }
+
+    [TestMethod]
+    public void RelatedDocumentQueryReceipt_CopiesAvailablePaths()
+    {
+        var mutablePaths = new List<string> { @"C:\Songs\readme.txt" };
+
+        RelatedDocumentQueryReceipt receipt = RelatedDocumentQueryReceipt.Available(mutablePaths);
+        mutablePaths[0] = @"C:\Songs\changed.txt";
+
+        CollectionAssert.AreEqual(
+            new[] { @"C:\Songs\readme.txt" },
+            receipt.Paths.ToArray());
+    }
+
+    [TestMethod]
+    public async Task QueryRelatedDocuments_CancellationDoesNotReturnSuccessfulReceipt()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            relatedDocumentFileEnumerator: (_, _) =>
+            {
+                entered.Set();
+                release.Wait();
+                return [];
+            });
+        ChartOperationTarget target = CreateTarget(@"C:\Songs\alpha.bms", ChartOperationCapabilities.None);
+
+        using var cancellation = new CancellationTokenSource();
+        Task<RelatedDocumentQueryReceipt> query = owner.QueryRelatedDocumentsAsync(target, cancellation.Token);
+        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
+        cancellation.Cancel();
+        release.Set();
+
+        RelatedDocumentQueryReceipt receipt = await query;
+
+        Assert.AreEqual(RelatedDocumentQueryStatus.Canceled, receipt.Status);
+    }
+
+    [TestMethod]
+    public void OpenRelatedDocument_RechecksPathAndPropagatesLauncherFailure()
+    {
+        int launcherCalls = 0;
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            fileExists: path => path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase),
+            relatedDocumentLauncher: path => launcherCalls++);
+
+        owner.OpenRelatedDocument(@"C:\Songs\readme.txt");
+        owner.OpenRelatedDocument(@"C:\Songs\missing.html");
+
+        Assert.AreEqual(1, launcherCalls);
+
+        SelectedChartExternalActionWorkflowOwner failingOwner = CreateOwner(
+            relatedDocumentLauncher: _ => throw new InvalidOperationException("document launcher failed"));
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            failingOwner.OpenRelatedDocument(@"C:\Songs\readme.txt"));
+    }
+
     private static SelectedChartExternalActionWorkflowOwner CreateOwner(
         Func<string, bool>? fileExists = null,
         Func<string, ExplorerOpenResult>? explorerOpen = null,
         Action<string>? associatedFileLauncher = null,
-        Action<string>? urlLauncher = null)
+        Action<string>? urlLauncher = null,
+        Action<string>? relatedDocumentLauncher = null,
+        Func<string, string>? directoryNameResolver = null,
+        Func<string, string, IEnumerable<string>>? relatedDocumentFileEnumerator = null)
     {
         return new SelectedChartExternalActionWorkflowOwner(
             fileExists ?? (_ => true),
             explorerOpen ?? (_ => new ExplorerOpenResult()),
             associatedFileLauncher ?? (_ => { }),
-            urlLauncher ?? (_ => { }));
+            urlLauncher ?? (_ => { }),
+            relatedDocumentLauncher,
+            directoryNameResolver,
+            relatedDocumentFileEnumerator);
     }
 
     private static ChartOperationTarget CreateTarget(

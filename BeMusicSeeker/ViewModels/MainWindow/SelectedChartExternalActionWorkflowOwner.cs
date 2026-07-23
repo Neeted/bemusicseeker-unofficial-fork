@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
@@ -13,6 +16,45 @@ internal enum SelectedChartExternalActionKind
     OpenMinIr
 }
 
+internal enum RelatedDocumentQueryStatus
+{
+    Unavailable,
+    Empty,
+    Available,
+    Failed,
+    Canceled
+}
+
+internal sealed class RelatedDocumentQueryReceipt
+{
+    private RelatedDocumentQueryReceipt(RelatedDocumentQueryStatus status, IReadOnlyList<string> paths)
+    {
+        Status = status;
+        Paths = paths;
+    }
+
+    internal RelatedDocumentQueryStatus Status { get; }
+
+    internal IReadOnlyList<string> Paths { get; }
+
+    internal static RelatedDocumentQueryReceipt Unavailable { get; } =
+        new(RelatedDocumentQueryStatus.Unavailable, Array.Empty<string>());
+
+    internal static RelatedDocumentQueryReceipt Empty { get; } =
+        new(RelatedDocumentQueryStatus.Empty, Array.Empty<string>());
+
+    internal static RelatedDocumentQueryReceipt Failed { get; } =
+        new(RelatedDocumentQueryStatus.Failed, Array.Empty<string>());
+
+    internal static RelatedDocumentQueryReceipt Canceled { get; } =
+        new(RelatedDocumentQueryStatus.Canceled, Array.Empty<string>());
+
+    internal static RelatedDocumentQueryReceipt Available(IReadOnlyList<string> paths) =>
+        new(
+            RelatedDocumentQueryStatus.Available,
+            paths == null ? Array.Empty<string>() : Array.AsReadOnly([.. paths]));
+}
+
 internal sealed class SelectedChartExternalActionWorkflowOwner
 {
     private static readonly Regex Md5HashRegex = new("^[a-f0-9]{32}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -22,17 +64,91 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
     private readonly Func<string, ExplorerOpenResult> explorerOpen;
     private readonly Action<string> associatedFileLauncher;
     private readonly Action<string> urlLauncher;
+    private readonly Action<string> relatedDocumentLauncher;
+    private readonly Func<string, string> directoryNameResolver;
+    private readonly Func<string, string, IEnumerable<string>> relatedDocumentFileEnumerator;
 
     internal SelectedChartExternalActionWorkflowOwner(
         Func<string, bool> fileExists,
         Func<string, ExplorerOpenResult> explorerOpen,
         Action<string> associatedFileLauncher,
-        Action<string> urlLauncher)
+        Action<string> urlLauncher,
+        Action<string> relatedDocumentLauncher = null,
+        Func<string, string> directoryNameResolver = null,
+        Func<string, string, IEnumerable<string>> relatedDocumentFileEnumerator = null)
     {
         this.fileExists = fileExists ?? throw new ArgumentNullException(nameof(fileExists));
         this.explorerOpen = explorerOpen ?? throw new ArgumentNullException(nameof(explorerOpen));
         this.associatedFileLauncher = associatedFileLauncher ?? throw new ArgumentNullException(nameof(associatedFileLauncher));
         this.urlLauncher = urlLauncher ?? throw new ArgumentNullException(nameof(urlLauncher));
+        this.relatedDocumentLauncher = relatedDocumentLauncher ?? LaunchRelatedDocument;
+        this.directoryNameResolver = directoryNameResolver ?? DirectoryExt.GetDirectoryNameSimple;
+        this.relatedDocumentFileEnumerator = relatedDocumentFileEnumerator
+            ?? ((directory, pattern) => LongPathFileSystem.EnumerateFiles(directory, pattern));
+    }
+
+    internal bool CanQueryRelatedDocuments(ChartOperationTarget target)
+    {
+        return TryGetExistingChartPath(target, out _);
+    }
+
+    internal async Task<RelatedDocumentQueryReceipt> QueryRelatedDocumentsAsync(
+        ChartOperationTarget target,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return RelatedDocumentQueryReceipt.Canceled;
+        }
+        if (!CanQueryRelatedDocuments(target))
+        {
+            return RelatedDocumentQueryReceipt.Unavailable;
+        }
+
+        try
+        {
+            RelatedDocumentQueryReceipt receipt = await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    string directory = directoryNameResolver(target.Chart.Path);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    List<string> paths = [.. relatedDocumentFileEnumerator(directory, "*.txt")];
+                    cancellationToken.ThrowIfCancellationRequested();
+                    paths.AddRange(relatedDocumentFileEnumerator(directory, "*.htm?"));
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return paths.Count == 0
+                        ? RelatedDocumentQueryReceipt.Empty
+                        : RelatedDocumentQueryReceipt.Available(paths);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    return RelatedDocumentQueryReceipt.Failed;
+                }
+            }, cancellationToken).ConfigureAwait(false);
+
+            return cancellationToken.IsCancellationRequested
+                ? RelatedDocumentQueryReceipt.Canceled
+                : receipt;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return RelatedDocumentQueryReceipt.Canceled;
+        }
+    }
+
+    internal void OpenRelatedDocument(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !fileExists(path))
+        {
+            return;
+        }
+        relatedDocumentLauncher(path);
     }
 
     internal bool CanExecute(ChartOperationTarget target, SelectedChartExternalActionKind action)
@@ -114,6 +230,19 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         return target.HasCapability(capability)
             && !string.IsNullOrWhiteSpace(path)
             && fileExists(path);
+    }
+
+    private bool TryGetExistingChartPath(ChartOperationTarget target, out string path)
+    {
+        path = target?.Chart?.Path;
+        return target?.Chart != null
+            && !string.IsNullOrWhiteSpace(path)
+            && fileExists(path);
+    }
+
+    private static void LaunchRelatedDocument(string path)
+    {
+        System.Diagnostics.Process.Start(path);
     }
 
     private static string GetRepositorySha256(ChartOperationTarget target)

@@ -197,9 +197,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
 
 
-    private CancellationTokenSource tableContextMenuTaskTokenSource;
-
-    private Task changeSubmenuOpenDocumentTask;
+    private CancellationTokenSource relatedDocumentRequestCancellation;
 
     private readonly Storyboard treeViewItemInstantStoryBoardPlaylistTable = new();
 
@@ -755,7 +753,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             e.Cancel = true;
             bool closeRequestStarted = shellShutdownWorkflow.TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest);
-            calcelAllContextMenuTasks();
+            CancelRelatedDocumentRequest();
             CloseContextMenuIfOpen(_lastOpenedContextMenu);
             if (closeRequestStarted)
             {
@@ -775,7 +773,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             viewModel.PlaylistSummarySelectionRestoreRequested -= MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
         }
         viewModel?.SetStartupUiInteractionBlocked(false);
-        calcelAllContextMenuTasks();
+        CancelRelatedDocumentRequest();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
         base.OnClosing(e);
         SaveSettingsForClosing(viewModel);
@@ -4724,19 +4722,47 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }));
     }
 
-    private void calcelAllContextMenuTasks()
+    private void CancelRelatedDocumentRequest()
     {
-        if (changeSubmenuOpenDocumentTask?.IsCompleted == false && tableContextMenuTaskTokenSource != null)
+        if (relatedDocumentRequestCancellation == null)
         {
-            tableContextMenuTaskTokenSource.Cancel();
-            NLogWrapper.DebuggerLogger?.Trace("Cancel data grid context menu async tasks");
+            return;
         }
+        relatedDocumentRequestCancellation.Cancel();
+        relatedDocumentRequestCancellation = null;
+        NLogWrapper.DebuggerLogger?.Trace("Cancel related document context menu request");
     }
 
-    private void initContextMenuTasks()
+    private CancellationToken BeginRelatedDocumentRequest()
     {
-        tableContextMenuTaskTokenSource = new CancellationTokenSource();
-        changeSubmenuOpenDocumentTask = null;
+        CancelRelatedDocumentRequest();
+        relatedDocumentRequestCancellation = new CancellationTokenSource();
+        return relatedDocumentRequestCancellation.Token;
+    }
+
+    private async Task PopulateRelatedDocumentsMenuAsync(
+        SelectedChartExternalActionWorkflowOwner owner,
+        MenuItem menuItem,
+        ChartOperationTarget target,
+        CancellationToken cancellationToken)
+    {
+        RelatedDocumentQueryReceipt receipt = await owner
+            .QueryRelatedDocumentsAsync(target, cancellationToken);
+        if (cancellationToken.IsCancellationRequested || IsShellClosingOrClosed())
+        {
+            return;
+        }
+        switch (receipt.Status)
+        {
+            case RelatedDocumentQueryStatus.Available:
+                menuItem.ItemsSource = receipt.Paths;
+                menuItem.IsEnabled = true;
+                break;
+            case RelatedDocumentQueryStatus.Unavailable:
+            case RelatedDocumentQueryStatus.Failed:
+                menuItem.Visibility = Visibility.Collapsed;
+                break;
+        }
     }
 
     private void tableContextMenuOpened(object sender, RoutedEventArgs e)
@@ -4813,8 +4839,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             selectedTargets,
             isPendingSelected,
             isPlaylistRow);
-        calcelAllContextMenuTasks();
-        initContextMenuTasks();
+        CancelRelatedDocumentRequest();
         MenuItem menuItem = null;
         MenuItem menuItem2 = null;
         MenuItem menuItemFindExternalPackage = null;
@@ -4987,54 +5012,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 menuItemFindExternalPackage.Visibility = Visibility.Collapsed;
             }
         }
-        if (menuItem3 != null && menuItem4 != null && menuItemOpenDocument != null && changeSubmenuOpenDocumentTask == null)
+        if (menuItem3 != null && menuItem4 != null && menuItemOpenDocument != null)
         {
+            menuItem3.IsEnabled = canOpenExplorer;
+            menuItem4.IsEnabled = canOpenFile;
+            menuItemOpenDocument.ItemsSource = null;
             menuItemOpenDocument.IsEnabled = false;
-            if (!string.IsNullOrWhiteSpace(chartPath) && LongPathFileSystem.FileExists(chartPath))
+            if (mainWindowViewModel.SelectedChartExternalActions.CanQueryRelatedDocuments(rowTarget))
             {
-                menuItem3.IsEnabled = canOpenExplorer;
-                menuItem4.IsEnabled = canOpenFile;
                 menuItemOpenDocument.Visibility = Visibility.Visible;
-                changeSubmenuOpenDocumentTask = Task.Run(delegate
-                {
-                    NLogWrapper.DebuggerLogger?.Trace("Test starts: changeSubmenuOpenDocumentTask");
-                    CancellationToken token = tableContextMenuTaskTokenSource.Token;
-                    string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
-                    if (token.IsCancellationRequested)
-                    {
-                        return;
-                    }
-                    try
-                    {
-                        List<string> list2 = [.. LongPathFileSystem.EnumerateFiles(directoryNameSimple, "*.txt"), .. LongPathFileSystem.EnumerateFiles(directoryNameSimple, "*.htm?")];
-                        if (list2.Count > 0)
-                        {
-                            base.Dispatcher.BeginInvoke((Action)delegate
-                            {
-                                if (!token.IsCancellationRequested && !IsShellClosingOrClosed())
-                                {
-                                    menuItemOpenDocument.ItemsSource = list2;
-                                    menuItemOpenDocument.IsEnabled = true;
-                                }
-                            });
-                        }
-                    }
-                    catch
-                    {
-                        base.Dispatcher.BeginInvoke((Action)delegate
-                        {
-                            if (!token.IsCancellationRequested && !IsShellClosingOrClosed())
-                            {
-                                menuItemOpenDocument.Visibility = Visibility.Collapsed;
-                            }
-                        });
-                    }
-                }, tableContextMenuTaskTokenSource.Token).Logging("tableContextMenuOpened");
+                CancellationToken token = BeginRelatedDocumentRequest();
+                _ = PopulateRelatedDocumentsMenuAsync(
+                    mainWindowViewModel.SelectedChartExternalActions,
+                    menuItemOpenDocument,
+                    rowTarget,
+                    token).Logging("tableContextMenuOpened");
             }
             else
             {
-                menuItem3.IsEnabled = false;
-                menuItem4.IsEnabled = false;
                 menuItemOpenDocument.Visibility = Visibility.Collapsed;
             }
         }
@@ -5401,7 +5396,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
 
-        calcelAllContextMenuTasks();
+        CancelRelatedDocumentRequest();
         _lastOpenedContextMenu = contextMenu;
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
@@ -5692,9 +5687,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem { DataContext: string dataContext } && LongPathFileSystem.FileExists(dataContext))
+        if (e.Source is MenuItem { DataContext: string dataContext }
+            && base.DataContext is MainWindowViewModel viewModel)
         {
-            Process.Start(dataContext);
+            viewModel.SelectedChartExternalActions.OpenRelatedDocument(dataContext);
         }
     }
 

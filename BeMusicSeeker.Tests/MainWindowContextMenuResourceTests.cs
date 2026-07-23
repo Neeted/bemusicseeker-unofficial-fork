@@ -3283,6 +3283,35 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void RelatedDocumentMenuRoutesThroughFeatureOwner()
+    {
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string ownerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartExternalActionWorkflowOwner.cs");
+        string normalMenu = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuOpened",
+            "private void tableContextMenuPlaylistMissingOpened");
+        string clickHandler = ExtractMethodBody(
+            mainWindowCode,
+            "private void tableContextMenuItemOpenDocumentFileClick");
+
+        StringAssert.Contains(normalMenu, "SelectedChartExternalActions.CanQueryRelatedDocuments(rowTarget)");
+        StringAssert.Contains(normalMenu, "PopulateRelatedDocumentsMenuAsync(");
+        Assert.IsFalse(normalMenu.Contains("Task.Run"));
+        Assert.IsFalse(normalMenu.Contains("LongPathFileSystem.EnumerateFiles"));
+        Assert.IsFalse(normalMenu.Contains("DirectoryExt.GetDirectoryNameSimple"));
+        Assert.IsFalse(mainWindowCode.Contains("changeSubmenuOpenDocumentTask"));
+        Assert.IsFalse(mainWindowCode.Contains("tableContextMenuTaskTokenSource"));
+        Assert.IsFalse(mainWindowCode.Contains("calcelAllContextMenuTasks"));
+        Assert.IsFalse(clickHandler.Contains("Process.Start"));
+        StringAssert.Contains(clickHandler, "SelectedChartExternalActions.OpenRelatedDocument(dataContext)");
+        StringAssert.Contains(ownerCode, "QueryRelatedDocumentsAsync(");
+        StringAssert.Contains(ownerCode, "OpenRelatedDocument(string path)");
+        StringAssert.Contains(ownerCode, "relatedDocumentFileEnumerator");
+    }
+
+    [TestMethod]
     public void FullResourceHealthContextMenu_RoutesConfirmationThroughWorkflowOwner()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
