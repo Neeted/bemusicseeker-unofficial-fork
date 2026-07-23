@@ -3608,34 +3608,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        var dialogCoordinator = new UiDialogCoordinator();
-        UiSaveFilePickerResult headerResult = await dialogCoordinator.PickSaveFileAsync(new UiSaveFilePickerRequest(
-            BeMusicSeeker.Properties.Resources.Save_header_file,
-            (!string.IsNullOrWhiteSpace(bmsTable.header_url)) ? Path.GetFileName(bmsTable.Header_url.ToString()) : "header.json",
-            ".json",
-            BeMusicSeeker.Properties.Resources.Json_file_exts,
-            addExtension: true,
-            this));
-        ThrowIfPickerFailed(headerResult.Status, headerResult.Error, "Header export save picker");
-        if (headerResult.Status != UiDialogStatus.Accepted)
-        {
-            return;
-        }
-        UiSaveFilePickerResult dataResult = await dialogCoordinator.PickSaveFileAsync(new UiSaveFilePickerRequest(
-            BeMusicSeeker.Properties.Resources.Save_data_file,
-            (!string.IsNullOrWhiteSpace(bmsTable.data_url)) ? Path.GetFileName(bmsTable.Data_url.ToString()) : "data.json",
-            ".json",
-            BeMusicSeeker.Properties.Resources.Json_file_exts,
-            addExtension: true,
-            this));
-        ThrowIfPickerFailed(dataResult.Status, dataResult.Error, "Data export save picker");
-        if (dataResult.Status != UiDialogStatus.Accepted)
-        {
-            return;
-        }
         await viewModel.PlaylistWorkspace
-            .ExportPlaylistTableAsync(bmsTable, headerResult.FileName, dataResult.FileName)
-            .Logging("treeViewPlaylistTableContextMenuItemExportTableClick");
+            .ExportPlaylistTableAsync(bmsTable)
+            .LoggingAndPropagate("treeViewPlaylistTableContextMenuItemExportTableClick");
     }
 
     /// <summary>

@@ -319,17 +319,20 @@ public sealed class MainWindowContextMenuResourceTests
             "spec",
             "file-selection-dialogs.md"));
 
-        StringAssert.Contains(route, "Header export save picker");
-        StringAssert.Contains(route, "Data export save picker");
-        StringAssert.Contains(route, "ExportPlaylistTableAsync(bmsTable, headerResult.FileName, dataResult.FileName)");
-        Assert.IsTrue(route.IndexOf("Header export save picker", StringComparison.Ordinal) < route.IndexOf("Data export save picker", StringComparison.Ordinal));
+        StringAssert.Contains(route, "ExportPlaylistTableAsync(bmsTable)");
+        StringAssert.Contains(route, "LoggingAndPropagate(\"treeViewPlaylistTableContextMenuItemExportTableClick\")");
+        Assert.AreEqual(-1, route.IndexOf("new UiDialogCoordinator", StringComparison.Ordinal));
+        Assert.AreEqual(-1, route.IndexOf("UiSaveFilePickerRequest", StringComparison.Ordinal));
+        Assert.AreEqual(-1, route.IndexOf("ThrowIfPickerFailed", StringComparison.Ordinal));
         Assert.AreEqual(-1, route.IndexOf("Task.Run", StringComparison.Ordinal));
         Assert.AreEqual(-1, route.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal Task ExportPlaylistTableAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)");
+        StringAssert.Contains(workspaceSource, "internal async Task ExportPlaylistTableAsync(BMSTable bmsTable)");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("internal Task ExportPlaylistTableAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "new UiSaveFilePickerRequest(");
         StringAssert.Contains(workspaceSource, "HeaderToJson()");
         StringAssert.Contains(workspaceSource, "DataToJson()");
         Assert.AreEqual(-1, rootViewModelSource.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
-        StringAssert.Contains(selectionSpec, "PlaylistWorkspace.ExportPlaylistTableAsync(bmsTable, headerResult.FileName, dataResult.FileName)");
+        StringAssert.Contains(selectionSpec, "PlaylistWorkspace.ExportPlaylistTableAsync(bmsTable)");
     }
 
     [TestMethod]
@@ -4780,15 +4783,15 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
-        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
 
         StringAssert.Contains(settingDialogCode, "new UiSaveFilePickerRequest(");
         StringAssert.Contains(settingDialogCode, "\".sql\"");
         StringAssert.Contains(settingDialogCode, "addExtension: true");
-        StringAssert.Contains(mainWindowCode, "new UiSaveFilePickerRequest(");
-        StringAssert.Contains(mainWindowCode, "\".json\"");
-        StringAssert.Contains(mainWindowCode, "addExtension: true");
+        string playlistWorkspaceCode = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        StringAssert.Contains(playlistWorkspaceCode, "new UiSaveFilePickerRequest(");
+        StringAssert.Contains(playlistWorkspaceCode, "\".json\"");
+        StringAssert.Contains(playlistWorkspaceCode, "addExtension: true");
         StringAssert.Contains(loadPlaylistCode, "new UiFilePickerRequest(");
         StringAssert.Contains(loadPlaylistCode, "defaultExtension: \".json\"");
     }

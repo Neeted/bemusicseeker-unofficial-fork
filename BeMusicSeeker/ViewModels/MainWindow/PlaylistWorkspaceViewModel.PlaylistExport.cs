@@ -3,17 +3,68 @@ using System.IO;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    internal Task ExportPlaylistTableAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)
+    internal async Task ExportPlaylistTableAsync(BMSTable bmsTable)
     {
         if (bmsTable == null)
         {
             throw new ArgumentNullException(nameof(bmsTable));
         }
+
+        UiSaveFilePickerResult headerResult = await playlistWorkspaceDialogService.PickSaveFileAsync(
+            new UiSaveFilePickerRequest(
+                BeMusicSeeker.Properties.Resources.Save_header_file,
+                !string.IsNullOrWhiteSpace(bmsTable.header_url)
+                    ? Path.GetFileName(bmsTable.Header_url.ToString())
+                    : "header.json",
+                ".json",
+                BeMusicSeeker.Properties.Resources.Json_file_exts,
+                addExtension: true));
+        ThrowIfPlaylistExportPickerFailed(headerResult, "Header export save picker");
+        if (headerResult.Status != UiDialogStatus.Accepted)
+        {
+            return;
+        }
+
+        UiSaveFilePickerResult dataResult = await playlistWorkspaceDialogService.PickSaveFileAsync(
+            new UiSaveFilePickerRequest(
+                BeMusicSeeker.Properties.Resources.Save_data_file,
+                !string.IsNullOrWhiteSpace(bmsTable.data_url)
+                    ? Path.GetFileName(bmsTable.Data_url.ToString())
+                    : "data.json",
+                ".json",
+                BeMusicSeeker.Properties.Resources.Json_file_exts,
+                addExtension: true));
+        ThrowIfPlaylistExportPickerFailed(dataResult, "Data export save picker");
+        if (dataResult.Status != UiDialogStatus.Accepted)
+        {
+            return;
+        }
+
+        await ExportPlaylistTableCoreAsync(bmsTable, headerResult.FileName, dataResult.FileName);
+    }
+
+    private static void ThrowIfPlaylistExportPickerFailed(UiSaveFilePickerResult result, string routeName)
+    {
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " returned no picker result.");
+        }
+        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Error);
+    }
+
+    private Task ExportPlaylistTableCoreAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)
+    {
         if (fileNameHeader == null)
         {
             throw new ArgumentNullException(nameof(fileNameHeader));

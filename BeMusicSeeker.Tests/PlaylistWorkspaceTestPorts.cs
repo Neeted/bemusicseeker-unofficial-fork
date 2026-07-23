@@ -84,6 +84,10 @@ internal static class PlaylistWorkspaceTestPorts
 
         internal UiConfirmationRequest LastConfirmationRequest { get; private set; } = null!;
 
+        internal List<UiSaveFilePickerRequest> SaveFilePickerRequests { get; } = [];
+
+        internal Queue<UiSaveFilePickerResult> SaveFilePickerResults { get; } = [];
+
         public Task<UiDialogResult> ShowMessageAsync(
             UiMessageRequest request,
             CancellationToken cancellationToken = default)
@@ -115,7 +119,15 @@ internal static class PlaylistWorkspaceTestPorts
 
         public Task<UiSaveFilePickerResult> PickSaveFileAsync(
             UiSaveFilePickerRequest request,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            SaveFilePickerRequests.Add(request);
+            if (SaveFilePickerResults.Count == 0)
+            {
+                throw new InvalidOperationException("No save file picker result was configured.");
+            }
+            return Task.FromResult(SaveFilePickerResults.Dequeue());
+        }
 
         public Task<UiProgressResult> RunWithProgressAsync(
             UiProgressRequest request,
