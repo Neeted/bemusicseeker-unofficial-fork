@@ -4205,7 +4205,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistSummaryConfiguration_IsOwnedByPlaylistWorkspace()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var columns = new PlaylistSummaryColumnSettings();
         var propertyNames = new List<string>();
         var rootPropertyNames = new List<string>();
@@ -4936,7 +4936,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryApplyCommitsRowsAndTextWithoutSelectionRestore()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();

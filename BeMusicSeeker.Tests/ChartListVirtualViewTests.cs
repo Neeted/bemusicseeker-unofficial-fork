@@ -2359,7 +2359,7 @@ public sealed class ChartListVirtualViewTests
     public async Task InstallDestinationWorkflow_ClearPackagesWithoutLibraryClearsAdapterlessBmsonEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(
             ChartFileProjection.WithPackageState(
                 ChartFileProjection.FromBmsonSong(CreateBmsonSong()),
@@ -2379,7 +2379,7 @@ public sealed class ChartListVirtualViewTests
     public async Task InstallDestinationWorkflow_ClearPendingClearsAdapterlessBmsonPackageEntryWithoutMaterializing()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2431,7 +2431,7 @@ public sealed class ChartListVirtualViewTests
     public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2483,7 +2483,7 @@ public sealed class ChartListVirtualViewTests
     public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveLooseBmsonCompatibilityAdapterWhenStandaloneTargetSharesPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2568,7 +2568,7 @@ public sealed class ChartListVirtualViewTests
     public async Task InstallDestinationWorkflow_SearchPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2654,7 +2654,7 @@ public sealed class ChartListVirtualViewTests
     public async Task InstallDestinationWorkflow_ClearPendingResolvesReplacedPackageEntryByChartIdentity()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2876,7 +2876,7 @@ public sealed class ChartListVirtualViewTests
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         RegularChartListOwner regularOwner = viewModel.RegularChartList;
         BMSFile zeta = CreateFile(Path.Combine(tempRootPath, "zeta.bms"), "Zeta", tempRootPath);
         BMSFile alpha = CreateFile(Path.Combine(tempRootPath, "alpha.bms"), "Alpha", tempRootPath, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");

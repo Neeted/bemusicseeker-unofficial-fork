@@ -18,6 +18,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using NLog;
@@ -145,6 +146,39 @@ public partial class App : System.Windows.Application
             message => NLogWrapper.FileLogger?.Info(message),
             (path, ex) => NLogWrapper.FileLogger?.Warn(ex, "temp_startup_cleanup_failed path=" + path));
         ManagedDependencyPreloader.Preload();
+
+        CreateAndShowMainWindow();
+    }
+
+    private void CreateAndShowMainWindow()
+    {
+        try
+        {
+            ApplicationComposition composition = ApplicationComposition.CreateDefault();
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            Resources["vm"] = viewModel;
+            MainWindow mainWindow = new(viewModel);
+            MainWindow = mainWindow;
+            mainWindow.Show();
+        }
+        catch (Exception exception)
+        {
+            HandleStartupCompositionFailure(exception);
+        }
+    }
+
+    private void HandleStartupCompositionFailure(Exception exception)
+    {
+        MarkCoordinatedShutdownStarted("startup_composition_failed");
+        try
+        {
+            ExceptionLogger(exception);
+        }
+        finally
+        {
+            ReleaseSingleInstanceMutex();
+            Shutdown(1);
+        }
     }
 
     private void Application_Exit(object sender, ExitEventArgs e)

@@ -3312,6 +3312,53 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void MainWindowUsesExplicitApplicationCompositionBindingRoot()
+    {
+        string root = FindRepositoryRoot();
+        string appCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.cs"));
+        string appXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.xaml"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "Views", "MainWindow.xaml");
+
+        Assert.IsFalse(appXaml.Contains("StartupUri"));
+        Assert.AreEqual(1, CountOccurrences(appCode, "ApplicationComposition.CreateDefault()"));
+        Assert.AreEqual(1, CountOccurrences(appCode, "MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();"));
+        Assert.AreEqual(1, CountOccurrences(appCode, "Resources[\"vm\"] = viewModel;"));
+        Assert.AreEqual(1, CountOccurrences(appCode, "MainWindow mainWindow = new(viewModel);"));
+        Assert.AreEqual(1, CountOccurrences(appCode, "MainWindow = mainWindow;"));
+        Assert.AreEqual(1, CountOccurrences(appCode, "mainWindow.Show();"));
+        StringAssert.Contains(appCode, "CreateAndShowMainWindow();");
+        StringAssert.Contains(appCode, "catch (Exception exception)");
+        StringAssert.Contains(appCode, "HandleStartupCompositionFailure(exception);");
+        StringAssert.Contains(appCode, "MarkCoordinatedShutdownStarted(\"startup_composition_failed\");");
+        StringAssert.Contains(appCode, "ReleaseSingleInstanceMutex();");
+        StringAssert.Contains(appCode, "Shutdown(1);");
+        int compositionIndex = appCode.IndexOf("ApplicationComposition composition =", StringComparison.Ordinal);
+        int resourceIndex = appCode.IndexOf("Resources[\"vm\"] = viewModel;", StringComparison.Ordinal);
+        int windowIndex = appCode.IndexOf("MainWindow mainWindow = new(viewModel);", StringComparison.Ordinal);
+        int showIndex = appCode.IndexOf("mainWindow.Show();", StringComparison.Ordinal);
+        Assert.IsTrue(compositionIndex >= 0 && compositionIndex < resourceIndex);
+        Assert.IsTrue(resourceIndex < windowIndex && windowIndex < showIndex);
+        Assert.IsFalse(mainWindowXaml.Contains("MainWindowViewModelResourceExtension"));
+        Assert.IsFalse(mainWindowXaml.Contains("DataContext=\"{DynamicResource vm}\""));
+        StringAssert.Contains(mainWindowCode, "public MainWindow(MainWindowViewModel viewModel)");
+        StringAssert.Contains(mainWindowCode, "DataContext = viewModel;");
+        int dataContextIndex = mainWindowCode.IndexOf("DataContext = viewModel;", StringComparison.Ordinal);
+        int initializeComponentIndex = mainWindowCode.IndexOf("InitializeComponent();", StringComparison.Ordinal);
+        Assert.IsTrue(dataContextIndex >= 0 && dataContextIndex < initializeComponentIndex);
+        Assert.IsFalse(mainWindowCode.Contains("ApplicationComposition.CreateDefault().SaveSettings()"));
+
+        string productionCode = string.Join(
+            Environment.NewLine,
+            Directory.GetFiles(Path.Combine(root, "BeMusicSeeker"), "*.cs", SearchOption.AllDirectories)
+                .Select(File.ReadAllText));
+        Assert.IsFalse(productionCode.Contains("MainWindowViewModelResourceExtension"));
+        Assert.IsFalse(productionCode.Contains("public MainWindow()"));
+        Assert.IsFalse(productionCode.Contains("public MainWindowViewModel()"));
+    }
+
+    [TestMethod]
     public void FullResourceHealthContextMenu_RoutesConfirmationThroughWorkflowOwner()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();

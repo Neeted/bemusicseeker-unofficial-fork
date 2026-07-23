@@ -2631,15 +2631,6 @@ public partial class MainWindowViewModel : ViewModel
 
     public bool IS_WIN8OR10 => Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012);
 
-    /// <summary>
-    /// <see cref="MainWindowViewModel"/> クラスの新しいインスタンスを初期化します。
-    /// 設定情報に基づくプレースホルダーの初期状態設定や、内包される <see cref="SettingDialogViewModel"/> の生成を行います。
-    /// </summary>
-    public MainWindowViewModel()
-        : this(ApplicationComposition.CreateDefault())
-    {
-    }
-
     internal MainWindowViewModel(ApplicationComposition composition)
     {
         if (composition == null)

@@ -45,7 +45,7 @@ public sealed class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             int reloadCount = 0;
-            MainWindowViewModel owner = new();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new MainWindowViewModel.SettingDialogViewModel(
                 owner,
                 settingsSession.Reload,
@@ -88,7 +88,7 @@ public sealed class SettingDialogEditCompletionTests
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
             };
-            MainWindowViewModel owner = new();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new MainWindowViewModel.SettingDialogViewModel(
                 owner,
                 settingsSession.Reload,
@@ -120,7 +120,7 @@ public sealed class SettingDialogEditCompletionTests
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
-            MainWindowViewModel owner = new();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new MainWindowViewModel.SettingDialogViewModel(
                 owner,
                 settingsSession.Reload,
@@ -151,7 +151,7 @@ public sealed class SettingDialogEditCompletionTests
             {
                 ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("dialog failure"))
             };
-            MainWindowViewModel owner = new();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new MainWindowViewModel.SettingDialogViewModel(
                 owner,
                 settingsSession.Reload,
@@ -206,7 +206,7 @@ public sealed class SettingDialogEditCompletionTests
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
-            MainWindowViewModel owner = new();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new MainWindowViewModel.SettingDialogViewModel(
                 owner,
                 settingsSession.Reload,
@@ -253,7 +253,7 @@ public sealed class SettingDialogEditCompletionTests
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
-            MainWindowViewModel owner = new();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new MainWindowViewModel.SettingDialogViewModel(
                 owner,
                 settingsSession.Reload,
@@ -309,7 +309,7 @@ public sealed class SettingDialogEditCompletionTests
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
-            MainWindowViewModel owner = new();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new MainWindowViewModel.SettingDialogViewModel(
                 owner,
                 settingsSession.Reload,

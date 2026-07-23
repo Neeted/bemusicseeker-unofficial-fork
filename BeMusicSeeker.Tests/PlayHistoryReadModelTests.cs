@@ -1478,7 +1478,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void SelectPlaylistSummaryClearsPlayHistorySummaryPresentation()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var archive = new[] { new PlayHistoryPeriodTreeItem("archive", PlayHistoryPeriodRequest.All()) };
         viewModel.PlayHistory.PresentationState.SetArchivePeriodTree(archive);
         viewModel.PlayHistory.PresentationState.SetSummaryCards(new[] { new PlayHistorySummaryCard(Resources.Play_history_summary_judge_count, "1") });
@@ -1851,7 +1851,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void MainChartListSortRequest_KeepsPlayHistorySortSeparateFromMainSort()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         SetPrivateField(
             viewModel,
@@ -1894,7 +1894,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void MainChartListSortRequest_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         SetPrivateField(
             viewModel,
@@ -1945,7 +1945,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void MainChartListSortRequest_RejectsStaleAndAbaOwnerRevisions()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         var regularRequests = new List<MainChartListSortRequestedEventArgs>();
         var playHistoryRequests = new List<MainChartListSortRequestedEventArgs>();
@@ -1980,7 +1980,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void RegularSortMutation_CancelsTheInFlightRowRequestBeforeRefreshRuns()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var owner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         Assert.IsTrue(owner.TryBeginRequest(out RegularChartListRequestLease lease));
 
@@ -2071,7 +2071,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void SortRefreshQueues_StartEvenWhenSortChangedSubscriberFails()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         using var regularRefreshed = new ManualResetEventSlim();
         regularOwner.SortChanged += (_, _) => throw new InvalidOperationException("expected regular notification failure");

@@ -77,7 +77,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
     [TestMethod]
     public async Task SettingDialogViewModel_InstallOrRepair_BlockedOperationUsesOwnerDialog()
     {
-        var owner = new MainWindowViewModel();
+        var owner = MainWindowViewModelTestFactory.Create();
         var dialogs = new RecordingUiDialogService();
         var settingDialog = new MainWindowViewModel.SettingDialogViewModel(
             owner,
@@ -112,7 +112,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         {
             string scoreDbPath = Path.Combine(directoryPath, "score.db");
             CreateInstalledScoreDb(scoreDbPath);
-            var owner = new MainWindowViewModel();
+            var owner = MainWindowViewModelTestFactory.Create();
             SetPrivateField(owner, "hasActiveLibraryProfile", true);
             var dialogs = new RecordingUiDialogService
             {
@@ -171,7 +171,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         {
             string scoreDbPath = Path.Combine(directoryPath, "score.db");
             CreateInstalledScoreDb(scoreDbPath);
-            var owner = new MainWindowViewModel();
+            var owner = MainWindowViewModelTestFactory.Create();
             var dialogs = new RecordingUiDialogService
             {
                 AcceptUninstall = true,
@@ -227,7 +227,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         {
             string scoreDbPath = Path.Combine(directoryPath, "score.db");
             CreateInstalledScoreDb(scoreDbPath);
-            var owner = new MainWindowViewModel();
+            var owner = MainWindowViewModelTestFactory.Create();
             var dialogs = new RecordingUiDialogService { AcceptUninstall = false };
             int reloadCount = 0;
             int invalidationCount = 0;

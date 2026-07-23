@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Application x:Class="BeMusicSeeker.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:bemusicseeker="clr-namespace:BeMusicSeeker;assembly=BeMusicSeeker" StartupUri="Views/MainWindow.xaml" Startup="Application_Startup" Exit="Application_Exit">
+<Application x:Class="BeMusicSeeker.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:bemusicseeker="clr-namespace:BeMusicSeeker;assembly=BeMusicSeeker" Startup="Application_Startup" Exit="Application_Exit">
   <Application.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>

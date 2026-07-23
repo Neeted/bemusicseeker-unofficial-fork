@@ -927,7 +927,7 @@ public sealed class BmsPlaylistUpdateTests
                     ]),
                     Dispatcher.CurrentDispatcher)
             };
-            var viewModel = new MainWindowViewModel();
+            var viewModel = MainWindowViewModelTestFactory.Create();
             CollectionAssert.AreEqual(
                 Array.Empty<string>(),
                 viewModel.PlaylistWorkspace.GetPlaylistKeywordValueCandidates().ToArray());
@@ -997,7 +997,7 @@ public sealed class BmsPlaylistUpdateTests
                     new ObservableCollection<BMSTable>([new BMSTable { name = "Initial" }]),
                     Dispatcher.CurrentDispatcher)
             };
-            var viewModel = new MainWindowViewModel();
+            var viewModel = MainWindowViewModelTestFactory.Create();
             List<string> workspacePropertyNames = [];
             int playlistTablesPresentationChangedCount = 0;
             viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => workspacePropertyNames.Add(e.PropertyName);
@@ -1368,7 +1368,7 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(
                 new ObservableCollection<BMSTable>(new[] { table }),
                 Dispatcher.CurrentDispatcher);
-            var viewModel = new MainWindowViewModel();
+            var viewModel = MainWindowViewModelTestFactory.Create();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -2644,7 +2644,7 @@ public sealed class BmsPlaylistUpdateTests
             Directory.CreateDirectory(oldOutputDirectory);
             Directory.CreateDirectory(newAdditionalOutputBaseDir);
             File.WriteAllText(oldOutputPath, "#TITLE stale default", Encoding.GetEncoding("shift_jis"));
-            var viewModel = new MainWindowViewModel();
+            var viewModel = MainWindowViewModelTestFactory.Create();
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2CustomFolderOutputBaseDir = defaultOutputBaseDir;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
@@ -2841,7 +2841,7 @@ public sealed class BmsPlaylistUpdateTests
                     new ObservableCollection<BMSTable>(new[] { table }),
                     Dispatcher.CurrentDispatcher)
             };
-            var viewModel = new MainWindowViewModel();
+            var viewModel = MainWindowViewModelTestFactory.Create();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);

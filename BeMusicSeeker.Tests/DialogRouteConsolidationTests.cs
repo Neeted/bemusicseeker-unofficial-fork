@@ -233,7 +233,7 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(mainWindowCode.Contains("PrepareStartupUpdateShutdownAsync"));
         Assert.IsFalse(mainWindowCode.Contains("StartupUpdateShutdownPreparationRequest"));
         Assert.IsFalse(mainWindowCode.Contains("ShutdownPreparationRequested"));
-        StringAssert.Contains(mainWindowCode, "startupViewModel.StartupUpdateWorkflow.Start();");
+        StringAssert.Contains(mainWindowCode, "viewModel.StartupUpdateWorkflow.Start();");
         StringAssert.Contains(mainWindowCode, "new UpdateAvailableDialog(request.Result, viewModel.ProgressHub)");
         Assert.IsFalse(mainWindowCode.Contains("CheckForUpdatesAsync("), "MainWindow must not own the startup update check.");
         Assert.IsFalse(mainWindowCode.Contains("DownloadAndApplyUpdateAsync("), "MainWindow must not own update download/apply orchestration.");

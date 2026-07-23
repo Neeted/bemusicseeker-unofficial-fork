@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Markup;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -837,16 +836,5 @@ internal sealed class MainWindowChildComposition
     private static bool MissingFolderAutoRenameAllTargetChecker(BMSLibrary library, string parentDirectory)
     {
         throw new InvalidOperationException("Folder auto-rename target checker is not configured.");
-    }
-}
-
-/// <summary>
-/// XAML resource から MainWindowViewModel を application composition 経由で生成します。
-/// </summary>
-public sealed class MainWindowViewModelResourceExtension : MarkupExtension
-{
-    public override object ProvideValue(IServiceProvider serviceProvider)
-    {
-        return ApplicationComposition.CreateDefault().CreateMainWindowViewModel();
     }
 }

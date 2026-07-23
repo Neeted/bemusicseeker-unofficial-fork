@@ -206,8 +206,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
-    private MainWindowViewModel viewModelForClosed;
-
     private bool settingsSavedForClosing;
 
     /// <summary>
@@ -215,28 +213,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// UIコンポーネントの構築、TreeViewのイベントハンドラ登録、
     /// 設定のプロパティ変更リスナの初期化、および非同期のアップデートチェックを開始します。
     /// </summary>
-    public MainWindow()
+    public MainWindow(MainWindowViewModel viewModel)
     {
+        if (viewModel == null)
+        {
+            throw new ArgumentNullException(nameof(viewModel));
+        }
+        DataContext = viewModel;
         InitializeComponent();
         ApplySavedTreeViewWidth();
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
         Deactivated += MainWindow_Deactivated;
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            viewModelForClosed = viewModel;
-            viewModel.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
-            SubscribeViewModelUiInteractions(viewModel);
-        }
+        viewModel.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
+        SubscribeViewModelUiInteractions(viewModel);
         Closed += MainWindow_Closed;
         ContentRendered += MainWindow_ContentRendered;
 
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
         gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
 
-        if (base.DataContext is MainWindowViewModel startupViewModel)
-        {
-            startupViewModel.StartupUpdateWorkflow.Start();
-        }
+        viewModel.StartupUpdateWorkflow.Start();
     }
 
     private async void MainWindow_ContentRendered(object sender, EventArgs e)
@@ -718,7 +714,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void ApplyTerminalShutdown()
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel ?? viewModelForClosed;
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         SaveSettingsForClosing(viewModel);
         viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
         if (Application.Current != null)
@@ -733,7 +729,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void MainWindow_Closed(object sender, EventArgs e)
     {
-        MainWindowViewModel viewModel = viewModelForClosed ?? (base.DataContext as MainWindowViewModel);
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         SaveSettingsForClosing(viewModel);
         viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
         UnsubscribeViewModelUiInteractions();
@@ -748,7 +744,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     protected override void OnClosing(CancelEventArgs e)
     {
         MainWindowViewModel closingViewModel = base.DataContext as MainWindowViewModel;
-        viewModelForClosed ??= closingViewModel;
         if (closingViewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow && !shellShutdownWorkflow.IsCloseAllowed)
         {
             e.Cancel = true;
@@ -762,7 +757,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         var viewModel = closingViewModel;
-        viewModelForClosed ??= closingViewModel;
         if (viewModel != null && _startupInitialSelectionReadyHandler != null)
         {
             viewModel.PropertyChanged -= _startupInitialSelectionReadyHandler;
@@ -813,10 +807,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (viewModel != null)
             {
                 viewModel.SaveSettingsForShutdown();
-            }
-            else
-            {
-                ApplicationComposition.CreateDefault().SaveSettings();
             }
         }
         catch (Exception ex)

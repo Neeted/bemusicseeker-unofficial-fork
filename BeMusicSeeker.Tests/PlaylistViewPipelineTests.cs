@@ -234,7 +234,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailTerminal_StaleRequestCancelsPreparationWithoutApplyingRows()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var oldRows = new List<object>();
         var candidateRows = new List<object> { new object() };
         viewModel.MainChartList.Rows = oldRows;
@@ -268,7 +268,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistWorkspace_CurrentSourceEntryBuildsAndCommitsMainTableRows()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         PlaylistDetailSourceRow sourceRow = CreateSourceRow(
             "12121212121212121212121212121212",
             "Current source",
@@ -1401,7 +1401,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void SetBmsPlayerHeader_UsesSplitBmsMetadata()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "ouroVoros", 7);
         file.SetSubtitle("[LAST BOSS]");
@@ -1422,7 +1422,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void BeginPlayback_SynchronizesPlayerHeader()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "NextTitle", 7);
         file.SetSubtitle("[NextSubtitle]");
@@ -1443,7 +1443,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void SetMoviePlayerHeader_UsesRowRawTitleAndKeepsBmsDisplayTarget()
     {
-        var viewModel = new MainWindowViewModel();
+        var viewModel = MainWindowViewModelTestFactory.Create();
         var bmsFile = new TestableBmsFile();
         bmsFile.ApplySnapshot("abababababababababababababababab", "BmsTitle", 7);
         bmsFile.SetSubtitle("[BmsSubtitle]");
@@ -2657,7 +2657,7 @@ public sealed class PlaylistViewPipelineTests
                 sha256 = entry.sha256
             };
             PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
-            var viewModel = new MainWindowViewModel();
+            var viewModel = MainWindowViewModelTestFactory.Create();
             typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, new BMSPlaylist(songDbPath));
 
             var context = new MainChartListCellEditContext(

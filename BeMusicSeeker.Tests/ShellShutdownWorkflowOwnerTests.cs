@@ -20,7 +20,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task RepeatedWindowCloseRequestsShareOnePreparationAndCompletion()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
 
         Task<ShellShutdownWorkflowCompletionReceipt> first = owner.RequestWindowCloseAsync();
@@ -38,7 +38,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task StartupUpdatePreparationAndWindowCloseShareCanonicalPreparation()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
 
         Task<ShutdownPreparationResult> updatePreparation = owner.PrepareForStartupUpdateAsync("update");
@@ -55,7 +55,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task CoordinatedShutdownIsMarkedBeforePreparationCompletes()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         bool marked = false;
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, markShutdown: _ => marked = true);
 
@@ -68,7 +68,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task TerminalResourceCleanupIsIdempotentAfterClosePreparation()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
 
         await owner.RequestWindowCloseAsync();
@@ -79,7 +79,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task DispatchFailureCompletesOnlyAfterShutdownDrainFallback()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         TaskCompletionSource<bool> regularChartStopRelease = PreparePendingRegularChartStop(viewModel);
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(
             viewModel,
@@ -102,7 +102,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task PreparationWaitsForRegularChartStopBeforeAllowingClose()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         TaskCompletionSource<bool> regularChartStopRelease = PreparePendingRegularChartStop(viewModel);
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
 
@@ -121,7 +121,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task LateAttachedCatalogsReceiveShutdownCancellation()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
 
         ShellShutdownWorkflowCompletionReceipt receipt = await owner.RequestWindowCloseAsync();
@@ -144,7 +144,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public void TerminalCleanupStartsCancellationWhenClosePreparationWasBypassed()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
         BMSLibrary library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         BMSPlaylist playlist = (BMSPlaylist)FormatterServices.GetUninitializedObject(typeof(BMSPlaylist));
@@ -178,7 +178,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             packagePath => { },
             action => Task.Run(action),
             action => action());
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, startupUpdate: startupUpdate);
 
         Assert.IsTrue(startupUpdate.Start());
@@ -238,7 +238,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         startupUpdate.PresentationRequested += request => request.Complete(available.Assets[0]);
         startupUpdate.TerminalPublished += _ => events.Add("terminal");
 
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, startupUpdate: startupUpdate);
         Assert.IsTrue(startupUpdate.Start());
         Assert.IsTrue(startEntered.Wait(TimeSpan.FromSeconds(5)));
@@ -264,7 +264,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task CoordinatedShutdownFailureStillStartsCancellationFallback()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(
             viewModel,
             action => action(),
@@ -283,7 +283,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task TerminalCleanupClosesPlaybackPlayerExactlyOnce()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         var player = new FakeBmsPlayer();
         FieldInfo playerField = typeof(PlaybackPanelViewModel)
             .GetField("bmsPlayer", BindingFlags.Instance | BindingFlags.NonPublic);
