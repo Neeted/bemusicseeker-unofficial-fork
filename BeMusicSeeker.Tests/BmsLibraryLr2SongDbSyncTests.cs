@@ -6,11 +6,14 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -498,6 +501,35 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 () => InvokeSetModeAndCommitToDb(library, []));
             Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
             Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.InnerException.Message);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistTableLevelOverwriteWorkflow_PresentsBlockedWarningWithoutLibraryDialog()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                BMSFiles = []
+            };
+            InvokeBeginLr2SongDbSyncRequest(library);
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            var workflow = new PlaylistTableLevelOverwriteWorkflowOwner(dialogs, () => library);
+
+            await workflow.OverwriteAsync(new BMSTable());
+
+            Assert.IsNotNull(dialogs.LastMessageRequest);
+            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, dialogs.LastMessageRequest.MessageBoxText);
+            Assert.AreEqual(Resources.MessageBoxTitle_Warning, dialogs.LastMessageRequest.Caption);
         }
         finally
         {

@@ -3654,7 +3654,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// ユーザー確認ダイアログ表示後、このプレイリストに登録されている各楽曲のレベル情報を用いて
     /// メインDB（ローカルの全BMS情報）の同等楽曲のレベル値を書き換えます。
     /// </summary>
-    private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick(object sender, RoutedEventArgs e)
+    private async void treeViewPlaylistTableContextMenuItemOverwriteLevelClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem menuItem)
         {
@@ -3664,11 +3664,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (viewModel.PlaylistWorkspace.ConfirmPlaylistOverwriteLevel(bmsTable))
-        {
-            _ = viewModel.PlaylistWorkspace.ReplaceBmsFileLevelByTableEntryLevelAsync(bmsTable)
-                .Logging("treeViewPlaylistTableContextMenuItemOverwriteLevelClick");
-        }
+        await viewModel.PlaylistWorkspace.PlaylistTableLevelOverwriteWorkflow
+            .OverwriteAsync(bmsTable)
+            .Logging("treeViewPlaylistTableContextMenuItemOverwriteLevelClick");
     }
 
     /// <summary>

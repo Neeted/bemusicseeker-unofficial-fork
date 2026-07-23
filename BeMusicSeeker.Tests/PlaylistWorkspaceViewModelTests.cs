@@ -45,6 +45,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             "ViewModels",
             "MainWindow",
             "PlaylistRemovalWorkflowOwner.cs");
+        string levelOverwriteSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistTableLevelOverwriteWorkflowOwner.cs");
         string detailSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailSource.cs");
         string summaryBuildSource = SourceTextTestHelper.ReadProductionSourceText(
@@ -387,8 +392,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(removalSource, "playlistStore.RemoveBMSTable(table)");
         StringAssert.Contains(removalSource, "playlistStore.RemoveFolderBMSTable(table, folderName)");
         StringAssert.Contains(removalSource, "library.RemoveReferenceBMSTables(removedTable)");
-        StringAssert.Contains(workspaceSource, "PlaylistTableLevelOverwriteConfirmationRequested");
-        StringAssert.Contains(workspaceSource, "internal bool ConfirmPlaylistOverwriteLevel(BMSTable table)");
+        StringAssert.Contains(workspaceSource, "PlaylistTableLevelOverwriteWorkflowOwner PlaylistTableLevelOverwriteWorkflow");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistTableLevelOverwriteConfirmationRequested", StringComparison.Ordinal));
+        StringAssert.Contains(levelOverwriteSource, "internal async Task OverwriteAsync(BMSTable table)");
+        StringAssert.Contains(levelOverwriteSource, "ReplaceBmsFileLevelByTableEntryLevel(table)");
         StringAssert.Contains(workspaceSource, "PlaylistSummaryColumnResetConfirmationRequested");
         StringAssert.Contains(workspaceSource, "internal bool TryResetPlaylistSummaryColumnsToDefault()");
         StringAssert.Contains(workspaceSource, "PlaylistRecommendedTableImportConfirmationRequested");
@@ -398,7 +405,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested += PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested += PlaylistWorkspacePlaylistTableLevelOverwriteConfirmationRequested;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested += PlaylistWorkspacePlaylistSummaryColumnResetConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested += PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
@@ -466,10 +473,10 @@ public sealed class PlaylistWorkspaceViewModelTests
             "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick(");
         Assert.AreEqual(-1, tableRemoveSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
         StringAssert.Contains(tableRemoveSource, "SelectNextSiblingOrRoot(");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ConfirmPlaylistOverwriteLevel(bmsTable)");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistTableLevelOverwriteWorkflow");
         string tableOverwriteSource = SourceTextTestHelper.ExtractMethodBody(
             mainWindowSource,
-            "private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick(");
+            "private async void treeViewPlaylistTableContextMenuItemOverwriteLevelClick(");
         Assert.AreEqual(-1, tableOverwriteSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
         Assert.AreEqual(-1, tableOverwriteSource.IndexOf("bmseeker:table.recommended", StringComparison.Ordinal));
         string summaryRemoveSource = SourceTextTestHelper.ExtractMethodBody(
@@ -1638,8 +1645,8 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryRemovalRequiresConfirmation()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService();
-        var workspace = CreateDetailWorkspace(out _, playlistRemovalDialogService: dialogs);
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        var workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
         var table = new BMSTable();
 
         await workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync(
@@ -1656,8 +1663,8 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public async Task PlaylistWorkspaceFolderRemovalRequiresConfirmationAndRejectsInvalidTargets()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService();
-        var workspace = CreateDetailWorkspace(out _, playlistRemovalDialogService: dialogs);
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        var workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
         var table = new BMSTable();
         await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"));
         Assert.IsNotNull(dialogs.LastConfirmationRequest);
@@ -1678,7 +1685,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     public async Task PlaylistRemovalWorkflowRejectsExternalSyncRaceAfterConfirmation()
     {
         var table = new BMSTable();
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
             ConfirmationFactory = _ =>
@@ -1689,7 +1696,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         };
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
-            playlistRemovalDialogService: dialogs);
+            playlistWorkspaceDialogService: dialogs);
         var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
         workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
 
@@ -1705,10 +1712,10 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public async Task PlaylistWorkspaceTableRemovalConfirmationIsOwnedByWorkflowOwner()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService();
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
-            playlistRemovalDialogService: dialogs);
+            playlistWorkspaceDialogService: dialogs);
         var table = new BMSTable();
 
         bool selectionApplied = false;
@@ -1725,22 +1732,41 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void PlaylistWorkspaceOverwriteLevelConfirmationRejectsRecommendedTables()
+    public async Task PlaylistTableLevelOverwriteWorkflowOwnsRecommendationAndConfirmation()
     {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        int libraryProviderCalls = 0;
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistLibraryProvider: () =>
+            {
+                libraryProviderCalls++;
+                return null!;
+            },
+            playlistWorkspaceDialogService: dialogs);
         var recommendedTable = new BMSTable { Page_url = new Uri("bmseeker:table.recommended") };
         var normalTable = new BMSTable { Page_url = new Uri("https://example.test/table") };
-        var requests = new List<bool>();
-        workspace.PlaylistTableLevelOverwriteConfirmationRequested += (_, request) =>
-        {
-            requests.Add(request.IsRecommendedTable);
-            request.Confirmed = true;
-        };
 
-        Assert.IsFalse(workspace.ConfirmPlaylistOverwriteLevel(null));
-        Assert.IsFalse(workspace.ConfirmPlaylistOverwriteLevel(recommendedTable));
-        Assert.IsTrue(workspace.ConfirmPlaylistOverwriteLevel(normalTable));
-        CollectionAssert.AreEqual(new[] { true, false }, requests);
+        await workspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync(null);
+        await workspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync(recommendedTable);
+        Assert.IsNotNull(dialogs.LastMessageRequest);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Msg_override_level_error_recommended,
+            dialogs.LastMessageRequest.MessageBoxText);
+        Assert.IsNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(0, libraryProviderCalls);
+
+        await workspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync(normalTable);
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Msg_override_level_warning,
+            dialogs.LastConfirmationRequest.MessageBoxText);
+        Assert.AreEqual(0, libraryProviderCalls);
+
+        dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            workspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync(normalTable));
+        Assert.AreEqual(1, libraryProviderCalls);
     }
 
     [TestMethod]
@@ -3470,7 +3496,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Func<bool>? restoreUiThreadCheck = null,
         Action<Uri>? browserOpenSink = null,
         PlaylistPropertySaveService? propertySaveService = null,
-        IUiDialogService? playlistRemovalDialogService = null)
+        IUiDialogService? playlistWorkspaceDialogService = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             dispatchPresentation ?? (action => action()),
@@ -3517,7 +3543,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             referenceApplyScheduler ?? ((_, _) => false),
              restoreUiApplyScheduler ?? PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler,
              restoreUiThreadCheck ?? PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
-             playlistRemovalDialogService);
+             playlistWorkspaceDialogService);
         dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         return workspace;

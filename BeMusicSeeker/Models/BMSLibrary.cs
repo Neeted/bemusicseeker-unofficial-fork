@@ -11048,15 +11048,15 @@ public partial class BMSLibrary : NotificationObject
     /// これは LR2 互換の BMS-only writeback であり、bmson storage row は更新しません。
     /// </summary>
     /// <param name="bmsTable">参照元 playlist。</param>
-    internal void ReplaceBmsFileLevelByTableEntryLevel(BMSTable bmsTable)
+    internal BmsFileLevelOverwriteOutcome ReplaceBmsFileLevelByTableEntryLevel(BMSTable bmsTable)
     {
         if (bmsTable == null)
         {
-            return;
+            return BmsFileLevelOverwriteOutcome.NotStarted;
         }
-        if (TryBlockLr2SongDbSyncMutation(nameof(ReplaceBmsFileLevelByTableEntryLevel)))
+        if (TryBlockLr2SongDbSyncMutation(nameof(ReplaceBmsFileLevelByTableEntryLevel), showMessage: false))
         {
-            return;
+            return BmsFileLevelOverwriteOutcome.BlockedByLr2Synchronization;
         }
         using IDisposable mutationSequence = lr2SynchronizationOwner.EnterLr2MutationSequence();
         using IDisposable mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
@@ -11064,7 +11064,7 @@ public partial class BMSLibrary : NotificationObject
             showMessage: false);
         if (mutationReservation == null)
         {
-            return;
+            return BmsFileLevelOverwriteOutcome.BlockedByLr2Synchronization;
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
@@ -11084,6 +11084,7 @@ public partial class BMSLibrary : NotificationObject
                     logReason: nameof(ReplaceBmsFileLevelByTableEntryLevel));
             }
         }
+        return BmsFileLevelOverwriteOutcome.Completed;
     }
 
     /// <summary>

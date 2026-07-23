@@ -280,25 +280,25 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void PlaylistOverwriteLevel_RoutesThroughWorkspaceMutationOwner()
+    public void PlaylistOverwriteLevel_RoutesThroughWorkflowOwner()
     {
         string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
         string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-        string workspaceMutationSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.Mutations.cs");
+        string levelOverwriteSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistTableLevelOverwriteWorkflowOwner.cs");
         string route = ExtractBetween(
             mainWindowSource,
-            "private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick",
+            "private async void treeViewPlaylistTableContextMenuItemOverwriteLevelClick",
             "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick");
 
-        StringAssert.Contains(route, "ConfirmPlaylistOverwriteLevel(bmsTable)");
-        StringAssert.Contains(route, "viewModel.PlaylistWorkspace.ReplaceBmsFileLevelByTableEntryLevelAsync(bmsTable)");
+        StringAssert.Contains(route, "PlaylistTableLevelOverwriteWorkflow");
+        StringAssert.Contains(route, "OverwriteAsync(bmsTable)");
         Assert.AreEqual(-1, route.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
         Assert.AreEqual(-1, route.IndexOf("bmseeker:table.recommended", StringComparison.Ordinal));
-        Assert.IsFalse(route.Contains("viewModel.ReplaceBMSFileLevelByTableEntryLevel("));
-        StringAssert.Contains(workspaceMutationSource, "internal Task ReplaceBmsFileLevelByTableEntryLevelAsync(BMSTable bmsTable)");
-        StringAssert.Contains(workspaceMutationSource, "GetPlaylistLibrary().ReplaceBmsFileLevelByTableEntryLevel(bmsTable)");
+        Assert.AreEqual(-1, route.IndexOf("ConfirmPlaylistOverwriteLevel", StringComparison.Ordinal));
+        StringAssert.Contains(levelOverwriteSource, "internal async Task OverwriteAsync(BMSTable table)");
+        StringAssert.Contains(levelOverwriteSource, "ReplaceBmsFileLevelByTableEntryLevel(table)");
         Assert.AreEqual(-1, rootViewModelSource.IndexOf("ReplaceBMSFileLevelByTableEntryLevel(", StringComparison.Ordinal));
     }
 
@@ -309,7 +309,7 @@ public sealed class MainWindowContextMenuResourceTests
         string route = ExtractBetween(
             mainWindowSource,
             "private async void treeViewPlaylistTableContextMenuItemExportTableClick",
-            "private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick");
+            "private async void treeViewPlaylistTableContextMenuItemOverwriteLevelClick");
         string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
@@ -2951,7 +2951,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs"));
         Assert.IsFalse(rootViewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFiles"));
         Assert.IsFalse(rootViewModelCode.Contains("files?.BMSFiles"));
-        StringAssert.Contains(libraryCode, "internal void ReplaceBmsFileLevelByTableEntryLevel(BMSTable bmsTable)");
+        StringAssert.Contains(libraryCode, "internal BmsFileLevelOverwriteOutcome ReplaceBmsFileLevelByTableEntryLevel(BMSTable bmsTable)");
         StringAssert.Contains(libraryCode, "List<BMSFile> bmsFiles = [.. from file in _BMSFiles ?? []");
         StringAssert.Contains(libraryCode, "dbGateway.UpdateSongLevels(bmsFiles)");
     }

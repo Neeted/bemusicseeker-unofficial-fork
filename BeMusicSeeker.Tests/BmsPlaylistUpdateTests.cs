@@ -722,7 +722,7 @@ public sealed class BmsPlaylistUpdateTests
                     null!)
             };
             var library = new BMSLibrary(songDbPath);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
@@ -7447,7 +7447,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 _ => { },
                 (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
-                new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService
+                new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
                 {
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
                 });
@@ -7539,7 +7539,7 @@ public sealed class BmsPlaylistUpdateTests
                     Dispatcher.CurrentDispatcher)
             };
             var library = new BMSLibrary(songDbPath);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistRemovalDialogService
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
@@ -7547,7 +7547,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getOperationSettings,
-                playlistRemovalDialogService: dialogs).CreateMainWindowViewModel();
+                playlistWorkspaceDialogService: dialogs).CreateMainWindowViewModel();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -8329,7 +8329,7 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ReplaceBmsFileLevelByTableEntryLevel_UpdatesOnlyExistingSongLevel()
+    public async Task PlaylistTableLevelOverwriteWorkflow_UpdatesOnlyExistingSongLevel()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -8376,7 +8376,12 @@ public sealed class BmsPlaylistUpdateTests
                 ]
             };
 
-            library.ReplaceBmsFileLevelByTableEntryLevel(table);
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            var workflow = new PlaylistTableLevelOverwriteWorkflowOwner(dialogs, () => library);
+            await workflow.OverwriteAsync(table);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == chartPath);

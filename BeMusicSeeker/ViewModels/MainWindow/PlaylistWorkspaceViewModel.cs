@@ -65,6 +65,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     internal PlaylistRemovalWorkflowOwner PlaylistRemovalWorkflow { get; }
 
+    internal PlaylistTableLevelOverwriteWorkflowOwner PlaylistTableLevelOverwriteWorkflow { get; }
+
     private readonly Action<Action<bool>> playlistSummaryPresentationRefreshGate;
 
     private readonly Action<Action<bool>> playlistSummaryDataRefreshGate;
@@ -158,7 +160,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<string, Func<Task>, bool> playlistReferenceApplyScheduler,
         Func<Action, Task> playlistRestoreUiApplyScheduler,
         Func<bool> playlistRestoreUiThreadCheck,
-        IUiDialogService playlistRemovalDialogService = null)
+        IUiDialogService playlistWorkspaceDialogService = null)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -249,12 +251,17 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             dispatchPresentation,
             playlistReloadCleanupShutdownRequestedProvider,
             playlistReloadLog);
+        IUiDialogService resolvedPlaylistWorkspaceDialogService =
+            playlistWorkspaceDialogService ?? new UiDialogCoordinator();
         PlaylistRemovalWorkflow = new PlaylistRemovalWorkflowOwner(
-            playlistRemovalDialogService ?? new UiDialogCoordinator(),
+            resolvedPlaylistWorkspaceDialogService,
             getPlaylistStore,
             getPlaylistLibrary,
             getLr2Config,
             customFolderOutputSettingsProvider);
+        PlaylistTableLevelOverwriteWorkflow = new PlaylistTableLevelOverwriteWorkflowOwner(
+            resolvedPlaylistWorkspaceDialogService,
+            getPlaylistLibrary);
         PlaylistRemovalWorkflow.ReferenceSortInvalidationRequested +=
             (_, _) => RequestPlaylistReferenceSortInvalidation();
         PlaylistRemovalWorkflow.SummaryRefreshRequested +=

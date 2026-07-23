@@ -66,7 +66,7 @@ internal sealed class ApplicationComposition
 
     private readonly Action<Exception> reportSettingsApplyFailure;
 
-    private readonly IUiDialogService playlistRemovalDialogService;
+    private readonly IUiDialogService playlistWorkspaceDialogService;
 
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
@@ -89,7 +89,7 @@ internal sealed class ApplicationComposition
         Func<MainWindowViewModel, Task> reloadScoresOnly = null,
         Action<Exception> reportSettingsApplyFailure = null,
         Func<MainWindowViewModel, Task> reloadFileDiff = null,
-        IUiDialogService playlistRemovalDialogService = null)
+        IUiDialogService playlistWorkspaceDialogService = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -101,7 +101,7 @@ internal sealed class ApplicationComposition
         this.reloadScoresOnly = reloadScoresOnly;
         this.reloadFileDiff = reloadFileDiff;
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
-        this.playlistRemovalDialogService = playlistRemovalDialogService ?? new UiDialogCoordinator();
+        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
             ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.startupSettingsProvider = startupSettingsProvider
@@ -267,7 +267,7 @@ internal sealed class ApplicationComposition
             playlistReferenceApplyScheduler,
             playlistRestoreUiApplyScheduler,
             playlistRestoreUiThreadCheck,
-            playlistRemovalDialogService);
+            this.playlistWorkspaceDialogService);
         return playlistWorkspace;
     }
 

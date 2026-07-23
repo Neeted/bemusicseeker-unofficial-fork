@@ -70,18 +70,27 @@ internal static class PlaylistWorkspaceTestPorts
             () => null!,
             () => new CustomFolderOutputSettingsSnapshot());
 
-    internal sealed class PlaylistRemovalDialogService : IUiDialogService
+    internal sealed class PlaylistWorkspaceDialogService : IUiDialogService
     {
         internal UiDialogResult ConfirmationResult { get; set; } =
             UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
 
         internal Func<UiConfirmationRequest, UiDialogResult>? ConfirmationFactory { get; set; }
 
+        internal UiDialogResult MessageResult { get; set; } =
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal UiMessageRequest LastMessageRequest { get; private set; } = null!;
+
         internal UiConfirmationRequest LastConfirmationRequest { get; private set; } = null!;
 
         public Task<UiDialogResult> ShowMessageAsync(
             UiMessageRequest request,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            LastMessageRequest = request;
+            return Task.FromResult(MessageResult);
+        }
 
         public Task<UiDialogResult> ConfirmAsync(
             UiConfirmationRequest request,
