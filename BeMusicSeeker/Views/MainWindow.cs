@@ -1566,21 +1566,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
-    private List<string> GetSelectedGridHashTargets()
-    {
-        ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
-        return [.. GetSelectedGridRowsSnapshot()
-            .Select(row =>
-            {
-                GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target);
-                return target;
-            })
-            .Where(target => target?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true)
-            .Select(target => target.Chart?.Md5)
-            .Where(hash => !string.IsNullOrWhiteSpace(hash))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-    }
-
     private List<string> GetSelectedChartInfoParseFailureMd5s()
     {
         return [.. GetSelectedChartTargets()
@@ -5097,9 +5082,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem7 != null)
         {
-            bool hasRankingTarget = contextMenuState.HasRankingTarget;
+            bool hasRankingTarget = mainWindowViewModel.RankingCacheDownloadWorkflow.HasRankingTarget(selectedTargets);
             menuItem7.Visibility = hasRankingTarget ? Visibility.Visible : Visibility.Collapsed;
-            menuItem7.IsEnabled = mainWindowViewModel.LR2ID != 0 && hasRankingTarget;
+            menuItem7.IsEnabled = mainWindowViewModel.RankingCacheDownloadWorkflow.CanRequestRanking(selectedTargets);
         }
         MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(item => item.Name == "tableContextMenuItemDeleteInstallPackages");
         List<string> selectedChartInfoParseFailureMd5s = GetSelectedChartInfoParseFailureMd5s();
@@ -5356,7 +5341,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
         bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
         bool canOpenScoreViewer = rowTarget?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true;
-        bool canUpdateRanking = rowTarget?.HasCapability(ChartOperationCapabilities.UpdateRanking) == true && mainWindowViewModel.LR2ID != 0;
+        bool canUpdateRanking = mainWindowViewModel.RankingCacheDownloadWorkflow.CanRequestRanking([rowTarget]);
         bool canOpenLr2Ir = rowTarget?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true;
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
         PlaylistUrlContextMenuAvailability playlistUrlAvailability =
@@ -5759,12 +5744,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<string> hashes = GetSelectedGridHashTargets();
-        if (hashes != null && hashes.Count != 0)
+        List<ChartOperationTarget> targets = GetSelectedChartTargets();
+        if (targets.Count != 0)
         {
             var viewModel = base.DataContext as MainWindowViewModel;
-            viewModel?.RankingCacheDownloadWorkflow.Request(hashes);
-            e.Handled = true;
+            if (viewModel?.RankingCacheDownloadWorkflow.Request(targets) == true)
+            {
+                e.Handled = true;
+            }
         }
     }
 

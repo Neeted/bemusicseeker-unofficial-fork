@@ -12,6 +12,8 @@ namespace BeMusicSeeker.ViewModels;
 
 internal interface IRankingCacheDownloadRuntime
 {
+    int CurrentLr2Id { get; }
+
     List<BMSLibrary.IRDataCacheInfo> GetIRDataNeedUpdates(IReadOnlyList<string> md5s);
 
     List<BMSLibrary.IRDataCacheInfo> DownloadIRData(IReadOnlyList<BMSLibrary.IRDataCacheInfo> cacheInfo);
@@ -25,6 +27,8 @@ internal sealed class BmsRankingCacheDownloadRuntime : IRankingCacheDownloadRunt
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
     }
+
+    public int CurrentLr2Id => libraryProvider()?.LR2ID ?? 0;
 
     public List<BMSLibrary.IRDataCacheInfo> GetIRDataNeedUpdates(IReadOnlyList<string> md5s)
     {
@@ -69,7 +73,30 @@ internal sealed class RankingCacheDownloadWorkflowOwner
         this.taskLogger = taskLogger ?? new Action<Task, string>((task, routeName) => task.Logging(routeName));
     }
 
-    internal void Request(IEnumerable<string> hashes)
+    internal bool HasRankingTarget(IEnumerable<ChartOperationTarget> targets)
+    {
+        return (targets ?? []).Any(target => target?.HasCapability(ChartOperationCapabilities.UpdateRanking) == true);
+    }
+
+    internal bool CanRequestRanking(IEnumerable<ChartOperationTarget> targets)
+    {
+        return runtime.CurrentLr2Id != 0 && HasRankingTarget(targets);
+    }
+
+    internal bool Request(IEnumerable<ChartOperationTarget> targets)
+    {
+        if (targets == null)
+        {
+            throw new ArgumentNullException(nameof(targets));
+        }
+
+        string[] hashes = [.. targets
+            .Where(target => target?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true)
+            .Select(target => target.Chart?.Md5)];
+        return RequestHashes(hashes);
+    }
+
+    private bool RequestHashes(IEnumerable<string> hashes)
     {
         if (hashes == null)
         {
@@ -77,8 +104,13 @@ internal sealed class RankingCacheDownloadWorkflowOwner
         }
 
         string[] snapshot = hashes.ToArray();
+        if (snapshot.All(string.IsNullOrWhiteSpace))
+        {
+            return false;
+        }
         Task task = backgroundScheduler(() => Execute(snapshot));
         taskLogger(task, "tableContextMenuItemUpdateRankingDataClick");
+        return true;
     }
 
     private void Execute(IReadOnlyList<string> hashes)

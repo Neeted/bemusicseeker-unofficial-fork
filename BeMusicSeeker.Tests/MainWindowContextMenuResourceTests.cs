@@ -941,8 +941,8 @@ public sealed class MainWindowContextMenuResourceTests
             "private void tableContextMenuItemUpdateRankingDataClick");
 
         StringAssert.Contains(xaml, "Click=\"tableContextMenuItemUpdateRankingDataClick\"");
-        StringAssert.Contains(handler, "GetSelectedGridHashTargets()");
-        StringAssert.Contains(handler, "viewModel?.RankingCacheDownloadWorkflow.Request(hashes);");
+        StringAssert.Contains(handler, "GetSelectedChartTargets()");
+        StringAssert.Contains(handler, "RankingCacheDownloadWorkflow.Request(targets)");
         Assert.AreEqual(1, CountOccurrences(handler, ".RankingCacheDownloadWorkflow.Request("));
         Assert.IsFalse(handler.Contains("Task.Run"));
         Assert.IsFalse(mainWindow.Contains("GetLR2IRCacheHashes("));
@@ -970,7 +970,6 @@ public sealed class MainWindowContextMenuResourceTests
             selectedTargets: [rowTarget]));
 
         Assert.IsTrue(state.HasScoreViewerTarget);
-        Assert.IsTrue(state.HasRankingTarget);
         Assert.IsTrue(state.HasResourceHealthTarget);
         Assert.IsTrue(state.CanOpenLr2Ir);
         Assert.IsTrue(state.CanOpenInstallDestination);

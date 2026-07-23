@@ -32,7 +32,6 @@ internal static class ChartContextMenuStateBuilder
         bool hasBmsonSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bmson);
         bool hasBmsSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bms);
         bool hasScoreViewerTarget = HasCapability(selectedTargets, ChartOperationCapabilities.UseScoreViewer);
-        bool hasRankingTarget = HasCapability(selectedTargets, ChartOperationCapabilities.UpdateRanking);
         bool hasResourceHealthTarget = HasCapability(selectedTargets, ChartOperationCapabilities.RunResourceHealthCheck);
         bool canOpenLr2Ir = request.RowTarget?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true;
         bool canOpenInstallDestination = request.RowTarget?.HasCapability(ChartOperationCapabilities.UpdateInstallDestination) == true && !request.IsPlaylistRow;
@@ -61,7 +60,6 @@ internal static class ChartContextMenuStateBuilder
             hasBmsonSelection,
             hasBmsSelection,
             hasScoreViewerTarget,
-            hasRankingTarget,
             hasResourceHealthTarget,
             canOpenLr2Ir,
             canOpenInstallDestination,

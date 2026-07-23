@@ -22,7 +22,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         var dialogs = new RecordingDialogService(runtime.Events);
         var owner = CreateOwner(runtime, dialogs);
 
-        owner.Request([" ", "", "\t"]);
+        owner.Request([Target(" "), Target(""), Target("\t")]);
 
         CollectionAssert.AreEqual(Array.Empty<string>(), runtime.Events.ToArray());
         Assert.AreEqual(0, runtime.QueryCount);
@@ -37,7 +37,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         var dialogs = new RecordingDialogService(runtime.Events);
         var owner = CreateOwner(runtime, dialogs);
 
-        owner.Request(["A", "a", "B", ""]);
+        owner.Request([Target("A"), Target("a"), Target("B"), Target("")]);
 
         CollectionAssert.AreEqual(new[] { "A", "B" }, (System.Collections.ICollection)runtime.LastHashes);
         CollectionAssert.AreEqual(new[] { "query", "message" }, runtime.Events.ToArray());
@@ -55,7 +55,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         var dialogs = new RecordingDialogService(runtime.Events);
         var owner = CreateOwner(runtime, dialogs);
 
-        owner.Request(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccccccccccccccc"]);
+        owner.Request([Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Target("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), Target("cccccccccccccccccccccccccccccccc")]);
 
         CollectionAssert.AreEqual(new[] { "query", "confirm", "download", "message" }, runtime.Events.ToArray());
         Assert.AreEqual(1, runtime.DownloadCount);
@@ -78,7 +78,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         };
         var owner = CreateOwner(runtime, dialogs);
 
-        owner.Request(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+        owner.Request([Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]);
 
         CollectionAssert.AreEqual(new[] { "query", "confirm" }, runtime.Events.ToArray());
         Assert.AreEqual(0, runtime.DownloadCount);
@@ -94,7 +94,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         var dialogs = new RecordingDialogService(runtime.Events);
         var owner = CreateOwner(runtime, dialogs);
 
-        owner.Request(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+        owner.Request([Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]);
 
         CollectionAssert.AreEqual(new[] { "query", "message" }, runtime.Events.ToArray());
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_warn_cache_download, dialogs.MessageRequests[0].MessageBoxText);
@@ -110,7 +110,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         var dialogs = new RecordingDialogService(runtime.Events);
         var owner = CreateOwner(runtime, dialogs);
 
-        owner.Request(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+        owner.Request([Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]);
 
         StringAssert.Contains(dialogs.MessageRequests[0].MessageBoxText, BeMusicSeeker.Properties.Resources.Msg_error_cache_download);
         StringAssert.Contains(dialogs.MessageRequests[0].MessageBoxText, "network failure");
@@ -131,7 +131,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
 
         try
         {
-            owner.Request(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+            owner.Request([Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]);
             Assert.Fail("A failed confirmation dialog must fault the workflow.");
         }
         catch (InvalidOperationException)
@@ -159,13 +159,93 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
                 return Task.CompletedTask;
             },
             (_, _) => { });
-        var hashes = new List<string> { "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+        var targets = new List<ChartOperationTarget> { Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") };
 
-        owner.Request(hashes);
-        hashes[0] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        owner.Request(targets);
+        targets[0] = Target("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         deferred();
 
         CollectionAssert.AreEqual(new[] { "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, (System.Collections.ICollection)runtime.LastHashes);
+    }
+
+    [TestMethod]
+    public void RankingAvailability_UsesTargetCapabilityAndCurrentLr2Id()
+    {
+        var runtime = new RecordingRuntime { CurrentLr2Id = 1234 };
+        var owner = CreateOwner(runtime, new RecordingDialogService(runtime.Events));
+        ChartOperationTarget rankingTarget = CreateTarget(
+            ChartOperationCapabilities.UpdateRanking | ChartOperationCapabilities.UseLr2Ir,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        ChartOperationTarget otherTarget = CreateTarget(ChartOperationCapabilities.OpenFile, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
+        Assert.IsTrue(owner.HasRankingTarget([rankingTarget, otherTarget]));
+        Assert.IsTrue(owner.CanRequestRanking([rankingTarget]));
+
+        runtime.CurrentLr2Id = 0;
+
+        Assert.IsFalse(owner.CanRequestRanking([rankingTarget]));
+        Assert.IsFalse(owner.HasRankingTarget([otherTarget]));
+    }
+
+    [TestMethod]
+    public void RequestTargets_PreparesOnlyLr2IrHashesAsSnapshot()
+    {
+        var runtime = new RecordingRuntime();
+        var dialogs = new RecordingDialogService(runtime.Events);
+        Action deferred = null!;
+        var owner = new RankingCacheDownloadWorkflowOwner(
+            runtime,
+            new ChartFileOperationSynchronizer(),
+            dialogs,
+            action =>
+            {
+                deferred = action;
+                return Task.CompletedTask;
+            },
+            (_, _) => { });
+        ChartOperationTarget rankingTarget = CreateTarget(
+            ChartOperationCapabilities.UpdateRanking | ChartOperationCapabilities.UseLr2Ir,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        ChartOperationTarget nonIrTarget = CreateTarget(ChartOperationCapabilities.UpdateRanking, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
+        owner.Request([rankingTarget, nonIrTarget]);
+        deferred();
+
+        CollectionAssert.AreEqual(new[] { "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, (System.Collections.ICollection)runtime.LastHashes);
+    }
+
+    private static ChartOperationTarget CreateTarget(ChartOperationCapabilities capabilities, string md5)
+    {
+        ChartFile chart = new ChartFile(
+            ChartFileKind.Bms,
+            "C:\\charts\\target.bms",
+            md5,
+            null,
+            "title",
+            "title",
+            "artist",
+            "genre",
+            "folder",
+            string.Empty,
+            string.Empty,
+            null,
+            null,
+            null,
+            null,
+            null);
+        return new ChartOperationTarget(
+            chart,
+            null,
+            ChartOperationSourceScope.Library,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            capabilities);
+    }
+
+    private static ChartOperationTarget Target(string md5)
+    {
+        return CreateTarget(ChartOperationCapabilities.UseLr2Ir, md5);
     }
 
     private static RankingCacheDownloadWorkflowOwner CreateOwner(
@@ -193,6 +273,8 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
 
     private sealed class RecordingRuntime : IRankingCacheDownloadRuntime
     {
+        internal int CurrentLr2Id { get; set; } = 1;
+
         internal List<string> Events { get; } = [];
 
         internal List<BMSLibrary.IRDataCacheInfo> Candidates { get; set; } = [];
@@ -206,6 +288,8 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         internal int DownloadCount { get; private set; }
 
         internal IReadOnlyList<string> LastHashes { get; private set; } = [];
+
+        int IRankingCacheDownloadRuntime.CurrentLr2Id => CurrentLr2Id;
 
         public List<BMSLibrary.IRDataCacheInfo> GetIRDataNeedUpdates(IReadOnlyList<string> md5s)
         {

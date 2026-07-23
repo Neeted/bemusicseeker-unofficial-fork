@@ -2629,18 +2629,6 @@ public partial class MainWindowViewModel : ViewModel
         ChartFilters.UpdateKeywordSearchContext(context, playlistNameCandidates);
     }
 
-    public int LR2ID
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.LR2ID;
-            }
-            return 0;
-        }
-    }
-
     public bool IS_WIN8OR10 => Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012);
 
     /// <summary>
