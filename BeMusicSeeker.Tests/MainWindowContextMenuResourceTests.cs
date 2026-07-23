@@ -3592,7 +3592,7 @@ public sealed class MainWindowContextMenuResourceTests
         string fixRepair = ExtractBetween(
             mainWindowCode,
             "private async void tableContextMenuFixInstallationDirectoryClick",
-            "private void tableContextMenuItemDeleteEntryClick");
+            "private async void tableContextMenuItemDeleteEntryClick");
 
         StringAssert.Contains(searchRepair, "GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation)");
         StringAssert.Contains(searchRepair, "RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest request)");
@@ -3618,6 +3618,22 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(fixRepair.Contains("IRepairInstalledLocationTargetSnapshot"));
         Assert.IsFalse(fixRepair.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(fixRepair.Contains("target.Chart?.InstallDestination"));
+    }
+
+    [TestMethod]
+    public void PlaylistEntryRemovalRoutesThroughWorkspaceOwner()
+    {
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string handler = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowCode,
+            "private async void tableContextMenuItemDeleteEntryClick(");
+
+        StringAssert.Contains(handler, "DeleteSelectedEntriesAsync(GetSelectedGridRowsSnapshot())");
+        StringAssert.Contains(handler, ".Logging(\"tableContextMenuItemDeleteEntryClick\")");
+        Assert.AreEqual(-1, handler.IndexOf("GetSelectedGridPlaylistEntries", StringComparison.Ordinal));
+        Assert.AreEqual(-1, handler.IndexOf("GroupBy", StringComparison.Ordinal));
+        Assert.AreEqual(-1, handler.IndexOf("Task.WhenAll", StringComparison.Ordinal));
+        Assert.AreEqual(-1, handler.IndexOf("DeleteEntriesAsync", StringComparison.Ordinal));
     }
 
     [TestMethod]

@@ -1626,11 +1626,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return new ScoreViewerTarget(hash, target.Chart.Path, target.Chart.Title);
     }
 
-    private List<BMSTableEntry> GetSelectedGridPlaylistEntries()
-    {
-        return [.. GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetPlaylistEntry).Where(entry => entry != null)];
-    }
-
     private static ContextMenu GetOwningContextMenu(object source)
     {
         object current = source;
@@ -6034,18 +6029,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             .LoggingAndPropagate("tableContextMenuFixInstallationDirectoryClick");
     }
 
-    private void tableContextMenuItemDeleteEntryClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemDeleteEntryClick(object sender, RoutedEventArgs e)
     {
-        List<BMSTableEntry> list2 = GetSelectedGridPlaylistEntries();
-        var viewModel = base.DataContext as MainWindowViewModel;
-        if (list2.Count <= 0)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        Task[] deleteTasks = [.. (from entry in list2
-                                  group entry by entry.parent)
-            .Select(group => viewModel.PlaylistWorkspace.DeleteEntriesAsync(group.AsEnumerable(), group.Key))];
-        Task.WhenAll(deleteTasks).Logging("tableContextMenuItemDeleteEntryClick");
+        await viewModel.PlaylistWorkspace
+            .DeleteSelectedEntriesAsync(GetSelectedGridRowsSnapshot())
+            .Logging("tableContextMenuItemDeleteEntryClick");
     }
 
     private async void tableContextMenuItemForceFileScanCheckAllCharts(object sender, RoutedEventArgs e)

@@ -47,9 +47,26 @@ public sealed partial class PlaylistWorkspaceViewModel
         return Task.Run(() => AddRowsToFolder(rows, table, targetFolder));
     }
 
-    internal Task DeleteEntriesAsync(IEnumerable<BMSTableEntry> entries, BMSTable table)
+    internal Task DeleteSelectedEntriesAsync(IEnumerable<object> selectedRows)
     {
-        return Task.Run(() => DeleteEntries(entries, table));
+        if (selectedRows == null)
+        {
+            throw new ArgumentNullException(nameof(selectedRows));
+        }
+
+        List<BMSTableEntry> entries = [.. selectedRows
+            .Where(row => row != null)
+            .Select(GridRowResolver.GetPlaylistEntry)
+            .Where(entry => entry != null)];
+        if (entries.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        Task[] deleteTasks = [.. entries
+            .GroupBy(entry => entry.parent)
+            .Select(group => Task.Run(() => DeleteEntries(group, group.Key)))];
+        return Task.WhenAll(deleteTasks);
     }
 
     private void RenameFolder(BMSTable table, PlaylistFolderNode folder, string newName)

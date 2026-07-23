@@ -778,11 +778,125 @@ public sealed class BmsPlaylistUpdateTests
             await workspace.CreateFolderAsync(table);
             await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder("Renamed"));
             Assert.AreEqual(string.Empty, workspace.CapturePlaylistDetailSelection()!.FolderName);
-            await workspace.DeleteEntriesAsync([entry], table);
+            await workspace.DeleteSelectedEntriesAsync([
+                new PlaylistDetailSourceRow(entry, resolvedChart: null)]);
 
             Assert.AreEqual(4, detailReloadCount);
             Assert.AreEqual(4, referenceSortInvalidationCount);
             Assert.AreEqual(initialRevision + detailReloadCount, workspace.DetailViewState.Source.PlaylistContentRevision);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistWorkspaceDeleteSelectedEntries_GroupsRowsByParentAndPersistsEachTable()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable firstTable = new()
+            {
+                playlist_id = 9013,
+                name = "First delete group",
+                entries = [CreateEntry("11111111111111111111111111111111", "First")]
+            };
+            BMSTable secondTable = new()
+            {
+                playlist_id = 9014,
+                name = "Second delete group",
+                entries = [CreateEntry("22222222222222222222222222222222", "Second")]
+            };
+            BMSTableEntry firstEntry = firstTable.entries.Single();
+            BMSTableEntry secondEntry = secondTable.entries.Single();
+            firstEntry.playlist_id = firstTable.playlist_id;
+            secondEntry.playlist_id = secondTable.playlist_id;
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(firstTable, typeof(LR2SongDBExtended.playlist));
+                setup.InsertOrReplace(secondTable, typeof(LR2SongDBExtended.playlist));
+                setup.InsertOrReplace(firstEntry, typeof(LR2SongDBExtended.playlist_entry));
+                setup.InsertOrReplace(secondEntry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([firstTable, secondTable]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var library = new BMSLibrary(songDbPath);
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var workspace = new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot(),
+                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+                PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
+                PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
+                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
+                PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
+                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+                PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+                () => playlist,
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => library,
+                () => null!,
+                _ => { },
+                new Livet.DispatcherCollection<BMSTable>(Dispatcher.CurrentDispatcher),
+                (_, _) => false,
+                () => true,
+                () => MainViewUpdateMode.FolderFilterSelected,
+                () => Task.CompletedTask,
+                () => false,
+                () => { },
+                _ => { },
+                (exception, message) => { },
+                request => request(false),
+                request => request(false),
+                () => false,
+                _ => false,
+                (_, _) => false,
+                (_, _) => false,
+                PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler,
+                PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
+                dialogs);
+            var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
+            workspace.PlaylistOperationNotificationPresentationRequested +=
+                (_, request) => notifications.Add(request);
+
+            await workspace.DeleteSelectedEntriesAsync([
+                new PlaylistDetailSourceRow(firstEntry, resolvedChart: null),
+                new PlaylistDetailSourceRow(secondEntry, resolvedChart: null)]);
+
+            Assert.IsFalse(firstTable.entries.Contains(firstEntry));
+            Assert.IsFalse(secondTable.entries.Contains(secondEntry));
+            Assert.AreEqual(2, notifications.Count);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0, verify.Table<BMSTableEntry>().Count(entry =>
+                (entry.playlist_id == firstTable.playlist_id && entry.md5 == firstEntry.md5
+                    || entry.playlist_id == secondTable.playlist_id && entry.md5 == secondEntry.md5)
+                && !entry.is_removed));
         }
         finally
         {

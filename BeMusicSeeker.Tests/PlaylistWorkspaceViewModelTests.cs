@@ -357,7 +357,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible);");
         Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistWorkspaceEntriesChangedEventArgs", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal Task AddRowsToFolderAsync(");
-        StringAssert.Contains(workspaceSource, "internal Task DeleteEntriesAsync(");
+        StringAssert.Contains(workspaceSource, "internal Task DeleteSelectedEntriesAsync(IEnumerable<object> selectedRows)");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("internal Task DeleteEntriesAsync(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("DeleteEntriesAsync(", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("RemoveTableAsync(", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("RemoveTablesAsync(", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal void RefreshPlaylistSummaryKeywordSearchSuggestions(");
@@ -469,6 +471,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "ownerViewModel.PlaylistWorkspace.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistFolderRemovalConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested(", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "DeleteSelectedEntriesAsync(GetSelectedGridRowsSnapshot())");
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("GetSelectedGridPlaylistEntries", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow");
         StringAssert.Contains(mainWindowSource, "RemoveTreeTableAsync(");
         string tableRemoveSource = SourceTextTestHelper.ExtractMethodBody(
@@ -5999,7 +6003,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         await workspace.CreateFolderAsync(table);
         await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"), "Renamed");
         await workspace.AddRowsToFolderAsync([], table);
-        await workspace.DeleteEntriesAsync([], table);
+        await workspace.DeleteSelectedEntriesAsync([
+            new PlaylistDetailSourceRow(new BMSTableEntry { parent = table }, resolvedChart: null)]);
 
         CollectionAssert.AreEqual(
             new[]
@@ -6010,6 +6015,15 @@ public sealed class PlaylistWorkspaceViewModelTests
                 PlaylistWorkspaceMutationKind.RemoveEntries
             },
             rejectedKinds);
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceDeleteSelectedEntries_IgnoresEmptyAndNonPlaylistRows()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+
+        await workspace.DeleteSelectedEntriesAsync([]);
+        await workspace.DeleteSelectedEntriesAsync([null!, new object()]);
     }
 
     [TestMethod]
