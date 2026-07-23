@@ -5,8 +5,6 @@ namespace BeMusicSeeker.ViewModels;
 
 public partial class MainWindowViewModel
 {
-    internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
-
     private void PlaylistWorkspacePlaylistUrlDownloadStatusChanged(
         object sender,
         PlaylistUrlDownloadStatusSnapshot snapshot)

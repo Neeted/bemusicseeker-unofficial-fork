@@ -512,7 +512,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -680,7 +679,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             useDefaultBrowserSink
                 ? browserSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink
                 : browserSink!,
-            PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -730,7 +728,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             externalWarningLog,
             externalInfoLog,
             beatorajaWarningLog,
@@ -775,7 +772,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,

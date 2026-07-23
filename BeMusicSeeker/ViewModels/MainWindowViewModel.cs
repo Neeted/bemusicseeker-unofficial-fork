@@ -2655,7 +2655,6 @@ public partial class MainWindowViewModel : ViewModel
                 PackageInstallWorkflow.Enqueue(paths);
             },
             uri => Process.Start(uri.ToString()),
-            request => PlaylistSummarySelectionRestoreRequested?.Invoke(request),
             LogExternalPlaylistImportWarning,
             LogExternalPlaylistImportInfo,
             LogBeatorajaTableUrlImportWarning,

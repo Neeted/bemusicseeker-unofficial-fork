@@ -57,6 +57,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         string entrySnapshotSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.EntrySnapshot.cs");
         string logicalSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string playlistUrlEventsSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.PlaylistUrlAcquisitionEvents.cs");
         string bmtSortSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSummaryBmtSortCoordinator.cs");
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
@@ -611,7 +615,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistSummaryViewApplied", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryDataRefreshDecision", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;");
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummarySelectionRestoreRequested", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playlistUrlEventsSource.IndexOf("PlaylistSummarySelectionRestoreRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryRows", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryPresentationRows", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("DrainPlaylistSummaryRefresh(", StringComparison.Ordinal));
@@ -623,7 +629,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPendingPlaylistSummarySelectionRestore", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "ApplyPlaylistSummarySelectionRestoreToView");
         StringAssert.Contains(workspaceSource, "private bool TryTakePlaylistSummarySelectionRestore");
-        StringAssert.Contains(workspaceSource, "playlistSummarySelectionRestoreSink");
+        StringAssert.Contains(workspaceSource, "PlaylistSummarySelectionRestoreRequested");
         StringAssert.Contains(workspaceSource, "QueuePlaylistSummarySelectionRestore");
         StringAssert.Contains(workspaceSource, "SetPlaylistSummarySelectionRestoreMinimumGeneration");
         Assert.AreEqual(-1, mainWindowSource.IndexOf("IsPlaylistSummaryEditableProperty", StringComparison.Ordinal));
@@ -644,7 +650,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, workspaceSource.IndexOf("CustomFolderOutputSettingsSnapshot.CreateCurrent", StringComparison.Ordinal));
         StringAssert.Contains(buildOwnerSource, "dispatchPresentation(Reflect);");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryViewApplied", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistSummarySelectionRestoreRequested");
         Assert.AreEqual(-1, logicalSource.IndexOf("installPerformanceLoggingEnabled ? installPerformanceLogger : null", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableDisplayRefreshRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableSortParameters", StringComparison.Ordinal));
@@ -2573,7 +2578,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -2783,7 +2787,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4039,7 +4042,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             browserOpenSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            selectionRestoreSink ?? PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4070,6 +4072,8 @@ public sealed class PlaylistWorkspaceViewModelTests
              restoreUiApplyScheduler ?? PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler,
              restoreUiThreadCheck ?? PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
              playlistWorkspaceDialogService);
+        workspace.PlaylistSummarySelectionRestoreRequested +=
+            selectionRestoreSink ?? PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink;
         dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         return workspace;
@@ -4253,7 +4257,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4322,7 +4325,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4474,7 +4476,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4574,7 +4575,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4635,7 +4635,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4767,7 +4766,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4828,7 +4826,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4878,7 +4875,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -4981,7 +4977,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -5070,7 +5065,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -5118,7 +5112,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public async Task PlaylistWorkspaceSummarySelectionRestoreSinkFailureAggregatesWithPropertyFailure()
+    public async Task PlaylistWorkspaceSummarySelectionRestoreEventFailureAggregatesWithPropertyFailure()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -5191,6 +5185,156 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
                 workspace.CompletePlaylistSummaryDataBuild(buildRequest);
             }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummarySelectionRestoreMissingSubscriberAggregatesWithPropertyFailure()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
+            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([first, second]),
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher)
+            };
+            Action<PlaylistSummarySelectionRestoreRequest> restoreHandler = _ => { };
+            PlaylistSummaryBmtSortCoordinator bmtSort = new(() => playlist, () => playlist.BMSTables);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistSummaryBmtSort: bmtSort,
+                playlistSummaryDataRefreshGate: request => request(true),
+                selectionRestoreSink: restoreHandler);
+            workspace.PlaylistSummarySelectionRestoreRequested -= restoreHandler;
+            workspace.IsPlaylistSummaryMode = true;
+
+            await workspace.DropSummaryRowsInBmtOrderAsync(
+                [
+                    new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
+                    new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }
+                ],
+                [new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }],
+                visibleInsertIndex: 0,
+                currentPlaylistId: second.playlist_id);
+            Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest));
+            try
+            {
+                workspace.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView))
+                    {
+                        throw new InvalidOperationException("rows binding failed");
+                    }
+                };
+                PlaylistSummaryPublishException exception = Assert.ThrowsException<PlaylistSummaryPublishException>(() =>
+                    workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+                    {
+                        Rows = new ObservableCollection<PlaylistSummaryRow>(),
+                        PresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration,
+                        DataRebuildGeneration = buildRequest.Generation,
+                        CacheGeneration = buildRequest.CacheGeneration
+                    }));
+
+                AggregateException? aggregate = exception.InnerException as AggregateException;
+                Assert.IsNotNull(aggregate);
+                Assert.AreEqual(2, aggregate!.InnerExceptions.Count);
+            }
+            finally
+            {
+                workspace.CompletePlaylistSummaryDataBuild(buildRequest);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummarySelectionRestoreDoesNotReachUnsubscribedView()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
+            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([first, second]),
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher)
+            };
+            Queue<Action> pendingActions = new();
+            int invocationCount = 0;
+            Action<PlaylistSummarySelectionRestoreRequest> restoreHandler = _ => invocationCount++;
+            PlaylistSummaryBmtSortCoordinator bmtSort = new(() => playlist, () => playlist.BMSTables);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                dispatchPresentation: action => pendingActions.Enqueue(action),
+                playlistStoreProvider: () => playlist,
+                playlistSummaryBmtSort: bmtSort,
+                playlistSummaryDataRefreshGate: request => request(true),
+                selectionRestoreSink: restoreHandler);
+            workspace.IsPlaylistSummaryMode = true;
+
+            await workspace.DropSummaryRowsInBmtOrderAsync(
+                [
+                    new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
+                    new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }
+                ],
+                [new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }],
+                visibleInsertIndex: 0,
+                currentPlaylistId: second.playlist_id);
+            Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest));
+            try
+            {
+                Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+                {
+                    Rows = new ObservableCollection<PlaylistSummaryRow>(),
+                    PresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration,
+                    DataRebuildGeneration = buildRequest.Generation,
+                    CacheGeneration = buildRequest.CacheGeneration
+                }));
+            }
+            finally
+            {
+                workspace.CompletePlaylistSummaryDataBuild(buildRequest);
+            }
+
+            Assert.IsTrue(pendingActions.Count > 0);
+            workspace.PlaylistSummarySelectionRestoreRequested -= restoreHandler;
+            while (pendingActions.Count > 0)
+            {
+                pendingActions.Dequeue()();
+            }
+            Assert.AreEqual(0, invocationCount);
         }
         finally
         {
@@ -5744,7 +5888,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            restoreRequests.Add,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -5769,6 +5912,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         {
             IsPlaylistSummaryMode = true
         };
+        workspace.PlaylistSummarySelectionRestoreRequested += restoreRequests.Add;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
         Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
@@ -5798,7 +5942,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -5857,7 +6000,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -5924,7 +6066,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -5988,7 +6129,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -6047,7 +6187,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -6107,7 +6246,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -6164,7 +6302,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -6266,7 +6403,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -6328,7 +6464,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -6380,7 +6515,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -6449,7 +6583,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,

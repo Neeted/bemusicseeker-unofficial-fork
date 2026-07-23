@@ -224,7 +224,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ApplySavedTreeViewWidth();
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
         Deactivated += MainWindow_Deactivated;
-        viewModel.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
+        viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
         SubscribeViewModelUiInteractions(viewModel);
         Closed += MainWindow_Closed;
         ContentRendered += MainWindow_ContentRendered;
@@ -764,7 +764,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (viewModel != null)
         {
-            viewModel.PlaylistSummarySelectionRestoreRequested -= MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
+            viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested -= MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
         }
         viewModel?.SetStartupUiInteractionBlocked(false);
         CancelRelatedDocumentRequest();

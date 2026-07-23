@@ -27,8 +27,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Func<bool> playlistRestoreUiThreadCheck;
 
-    private readonly Action<PlaylistSummarySelectionRestoreRequest> playlistSummarySelectionRestoreSink;
-
     private readonly MainChartListViewModel detailMainChartList;
 
     private readonly Action<string> detailRetentionLog;
@@ -131,7 +129,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<bool> playlistUrlInstallQueueActiveProvider,
         Action<IReadOnlyList<string>> playlistUrlInstallSink,
         Action<Uri> playlistUrlBrowserOpenSink,
-        Action<PlaylistSummarySelectionRestoreRequest> playlistSummarySelectionRestoreSink,
         Action<Exception, string> externalPlaylistImportWarningLog,
         Action<string> externalPlaylistImportInfoLog,
         Action<Exception, string> beatorajaTableUrlImportWarningLog,
@@ -183,8 +180,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistUrlInstallSink));
         this.playlistUrlBrowserOpenSink = playlistUrlBrowserOpenSink
             ?? throw new ArgumentNullException(nameof(playlistUrlBrowserOpenSink));
-        this.playlistSummarySelectionRestoreSink = playlistSummarySelectionRestoreSink
-            ?? throw new ArgumentNullException(nameof(playlistSummarySelectionRestoreSink));
         this.externalPlaylistImportWarningLog = externalPlaylistImportWarningLog
             ?? throw new ArgumentNullException(nameof(externalPlaylistImportWarningLog));
         this.externalPlaylistImportInfoLog = externalPlaylistImportInfoLog
@@ -301,6 +296,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         propertySaveService.PlaylistPropertyEntriesChanged += ForwardPlaylistEntriesChanged;
         propertySaveService.PlaylistOperationNotificationPresentationRequested += ForwardPlaylistOperationNotificationPresentationRequested;
     }
+
+    internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
 
     internal async Task ResetPlaylistSummaryColumnsToDefaultAsync()
     {
@@ -1535,11 +1532,52 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     private void PublishPlaylistSummarySelectionRestore(List<Exception> exceptions)
     {
         TrySchedulePlaylistReloadCleanup();
-        if (TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest request))
+        if (!TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest request))
+        {
+            return;
+        }
+
+        if (PlaylistSummarySelectionRestoreRequested == null)
         {
             TryPublish(
-                () => dispatchPresentation(() => playlistSummarySelectionRestoreSink(request)),
+                () => throw new InvalidOperationException(
+                    nameof(PlaylistSummarySelectionRestoreRequested) + " is not subscribed."),
                 exceptions);
+            return;
+        }
+
+        TryPublish(
+            () => dispatchPresentation(() => PublishPlaylistSummarySelectionRestoreOnPresentationThread(request)),
+            exceptions);
+    }
+
+    private void PublishPlaylistSummarySelectionRestoreOnPresentationThread(
+        PlaylistSummarySelectionRestoreRequest request)
+    {
+        Action<PlaylistSummarySelectionRestoreRequest>[] subscribers =
+            PlaylistSummarySelectionRestoreRequested?.GetInvocationList()
+                .Cast<Action<PlaylistSummarySelectionRestoreRequest>>()
+                .ToArray();
+        if (subscribers == null)
+        {
+            return;
+        }
+
+        var subscriberExceptions = new List<Exception>();
+        foreach (Action<PlaylistSummarySelectionRestoreRequest> subscriber in subscribers)
+        {
+            try
+            {
+                subscriber(request);
+            }
+            catch (Exception ex)
+            {
+                subscriberExceptions.Add(ex);
+            }
+        }
+        if (subscriberExceptions.Count > 0)
+        {
+            throw new AggregateException(subscriberExceptions);
         }
     }
 
