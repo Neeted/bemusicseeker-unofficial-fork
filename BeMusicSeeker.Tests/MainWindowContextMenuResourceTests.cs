@@ -1530,7 +1530,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowViewModelCode.Contains("public string PlaylistSyncProgressSubLabel"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public double PlaylistSyncProgressValue"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public double PlaylistSyncProgressMaximum"));
-        StringAssert.Contains(mainWindowViewModelCode, "ProgressHub.UpdatePlaylistSyncProgress(snapshot);");
+        StringAssert.Contains(mainWindowCode, "subscribedViewModel.ProgressHub.UpdatePlaylistSyncProgress(request.Snapshot);");
     }
 
     [TestMethod]
@@ -2157,6 +2157,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string startupProgressOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
@@ -2188,8 +2189,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "public bool IsLibraryOperationInProgress");
         StringAssert.Contains(startupProgressOwnerCode, "internal long GetActiveStartupProgressOperationToken()");
         StringAssert.Contains(startupProgressOwnerCode, "internal bool IsStartupProgressOperationTokenCurrent(long operationToken)");
-        StringAssert.Contains(viewModelCode, "playlistSyncProgressUiVersion");
-        StringAssert.Contains(viewModelCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion))");
+        StringAssert.Contains(mainWindowCode, "playlistSyncProgressUiVersion");
+        StringAssert.Contains(mainWindowCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion)");
+        StringAssert.Contains(mainWindowCode, "|| IsShellClosingOrClosed()");
+        StringAssert.Contains(mainWindowCode, "|| subscribedViewModel == null)");
+        StringAssert.Contains(mainWindowCode, "if (Dispatcher.CheckAccess())");
+        StringAssert.Contains(mainWindowCode, "Dispatcher.BeginInvoke(reflect);");
+        Assert.IsFalse(viewModelCode.Contains("playlistSyncProgressUiVersion"));
         StringAssert.Contains(startupProgressOwnerCode, "startupProgressState.OperationKind == StartupProgressOperationKind.ReloadFileDiff");
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
         StringAssert.Contains(reloadFileDiff, ".LoggingAndPropagate(\"ReloadFileDiff\")");

@@ -600,6 +600,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryBulkOperationFinished", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncStarted", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncFinished", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSyncProgressChanged", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSyncProgressChanged += MainWindow_PlaylistSyncProgressChanged;");
+        StringAssert.Contains(mainWindowSource, "subscribedViewModel.PlaylistWorkspace.PlaylistSyncProgressChanged -= MainWindow_PlaylistSyncProgressChanged;");
         foreach (string propertyDialogEvent in new[]
         {
             "PlaylistPropertyValidationError",

@@ -557,8 +557,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private int lastMainViewBuildMode;
 
-    private long playlistSyncProgressUiVersion;
-
     private readonly StartupProgressWorkflowOwner startupProgressWorkflowOwner;
 
     private bool _IsStartupUiInteractionBlocked;
@@ -2703,7 +2701,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
         PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
-        PlaylistWorkspace.PlaylistSyncProgressChanged += PlaylistWorkspacePlaylistSyncProgressChanged;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
         PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
@@ -3115,13 +3112,6 @@ public partial class MainWindowViewModel : ViewModel
             BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
             MessageBoxImage.Exclamation,
             request.RouteName);
-    }
-
-    private void PlaylistWorkspacePlaylistSyncProgressChanged(
-        object sender,
-        PlaylistSyncProgressChangedEventArgs request)
-    {
-        UpdatePlaylistSyncProgressStatus(request.Snapshot);
     }
 
     private void PlaylistWorkspacePlaylistDetailReloadRefreshRequested(object sender, EventArgs e)
@@ -5483,27 +5473,6 @@ public partial class MainWindowViewModel : ViewModel
     private void UpdateInstallEstimationProgressStatus(InstallEstimationProgressSnapshot snapshot)
     {
         DispatchMainChartListAction(() => ProgressHub.UpdateInstallEstimationProgress(snapshot));
-    }
-
-    private void UpdatePlaylistSyncProgressStatus(PlaylistSyncProgressSnapshot snapshot)
-    {
-        long uiVersion = Interlocked.Increment(ref playlistSyncProgressUiVersion);
-        Action reflect = delegate
-        {
-            if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion))
-            {
-                return;
-            }
-            ProgressHub.UpdatePlaylistSyncProgress(snapshot);
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-        }
     }
 
     private void ShowPlaylistLoadFailure(Exception ex)
