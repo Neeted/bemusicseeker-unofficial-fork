@@ -4,9 +4,11 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Net;
 
@@ -55,7 +57,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             AutoInstall = true
         }, browserSink: uri => openedUri = uri);
 
-        await workspace.OpenSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/"));
+        await workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/"));
 
         Assert.AreEqual("https://example.invalid/folder/", openedUri?.ToString());
         Assert.AreEqual(1, dispatchCount);
@@ -69,36 +71,185 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             browserSink: _ => throw new InvalidOperationException("browser sink failure"));
 
         await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => workspace.OpenSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
+            () => workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
+    }
+
+    [TestMethod]
+    public async Task BrowserFallbackPresentationFailureIsPropagatedThroughAwaitableScheduler()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            action => action(),
+            presentationScheduler: _ => Task.FromException(
+                new InvalidOperationException("presentation dispatch failure")));
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
     }
 
     [TestMethod]
     public async Task BulkBrowserFallbackPublishesSummaryAndReturnsToInactiveState()
     {
         int dispatchCount = 0;
+        var dialogs = new RecordingPlaylistUrlDialogService();
         PlaylistWorkspaceViewModel workspace = CreateWorkspace(action =>
         {
             dispatchCount++;
             action();
-        }, () => new PlaylistUrlAcquisitionOptionsSnapshot());
-        workspace.PlaylistUrlAcquisitionConfirmationRequested += (_, request) => request.Confirmed = true;
-        PlaylistUrlAcquisitionSummaryReadyEventArgs? summary = null;
+        }, () => new PlaylistUrlAcquisitionOptionsSnapshot(), dialogService: dialogs);
         List<PlaylistUrlDownloadStatusSnapshot> statuses = [];
-        workspace.PlaylistUrlAcquisitionSummaryReady += (_, value) => summary = value;
         workspace.PlaylistUrlDownloadStatusChanged += (_, value) => statuses.Add(value);
 
-        await workspace.DownloadSelectedPlaylistUrlsAsync(
+        await workspace.RunPlaylistUrlBatchAsync(
             [new Uri("https://example.invalid/folder/")],
             isDiffUrl: false);
 
-        Assert.IsNotNull(summary);
-        Assert.AreEqual(1, summary!.TargetCount);
-        Assert.AreEqual(1, summary.BrowserFallbackCount);
-        Assert.AreEqual(0, summary.DownloadedCount);
+        Assert.AreEqual(1, dialogs.Confirmations.Count);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "1");
         Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
         Assert.IsTrue(statuses.Count >= 2);
         Assert.IsFalse(statuses[statuses.Count - 1].IsActive);
-        Assert.AreEqual(1, dispatchCount);
+        Assert.AreEqual(0, dispatchCount);
+    }
+
+    [TestMethod]
+    public async Task BulkPlaylistUrlConfirmationAwaitsDialogWithoutBlocking()
+    {
+        var dialogs = new RecordingPlaylistUrlDialogService
+        {
+            PendingConfirmation = new TaskCompletionSource<UiDialogResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            action => action(),
+            () => new PlaylistUrlAcquisitionOptionsSnapshot(),
+            dialogService: dialogs);
+
+        Task acquisition = workspace.RunPlaylistUrlBatchAsync(
+            [new Uri("https://example.invalid/pending-confirmation/")],
+            isDiffUrl: false);
+
+        Assert.IsFalse(acquisition.IsCompleted);
+        Assert.AreEqual(1, dialogs.Confirmations.Count);
+
+        dialogs.PendingConfirmation.SetResult(
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        await acquisition;
+
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+    }
+
+    [TestMethod]
+    public async Task PlaylistUrlCommandGateBlocksConcurrentRouteDuringConfirmation()
+    {
+        var dialogs = new RecordingPlaylistUrlDialogService
+        {
+            PendingConfirmation = new TaskCompletionSource<UiDialogResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        int browserOpenCount = 0;
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            action => action(),
+            browserSink: _ => browserOpenCount++,
+            dialogService: dialogs);
+
+        Task first = workspace.RunPlaylistUrlBatchAsync(
+            [new Uri("https://example.invalid/first-pending/")],
+            isDiffUrl: false);
+        Assert.IsFalse(first.IsCompleted);
+
+        await workspace.RunSinglePlaylistUrlAsync(
+            new Uri("https://example.invalid/second-during-confirmation/"));
+
+        Assert.AreEqual(1, dialogs.Confirmations.Count);
+        Assert.AreEqual(0, browserOpenCount);
+
+        dialogs.PendingConfirmation.SetResult(
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        await first;
+    }
+
+    [TestMethod]
+    public async Task PlaylistUrlCommandGateReleasesAfterRejectionAndDialogFailure()
+    {
+        var dialogs = new RecordingPlaylistUrlDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+        };
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            action => action(),
+            dialogService: dialogs);
+
+        await workspace.RunPlaylistUrlBatchAsync(
+            [new Uri("https://example.invalid/rejected/")],
+            isDiffUrl: false);
+        Assert.AreEqual(1, dialogs.Confirmations.Count);
+
+        dialogs.ConfirmationResult = UiDialogResult.Failed(
+            new InvalidOperationException("dialog unavailable"));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => workspace.RunPlaylistUrlBatchAsync(
+                [new Uri("https://example.invalid/failed-dialog/")],
+                isDiffUrl: false));
+        Assert.AreEqual(2, dialogs.Confirmations.Count);
+
+        dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        await workspace.RunPlaylistUrlBatchAsync(
+            [new Uri("https://example.invalid/retry/")],
+            isDiffUrl: false);
+        Assert.AreEqual(3, dialogs.Confirmations.Count);
+    }
+
+    [TestMethod]
+    public async Task PlaylistUrlCommandGateReleasesAfterSummaryFailure()
+    {
+        var dialogs = new RecordingPlaylistUrlDialogService
+        {
+            MessageResult = UiDialogResult.Failed(
+                new InvalidOperationException("summary unavailable"))
+        };
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            action => action(),
+            dialogService: dialogs);
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => workspace.RunPlaylistUrlBatchAsync(
+                [new Uri("https://example.invalid/summary-failure/")],
+                isDiffUrl: false));
+
+        dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        await workspace.RunPlaylistUrlBatchAsync(
+            [new Uri("https://example.invalid/summary-retry/")],
+            isDiffUrl: false);
+
+        Assert.AreEqual(2, dialogs.Confirmations.Count);
+        Assert.AreEqual(2, dialogs.Messages.Count);
+    }
+
+    [TestMethod]
+    public async Task PlaylistUrlConfirmationPreservesClosedDialogDecision()
+    {
+        var dialogs = new RecordingPlaylistUrlDialogService
+        {
+            ConfirmationResult = UiDialogResult.ClosedByUser(MessageBoxResult.Cancel)
+        };
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            action => action(),
+            dialogService: dialogs);
+
+        await workspace.RunPlaylistUrlBatchAsync(
+            [new Uri("https://example.invalid/closed-cancel/")],
+            isDiffUrl: false);
+        Assert.AreEqual(1, dialogs.Confirmations.Count);
+        Assert.AreEqual(0, dialogs.Messages.Count);
+
+        dialogs.ConfirmationResult = UiDialogResult.ClosedByUser(MessageBoxResult.OK);
+        await workspace.RunPlaylistUrlBatchAsync(
+            [new Uri("https://example.invalid/closed-ok/")],
+            isDiffUrl: false);
+        Assert.AreEqual(2, dialogs.Confirmations.Count);
+        Assert.AreEqual(1, dialogs.Messages.Count);
     }
 
     [TestMethod]
@@ -123,7 +274,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 },
                 treeExpansionSink: () => events.Add("expanded"));
 
-            await workspace.OpenSinglePlaylistUrlAsync(new Uri("https://example.invalid/single.zip"));
+            await workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/single.zip"));
 
             CollectionAssert.AreEqual(new[] { "sink", "expanded" }, events);
             Assert.IsNotNull(capturedPaths);
@@ -151,6 +302,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
             var events = new List<string>();
             IReadOnlyList<string>? capturedPaths = null;
+            var dialogs = new RecordingPlaylistUrlDialogService
+            {
+                MessageObserver = _ => events.Add("summary")
+            };
             PlaylistWorkspaceViewModel workspace = CreateWorkspace(
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot(),
@@ -160,11 +315,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                     events.Add("sink");
                     capturedPaths = paths;
                 },
-                treeExpansionSink: () => events.Add("expanded"));
-            workspace.PlaylistUrlAcquisitionConfirmationRequested += (_, request) => request.Confirmed = true;
-            workspace.PlaylistUrlAcquisitionSummaryReady += (_, _) => events.Add("summary");
+                treeExpansionSink: () => events.Add("expanded"),
+                dialogService: dialogs);
 
-            await workspace.DownloadSelectedPlaylistUrlsAsync(
+            await workspace.RunPlaylistUrlBatchAsync(
                 [
                     new Uri("https://example.invalid/first.zip"),
                     new Uri("https://example.invalid/second.zip")
@@ -172,6 +326,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 isDiffUrl: false);
 
             CollectionAssert.AreEqual(new[] { "sink", "expanded", "summary" }, events);
+            Assert.AreEqual(1, dialogs.Confirmations.Count);
+            Assert.AreEqual(1, dialogs.Messages.Count);
             Assert.IsNotNull(capturedPaths);
             Assert.AreEqual(2, capturedPaths!.Count);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
@@ -206,8 +362,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
-                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
+            PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -234,10 +389,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             action => action(),
             browserSink: null,
             useDefaultBrowserSink: false));
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspace(
-            action => action(),
-            treeExpansionSink: null,
-            useDefaultTreeExpansionSink: false));
     }
 
     [TestMethod]
@@ -349,9 +500,20 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Action<Uri>? browserSink = null,
         bool useDefaultBrowserSink = true,
         Action? treeExpansionSink = null,
-        bool useDefaultTreeExpansionSink = true)
+        bool useDefaultTreeExpansionSink = true,
+        IUiDialogService? dialogService = null,
+        Func<Action, Task>? presentationScheduler = null)
     {
-        return new PlaylistWorkspaceViewModel(
+        Func<Action, Task> urlPresentationScheduler = presentationScheduler
+            ?? (action =>
+            {
+                dispatch(action);
+                return Task.CompletedTask;
+            });
+        Action actualTreeExpansionSink = useDefaultTreeExpansionSink
+            ? treeExpansionSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink
+            : treeExpansionSink!;
+        PlaylistWorkspaceViewModel workspace = new PlaylistWorkspaceViewModel(
             dispatch,
             new MainChartListViewModel(action => action()),
             new PlaylistDetailBuildState(),
@@ -367,9 +529,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             useDefaultBrowserSink
                 ? browserSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink
                 : browserSink!,
-            useDefaultTreeExpansionSink
-                ? treeExpansionSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink
-                : treeExpansionSink!,
             PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
@@ -391,7 +550,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, urlPresentationScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogService);
+        workspace.PlaylistUrlInstallTreeExpansionRequested += actualTreeExpansionSink;
+        return workspace;
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
@@ -418,7 +579,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
                 PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             externalWarningLog,
             externalInfoLog,
@@ -464,7 +624,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
                 PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
@@ -487,6 +646,63 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => { },
             _ => { },
             (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+    }
+
+    private sealed class RecordingPlaylistUrlDialogService : IUiDialogService
+    {
+        internal List<UiConfirmationRequest> Confirmations { get; } = [];
+
+        internal List<UiMessageRequest> Messages { get; } = [];
+
+        internal TaskCompletionSource<UiDialogResult>? PendingConfirmation { get; set; }
+
+        internal UiDialogResult ConfirmationResult { get; set; } =
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal UiDialogResult MessageResult { get; set; } =
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal Action<UiMessageRequest>? MessageObserver { get; set; }
+
+        public Task<UiDialogResult> ShowMessageAsync(
+            UiMessageRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Messages.Add(request);
+            MessageObserver?.Invoke(request);
+            return Task.FromResult(MessageResult);
+        }
+
+        public Task<UiDialogResult> ConfirmAsync(
+            UiConfirmationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Confirmations.Add(request);
+            return PendingConfirmation?.Task
+                ?? Task.FromResult(ConfirmationResult);
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(
+            UiFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(
+            UiFolderPickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(
+            UiSaveFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FakePlaylistUrlDownloadGateway : IPlaylistUrlDownloadGateway

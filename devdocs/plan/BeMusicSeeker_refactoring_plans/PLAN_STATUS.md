@@ -18,7 +18,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `planner required`
+sequence cursor: `UI05-R2-URL-B Main-table context-menu availability closure`
 
 目的:
 

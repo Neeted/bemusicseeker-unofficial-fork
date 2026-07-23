@@ -231,8 +231,8 @@ URL 取り込みでは、共有ページ解決、解決不能、HTML スキッ�
 - 外部 API から入手先を探す処理は、外部 API の可用性とレスポンス形式に依存します。
   - API 側の仕様変更、停止、レート制限、返却 URL の変化があった場合は候補なしまたは失敗として扱います。
   - 返却 URL が直 DL 相当に見えない場合は、共有ページ解決やブラウザ操作へフォールバックしません。
-- URL 解決、ダウンロード、HTML 解析の主実装は `MainWindow` 内の private メソッド群に残っています。
-  - 対応 host の追加や失敗分類の拡張を行う場合は、専用サービスへ分離するとテストしやすくなります。
+- URL 解決、ダウンロード、HTML 解析の主実装は `PlaylistUrlAcquisitionWorkflow` が所有します。
+  - 対応 host の追加や失敗分類の拡張は、同 workflow の責務と behavior test を同じ unit で更新します。
 
 ## 安全性
 
@@ -247,12 +247,12 @@ URL 取り込みでは、共有ページ解決、解決不能、HTML スキッ�
 
 ## 実装の主な正本
 
-- `MainWindow.DownloadPlaylistUrlCandidateAsync`
-- `MainWindow.DownloadPlaylistUrlResponseCandidateAsync`
-- `MainWindow.NormalizeDownloadUri`
-- `MainWindow.ResolveSharedDownloadPageUri`
-- `MainWindow.DownloadSelectedPlaylistUrlsAsync`
-- `MainWindow.DownloadSelectedPlaylistExternalPackagesAsync`
+- `PlaylistUrlAcquisitionWorkflow.DownloadCandidateAsync`
+- `PlaylistUrlAcquisitionWorkflow.DownloadPlaylistUrlResponseCandidateAsync`
+- `PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri`
+- `PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri`
+- `PlaylistWorkspaceViewModel.RunPlaylistUrlBatchAsync`
+- `PlaylistWorkspaceViewModel.RunPlaylistExternalPackageLookupAsync`
 - `PlaylistExternalPackageLookupService`
 - `GingerPlaylistExternalPackageLookupProvider`
 - `KonmaiPlaylistExternalPackageLookupProvider`

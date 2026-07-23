@@ -36,6 +36,13 @@ internal sealed class UiDialogResult
     internal bool IsAccepted => Status == UiDialogStatus.Accepted;
 
     /// <summary>
+    /// dialog を閉じた場合も含め、肯定結果として扱えるかどうかを返します。
+    /// </summary>
+    internal bool IsPositive => Status == UiDialogStatus.Accepted
+        || Status == UiDialogStatus.ClosedByUser
+            && MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes;
+
+    /// <summary>
     /// WPF message box の戻り値を coordinator の結果へ変換します。
     /// </summary>
     /// <param name="result">WPF message box の戻り値。</param>

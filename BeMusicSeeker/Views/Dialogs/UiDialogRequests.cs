@@ -26,6 +26,35 @@ internal class UiMessageRequest
     }
 
     /// <summary>
+    /// 標準の警告通知要求を初期化します。
+    /// </summary>
+    internal static UiMessageRequest CreateWarning(string messageBoxText, string caption)
+    {
+        return new UiMessageRequest(
+            messageBoxText,
+            caption,
+            MessageBoxButton.OK,
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
+    }
+
+    /// <summary>
+    /// 標準の処理結果通知要求を初期化します。
+    /// </summary>
+    internal static UiMessageRequest CreateInformation(
+        string messageBoxText,
+        string caption,
+        bool completedSuccessfully)
+    {
+        return new UiMessageRequest(
+            messageBoxText,
+            caption,
+            MessageBoxButton.OK,
+            completedSuccessfully ? MessageBoxImage.Asterisk : MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
+    }
+
+    /// <summary>
     /// message box 表示要求を初期化します。
     /// </summary>
     /// <param name="messageBoxText">表示する本文。</param>
@@ -102,6 +131,23 @@ internal class UiMessageRequest
 /// </summary>
 internal sealed class UiConfirmationRequest : UiMessageRequest
 {
+    /// <summary>
+    /// 標準の OK/Cancel 確認要求を初期化します。
+    /// </summary>
+    internal static UiConfirmationRequest CreateDefault(
+        string messageBoxText,
+        string caption,
+        string warningMessageBoxText = null)
+    {
+        return new UiConfirmationRequest(
+            messageBoxText,
+            caption,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Cancel,
+            warningMessageBoxText: warningMessageBoxText);
+    }
+
     /// <summary>
     /// 標準の OK/Cancel・Question・Cancel default の確認要求を初期化します。
     /// </summary>

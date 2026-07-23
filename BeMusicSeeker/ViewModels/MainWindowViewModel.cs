@@ -2532,7 +2532,6 @@ public partial class MainWindowViewModel : ViewModel
                 PackageInstallWorkflow.Enqueue(paths);
             },
             uri => Process.Start(uri.ToString()),
-            () => PlaylistUrlInstallTreeExpansionRequested?.Invoke(),
             request => PlaylistSummarySelectionRestoreRequested?.Invoke(request),
             LogExternalPlaylistImportWarning,
             LogExternalPlaylistImportInfo,
@@ -2589,9 +2588,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += PlaylistWorkspacePlaylistPropertyExternalSyncFailed;
         PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
-        PlaylistWorkspace.PlaylistUrlAcquisitionConfirmationRequested += PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested;
-        PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested += PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
-        PlaylistWorkspace.PlaylistUrlAcquisitionSummaryReady += PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady;
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
         PlaylistWorkspace.PlaylistKeywordValueCandidatesChanged += PlaylistWorkspacePlaylistKeywordValueCandidatesChanged;
         PlaylistWorkspace.PlaylistEntriesHydrationRequested += PlaylistWorkspacePlaylistEntriesHydrationRequested;

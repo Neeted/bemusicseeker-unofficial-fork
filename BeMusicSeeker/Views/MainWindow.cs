@@ -301,11 +301,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
+        viewModel.PlaylistWorkspace.PlaylistUrlInstallTreeExpansionRequested += MainWindow_PlaylistUrlInstallTreeExpansionRequested;
         viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;
         viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
-        viewModel.PlaylistUrlInstallTreeExpansionRequested += MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
         viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
@@ -323,7 +323,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.settingDialog.PresentationRequested -= MainWindowViewModel_SettingDialogPresentationRequested;
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
-        subscribedViewModel.PlaylistUrlInstallTreeExpansionRequested -= MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested;
+        subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallTreeExpansionRequested -= MainWindow_PlaylistUrlInstallTreeExpansionRequested;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
@@ -465,7 +465,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         playbackPanelView.RotatePanelState();
     }
 
-    private void MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested()
+    private void MainWindow_PlaylistUrlInstallTreeExpansionRequested()
     {
         newlyInstalledTreeViewItem.IsExpanded = true;
     }
@@ -1291,7 +1291,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await OpenUrlFromRowAsync(e.Row, isUrlDiff, isUrlDiff ? "custom_table_open_url_diff" : "custom_table_open_url");
+        if (ShouldBlockStartupUiInteraction(isUrlDiff ? "custom_table_open_url_diff" : "custom_table_open_url"))
+        {
+            return;
+        }
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            Uri url = isUrlDiff ? GridRowResolver.GetUrlDiff(e.Row) : GridRowResolver.GetUrl(e.Row);
+            if (url != null && url.IsAbsoluteUri)
+            {
+                await viewModel.PlaylistWorkspace.RunSinglePlaylistUrlAsync(url);
+            }
+        }
     }
 
     private async void customTablePlaylistSummary_CellActionRequested(object sender, CustomTableCellActionRequestedEventArgs e)
@@ -2111,41 +2122,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         return null;
-    }
-
-    private async Task OpenUrlFromRowAsync(object row, bool isDiffUrl, string blockReason, MouseButtonEventArgs mouseEventArgs = null)
-    {
-        if (ShouldBlockStartupUiInteraction(blockReason))
-        {
-            if (mouseEventArgs != null)
-            {
-                mouseEventArgs.Handled = true;
-            }
-            return;
-        }
-        await OpenSinglePlaylistUrlAsync(row, isDiffUrl);
-    }
-
-    private async Task OpenSinglePlaylistUrlAsync(object row, bool isDiffUrl)
-    {
-        Uri url = isDiffUrl ? GridRowResolver.GetUrlDiff(row) : GridRowResolver.GetUrl(row);
-        if (url == null || !url.IsAbsoluteUri)
-        {
-            return;
-        }
-        await OpenSinglePlaylistUrlAsync(url);
-    }
-
-    private async Task OpenSinglePlaylistUrlAsync(Uri url)
-    {
-        if (url == null || !url.IsAbsoluteUri)
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await viewModel.PlaylistWorkspace.OpenSinglePlaylistUrlAsync(url);
-        }
     }
 
     private void playlistRootSelect(object sender, RoutedEventArgs e)
@@ -5688,64 +5664,43 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private async void tableContextMenuItemOpenURLClick(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        await OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: false, "datagrid_context_menu_open_url").Logging("tableContextMenuItemOpenURLClick");
+        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_open_url")
+            || !TryGetContextMenuRow(e.Source, out object contextRow)
+            || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        await viewModel.PlaylistWorkspace
+            .RunPlaylistUrlActionAsync(GetEffectiveContextMenuRows(contextRow), isDiffUrl: false)
+            .Logging("tableContextMenuItemOpenURLClick");
     }
 
     private async void tableContextMenuItemOpenURLdiffClick(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        await OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: true, "datagrid_context_menu_open_url_diff").Logging("tableContextMenuItemOpenURLdiffClick");
+        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_open_url_diff")
+            || !TryGetContextMenuRow(e.Source, out object contextRow)
+            || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        await viewModel.PlaylistWorkspace
+            .RunPlaylistUrlActionAsync(GetEffectiveContextMenuRows(contextRow), isDiffUrl: true)
+            .Logging("tableContextMenuItemOpenURLdiffClick");
     }
 
     private async void tableContextMenuItemFindExternalPackageClick(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        await FindExternalPackageFromContextMenuAsync(e.Source).Logging("tableContextMenuItemFindExternalPackageClick");
-    }
-
-    private async Task FindExternalPackageFromContextMenuAsync(object source)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_find_external_package"))
+        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_find_external_package")
+            || !TryGetContextMenuRow(e.Source, out object contextRow)
+            || base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        if (!TryGetContextMenuRow(source, out object contextRow))
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await viewModel.PlaylistWorkspace.DownloadSelectedPlaylistExternalPackagesAsync(
-                PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets(GetEffectiveContextMenuRows(contextRow)));
-        }
-    }
-
-    private async Task OpenPlaylistUrlFromContextMenuAsync(object source, bool isDiffUrl, string blockReason)
-    {
-        if (ShouldBlockStartupUiInteraction(blockReason))
-        {
-            return;
-        }
-        if (!TryGetContextMenuRow(source, out object contextRow))
-        {
-            return;
-        }
-        List<object> rows = GetEffectiveContextMenuRows(contextRow);
-        if (rows.Count <= 1)
-        {
-            Uri url = isDiffUrl ? GridRowResolver.GetUrlDiff(contextRow) : GridRowResolver.GetUrl(contextRow);
-            if (base.DataContext is MainWindowViewModel viewModel && url != null && url.IsAbsoluteUri)
-            {
-                await viewModel.PlaylistWorkspace.OpenSinglePlaylistUrlAsync(url);
-            }
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel bulkViewModel)
-        {
-            await bulkViewModel.PlaylistWorkspace.DownloadSelectedPlaylistUrlsAsync(
-                PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(rows, isDiffUrl),
-                isDiffUrl);
-        }
+        await viewModel.PlaylistWorkspace
+            .RunPlaylistExternalPackageLookupAsync(GetEffectiveContextMenuRows(contextRow))
+            .Logging("tableContextMenuItemFindExternalPackageClick");
     }
 
     private List<object> GetEffectiveContextMenuRows(object contextRow)

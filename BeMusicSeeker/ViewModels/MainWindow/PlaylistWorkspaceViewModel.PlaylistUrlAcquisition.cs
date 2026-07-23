@@ -4,57 +4,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
-
-internal enum PlaylistUrlAcquisitionConfirmationKind
-{
-    SelectedUrls,
-    ExternalPackages
-}
-
-internal sealed class PlaylistUrlAcquisitionConfirmationRequestedEventArgs : EventArgs
-{
-    internal PlaylistUrlAcquisitionConfirmationRequestedEventArgs(
-        PlaylistUrlAcquisitionConfirmationKind kind,
-        int targetCount,
-        bool isDiffUrl,
-        int largeSelectionWarningThreshold)
-    {
-        Kind = kind;
-        TargetCount = Math.Max(0, targetCount);
-        IsDiffUrl = isDiffUrl;
-        LargeSelectionWarningThreshold = Math.Max(0, largeSelectionWarningThreshold);
-    }
-
-    internal PlaylistUrlAcquisitionConfirmationKind Kind { get; }
-
-    internal int TargetCount { get; }
-
-    internal bool IsDiffUrl { get; }
-
-    internal int LargeSelectionWarningThreshold { get; }
-
-    internal bool Confirmed { get; set; }
-}
-
-internal enum PlaylistUrlAcquisitionNotificationKind
-{
-    SelectedUrlsNoTargets,
-    SelectedUrlsBlockedByInstallQueue,
-    ExternalPackagesNoTargets,
-    ExternalPackagesBlockedByInstallQueue
-}
-
-internal sealed class PlaylistUrlAcquisitionNotificationRequestedEventArgs : EventArgs
-{
-    internal PlaylistUrlAcquisitionNotificationRequestedEventArgs(PlaylistUrlAcquisitionNotificationKind kind)
-    {
-        Kind = kind;
-    }
-
-    internal PlaylistUrlAcquisitionNotificationKind Kind { get; }
-}
 
 internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
 {
@@ -89,66 +41,29 @@ internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
     internal string LabelFormat { get; }
 }
 
-internal sealed class PlaylistUrlAcquisitionSummaryReadyEventArgs : EventArgs
-{
-    internal PlaylistUrlAcquisitionSummaryReadyEventArgs(
-        bool externalPackageLookup,
-        int targetCount,
-        int downloadedCount,
-        int browserFallbackCount,
-        int blockedBySizeLimitCount,
-        int duplicateCount,
-        int failedCount,
-        int noCandidateCount,
-        int duplicateDownloadedUrlCount,
-        int duplicateFailedUrlCount,
-        int unsupportedCount,
-        int canceledCount)
-    {
-        ExternalPackageLookup = externalPackageLookup;
-        TargetCount = Math.Max(0, targetCount);
-        DownloadedCount = Math.Max(0, downloadedCount);
-        BrowserFallbackCount = Math.Max(0, browserFallbackCount);
-        BlockedBySizeLimitCount = Math.Max(0, blockedBySizeLimitCount);
-        DuplicateCount = Math.Max(0, duplicateCount);
-        FailedCount = Math.Max(0, failedCount);
-        NoCandidateCount = Math.Max(0, noCandidateCount);
-        DuplicateDownloadedUrlCount = Math.Max(0, duplicateDownloadedUrlCount);
-        DuplicateFailedUrlCount = Math.Max(0, duplicateFailedUrlCount);
-        UnsupportedCount = Math.Max(0, unsupportedCount);
-        CanceledCount = Math.Max(0, canceledCount);
-    }
-
-    internal bool ExternalPackageLookup { get; }
-
-    internal int TargetCount { get; }
-
-    internal int DownloadedCount { get; }
-
-    internal int BrowserFallbackCount { get; }
-
-    internal int BlockedBySizeLimitCount { get; }
-
-    internal int DuplicateCount { get; }
-
-    internal int FailedCount { get; }
-
-    internal int NoCandidateCount { get; }
-
-    internal int DuplicateDownloadedUrlCount { get; }
-
-    internal int DuplicateFailedUrlCount { get; }
-
-    internal int UnsupportedCount { get; }
-
-    internal int CanceledCount { get; }
-}
-
 public sealed partial class PlaylistWorkspaceViewModel
 {
     private const int PlaylistUrlDownloadLargeSelectionWarningThreshold = 50;
 
+    private enum PlaylistUrlAcquisitionConfirmationKind
+    {
+        SelectedUrls,
+        ExternalPackages
+    }
+
+    private enum PlaylistUrlAcquisitionNotificationKind
+    {
+        SelectedUrlsNoTargets,
+        SelectedUrlsBlockedByInstallQueue,
+        ExternalPackagesNoTargets,
+        ExternalPackagesBlockedByInstallQueue
+    }
+
     private readonly object playlistUrlAcquisitionSync = new();
+
+    private readonly SemaphoreSlim playlistUrlAcquisitionCommandGate = new(1, 1);
+
+    private readonly Func<Action, Task> playlistUrlAcquisitionPresentationScheduler;
 
     private readonly Func<bool> playlistUrlInstallQueueActiveProvider;
 
@@ -156,7 +71,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly Action<Uri> playlistUrlBrowserOpenSink;
 
-    private readonly Action playlistUrlInstallTreeExpansionSink;
+    internal event Action PlaylistUrlInstallTreeExpansionRequested;
 
     private int playlistUrlAcquisitionRunning;
 
@@ -172,12 +87,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistUrlDownloadStatusSnapshot> PlaylistUrlDownloadStatusChanged;
 
-    internal event EventHandler<PlaylistUrlAcquisitionConfirmationRequestedEventArgs> PlaylistUrlAcquisitionConfirmationRequested;
-
-    internal event EventHandler<PlaylistUrlAcquisitionNotificationRequestedEventArgs> PlaylistUrlAcquisitionNotificationRequested;
-
-    internal event EventHandler<PlaylistUrlAcquisitionSummaryReadyEventArgs> PlaylistUrlAcquisitionSummaryReady;
-
     internal bool IsPlaylistUrlDownloadRunning
     {
         get
@@ -189,18 +98,59 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    internal async Task OpenSinglePlaylistUrlAsync(Uri url)
+    internal Task RunPlaylistUrlActionAsync(IEnumerable<object> rows, bool isDiffUrl)
+    {
+        List<object> rowSnapshot = [.. (rows ?? []).Where(row => row != null)];
+        if (rowSnapshot.Count <= 1)
+        {
+            Uri url = rowSnapshot.Count == 0
+                ? null
+                : isDiffUrl
+                    ? GridRowResolver.GetUrlDiff(rowSnapshot[0])
+                    : GridRowResolver.GetUrl(rowSnapshot[0]);
+            return RunSinglePlaylistUrlAsync(url);
+        }
+        return RunPlaylistUrlBatchAsync(
+            PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(rowSnapshot, isDiffUrl),
+            isDiffUrl);
+    }
+
+    internal Task RunPlaylistExternalPackageLookupAsync(IEnumerable<object> rows)
+    {
+        List<object> rowSnapshot = [.. (rows ?? []).Where(row => row != null)];
+        return RunExternalPackageLookupAsync(
+            PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets(rowSnapshot));
+    }
+
+    internal async Task RunSinglePlaylistUrlAsync(Uri url)
     {
         if (url == null || !url.IsAbsoluteUri || IsPlaylistUrlDownloadRunning)
         {
             return;
         }
 
+        if (!playlistUrlAcquisitionCommandGate.Wait(0))
+        {
+            return;
+        }
+        try
+        {
+            await RunSinglePlaylistUrlCoreAsync(url);
+        }
+        finally
+        {
+            playlistUrlAcquisitionCommandGate.Release();
+        }
+    }
+
+    private async Task RunSinglePlaylistUrlCoreAsync(Uri url)
+    {
+
         if (GetPlaylistUrlAcquisitionOptions().ShouldAutoInstall)
         {
             PlaylistUrlDownloadResult result = await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url).ConfigureAwait(false);
             if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded
-                && QueuePlaylistUrlInstallPaths([result.FilePath]))
+                && await QueuePlaylistUrlInstallPathsAsync([result.FilePath]).ConfigureAwait(true))
             {
                 return;
             }
@@ -214,10 +164,27 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        DispatchPlaylistUrlAcquisitionAction(() => playlistUrlBrowserOpenSink(url));
+        await playlistUrlAcquisitionPresentationScheduler(
+            () => playlistUrlBrowserOpenSink(url)).ConfigureAwait(true);
     }
 
-    internal async Task DownloadSelectedPlaylistUrlsAsync(IEnumerable<Uri> urls, bool isDiffUrl)
+    internal async Task RunPlaylistUrlBatchAsync(IEnumerable<Uri> urls, bool isDiffUrl)
+    {
+        if (!playlistUrlAcquisitionCommandGate.Wait(0))
+        {
+            return;
+        }
+        try
+        {
+            await RunPlaylistUrlBatchCoreAsync(urls, isDiffUrl);
+        }
+        finally
+        {
+            playlistUrlAcquisitionCommandGate.Release();
+        }
+    }
+
+    private async Task RunPlaylistUrlBatchCoreAsync(IEnumerable<Uri> urls, bool isDiffUrl)
     {
         if (IsPlaylistUrlDownloadRunning)
         {
@@ -226,12 +193,14 @@ public sealed partial class PlaylistWorkspaceViewModel
         List<Uri> targets = [.. (urls ?? []).Where(url => url != null && url.IsAbsoluteUri)];
         if (targets.Count == 0)
         {
-            RequestPlaylistUrlAcquisitionNotification(PlaylistUrlAcquisitionNotificationKind.SelectedUrlsNoTargets);
+            await ShowPlaylistUrlAcquisitionNotificationAsync(
+                PlaylistUrlAcquisitionNotificationKind.SelectedUrlsNoTargets);
             return;
         }
         if (IsPlaylistUrlInstallQueueActive())
         {
-            RequestPlaylistUrlAcquisitionNotification(PlaylistUrlAcquisitionNotificationKind.SelectedUrlsBlockedByInstallQueue);
+            await ShowPlaylistUrlAcquisitionNotificationAsync(
+                PlaylistUrlAcquisitionNotificationKind.SelectedUrlsBlockedByInstallQueue);
             return;
         }
         if (targets.Count >= PlaylistUrlDownloadLargeSelectionWarningThreshold)
@@ -242,12 +211,10 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + " threshold="
                     + PlaylistUrlDownloadLargeSelectionWarningThreshold);
         }
-        if (!RequestPlaylistUrlAcquisitionConfirmation(
-            new PlaylistUrlAcquisitionConfirmationRequestedEventArgs(
-                PlaylistUrlAcquisitionConfirmationKind.SelectedUrls,
-                targets.Count,
-                isDiffUrl,
-                PlaylistUrlDownloadLargeSelectionWarningThreshold)))
+        if (!await ConfirmPlaylistUrlAcquisitionAsync(
+            targets.Count,
+            isDiffUrl,
+            PlaylistUrlAcquisitionConfirmationKind.SelectedUrls))
         {
             return;
         }
@@ -325,8 +292,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             EndPlaylistUrlAcquisition(cancellation);
         }
 
-        QueuePlaylistUrlInstallPaths(downloadedPaths);
-        RequestPlaylistUrlAcquisitionSummary(new PlaylistUrlAcquisitionSummaryReadyEventArgs(
+        await QueuePlaylistUrlInstallPathsAsync(downloadedPaths).ConfigureAwait(true);
+        await ShowPlaylistUrlAcquisitionSummaryAsync(
             externalPackageLookup: false,
             targets.Count,
             downloadedPaths.Count,
@@ -338,10 +305,26 @@ public sealed partial class PlaylistWorkspaceViewModel
             duplicateDownloadedUrlCount: 0,
             duplicateFailedUrlCount: 0,
             unsupportedCount: 0,
-            canceledCount));
+            canceledCount);
     }
 
-    internal async Task DownloadSelectedPlaylistExternalPackagesAsync(IEnumerable<string> chartMd5Targets)
+    private async Task RunExternalPackageLookupAsync(IEnumerable<string> chartMd5Targets)
+    {
+        if (!playlistUrlAcquisitionCommandGate.Wait(0))
+        {
+            return;
+        }
+        try
+        {
+            await RunExternalPackageLookupCoreAsync(chartMd5Targets);
+        }
+        finally
+        {
+            playlistUrlAcquisitionCommandGate.Release();
+        }
+    }
+
+    private async Task RunExternalPackageLookupCoreAsync(IEnumerable<string> chartMd5Targets)
     {
         if (IsPlaylistUrlDownloadRunning)
         {
@@ -350,20 +333,20 @@ public sealed partial class PlaylistWorkspaceViewModel
         List<string> targets = [.. (chartMd5Targets ?? []).Where(target => !string.IsNullOrWhiteSpace(target))];
         if (targets.Count == 0)
         {
-            RequestPlaylistUrlAcquisitionNotification(PlaylistUrlAcquisitionNotificationKind.ExternalPackagesNoTargets);
+            await ShowPlaylistUrlAcquisitionNotificationAsync(
+                PlaylistUrlAcquisitionNotificationKind.ExternalPackagesNoTargets);
             return;
         }
         if (IsPlaylistUrlInstallQueueActive())
         {
-            RequestPlaylistUrlAcquisitionNotification(PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue);
+            await ShowPlaylistUrlAcquisitionNotificationAsync(
+                PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue);
             return;
         }
-        if (!RequestPlaylistUrlAcquisitionConfirmation(
-            new PlaylistUrlAcquisitionConfirmationRequestedEventArgs(
-                PlaylistUrlAcquisitionConfirmationKind.ExternalPackages,
-                targets.Count,
-                isDiffUrl: false,
-                largeSelectionWarningThreshold: 0)))
+        if (!await ConfirmPlaylistUrlAcquisitionAsync(
+            targets.Count,
+            isDiffUrl: false,
+            PlaylistUrlAcquisitionConfirmationKind.ExternalPackages))
         {
             return;
         }
@@ -468,8 +451,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             EndPlaylistUrlAcquisition(cancellation);
         }
 
-        QueuePlaylistUrlInstallPaths(downloadedPaths);
-        RequestPlaylistUrlAcquisitionSummary(new PlaylistUrlAcquisitionSummaryReadyEventArgs(
+        await QueuePlaylistUrlInstallPathsAsync(downloadedPaths).ConfigureAwait(true);
+        await ShowPlaylistUrlAcquisitionSummaryAsync(
             externalPackageLookup: true,
             targets.Count,
             downloadedPaths.Count,
@@ -481,7 +464,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             duplicateDownloadedUrlCount,
             duplicateFailedUrlCount,
             unsupportedCount,
-            canceledCount));
+            canceledCount);
     }
 
     internal void CancelPlaylistUrlDownload()
@@ -658,25 +641,155 @@ public sealed partial class PlaylistWorkspaceViewModel
         return playlistUrlAcquisitionOptionsProvider();
     }
 
-    private bool RequestPlaylistUrlAcquisitionConfirmation(PlaylistUrlAcquisitionConfirmationRequestedEventArgs request)
+    private async Task<bool> ConfirmPlaylistUrlAcquisitionAsync(
+        int targetCount,
+        bool isDiffUrl,
+        PlaylistUrlAcquisitionConfirmationKind kind)
     {
-        PlaylistUrlAcquisitionConfirmationRequested?.Invoke(this, request);
-        return request.Confirmed;
+        string message;
+        string warningMessage = null;
+        if (kind == PlaylistUrlAcquisitionConfirmationKind.ExternalPackages)
+        {
+            message = string.Format(
+                BeMusicSeeker.Properties.Resources.Confirm_SelectedPlaylistExternalPackageLookup,
+                targetCount);
+            warningMessage = BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookup;
+        }
+        else
+        {
+            string urlKind = isDiffUrl
+                ? BeMusicSeeker.Properties.Resources.Diff_URL
+                : BeMusicSeeker.Properties.Resources.Original_URL;
+            message = string.Format(
+                BeMusicSeeker.Properties.Resources.Confirm_SelectedPlaylistUrlDownload,
+                targetCount,
+                urlKind);
+            if (targetCount >= PlaylistUrlDownloadLargeSelectionWarningThreshold)
+            {
+                warningMessage = string.Format(
+                    BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadLargeSelection,
+                    PlaylistUrlDownloadLargeSelectionWarningThreshold);
+            }
+        }
+
+        UiDialogResult result = await playlistWorkspaceDialogService.ConfirmAsync(
+            UiConfirmationRequest.CreateDefault(
+                message,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                warningMessage))
+            .ConfigureAwait(true);
+        return ToPlaylistUrlConfirmationDecision(
+            result,
+            kind == PlaylistUrlAcquisitionConfirmationKind.ExternalPackages
+                ? "Playlist URL external package lookup confirmation"
+                : "Playlist URL download confirmation");
     }
 
-    private void RequestPlaylistUrlAcquisitionNotification(PlaylistUrlAcquisitionNotificationKind kind)
+    private async Task ShowPlaylistUrlAcquisitionNotificationAsync(
+        PlaylistUrlAcquisitionNotificationKind kind)
     {
-        PlaylistUrlAcquisitionNotificationRequestedEventArgs request =
-            new(kind);
-        DispatchPlaylistUrlAcquisitionAction(() => PlaylistUrlAcquisitionNotificationRequested?.Invoke(this, request));
+        string message = kind switch
+        {
+            PlaylistUrlAcquisitionNotificationKind.SelectedUrlsNoTargets
+                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets,
+            PlaylistUrlAcquisitionNotificationKind.SelectedUrlsBlockedByInstallQueue
+                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue,
+            PlaylistUrlAcquisitionNotificationKind.ExternalPackagesNoTargets
+                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupNoTargets,
+            PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue
+                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+        };
+        UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
+            UiMessageRequest.CreateWarning(
+                message,
+                BeMusicSeeker.Properties.Resources.Warning))
+            .ConfigureAwait(true);
+        ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition notification");
     }
 
-    private void RequestPlaylistUrlAcquisitionSummary(PlaylistUrlAcquisitionSummaryReadyEventArgs summary)
+    private async Task ShowPlaylistUrlAcquisitionSummaryAsync(
+        bool externalPackageLookup,
+        int targetCount,
+        int downloadedCount,
+        int browserFallbackCount,
+        int blockedBySizeLimitCount,
+        int duplicateCount,
+        int failedCount,
+        int noCandidateCount,
+        int duplicateDownloadedUrlCount,
+        int duplicateFailedUrlCount,
+        int unsupportedCount,
+        int canceledCount)
     {
-        DispatchPlaylistUrlAcquisitionAction(() => PlaylistUrlAcquisitionSummaryReady?.Invoke(this, summary));
+        string message = externalPackageLookup
+            ? string.Format(
+                BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistExternalPackageLookupResult,
+                targetCount,
+                downloadedCount,
+                noCandidateCount,
+                duplicateDownloadedUrlCount,
+                duplicateFailedUrlCount,
+                blockedBySizeLimitCount,
+                unsupportedCount,
+                failedCount,
+                canceledCount)
+            : string.Format(
+                BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistUrlDownloadResult,
+                targetCount,
+                downloadedCount,
+                browserFallbackCount,
+                blockedBySizeLimitCount,
+                duplicateCount,
+                failedCount,
+                canceledCount);
+        UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
+            UiMessageRequest.CreateInformation(
+                message,
+                BeMusicSeeker.Properties.Resources.Information,
+                downloadedCount > 0))
+            .ConfigureAwait(true);
+        ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition summary");
     }
 
-    private bool QueuePlaylistUrlInstallPaths(IEnumerable<string> paths)
+    private static bool ToPlaylistUrlConfirmationDecision(UiDialogResult result, string routeName)
+    {
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " returned no dialog result.");
+        }
+        return result.Status switch
+        {
+            UiDialogStatus.Accepted => true,
+            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
+            UiDialogStatus.ClosedByUser => result.IsPositive,
+            _ => throw CreatePlaylistUrlDialogDisplayException(routeName, result)
+        };
+    }
+
+    private static void ThrowIfPlaylistUrlDialogNotShown(UiDialogResult result, string routeName)
+    {
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " returned no dialog result.");
+        }
+        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+        throw CreatePlaylistUrlDialogDisplayException(routeName, result);
+    }
+
+    private static InvalidOperationException CreatePlaylistUrlDialogDisplayException(
+        string routeName,
+        UiDialogResult result)
+    {
+        return new InvalidOperationException(
+            routeName + " could not be displayed (" + result.Status + ").",
+            result.Exception);
+    }
+
+    private async Task<bool> QueuePlaylistUrlInstallPathsAsync(IEnumerable<string> paths)
     {
         string[] pathSnapshot = [.. (paths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -686,15 +799,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             return false;
         }
         playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot));
-        DispatchPlaylistUrlAcquisitionAction(playlistUrlInstallTreeExpansionSink);
+        await playlistUrlAcquisitionPresentationScheduler(
+            () => PlaylistUrlInstallTreeExpansionRequested?.Invoke())
+            .ConfigureAwait(true);
         return true;
     }
 
-    private void DispatchPlaylistUrlAcquisitionAction(Action action)
-    {
-        if (action != null)
-        {
-            dispatchPresentation(action);
-        }
-    }
 }
