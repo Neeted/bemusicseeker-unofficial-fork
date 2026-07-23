@@ -297,6 +297,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
+        viewModel.PropertyChanged += MainWindowViewModel_PropertyChanged;
         viewModel.PlaylistWorkspace.PlaylistUrlInstallTreeExpansionRequested += MainWindow_PlaylistUrlInstallTreeExpansionRequested;
         viewModel.PlaylistWorkspace.PlaylistPropertyValidationError += MainWindow_PlaylistPropertyValidationError;
         viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
@@ -306,7 +307,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;
         viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
-        viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
         viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
@@ -320,10 +320,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        subscribedViewModel.PropertyChanged -= MainWindowViewModel_PropertyChanged;
         subscribedViewModel.settingDialog.OpenRequested -= MainWindowViewModel_SettingDialogOpenRequested;
         subscribedViewModel.settingDialog.PresentationRequested -= MainWindowViewModel_SettingDialogPresentationRequested;
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
-        subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallTreeExpansionRequested -= MainWindow_PlaylistUrlInstallTreeExpansionRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyValidationError -= MainWindow_PlaylistPropertyValidationError;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested -= MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
@@ -341,6 +341,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void MainWindowViewModel_FolderAutoRenameTerminalPublished()
     {
         RefreshCustomTableViewDisplayAsync();
+    }
+
+    private void MainWindowViewModel_PropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (e?.PropertyName != nameof(MainWindowViewModel.IsInitializationCompleted)
+            || sender is not MainWindowViewModel viewModel
+            || !viewModel.IsInitializationCompleted)
+        {
+            return;
+        }
+
+        Action attachPlaybackPanel = delegate
+        {
+            if (IsShellClosingOrClosed()
+                || !ReferenceEquals(subscribedViewModel, viewModel)
+                || !viewModel.IsInitializationCompleted)
+            {
+                return;
+            }
+            viewModel.PlaybackPanel.AttachParentHandle(playbackPanelView.PlayerHostHandle);
+            playbackPanelView.EnsureSelectedSurfaceAvailable();
+        };
+        if (Dispatcher.CheckAccess())
+        {
+            attachPlaybackPanel();
+        }
+        else
+        {
+            Dispatcher.BeginInvoke(attachPlaybackPanel);
+        }
     }
 
     private void MainWindowViewModel_ElevatedProcessWarningPresentationRequested(ElevatedProcessWarningPresentationRequest request)
@@ -462,15 +492,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void MainWindowViewModel_InitialSetupLanguageDialogRequested(object sender, EventArgs e)
     {
         ShowOverlayDialog(initialSetupLanguageDialog);
-    }
-
-    private void MainWindowViewModel_InitializationSucceeded(object sender, EventArgs e)
-    {
-        if (sender is MainWindowViewModel viewModel)
-        {
-            viewModel.PlaybackPanel.AttachParentHandle(playbackPanelView.PlayerHostHandle);
-        }
-        playbackPanelView.EnsureSelectedSurfaceAvailable();
     }
 
     private void MainWindow_PlaylistUrlInstallTreeExpansionRequested()

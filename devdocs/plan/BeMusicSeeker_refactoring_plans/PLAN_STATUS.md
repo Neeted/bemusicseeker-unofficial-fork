@@ -18,7 +18,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `UI05-R4-E Startup receipt wiring/outcome closure`
+sequence cursor: `UI05-R4-F Setting playback-volume view-host composition`
 
 目的:
 

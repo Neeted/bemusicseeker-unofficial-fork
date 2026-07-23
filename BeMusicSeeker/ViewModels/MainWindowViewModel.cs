@@ -50,8 +50,6 @@ public partial class MainWindowViewModel : ViewModel
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
-    internal event EventHandler InitializationSucceeded;
-
     /// <summary>
     /// Gets status-bar progress presentation state owned by the composed progress hub.
     /// </summary>
@@ -3413,11 +3411,6 @@ public partial class MainWindowViewModel : ViewModel
         RaiseUiInteractionOnUiThread(InitialSetupLanguageDialogRequested, nameof(InitialSetupLanguageDialogRequested));
     }
 
-    private void RaiseInitializationSucceeded()
-    {
-        RaiseUiInteractionOnUiThread(InitializationSucceeded, nameof(InitializationSucceeded));
-    }
-
     private static void LogUiInteractionSkippedOnShutdown(string interactionName)
     {
         NLogWrapper.FileLogger?.Warn("ui_interaction skipped reason=dispatcher_shutdown name=" + (interactionName ?? string.Empty));
@@ -4192,7 +4185,6 @@ public partial class MainWindowViewModel : ViewModel
         });
         UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
         UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
-        RaiseInitializationSucceeded();
         if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)
         {
             Backup.Target lR2BackupTarget = startupSettings.LR2BackupTarget;

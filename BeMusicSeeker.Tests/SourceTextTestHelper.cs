@@ -58,7 +58,7 @@ internal static class SourceTextTestHelper
         ];
         string logicalMainWindowViewModelSource = InsertSourceAfterMarker(
             File.ReadAllText(mainWindowViewModelPath),
-            "    internal event EventHandler InitializationSucceeded;",
+            "    internal event EventHandler InitialSetupLanguageDialogRequested;",
             string.Join(
                 Environment.NewLine,
                 nestedSourcePaths.Select(ExtractMainWindowViewModelPartialBody)));

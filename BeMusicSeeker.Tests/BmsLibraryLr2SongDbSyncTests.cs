@@ -2000,63 +2000,53 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     public void ApplyLr2FolderFileDiffSync_UsesScopedTextMetadataForBuiltinFolderInfoOutsideBmsRoot()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
-        try
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        Directory.CreateDirectory(rootDirectory);
+        string lr2Root = Path.Combine(scope.DirectoryPath, "LR2beta3");
+        string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
+        string randomDirectory = Path.Combine(builtinRoot, "RANDOM");
+        Directory.CreateDirectory(randomDirectory);
+        string folderInfoPath = Path.Combine(randomDirectory, "folderinfo.txt");
+        string lr2FolderPath = Path.Combine(randomDirectory, "random.lr2folder");
+        DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+        File.WriteAllText(folderInfoPath, "#TITLE Builtin Random", Encoding.GetEncoding("shift_jis"));
+        File.WriteAllText(lr2FolderPath, "#TITLE Random Folder", Encoding.GetEncoding("shift_jis"));
+        File.SetLastWriteTimeUtc(folderInfoPath, timestamp);
+        File.SetLastWriteTimeUtc(lr2FolderPath, timestamp);
+        var options = new BmsLibraryOptionsSnapshot
         {
-            Settings.Default.OperationModeLR2DB = true;
-            ResetLr2FolderDiscoverySettings();
-            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-            Directory.CreateDirectory(rootDirectory);
-            string lr2Root = Path.Combine(scope.DirectoryPath, "LR2beta3");
-            string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
-            string randomDirectory = Path.Combine(builtinRoot, "RANDOM");
-            Directory.CreateDirectory(randomDirectory);
-            Settings.Default.LR2RootPath = lr2Root;
-            string folderInfoPath = Path.Combine(randomDirectory, "folderinfo.txt");
-            string lr2FolderPath = Path.Combine(randomDirectory, "random.lr2folder");
-            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
-            File.WriteAllText(folderInfoPath, "#TITLE Builtin Random", Encoding.GetEncoding("shift_jis"));
-            File.WriteAllText(lr2FolderPath, "#TITLE Random Folder", Encoding.GetEncoding("shift_jis"));
-            File.SetLastWriteTimeUtc(folderInfoPath, timestamp);
-            File.SetLastWriteTimeUtc(lr2FolderPath, timestamp);
-            var options = new BmsLibraryOptionsSnapshot
-            {
-                OperationModeLR2DB = true,
-                LR2RootPath = lr2Root
-            };
-            var library = new BMSLibrary(scope.SongDbPath, null, null, null, () => options)
-            {
-                SearchTargets = [rootDirectory],
-                BMSFiles = []
-            };
-            var fileCheckResult = new SongTableFileCheckResult
-            {
-                Lr2ScanSurfaceAvailable = true,
-                Lr2ScanDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
-                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
-                Lr2ScanFolderInfoFilePaths = [],
-                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory, builtinRoot],
-                Lr2ScanLr2FolderFilePaths = [lr2FolderPath],
-                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
-                {
-                    [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
-                },
-                Lr2ScanLr2FolderFileDiscoveryComplete = true
-            };
-
-            InvokeApplyLr2FolderFileDiffSync(library, options, [rootDirectory], fileCheckResult, "test_lr2folder_file_diff_builtin_folderinfo");
-
-            using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDB.folder category = verify.Table<LR2SongDB.folder>().ToList().Single(row => row.path == @"LR2files\CustomFolder\RANDOM\");
-            Assert.AreEqual("Builtin Random", category.title);
-            CollectionAssert.Contains(fileCheckResult.Lr2ScanFolderInfoFilePaths.ToList(), folderInfoPath);
-            CollectionAssert.Contains(fileCheckResult.Lr2ScanTextFileDirectories.ToList(), Lr2FolderPath.NormalizeDirectoryPath(randomDirectory));
-            Assert.IsTrue(fileCheckResult.Lr2ScanDirectoryEntries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(randomDirectory)));
-        }
-        finally
+            OperationModeLR2DB = true,
+            LR2RootPath = lr2Root
+        };
+        var library = new BMSLibrary(scope.SongDbPath, null, null, null, () => options)
         {
-            ResetTouchedSettings();
-        }
+            SearchTargets = [rootDirectory],
+            BMSFiles = []
+        };
+        var fileCheckResult = new SongTableFileCheckResult
+        {
+            Lr2ScanSurfaceAvailable = true,
+            Lr2ScanDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+            Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+            Lr2ScanFolderInfoFilePaths = [],
+            Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+            Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory, builtinRoot],
+            Lr2ScanLr2FolderFilePaths = [lr2FolderPath],
+            Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
+            },
+            Lr2ScanLr2FolderFileDiscoveryComplete = true
+        };
+
+        InvokeApplyLr2FolderFileDiffSync(library, options, [rootDirectory], fileCheckResult, "test_lr2folder_file_diff_builtin_folderinfo");
+
+        using var verify = new LR2SongDBExtended(scope.SongDbPath);
+        LR2SongDB.folder category = verify.Table<LR2SongDB.folder>().ToList().Single(row => row.path == @"LR2files\CustomFolder\RANDOM\");
+        Assert.AreEqual("Builtin Random", category.title);
+        CollectionAssert.Contains(fileCheckResult.Lr2ScanFolderInfoFilePaths.ToList(), folderInfoPath);
+        CollectionAssert.Contains(fileCheckResult.Lr2ScanTextFileDirectories.ToList(), Lr2FolderPath.NormalizeDirectoryPath(randomDirectory));
+        Assert.IsTrue(fileCheckResult.Lr2ScanDirectoryEntries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(randomDirectory)));
     }
 
     [TestMethod]
