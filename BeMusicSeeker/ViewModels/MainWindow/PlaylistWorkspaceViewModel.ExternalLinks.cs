@@ -8,18 +8,30 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private const string PlaylistClearLampUri = "http://xyzzz.net/bms/clearlamp";
 
-    internal bool CanReloadPlaylistTable(BMSTable table)
+    internal PlaylistTableContextMenuAvailability CapturePlaylistTableContextMenuAvailability(BMSTable table)
+    {
+        return new PlaylistTableContextMenuAvailability(
+            canReload: CanReloadPlaylistTable(table),
+            canOpenPage: CanOpenPlaylistTablePage(table),
+            canOpenClearLamp: CanOpenPlaylistTableClearLamp(table),
+            canCreateFolder: table != null && !table.is_external_sync,
+            canOverwriteLevel: true,
+            canRemoveTable: true,
+            canOpenProperty: CanOpenPlaylistEditDialog);
+    }
+
+    private bool CanReloadPlaylistTable(BMSTable table)
     {
         Uri uri = table?.Page_url ?? table?.Header_url;
         return uri != null && uri.IsAbsoluteUri;
     }
 
-    internal bool CanOpenPlaylistTablePage(BMSTable table)
+    private bool CanOpenPlaylistTablePage(BMSTable table)
     {
         return table?.Page_url != null || table?.GetAbsoluteHeaderUrl() != null;
     }
 
-    internal bool CanOpenPlaylistTableClearLamp(BMSTable table)
+    private bool CanOpenPlaylistTableClearLamp(BMSTable table)
     {
         return table?.Page_url != null
             && table.Page_url.Scheme != "bmseeker"
@@ -133,4 +145,39 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         return getPlaylistLibrary()?.LR2ID ?? 0;
     }
+}
+
+internal sealed class PlaylistTableContextMenuAvailability
+{
+    internal PlaylistTableContextMenuAvailability(
+        bool canReload,
+        bool canOpenPage,
+        bool canOpenClearLamp,
+        bool canCreateFolder,
+        bool canOverwriteLevel,
+        bool canRemoveTable,
+        bool canOpenProperty)
+    {
+        CanReload = canReload;
+        CanOpenPage = canOpenPage;
+        CanOpenClearLamp = canOpenClearLamp;
+        CanCreateFolder = canCreateFolder;
+        CanOverwriteLevel = canOverwriteLevel;
+        CanRemoveTable = canRemoveTable;
+        CanOpenProperty = canOpenProperty;
+    }
+
+    internal bool CanReload { get; }
+
+    internal bool CanOpenPage { get; }
+
+    internal bool CanOpenClearLamp { get; }
+
+    internal bool CanCreateFolder { get; }
+
+    internal bool CanOverwriteLevel { get; }
+
+    internal bool CanRemoveTable { get; }
+
+    internal bool CanOpenProperty { get; }
 }

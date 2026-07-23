@@ -1154,9 +1154,8 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         foreach (string member in new[]
         {
-            "CanReloadPlaylistTable",
-            "CanOpenPlaylistTablePage",
-            "CanOpenPlaylistTableClearLamp",
+            "CapturePlaylistTableContextMenuAvailability",
+            "PlaylistTableContextMenuAvailability",
             "TryResolvePlaylistTablePageUri",
             "TryResolvePlaylistTableClearLampUri",
             "OpenPlaylistTablePage",
@@ -1167,9 +1166,34 @@ public sealed class PlaylistWorkspaceViewModelTests
             StringAssert.Contains(workspaceSource, member);
         }
 
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.CanReloadPlaylistTable(dataContext)");
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.CanOpenPlaylistTablePage(dataContext)");
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.CanOpenPlaylistTableClearLamp(dataContext)");
+        string handler = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private void treeViewPlaylistTableContextMenuOpend(");
+        StringAssert.Contains(handler, "CapturePlaylistTableContextMenuAvailability(dataContext)");
+        foreach (string terminalApply in new[]
+        {
+            "menuItem7.IsEnabled = availability.CanReload;",
+            "menuItem.IsEnabled = availability.CanOpenPage;",
+            "menuItem2.IsEnabled = availability.CanOpenClearLamp;",
+            "menuItem4.IsEnabled = availability.CanCreateFolder;",
+            "menuItem3.IsEnabled = availability.CanOverwriteLevel;",
+            "menuItem5.IsEnabled = availability.CanRemoveTable;",
+            "menuItem6.IsEnabled = availability.CanOpenProperty;"
+        })
+        {
+            StringAssert.Contains(handler, terminalApply, terminalApply);
+        }
+        foreach (string directDecision in new[]
+        {
+            "CanReloadPlaylistTable",
+            "CanOpenPlaylistTablePage",
+            "CanOpenPlaylistTableClearLamp",
+            "CanOpenPlaylistEditDialog",
+            "dataContext.is_external_sync"
+        })
+        {
+            Assert.AreEqual(-1, handler.IndexOf(directDecision, StringComparison.Ordinal), directDecision);
+        }
         StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.OpenPlaylistTablePage(dataContext)");
         StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.OpenPlaylistTableClearLamp(dataContext)");
         Assert.AreEqual(-1, mainWindowSource.IndexOf("OpenPlaylistSummaryUriAsync(Uri uri)", StringComparison.Ordinal));
@@ -1182,33 +1206,110 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void PlaylistTableContextMenuAvailability_PreservesAllActionPolicyFields()
+    {
+        PlaylistWorkspaceViewModel unavailableWorkspace = CreateDetailWorkspace(out _);
+        PlaylistTableContextMenuAvailability unavailable =
+            unavailableWorkspace.CapturePlaylistTableContextMenuAvailability(
+                new BMSTable { Page_url = new Uri("https://example.test/table") });
+        Assert.IsFalse(unavailable.CanOpenProperty);
+
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            BMSLibrary library = new(songDbPath);
+            typeof(BMSLibrary)
+                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(library, 123);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library);
+
+            BMSTable normalTable = new()
+            {
+                Page_url = new Uri("https://example.test/table")
+            };
+            PlaylistTableContextMenuAvailability normal =
+                workspace.CapturePlaylistTableContextMenuAvailability(normalTable);
+            Assert.IsTrue(normal.CanReload);
+            Assert.IsTrue(normal.CanOpenPage);
+            Assert.IsFalse(normal.CanOpenClearLamp);
+            Assert.IsTrue(normal.CanCreateFolder);
+            Assert.IsTrue(normal.CanOverwriteLevel);
+            Assert.IsTrue(normal.CanRemoveTable);
+            Assert.IsTrue(normal.CanOpenProperty);
+
+            BMSTable externalTable = new()
+            {
+                Page_url = new Uri("https://example.test/external"),
+                is_external_sync = true
+            };
+            PlaylistTableContextMenuAvailability external =
+                workspace.CapturePlaylistTableContextMenuAvailability(externalTable);
+            Assert.IsTrue(external.CanReload);
+            Assert.IsTrue(external.CanOpenPage);
+            Assert.IsTrue(external.CanOpenClearLamp);
+            Assert.IsFalse(external.CanCreateFolder);
+            Assert.IsTrue(external.CanOverwriteLevel);
+            Assert.IsTrue(external.CanRemoveTable);
+            Assert.IsTrue(external.CanOpenProperty);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void PlaylistTableExternalLinks_PreserveNormalHeaderAndSpecialRoutes()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
 
         BMSTable pageTable = new() { Page_url = new Uri("https://example.test/table") };
-        Assert.IsTrue(workspace.CanReloadPlaylistTable(pageTable));
-        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(pageTable));
+        PlaylistTableContextMenuAvailability pageAvailability =
+            workspace.CapturePlaylistTableContextMenuAvailability(pageTable);
+        Assert.IsTrue(pageAvailability.CanReload);
+        Assert.IsTrue(pageAvailability.CanOpenPage);
         Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(pageTable, out Uri pageUri));
         Assert.AreEqual("https://example.test/table", pageUri.ToString());
 
         BMSTable headerTable = new() { Header_url = new Uri("https://example.test/header.json") };
-        Assert.IsTrue(workspace.CanReloadPlaylistTable(headerTable));
-        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(headerTable));
+        PlaylistTableContextMenuAvailability headerAvailability =
+            workspace.CapturePlaylistTableContextMenuAvailability(headerTable);
+        Assert.IsTrue(headerAvailability.CanReload);
+        Assert.IsTrue(headerAvailability.CanOpenPage);
         Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(headerTable, out Uri headerUri));
         Assert.AreEqual("https://example.test/header.json", headerUri.ToString());
 
         BMSTable estimationTable = new() { Page_url = new Uri("bmseeker:table.estimation") };
-        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(estimationTable));
+        Assert.IsTrue(workspace.CapturePlaylistTableContextMenuAvailability(estimationTable).CanOpenPage);
         Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(estimationTable, out Uri estimationUri));
         Assert.AreEqual("http://walkure.net/hakkyou/bms.html", estimationUri.ToString());
 
         BMSTable recommendedTable = new() { Page_url = new Uri("bmseeker:table.recommended") };
-        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(recommendedTable));
+        Assert.IsTrue(workspace.CapturePlaylistTableContextMenuAvailability(recommendedTable).CanOpenPage);
         Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(recommendedTable, out _));
 
         BMSTable unsupportedTable = new() { Page_url = new Uri("bmseeker:table.other") };
-        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(unsupportedTable));
+        Assert.IsTrue(workspace.CapturePlaylistTableContextMenuAvailability(unsupportedTable).CanOpenPage);
         Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(unsupportedTable, out _));
     }
 
@@ -1245,7 +1346,7 @@ public sealed class PlaylistWorkspaceViewModelTests
                 Page_url = new Uri("https://example.test/table?a=1&b=%E6%97%A5%E6%9C%AC"),
                 is_external_sync = true
             };
-            Assert.IsTrue(workspace.CanOpenPlaylistTableClearLamp(clearLampTable));
+            Assert.IsTrue(workspace.CapturePlaylistTableContextMenuAvailability(clearLampTable).CanOpenClearLamp);
             Assert.IsTrue(workspace.TryResolvePlaylistTableClearLampUri(clearLampTable, out Uri clearLampUri));
             string expectedTableQuery = Uri.EscapeDataString(clearLampTable.Page_url.ToString());
             Assert.AreEqual(
@@ -1253,7 +1354,7 @@ public sealed class PlaylistWorkspaceViewModelTests
                 clearLampUri.OriginalString);
 
             clearLampTable.Page_url = new Uri("bmseeker:table.recommended");
-            Assert.IsFalse(workspace.CanOpenPlaylistTableClearLamp(clearLampTable));
+            Assert.IsFalse(workspace.CapturePlaylistTableContextMenuAvailability(clearLampTable).CanOpenClearLamp);
             Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(clearLampTable, out _));
         }
         finally
@@ -1272,16 +1373,30 @@ public sealed class PlaylistWorkspaceViewModelTests
             out _,
             playlistLibraryProvider: () => throw new InvalidOperationException("library lookup should not run"));
 
+        PlaylistTableContextMenuAvailability nullAvailability =
+            workspace.CapturePlaylistTableContextMenuAvailability(null);
+        Assert.IsFalse(nullAvailability.CanOpenClearLamp);
         Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(null, out _));
+        PlaylistTableContextMenuAvailability specialAvailability =
+            workspace.CapturePlaylistTableContextMenuAvailability(
+                new BMSTable { Page_url = new Uri("bmseeker:table.recommended"), is_external_sync = true });
+        Assert.IsFalse(specialAvailability.CanOpenClearLamp);
         Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(
             new BMSTable { Page_url = new Uri("bmseeker:table.recommended"), is_external_sync = true },
             out _));
+        PlaylistTableContextMenuAvailability localAvailability =
+            workspace.CapturePlaylistTableContextMenuAvailability(
+                new BMSTable { Page_url = new Uri("https://example.test/table"), is_external_sync = false });
+        Assert.IsFalse(localAvailability.CanOpenClearLamp);
         Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(
             new BMSTable { Page_url = new Uri("https://example.test/table"), is_external_sync = false },
             out _));
         Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(
             new BMSTable { Page_url = new Uri("bmseeker:table.other") },
             out _));
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            workspace.CapturePlaylistTableContextMenuAvailability(
+                new BMSTable { Page_url = new Uri("https://example.test/table"), is_external_sync = true }));
     }
 
     [TestMethod]

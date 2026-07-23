@@ -3460,6 +3460,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        PlaylistTableContextMenuAvailability availability =
+            mainWindowViewModel.PlaylistWorkspace.CapturePlaylistTableContextMenuAvailability(dataContext);
         MenuItem menuItem = null;
         MenuItem menuItem2 = null;
         MenuItem menuItem3 = null;
@@ -3494,13 +3496,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
-        menuItem7.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanReloadPlaylistTable(dataContext);
-        menuItem.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanOpenPlaylistTablePage(dataContext);
-        menuItem2.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanOpenPlaylistTableClearLamp(dataContext);
-        menuItem4.IsEnabled = !dataContext.is_external_sync;
-        menuItem3.IsEnabled = true;
-        menuItem5.IsEnabled = true;
-        menuItem6.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanOpenPlaylistEditDialog;
+        menuItem7.IsEnabled = availability.CanReload;
+        menuItem.IsEnabled = availability.CanOpenPage;
+        menuItem2.IsEnabled = availability.CanOpenClearLamp;
+        menuItem4.IsEnabled = availability.CanCreateFolder;
+        menuItem3.IsEnabled = availability.CanOverwriteLevel;
+        menuItem5.IsEnabled = availability.CanRemoveTable;
+        menuItem6.IsEnabled = availability.CanOpenProperty;
     }
 
     /// <summary>
