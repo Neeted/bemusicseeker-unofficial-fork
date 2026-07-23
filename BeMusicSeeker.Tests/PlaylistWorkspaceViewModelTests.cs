@@ -600,6 +600,17 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryBulkOperationFinished", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncStarted", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncFinished", StringComparison.Ordinal));
+        foreach (string propertyDialogEvent in new[]
+        {
+            "PlaylistPropertyValidationError",
+            "PlaylistPropertyExternalSyncConfirmationRequested",
+            "PlaylistPropertyInvalidOutputDirectoryRequested",
+            "PlaylistPropertyExternalSyncFailed"
+        })
+        {
+            Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace" + propertyDialogEvent, StringComparison.Ordinal));
+            StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace." + propertyDialogEvent + " += MainWindow_PlaylistProperty");
+        }
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistSummarySortRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistSummaryFilterChanged", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSummarySortRequested", StringComparison.Ordinal));

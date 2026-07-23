@@ -18,7 +18,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `UI05-R4-C Playlist dialog callback host`
+sequence cursor: `UI05-R4-D Operation progress direct publication`
 
 目的:
 

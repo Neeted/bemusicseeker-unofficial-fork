@@ -6,37 +6,6 @@ namespace BeMusicSeeker.ViewModels;
 
 public partial class MainWindowViewModel
 {
-    private void PlaylistWorkspacePlaylistPropertyValidationError(
-        object sender,
-        PlaylistPropertyValidationErrorEventArgs request)
-    {
-        string message = request.Error switch
-        {
-            PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName => BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateChangePlaylist,
-            PlaylistPropertyValidationError.InvalidOutputDirectory => BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateCheckInput,
-            PlaylistPropertyValidationError.InvalidPageUri => BeMusicSeeker.Properties.Resources.Error_InvalidPageUriAbsoluteRequired,
-            PlaylistPropertyValidationError.InvalidHeaderUri => BeMusicSeeker.Properties.Resources.Error_InvalidHeaderUri,
-            PlaylistPropertyValidationError.InvalidDataUri => BeMusicSeeker.Properties.Resources.Error_InvalidDataUri,
-            PlaylistPropertyValidationError.InvalidExternalSyncUris => BeMusicSeeker.Properties.Resources.Error_InvalidPageOrHeaderUri,
-            _ => throw new ArgumentOutOfRangeException(nameof(request.Error), request.Error, null)
-        };
-        ShowUiMessage(message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-    }
-
-    private void PlaylistWorkspacePlaylistPropertyExternalSyncConfirmationRequested(
-        object sender,
-        PlaylistPropertyExternalSyncConfirmationRequestedEventArgs request)
-    {
-        request.Confirmed = ShowUiConfirmation(
-            request.Enable
-                ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
-                : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxImage.Exclamation,
-            MessageBoxButton.OKCancel,
-            request.Enable ? "Playlist sync enable confirmation" : "Playlist sync disable confirmation");
-    }
-
     private void PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested(
         object sender,
         PlaylistSummaryExternalSyncConfirmationRequestedEventArgs request)
@@ -136,15 +105,6 @@ public partial class MainWindowViewModel
         ShowBeatorajaTableUrlImportSummary(request?.Summary);
     }
 
-    private void PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
-    {
-        ShowUiMessage(
-            BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
-            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
-            MessageBoxImage.Exclamation,
-            "playlist property output directory notification");
-    }
-
     private void PlaylistWorkspacePlaylistReferenceSortInvalidationRequested(object sender, EventArgs e)
     {
         InvalidateNormalLibraryReferenceTableSortKeys();
@@ -159,13 +119,6 @@ public partial class MainWindowViewModel
             BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
             MessageBoxImage.Exclamation,
             request.RouteName);
-    }
-
-    private void PlaylistWorkspacePlaylistPropertyExternalSyncFailed(
-        object sender,
-        PlaylistPropertyExternalSyncFailedEventArgs request)
-    {
-        ShowPlaylistLoadFailure(request.Exception);
     }
 
 }

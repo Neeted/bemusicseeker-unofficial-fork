@@ -296,6 +296,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
         viewModel.PlaylistWorkspace.PlaylistUrlInstallTreeExpansionRequested += MainWindow_PlaylistUrlInstallTreeExpansionRequested;
+        viewModel.PlaylistWorkspace.PlaylistPropertyValidationError += MainWindow_PlaylistPropertyValidationError;
+        viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
+        viewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
+        viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += MainWindow_PlaylistPropertyExternalSyncFailed;
         viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;
         viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
@@ -318,6 +322,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallTreeExpansionRequested -= MainWindow_PlaylistUrlInstallTreeExpansionRequested;
+        subscribedViewModel.PlaylistWorkspace.PlaylistPropertyValidationError -= MainWindow_PlaylistPropertyValidationError;
+        subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested -= MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
+        subscribedViewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested -= MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
+        subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed -= MainWindow_PlaylistPropertyExternalSyncFailed;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
@@ -984,6 +992,74 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void ClearPlaylistSummaryBmtSortDropPreview()
     {
         customTablePlaylistSummary?.ClearRowDropInsertPreview();
+    }
+
+    private void MainWindow_PlaylistPropertyValidationError(
+        object sender,
+        PlaylistPropertyValidationErrorEventArgs request)
+    {
+        string message = request.Error switch
+        {
+            PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName => BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateChangePlaylist,
+            PlaylistPropertyValidationError.InvalidOutputDirectory => BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateCheckInput,
+            PlaylistPropertyValidationError.InvalidPageUri => BeMusicSeeker.Properties.Resources.Error_InvalidPageUriAbsoluteRequired,
+            PlaylistPropertyValidationError.InvalidHeaderUri => BeMusicSeeker.Properties.Resources.Error_InvalidHeaderUri,
+            PlaylistPropertyValidationError.InvalidDataUri => BeMusicSeeker.Properties.Resources.Error_InvalidDataUri,
+            PlaylistPropertyValidationError.InvalidExternalSyncUris => BeMusicSeeker.Properties.Resources.Error_InvalidPageOrHeaderUri,
+            _ => throw new ArgumentOutOfRangeException(nameof(request.Error), request.Error, null)
+        };
+        UiDialogRoute.ShowMessageBox(
+            this,
+            message,
+            BeMusicSeeker.Properties.Resources.Error,
+            MessageBoxButton.OK,
+            MessageBoxImage.Hand,
+            MessageBoxResult.OK);
+    }
+
+    private void MainWindow_PlaylistPropertyExternalSyncConfirmationRequested(
+        object sender,
+        PlaylistPropertyExternalSyncConfirmationRequestedEventArgs request)
+    {
+        MessageBoxResult result = UiDialogRoute.ShowMessageBox(
+            this,
+            request.Enable
+                ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
+                : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.None);
+        request.Confirmed = result is MessageBoxResult.OK or MessageBoxResult.Yes;
+    }
+
+    private void MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
+    {
+        UiDialogRoute.ShowMessageBox(
+            this,
+            BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
+            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
+            MessageBoxButton.OK,
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
+    }
+
+    private void MainWindow_PlaylistPropertyExternalSyncFailed(
+        object sender,
+        PlaylistPropertyExternalSyncFailedEventArgs request)
+    {
+        string message = BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist;
+        if (request?.Exception != null && !string.IsNullOrWhiteSpace(request.Exception.Message))
+        {
+            message += Environment.NewLine + request.Exception.Message;
+        }
+        UiDialogRoute.ShowMessageBox(
+            this,
+            message,
+            BeMusicSeeker.Properties.Resources.Error,
+            MessageBoxButton.OK,
+            MessageBoxImage.Hand,
+            MessageBoxResult.OK);
     }
 
     private void MainWindowViewModel_PlaylistSummarySelectionRestoreRequested(PlaylistSummarySelectionRestoreRequest request)
