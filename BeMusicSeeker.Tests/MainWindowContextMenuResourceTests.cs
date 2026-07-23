@@ -4977,6 +4977,29 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(ownerCode.Contains("IDuplicateMaintenanceActivityPort"));
         Assert.IsFalse(ownerCode.Contains("IDuplicateMaintenanceRefreshPort"));
         Assert.IsFalse(ownerCode.Contains("NoOpDuplicateMaintenance"));
+        string duplicateContextHandler = ExtractMethodBody(
+            mainWindowCode,
+            "private void treeViewDuplicateFolderContextMenuOpened(");
+        StringAssert.Contains(
+            duplicateContextHandler,
+            "CaptureDuplicateFolderMergeDestinations(duplicateGroup, dataContext)");
+        Assert.IsFalse(duplicateContextHandler.Contains("duplicateGroup.Folders.Except"));
+        string duplicateExplorerHandler = ExtractMethodBody(
+            mainWindowCode,
+            "private void treeViewDuplicateFolderContextMenuOpenExplorerClick(");
+        StringAssert.Contains(
+            duplicateExplorerHandler,
+            "DuplicateMaintenanceWorkflow.OpenDuplicateFolderInExplorer(dataContext)");
+        Assert.IsFalse(duplicateExplorerHandler.Contains("LongPathFileSystem.DirectoryExists"));
+        Assert.IsFalse(duplicateExplorerHandler.Contains("ExplorerOpenService.OpenDirectory"));
+        string duplicateKeyHandler = ExtractMethodBody(
+            mainWindowCode,
+            "private async void duplicateFolderKeyDown(");
+        StringAssert.Contains(
+            duplicateKeyHandler,
+            "CaptureDuplicateFolderKeyboardAction(duplicateGroup, srcPath)");
+        Assert.IsFalse(duplicateKeyHandler.Contains("duplicateGroup.Folders.Count"));
+        Assert.IsFalse(duplicateKeyHandler.Contains("FirstOrDefault(f => !f.Equals"));
         Assert.IsFalse(mainWindowCode.Contains("private void ExecuteDuplicateFolderMerge("));
         Assert.IsFalse(mainWindowCode.Contains("private void ExecuteDuplicateHashCleanup("));
     }

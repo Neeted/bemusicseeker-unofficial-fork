@@ -4292,7 +4292,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewDuplicateFolderContextMenuOpened(object sender, RoutedEventArgs e)
     {
-        if (!(sender is ContextMenu { PlacementTarget: TreeViewItem { DataContext: string dataContext } placementTarget } contextMenu))
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || !(sender is ContextMenu { PlacementTarget: TreeViewItem { DataContext: string dataContext } placementTarget } contextMenu))
         {
             return;
         }
@@ -4316,22 +4317,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem != null)
         {
-            List<string> list = [.. duplicateGroup.Folders.Except([dataContext], StringComparer.OrdinalIgnoreCase)];
-            menuItem.IsEnabled = list.Count > 0;
+            IReadOnlyList<string> destinations = viewModel.DuplicateMaintenanceWorkflow
+                .CaptureDuplicateFolderMergeDestinations(duplicateGroup, dataContext);
+            menuItem.IsEnabled = destinations.Count > 0;
             if (menuItem.IsEnabled)
             {
-                menuItem.ItemsSource = list;
+                menuItem.ItemsSource = destinations;
             }
         }
     }
 
     private void treeViewDuplicateFolderContextMenuOpenExplorerClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: string dataContext } } }) || !LongPathFileSystem.DirectoryExists(dataContext))
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || !(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: string dataContext } } }))
         {
             return;
         }
-        ExplorerOpenService.OpenDirectory(dataContext);
+        viewModel.DuplicateMaintenanceWorkflow.OpenDuplicateFolderInExplorer(dataContext);
     }
 
     private void treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick(object sender, RoutedEventArgs e)
@@ -4718,6 +4721,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
 
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
         string srcPath = folderItem.DataContext as string;
         if (string.IsNullOrWhiteSpace(srcPath))
         {
@@ -4731,26 +4739,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
 
-        int folderCount = duplicateGroup.Folders.Count;
-
-        if (folderCount == 2)
+        DuplicateFolderKeyboardAction action = viewModel.DuplicateMaintenanceWorkflow
+            .CaptureDuplicateFolderKeyboardAction(duplicateGroup, srcPath);
+        if (action.Kind == DuplicateFolderKeyboardActionKind.Merge)
         {
-            // フォルダが2つの場合: 自分以外の唯一のフォルダへマージ
-            string dstPath = duplicateGroup.Folders
-                .FirstOrDefault(f => !f.Equals(srcPath, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrWhiteSpace(dstPath))
-            {
-                e.Handled = true;
-                await ExecuteDuplicateFolderMergeAsync(srcPath, dstPath, duplicateGroup);
-            }
+            e.Handled = true;
+            await ExecuteDuplicateFolderMergeAsync(srcPath, action.DestinationPath, duplicateGroup);
         }
-        else if (folderCount == 1)
+        else if (action.Kind == DuplicateFolderKeyboardActionKind.Cleanup)
         {
             // フォルダが1つの場合: ハッシュ重複BMSファイルの整理
             e.Handled = true;
             await ExecuteDuplicateHashCleanupAsync(duplicateGroup, srcPath);
         }
-        else if (folderCount >= 3)
+        else if (action.Kind == DuplicateFolderKeyboardActionKind.OpenContextMenu)
         {
             // フォルダが3つ以上の場合: コンテキストメニューを開いてマージ先を選択
             OpenDuplicateFolderContextMenu(folderItem);

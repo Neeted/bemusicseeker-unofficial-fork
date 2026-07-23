@@ -50,6 +50,29 @@ internal sealed class DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs 
     internal string Reason { get; }
 }
 
+internal enum DuplicateFolderKeyboardActionKind
+{
+    None,
+    Merge,
+    Cleanup,
+    OpenContextMenu
+}
+
+internal sealed class DuplicateFolderKeyboardAction
+{
+    internal DuplicateFolderKeyboardAction(
+        DuplicateFolderKeyboardActionKind kind,
+        string destinationPath = null)
+    {
+        Kind = kind;
+        DestinationPath = destinationPath;
+    }
+
+    internal DuplicateFolderKeyboardActionKind Kind { get; }
+
+    internal string DestinationPath { get; }
+}
+
 internal interface IDuplicateMaintenancePlaybackPort
 {
 
@@ -304,6 +327,11 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     private readonly IDuplicateMaintenancePlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly Func<bool> showConfirmationProvider;
+
+    private readonly Func<string, bool> duplicateFolderDirectoryExists;
+
+    private readonly Func<string, ExplorerOpenResult> duplicateFolderExplorerOpen;
+
     private readonly IDuplicateMaintenanceStore store;
     private readonly object operationLock = new();
     private readonly HashSet<IDuplicateMaintenanceOperation> issuedOperations = [];
@@ -314,6 +342,8 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         IDuplicateMaintenancePlaybackPort playback,
         IUiDialogService dialogs,
         Func<bool> showConfirmationProvider,
+        Func<string, bool> duplicateFolderDirectoryExists,
+        Func<string, ExplorerOpenResult> duplicateFolderExplorerOpen,
         IDuplicateMaintenanceStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
@@ -321,10 +351,68 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.showConfirmationProvider = showConfirmationProvider ?? throw new ArgumentNullException(nameof(showConfirmationProvider));
+        this.duplicateFolderDirectoryExists = duplicateFolderDirectoryExists
+            ?? throw new ArgumentNullException(nameof(duplicateFolderDirectoryExists));
+        this.duplicateFolderExplorerOpen = duplicateFolderExplorerOpen
+            ?? throw new ArgumentNullException(nameof(duplicateFolderExplorerOpen));
         this.store = store ?? new BmsLibraryDuplicateMaintenanceStore();
     }
 
     internal event EventHandler<DuplicateMaintenanceWorkflowChangedEventArgs> WorkflowChanged;
+
+    internal IReadOnlyList<string> CaptureDuplicateFolderMergeDestinations(
+        DuplicateGroup duplicateGroup,
+        string sourcePath)
+    {
+        if (duplicateGroup == null || string.IsNullOrWhiteSpace(sourcePath))
+        {
+            return [];
+        }
+
+        return [.. (duplicateGroup.Folders ?? [])
+            .Except([sourcePath], StringComparer.OrdinalIgnoreCase)];
+    }
+
+    internal DuplicateFolderKeyboardAction CaptureDuplicateFolderKeyboardAction(
+        DuplicateGroup duplicateGroup,
+        string sourcePath)
+    {
+        if (duplicateGroup == null || string.IsNullOrWhiteSpace(sourcePath))
+        {
+            return new DuplicateFolderKeyboardAction(DuplicateFolderKeyboardActionKind.None);
+        }
+
+        int folderCount = duplicateGroup.Folders?.Count ?? 0;
+        if (folderCount == 1)
+        {
+            return new DuplicateFolderKeyboardAction(DuplicateFolderKeyboardActionKind.Cleanup);
+        }
+        if (folderCount == 2)
+        {
+            string destinationPath = CaptureDuplicateFolderMergeDestinations(duplicateGroup, sourcePath)
+                .FirstOrDefault();
+            return string.IsNullOrWhiteSpace(destinationPath)
+                ? new DuplicateFolderKeyboardAction(DuplicateFolderKeyboardActionKind.None)
+                : new DuplicateFolderKeyboardAction(
+                    DuplicateFolderKeyboardActionKind.Merge,
+                    destinationPath);
+        }
+        if (folderCount >= 3)
+        {
+            return new DuplicateFolderKeyboardAction(DuplicateFolderKeyboardActionKind.OpenContextMenu);
+        }
+        return new DuplicateFolderKeyboardAction(DuplicateFolderKeyboardActionKind.None);
+    }
+
+    internal void OpenDuplicateFolderInExplorer(string path)
+    {
+        if (!duplicateFolderDirectoryExists(path))
+        {
+            return;
+        }
+
+        duplicateFolderExplorerOpen(path);
+    }
 
     internal DuplicateMaintenanceConfirmationResult ConfirmFolderMerge(DuplicateFolderMergeRequest request)
     {

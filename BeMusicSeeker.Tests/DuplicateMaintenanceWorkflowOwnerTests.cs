@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -182,11 +183,63 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.IsNull(confirmation.Operation);
     }
 
+    [TestMethod]
+    public void DuplicateFolderInteractionQueries_PreserveDestinationAndKeyboardPolicy()
+    {
+        var owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
+        var group = new DuplicateGroup([], [@"C:\\A", @"C:\\B", @"C:\\C"]);
+
+        CollectionAssert.AreEqual(
+            new[] { @"C:\\B", @"C:\\C" },
+            (System.Collections.ICollection)owner.CaptureDuplicateFolderMergeDestinations(group, @"C:\\A"));
+        DuplicateFolderKeyboardAction menuAction = owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\\A");
+        Assert.AreEqual(DuplicateFolderKeyboardActionKind.OpenContextMenu, menuAction.Kind);
+
+        group.Folders = [@"C:\\A", @"C:\\B"];
+        DuplicateFolderKeyboardAction mergeAction = owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\\A");
+        Assert.AreEqual(DuplicateFolderKeyboardActionKind.Merge, mergeAction.Kind);
+        Assert.AreEqual(@"C:\\B", mergeAction.DestinationPath);
+
+        group.Folders = [@"C:\\A"];
+        Assert.AreEqual(
+            DuplicateFolderKeyboardActionKind.Cleanup,
+            owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\\A").Kind);
+    }
+
+    [TestMethod]
+    public void OpenDuplicateFolderInExplorer_ValidatesBeforeOpeningWithoutFallback()
+    {
+        int openCount = 0;
+        var owner = CreateOwner(
+            [],
+            new RecordingPresentation([]),
+            AcceptedDialogs(),
+            new RecordingStore([]),
+            directoryExists: path => path == @"C:\\Existing",
+            explorerOpen: path =>
+            {
+                openCount++;
+                return new ExplorerOpenResult
+                {
+                    Kind = ExplorerOpenResultKind.Failed,
+                    RequestedPath = path,
+                    FailureReason = "shell_failed"
+                };
+            });
+
+        owner.OpenDuplicateFolderInExplorer(@"C:\\Missing");
+        owner.OpenDuplicateFolderInExplorer(@"C:\\Existing");
+
+        Assert.AreEqual(1, openCount);
+    }
+
     private static DuplicateMaintenanceWorkflowOwner CreateOwner(
         List<string> events,
         RecordingPresentation presentation,
         IUiDialogService dialogs,
-        RecordingStore store)
+        RecordingStore store,
+        Func<string, bool>? directoryExists = null,
+        Func<string, ExplorerOpenResult>? explorerOpen = null)
     {
         var owner = new DuplicateMaintenanceWorkflowOwner(
             CreateLibrary,
@@ -194,6 +247,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             presentation,
             dialogs,
             () => true,
+            directoryExists ?? (_ => true),
+            explorerOpen ?? (_ => new ExplorerOpenResult()),
             store);
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
         return owner;

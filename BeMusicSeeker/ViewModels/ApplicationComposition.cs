@@ -706,7 +706,9 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             PlaybackPanel,
             duplicateMaintenanceDialogService ?? throw new ArgumentNullException(nameof(duplicateMaintenanceDialogService)),
-            showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)));
+            showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)),
+            LongPathFileSystem.DirectoryExists,
+            ExplorerOpenService.OpenDirectory);
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,
