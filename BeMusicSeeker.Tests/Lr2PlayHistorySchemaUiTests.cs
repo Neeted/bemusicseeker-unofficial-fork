@@ -82,7 +82,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
         var settingDialog = new SettingsDialogViewModel(
             owner,
             owner.PlaylistWorkspace,
-            owner,
             owner.PlaylistWorkspace,
             owner.PlayHistory,
             owner.LibraryFolderTree,
@@ -133,7 +132,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var settingDialog = new SettingsDialogViewModel(
             owner,
             owner.PlaylistWorkspace,
-            owner,
             owner.PlaylistWorkspace,
             owner.PlayHistory,
             owner.LibraryFolderTree,
@@ -200,7 +198,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var settingDialog = new SettingsDialogViewModel(
             owner,
             owner.PlaylistWorkspace,
-            owner,
             owner.PlaylistWorkspace,
             owner.PlayHistory,
             owner.LibraryFolderTree,
@@ -261,7 +258,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var settingDialog = new SettingsDialogViewModel(
             owner,
             owner.PlaylistWorkspace,
-            owner,
             owner.PlaylistWorkspace,
             owner.PlayHistory,
             owner.LibraryFolderTree,

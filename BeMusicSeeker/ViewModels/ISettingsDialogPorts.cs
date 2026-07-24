@@ -31,18 +31,15 @@ internal interface ISettingsDialogWorkspacePort
 
     bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string beatorajaRootPath);
 
+    void SchedulePlaylistUrlCompletionRefresh(string reason);
+
+    void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath);
+
     Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName);
 
     void SubscribePlaylistTableChanges(PropertyChangedEventHandler handler);
 
     void UnsubscribePlaylistTableChanges(PropertyChangedEventHandler handler);
-}
-
-internal interface ISettingsDialogLibraryPort
-{
-    void SchedulePlaylistUrlCompletionRefresh(string reason);
-
-    void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath);
 }
 
 internal interface ISettingsDialogCustomFolderOutputPort

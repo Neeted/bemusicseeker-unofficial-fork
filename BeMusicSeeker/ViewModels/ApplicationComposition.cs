@@ -289,7 +289,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
     internal SettingsDialogViewModel CreateSettingDialogViewModel(
         ISettingsDialogStatePort statePort,
         ISettingsDialogWorkspacePort workspacePort,
-        ISettingsDialogLibraryPort libraryPort,
         ISettingsDialogCustomFolderOutputPort customFolderOutputPort,
         ISettingsDialogPlayHistoryPort playHistoryPort,
         ISettingsDialogSearchRootRuntimePort searchRootRuntimePort,
@@ -305,7 +304,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         return new SettingsDialogViewModel(
             statePort,
             workspacePort,
-            libraryPort,
             customFolderOutputPort,
             playHistoryPort,
             searchRootRuntimePort,

@@ -77,8 +77,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsDialogWorkspacePort workspacePort;
 
-    private readonly ISettingsDialogLibraryPort libraryPort;
-
     private readonly ISettingsDialogCustomFolderOutputPort customFolderOutputPort;
 
     private readonly ISettingsDialogPlayHistoryPort playHistoryPort;
@@ -3729,7 +3727,6 @@ public partial class SettingsDialogViewModel : ViewModel
     internal SettingsDialogViewModel(
         ISettingsDialogStatePort statePort,
         ISettingsDialogWorkspacePort workspacePort,
-        ISettingsDialogLibraryPort libraryPort,
         ISettingsDialogCustomFolderOutputPort customFolderOutputPort,
         ISettingsDialogPlayHistoryPort playHistoryPort,
         ISettingsDialogSearchRootRuntimePort searchRootRuntimePort,
@@ -3752,7 +3749,6 @@ public partial class SettingsDialogViewModel : ViewModel
         SettingsDialogViewModel settingDialogViewModel = this;
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
         this.workspacePort = workspacePort ?? throw new ArgumentNullException(nameof(workspacePort));
-        this.libraryPort = libraryPort ?? throw new ArgumentNullException(nameof(libraryPort));
         this.customFolderOutputPort = customFolderOutputPort
             ?? throw new ArgumentNullException(nameof(customFolderOutputPort));
         this.playHistoryPort = playHistoryPort ?? throw new ArgumentNullException(nameof(playHistoryPort));
@@ -6222,7 +6218,7 @@ public partial class SettingsDialogViewModel : ViewModel
             var playlistUrlCompletionStopwatch = Stopwatch.StartNew();
             if (impact.HasFlag(SettingsPostSaveImpact.PlaylistUrlCompletion))
             {
-                libraryPort.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
+                workspacePort.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
             }
             playlistUrlCompletionMs = playlistUrlCompletionStopwatch.ElapsedMilliseconds;
             var lr2GeneratedDataSyncStopwatch = Stopwatch.StartNew();
@@ -6258,7 +6254,7 @@ public partial class SettingsDialogViewModel : ViewModel
                         NLogWrapper.FileLogger?.Warn(ex, "beatoraja_old_table_url_cleanup_failed root=" + (tempBeatorajaRootPath ?? string.Empty));
                     }
                 }
-                libraryPort.QueueBeatorajaBmtExportAll("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath);
+                workspacePort.QueueBeatorajaBmtExportAll("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath);
             }
             beatorajaBmtExportMs = beatorajaBmtExportStopwatch.ElapsedMilliseconds;
         }

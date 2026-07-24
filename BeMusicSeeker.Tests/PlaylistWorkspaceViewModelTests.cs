@@ -490,6 +490,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("RestoreBMSTables(", StringComparison.Ordinal));
         Assert.AreEqual(-1, settingDialogSource.IndexOf("viewModel.BackupBMSTables(", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "ISettingsDialogWorkspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide");
+        StringAssert.Contains(workspaceSource, "ISettingsDialogWorkspacePort.SchedulePlaylistUrlCompletionRefresh");
+        StringAssert.Contains(workspaceSource, "ISettingsDialogWorkspacePort.QueueBeatorajaBmtExportAll");
+        Assert.AreEqual(-1, rootSource.IndexOf("ISettingsDialogLibraryPort", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistFolderRemovalConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested(", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "DeleteSelectedEntriesAsync(GetSelectedGridRowsSnapshot())");
@@ -956,6 +959,70 @@ public sealed class PlaylistWorkspaceViewModelTests
                 Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
             }
         }
+    }
+
+    [TestMethod]
+    public void SettingsWorkspacePort_DelegatesBackgroundPublishRequestsToAttachedPlaylist()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var scheduled = new List<string>();
+            playlist.StartupBackgroundTaskScheduler = (kind, reason, dependency, work) =>
+            {
+                scheduled.Add(kind + ":" + reason);
+                return true;
+            };
+            int providerCalls = 0;
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () =>
+                {
+                    providerCalls++;
+                    return playlist;
+                });
+            ISettingsDialogWorkspacePort settingsPort = workspace;
+            providerCalls = 0;
+
+            settingsPort.SchedulePlaylistUrlCompletionRefresh("settings-test");
+            settingsPort.QueueBeatorajaBmtExportAll("settings-test", null);
+
+            CollectionAssert.AreEqual(
+                new[] { "playlist_url_completion:settings-test", "beatoraja_bmt_export_all:settings-test" },
+                scheduled);
+            Assert.AreEqual(2, providerCalls);
+        }
+        finally
+        {
+            if (Directory.Exists(Path.GetDirectoryName(databasePath)!))
+            {
+                Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SettingsWorkspacePort_BackgroundPublishRequestsAreNoOpWhenStoreDetached()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistStoreProvider: () => null!);
+        ISettingsDialogWorkspacePort settingsPort = workspace;
+
+        settingsPort.SchedulePlaylistUrlCompletionRefresh("detached-test");
+        settingsPort.QueueBeatorajaBmtExportAll("detached-test", null);
     }
 
     [TestMethod]

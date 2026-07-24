@@ -47,8 +47,7 @@ namespace BeMusicSeeker.ViewModels;
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
 public partial class MainWindowViewModel : ViewModel,
-    ISettingsDialogStatePort,
-    ISettingsDialogLibraryPort
+    ISettingsDialogStatePort
 {
     /// <summary>
     /// Gets status-bar progress presentation state owned by the composed progress hub.
@@ -3088,7 +3087,6 @@ public partial class MainWindowViewModel : ViewModel,
         SettingDialog = applicationComposition.CreateSettingDialogViewModel(
             statePort: this,
             workspacePort: PlaylistWorkspace,
-            libraryPort: this,
             customFolderOutputPort: PlaylistWorkspace,
             playHistoryPort: PlayHistory,
             searchRootRuntimePort: LibraryFolderTree,
@@ -3543,12 +3541,6 @@ public partial class MainWindowViewModel : ViewModel,
     {
         return value.ToString().ToLowerInvariant();
     }
-
-    void ISettingsDialogLibraryPort.SchedulePlaylistUrlCompletionRefresh(string reason)
-        => tables?.SchedulePlaylistUrlCompletionRefresh(reason);
-
-    void ISettingsDialogLibraryPort.QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath)
-        => tables?.BmtOutput.QueueBeatorajaBmtExportAll(reason, cleanupTablePath);
 
     /// <summary>
     /// データベース側からプレイリスト情報 (BMSTable) を再読み込みし、コレクションを更新します。<br/>

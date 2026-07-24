@@ -304,6 +304,12 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     bool ISettingsDialogWorkspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string beatorajaRootPath)
         => HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(beatorajaRootPath);
 
+    void ISettingsDialogWorkspacePort.SchedulePlaylistUrlCompletionRefresh(string reason)
+        => getPlaylistStore()?.SchedulePlaylistUrlCompletionRefresh(reason);
+
+    void ISettingsDialogWorkspacePort.QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath)
+        => getPlaylistStore()?.BmtOutput.QueueBeatorajaBmtExportAll(reason, cleanupTablePath);
+
     Task ISettingsDialogWorkspacePort.RunWithPlaylistOperationNotificationsAsync(
         Func<Task> operation,
         string operationName)

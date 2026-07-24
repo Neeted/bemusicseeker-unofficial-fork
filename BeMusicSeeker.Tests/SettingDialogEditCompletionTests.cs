@@ -130,7 +130,6 @@ public sealed class SettingDialogEditCompletionTests
             var dialog = new SettingsDialogViewModel(
                 owner,
                 owner.PlaylistWorkspace,
-                owner,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
                 runtime,
@@ -188,7 +187,6 @@ public sealed class SettingDialogEditCompletionTests
             var dialog = new SettingsDialogViewModel(
                 owner,
                 owner.PlaylistWorkspace,
-                owner,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
@@ -231,7 +229,6 @@ public sealed class SettingDialogEditCompletionTests
             var dialog = new SettingsDialogViewModel(
                 owner,
                 owner.PlaylistWorkspace,
-                owner,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
@@ -273,7 +270,6 @@ public sealed class SettingDialogEditCompletionTests
             var dialog = new SettingsDialogViewModel(
                 owner,
                 owner.PlaylistWorkspace,
-                owner,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
@@ -352,7 +348,6 @@ public sealed class SettingDialogEditCompletionTests
             var dialog = new SettingsDialogViewModel(
                 owner,
                 owner.PlaylistWorkspace,
-                owner,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
                 runtime,
@@ -548,7 +543,6 @@ public sealed class SettingDialogEditCompletionTests
             var dialog = new SettingsDialogViewModel(
                 owner,
                 owner.PlaylistWorkspace,
-                owner,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
@@ -615,7 +609,6 @@ public sealed class SettingDialogEditCompletionTests
             var dialog = new SettingsDialogViewModel(
                 owner,
                 owner.PlaylistWorkspace,
-                owner,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
@@ -666,7 +659,7 @@ public sealed class SettingDialogEditCompletionTests
             SetActiveLibraryProfile(viewModel, true);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
-            dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
+            dialog.OverwritePlaylistUrlsWithCompletion = !dialog.OverwritePlaylistUrlsWithCompletion;
 
             await dialog.ApplySettingsAsync();
 
@@ -842,6 +835,44 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public async Task ApplySettingsAsync_PublishesPlaylistBackgroundRequestsThroughWorkspace()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var settings = CreateValidStandaloneSettings(root);
+            settings.RegisterBeatorajaBmtUrls = false;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var scheduled = new List<string>();
+            var runtime = new TestSettingsDialogPlaybackRuntimePort();
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                playbackRuntimePort: runtime);
+            SetActiveLibraryProfile(viewModel, true);
+            AttachPlaylistTables(viewModel, root, scheduled);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.OverwritePlaylistUrlsWithCompletion = !dialog.OverwritePlaylistUrlsWithCompletion;
+            dialog.RegisterBeatorajaBmtUrls = !dialog.RegisterBeatorajaBmtUrls;
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "playlist_url_completion:SettingDialog.SaveSettings",
+                    "beatoraja_bmt_export_all:SettingDialog.SaveSettings"
+                },
+                scheduled);
+            Assert.AreEqual(1, runtime.NotifyCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ApplySettingsAsync_ActiveProfileWithoutChanges_PublishesSingleCloseRequest()
     {
         string root = CreateTemporaryRoot();
@@ -885,7 +916,6 @@ public sealed class SettingDialogEditCompletionTests
             SettingsDialogViewModel dialog = new(
                 viewModel,
                 viewModel.PlaylistWorkspace,
-                viewModel,
                 viewModel.PlaylistWorkspace,
                 viewModel.PlayHistory,
                 viewModel.LibraryFolderTree,
@@ -1560,7 +1590,6 @@ public sealed class SettingDialogEditCompletionTests
         var dialog = new SettingsDialogViewModel(
             owner,
             owner.PlaylistWorkspace,
-            owner,
             owner.PlaylistWorkspace,
             owner.PlayHistory,
             runtime,
@@ -1617,7 +1646,10 @@ public sealed class SettingDialogEditCompletionTests
             .SetValue(viewModel, value);
     }
 
-    private static void AttachPlaylistTables(MainWindowViewModel viewModel, string root)
+    private static BMSPlaylist AttachPlaylistTables(
+        MainWindowViewModel viewModel,
+        string root,
+        IList<string>? scheduledOperations = null)
     {
         string databasePath = Path.Combine(root, "settings-test-playlists.db");
         File.WriteAllBytes(databasePath, []);
@@ -1627,7 +1659,13 @@ public sealed class SettingDialogEditCompletionTests
                 new System.Collections.ObjectModel.ObservableCollection<BMSTable>(),
                 Dispatcher.CurrentDispatcher)
         };
+        tables.StartupBackgroundTaskScheduler = (operation, reason, _, _) =>
+        {
+            scheduledOperations?.Add(operation + ":" + reason);
+            return true;
+        };
         SetPrivateField(viewModel, "tables", tables);
+        return tables;
     }
 
     private static void SetPrivateField(object instance, string fieldName, object value)

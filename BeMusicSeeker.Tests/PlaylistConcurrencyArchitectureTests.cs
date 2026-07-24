@@ -568,7 +568,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(settingDialogOwnerSource.Contains("Settings.Default."));
         StringAssert.Contains(mainWindowSource, "statePort: this,");
         StringAssert.Contains(mainWindowSource, "workspacePort: PlaylistWorkspace,");
-        StringAssert.Contains(mainWindowSource, "libraryPort: this,");
+        StringAssert.Contains(mainWindowSource, "customFolderOutputPort: PlaylistWorkspace,");
         StringAssert.Contains(mainWindowSource, "playerFactoryPort: applicationComposition,");
         StringAssert.Contains(mainWindowSource, "playbackRuntimePort: PlaybackPanel,");
         Assert.IsTrue(mainWindowSource.IndexOf("ISettingsDialogPlaybackPort", StringComparison.Ordinal) < 0);
