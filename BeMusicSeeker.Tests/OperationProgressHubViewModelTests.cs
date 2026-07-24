@@ -468,14 +468,16 @@ public sealed class OperationProgressHubViewModelTests
             var folderProgressStarted = new ManualResetEventSlim(false);
             ProgressWorkflowFixture fixture = null!;
             var package = new PackageInstallWorkflowOwner(
-                (current, paths, token, onPath, onArchive) =>
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort((current, paths, token, onPath, onArchive) =>
                 {
                     onPath();
                     onArchive(paths.FirstOrDefault() ?? string.Empty, 1, packageTotalCount);
                     packageProgressStarted.Set();
                     fixture.packageRelease.Wait(TimeSpan.FromSeconds(10));
                     return [];
-                },
+                }),
                 action => action());
             var maintenance = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) =>
@@ -489,15 +491,19 @@ public sealed class OperationProgressHubViewModelTests
                 action => action(),
                 dialogs: new AcceptedDialogService());
             var folder = new FolderAutoRenameWorkflowOwner(
-                (current, request, progress) => new FolderAutoRenameExecutionResult(),
-                (current, parentDirectory, progress) =>
-                {
-                    progress(1, 1, "source");
-                    folderProgressStarted.Set();
-                    fixture.folderRelease.Wait(TimeSpan.FromSeconds(10));
-                    return new FolderAutoRenameExecutionResult();
-                },
-                (current, parentDirectory) => true,
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new ProgressFolderAutoRenameMutationPort(
+                    (current, request, progress) => new FolderAutoRenameExecutionResult(),
+                    (current, parentDirectory, progress) =>
+                    {
+                        progress(1, 1, "source");
+                        folderProgressStarted.Set();
+                        fixture.folderRelease.Wait(TimeSpan.FromSeconds(10));
+                        return new FolderAutoRenameExecutionResult();
+                    },
+                    (current, parentDirectory) => true),
+                new ProgressFolderAutoRenamePlaybackPort(),
                 action => Task.Run(action),
                 action => action(),
                 dialogs: new AcceptedDialogService());
@@ -562,6 +568,46 @@ public sealed class OperationProgressHubViewModelTests
             {
                 Directory.Delete(root, recursive: true);
             }
+        }
+    }
+
+    private sealed class ProgressFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort
+    {
+        private readonly Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> selected;
+        private readonly Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> all;
+        private readonly Func<BMSLibrary, string, bool> hasTargets;
+
+        internal ProgressFolderAutoRenameMutationPort(
+            Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> selected,
+            Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> all,
+            Func<BMSLibrary, string, bool> hasTargets)
+        {
+            this.selected = selected;
+            this.all = all;
+            this.hasTargets = hasTargets;
+        }
+
+        public bool HasTargets(BMSLibrary library, string parentDirectory) => hasTargets(library, parentDirectory);
+
+        public FolderAutoRenameExecutionResult RenameSelected(
+            BMSLibrary library,
+            ChartFolderAutoRenameRequest request,
+            Action<int, int, string> progressReporter) => selected(library, request, progressReporter);
+
+        public bool RenameAll(
+            BMSLibrary library,
+            string parentDirectory,
+            Action<int, int, string> progressReporter) => all(library, parentDirectory, progressReporter)?.RefreshRequired == true;
+    }
+
+    private sealed class ProgressFolderAutoRenamePlaybackPort : IFolderAutoRenamePlaybackPort
+    {
+        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
+        {
+        }
+
+        public void StopPlaybackForFolderMutation()
+        {
         }
     }
 

@@ -19,7 +19,7 @@
 - active outcome base commit: `6d170cb9`
 - observed production checkpoint: `464040f6`
 - active execution package: `UI05-T Terminal shell closure`
-- execution anchor: `UI05-T2 Grouped residual closure`
+- execution anchor: `UI05-T3 Outcome closure`
 
 目的:
 
@@ -46,12 +46,12 @@ Non-goals:
 | Step | State | Exit condition |
 |---|---|---|
 | `UI05-T1 Closure inventory and classification` | completed | 現行root / View / XAML / presentation / test surfaceを有限分類し、T2 batchをmaterializeした |
-| `UI05-T2 Grouped residual closure` | active | `BLOCKING`を最大3 owner-family unitで閉じる |
-| `UI05-T3 Outcome closure` | pending | Full verification、UI smoke、fresh outcome review、修正、UI-05 completionと次Outcomeのready化 |
+| `UI05-T2 Grouped residual closure` | completed | `BLOCKING`を最大3 owner-family unitで閉じる |
+| `UI05-T3 Outcome closure` | active | Full verification、UI smoke、fresh outcome review、修正、UI-05 completionと次Outcomeのready化 |
 
 ## Active implementation batch
 
-状態: active
+状態: completed
 
 `UI05-T2`はT1 plannerが作成した有限batchであり、B1から依存順に実装する。batchに`active`または`pending`がある間はplannerを再起動しない。
 
@@ -59,7 +59,7 @@ Non-goals:
 |---|---|---|---|
 | `UI05-T2` | `B1` | `completed` | `root shell / lifecycle / composition` |
 | `UI05-T2` | `B2` | `completed` | `view-host / binding / typed presentation` |
-| `UI05-T2` | `B3` | `active` | `production-route legacy seam / test surface` |
+| `UI05-T2` | `B3` | `completed` | `production-route legacy seam / test surface` |
 
 ## Current code evidence
 
@@ -68,7 +68,7 @@ Non-goals:
 - rootは`MainChartList`、`PlaylistWorkspace`、`ChartFilters`、`LibraryFolderTree`、`InstallTree`、`MaintenanceTree`、`PlayHistory`、`PlaybackPanel`、`ProgressHub`、`SettingDialog`をchild composition propertyとして公開し、XAMLはこれらをbinding rootとして使用している。
 - MainWindowにはtyped owner query / commandとWPF control mappingへ整理済みのrouteが多い。event数や行数だけで追加owner抽出を行わず、T1でfeature decision / orchestrationの実在を判定する。
 - `Settings.Default`、`Application.Current`、dispatcher、process等の残参照は、UI feature ownership違反でない限り`MIG-01`〜`MIG-04`へ分類する。
-- UI-05 outcome-wide Full verification、Release smoke、fresh outcome reviewは未完了である。
+- UI-05-T2 の grouped residual closure は完了した。T3 の outcome-wide Full verification、Release smoke、fresh outcome review、completion status更新が残る。
 
 ## Outcome states
 

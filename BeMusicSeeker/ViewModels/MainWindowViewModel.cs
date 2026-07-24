@@ -502,8 +502,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly ChartFileOperationSynchronizer chartFileOperations = new();
 
-    private readonly SemaphoreSlim packageInstallLibraryGate = new(1, 1);
-
     private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.MainWindowViewModel");
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
@@ -1980,152 +1978,6 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void RunChartPackageMutation(
-        Action action,
-        IEnumerable<ChartFile> playbackTargetCharts = null,
-        UiRefreshChannel refreshMask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
-        Action stopPlayback = null,
-        Action beforeAction = null,
-        Action afterUiRefresh = null,
-        bool requiresLibrary = true)
-    {
-        if (action == null)
-        {
-            throw new ArgumentNullException("action");
-        }
-        if (requiresLibrary && files == null)
-        {
-            return;
-        }
-        BMSLibrary.OperationDialogScope dialogScope = null;
-        IDisposable mutationActivityLease = null;
-        try
-        {
-            dialogScope = files?.BeginOperationDialogScope();
-            mutationActivityLease = ChartMutationActivity.Enter();
-            using (chartFileOperations.Enter())
-            {
-                if (stopPlayback != null)
-                {
-                    stopPlayback();
-                }
-                else if (playbackTargetCharts != null)
-                {
-                    PlaybackPanel.StopIfPlayingCharts(playbackTargetCharts);
-                }
-                bool uiSuppressionStarted = refreshMask != UiRefreshChannel.None;
-                if (uiSuppressionStarted)
-                {
-                    BeginUiUpdateSuppression(refreshMask);
-                }
-                try
-                {
-                    beforeAction?.Invoke();
-                    action();
-                }
-                finally
-                {
-                    try
-                    {
-                        if (uiSuppressionStarted)
-                        {
-                            EndUiUpdateSuppression();
-                        }
-                    }
-                    finally
-                    {
-                        afterUiRefresh?.Invoke();
-                    }
-                }
-            }
-        }
-        finally
-        {
-            mutationActivityLease?.Dispose();
-            dialogScope?.Dispose();
-            dialogScope?.Flush();
-        }
-    }
-
-    private T RunChartPackageMutation<T>(
-        Func<T> func,
-        IEnumerable<ChartFile> playbackTargetCharts = null,
-        UiRefreshChannel refreshMask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
-        Action stopPlayback = null,
-        Action beforeAction = null,
-        Action afterUiRefresh = null,
-        bool requiresLibrary = true)
-    {
-        if (func == null)
-        {
-            throw new ArgumentNullException("func");
-        }
-        if (requiresLibrary && files == null)
-        {
-            return default;
-        }
-        T result = default;
-        BMSLibrary.OperationDialogScope dialogScope = null;
-        IDisposable mutationActivityLease = null;
-        try
-        {
-            dialogScope = files?.BeginOperationDialogScope();
-            mutationActivityLease = ChartMutationActivity.Enter();
-            using (chartFileOperations.Enter())
-            {
-                if (stopPlayback != null)
-                {
-                    stopPlayback();
-                }
-                else if (playbackTargetCharts != null)
-                {
-                    PlaybackPanel.StopIfPlayingCharts(playbackTargetCharts);
-                }
-                bool uiSuppressionStarted = refreshMask != UiRefreshChannel.None;
-                if (uiSuppressionStarted)
-                {
-                    BeginUiUpdateSuppression(refreshMask);
-                }
-                try
-                {
-                    beforeAction?.Invoke();
-                    result = func();
-                }
-                finally
-                {
-                    try
-                    {
-                        if (uiSuppressionStarted)
-                        {
-                            EndUiUpdateSuppression();
-                        }
-                    }
-                    finally
-                    {
-                        afterUiRefresh?.Invoke();
-                    }
-                }
-            }
-        }
-        finally
-        {
-            mutationActivityLease?.Dispose();
-            dialogScope?.Dispose();
-            dialogScope?.Flush();
-        }
-        return result;
-    }
-
-    private void RunPendingInstallMutation(Action action, IEnumerable<ChartFile> playbackTargetCharts = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
-    {
-        RunChartPackageMutation(action, playbackTargetCharts, UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask);
-    }
-
-    private T RunPendingInstallMutation<T>(Func<T> func, IEnumerable<ChartFile> playbackTargetCharts = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
-    {
-        return RunChartPackageMutation(func, playbackTargetCharts, UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask);
-    }
-
     public string WindowTitle
     {
         get
@@ -2812,7 +2664,6 @@ public partial class MainWindowViewModel : ViewModel,
             LogMainViewBuild,
             DispatchMainChartListAction,
              LogMainViewBuildWarning,
-             ExecutePackageInstallMutation,
              DispatchPackageInstallUi,
              () => files,
              new UiDialogCoordinator(),
@@ -2823,9 +2674,6 @@ public partial class MainWindowViewModel : ViewModel,
             message => NLogWrapper.FileLogger?.Info(message),
             ReportMaintenanceRescanWorkflowNotificationFailure,
             ReportMaintenanceRescanWorkflowFailure,
-            ExecuteFolderAutoRenameSelectedMutation,
-            ExecuteFolderAutoRenameAllMutation,
-            HasFolderAutoRenameAllTargets,
             action => Task.Run(action),
             message => NLogWrapper.FileLogger?.Info(message),
             ReportFolderAutoRenameWorkflowNotificationFailure,
@@ -2875,10 +2723,12 @@ public partial class MainWindowViewModel : ViewModel,
         PackageInstallWorkflow = childComposition.PackageInstallWorkflow;
         PackageInstallWorkflow.CompletionPublished += PackageInstallWorkflowCompletionPublished;
         PackageInstallWorkflow.FailurePublished += PackageInstallWorkflowFailurePublished;
+        PackageInstallWorkflow.RefreshSuppressionChanged += PackageInstallWorkflowRefreshSuppressionChanged;
         MaintenanceRescanWorkflow = childComposition.MaintenanceRescanWorkflow;
         MaintenanceRescanWorkflow.CompletionPublished += MaintenanceRescanWorkflowCompletionPublished;
         FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
+        FolderAutoRenameWorkflow.RefreshSuppressionChanged += FolderAutoRenameWorkflowRefreshSuppressionChanged;
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
         ShellActivationWorkflow = new ShellActivationWorkflowOwner(
@@ -2939,6 +2789,7 @@ public partial class MainWindowViewModel : ViewModel,
         PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;
         regularChartListOwner = childComposition.RegularChartListOwner;
         regularChartListOwner.NormalLibraryRefreshApplied += RegularChartListOwnerNormalLibraryRefreshApplied;
+        regularChartListOwner.RefreshSuppressionChanged += RegularChartListOwnerRefreshSuppressionChanged;
         regularChartListOwner.TreeNavigationPresentationRequested += RegularChartListOwnerTreeNavigationPresentationRequested;
         regularChartListOwner.MaintenanceNavigationPresentationRequested += RegularChartListOwnerMaintenanceNavigationPresentationRequested;
         regularChartListOwner.InstallNavigationPresentationRequested += RegularChartListOwnerInstallNavigationPresentationRequested;
@@ -2948,7 +2799,6 @@ public partial class MainWindowViewModel : ViewModel,
         MainChartList.CellEditEndedRequested += MainChartListCellEditEndedRequested;
         regularChartListOwner.SortChanged += RegularChartListOwnerSortChanged;
         regularChartListOwner.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
-        regularChartListOwner.FolderEditRequested += RegularChartListOwnerFolderEditRequested;
 
         ShellShutdownWorkflow = new ShellShutdownWorkflowOwner(
             StartupUpdateWorkflow,
@@ -3035,23 +2885,6 @@ public partial class MainWindowViewModel : ViewModel,
             return;
         }
         regularChartListOwner.CompleteCellEdit(request);
-    }
-
-    private void RegularChartListOwnerFolderEditRequested(
-        object sender,
-        RegularChartFolderEditRequestedEventArgs request)
-    {
-        Task.Run(() =>
-        {
-            try
-            {
-                RenameChartFolder(request.Request, request.FolderName);
-            }
-            finally
-            {
-                MainChartList.RequestDisplayRefresh();
-            }
-        }).Logging("regularChartListFolderEditRequested");
     }
 
     private void RegularChartListOwnerNormalLibraryRefreshApplied(
@@ -3904,18 +3737,13 @@ public partial class MainWindowViewModel : ViewModel,
         {
             playHistoryWorkflowOwner.InvalidateReadCache("initialize");
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings);
-            await packageInstallLibraryGate.WaitAsync();
-            try
+            using (chartFileOperations.Enter())
             {
                 files = applicationComposition.CreateBmsLibrary(libraryProfile);
                 ShellShutdownWorkflow.AttachLibrary(files);
                 PackageInstallWorkflow.AttachLibrary(files);
                 MaintenanceRescanWorkflow.AttachLibrary(files);
                 FolderAutoRenameWorkflow.AttachLibrary(files);
-            }
-            finally
-            {
-                packageInstallLibraryGate.Release();
             }
             regularChartListOwner.AttachNormalLibraryRefreshSource(files);
             PlaybackPanel.AttachLibrary(files);
@@ -5274,6 +5102,42 @@ public partial class MainWindowViewModel : ViewModel,
         NLogWrapper.FileLogger?.Error(exception, "folder_auto_rename failed");
     }
 
+    private void FolderAutoRenameWorkflowRefreshSuppressionChanged(
+        object sender,
+        FolderAutoRenameRefreshSuppressionChangedEventArgs e)
+    {
+        if (e?.IsSuppressed == true)
+        {
+            BeginUiUpdateSuppression(
+                UiRefreshChannel.LibraryMainView
+                | UiRefreshChannel.LibraryFolderTree
+                | UiRefreshChannel.InstallTree
+                | UiRefreshChannel.DuplicateTree);
+        }
+        else
+        {
+            EndUiUpdateSuppression();
+        }
+    }
+
+    private void RegularChartListOwnerRefreshSuppressionChanged(
+        object sender,
+        RegularChartMutationRefreshSuppressionChangedEventArgs e)
+    {
+        if (e?.IsSuppressed == true)
+        {
+            BeginUiUpdateSuppression(
+                UiRefreshChannel.LibraryMainView
+                | UiRefreshChannel.LibraryFolderTree
+                | UiRefreshChannel.InstallTree
+                | UiRefreshChannel.DuplicateTree);
+        }
+        else
+        {
+            EndUiUpdateSuppression();
+        }
+    }
+
     private void RefreshResourceHealthViewsAfterMaintenanceChanged()
     {
         RefreshResourceHealthViewsAfterMaintenanceChanged("maintenance_hydration_completed", "maintenance_changed");
@@ -5368,44 +5232,6 @@ public partial class MainWindowViewModel : ViewModel,
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.InstallDestination, reason);
     }
 
-    private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
-    {
-        packageInstallLibraryGate.Wait();
-        try
-        {
-            if (library == null || !ReferenceEquals(files, library))
-            {
-                throw new InvalidOperationException("The package-install library generation is no longer active.");
-            }
-            string[] normalizedInstallPaths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
-            if (normalizedInstallPaths.Length == 0 || token.IsCancellationRequested)
-            {
-                return [];
-            }
-            List<ChartPackage> installedPackages = [];
-            RunChartPackageMutation(
-                () => installedPackages.AddRange(library.InstallChartPackagesAuto(
-                    normalizedInstallPaths,
-                    token,
-                    onEachPathProcessed,
-                    onEachArchiveExtractStarted)),
-                refreshMask: UiRefreshChannel.LibraryMainView
-                    | UiRefreshChannel.InstallTree
-                    | UiRefreshChannel.LibraryFolderTree
-                    | UiRefreshChannel.DuplicateTree);
-            return installedPackages;
-        }
-        finally
-        {
-            packageInstallLibraryGate.Release();
-        }
-    }
-
     private void DispatchPackageInstallUi(Action action)
     {
         InvokeMainChartListPresentationAction(action);
@@ -5431,6 +5257,24 @@ public partial class MainWindowViewModel : ViewModel,
                 + failure.Exception.Message,
             BeMusicSeeker.Properties.Resources.Error,
             MessageBoxImage.Hand);
+    }
+
+    private void PackageInstallWorkflowRefreshSuppressionChanged(
+        object sender,
+        PackageInstallRefreshSuppressionChangedEventArgs e)
+    {
+        if (e?.IsSuppressed == true)
+        {
+            BeginUiUpdateSuppression(
+                UiRefreshChannel.LibraryMainView
+                | UiRefreshChannel.InstallTree
+                | UiRefreshChannel.LibraryFolderTree
+                | UiRefreshChannel.DuplicateTree);
+        }
+        else
+        {
+            EndUiUpdateSuppression();
+        }
     }
 
     private static void ReportPackageInstallWorkflowNotificationFailure(Exception exception)
@@ -5461,74 +5305,6 @@ public partial class MainWindowViewModel : ViewModel,
         {
             PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
         }
-    }
-
-    internal void RenameChartFolder(RenameChartFolderRequest request, string newFolder)
-    {
-        string chartPath = request?.Chart?.Path;
-        if (request?.HasTarget != true
-            || string.IsNullOrWhiteSpace(chartPath)
-            || string.IsNullOrWhiteSpace(newFolder))
-        {
-            return;
-        }
-        RunChartPackageMutation(delegate
-        {
-            string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
-            if (!string.IsNullOrWhiteSpace(directoryNameSimple) && LongPathFileSystem.DirectoryExists(directoryNameSimple))
-            {
-                files.RenameChartFolder(directoryNameSimple, newFolder, false);
-                regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
-                InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
-            }
-        }, [request.Chart], UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
-    }
-
-    private bool HasFolderAutoRenameAllTargets(BMSLibrary library, string parentDirectory)
-    {
-        if (!ReferenceEquals(files, library) || library == null)
-        {
-            return false;
-        }
-        bool hasTargets = false;
-        RunChartPackageMutation(
-            () => hasTargets = library.HasAutoRenameAllChartFolderTargets(parentDirectory),
-            refreshMask: UiRefreshChannel.None,
-            stopPlayback: () => { });
-        return hasTargets;
-    }
-
-    private FolderAutoRenameExecutionResult ExecuteFolderAutoRenameSelectedMutation(
-        BMSLibrary library,
-        ChartFolderAutoRenameRequest request,
-        Action<int, int, string> progressReporter)
-    {
-        if (!ReferenceEquals(files, library) || request?.HasTargets != true)
-        {
-            return new FolderAutoRenameExecutionResult();
-        }
-        RunChartPackageMutation(
-            () => library.AutoRenameChartFolders(request.Charts, progressReporter: progressReporter),
-            request.Charts,
-            UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
-        return new FolderAutoRenameExecutionResult { RefreshRequired = true };
-    }
-
-    private FolderAutoRenameExecutionResult ExecuteFolderAutoRenameAllMutation(
-        BMSLibrary library,
-        string parentDirectory,
-        Action<int, int, string> progressReporter)
-    {
-        if (!ReferenceEquals(files, library))
-        {
-            return new FolderAutoRenameExecutionResult();
-        }
-        bool changed = false;
-        RunChartPackageMutation(
-            () => changed = library.AutoRenameAllChartFolders(parentDirectory, progressReporter),
-            refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree,
-            stopPlayback: () => PlaybackPanel.StopPlayback(closeProcess: true));
-        return new FolderAutoRenameExecutionResult { RefreshRequired = changed };
     }
 
     private static bool ShowUiConfirmation(

@@ -504,7 +504,6 @@ public sealed class ApplicationCompositionTests
             _ =>
             {
             },
-            (_, _, _, _, _) => [],
             action => action(),
             () => null!,
             new TestUiDialogService(),
@@ -638,7 +637,6 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 action => action(),
                 _ => { },
-                (_, _, _, _, _) => [],
                 action => action(),
                 () => null!,
                 new TestUiDialogService(),
@@ -765,7 +763,6 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 action => action(),
                 _ => { },
-                (_, _, _, _, _) => [],
                 action => action(),
                 () => null!,
                 new TestUiDialogService(),

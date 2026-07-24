@@ -1,10 +1,48 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
+
+internal interface IPackageInstallMutationPort
+{
+    IReadOnlyList<ChartPackage> Install(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        Action onEachPathProcessed,
+        Action<string, int, int> onEachArchiveExtractStarted);
+}
+
+internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMutationPort
+{
+    public IReadOnlyList<ChartPackage> Install(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        Action onEachPathProcessed,
+        Action<string, int, int> onEachArchiveExtractStarted)
+    {
+        return library?.InstallChartPackagesAuto(
+            installPaths,
+            token,
+            onEachPathProcessed,
+            onEachArchiveExtractStarted) ?? [];
+    }
+}
+
+internal sealed class PackageInstallRefreshSuppressionChangedEventArgs : EventArgs
+{
+    internal PackageInstallRefreshSuppressionChangedEventArgs(bool isSuppressed)
+    {
+        IsSuppressed = isSuppressed;
+    }
+
+    internal bool IsSuppressed { get; }
+}
 
 internal sealed class PackageInstallCompletionReceipt : EventArgs
 {
@@ -43,7 +81,11 @@ internal sealed class PackageInstallWorkflowOwner
 {
     private readonly object syncRoot = new();
 
-    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installBatch;
+    private readonly ChartFileOperationSynchronizer chartFileOperations;
+
+    private readonly ChartMutationActivityOwner chartMutationActivity;
+
+    private readonly IPackageInstallMutationPort mutationPort;
 
     private readonly Action<Action> dispatchToUi;
 
@@ -58,11 +100,15 @@ internal sealed class PackageInstallWorkflowOwner
     private int shutdownState;
 
     internal PackageInstallWorkflowOwner(
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installBatch,
+        ChartFileOperationSynchronizer chartFileOperations,
+        ChartMutationActivityOwner chartMutationActivity,
+        IPackageInstallMutationPort mutationPort,
         Action<Action> dispatchToUi,
         Action<Exception> reportNotificationFailure = null)
     {
-        this.installBatch = installBatch ?? throw new ArgumentNullException(nameof(installBatch));
+        this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
+        this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
+        this.mutationPort = mutationPort ?? throw new ArgumentNullException(nameof(mutationPort));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.reportNotificationFailure = reportNotificationFailure;
         lock (syncRoot)
@@ -76,6 +122,8 @@ internal sealed class PackageInstallWorkflowOwner
     internal event Action<PackageInstallCompletionReceipt> CompletionPublished;
 
     internal event Action<PackageInstallFailure> FailurePublished;
+
+    internal event EventHandler<PackageInstallRefreshSuppressionChangedEventArgs> RefreshSuppressionChanged;
 
     internal bool IsActive
     {
@@ -207,7 +255,7 @@ internal sealed class PackageInstallWorkflowOwner
         }
 
         int completedPathCount = 0;
-        IReadOnlyList<ChartPackage> packages = installBatch(
+        IReadOnlyList<ChartPackage> packages = ExecuteInstallBatch(
             currentLibrary,
             request.Paths,
             token,
@@ -233,6 +281,97 @@ internal sealed class PackageInstallWorkflowOwner
                 CompletionPublished?.Invoke(receipt);
             }
         });
+    }
+
+    private IReadOnlyList<ChartPackage> ExecuteInstallBatch(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        Action onEachPathProcessed,
+        Action<string, int, int> onEachArchiveExtractStarted)
+    {
+        string[] normalizedInstallPaths = [.. (installPaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))];
+        if (normalizedInstallPaths.Length == 0 || token.IsCancellationRequested)
+        {
+            return [];
+        }
+
+        BMSLibrary.OperationDialogScope dialogScope = null;
+        IDisposable activityLease = null;
+        IDisposable operationGate = null;
+        bool suppressionStarted = false;
+        var failures = new List<ExceptionDispatchInfo>();
+        IReadOnlyList<ChartPackage> packages = [];
+        try
+        {
+            dialogScope = library.BeginOperationDialogScope();
+            activityLease = chartMutationActivity.Enter();
+            operationGate = chartFileOperations.Enter();
+            suppressionStarted = true;
+            PublishRefreshSuppressionChanged(isSuppressed: true);
+            packages = mutationPort.Install(
+                library,
+                normalizedInstallPaths,
+                token,
+                onEachPathProcessed,
+                onEachArchiveExtractStarted) ?? [];
+        }
+        catch (Exception exception)
+        {
+            failures.Add(ExceptionDispatchInfo.Capture(exception));
+        }
+        finally
+        {
+            if (suppressionStarted)
+            {
+                CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
+            }
+            if (operationGate != null)
+            {
+                CaptureCleanupFailure(operationGate.Dispose, failures);
+            }
+            if (activityLease != null)
+            {
+                CaptureCleanupFailure(activityLease.Dispose, failures);
+            }
+            if (dialogScope != null)
+            {
+                CaptureCleanupFailure(dialogScope.Dispose, failures);
+                CaptureCleanupFailure(dialogScope.Flush, failures);
+            }
+        }
+
+        switch (failures.Count)
+        {
+            case 0:
+                return packages;
+            case 1:
+                failures[0].Throw();
+                break;
+            default:
+                throw new AggregateException(failures.Select(failure => failure.SourceException));
+        }
+        return [];
+    }
+
+    private void PublishRefreshSuppressionChanged(bool isSuppressed)
+    {
+        RefreshSuppressionChanged?.Invoke(
+            this,
+            new PackageInstallRefreshSuppressionChangedEventArgs(isSuppressed));
+    }
+
+    private static void CaptureCleanupFailure(Action cleanup, List<ExceptionDispatchInfo> failures)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(ExceptionDispatchInfo.Capture(exception));
+        }
     }
 
     private void PublishQueueStatus(QueueProcessorContext context, DropInstallQueueStatusSnapshot snapshot)

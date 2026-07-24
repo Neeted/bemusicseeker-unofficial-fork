@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -7,6 +9,63 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
+
+internal interface IFolderAutoRenameMutationPort
+{
+    bool HasTargets(BMSLibrary library, string parentDirectory);
+
+    FolderAutoRenameExecutionResult RenameSelected(
+        BMSLibrary library,
+        ChartFolderAutoRenameRequest request,
+        Action<int, int, string> progressReporter);
+
+    bool RenameAll(
+        BMSLibrary library,
+        string parentDirectory,
+        Action<int, int, string> progressReporter);
+}
+
+internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort
+{
+    public bool HasTargets(BMSLibrary library, string parentDirectory)
+    {
+        return library?.HasAutoRenameAllChartFolderTargets(parentDirectory) == true;
+    }
+
+    public FolderAutoRenameExecutionResult RenameSelected(
+        BMSLibrary library,
+        ChartFolderAutoRenameRequest request,
+        Action<int, int, string> progressReporter)
+    {
+        library?.AutoRenameChartFolders(request?.Charts ?? [], progressReporter: progressReporter);
+        return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+    }
+
+    public bool RenameAll(
+        BMSLibrary library,
+        string parentDirectory,
+        Action<int, int, string> progressReporter)
+    {
+        return library?.AutoRenameAllChartFolders(parentDirectory, progressReporter) == true;
+    }
+}
+
+internal interface IFolderAutoRenamePlaybackPort
+{
+    void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts);
+
+    void StopPlaybackForFolderMutation();
+}
+
+internal sealed class FolderAutoRenameRefreshSuppressionChangedEventArgs : EventArgs
+{
+    internal FolderAutoRenameRefreshSuppressionChangedEventArgs(bool isSuppressed)
+    {
+        IsSuppressed = isSuppressed;
+    }
+
+    internal bool IsSuppressed { get; }
+}
 
 internal sealed class FolderAutoRenameProgressSnapshot
 {
@@ -64,11 +123,13 @@ internal sealed class FolderAutoRenameWorkflowOwner
 {
     private readonly object syncRoot = new();
 
-    private readonly Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> executeSelected;
+    private readonly IFolderAutoRenameMutationPort mutationPort;
 
-    private readonly Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> executeAll;
+    private readonly ChartFileOperationSynchronizer chartFileOperations;
 
-    private readonly Func<BMSLibrary, string, bool> hasAllTargets;
+    private readonly ChartMutationActivityOwner chartMutationActivity;
+
+    private readonly IFolderAutoRenamePlaybackPort playback;
 
     private readonly Func<Action, Task> schedule;
 
@@ -93,9 +154,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
     private bool shutdownRequested;
 
     internal FolderAutoRenameWorkflowOwner(
-        Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> executeSelected,
-        Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> executeAll,
-        Func<BMSLibrary, string, bool> hasAllTargets,
+        ChartFileOperationSynchronizer chartFileOperations,
+        ChartMutationActivityOwner chartMutationActivity,
+        IFolderAutoRenameMutationPort mutationPort,
+        IFolderAutoRenamePlaybackPort playback,
         Func<Action, Task> schedule,
         Action<Action> dispatchToUi,
         IUiDialogService dialogs,
@@ -103,9 +165,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
         Action<Exception> reportNotificationFailure = null,
         Action<Exception> reportWorkflowFailure = null)
     {
-        this.executeSelected = executeSelected ?? throw new ArgumentNullException(nameof(executeSelected));
-        this.executeAll = executeAll ?? throw new ArgumentNullException(nameof(executeAll));
-        this.hasAllTargets = hasAllTargets ?? throw new ArgumentNullException(nameof(hasAllTargets));
+        this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
+        this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
+        this.mutationPort = mutationPort ?? throw new ArgumentNullException(nameof(mutationPort));
+        this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
@@ -121,6 +184,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
     internal event Action<FolderAutoRenameFailure> FailurePublished;
 
     internal event Action TerminalPublished;
+
+    internal event EventHandler<FolderAutoRenameRefreshSuppressionChangedEventArgs> RefreshSuppressionChanged;
 
     internal bool IsActive
     {
@@ -309,7 +374,12 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 bool hasTargets;
                 try
                 {
-                    hasTargets = hasAllTargets(run.Library, run.ParentDirectory);
+                    hasTargets = false;
+                    ExecuteMutation(
+                        run.Library,
+                        stopPlayback: null,
+                        mutation: () => hasTargets = mutationPort.HasTargets(run.Library, run.ParentDirectory),
+                        refreshSuppression: false);
                 }
                 catch (Exception exception)
                 {
@@ -336,9 +406,25 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 ProcessedCount = processed,
                 CurrentPath = currentPath ?? string.Empty
             });
-            FolderAutoRenameExecutionResult result = run.AllFolders
-                ? executeAll(run.Library, run.ParentDirectory, progressReporter)
-                : executeSelected(run.Library, run.SelectedRequest, progressReporter);
+            FolderAutoRenameExecutionResult result = null;
+            if (run.AllFolders)
+            {
+                bool changed = false;
+                ExecuteMutation(
+                    run.Library,
+                    playback.StopPlaybackForFolderMutation,
+                    () => changed = mutationPort.RenameAll(run.Library, run.ParentDirectory, progressReporter),
+                    refreshSuppression: true);
+                result = new FolderAutoRenameExecutionResult { RefreshRequired = changed };
+            }
+            else
+            {
+                ExecuteMutation(
+                    run.Library,
+                    () => playback.StopPlaybackForCharts(run.SelectedRequest.Charts),
+                    () => result = mutationPort.RenameSelected(run.Library, run.SelectedRequest, progressReporter),
+                    refreshSuppression: true);
+            }
             if (result == null)
             {
                 throw new InvalidOperationException("Folder auto-rename executor returned no result.");
@@ -350,6 +436,85 @@ internal sealed class FolderAutoRenameWorkflowOwner
         {
             LogInfoSafely("folder_auto_rename failed scope=" + (run.AllFolders ? "all" : "selected") + " message=" + FormatExceptionMessage(exception));
             CompleteFailure(run, exception);
+        }
+    }
+
+    private void ExecuteMutation(
+        BMSLibrary library,
+        Action stopPlayback,
+        Action mutation,
+        bool refreshSuppression)
+    {
+        BMSLibrary.OperationDialogScope dialogScope = null;
+        IDisposable activityLease = null;
+        IDisposable operationGate = null;
+        bool suppressionStarted = false;
+        var failures = new List<ExceptionDispatchInfo>();
+        try
+        {
+            dialogScope = library.BeginOperationDialogScope();
+            activityLease = chartMutationActivity.Enter();
+            operationGate = chartFileOperations.Enter();
+            stopPlayback?.Invoke();
+            suppressionStarted = refreshSuppression;
+            if (suppressionStarted)
+            {
+                PublishRefreshSuppressionChanged(isSuppressed: true);
+            }
+            mutation();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(ExceptionDispatchInfo.Capture(exception));
+        }
+        finally
+        {
+            if (suppressionStarted)
+            {
+                CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
+            }
+            if (operationGate != null)
+            {
+                CaptureCleanupFailure(operationGate.Dispose, failures);
+            }
+            if (activityLease != null)
+            {
+                CaptureCleanupFailure(activityLease.Dispose, failures);
+            }
+            if (dialogScope != null)
+            {
+                CaptureCleanupFailure(dialogScope.Dispose, failures);
+                CaptureCleanupFailure(dialogScope.Flush, failures);
+            }
+        }
+        switch (failures.Count)
+        {
+            case 0:
+                return;
+            case 1:
+                failures[0].Throw();
+                return;
+            default:
+                throw new AggregateException(failures.Select(failure => failure.SourceException));
+        }
+    }
+
+    private void PublishRefreshSuppressionChanged(bool isSuppressed)
+    {
+        RefreshSuppressionChanged?.Invoke(
+            this,
+            new FolderAutoRenameRefreshSuppressionChangedEventArgs(isSuppressed));
+    }
+
+    private static void CaptureCleanupFailure(Action cleanup, List<ExceptionDispatchInfo> failures)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(ExceptionDispatchInfo.Capture(exception));
         }
     }
 

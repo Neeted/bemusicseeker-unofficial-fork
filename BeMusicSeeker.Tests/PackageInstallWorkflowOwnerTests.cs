@@ -32,7 +32,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var completed = new ManualResetEventSlim(false);
             var secondFinished = new ManualResetEventSlim(false);
             PackageInstallWorkflowOwner? owner = null;
-            owner = new PackageInstallWorkflowOwner(
+            owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
                     string displayName = Path.GetFileName(paths.FirstOrDefault() ?? string.Empty);
@@ -118,7 +118,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var started = new ManualResetEventSlim(false);
             var release = new ManualResetEventSlim(false);
             var completion = new ManualResetEventSlim(false);
-            var owner = new PackageInstallWorkflowOwner(
+            var owner = CreateOwner(
                 (library, paths, token, onPath, onArchive) =>
                 {
                     started.Set();
@@ -162,7 +162,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var started = new ManualResetEventSlim(false);
             var release = new ManualResetEventSlim(false);
             var completion = new ManualResetEventSlim(false);
-            var owner = new PackageInstallWorkflowOwner(
+            var owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
                     started.Set();
@@ -223,7 +223,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var secondCompleted = new ManualResetEventSlim(false);
             var calls = new List<string>();
             var completions = 0;
-            var owner = new PackageInstallWorkflowOwner(
+            var owner = CreateOwner(
                 (library, paths, token, onPath, onArchive) =>
                 {
                     string displayName = Path.GetFileName(paths.First());
@@ -248,8 +248,11 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             owner.AttachLibrary(second);
             owner.Enqueue([Path.Combine(root, "second-generation.zip")]);
-            Assert.IsTrue(secondCompleted.Wait(5000), "The new generation request was lost during replacement.");
+            // The production owner serializes library mutations through the shared
+            // operation gate. Release the retired generation before waiting for
+            // the replacement generation to enter that same corridor.
             releaseFirst.Set();
+            Assert.IsTrue(secondCompleted.Wait(5000), "The new generation request was lost during replacement.");
 
             Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000), "The replaced workflow did not drain.");
             CollectionAssert.AreEqual(new[] { "first-generation.zip", "second-generation.zip" }, calls);
@@ -279,7 +282,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new BMSLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
-            var owner = new PackageInstallWorkflowOwner(
+            var owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
@@ -318,7 +321,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new BMSLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             var secondFinished = new ManualResetEventSlim(false);
-            var owner = new PackageInstallWorkflowOwner(
+            var owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
                     int call = Interlocked.Increment(ref mutationCalls);
@@ -346,5 +349,39 @@ public sealed class PackageInstallWorkflowOwnerTests
                 Directory.Delete(root, recursive: true);
             }
         }
+    }
+
+    private static PackageInstallWorkflowOwner CreateOwner(
+        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installBatch,
+        Action<Action> dispatchToUi,
+        Action<Exception>? reportNotificationFailure = null)
+    {
+        return new PackageInstallWorkflowOwner(
+            new ChartFileOperationSynchronizer(),
+            new ChartMutationActivityOwner(),
+            new DelegatePackageInstallMutationPort(installBatch),
+            dispatchToUi,
+            reportNotificationFailure);
+    }
+}
+
+internal sealed class DelegatePackageInstallMutationPort : IPackageInstallMutationPort
+{
+    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> install;
+
+    internal DelegatePackageInstallMutationPort(
+        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> install)
+    {
+        this.install = install ?? throw new ArgumentNullException(nameof(install));
+    }
+
+    public IReadOnlyList<ChartPackage> Install(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        Action onEachPathProcessed,
+        Action<string, int, int> onEachArchiveExtractStarted)
+    {
+        return install(library, installPaths, token, onEachPathProcessed, onEachArchiveExtractStarted);
     }
 }

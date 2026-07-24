@@ -296,7 +296,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
         Action<Action> dispatchPackageInstallUi,
         Func<BMSLibrary> installDestinationLibraryProvider,
         IUiDialogService installDestinationDialogService,
@@ -307,9 +306,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
         Action<Exception> reportMaintenanceRescanWorkflowFailure = null,
-        Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> folderAutoRenameSelectedExecutor = null,
-        Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> folderAutoRenameAllExecutor = null,
-        Func<BMSLibrary, string, bool> folderAutoRenameAllTargetChecker = null,
         Func<Action, Task> folderAutoRenameScheduler = null,
         Action<string> folderAutoRenameLog = null,
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
@@ -353,7 +349,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             mainViewLog,
             dispatchMainChartListAction,
             mainViewLogWarning,
-            installPackageBatch,
             dispatchPackageInstallUi,
             installDestinationLibraryProvider,
             installDestinationDialogService,
@@ -367,9 +362,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             maintenanceRescanLog,
             reportMaintenanceRescanWorkflowNotificationFailure,
             reportMaintenanceRescanWorkflowFailure,
-            folderAutoRenameSelectedExecutor,
-            folderAutoRenameAllExecutor,
-            folderAutoRenameAllTargetChecker,
             folderAutoRenameScheduler,
             folderAutoRenameLog,
             reportFolderAutoRenameNotificationFailure,
@@ -543,7 +535,6 @@ internal sealed class MainWindowChildComposition
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
         Action<Action> dispatchPackageInstallUi,
         Func<BMSLibrary> installDestinationLibraryProvider,
         IUiDialogService installDestinationDialogService,
@@ -557,9 +548,6 @@ internal sealed class MainWindowChildComposition
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
         Action<Exception> reportMaintenanceRescanWorkflowFailure = null,
-        Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> folderAutoRenameSelectedExecutor = null,
-        Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> folderAutoRenameAllExecutor = null,
-        Func<BMSLibrary, string, bool> folderAutoRenameAllTargetChecker = null,
         Func<Action, Task> folderAutoRenameScheduler = null,
         Action<string> folderAutoRenameLog = null,
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
@@ -631,9 +619,14 @@ internal sealed class MainWindowChildComposition
             mainViewLog,
             dispatchMainChartListAction,
             mainViewLogWarning,
-            PendingPackageWorkflow);
+            PendingPackageWorkflow,
+            chartFileOperations,
+            ChartMutationActivity,
+            (IFolderAutoRenamePlaybackPort)PlaybackPanel);
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
-            installPackageBatch,
+            chartFileOperations,
+            ChartMutationActivity,
+            new BmsLibraryPackageInstallMutationPort(),
             dispatchPackageInstallUi,
             reportPackageInstallWorkflowNotificationFailure);
         MaintenanceRescanWorkflow = new MaintenanceRescanWorkflowOwner(
@@ -645,9 +638,10 @@ internal sealed class MainWindowChildComposition
             reportMaintenanceRescanWorkflowFailure,
             dialogs: maintenanceRescanDialogService ?? throw new ArgumentNullException(nameof(maintenanceRescanDialogService)));
         FolderAutoRenameWorkflow = new FolderAutoRenameWorkflowOwner(
-            folderAutoRenameSelectedExecutor ?? MissingFolderAutoRenameSelectedExecutor,
-            folderAutoRenameAllExecutor ?? MissingFolderAutoRenameAllExecutor,
-            folderAutoRenameAllTargetChecker ?? MissingFolderAutoRenameAllTargetChecker,
+            chartFileOperations,
+            ChartMutationActivity,
+            new BmsLibraryFolderAutoRenameMutationPort(),
+            (IFolderAutoRenamePlaybackPort)PlaybackPanel,
             folderAutoRenameScheduler ?? (action => Task.Run(action)),
             dispatchMainChartListAction,
             folderAutoRenameDialogService ?? throw new ArgumentNullException(nameof(folderAutoRenameDialogService)),
@@ -807,24 +801,4 @@ internal sealed class MainWindowChildComposition
         throw new InvalidOperationException("Maintenance rescan executor is not configured.");
     }
 
-    private static FolderAutoRenameExecutionResult MissingFolderAutoRenameSelectedExecutor(
-        BMSLibrary library,
-        ChartFolderAutoRenameRequest request,
-        Action<int, int, string> progressReporter)
-    {
-        throw new InvalidOperationException("Folder auto-rename selected executor is not configured.");
-    }
-
-    private static FolderAutoRenameExecutionResult MissingFolderAutoRenameAllExecutor(
-        BMSLibrary library,
-        string parentDirectory,
-        Action<int, int, string> progressReporter)
-    {
-        throw new InvalidOperationException("Folder auto-rename all executor is not configured.");
-    }
-
-    private static bool MissingFolderAutoRenameAllTargetChecker(BMSLibrary library, string parentDirectory)
-    {
-        throw new InvalidOperationException("Folder auto-rename target checker is not configured.");
-    }
 }

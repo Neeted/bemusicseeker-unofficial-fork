@@ -94,14 +94,20 @@ public sealed class BmsLibraryMutationBoundaryTests
     }
 
     [TestMethod]
-    public void MainWindowViewModel_UsesChartPackageMutationBoundary()
+    public void MutationOwners_KeepChartPackageMutationBoundaryOutOfTheShell()
     {
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string packageInstallSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "PackageInstallWorkflowOwner.cs");
+        string folderAutoRenameSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "FolderAutoRenameWorkflowOwner.cs");
+        string regularChartSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
         string installDestinationSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PendingPackageWorkflowOwner.cs");
         string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
-        string runMethod = ExtractMethodBody(source, "private void RunChartPackageMutation(");
-        string autoInstallMethod = ExtractMethodBody(source, "private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(");
+        string installBatchMethod = ExtractMethodBody(packageInstallSource, "private IReadOnlyList<ChartPackage> ExecuteInstallBatch(");
+        string folderMutationMethod = ExtractMethodBody(folderAutoRenameSource, "private void ExecuteMutation(");
         string forceInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task<PendingPackageMutationResult> InstallResolvedPackagesAsync(");
         string executeInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task<PendingPackageMutationResult> ExecuteInstallAsync(");
         string installDestinationBoundary = ExtractMethodBody(installDestinationSource, "private bool Execute(");
@@ -115,18 +121,30 @@ public sealed class BmsLibraryMutationBoundaryTests
         string dialogEnqueueMethod = ExtractMethodBody(librarySource, "internal void Enqueue(OperationDialogMessage message)");
 
         StringAssert.Contains(source, "internal ChartMutationActivityOwner ChartMutationActivity");
+        Assert.IsFalse(source.Contains("RunChartPackageMutation"));
+        Assert.IsFalse(source.Contains("RunPendingInstallMutation"));
+        Assert.IsFalse(source.Contains("ExecutePackageInstallMutation"));
+        Assert.IsFalse(source.Contains("ExecuteFolderAutoRenameSelectedMutation"));
+        Assert.IsFalse(source.Contains("ExecuteFolderAutoRenameAllMutation"));
+        Assert.IsFalse(source.Contains("HasFolderAutoRenameAllTargets"));
+        Assert.IsFalse(source.Contains("internal void RenameChartFolder("));
         Assert.IsFalse(source.Contains("chartPackageMutationDepth"));
         Assert.IsFalse(source.Contains("BeginChartPackageMutation"));
         Assert.IsFalse(source.Contains("EndChartPackageMutation"));
         Assert.IsFalse(source.Contains("IsChartPackageMutationInProgress"));
-        StringAssert.Contains(source, "private void RunPendingInstallMutation(Action action");
-        StringAssert.Contains(source, "RunChartPackageMutation(action");
-        StringAssert.Contains(runMethod, "BeginOperationDialogScope()");
-        StringAssert.Contains(runMethod, "ChartMutationActivity.Enter()");
-        StringAssert.Contains(runMethod, "using (chartFileOperations.Enter())");
-        StringAssert.Contains(runMethod, "EndUiUpdateSuppression()");
-        StringAssert.Contains(runMethod, "dialogScope?.Flush()");
-        StringAssert.Contains(autoInstallMethod, "RunChartPackageMutation");
+        StringAssert.Contains(installBatchMethod, "BeginOperationDialogScope()");
+        StringAssert.Contains(installBatchMethod, "chartMutationActivity.Enter()");
+        StringAssert.Contains(installBatchMethod, "operationGate = chartFileOperations.Enter()");
+        StringAssert.Contains(installBatchMethod, "mutationPort.Install(");
+        StringAssert.Contains(packageInstallSource, "library?.InstallChartPackagesAuto(");
+        StringAssert.Contains(installBatchMethod, "PublishRefreshSuppressionChanged(isSuppressed: true)");
+        StringAssert.Contains(installBatchMethod, "CaptureCleanupFailure(dialogScope.Flush, failures)");
+        StringAssert.Contains(folderMutationMethod, "BeginOperationDialogScope()");
+        StringAssert.Contains(folderMutationMethod, "chartMutationActivity.Enter()");
+        StringAssert.Contains(folderMutationMethod, "operationGate = chartFileOperations.Enter()");
+        StringAssert.Contains(folderMutationMethod, "mutation()");
+        StringAssert.Contains(regularChartSource, "RenameChartFolderAsync(renameRequest, request.Text)");
+        StringAssert.Contains(regularChartSource, "library.RenameChartFolder(directoryName, newFolder, false)");
         StringAssert.Contains(forceInstallMethod, "store.ForceInstallPackages");
         StringAssert.Contains(forceInstallMethod, "ExecuteInstallAsync(");
         StringAssert.Contains(executeInstallMethod, "PendingPackageRefreshScope.PackageMutation");

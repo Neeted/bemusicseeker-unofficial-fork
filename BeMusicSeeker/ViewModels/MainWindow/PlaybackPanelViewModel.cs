@@ -17,6 +17,7 @@ namespace BeMusicSeeker.ViewModels;
 public sealed class PlaybackPanelViewModel : ViewModel,
     IDuplicateMaintenancePlaybackPort,
     ISelectedChartMutationPlaybackPort,
+    IFolderAutoRenamePlaybackPort,
     IPendingPackageMutationPlaybackPort,
     ISelectedChartAudioConversionPlaybackPort,
     ISettingsDialogPlaybackRuntimePort
@@ -185,6 +186,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     {
         StopIfPlayingChartDirectories(directories);
     }
+
+    void IFolderAutoRenamePlaybackPort.StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
+    {
+        StopIfPlayingCharts(charts);
+    }
+
+    void IFolderAutoRenamePlaybackPort.StopPlaybackForFolderMutation()
+        => StopPlayback(closeProcess: true);
 
     void IPendingPackageMutationPlaybackPort.StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
     {

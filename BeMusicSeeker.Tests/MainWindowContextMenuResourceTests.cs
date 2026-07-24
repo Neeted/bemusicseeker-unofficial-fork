@@ -2876,8 +2876,8 @@ public sealed class MainWindowContextMenuResourceTests
             "bool canAutoRenameFolders =",
             "if (menuItem17 != null)");
         string autoRenameAll = ExtractMethodBody(
-            viewModelCode,
-            "private FolderAutoRenameExecutionResult ExecuteFolderAutoRenameAllMutation(");
+            folderAutoRenameWorkflowOwnerCode,
+            "private void ExecuteMutation(");
         string autoRenameAllModel = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "Models", "BMSLibrary.LibraryFileOperationOwner.cs");
         string applicationCompositionCode = SourceTextTestHelper.ReadProductionSourceText(
@@ -2890,11 +2890,6 @@ public sealed class MainWindowContextMenuResourceTests
             "private void RefreshCustomTableViewDisplayAsync");
         string regularOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
-        string rootCellEditRoute = ExtractBetween(
-            viewModelCode,
-            "private void RegularChartListOwnerFolderEditRequested",
-            "private void RegularChartListOwnerNormalLibraryRefreshApplied");
-
         StringAssert.Contains(autoRenameClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
         StringAssert.Contains(autoRenameClick, "viewModel.FolderAutoRenameWorkflow.RequestStartSelected(targets);");
         Assert.IsFalse(autoRenameClick.Contains("Task.Run"));
@@ -2926,9 +2921,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(moveFileClick.Contains("viewModel.MoveLibraryCharts"));
         StringAssert.Contains(contextMenuOpening, "contextMenuState.CanAutoRenameFolders");
         StringAssert.Contains(contextMenuStateBuilderCode, "hasBmsSelection || hasBmsonSelection");
-        StringAssert.Contains(autoRenameAll, "RunChartPackageMutation(");
-        StringAssert.Contains(autoRenameAll, "library.AutoRenameAllChartFolders(parentDirectory, progressReporter)");
-        StringAssert.Contains(autoRenameAll, "stopPlayback: () => PlaybackPanel.StopPlayback(closeProcess: true)");
+        StringAssert.Contains(autoRenameAll, "library.BeginOperationDialogScope()");
+        StringAssert.Contains(folderAutoRenameWorkflowOwnerCode, "mutationPort.RenameAll(run.Library, run.ParentDirectory, progressReporter)");
+        StringAssert.Contains(folderAutoRenameWorkflowOwnerCode, "playback.StopPlaybackForFolderMutation");
         StringAssert.Contains(viewModelCode, "FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;");
         StringAssert.Contains(viewModelCode, "FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;");
         StringAssert.Contains(applicationCompositionCode, "ProgressHub.AttachWorkflowProgressSources(");
@@ -2954,7 +2949,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameAllModel.Contains("files?.BmsonSongs"));
         StringAssert.Contains(cellEditEnded, "viewModel.MainChartList.RequestCellEditEnded(");
         StringAssert.Contains(regularOwnerCode, "RenameChartFolderRequest.TryCreate(folderTarget, out RenameChartFolderRequest renameRequest)");
-        StringAssert.Contains(rootCellEditRoute, "RenameChartFolder(request.Request, request.FolderName)");
+        Assert.IsFalse(viewModelCode.Contains("RegularChartListOwnerFolderEditRequested"));
+        StringAssert.Contains(regularOwnerCode, "RenameChartFolderAsync(renameRequest, request.Text)");
         Assert.IsFalse(cellEditEnded.Contains("CreateRenameChartFolderTargetSnapshot"));
         Assert.IsFalse(cellEditEnded.Contains("targetSnapshot"));
         Assert.IsFalse(cellEditEnded.Contains("viewModel.RenameChartFolder(target, newFolder)"));

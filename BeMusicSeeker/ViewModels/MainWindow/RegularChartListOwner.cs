@@ -20,6 +20,16 @@ using Ribbit.Util;
 
 namespace BeMusicSeeker.ViewModels;
 
+internal sealed class RegularChartMutationRefreshSuppressionChangedEventArgs : EventArgs
+{
+    internal RegularChartMutationRefreshSuppressionChangedEventArgs(bool isSuppressed)
+    {
+        IsSuppressed = isSuppressed;
+    }
+
+    internal bool IsSuppressed { get; }
+}
+
 /// <summary>
 /// Owns request lifetime, derived rows, sort reuse, warmup lifetime, and terminal publication for the regular chart list.
 /// </summary>
@@ -31,13 +41,13 @@ internal sealed class RegularChartListOwner : IDisposable
 
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortRefreshRequested;
 
-    internal event EventHandler<RegularChartFolderEditRequestedEventArgs> FolderEditRequested;
-
     internal event EventHandler<RegularChartTreeNavigationPresentationRequestedEventArgs> TreeNavigationPresentationRequested;
 
     internal event EventHandler<RegularChartMaintenanceNavigationPresentationRequestedEventArgs> MaintenanceNavigationPresentationRequested;
 
     internal event EventHandler<RegularChartInstallNavigationPresentationRequestedEventArgs> InstallNavigationPresentationRequested;
+
+    internal event EventHandler<RegularChartMutationRefreshSuppressionChangedEventArgs> RefreshSuppressionChanged;
 
     private const int StartupVirtualOrderPrewarmMaxPriority = 3;
     private readonly object syncRoot = new();
@@ -49,6 +59,9 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly Action<string> logWarning;
     private readonly Action<Action> dispatchToUi;
     private readonly PendingPackageWorkflowOwner pendingPackageWorkflow;
+    private readonly ChartFileOperationSynchronizer chartFileOperations;
+    private readonly ChartMutationActivityOwner chartMutationActivity;
+    private readonly IFolderAutoRenamePlaybackPort playback;
     private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> sortCache = [];
     private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualOrderCache = [];
     private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualSubsetOrderCache = [];
@@ -100,7 +113,10 @@ internal sealed class RegularChartListOwner : IDisposable
         Action<string> log,
         Action<Action> dispatchToUi,
         Action<string> logWarning,
-        PendingPackageWorkflowOwner pendingPackageWorkflow)
+        PendingPackageWorkflowOwner pendingPackageWorkflow,
+        ChartFileOperationSynchronizer chartFileOperations = null,
+        ChartMutationActivityOwner chartMutationActivity = null,
+        IFolderAutoRenamePlaybackPort playback = null)
     {
         this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -108,6 +124,9 @@ internal sealed class RegularChartListOwner : IDisposable
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logWarning = logWarning ?? log;
         this.pendingPackageWorkflow = pendingPackageWorkflow ?? throw new ArgumentNullException(nameof(pendingPackageWorkflow));
+        this.chartFileOperations = chartFileOperations ?? new ChartFileOperationSynchronizer();
+        this.chartMutationActivity = chartMutationActivity ?? new ChartMutationActivityOwner();
+        this.playback = playback;
         this.mainChartList.AppliedColumnModeCommitted += MainChartListAppliedColumnModeCommitted;
     }
 
@@ -621,7 +640,7 @@ internal sealed class RegularChartListOwner : IDisposable
             && GridRowResolver.TryGetFolderEditChartOperationTarget(context.Row, context.SourceScope, out ChartOperationTarget folderTarget)
             && RenameChartFolderRequest.TryCreate(folderTarget, out RenameChartFolderRequest renameRequest))
         {
-            FolderEditRequested?.Invoke(this, new RegularChartFolderEditRequestedEventArgs(renameRequest, request.Text));
+            RenameChartFolderAsync(renameRequest, request.Text);
             return;
         }
         if (string.Equals(context.PropertyName, "instl_dst", StringComparison.Ordinal)
@@ -634,6 +653,115 @@ internal sealed class RegularChartListOwner : IDisposable
                 .SetPendingAsync(installRequest, request.Text)
                 .Logging("regularChartListSetPendingInstallDestination");
         }
+    }
+
+    internal void RenameChartFolderAsync(RenameChartFolderRequest request, string newFolder)
+    {
+        if (request?.HasTarget != true || string.IsNullOrWhiteSpace(newFolder))
+        {
+            return;
+        }
+        Task.Run(() => ExecuteFolderRename(request, newFolder))
+            .Logging("regularChartListFolderEditRequested");
+    }
+
+    private void ExecuteFolderRename(RenameChartFolderRequest request, string newFolder)
+    {
+        BMSLibrary library;
+        lock (syncRoot)
+        {
+            library = normalLibraryRefreshSource;
+        }
+        if (library == null)
+        {
+            return;
+        }
+        BMSLibrary.OperationDialogScope dialogScope = null;
+        IDisposable activityLease = null;
+        IDisposable operationGate = null;
+        bool suppressionStarted = false;
+        var failures = new List<ExceptionDispatchInfo>();
+        try
+        {
+            dialogScope = library.BeginOperationDialogScope();
+            activityLease = chartMutationActivity.Enter();
+            operationGate = chartFileOperations.Enter();
+            playback?.StopPlaybackForCharts([request.Chart]);
+            suppressionStarted = true;
+            PublishRefreshSuppressionChanged(isSuppressed: true);
+            string directoryName = DirectoryExt.GetDirectoryNameSimple(request.Chart.Path);
+            if (!string.IsNullOrWhiteSpace(directoryName)
+                && LongPathFileSystem.DirectoryExists(directoryName))
+            {
+                library.RenameChartFolder(directoryName, newFolder, false);
+                ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
+                InvalidatePathMutationCaches(library);
+            }
+        }
+        catch (Exception exception)
+        {
+            failures.Add(ExceptionDispatchInfo.Capture(exception));
+        }
+        finally
+        {
+            if (suppressionStarted)
+            {
+                CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
+            }
+            if (operationGate != null)
+            {
+                CaptureCleanupFailure(operationGate.Dispose, failures);
+            }
+            if (activityLease != null)
+            {
+                CaptureCleanupFailure(activityLease.Dispose, failures);
+            }
+            if (dialogScope != null)
+            {
+                CaptureCleanupFailure(dialogScope.Dispose, failures);
+                CaptureCleanupFailure(dialogScope.Flush, failures);
+            }
+            CaptureCleanupFailure(mainChartList.RequestDisplayRefresh, failures);
+        }
+        switch (failures.Count)
+        {
+            case 0:
+                return;
+            case 1:
+                failures[0].Throw();
+                return;
+            default:
+                throw new AggregateException(failures.Select(failure => failure.SourceException));
+        }
+    }
+
+    private void PublishRefreshSuppressionChanged(bool isSuppressed)
+    {
+        RefreshSuppressionChanged?.Invoke(
+            this,
+            new RegularChartMutationRefreshSuppressionChangedEventArgs(isSuppressed));
+    }
+
+    private static void CaptureCleanupFailure(Action cleanup, List<ExceptionDispatchInfo> failures)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(ExceptionDispatchInfo.Capture(exception));
+        }
+    }
+
+    private void InvalidatePathMutationCaches(BMSLibrary library)
+    {
+        BmsonLibraryRowCacheSyncResult bmsonSync = SyncBmsonRows(library);
+        if (bmsonSync.SortKeyChanged)
+        {
+            InvalidateNormalLibrarySortKeysForBmsonSync(bmsonSync, "bmson_path_changed");
+        }
+        InvalidateIdentitySortKeys(clearSourceRows: true);
     }
 
     private static bool IsInstallDestinationEditSection(MainViewOperationSection section)
