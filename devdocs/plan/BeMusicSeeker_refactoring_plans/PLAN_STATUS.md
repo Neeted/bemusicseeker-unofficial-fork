@@ -2,7 +2,7 @@
 
 [リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md) / [Codex 共通実行ルール](./00_Codex共通実行ルール.md)
 
-最終更新日: 2026-07-21
+最終更新日: 2026-07-25
 
 ## Baseline
 
@@ -16,30 +16,59 @@
 
 状態: in progress
 
-active outcome base commit: `6d170cb9`
-active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `planner required`
+- active outcome base commit: `6d170cb9`
+- observed production checkpoint: `464040f6`
+- active execution package: `UI05-T Terminal shell closure`
+- execution anchor: `UI05-T1 Closure inventory and classification`
 
 目的:
 
-残るroot binding relay、feature workflow、code-behind orchestration、非event `async void`を、child owner / application workflow / view-hostの正しい境界へ移す。行数削減ではなく、state / behavior ownershipとdependency directionでUI Gateを閉じる。
+root binding relay、feature workflow、code-behind orchestration、非event `async void`の残件を有限inventoryとして閉じる。正当なWPF view-host処理や後続migration boundaryをroute単位で再抽出せず、UI-05をoutcome verificationまで到達させる。
 
 Acceptance criteria:
 
 - feature View / UserControlがchild ownerをbinding rootとし、rootはchild ViewModelのcomposition propertyを除いてleaf property / command / `PropertyChanged`を再公開しない。
-- `MainWindowViewModel`に非eventの`async void`、feature-local mutable state、feature workflow、private callback hostが残らない。
-- `MainWindow.cs`のevent handlerは、一つのfeature command / queryへのrequest変換と、focus / selection / scroll / hit-test / drag visual / dialog presentation等のView固有applyだけで説明できる。
-- settings dialog、normal library refresh、package operation、playlist / library / chart actionの残存routeがproductionの通常経路でowner / shell compositionへ直接接続され、旧pass-through、workflow body、callback host、test-only seamが担当unitで削除される。
+- `MainWindowViewModel`に非event `async void`、feature-local mutable state、feature workflow、broad callback hostが残らない。
+- `MainWindow.cs`のevent handlerは、一つのfeature command / queryへのrequest変換と、dialog / focus / selection / scroll / hit-test / drag visual / WPF property mappingなどのview-host applyで説明できる。
+- typed immutable presentation eventのterminal applyをbroad callback hostと誤認しない。
 - UI observable behavior、失敗契約、setting key / serialized value、DB schema / data、外部ファイル形式、external syncのcancellation / progressを維持する。
-- 各execution unitのbehavior test、UI-05 outcome-wide Full verification、Release executable UI smoke、重大指摘なしのstatic / outcome reviewを完了する。
-- Structural size triggerの達成を完了条件にせず、triggerを超える残scopeの責務が許可shell / view-host boundaryで説明できることをoutcome reviewで確認する。
+- Full verification、Release executable UI smoke、fresh outcome reviewを完了する。
+- structural size triggerを完了条件にせず、triggerを超えるscopeが許可boundaryまたは明示ownerでcohesiveに説明できることをreviewする。
 
 Non-goals:
 
-- feature / model内に残るglobal settings、application / dispatcher contextの最終除去（`MIG-01`）。
 - pending estimated-install broad hostとplaylist custom-folder status persistenceの解消（`OWN-01`）。
-- native / process / path / output layout、`.NET 10` TFM / package変更（`MIG-02`〜`MIG-05`とGate後migration）。
-- WPF固有のselection、focus、scroll、hit-test、virtualization、drag visualを行数のためだけにView外へ移すこと。
+- global settings、application / dispatcher、path、process、native / UI technologyの最終境界化（`MIG-01`〜`MIG-04`）。
+- WPF固有のselection、focus、scroll、hit-test、virtualization、drag visual、ContextMenu mappingを行数のためだけにView外へ移すこと。
+
+## Stable terminal steps
+
+| Step | State | Exit condition |
+|---|---|---|
+| `UI05-T1 Closure inventory and classification` | active | 現行root / View / XAML / presentation / test surfaceを`BLOCKING`、`ALLOWED_BOUNDARY`、`DEFERRED_OWNER`へ有限分類し、T2 batchをmaterializeする |
+| `UI05-T2 Grouped residual closure` | pending | `BLOCKING`を最大3 owner-family unitで閉じる。blockerがなければskip |
+| `UI05-T3 Outcome closure` | pending | Full verification、UI smoke、fresh outcome review、修正、UI-05 completionと次Outcomeのready化 |
+
+## Active implementation batch
+
+状態: not materialized
+
+`UI05-T1`のplannerを一度だけ起動し、0〜3個のT2 unitをここへ記録する。planner結果だけのcommitは作らず、最初のcode unitと同じworktree / commitに含める。batchに`active`または`pending`がある間はplannerを再起動しない。
+
+materialize後の形式:
+
+| Batch | Unit | State | Closure family |
+|---|---|---|---|
+| `<batch-id>` | `<B1 / B2 / B3>` | `<active / pending / completed / skipped>` | `<root shell / view-host / seam>` |
+
+## Current code evidence
+
+- `MainWindowViewModel.cs`: 5,616行。非eventを含め`async void`宣言は検出されない。
+- `MainWindow.cs`: 7,062行。検出される`async void`はWPF event handlerである。
+- rootは`MainChartList`、`PlaylistWorkspace`、`ChartFilters`、`LibraryFolderTree`、`InstallTree`、`MaintenanceTree`、`PlayHistory`、`PlaybackPanel`、`ProgressHub`、`SettingDialog`をchild composition propertyとして公開し、XAMLはこれらをbinding rootとして使用している。
+- MainWindowにはtyped owner query / commandとWPF control mappingへ整理済みのrouteが多い。event数や行数だけで追加owner抽出を行わず、T1でfeature decision / orchestrationの実在を判定する。
+- `Settings.Default`、`Application.Current`、dispatcher、process等の残参照は、UI feature ownership違反でない限り`MIG-01`〜`MIG-04`へ分類する。
+- UI-05 outcome-wide Full verification、Release smoke、fresh outcome reviewは未完了である。
 
 ## Outcome states
 
@@ -67,21 +96,21 @@ Non-goals:
 | MIG-05 .NET 10 migration rehearsal and handoff | not started |
 | GATE-01 Refactoring completion audit | not started |
 
-許可する状態は`not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。internal complexity、行数trigger超過、複数caller、broad routeはexecution packageへ分解し、`blocked`理由にしない。production evidenceが別outcomeの明示boundaryに属する場合は、ordered backlogの次ownerへ引き渡す。
+許可する状態は`not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。internal complexity、行数trigger超過、複数caller、broad routeは`blocked`理由にしない。
 
 ## Gate scorecard
 
 | Gate area | State | Current evidence / owner |
 |---|---|---|
-| UI ownership | not met | UI-05は継続中。root ViewModelに非event `async void`、MainWindow code-behindに複数のfeature workflow / multi-step actionが残る。`UI05-R1`〜`R4`で閉じる |
-| Library ownership | not met | `IPendingEstimatedInstallHost`相当がfacade lock / private operationを広く露出する。`OWN01-A` / `C`で閉じる |
-| Playlist ownership | not met | `BMSPlaylist`にcustom-folder output statusのraw SQL / transactionとglobal dispatcher / application residualが残る。`OWN01-B`と`MIG-01`で閉じる |
-| Configuration ownership | not met | `Settings.Default`、application / dispatcher contextの直接依存がView / ViewModel / modelへ残る。`MIG-01`で境界化する |
-| Platform boundary | not met | HintPath DLL、custom managed/native layout、P/Invoke、external process、updater、WPF / WinForms / WebBrowserが混在する。`MIG-02`〜`MIG-04`で閉じる |
-| Migration readiness | not met | `net10.0-windows` disposable restore / build rehearsalが未実施。`MIG-05`で分類する |
-| Structural cohesion / size | review required | 現行静的計測では4 scope中3 scopeがreview trigger超。数値自体はfailureではなく、残責務inventoryをUI-05 / OWN-01 / Gate reviewで判定する。trigger未満のplaylistにもownership違反があるため、行数だけでは通過させない |
-| Quality | in progress | committed UI-05 unitsは個別verification / review済み。UI-05 outcome-wide verification / smoke / reviewと後続Outcome、最終Gate evidenceは未完了 |
+| UI ownership | in progress | child binding rootsと非event `async void`除去は確認できる。T1 finite inventory、必要なgrouped closure、Full / smoke / outcome reviewが残る |
+| Library ownership | not met | pending estimated-install broad host等を`OWN-01`で閉じる |
+| Playlist ownership | not met | custom-folder output status persistence等を`OWN-01` / `MIG-01`で閉じる |
+| Configuration ownership | not met | global settings、application / dispatcher contextを`MIG-01`で境界化する |
+| Platform boundary | not met | path / process / updater、native / UI host、HintPath / output layoutを`MIG-02`〜`MIG-04`で閉じる |
+| Migration readiness | not met | disposable `net10.0-windows` restore / build rehearsalを`MIG-05`で実施する |
+| Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
+| Quality | in progress | UI-05 outcome-wide Full verification、Release smoke、fresh outcome reviewと後続Outcome / Gate evidenceが未完了 |
 
-## Active outcome blockers
+## Active external blocker
 
 なし。
