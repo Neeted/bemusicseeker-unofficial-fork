@@ -371,12 +371,21 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "Models",
             "BmsLibraryInternal",
             "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
+        string playlistWorkspaceSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.cs"));
         string settingDialogSource = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
         StringAssert.Contains(playlistSource, "SyncCustomFolderOutputSearchRootsAfterSettingsChange(");
         StringAssert.Contains(playlistSource, "customFolderOutputMaintenanceOwner.SyncCustomFolderOutputSearchRootsAfterSettingsChange(");
         StringAssert.Contains(maintenanceOwnerSource, "config.SetBMSSearchDirectories(nextDirectories);");
-        StringAssert.Contains(settingDialogSource, "libraryPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(");
+        StringAssert.Contains(settingDialogSource, "customFolderOutputPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(");
+        StringAssert.Contains(playlistWorkspaceSource, "ISettingsDialogCustomFolderOutputPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(");
+        StringAssert.Contains(playlistWorkspaceSource, "RepairRootCustomFolderOutputSearchRootsAfterStartup(");
+        Assert.IsFalse(settingDialogSource.Contains("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange"));
         Assert.IsFalse(settingDialogSource.Contains("lr2config.SetBMSSearchDirectories(nextDirectories)"));
         Assert.IsFalse(settingDialogSource.Contains("private static bool IsRootOutputBaseAdoptionRemovalTarget"));
     }
@@ -388,7 +397,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(source, "CustomFolderOutputSettingsSnapshot startupCustomFolderSettings = null;");
         StringAssert.Contains(source, "startupCustomFolderSettings = customFolderOutputSettingsProvider()");
         StringAssert.Contains(source, "RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);");
-        StringAssert.Contains(source, "SettingDialog.SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupCustomFolderSettings)");
+        StringAssert.Contains(source, "PlaylistWorkspace.RepairRootCustomFolderOutputSearchRootsAfterStartup(startupCustomFolderSettings)");
         Assert.IsFalse(
             source.Contains("private void RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad()"),
             "Startup root repair must not reacquire settings through an unscoped provider call.");

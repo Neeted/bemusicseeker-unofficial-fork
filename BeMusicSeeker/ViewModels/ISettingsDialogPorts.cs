@@ -40,6 +40,13 @@ internal interface ISettingsDialogWorkspacePort
 
 internal interface ISettingsDialogLibraryPort
 {
+    void SchedulePlaylistUrlCompletionRefresh(string reason);
+
+    void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath);
+}
+
+internal interface ISettingsDialogCustomFolderOutputPort
+{
     CustomFolderOutputSettingsSnapshot CustomFolderOutputSettings { get; }
 
     void ChangeCustomFolderBaseDirectoryWithSettings(
@@ -54,10 +61,6 @@ internal interface ISettingsDialogLibraryPort
         string outputDirBaseAfter,
         CustomFolderOutputSettingsSnapshot settings);
 
-    void SchedulePlaylistUrlCompletionRefresh(string reason);
-
-    void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath);
-
     bool SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
         string previousRootOutputBaseDirectory,
         CustomFolderOutputSettingsSnapshot settings);
@@ -66,7 +69,6 @@ internal interface ISettingsDialogLibraryPort
         string previousAdditionalOutputBaseDirectories,
         IReadOnlyDictionary<string, string> pendingRenames,
         CustomFolderOutputSettingsSnapshot settings);
-
 }
 
 internal interface ISettingsDialogPlayHistoryPort

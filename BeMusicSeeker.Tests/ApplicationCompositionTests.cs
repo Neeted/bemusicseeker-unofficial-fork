@@ -1342,6 +1342,7 @@ public sealed class ApplicationCompositionTests
             viewModel,
             viewModel.PlaylistWorkspace,
             viewModel,
+            viewModel.PlaylistWorkspace,
             viewModel.PlayHistory,
             viewModel.LibraryFolderTree,
             composition,

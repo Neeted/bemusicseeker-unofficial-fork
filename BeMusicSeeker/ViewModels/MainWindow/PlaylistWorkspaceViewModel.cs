@@ -19,7 +19,7 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>
 /// Owns playlist detail state and the complete playlist-summary build and presentation workflow.
 /// </summary>
-public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDialogWorkspacePort
+public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDialogWorkspacePort, ISettingsDialogCustomFolderOutputPort
 {
     private readonly Action<Action> dispatchPresentation;
 
@@ -314,6 +314,74 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     void ISettingsDialogWorkspacePort.UnsubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
         => PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
+
+    CustomFolderOutputSettingsSnapshot ISettingsDialogCustomFolderOutputPort.CustomFolderOutputSettings
+        => customFolderOutputSettingsProvider()
+            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+
+    void ISettingsDialogCustomFolderOutputPort.ChangeCustomFolderBaseDirectoryWithSettings(
+        string outputDirBaseBefore,
+        string outputDirBaseAfter,
+        string additionalOutputBaseDirsBefore,
+        string additionalOutputBaseDirsAfter,
+        CustomFolderOutputSettingsSnapshot settings)
+        => getPlaylistStore()?.ChangeCustomFolderBaseDirectoryWithSettings(
+            outputDirBaseBefore,
+            outputDirBaseAfter,
+            additionalOutputBaseDirsBefore,
+            additionalOutputBaseDirsAfter,
+            settings);
+
+    void ISettingsDialogCustomFolderOutputPort.ChangeCustomFolderBaseDirectoryRootWithSettings(
+        string outputDirBaseBefore,
+        string outputDirBaseAfter,
+        CustomFolderOutputSettingsSnapshot settings)
+        => getPlaylistStore()?.ChangeCustomFolderBaseDirectoryRootWithSettings(
+            outputDirBaseBefore,
+            outputDirBaseAfter,
+            settings);
+
+    bool ISettingsDialogCustomFolderOutputPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+        string previousRootOutputBaseDirectory,
+        CustomFolderOutputSettingsSnapshot settings)
+        => getPlaylistStore()?.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+            previousRootOutputBaseDirectory,
+            configOverride: getLr2Config(),
+            settings: settings) == true;
+
+    int ISettingsDialogCustomFolderOutputPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
+        string previousAdditionalOutputBaseDirectories,
+        IReadOnlyDictionary<string, string> pendingRenames,
+        CustomFolderOutputSettingsSnapshot settings)
+        => getPlaylistStore()?.ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
+            previousAdditionalOutputBaseDirectories,
+            pendingRenames,
+            settings) ?? 0;
+
+    internal bool RepairRootCustomFolderOutputSearchRootsAfterStartup(
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        if (settings == null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+        if (!settings.OperationModeLR2DB)
+        {
+            return false;
+        }
+
+        BMSPlaylist playlist = getPlaylistStore();
+        LR2Config config = getLr2Config();
+        if (playlist?.BMSTables == null || config == null)
+        {
+            return false;
+        }
+
+        return playlist.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+            settings.LR2CustomFolderOutputBaseDirRootType,
+            configOverride: config,
+            settings: settings);
+    }
 
     internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
 

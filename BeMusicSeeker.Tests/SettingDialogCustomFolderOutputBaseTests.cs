@@ -735,9 +735,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
 
-            bool changed = (bool)typeof(SettingsDialogViewModel)
-                .GetMethod("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(dialog, null)!;
+            bool changed = ((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace)
+                .SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+                    string.Empty,
+                    CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default));
 
             Assert.IsTrue(changed);
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), manualBmsRoot);
@@ -781,9 +782,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "MissingPlaylistOutput" }]);
 
-            bool changed = (bool)typeof(SettingsDialogViewModel)
-                .GetMethod("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(dialog, null)!;
+            bool changed = ((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace)
+                .SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+                    string.Empty,
+                    CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default));
 
             Assert.IsTrue(changed);
             Assert.IsTrue(Directory.Exists(playlistOutputRoot));
@@ -837,9 +839,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
 
-            bool changed = (bool)typeof(SettingsDialogViewModel)
-                .GetMethod("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(dialog, null)!;
+            bool changed = ((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace)
+                .SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+                    string.Empty,
+                    CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default));
 
             Assert.IsTrue(changed);
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), normalOutputBase);

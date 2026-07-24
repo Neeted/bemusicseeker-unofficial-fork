@@ -186,9 +186,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     private BMSPlaylist tables;
 
-    CustomFolderOutputSettingsSnapshot ISettingsDialogLibraryPort.CustomFolderOutputSettings
-        => customFolderOutputSettingsProvider();
-
     bool ISettingsDialogStatePort.IsFirstStartup => IsFirstStartup;
 
     void ISettingsDialogStatePort.MarkLibraryInitializationFailed()
@@ -3092,6 +3089,7 @@ public partial class MainWindowViewModel : ViewModel,
             statePort: this,
             workspacePort: PlaylistWorkspace,
             libraryPort: this,
+            customFolderOutputPort: PlaylistWorkspace,
             playHistoryPort: PlayHistory,
             searchRootRuntimePort: LibraryFolderTree,
             playerFactoryPort: applicationComposition,
@@ -3546,50 +3544,11 @@ public partial class MainWindowViewModel : ViewModel,
         return value.ToString().ToLowerInvariant();
     }
 
-    void ISettingsDialogLibraryPort.ChangeCustomFolderBaseDirectoryWithSettings(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter,
-        string additionalOutputBaseDirsBefore,
-        string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings)
-        => tables?.ChangeCustomFolderBaseDirectoryWithSettings(
-            outputDirBaseBefore,
-            outputDirBaseAfter,
-            additionalOutputBaseDirsBefore,
-            additionalOutputBaseDirsAfter,
-            settings);
-
-    void ISettingsDialogLibraryPort.ChangeCustomFolderBaseDirectoryRootWithSettings(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter,
-        CustomFolderOutputSettingsSnapshot settings)
-        => tables?.ChangeCustomFolderBaseDirectoryRootWithSettings(
-            outputDirBaseBefore,
-            outputDirBaseAfter,
-            settings);
-
     void ISettingsDialogLibraryPort.SchedulePlaylistUrlCompletionRefresh(string reason)
         => tables?.SchedulePlaylistUrlCompletionRefresh(reason);
 
     void ISettingsDialogLibraryPort.QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath)
         => tables?.BmtOutput.QueueBeatorajaBmtExportAll(reason, cleanupTablePath);
-
-    bool ISettingsDialogLibraryPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
-        string previousRootOutputBaseDirectory,
-        CustomFolderOutputSettingsSnapshot settings)
-        => tables?.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
-            previousRootOutputBaseDirectory,
-            configOverride: lr2config,
-            settings: settings) == true;
-
-    int ISettingsDialogLibraryPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
-        string previousAdditionalOutputBaseDirectories,
-        IReadOnlyDictionary<string, string> pendingRenames,
-        CustomFolderOutputSettingsSnapshot settings)
-        => tables?.ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
-            previousAdditionalOutputBaseDirectories,
-            pendingRenames,
-            settings) ?? 0;
 
     /// <summary>
     /// データベース側からプレイリスト情報 (BMSTable) を再読み込みし、コレクションを更新します。<br/>
@@ -3964,7 +3923,7 @@ public partial class MainWindowViewModel : ViewModel,
             return;
         }
 
-        if (SettingDialog.SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupCustomFolderSettings))
+        if (PlaylistWorkspace.RepairRootCustomFolderOutputSearchRootsAfterStartup(startupCustomFolderSettings))
         {
             LogInitStage("custom_folder_root_output_search_root_repair", "Initialize");
         }

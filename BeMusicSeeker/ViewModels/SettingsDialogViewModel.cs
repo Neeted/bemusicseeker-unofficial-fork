@@ -79,6 +79,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsDialogLibraryPort libraryPort;
 
+    private readonly ISettingsDialogCustomFolderOutputPort customFolderOutputPort;
+
     private readonly ISettingsDialogPlayHistoryPort playHistoryPort;
 
     private readonly ISettingsDialogSearchRootRuntimePort searchRootRuntimePort;
@@ -3728,6 +3730,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ISettingsDialogStatePort statePort,
         ISettingsDialogWorkspacePort workspacePort,
         ISettingsDialogLibraryPort libraryPort,
+        ISettingsDialogCustomFolderOutputPort customFolderOutputPort,
         ISettingsDialogPlayHistoryPort playHistoryPort,
         ISettingsDialogSearchRootRuntimePort searchRootRuntimePort,
         ISettingsDialogPlayerFactoryPort playerFactoryPort,
@@ -3750,6 +3753,8 @@ public partial class SettingsDialogViewModel : ViewModel
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
         this.workspacePort = workspacePort ?? throw new ArgumentNullException(nameof(workspacePort));
         this.libraryPort = libraryPort ?? throw new ArgumentNullException(nameof(libraryPort));
+        this.customFolderOutputPort = customFolderOutputPort
+            ?? throw new ArgumentNullException(nameof(customFolderOutputPort));
         this.playHistoryPort = playHistoryPort ?? throw new ArgumentNullException(nameof(playHistoryPort));
         this.searchRootRuntimePort = searchRootRuntimePort ?? throw new ArgumentNullException(nameof(searchRootRuntimePort));
         this.playerFactoryPort = playerFactoryPort ?? throw new ArgumentNullException(nameof(playerFactoryPort));
@@ -6126,7 +6131,7 @@ public partial class SettingsDialogViewModel : ViewModel
             CustomFolderOutputSettingsSnapshot customFolderOutputSettingsAfterSave = null;
             if (impact.HasFlag(SettingsPostSaveImpact.CustomFolderSearchRootSync))
             {
-                customFolderOutputSettingsAfterSave = libraryPort.CustomFolderOutputSettings
+                customFolderOutputSettingsAfterSave = customFolderOutputPort.CustomFolderOutputSettings
                     ?? throw new InvalidOperationException("Custom-folder output settings provider returned null after settings save.");
             }
             if (customFolderOutputSettingsAfterSave?.OperationModeLR2DB == true)
@@ -6149,14 +6154,14 @@ public partial class SettingsDialogViewModel : ViewModel
                                 normalOutputBaseRootSyncPlan = PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(customFolderOutputSettingsAfterSave);
                                 if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir) && tempLR2CustomFolderOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir)
                                 {
-                                    libraryPort.ChangeCustomFolderBaseDirectoryWithSettings(
+                                    customFolderOutputPort.ChangeCustomFolderBaseDirectoryWithSettings(
                                         tempLR2CustomFolderOutputDir,
                                         customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir,
                                         tempLR2CustomFolderAdditionalOutputBaseDirs,
                                         customFolderOutputSettingsAfterSave.LR2CustomFolderAdditionalOutputBaseDirs,
                                         customFolderOutputSettingsAfterSave);
                                 }
-                                libraryPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
+                                customFolderOutputPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
                                     tempLR2CustomFolderAdditionalOutputBaseDirs,
                                     pendingCustomFolderAdditionalOutputBaseRenames,
                                     customFolderOutputSettingsAfterSave);
@@ -6165,12 +6170,12 @@ public partial class SettingsDialogViewModel : ViewModel
                                     customFolderOutputSettingsAfterSave);
                                 if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType) && tempLR2CustomFolderAsRootOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType)
                                 {
-                                    libraryPort.ChangeCustomFolderBaseDirectoryRootWithSettings(
+                                    customFolderOutputPort.ChangeCustomFolderBaseDirectoryRootWithSettings(
                                         tempLR2CustomFolderAsRootOutputDir,
                                         customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType,
                                         customFolderOutputSettingsAfterSave);
                                 }
-                                rootOutputBaseRootSyncChanged = SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+                                rootOutputBaseRootSyncChanged = SyncCustomFolderOutputRootAfterSettingsChange(
                                     customFolderOutputSettingsAfterSave);
                             }).ConfigureAwait(false);
                         }
@@ -6276,7 +6281,7 @@ public partial class SettingsDialogViewModel : ViewModel
     private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderNormalOutputBaseSearchRootSync()
     {
         return PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
-            libraryPort.CustomFolderOutputSettings
+            customFolderOutputPort.CustomFolderOutputSettings
                 ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
     }
 
@@ -6310,7 +6315,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         return CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
             plan,
-            libraryPort.CustomFolderOutputSettings
+            customFolderOutputPort.CustomFolderOutputSettings
                 ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
     }
 
@@ -6362,14 +6367,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaiseValidationStateChanged();
     }
 
-    internal bool SyncRootCustomFolderOutputSearchRootsAfterSettingsChange()
-    {
-        return SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
-            libraryPort.CustomFolderOutputSettings
-                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
-    }
-
-    internal bool SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+    private bool SyncCustomFolderOutputRootAfterSettingsChange(
         CustomFolderOutputSettingsSnapshot settings)
     {
         if (settings == null)
@@ -6380,17 +6378,17 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return false;
         }
-        return libraryPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+        return customFolderOutputPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
             tempLR2CustomFolderAsRootOutputDir,
             settings);
     }
 
     private int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges()
     {
-        return libraryPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
+        return customFolderOutputPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
             tempLR2CustomFolderAdditionalOutputBaseDirs,
             pendingCustomFolderAdditionalOutputBaseRenames,
-            libraryPort.CustomFolderOutputSettings
+            customFolderOutputPort.CustomFolderOutputSettings
                 ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
     }
 
