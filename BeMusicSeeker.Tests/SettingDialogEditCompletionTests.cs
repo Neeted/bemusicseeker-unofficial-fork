@@ -975,13 +975,13 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel viewModel = CreateViewModel(
                 settingsSession,
                 firstStartup: true);
-            int initialSetupRequestCount = 0;
-            viewModel.InitialSetupLanguageDialogRequested += (_, _) => initialSetupRequestCount++;
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            viewModel.SettingDialog.AttachPresentationPort(presentation);
 
             bool initialized = await viewModel.InitializeAsync();
 
             Assert.IsFalse(initialized);
-            Assert.AreEqual(1, initialSetupRequestCount);
+            CollectionAssert.AreEqual(new[] { "initial-setup" }, presentation.Requests);
             Assert.IsFalse(viewModel.IsStartupUiInteractionBlocked);
             Assert.IsFalse(viewModel.IsInitializationCompleted);
             Assert.IsFalse(viewModel.HasActiveLibraryProfile);

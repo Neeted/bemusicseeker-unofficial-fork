@@ -180,6 +180,14 @@ public partial class SettingsDialogViewModel : ViewModel
         presentationPort?.OpenSettingsDialog();
     }
 
+    /// <summary>
+    /// 初回設定の言語選択 overlay を shell に要求します。
+    /// </summary>
+    internal void RequestInitialSetupLanguageDialog()
+    {
+        presentationPort?.OpenInitialSetupLanguageDialog();
+    }
+
     internal void AttachPresentationPort(ISettingDialogPresentationPort port)
     {
         presentationPort = port ?? throw new ArgumentNullException(nameof(port));

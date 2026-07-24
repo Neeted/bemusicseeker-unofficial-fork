@@ -52,8 +52,6 @@ public partial class MainWindowViewModel : ViewModel,
     ISettingsDialogLibraryPort,
     ISettingsDialogPlaybackPort
 {
-    internal event EventHandler InitialSetupLanguageDialogRequested;
-
     /// <summary>
     /// Gets status-bar progress presentation state owned by the composed progress hub.
     /// </summary>
@@ -3683,51 +3681,6 @@ public partial class MainWindowViewModel : ViewModel,
             pendingRenames,
             settings) ?? 0;
 
-    private void RaiseUiInteractionOnUiThread(EventHandler handler, string interactionName)
-    {
-        if (handler == null)
-        {
-            return;
-        }
-
-        void RaiseInteraction()
-        {
-            handler(this, EventArgs.Empty);
-        }
-
-        Dispatcher dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher == null || dispatcher.CheckAccess())
-        {
-            RaiseInteraction();
-            return;
-        }
-
-        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-        {
-            LogUiInteractionSkippedOnShutdown(interactionName);
-            return;
-        }
-
-        try
-        {
-            dispatcher.Invoke(DispatcherPriority.Normal, (Action)RaiseInteraction);
-        }
-        catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-        {
-            LogUiInteractionSkippedOnShutdown(interactionName);
-        }
-    }
-
-    private void RaiseInitialSetupLanguageDialogRequested()
-    {
-        RaiseUiInteractionOnUiThread(InitialSetupLanguageDialogRequested, nameof(InitialSetupLanguageDialogRequested));
-    }
-
-    private static void LogUiInteractionSkippedOnShutdown(string interactionName)
-    {
-        NLogWrapper.FileLogger?.Warn("ui_interaction skipped reason=dispatcher_shutdown name=" + (interactionName ?? string.Empty));
-    }
-
     /// <summary>
     /// データベース側からプレイリスト情報 (BMSTable) を再読み込みし、コレクションを更新します。<br/>
     /// バックグラウンドで初期化を行い、更新完了後に外部同期などを再スケジュールします。
@@ -4186,7 +4139,7 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 _semaphore.Release();
                 SetStartupUiInteractionBlocked(false);
-                RaiseInitialSetupLanguageDialogRequested();
+                SettingDialog?.RequestInitialSetupLanguageDialog();
                 return false;
             }
             else

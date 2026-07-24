@@ -314,7 +314,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         viewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
         viewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
         viewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
-        viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
         viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
@@ -330,7 +329,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         subscribedViewModel.PropertyChanged -= MainWindowViewModel_PropertyChanged;
         subscribedViewModel.SettingDialog.DetachPresentationPort(this);
-        subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallTreeExpansionRequested -= MainWindow_PlaylistUrlInstallTreeExpansionRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyValidationError -= MainWindow_PlaylistPropertyValidationError;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested -= MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
@@ -748,6 +746,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         });
     }
 
+    void ISettingDialogPresentationPort.OpenInitialSetupLanguageDialog()
+    {
+        RunOnUiThreadSynchronously(() => ShowOverlayDialog(initialSetupLanguageDialog));
+    }
+
     void ISettingDialogPresentationPort.CloseSettingsDialog()
     {
         RunOnUiThread(() => HideOverlayDialog(settingDialog));
@@ -788,9 +791,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void MainWindowViewModel_InitialSetupLanguageDialogRequested(object sender, EventArgs e)
+    private void RunOnUiThreadSynchronously(Action action)
     {
-        ShowOverlayDialog(initialSetupLanguageDialog);
+        if (action == null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+        if (Dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+        try
+        {
+            Dispatcher.Invoke(DispatcherPriority.Normal, action);
+        }
+        catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+        }
     }
 
     private void MainWindow_PlaylistUrlInstallTreeExpansionRequested()

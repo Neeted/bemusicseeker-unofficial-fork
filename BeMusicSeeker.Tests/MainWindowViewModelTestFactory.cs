@@ -38,6 +38,8 @@ internal sealed class RecordingSettingsDialogPresentationPort : ISettingDialogPr
 
     public void OpenSettingsDialog() => Record("open");
 
+    public void OpenInitialSetupLanguageDialog() => Record("initial-setup");
+
     public void CloseSettingsDialog() => Record("close");
 
     public void RefreshAppearanceSelection() => Record("refresh");

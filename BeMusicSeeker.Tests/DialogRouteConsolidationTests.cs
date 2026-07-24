@@ -371,7 +371,7 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(settingDialog)");
         StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(initialSetupLanguageDialog)");
         StringAssert.Contains(mainWindowCode, "viewModel.SettingDialog.AttachPresentationPort(this);");
-        StringAssert.Contains(mainWindowCode, "InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;");
+        StringAssert.Contains(mainWindowCode, "void ISettingDialogPresentationPort.OpenInitialSetupLanguageDialog()");
         StringAssert.Contains(mainWindowXaml, "SettingsCommand=\"{Binding DataContext.SettingDialog.OpenCommand, ElementName=window}\"");
         string playbackPanelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaybackPanelView.xaml"));
         StringAssert.Contains(playbackPanelCode, "Command=\"{Binding SettingsCommand, ElementName=playbackPanelView}\"");

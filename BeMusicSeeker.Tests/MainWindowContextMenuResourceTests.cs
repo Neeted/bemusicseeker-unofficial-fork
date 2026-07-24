@@ -2161,14 +2161,14 @@ public sealed class MainWindowContextMenuResourceTests
             "if (startupSettings.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings))");
 
         Assert.IsFalse(validationFailure.Contains("DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings,"));
-        StringAssert.Contains(validationFailure, "RaiseInitialSetupLanguageDialogRequested();");
+        StringAssert.Contains(validationFailure, "SettingDialog?.RequestInitialSetupLanguageDialog();");
         StringAssert.Contains(validationFailure, "ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_settings_check");
         StringAssert.Contains(validationFailure, "SettingDialog?.RequestOpen()");
-        Assert.IsTrue(validationFailure.IndexOf("RaiseInitialSetupLanguageDialogRequested", StringComparison.Ordinal) < validationFailure.IndexOf("Msg_init_settings_check", StringComparison.Ordinal));
+        Assert.IsTrue(validationFailure.IndexOf("RequestInitialSetupLanguageDialog", StringComparison.Ordinal) < validationFailure.IndexOf("Msg_init_settings_check", StringComparison.Ordinal));
 
         Assert.IsFalse(mainWindow.Contains("MessageKey=\"InitialSetupLanguageDialog\""));
-        StringAssert.Contains(mainWindowCode, "InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;");
-        StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(initialSetupLanguageDialog);");
+        StringAssert.Contains(mainWindowCode, "void ISettingDialogPresentationPort.OpenInitialSetupLanguageDialog()");
+        StringAssert.Contains(mainWindowCode, "RunOnUiThreadSynchronously(() => ShowOverlayDialog(initialSetupLanguageDialog))");
         StringAssert.Contains(mainWindowCode, "viewModel.SettingDialog.AttachPresentationPort(this);");
         StringAssert.Contains(mainWindow, "<v:InitialSetupLanguageDialog x:Name=\"initialSetupLanguageDialog\" DataContext=\"{Binding SettingDialog}\"");
         StringAssert.Contains(initialDialog, "ItemsSource=\"{Binding Languages, Mode=OneWay}\"");
@@ -2182,15 +2182,14 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void MainWindowViewModel_RaisesUiInteractionsThroughTypedEvents()
+    public void InitialSetupPresentation_UsesSettingsPresentationPort()
     {
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string helperBody = ExtractMethodBody(viewModelCode, "private void RaiseUiInteractionOnUiThread(EventHandler handler, string interactionName)");
-
-        StringAssert.Contains(helperBody, "handler(this, EventArgs.Empty);");
-        StringAssert.Contains(helperBody, "dispatcher.Invoke(DispatcherPriority.Normal");
+        Assert.IsFalse(viewModelCode.Contains("InitialSetupLanguageDialogRequested"));
+        Assert.IsFalse(viewModelCode.Contains("RaiseUiInteractionOnUiThread"));
+        StringAssert.Contains(mainWindowCode, "void ISettingDialogPresentationPort.OpenInitialSetupLanguageDialog()");
         Assert.AreEqual(0, CountOccurrences(viewModelCode, "base.Messenger.Raise("));
         Assert.IsFalse(viewModelCode.Contains("RaiseInteractionMessageOnUiThread"));
         Assert.IsFalse(viewModelCode.Contains("new InteractionMessage"));
