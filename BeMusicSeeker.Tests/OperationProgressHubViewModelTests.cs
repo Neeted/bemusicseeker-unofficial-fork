@@ -1,8 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -15,6 +22,7 @@ public sealed class OperationProgressHubViewModelTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
 
         hub.UpdatePendingEstimateQueueStatus(new PendingInstallEstimateQueueStatusSnapshot
         {
@@ -37,15 +45,8 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(4, hub.InstallPipelineValue);
         Assert.AreEqual(11, hub.InstallPipelineMaximum);
 
-        hub.UpdateDropInstallQueueStatus(new DropInstallQueueStatusSnapshot
-        {
-            IsActive = true,
-            TotalPathCount = 5,
-            CompletedPathCount = 1,
-            PendingBatchCount = 1,
-            CanCancel = true,
-            CurrentDisplayName = "drop"
-        });
+        fixture.StartPackageProgress();
+        Assert.IsTrue(SpinWait.SpinUntil(() => hub.InstallPipelineValue == 1, TimeSpan.FromSeconds(5)));
         Assert.AreEqual(1, hub.InstallPipelineValue);
         Assert.IsTrue(hub.InstallPipelineCanCancel);
 
@@ -62,7 +63,7 @@ public sealed class OperationProgressHubViewModelTests
 
         hub.UpdatePlaylistUrlDownloadStatus(PlaylistUrlDownloadStatusSnapshot.Inactive);
         Assert.AreEqual(1, hub.InstallPipelineValue);
-        Assert.AreEqual("drop", hub.InstallPipelineSubLabel);
+        StringAssert.Contains(hub.InstallPipelineSubLabel, "drop.zip");
     }
 
     [TestMethod]
@@ -71,15 +72,13 @@ public sealed class OperationProgressHubViewModelTests
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
-        hub.UpdateDropInstallQueueStatus(new DropInstallQueueStatusSnapshot
-        {
-            IsActive = true,
-            TotalPathCount = 0,
-            CompletedPathCount = 0
-        });
+        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub, packageTotalCount: 0);
+        fixture.StartPackageProgress();
+        Assert.IsTrue(SpinWait.SpinUntil(() => hub.IsInstallPipelineStatusActive, TimeSpan.FromSeconds(5)));
         Assert.AreEqual(1, hub.InstallPipelineMaximum);
 
-        hub.UpdateDropInstallQueueStatus(new DropInstallQueueStatusSnapshot());
+        fixture.ReleasePackageProgress();
+        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.Package.IsIdle, TimeSpan.FromSeconds(5)));
         Assert.IsFalse(hub.IsInstallPipelineStatusActive);
         Assert.AreEqual(0, hub.InstallPipelineValue);
         Assert.AreEqual(1, hub.InstallPipelineMaximum);
@@ -90,13 +89,10 @@ public sealed class OperationProgressHubViewModelTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
 
-        hub.UpdateFolderAutoRenameProgress(new FolderAutoRenameProgressSnapshot
-        {
-            TotalCount = 0,
-            ProcessedCount = 4,
-            CurrentPath = "source"
-        });
+        fixture.StartFolderRenameProgress();
+        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.FolderProgressStarted.IsSet, TimeSpan.FromSeconds(5)));
 
         Assert.IsTrue(hub.IsFolderAutoRenameProgressActive);
         Assert.AreEqual(1.0, hub.FolderAutoRenameProgressMaximum);
@@ -104,19 +100,46 @@ public sealed class OperationProgressHubViewModelTests
         StringAssert.Contains(hub.FolderAutoRenameProgressLabel, "1/1");
         Assert.AreEqual("source", hub.FolderAutoRenameProgressSubLabel);
 
-        hub.UpdateFolderAutoRenameProgress(new FolderAutoRenameProgressSnapshot
-        {
-            TotalCount = 1,
-            ProcessedCount = 1,
-            CurrentPath = "source",
-            IsCompleted = true
-        });
-
+        fixture.ReleaseFolderRenameProgress();
+        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.Folder.IsIdle, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(SpinWait.SpinUntil(() => !hub.IsFolderAutoRenameProgressActive, TimeSpan.FromSeconds(5)));
         Assert.IsFalse(hub.IsFolderAutoRenameProgressActive);
         Assert.AreEqual(0.0, hub.FolderAutoRenameProgressValue);
         Assert.AreEqual(1.0, hub.FolderAutoRenameProgressMaximum);
         Assert.AreEqual(string.Empty, hub.FolderAutoRenameProgressLabel);
         Assert.AreEqual(string.Empty, hub.FolderAutoRenameProgressSubLabel);
+    }
+
+    [TestMethod]
+    public void MaintenanceRescanPresentation_UsesAttachedWorkflowProgressAndTerminalReset()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
+
+        fixture.StartMaintenanceProgress();
+        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.MaintenanceProgressStarted.IsSet, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(hub.IsMaintenanceRescanProgressActive);
+        Assert.AreEqual(1.0, hub.MaintenanceRescanMaximum);
+        Assert.AreEqual(1.0, hub.MaintenanceRescanValue);
+
+        fixture.ReleaseMaintenanceProgress();
+        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.Maintenance.IsIdle, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(SpinWait.SpinUntil(() => !hub.IsMaintenanceRescanProgressActive, TimeSpan.FromSeconds(5)));
+        Assert.IsFalse(hub.IsMaintenanceRescanProgressActive);
+        Assert.IsFalse(hub.MaintenanceRescanCanCancel);
+    }
+
+    [TestMethod]
+    public void WorkflowProgressSources_CannotBeAttachedTwice()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
+
+        Assert.ThrowsException<InvalidOperationException>(() => hub.AttachWorkflowProgressSources(
+            fixture.Package,
+            fixture.Maintenance,
+            fixture.Folder));
     }
 
     [TestMethod]
@@ -283,5 +306,182 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncCleanupVisible);
+    }
+
+    private sealed class ProgressWorkflowFixture : IDisposable
+    {
+        private readonly string root;
+        private readonly ManualResetEventSlim packageRelease = new(false);
+        private readonly ManualResetEventSlim maintenanceRelease = new(false);
+        private readonly ManualResetEventSlim folderRelease = new(false);
+
+        private ProgressWorkflowFixture(
+            string root,
+            PackageInstallWorkflowOwner package,
+            MaintenanceRescanWorkflowOwner maintenance,
+            FolderAutoRenameWorkflowOwner folder,
+            ManualResetEventSlim packageProgressStarted,
+            ManualResetEventSlim maintenanceProgressStarted,
+            ManualResetEventSlim folderProgressStarted)
+        {
+            this.root = root;
+            Package = package;
+            Maintenance = maintenance;
+            Folder = folder;
+            PackageProgressStarted = packageProgressStarted;
+            MaintenanceProgressStarted = maintenanceProgressStarted;
+            FolderProgressStarted = folderProgressStarted;
+        }
+
+        internal PackageInstallWorkflowOwner Package { get; }
+
+        internal MaintenanceRescanWorkflowOwner Maintenance { get; }
+
+        internal FolderAutoRenameWorkflowOwner Folder { get; }
+
+        internal ManualResetEventSlim PackageProgressStarted { get; }
+
+        internal ManualResetEventSlim MaintenanceProgressStarted { get; }
+
+        internal ManualResetEventSlim FolderProgressStarted { get; }
+
+        internal static ProgressWorkflowFixture Create(OperationProgressHubViewModel hub, int packageTotalCount = 5)
+        {
+            string root = Path.Combine(Path.GetTempPath(), nameof(OperationProgressHubViewModelTests), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            string databasePath = Path.Combine(root, "song.db");
+            File.WriteAllBytes(databasePath, []);
+            using (var _ = new LR2SongDBExtended(databasePath))
+            {
+            }
+            BMSLibrary library = new(databasePath, null, null, string.Empty);
+            var packageProgressStarted = new ManualResetEventSlim(false);
+            var maintenanceProgressStarted = new ManualResetEventSlim(false);
+            var folderProgressStarted = new ManualResetEventSlim(false);
+            ProgressWorkflowFixture fixture = null!;
+            var package = new PackageInstallWorkflowOwner(
+                (current, paths, token, onPath, onArchive) =>
+                {
+                    onPath();
+                    onArchive(paths.FirstOrDefault() ?? string.Empty, 1, packageTotalCount);
+                    packageProgressStarted.Set();
+                    fixture.packageRelease.Wait(TimeSpan.FromSeconds(10));
+                    return [];
+                },
+                action => action());
+            var maintenance = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token) =>
+                {
+                    progress(new MaintenanceWorkflowProgress { TotalCount = 1, ProcessedCount = 1 });
+                    maintenanceProgressStarted.Set();
+                    fixture.maintenanceRelease.Wait(TimeSpan.FromSeconds(10));
+                    return new MaintenanceWorkflowResult();
+                },
+                action => Task.Run(action),
+                action => action(),
+                dialogs: new AcceptedDialogService());
+            var folder = new FolderAutoRenameWorkflowOwner(
+                (current, request, progress) => new FolderAutoRenameExecutionResult(),
+                (current, parentDirectory, progress) =>
+                {
+                    progress(1, 1, "source");
+                    folderProgressStarted.Set();
+                    fixture.folderRelease.Wait(TimeSpan.FromSeconds(10));
+                    return new FolderAutoRenameExecutionResult();
+                },
+                (current, parentDirectory) => true,
+                action => Task.Run(action),
+                action => action(),
+                dialogs: new AcceptedDialogService());
+            fixture = new ProgressWorkflowFixture(
+                root,
+                package,
+                maintenance,
+                folder,
+                packageProgressStarted,
+                maintenanceProgressStarted,
+                folderProgressStarted);
+            hub.AttachWorkflowProgressSources(package, maintenance, folder);
+            package.AttachLibrary(library);
+            maintenance.AttachLibrary(library);
+            folder.AttachLibrary(library);
+            return fixture;
+        }
+
+        internal void StartPackageProgress()
+        {
+            Package.Enqueue([Path.Combine(root, "drop.zip")]);
+            Assert.IsTrue(PackageProgressStarted.Wait(TimeSpan.FromSeconds(5)));
+        }
+
+        internal void ReleasePackageProgress()
+        {
+            packageRelease.Set();
+        }
+
+        internal void StartMaintenanceProgress()
+        {
+            Assert.IsTrue(Maintenance.RequestStartAsync().GetAwaiter().GetResult().Started);
+        }
+
+        internal void ReleaseMaintenanceProgress()
+        {
+            maintenanceRelease.Set();
+        }
+
+        internal void StartFolderRenameProgress()
+        {
+            Folder.RequestStartAllAsync(root).GetAwaiter().GetResult();
+        }
+
+        internal void ReleaseFolderRenameProgress()
+        {
+            folderRelease.Set();
+        }
+
+        public void Dispose()
+        {
+            packageRelease.Set();
+            maintenanceRelease.Set();
+            folderRelease.Set();
+            SpinWait.SpinUntil(() => Package.IsIdle, TimeSpan.FromSeconds(5));
+            SpinWait.SpinUntil(() => Maintenance.IsIdle, TimeSpan.FromSeconds(5));
+            SpinWait.SpinUntil(() => Folder.IsIdle, TimeSpan.FromSeconds(5));
+            packageRelease.Dispose();
+            maintenanceRelease.Dispose();
+            folderRelease.Dispose();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private sealed class AcceptedDialogService : IUiDialogService
+    {
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

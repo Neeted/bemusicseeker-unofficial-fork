@@ -85,12 +85,45 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private PlaylistUrlDownloadStatusSnapshot playlistUrlDownloadStatus = PlaylistUrlDownloadStatusSnapshot.Inactive;
 
+    private bool workflowProgressSourcesAttached;
+
     public StartupProgressWorkflowOwner StartupProgress { get; }
 
     internal OperationProgressHubViewModel(StartupProgressWorkflowOwner startupProgress)
     {
         StartupProgress = startupProgress ?? throw new ArgumentNullException(nameof(startupProgress));
         StartupProgress.PropertyChanged += StartupProgressPropertyChanged;
+    }
+
+    /// <summary>
+    /// Connects the concrete workflow producers to their presentation owner.
+    /// </summary>
+    internal void AttachWorkflowProgressSources(
+        PackageInstallWorkflowOwner packageInstallWorkflow,
+        MaintenanceRescanWorkflowOwner maintenanceRescanWorkflow,
+        FolderAutoRenameWorkflowOwner folderAutoRenameWorkflow)
+    {
+        if (packageInstallWorkflow == null)
+        {
+            throw new ArgumentNullException(nameof(packageInstallWorkflow));
+        }
+        if (maintenanceRescanWorkflow == null)
+        {
+            throw new ArgumentNullException(nameof(maintenanceRescanWorkflow));
+        }
+        if (folderAutoRenameWorkflow == null)
+        {
+            throw new ArgumentNullException(nameof(folderAutoRenameWorkflow));
+        }
+        if (workflowProgressSourcesAttached)
+        {
+            throw new InvalidOperationException("Workflow progress sources are already attached.");
+        }
+
+        workflowProgressSourcesAttached = true;
+        packageInstallWorkflow.StatusChanged += UpdateDropInstallQueueStatus;
+        maintenanceRescanWorkflow.ProgressChanged += UpdateMaintenanceRescanProgress;
+        folderAutoRenameWorkflow.ProgressChanged += UpdateFolderAutoRenameProgress;
     }
 
     /// <summary>
@@ -201,7 +234,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
         internal set => SetValue(ref maintenanceRescanCanCancel, value, nameof(MaintenanceRescanCanCancel));
     }
 
-    internal void UpdateMaintenanceRescanProgress(MaintenanceWorkflowProgress progress)
+    private void UpdateMaintenanceRescanProgress(MaintenanceWorkflowProgress progress)
     {
         if (progress == null)
         {
@@ -276,7 +309,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
         internal set => SetValue(ref folderAutoRenameProgressMaximum, Math.Max(1.0, value), nameof(FolderAutoRenameProgressMaximum));
     }
 
-    internal void UpdateFolderAutoRenameProgress(FolderAutoRenameProgressSnapshot progress)
+    private void UpdateFolderAutoRenameProgress(FolderAutoRenameProgressSnapshot progress)
     {
         if (progress == null)
         {
@@ -494,7 +527,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
         IsLr2SongDbSyncCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
     }
 
-    internal void UpdateDropInstallQueueStatus(DropInstallQueueStatusSnapshot snapshot)
+    private void UpdateDropInstallQueueStatus(DropInstallQueueStatusSnapshot snapshot)
     {
         dropInstallQueueStatus = snapshot ?? new DropInstallQueueStatusSnapshot();
         RefreshInstallPipelinePresentation();

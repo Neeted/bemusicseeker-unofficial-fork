@@ -654,6 +654,10 @@ internal sealed class MainWindowChildComposition
             folderAutoRenameLog,
             reportFolderAutoRenameNotificationFailure,
             reportFolderAutoRenameFailure);
+        ProgressHub.AttachWorkflowProgressSources(
+            PackageInstallWorkflow,
+            MaintenanceRescanWorkflow,
+            FolderAutoRenameWorkflow);
         UpdateDownloadService updateDownloadService = new();
         UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
         StartupUpdateWorkflow = new StartupUpdateWorkflowOwner(

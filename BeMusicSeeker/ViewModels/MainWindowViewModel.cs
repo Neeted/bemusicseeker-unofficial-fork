@@ -2872,14 +2872,11 @@ public partial class MainWindowViewModel : ViewModel,
         UpdateChartKeywordSearchContext();
         PlayHistory = childComposition.PlayHistory;
         PackageInstallWorkflow = childComposition.PackageInstallWorkflow;
-        PackageInstallWorkflow.StatusChanged += PackageInstallWorkflowStatusChanged;
         PackageInstallWorkflow.CompletionPublished += PackageInstallWorkflowCompletionPublished;
         PackageInstallWorkflow.FailurePublished += PackageInstallWorkflowFailurePublished;
         MaintenanceRescanWorkflow = childComposition.MaintenanceRescanWorkflow;
-        MaintenanceRescanWorkflow.ProgressChanged += MaintenanceRescanWorkflowProgressChanged;
         MaintenanceRescanWorkflow.CompletionPublished += MaintenanceRescanWorkflowCompletionPublished;
         FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;
-        FolderAutoRenameWorkflow.ProgressChanged += FolderAutoRenameWorkflowProgressChanged;
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
@@ -5222,11 +5219,6 @@ public partial class MainWindowViewModel : ViewModel,
         return prefix + "_source_reference_changed";
     }
 
-    private void MaintenanceRescanWorkflowProgressChanged(MaintenanceWorkflowProgress progress)
-    {
-        ProgressHub.UpdateMaintenanceRescanProgress(progress);
-    }
-
     private void MaintenanceRescanWorkflowCompletionPublished(MaintenanceRescanCompletionReceipt receipt)
     {
         RefreshResourceHealthViewsAfterMaintenanceChanged(
@@ -5251,11 +5243,6 @@ public partial class MainWindowViewModel : ViewModel,
     private static void ReportMaintenanceRescanWorkflowFailure(Exception exception)
     {
         NLogWrapper.FileLogger?.Error(exception, "maintenance_rescan failed scope=all_owned");
-    }
-
-    private void FolderAutoRenameWorkflowProgressChanged(FolderAutoRenameProgressSnapshot progress)
-    {
-        ProgressHub.UpdateFolderAutoRenameProgress(progress);
     }
 
     private void FolderAutoRenameWorkflowCompletionPublished(FolderAutoRenameCompletionReceipt receipt)
@@ -5413,11 +5400,6 @@ public partial class MainWindowViewModel : ViewModel,
     private void DispatchPackageInstallUi(Action action)
     {
         InvokeMainChartListPresentationAction(action);
-    }
-
-    private void PackageInstallWorkflowStatusChanged(DropInstallQueueStatusSnapshot snapshot)
-    {
-        ProgressHub.UpdateDropInstallQueueStatus(snapshot);
     }
 
     private void PackageInstallWorkflowCompletionPublished(PackageInstallCompletionReceipt receipt)

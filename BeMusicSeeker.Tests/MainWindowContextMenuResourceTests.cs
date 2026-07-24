@@ -2861,6 +2861,10 @@ public sealed class MainWindowContextMenuResourceTests
             "private FolderAutoRenameExecutionResult ExecuteFolderAutoRenameAllMutation(");
         string autoRenameAllModel = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "Models", "BMSLibrary.LibraryFileOperationOwner.cs");
+        string applicationCompositionCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs");
+        string progressHubCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "OperationProgressHubViewModel.cs");
         string cellEditEnded = ExtractBetween(
             mainWindowCode,
             "private void customTableView_CellEditEnded",
@@ -2907,8 +2911,15 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(autoRenameAll, "library.AutoRenameAllChartFolders(parentDirectory, progressReporter)");
         StringAssert.Contains(autoRenameAll, "stopPlayback: () => PlaybackPanel.StopPlayback(closeProcess: true)");
         StringAssert.Contains(viewModelCode, "FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;");
-        StringAssert.Contains(viewModelCode, "FolderAutoRenameWorkflow.ProgressChanged += FolderAutoRenameWorkflowProgressChanged;");
         StringAssert.Contains(viewModelCode, "FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;");
+        StringAssert.Contains(applicationCompositionCode, "ProgressHub.AttachWorkflowProgressSources(");
+        StringAssert.Contains(progressHubCode, "folderAutoRenameWorkflow.ProgressChanged += UpdateFolderAutoRenameProgress;");
+        Assert.IsFalse(viewModelCode.Contains("PackageInstallWorkflow.StatusChanged += PackageInstallWorkflowStatusChanged;"));
+        Assert.IsFalse(viewModelCode.Contains("MaintenanceRescanWorkflow.ProgressChanged += MaintenanceRescanWorkflowProgressChanged;"));
+        Assert.IsFalse(viewModelCode.Contains("FolderAutoRenameWorkflow.ProgressChanged += FolderAutoRenameWorkflowProgressChanged;"));
+        Assert.IsFalse(viewModelCode.Contains("PackageInstallWorkflowStatusChanged("));
+        Assert.IsFalse(viewModelCode.Contains("MaintenanceRescanWorkflowProgressChanged("));
+        Assert.IsFalse(viewModelCode.Contains("FolderAutoRenameWorkflowProgressChanged("));
         Assert.IsFalse(viewModelCode.Contains("public void AutoRenameAllChartFolders"));
         Assert.IsFalse(viewModelCode.Contains("internal void AutoRenameChartFolders"));
         Assert.IsFalse(viewModelCode.Contains("BeginFolderAutoRenameProgress"));
