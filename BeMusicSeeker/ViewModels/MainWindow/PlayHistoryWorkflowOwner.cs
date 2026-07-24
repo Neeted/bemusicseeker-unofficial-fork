@@ -24,8 +24,11 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
     private Func<bool> isViewRefreshShutdownRequested;
     private Action<PlayHistoryViewRequest> refreshView;
     private bool isViewActive;
-    internal PlayHistoryWorkflowOwner()
+    private readonly Action<string> mainViewLog;
+
+    internal PlayHistoryWorkflowOwner(Action<string> mainViewLog = null)
     {
+        this.mainViewLog = mainViewLog ?? (_ => { });
         PresentationState.CurrentSortSnapshot = new SortSnapshot(null, null, revision: 0L);
     }
 
@@ -251,9 +254,11 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
 
     internal PlayHistoryViewRequest ActiveRequest { get; private set; }
 
-    internal void InvalidateReadCache()
+    internal void InvalidateReadCache(string reason)
     {
+        Deactivate(clearViewActivity: false);
         readCache.Invalidate();
+        mainViewLog("play_history_read_cache_invalidated reason=" + (reason ?? string.Empty));
     }
 
     private void ToggleSummaryFilterCard(PlayHistorySummaryCard card)

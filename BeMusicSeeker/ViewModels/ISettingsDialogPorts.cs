@@ -16,8 +16,6 @@ internal interface ISettingsDialogStatePort
 
     void MarkLibraryInitializationFailed();
 
-    void InvalidatePlayHistoryReadCache(string reason);
-
     void SubscribeStateChanges(PropertyChangedEventHandler handler);
 
     void UnsubscribeStateChanges(PropertyChangedEventHandler handler);
@@ -70,6 +68,8 @@ internal interface ISettingsDialogCustomFolderOutputPort
 
 internal interface ISettingsDialogPlayHistoryPort
 {
+    void InvalidateReadCache(string reason);
+
     void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true);
 
     void RefreshDisplayTargetSetsFromSettings(

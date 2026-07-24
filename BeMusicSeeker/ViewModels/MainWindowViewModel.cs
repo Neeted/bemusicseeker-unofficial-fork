@@ -190,9 +190,6 @@ public partial class MainWindowViewModel : ViewModel,
     void ISettingsDialogStatePort.MarkLibraryInitializationFailed()
         => MarkLibraryInitializationFailed();
 
-    void ISettingsDialogStatePort.InvalidatePlayHistoryReadCache(string reason)
-        => InvalidatePlayHistoryReadCache(reason);
-
     void ISettingsDialogStatePort.SubscribeStateChanges(PropertyChangedEventHandler handler)
         => PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
 
@@ -3095,8 +3092,7 @@ public partial class MainWindowViewModel : ViewModel,
             lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
             initializeOwner: () => applicationComposition.InitializeOwner(this),
             reloadScoresOnly: () => applicationComposition.ReloadScoresOnly(this),
-            reloadFileDiff: () => applicationComposition.ReloadFileDiff(this),
-            invalidatePlayHistoryReadCache: InvalidatePlayHistoryReadCache);
+            reloadFileDiff: () => applicationComposition.ReloadFileDiff(this));
     }
 
     private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs request)
@@ -3606,7 +3602,7 @@ public partial class MainWindowViewModel : ViewModel,
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
-            InvalidatePlayHistoryReadCache("score_reload");
+            playHistoryWorkflowOwner.InvalidateReadCache("score_reload");
             LogInitStage("score_reload_task_start", "ReloadScoresOnly");
             await Task.Run(delegate
             {
@@ -3637,13 +3633,6 @@ public partial class MainWindowViewModel : ViewModel,
             _semaphore.Release();
             startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
         }
-    }
-
-    internal void InvalidatePlayHistoryReadCache(string reason)
-    {
-        playHistoryWorkflowOwner.Deactivate(clearViewActivity: false);
-        playHistoryWorkflowOwner.InvalidateReadCache();
-        LogPlayHistoryEvent("play_history_read_cache_invalidated", "reason=" + (reason ?? string.Empty));
     }
 
     internal async Task ReloadFileDiffAsync()
@@ -3705,7 +3694,7 @@ public partial class MainWindowViewModel : ViewModel,
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
         try
         {
-            InvalidatePlayHistoryReadCache("full_reinitialize");
+            playHistoryWorkflowOwner.InvalidateReadCache("full_reinitialize");
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
             LogInitStage("files_initialize_task_start", "FullReinitialize");
             await Task.Run(delegate
@@ -4035,7 +4024,7 @@ public partial class MainWindowViewModel : ViewModel,
         long operationToken;
         try
         {
-            InvalidatePlayHistoryReadCache("initialize");
+            playHistoryWorkflowOwner.InvalidateReadCache("initialize");
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings);
             await packageInstallLibraryGate.WaitAsync();
             try

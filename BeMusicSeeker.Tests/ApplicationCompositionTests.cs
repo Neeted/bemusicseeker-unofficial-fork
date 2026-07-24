@@ -1349,8 +1349,7 @@ public sealed class ApplicationCompositionTests
             viewModel.Lr2SongDbSyncWorkflow,
             initializeOwner: () => Task.FromResult(true),
             reloadScoresOnly: () => Task.CompletedTask,
-            reloadFileDiff: () => Task.CompletedTask,
-            invalidatePlayHistoryReadCache: viewModel.InvalidatePlayHistoryReadCache);
+            reloadFileDiff: () => Task.CompletedTask);
         Assert.IsFalse(redisplayed.OperationModeLR2DB);
         Assert.AreEqual(3, session.ReloadCount);
 

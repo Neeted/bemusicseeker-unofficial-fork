@@ -563,7 +563,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("PlayHistorySortParameters"));
         Assert.IsFalse(rootViewModelCode.Contains("ToCompatibilitySortParameters"));
         Assert.IsFalse(rootViewModelCode.Contains("CloneSortParameters"));
-        StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.Deactivate(clearViewActivity: false);");
+        StringAssert.Contains(playHistoryWorkflowCode, "Deactivate(clearViewActivity: false);");
         StringAssert.Contains(viewExecutionCode, "ApplySortedRows(");
         Assert.IsFalse(viewModelCode.Contains("playHistoryWorkflowOwner.ApplySortedRows("));
         Assert.IsFalse(viewModelCode.Contains("playHistoryWorkflowOwner.ApplyTerminal("));

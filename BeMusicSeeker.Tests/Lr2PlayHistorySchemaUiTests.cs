@@ -94,8 +94,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             initializeOwner: () => Task.FromResult(true),
             reloadScoresOnly: () => Task.CompletedTask,
             reloadFileDiff: () => Task.CompletedTask,
-            schemaDialogs: dialogs,
-            invalidatePlayHistoryReadCache: _ => { });
+            schemaDialogs: dialogs);
         owner.SetStartupUiInteractionBlocked(true);
         try
         {
@@ -128,12 +127,12 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 SelectedUninstallMode = Lr2PlayHistorySchemaUninstallMode.TriggersOnly
             };
             int reloadCount = 0;
-            string invalidationReason = string.Empty;
+            var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
             owner,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
-            owner.PlayHistory,
+            playHistory,
             owner.LibraryFolderTree,
             new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
             owner.PlaybackPanel,
@@ -148,8 +147,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     return Task.CompletedTask;
                 },
                 reloadFileDiff: () => Task.CompletedTask,
-                schemaDialogs: dialogs,
-                invalidatePlayHistoryReadCache: reason => invalidationReason = reason);
+                schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
@@ -158,7 +156,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(1, dialogs.WindowCount);
             Assert.AreEqual(1, dialogs.MessageCount);
             Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.LastMessage);
-            Assert.AreEqual("lr2_play_history_schema_uninstall", invalidationReason);
+            Assert.AreEqual("lr2_play_history_schema_uninstall", playHistory.LastInvalidationReason);
+            Assert.AreEqual(1, playHistory.InvalidationCount);
             Assert.AreEqual(1, reloadCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, settingDialog.Lr2PlayHistorySchemaCheckResult.Status);
             using var verify = new SQLiteConnection(scoreDbPath);
@@ -194,12 +193,12 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 SelectedUninstallMode = Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers
             };
             int reloadCount = 0;
-            string invalidationReason = string.Empty;
+            var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
             owner,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
-            owner.PlayHistory,
+            playHistory,
             owner.LibraryFolderTree,
             new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
             owner.PlaybackPanel,
@@ -214,8 +213,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     return Task.CompletedTask;
                 },
                 reloadFileDiff: () => Task.CompletedTask,
-                schemaDialogs: dialogs,
-                invalidatePlayHistoryReadCache: reason => invalidationReason = reason);
+                schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
@@ -224,7 +222,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(1, dialogs.WindowCount);
             Assert.AreEqual(1, dialogs.MessageCount);
             Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.LastMessage);
-            Assert.AreEqual("lr2_play_history_schema_uninstall", invalidationReason);
+            Assert.AreEqual("lr2_play_history_schema_uninstall", playHistory.LastInvalidationReason);
+            Assert.AreEqual(1, playHistory.InvalidationCount);
             Assert.AreEqual(0, reloadCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, settingDialog.Lr2PlayHistorySchemaCheckResult.Status);
             using var verify = new SQLiteConnection(scoreDbPath);
@@ -254,12 +253,12 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var owner = MainWindowViewModelTestFactory.Create();
             var dialogs = new RecordingUiDialogService { AcceptUninstall = false };
             int reloadCount = 0;
-            int invalidationCount = 0;
+            var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
             owner,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
-            owner.PlayHistory,
+            playHistory,
             owner.LibraryFolderTree,
             new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
             owner.PlaybackPanel,
@@ -274,8 +273,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     return Task.CompletedTask;
                 },
                 reloadFileDiff: () => Task.CompletedTask,
-                schemaDialogs: dialogs,
-                invalidatePlayHistoryReadCache: _ => invalidationCount++);
+                schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
@@ -284,7 +282,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(1, dialogs.WindowCount);
             Assert.AreEqual(0, dialogs.MessageCount);
             Assert.AreEqual(0, reloadCount);
-            Assert.AreEqual(0, invalidationCount);
+            Assert.AreEqual(0, playHistory.InvalidationCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, settingDialog.Lr2PlayHistorySchemaCheckResult.Status);
             using var verify = new SQLiteConnection(scoreDbPath);
             Assert.AreEqual(1, verify.ExecuteScalar<int>(
@@ -366,7 +364,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         StringAssert.Contains(viewModel, "Msg_confirm_lr2_play_history_schema_install_or_repair");
         StringAssert.Contains(viewModel, "await RefreshLr2PlayHistorySchemaStatusAsync(force: true);");
         StringAssert.Contains(viewModel, "InstallOrRepairLr2PlayHistorySchemaCore(scoreDbPath, isLr2LinkedProfile)");
-        StringAssert.Contains(viewModel, "invalidatePlayHistoryReadCache(\"lr2_play_history_schema_install_or_repair\")");
+        StringAssert.Contains(viewModel, "playHistoryPort.InvalidateReadCache(\"lr2_play_history_schema_install_or_repair\")");
         StringAssert.Contains(viewModel, "await ReloadScoresOnlyAsync();");
         string installOwnerCommand = ExtractBetween(
             viewModel,
@@ -403,13 +401,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
             "private async Task RefreshLr2PlayHistorySchemaStatusAsync");
         StringAssert.Contains(uninstallOwnerCommand, "ShowWindowAsync");
         StringAssert.Contains(uninstallOwnerCommand, "UninstallLr2PlayHistorySchemaCore(scoreDbPath, isLr2LinkedProfile, uninstallMode)");
-        StringAssert.Contains(uninstallOwnerCommand, "invalidatePlayHistoryReadCache(\"lr2_play_history_schema_uninstall\")");
+        StringAssert.Contains(uninstallOwnerCommand, "playHistoryPort.InvalidateReadCache(\"lr2_play_history_schema_uninstall\")");
         Assert.IsTrue(
             uninstallOwnerCommand.IndexOf("ApplyLr2PlayHistorySchemaCheckResult(result);", StringComparison.Ordinal)
-            < uninstallOwnerCommand.IndexOf("invalidatePlayHistoryReadCache(\"lr2_play_history_schema_uninstall\")", StringComparison.Ordinal));
+            < uninstallOwnerCommand.IndexOf("playHistoryPort.InvalidateReadCache(\"lr2_play_history_schema_uninstall\")", StringComparison.Ordinal));
         Assert.IsTrue(
-            uninstallOwnerCommand.IndexOf("invalidatePlayHistoryReadCache(\"lr2_play_history_schema_uninstall\")", StringComparison.Ordinal)
+            uninstallOwnerCommand.IndexOf("playHistoryPort.InvalidateReadCache(\"lr2_play_history_schema_uninstall\")", StringComparison.Ordinal)
             < uninstallOwnerCommand.IndexOf("await ReloadScoresOnlyAsync();", StringComparison.Ordinal));
+
+        Assert.IsFalse(viewModel.Contains("invalidatePlayHistoryReadCache"));
+        Assert.IsFalse(rootViewModel.Contains("InvalidatePlayHistoryReadCache"));
 
         StringAssert.Contains(rootViewModel, "Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(startupSettings.LR2RootPath, lr2config.GetPlayerId)");
         StringAssert.Contains(viewModel, "Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(ApplicationSettings.LR2RootPath, () => lr2config?.GetPlayerId())");
@@ -549,6 +550,29 @@ public sealed class Lr2PlayHistorySchemaUiTests
         public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new UiProgressResult(UiDialogStatus.CancelledByUser));
+        }
+    }
+
+    private sealed class RecordingPlayHistoryPort : ISettingsDialogPlayHistoryPort
+    {
+        internal int InvalidationCount { get; private set; }
+
+        internal string? LastInvalidationReason { get; private set; }
+
+        public void InvalidateReadCache(string reason)
+        {
+            InvalidationCount++;
+            LastInvalidationReason = reason;
+        }
+
+        public void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
+        {
+        }
+
+        public void RefreshDisplayTargetSetsFromSettings(
+            string serializedDisplayTargetSets,
+            bool queueRefreshWhenSelectionChanges)
+        {
         }
     }
 

@@ -24,6 +24,9 @@ public sealed partial class PlayHistoryWorkflowOwner
 
     private Action<Action> scheduleDisplayTargetCatalogRefresh;
 
+    void ISettingsDialogPlayHistoryPort.InvalidateReadCache(string reason)
+        => InvalidateReadCache(reason);
+
     internal void ConfigureDisplayTargetCatalogRefresh(
         Func<bool> isShutdownRequested,
         Func<IReadOnlyList<BMSTable>> snapshotTables,

@@ -297,8 +297,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
         Func<Task<bool>> initializeOwner,
         Func<Task> reloadScoresOnly,
-        Func<Task> reloadFileDiff,
-        Action<string> invalidatePlayHistoryReadCache)
+        Func<Task> reloadFileDiff)
     {
         IUiDialogService schemaDialogs = new UiDialogCoordinator();
         return new SettingsDialogViewModel(
@@ -317,7 +316,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             reloadScoresOnly,
             reloadFileDiff,
             playHistoryDisplaySettingsStore,
-            invalidatePlayHistoryReadCache,
             reportSettingsApplyFailure,
             schemaDialogs: schemaDialogs,
             applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(
@@ -657,7 +655,7 @@ internal sealed class MainWindowChildComposition
             libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();
         MaintenanceTree = new MaintenanceTreeViewModel();
-        PlayHistory = new PlayHistoryWorkflowOwner();
+        PlayHistory = new PlayHistoryWorkflowOwner(mainViewLog);
         PendingPackageWorkflow = new PendingPackageWorkflowOwner(
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
             chartFileOperations,

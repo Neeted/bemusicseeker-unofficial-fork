@@ -3098,6 +3098,28 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void WorkflowOwner_InvalidateReadCache_CancelsRequestPreservesActivityAndLogsReason()
+    {
+        var logMessages = new List<string>();
+        var owner = new PlayHistoryWorkflowOwner(logMessages.Add);
+        PlayHistoryViewRequest request = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            string.Empty,
+            displayTargetRevision: 0);
+        System.Threading.CancellationToken token = owner.GetCancellationToken(request.RequestId);
+
+        owner.InvalidateReadCache("score_reload");
+
+        Assert.IsTrue(token.IsCancellationRequested);
+        Assert.IsNull(owner.SnapshotActiveRequest());
+        Assert.IsTrue(owner.IsViewActive);
+        CollectionAssert.AreEqual(
+            new[] { "play_history_read_cache_invalidated reason=score_reload" },
+            logMessages);
+    }
+
+    [TestMethod]
     public void WorkflowOwner_PublishesViewActiveFromRequestLifecycle()
     {
         var owner = new PlayHistoryWorkflowOwner();

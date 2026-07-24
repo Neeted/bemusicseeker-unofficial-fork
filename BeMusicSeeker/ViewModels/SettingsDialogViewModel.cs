@@ -115,8 +115,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly IUiDialogService schemaDialogs;
 
-    private readonly Action<string> invalidatePlayHistoryReadCache;
-
     private readonly ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow;
 
     private readonly AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow;
@@ -1156,7 +1154,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplyLr2PlayHistorySchemaCheckResult(result);
             if (result.Status == Lr2PlayHistorySchemaStatus.Installed)
             {
-                invalidatePlayHistoryReadCache("lr2_play_history_schema_install_or_repair");
+                playHistoryPort.InvalidateReadCache("lr2_play_history_schema_install_or_repair");
                 await ShowLr2PlayHistorySchemaMessageAsync(
                     BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_install_or_repair,
                     BeMusicSeeker.Properties.Resources.Success,
@@ -1256,7 +1254,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplyLr2PlayHistorySchemaCheckResult(result);
             if (IsExpectedLr2PlayHistorySchemaUninstallResult(uninstallMode, result.Status))
             {
-                invalidatePlayHistoryReadCache("lr2_play_history_schema_uninstall");
+                playHistoryPort.InvalidateReadCache("lr2_play_history_schema_uninstall");
                 await ShowLr2PlayHistorySchemaMessageAsync(
                     BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_uninstall,
                     BeMusicSeeker.Properties.Resources.Success,
@@ -3740,7 +3738,6 @@ public partial class SettingsDialogViewModel : ViewModel
         Func<Task> reloadScoresOnly,
         Func<Task> reloadFileDiff,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
-        Action<string> invalidatePlayHistoryReadCache = null,
         Action<Exception> reportApplyFailure = null,
         IUiDialogService schemaDialogs = null,
         ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow = null,
@@ -3764,8 +3761,6 @@ public partial class SettingsDialogViewModel : ViewModel
         this.reloadFileDiff = reloadFileDiff ?? throw new ArgumentNullException(nameof(reloadFileDiff));
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
-        this.invalidatePlayHistoryReadCache = invalidatePlayHistoryReadCache
-            ?? this.statePort.InvalidatePlayHistoryReadCache;
         this.reportApplyFailure = reportApplyFailure
             ?? (ex => ShowUiMessage(
                 BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
