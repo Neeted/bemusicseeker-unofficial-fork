@@ -691,7 +691,6 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string viewExecutionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.ViewExecution.cs");
-        string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "private GridKeywordSearchContext GetCurrentChartKeywordSearchContext");
         string displayTargetRefreshOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargetRefresh.cs");
         string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void BeginChartPackageMutation");
         string playlistStoreNotifications = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs");
@@ -721,8 +720,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("private void QueuePlayHistoryDisplayTargetRefresh"));
         StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.QueueKeywordFilterRefresh(");
         StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.QueueDisplayTargetRefresh(");
-        StringAssert.Contains(refreshTargets, "PlayHistory.ReplaceDisplayTargetCatalog(");
-        StringAssert.Contains(refreshTargets, "PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot()");
+        Assert.IsFalse(viewModelCode.Contains("private void RefreshPlayHistoryDisplayTargets"));
+        StringAssert.Contains(displayTargetRefreshOwner, "internal void RefreshDisplayTargetCatalog(");
         StringAssert.Contains(displayTargetOwner, "DisplayTargetRefreshRequested");
         StringAssert.Contains(displayTargetOwner, "AdvanceDisplayTargetRevision(nextIdentity);");
         StringAssert.Contains(displayTargetOwner, "persistDisplayTargetIdentity(nextIdentity);");
@@ -739,7 +738,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(displayTargetRefreshOwner, "ScheduleDisplayTargetCatalogRefresh(Refresh);");
         StringAssert.Contains(viewExecutionCode, "QueueDisplayTargetRefresh(");
         StringAssert.Contains(viewExecutionCode, "QueueKeywordFilterRefresh(");
-        StringAssert.Contains(flushPendingUiRefresh, "RefreshPlayHistoryDisplayTargets();");
+        StringAssert.Contains(flushPendingUiRefresh, "PlayHistory.RefreshDisplayTargetCatalog();");
         StringAssert.Contains(flushPendingUiRefresh, "PlaylistWorkspace.RefreshPlaylistTreePresentation();");
         StringAssert.Contains(flushPendingUiRefresh, "UpdateChartKeywordSearchContext();");
         StringAssert.Contains(viewModelCode, "PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;");

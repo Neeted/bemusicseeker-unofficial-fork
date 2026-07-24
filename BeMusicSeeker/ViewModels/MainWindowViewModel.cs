@@ -1783,7 +1783,7 @@ public partial class MainWindowViewModel : ViewModel,
         if ((mask & UiRefreshChannel.PlaylistTree) != 0)
         {
             var stopwatch2 = Stopwatch.StartNew();
-            RefreshPlayHistoryDisplayTargets();
+            PlayHistory.RefreshDisplayTargetCatalog();
             PlaylistWorkspace.RefreshPlaylistTreePresentation();
             UpdateChartKeywordSearchContext();
             stopwatch2.Stop();
@@ -2799,16 +2799,6 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true)
-    {
-        PlayHistory.ReplaceDisplayTargetCatalog(
-            PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot(),
-            queueRefreshWhenSelectionChanges);
-    }
-
-    void ISettingsDialogLibraryPort.RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges)
-        => RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges);
-
     private void SchedulePlayHistoryDisplayTargetCatalogRefresh(Action refresh)
     {
         Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
@@ -3114,11 +3104,14 @@ public partial class MainWindowViewModel : ViewModel,
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         PlayHistory.RestoreDisplayTargetIdentity(playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);
-        RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
+        PlayHistory.RefreshDisplayTargetSetsFromSettings(
+            playHistoryDisplaySettingsStore.DisplayTargetSetsJson,
+            queueRefreshWhenSelectionChanges: false);
         SettingDialog = applicationComposition.CreateSettingDialogViewModel(
             statePort: this,
             workspacePort: PlaylistWorkspace,
             libraryPort: this,
+            playHistoryPort: PlayHistory,
             searchRootRuntimePort: LibraryFolderTree,
             playbackPort: this,
             lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
@@ -3570,17 +3563,6 @@ public partial class MainWindowViewModel : ViewModel,
     {
         return value.ToString().ToLowerInvariant();
     }
-
-    private void RefreshPlayHistoryDisplayTargetSetsFromSettings(bool queueRefreshWhenSelectionChanges)
-    {
-        PlayHistory.ReplaceDisplayTargetSetsFromSettings(
-            playHistoryDisplaySettingsStore.DisplayTargetSetsJson,
-            PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot(),
-            queueRefreshWhenSelectionChanges);
-    }
-
-    void ISettingsDialogLibraryPort.RefreshPlayHistoryDisplayTargetSetsFromSettings(bool queueRefreshWhenSelectionChanges)
-        => RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges);
 
     void ISettingsDialogLibraryPort.ChangeCustomFolderBaseDirectoryWithSettings(
         string outputDirBaseBefore,

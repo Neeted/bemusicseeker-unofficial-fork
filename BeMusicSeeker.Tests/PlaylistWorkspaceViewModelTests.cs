@@ -1150,10 +1150,15 @@ public sealed class PlaylistWorkspaceViewModelTests
             "ViewModels",
             "MainWindow",
             "PlaylistWorkspaceViewModel.TreeSelection.cs");
+        string displayTargetRefreshSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlayHistoryWorkflowOwner.DisplayTargetRefresh.cs");
 
         Assert.AreEqual(-1, rootSource.IndexOf("SnapshotPlayHistoryDisplayTargetTables", StringComparison.Ordinal));
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot()");
         StringAssert.Contains(rootSource, "PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot,");
+        StringAssert.Contains(displayTargetRefreshSource, "snapshotDisplayTargetCatalogTables()");
         StringAssert.Contains(workspaceTreeSource, "internal List<BMSTable> CapturePlaylistTreeTablesSnapshot()");
         StringAssert.Contains(workspaceTreeSource, "playlistStore.AcquireReaderLockBMSTables();");
         StringAssert.Contains(workspaceTreeSource, "playlistStore.FreeReaderLockBMSTables();");

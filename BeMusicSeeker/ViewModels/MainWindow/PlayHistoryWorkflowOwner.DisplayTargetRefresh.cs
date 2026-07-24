@@ -37,6 +37,36 @@ public sealed partial class PlayHistoryWorkflowOwner
             ?? throw new ArgumentNullException(nameof(scheduleRefresh));
     }
 
+    void ISettingsDialogPlayHistoryPort.RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges)
+        => RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges);
+
+    void ISettingsDialogPlayHistoryPort.RefreshDisplayTargetSetsFromSettings(
+        string serializedDisplayTargetSets,
+        bool queueRefreshWhenSelectionChanges)
+        => RefreshDisplayTargetSetsFromSettings(serializedDisplayTargetSets, queueRefreshWhenSelectionChanges);
+
+    internal void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
+    {
+        EnsureDisplayTargetCatalogRefreshConfigured();
+        IReadOnlyList<BMSTable> tables = snapshotDisplayTargetCatalogTables();
+        ReplaceDisplayTargetCatalog(tables, queueRefreshWhenSelectionChanges);
+    }
+
+    internal void RefreshDisplayTargetSetsFromSettings(
+        string serializedDisplayTargetSets,
+        bool queueRefreshWhenSelectionChanges)
+    {
+        EnsureDisplayTargetCatalogRefreshConfigured();
+        IReadOnlyList<BMSTable> tables = snapshotDisplayTargetCatalogTables();
+        if (!PlayHistoryDisplayTargetSetStore.TryDeserialize(
+            serializedDisplayTargetSets,
+            out IReadOnlyList<PlayHistoryDisplayTargetSet> targetSets))
+        {
+            throw new InvalidOperationException("Play-history display target settings JSON is invalid.");
+        }
+        ReplaceDisplayTargetSets(targetSets, tables, queueRefreshWhenSelectionChanges);
+    }
+
     internal void QueueDisplayTargetCatalogRefresh(bool queueRefreshWhenSelectionChanges = true)
     {
         EnsureDisplayTargetCatalogRefreshConfigured();

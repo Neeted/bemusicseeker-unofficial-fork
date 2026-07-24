@@ -3554,4 +3554,74 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(owner.IsDisplayTargetCatalogRefreshIdle);
         StringAssert.Contains(owner.DescribeDisplayTargetCatalogRefresh(), "displayTargetsRequestedRevision=");
     }
+
+    [TestMethod]
+    public void WorkflowOwner_RefreshDisplayTargetCatalogUsesConfiguredSnapshotProvider()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        int snapshotCount = 0;
+        owner.ConfigureDisplayTargetCatalogRefresh(
+            () => false,
+            () =>
+            {
+                snapshotCount++;
+                return [new BMSTable { name = "Configured" }];
+            },
+            _ => { });
+
+        owner.RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges: false);
+
+        Assert.AreEqual(1, snapshotCount);
+        Assert.IsTrue(owner.DisplayTargets.Any(item => item.Kind == PlayHistoryDisplayTargetKind.Playlist && item.Table?.name == "Configured"));
+    }
+
+    [TestMethod]
+    public void WorkflowOwner_RefreshDisplayTargetSetsFromSettingsSnapshotsBeforeMutation()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        owner.ReplaceDisplayTargetCatalog([], queueRefreshWhenSelectionChanges: false);
+        owner.ConfigureDisplayTargetCatalogRefresh(
+            () => false,
+            () => throw new InvalidOperationException("snapshot failed"),
+            _ => { });
+
+        Assert.ThrowsException<InvalidOperationException>(() => owner.RefreshDisplayTargetSetsFromSettings(
+            PlayHistoryDisplayTargetSetStore.Serialize(
+            [
+                new PlayHistoryDisplayTargetSet { Name = "Configured" }
+            ]),
+            queueRefreshWhenSelectionChanges: false));
+        Assert.AreEqual(1, owner.DisplayTargets.Count);
+        Assert.AreEqual(PlayHistoryDisplayTargetItem.All.Identity, owner.SelectedDisplayTarget.Identity);
+    }
+
+    [TestMethod]
+    public void WorkflowOwner_RefreshDisplayTargetSetsFromSettingsInvalidJsonPreservesState()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        owner.ReplaceDisplayTargetSets(
+            [new PlayHistoryDisplayTargetSet
+            {
+                Name = "Existing",
+                Targets = [new PlayHistoryDisplayTargetReference { PlaylistId = 1 }]
+            }],
+            [],
+            queueRefreshWhenSelectionChanges: false);
+        owner.ConfigureDisplayTargetPersistence(_ => { });
+        PlayHistoryDisplayTargetItem selected = owner.DisplayTargets.First(item => item.Kind == PlayHistoryDisplayTargetKind.TargetSet);
+        owner.SelectedDisplayTarget = selected;
+        string[] displayTargetIdentities = owner.DisplayTargets.Select(item => item.Identity).ToArray();
+        string selectedDisplayTargetIdentity = owner.SelectedDisplayTarget.Identity;
+        owner.ConfigureDisplayTargetCatalogRefresh(
+            () => false,
+            () => [],
+            _ => { });
+
+        Assert.ThrowsException<InvalidOperationException>(() => owner.RefreshDisplayTargetSetsFromSettings(
+            "not-json",
+            queueRefreshWhenSelectionChanges: false));
+
+        CollectionAssert.AreEqual(displayTargetIdentities, owner.DisplayTargets.Select(item => item.Identity).ToArray());
+        Assert.AreEqual(selectedDisplayTargetIdentity, owner.SelectedDisplayTarget.Identity);
+    }
 }

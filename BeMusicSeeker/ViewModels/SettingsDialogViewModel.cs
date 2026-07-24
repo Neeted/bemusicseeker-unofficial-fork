@@ -79,6 +79,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsDialogLibraryPort libraryPort;
 
+    private readonly ISettingsDialogPlayHistoryPort playHistoryPort;
+
     private readonly ISettingsDialogSearchRootRuntimePort searchRootRuntimePort;
 
     private readonly ISettingsDialogPlaybackPort playbackPort;
@@ -3724,6 +3726,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ISettingsDialogStatePort statePort,
         ISettingsDialogWorkspacePort workspacePort,
         ISettingsDialogLibraryPort libraryPort,
+        ISettingsDialogPlayHistoryPort playHistoryPort,
         ISettingsDialogSearchRootRuntimePort searchRootRuntimePort,
         ISettingsDialogPlaybackPort playbackPort,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
@@ -3744,6 +3747,7 @@ public partial class SettingsDialogViewModel : ViewModel
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
         this.workspacePort = workspacePort ?? throw new ArgumentNullException(nameof(workspacePort));
         this.libraryPort = libraryPort ?? throw new ArgumentNullException(nameof(libraryPort));
+        this.playHistoryPort = playHistoryPort ?? throw new ArgumentNullException(nameof(playHistoryPort));
         this.searchRootRuntimePort = searchRootRuntimePort ?? throw new ArgumentNullException(nameof(searchRootRuntimePort));
         this.playbackPort = playbackPort ?? throw new ArgumentNullException(nameof(playbackPort));
         this.lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow ?? throw new ArgumentNullException(nameof(lr2SongDbSyncWorkflow));
@@ -3816,7 +3820,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 option.RefreshDisplayName();
             }
-            libraryPort.RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges: false);
+            playHistoryPort.RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges: false);
         });
         this.reloadSettings();
         if (ApplicationSettings.OperationModeLR2DB)
@@ -4181,7 +4185,9 @@ public partial class SettingsDialogViewModel : ViewModel
         playHistoryDisplaySettingsStore.DisplayTargetSetsJson = serializedDisplayTargetSets;
         if (playHistoryDisplayTargetSetsChanged)
         {
-            libraryPort.RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: true);
+            playHistoryPort.RefreshDisplayTargetSetsFromSettings(
+                serializedDisplayTargetSets,
+                queueRefreshWhenSelectionChanges: true);
         }
         return playHistoryDisplayTargetSetsChanged;
     }

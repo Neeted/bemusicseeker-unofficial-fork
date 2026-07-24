@@ -91,16 +91,6 @@ public sealed partial class PlayHistoryWorkflowOwner
         ReplaceDisplayTargetCatalog(tables, queueRefreshWhenSelectionChanges);
     }
 
-    internal void ReplaceDisplayTargetSetsFromSettings(
-        string serializedTargetSets,
-        IEnumerable<BMSTable> tables,
-        bool queueRefreshWhenSelectionChanges)
-    {
-        displayTargetSets.Clear();
-        displayTargetSets.AddRange(PlayHistoryDisplayTargetSetStore.Deserialize(serializedTargetSets));
-        ReplaceDisplayTargetCatalog(tables, queueRefreshWhenSelectionChanges);
-    }
-
     internal void ReplaceDisplayTargetCatalog(
         IEnumerable<BMSTable> tables,
         bool queueRefreshWhenSelectionChanges = true)

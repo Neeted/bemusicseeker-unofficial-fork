@@ -1342,6 +1342,7 @@ public sealed class ApplicationCompositionTests
             viewModel,
             viewModel.PlaylistWorkspace,
             viewModel,
+            viewModel.PlayHistory,
             viewModel.LibraryFolderTree,
             viewModel,
             viewModel.Lr2SongDbSyncWorkflow,
@@ -1532,9 +1533,8 @@ public sealed class ApplicationCompositionTests
             }
         ]);
         store.DisplayTargetSetsJson = replacementJson;
-        viewModel.PlayHistory.ReplaceDisplayTargetSetsFromSettings(
+        viewModel.PlayHistory.RefreshDisplayTargetSetsFromSettings(
             replacementJson,
-            viewModel.PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot(),
             queueRefreshWhenSelectionChanges: false);
         Assert.AreEqual("replacement", PlayHistoryDisplayTargetSetStore.Deserialize(store.DisplayTargetSetsJson)[0].Name);
     }

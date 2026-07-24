@@ -434,7 +434,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 CreateTargetSet("Saved", playlistId: 202)
             ]);
 
-            InvokeRefreshPlayHistoryDisplayTargetSetsFromSettings(viewModel, queueRefreshWhenSelectionChanges: true);
+            viewModel.PlayHistory.RefreshDisplayTargetSetsFromSettings(
+                Settings.Default.PlayHistoryDisplayTargetSetsJson,
+                queueRefreshWhenSelectionChanges: true);
 
             Assert.AreEqual(target.Identity, viewModel.PlayHistory.SelectedDisplayTarget.Identity);
             Assert.AreEqual(202, viewModel.PlayHistory.SelectedDisplayTarget.TargetSet.Targets.Single().PlaylistId);
@@ -1325,9 +1327,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     {
         string serializedTargetSets = PlayHistoryDisplayTargetSetStore.Serialize(targetSets);
         Settings.Default.PlayHistoryDisplayTargetSetsJson = serializedTargetSets;
-        viewModel.PlayHistory.ReplaceDisplayTargetSetsFromSettings(
+        viewModel.PlayHistory.RefreshDisplayTargetSetsFromSettings(
             serializedTargetSets,
-            viewModel.PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot(),
             queueRefreshWhenSelectionChanges: false);
     }
 
@@ -1336,15 +1337,6 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         return (T)typeof(MainWindowViewModel)
             .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(viewModel)!;
-    }
-
-    private static void InvokeRefreshPlayHistoryDisplayTargetSetsFromSettings(
-        MainWindowViewModel viewModel,
-        bool queueRefreshWhenSelectionChanges)
-    {
-        typeof(MainWindowViewModel)
-            .GetMethod("RefreshPlayHistoryDisplayTargetSetsFromSettings", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(viewModel, [queueRefreshWhenSelectionChanges]);
     }
 
     private static void SetViewModelTables(MainWindowViewModel viewModel, string songDbPath, BMSTable[] tables)

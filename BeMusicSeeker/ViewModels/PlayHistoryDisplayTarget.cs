@@ -147,18 +147,30 @@ internal static class PlayHistoryDisplayTargetSetStore
 {
     internal static IReadOnlyList<PlayHistoryDisplayTargetSet> Deserialize(string json)
     {
+        return TryDeserialize(json, out IReadOnlyList<PlayHistoryDisplayTargetSet> sets)
+            ? sets
+            : [];
+    }
+
+    internal static bool TryDeserialize(
+        string json,
+        out IReadOnlyList<PlayHistoryDisplayTargetSet> sets)
+    {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return [];
+            sets = [];
+            return true;
         }
         try
         {
-            List<PlayHistoryDisplayTargetSet> sets = JsonConvert.DeserializeObject<List<PlayHistoryDisplayTargetSet>>(json);
-            return Normalize(sets);
+            List<PlayHistoryDisplayTargetSet> parsed = JsonConvert.DeserializeObject<List<PlayHistoryDisplayTargetSet>>(json);
+            sets = Normalize(parsed);
+            return true;
         }
         catch (JsonException)
         {
-            return [];
+            sets = [];
+            return false;
         }
     }
 

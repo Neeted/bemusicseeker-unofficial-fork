@@ -42,10 +42,6 @@ internal interface ISettingsDialogLibraryPort
 {
     CustomFolderOutputSettingsSnapshot CustomFolderOutputSettings { get; }
 
-    void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true);
-
-    void RefreshPlayHistoryDisplayTargetSetsFromSettings(bool queueRefreshWhenSelectionChanges);
-
     void ChangeCustomFolderBaseDirectoryWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
@@ -71,6 +67,15 @@ internal interface ISettingsDialogLibraryPort
         IReadOnlyDictionary<string, string> pendingRenames,
         CustomFolderOutputSettingsSnapshot settings);
 
+}
+
+internal interface ISettingsDialogPlayHistoryPort
+{
+    void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true);
+
+    void RefreshDisplayTargetSetsFromSettings(
+        string serializedDisplayTargetSets,
+        bool queueRefreshWhenSelectionChanges);
 }
 
 internal interface ISettingsDialogSearchRootRuntimePort
