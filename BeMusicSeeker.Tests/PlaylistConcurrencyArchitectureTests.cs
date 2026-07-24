@@ -560,7 +560,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(mainWindowSource, "statePort: this,");
         StringAssert.Contains(mainWindowSource, "workspacePort: PlaylistWorkspace,");
         StringAssert.Contains(mainWindowSource, "libraryPort: this,");
-        StringAssert.Contains(mainWindowSource, "playbackPort: this,");
+        StringAssert.Contains(mainWindowSource, "playerFactoryPort: applicationComposition,");
+        StringAssert.Contains(mainWindowSource, "playbackRuntimePort: PlaybackPanel,");
+        Assert.IsTrue(mainWindowSource.IndexOf("ISettingsDialogPlaybackPort", StringComparison.Ordinal) < 0);
         StringAssert.Contains(mainWindowSource, "applicationComposition.CreateSettingDialogViewModel(");
         Assert.IsFalse(mainWindowSource.Contains("CreateSettingsDialogApplicationContext"));
         Assert.IsFalse(mainWindowSource.Contains("new SettingDialogViewModel(this)"));

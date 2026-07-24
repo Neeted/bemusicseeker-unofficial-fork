@@ -22,7 +22,7 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>
 /// アプリケーション起動時に ViewModel へ渡す production composition を構築します。
 /// </summary>
-internal sealed class ApplicationComposition
+internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 {
     private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
 
@@ -292,7 +292,8 @@ internal sealed class ApplicationComposition
         ISettingsDialogLibraryPort libraryPort,
         ISettingsDialogPlayHistoryPort playHistoryPort,
         ISettingsDialogSearchRootRuntimePort searchRootRuntimePort,
-        ISettingsDialogPlaybackPort playbackPort,
+        ISettingsDialogPlayerFactoryPort playerFactoryPort,
+        ISettingsDialogPlaybackRuntimePort playbackRuntimePort,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
         Func<Task<bool>> initializeOwner,
         Func<Task> reloadScoresOnly,
@@ -306,7 +307,8 @@ internal sealed class ApplicationComposition
             libraryPort,
             playHistoryPort,
             searchRootRuntimePort,
-            playbackPort,
+            playerFactoryPort,
+            playbackRuntimePort,
             lr2SongDbSyncWorkflow,
             reloadSettings,
             saveSettings,
@@ -322,7 +324,7 @@ internal sealed class ApplicationComposition
                 schemaDialogs,
                 new Lr2ApplicationDataUninstallStore()),
             audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
-                playbackPort.CreateAudioDeviceTestPlaybackPort(),
+                playbackRuntimePort,
                 new BassAudioDeviceTestRuntime()));
     }
 
@@ -517,6 +519,12 @@ internal sealed class ApplicationComposition
         }
         return CreateDefaultBmsPlayer();
     }
+
+    IBMSPlayer ISettingsDialogPlayerFactoryPort.CreateDefaultBmsPlayer()
+        => CreateDefaultBmsPlayer();
+
+    IBMSPlayer ISettingsDialogPlayerFactoryPort.CreateBmsPlayerForSettings(BeMusicSeeker.Properties.Settings settingsValues)
+        => CreateBmsPlayerForSettings(settingsValues);
 
     internal BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
     {

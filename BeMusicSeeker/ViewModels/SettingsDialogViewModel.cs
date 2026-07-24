@@ -83,7 +83,9 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsDialogSearchRootRuntimePort searchRootRuntimePort;
 
-    private readonly ISettingsDialogPlaybackPort playbackPort;
+    private readonly ISettingsDialogPlayerFactoryPort playerFactoryPort;
+
+    private readonly ISettingsDialogPlaybackRuntimePort playbackRuntimePort;
 
     private readonly Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow;
 
@@ -3728,7 +3730,8 @@ public partial class SettingsDialogViewModel : ViewModel
         ISettingsDialogLibraryPort libraryPort,
         ISettingsDialogPlayHistoryPort playHistoryPort,
         ISettingsDialogSearchRootRuntimePort searchRootRuntimePort,
-        ISettingsDialogPlaybackPort playbackPort,
+        ISettingsDialogPlayerFactoryPort playerFactoryPort,
+        ISettingsDialogPlaybackRuntimePort playbackRuntimePort,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
         Action reloadSettings,
         Action saveSettings,
@@ -3749,7 +3752,8 @@ public partial class SettingsDialogViewModel : ViewModel
         this.libraryPort = libraryPort ?? throw new ArgumentNullException(nameof(libraryPort));
         this.playHistoryPort = playHistoryPort ?? throw new ArgumentNullException(nameof(playHistoryPort));
         this.searchRootRuntimePort = searchRootRuntimePort ?? throw new ArgumentNullException(nameof(searchRootRuntimePort));
-        this.playbackPort = playbackPort ?? throw new ArgumentNullException(nameof(playbackPort));
+        this.playerFactoryPort = playerFactoryPort ?? throw new ArgumentNullException(nameof(playerFactoryPort));
+        this.playbackRuntimePort = playbackRuntimePort ?? throw new ArgumentNullException(nameof(playbackRuntimePort));
         this.lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow ?? throw new ArgumentNullException(nameof(lr2SongDbSyncWorkflow));
         this.reloadSettings = reloadSettings ?? throw new ArgumentNullException(nameof(reloadSettings));
         this.saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
@@ -3772,7 +3776,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ?? new ApplicationDataUninstallWorkflowOwner(this.schemaDialogs, new Lr2ApplicationDataUninstallStore());
         this.audioDeviceTestWorkflow = audioDeviceTestWorkflow
             ?? new AudioDeviceTestWorkflowOwner(
-                playbackPort.CreateAudioDeviceTestPlaybackPort(),
+                playbackRuntimePort,
                 new BassAudioDeviceTestRuntime());
         appearanceThemeOptions =
         [
@@ -6198,11 +6202,11 @@ public partial class SettingsDialogViewModel : ViewModel
             if (impact.HasFlag(SettingsPostSaveImpact.PlayerRuntime))
             {
                 IBMSPlayer replacementPlayer = forceInternalPlayerForStandaloneModeChange
-                    ? playbackPort.CreateDefaultBmsPlayer()
-                    : playbackPort.CreateBmsPlayerForSettings(ApplicationSettings);
-                playbackPort.ApplyPlayerSettings(replacementPlayer);
+                    ? playerFactoryPort.CreateDefaultBmsPlayer()
+                    : playerFactoryPort.CreateBmsPlayerForSettings(ApplicationSettings);
+                playbackRuntimePort.ApplyPlayerSettings(replacementPlayer);
             }
-            playbackPort.NotifySettingsChanged();
+            playbackRuntimePort.NotifySettingsChanged();
             playerRuntimeMs = playerRuntimeStopwatch.ElapsedMilliseconds;
             var lr2BackupNoticeStopwatch = Stopwatch.StartNew();
             if (impact.HasFlag(SettingsPostSaveImpact.Lr2BackupEnabledNotice))

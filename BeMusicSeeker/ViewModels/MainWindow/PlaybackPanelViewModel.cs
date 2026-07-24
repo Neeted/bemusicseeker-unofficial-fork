@@ -18,7 +18,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     IDuplicateMaintenancePlaybackPort,
     ISelectedChartMutationPlaybackPort,
     IPendingPackageMutationPlaybackPort,
-    ISelectedChartAudioConversionPlaybackPort
+    ISelectedChartAudioConversionPlaybackPort,
+    ISettingsDialogPlaybackRuntimePort
 {
     private readonly IPlaybackUiDispatcher uiDispatcher;
 
@@ -536,6 +537,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// </summary>
     internal void ReplacePlayer(IBMSPlayer player)
     {
+        ReplacePlayerCore(player, clearPlaybackStatus: false);
+    }
+
+    private void ReplacePlayerCore(IBMSPlayer player, bool clearPlaybackStatus)
+    {
         if (player == null)
         {
             throw new ArgumentNullException(nameof(player));
@@ -549,21 +555,54 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 return;
             }
 
-            if (bmsPlayer != null)
+            PlayerStateSnapshot preparedState = PlayerStateSnapshot.Capture(player);
+            IBMSPlayer previousPlayer = bmsPlayer;
+            bool replacementSubscribed = false;
+            bool previousDetached = false;
+            try
             {
-                playbackGeneration++;
-                bmsPlayer.PropertyChanged -= BmsPlayerPropertyChanged;
-                bmsPlayer.CloseProcess();
-            }
+                if (parentHandle.HasValue)
+                {
+                    player.ParentHandle = parentHandle.Value;
+                }
+                player.PropertyChanged += BmsPlayerPropertyChanged;
+                replacementSubscribed = true;
 
-            bmsPlayer = player;
-            bmsPlayer.PropertyChanged += BmsPlayerPropertyChanged;
-            if (parentHandle.HasValue)
-            {
-                bmsPlayer.ParentHandle = parentHandle.Value;
+                if (previousPlayer != null)
+                {
+                    previousPlayer.PropertyChanged -= BmsPlayerPropertyChanged;
+                    previousDetached = true;
+                    previousPlayer.CloseProcess();
+                }
+
+                bmsPlayer = player;
+                playbackGeneration++;
+                if (clearPlaybackStatus)
+                {
+                    ClearCurrentPlaybackStatus();
+                    NowPlayingBmsFile = null;
+                    nowPlayingRowIndex = -1;
+                }
+                ApplyPlayerState(preparedState);
+                RaisePropertyChanged(nameof(CurrentlyPlayingTime));
+                replacementSubscribed = false;
             }
-            RefreshPlayerState(bmsPlayer);
-            RaisePropertyChanged(nameof(CurrentlyPlayingTime));
+            catch
+            {
+                if (ReferenceEquals(bmsPlayer, player))
+                {
+                    bmsPlayer = previousPlayer;
+                }
+                if (replacementSubscribed)
+                {
+                    player.PropertyChanged -= BmsPlayerPropertyChanged;
+                }
+                if (previousDetached && previousPlayer != null)
+                {
+                    previousPlayer.PropertyChanged += BmsPlayerPropertyChanged;
+                }
+                throw;
+            }
         }
     }
 
@@ -1437,6 +1476,107 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         RaisePlayerHeaderPropertiesChanged();
     }
 
+    void ISettingsDialogPlaybackRuntimePort.ApplyPlayerSettings(IBMSPlayer replacementPlayer)
+        => ReplacePlayerCore(replacementPlayer, clearPlaybackStatus: true);
+
+    void ISettingsDialogPlaybackRuntimePort.NotifySettingsChanged()
+        => NotifySettingsChanged();
+
+    void IAudioDeviceTestPlaybackPort.StopPlayback()
+        => StopPlayback(closeProcess: true);
+
+    private sealed class PlayerStateSnapshot
+    {
+        private PlayerStateSnapshot(
+            TimeSpan duration,
+            TimeSpan stopTime,
+            TimeSpan bmsDuration,
+            TimeSpan musicDuration,
+            int currentVoices,
+            int maxVoices,
+            int noteDensity,
+            int noteDensityMax,
+            int bpm,
+            int minBpm,
+            int maxBpm,
+            double total,
+            int combo,
+            int notes,
+            int measure,
+            int lastMeasure)
+        {
+            Duration = duration;
+            StopTime = stopTime;
+            BmsDuration = bmsDuration;
+            MusicDuration = musicDuration;
+            CurrentVoices = currentVoices;
+            MaxVoices = maxVoices;
+            NoteDensity = noteDensity;
+            NoteDensityMax = noteDensityMax;
+            Bpm = bpm;
+            MinBpm = minBpm;
+            MaxBpm = maxBpm;
+            Total = total;
+            Combo = combo;
+            Notes = notes;
+            Measure = measure;
+            LastMeasure = lastMeasure;
+        }
+
+        internal TimeSpan Duration { get; }
+
+        internal TimeSpan StopTime { get; }
+
+        internal TimeSpan BmsDuration { get; }
+
+        internal TimeSpan MusicDuration { get; }
+
+        internal int CurrentVoices { get; }
+
+        internal int MaxVoices { get; }
+
+        internal int NoteDensity { get; }
+
+        internal int NoteDensityMax { get; }
+
+        internal int Bpm { get; }
+
+        internal int MinBpm { get; }
+
+        internal int MaxBpm { get; }
+
+        internal double Total { get; }
+
+        internal int Combo { get; }
+
+        internal int Notes { get; }
+
+        internal int Measure { get; }
+
+        internal int LastMeasure { get; }
+
+        internal static PlayerStateSnapshot Capture(IBMSPlayer player)
+        {
+            return new PlayerStateSnapshot(
+                player.Duration,
+                player.StopTime,
+                player.BmsDuration,
+                player.MusicDuration,
+                player.CurrentVoices,
+                player.MaxVoices,
+                player.NoteDensity,
+                player.NoteDensityMax,
+                player.Bpm,
+                player.MinBpm,
+                player.MaxBpm,
+                player.Total,
+                player.Combo,
+                player.Notes,
+                player.Measure,
+                player.LastMeasure);
+        }
+    }
+
     private void DispatchPlaybackEvent(EventHandler handler, long expectedGeneration)
     {
         DispatchToUi(() =>
@@ -1464,6 +1604,26 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
             RefreshPlayerState(bmsPlayer, e?.PropertyName);
         });
+    }
+
+    private void ApplyPlayerState(PlayerStateSnapshot state)
+    {
+        CurrentlyPlayingDuration = state.Duration;
+        CurrentlyPlayingStopTime = state.StopTime;
+        CurrentlyPlayingBmsDuration = state.BmsDuration;
+        CurrentlyPlayingMusicDuration = state.MusicDuration;
+        CurrentlyPlayingCurrentVoices = state.CurrentVoices;
+        CurrentlyPlayingMaxVoices = state.MaxVoices;
+        CurrentlyPlayingNoteDensity = state.NoteDensity;
+        CurrentlyPlayingNoteDensityMax = state.NoteDensityMax;
+        CurrentlyPlayingBpm = state.Bpm;
+        CurrentlyPlayingMinBpm = state.MinBpm;
+        CurrentlyPlayingMaxBpm = state.MaxBpm;
+        CurrentlyPlayingTotal = state.Total;
+        CurrentlyPlayingCombo = state.Combo;
+        CurrentlyPlayingNotes = state.Notes;
+        CurrentlyPlayingMeasure = state.Measure;
+        CurrentlyPlayingLastMeasure = state.LastMeasure;
     }
 
     private void RefreshPlayerState(IBMSPlayer player, string propertyName = null)

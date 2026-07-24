@@ -48,8 +48,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public partial class MainWindowViewModel : ViewModel,
     ISettingsDialogStatePort,
-    ISettingsDialogLibraryPort,
-    ISettingsDialogPlaybackPort
+    ISettingsDialogLibraryPort
 {
     /// <summary>
     /// Gets status-bar progress presentation state owned by the composed progress hub.
@@ -203,24 +202,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     void ISettingsDialogStatePort.UnsubscribeStateChanges(PropertyChangedEventHandler handler)
         => PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
-
-    IBMSPlayer ISettingsDialogPlaybackPort.CreateDefaultBmsPlayer()
-        => applicationComposition.CreateDefaultBmsPlayer();
-
-    IBMSPlayer ISettingsDialogPlaybackPort.CreateBmsPlayerForSettings(Properties.Settings settings)
-        => applicationComposition.CreateBmsPlayerForSettings(settings);
-
-    IAudioDeviceTestPlaybackPort ISettingsDialogPlaybackPort.CreateAudioDeviceTestPlaybackPort()
-        => new PlaybackPanelAudioDeviceTestPlaybackPort(PlaybackPanel);
-
-    void ISettingsDialogPlaybackPort.ApplyPlayerSettings(IBMSPlayer replacementPlayer)
-    {
-        PlaybackPanel.StopPlayback(closeProcess: false);
-        PlaybackPanel.ReplacePlayer(replacementPlayer);
-    }
-
-    void ISettingsDialogPlaybackPort.NotifySettingsChanged()
-        => PlaybackPanel.NotifySettingsChanged();
 
     private readonly ApplicationComposition applicationComposition;
 
@@ -3113,7 +3094,8 @@ public partial class MainWindowViewModel : ViewModel,
             libraryPort: this,
             playHistoryPort: PlayHistory,
             searchRootRuntimePort: LibraryFolderTree,
-            playbackPort: this,
+            playerFactoryPort: applicationComposition,
+            playbackRuntimePort: PlaybackPanel,
             lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
             initializeOwner: () => applicationComposition.InitializeOwner(this),
             reloadScoresOnly: () => applicationComposition.ReloadScoresOnly(this),

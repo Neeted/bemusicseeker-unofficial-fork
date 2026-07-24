@@ -94,21 +94,6 @@ internal interface IAudioDeviceTestPlaybackPort
     void StopPlayback();
 }
 
-internal sealed class PlaybackPanelAudioDeviceTestPlaybackPort : IAudioDeviceTestPlaybackPort
-{
-    private readonly PlaybackPanelViewModel playbackPanel;
-
-    internal PlaybackPanelAudioDeviceTestPlaybackPort(PlaybackPanelViewModel playbackPanel)
-    {
-        this.playbackPanel = playbackPanel ?? throw new ArgumentNullException(nameof(playbackPanel));
-    }
-
-    public void StopPlayback()
-    {
-        playbackPanel.StopPlayback(closeProcess: true);
-    }
-}
-
 internal sealed class AudioDeviceTestWorkflowOwner
 {
     private readonly IAudioDeviceTestPlaybackPort playbackPort;

@@ -229,6 +229,56 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    public void PlaybackPanel_SettingsRuntimePortSeparatesReplacementAndAudioTestStop()
+    {
+        var first = new FakeBmsPlayer();
+        var replacement = new FakeBmsPlayer();
+        PlaybackPanelViewModel panel = CreatePanel(first);
+        panel.AttachParentHandle(new IntPtr(42));
+        var playingFile = new BMSFile();
+        panel.BeginPlayback(playingFile, 0);
+
+        var settingsRuntime = (ISettingsDialogPlaybackRuntimePort)panel;
+        settingsRuntime.ApplyPlayerSettings(replacement);
+
+        Assert.AreEqual(1, first.CloseProcessCount);
+        Assert.AreEqual(new IntPtr(42), replacement.ParentHandle);
+        Assert.IsNull(panel.NowPlayingBmsFile);
+        Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+
+        ((IAudioDeviceTestPlaybackPort)panel).StopPlayback();
+
+        Assert.AreEqual(1, replacement.CloseProcessCount);
+        settingsRuntime.NotifySettingsChanged();
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_SettingsRuntimeApplyFailurePreservesPreviousPlayerAndSession()
+    {
+        var first = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(10) };
+        var replacement = new FakeBmsPlayer { ThrowOnTelemetryRead = true };
+        PlaybackPanelViewModel panel = CreatePanel(first);
+        var playingFile = new BMSFile();
+        panel.BeginPlayback(playingFile, 0);
+
+        try
+        {
+            ((ISettingsDialogPlaybackRuntimePort)panel).ApplyPlayerSettings(replacement);
+            Assert.Fail("Expected replacement preparation to fail.");
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        Assert.AreSame(playingFile, panel.NowPlayingBmsFile);
+        Assert.AreEqual(0, first.CloseProcessCount);
+        Assert.AreEqual(0, replacement.CloseProcessCount);
+        first.Duration = TimeSpan.FromSeconds(20);
+        first.Raise(nameof(IBMSPlayer.Duration));
+        Assert.AreEqual(TimeSpan.FromSeconds(20), panel.CurrentlyPlayingDuration);
+    }
+
+    [TestMethod]
     public void PlaybackPanel_OwnsSessionStateAndIgnoresStaleExitCallbacks()
     {
         var player = new FakeBmsPlayer();
@@ -1194,7 +1244,22 @@ public sealed class PlaybackPanelViewModelTests
 
         public IntPtr ParentHandle { get; set; }
 
-        public TimeSpan Duration { get; set; }
+        private TimeSpan duration;
+
+        public TimeSpan Duration
+        {
+            get
+            {
+                if (ThrowOnTelemetryRead)
+                {
+                    throw new InvalidOperationException("telemetry read failure");
+                }
+                return duration;
+            }
+            set => duration = value;
+        }
+
+        public bool ThrowOnTelemetryRead { get; set; }
 
         public TimeSpan CurrentTime { get; set; }
 

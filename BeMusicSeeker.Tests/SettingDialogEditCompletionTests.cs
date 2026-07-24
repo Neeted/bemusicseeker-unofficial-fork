@@ -133,7 +133,8 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner.PlayHistory,
                 runtime,
-                owner,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
@@ -189,7 +190,8 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
-                owner,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
@@ -230,7 +232,8 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
-                owner,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
@@ -270,7 +273,8 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
-                owner,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
@@ -347,7 +351,8 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner.PlayHistory,
                 runtime,
-                owner,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
@@ -541,7 +546,8 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
-                owner,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
@@ -606,7 +612,8 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner.PlayHistory,
                 owner.LibraryFolderTree,
-                owner,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
@@ -668,6 +675,166 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public async Task ApplySettingsAsync_PlayerRuntimeUsesFactoryThenApplyThenNotify()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            string playerPath = Path.Combine(root, "ubmplay.exe");
+            File.WriteAllText(playerPath, string.Empty);
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            var factory = new TestSettingsDialogPlayerFactoryPort(sequence);
+            var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                playerFactoryPort: factory,
+                playbackRuntimePort: runtime);
+            SetActiveLibraryProfile(viewModel, true);
+            AttachPlaylistTables(viewModel, root);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+            dialog.uBMplayPath = playerPath;
+            dialog.UsePlayeruBMplay = true;
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(
+                new[] { "save", "factory-configured", "apply", "notify", "close" },
+                sequence);
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.IsNotNull(runtime.LastReplacementPlayer);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_PlayerFactoryFailureLeavesPlaybackUntouched()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            string playerPath = Path.Combine(root, "ubmplay.exe");
+            File.WriteAllText(playerPath, string.Empty);
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            var factory = new TestSettingsDialogPlayerFactoryPort(sequence)
+            {
+                ConfiguredFactoryFailure = new InvalidOperationException("configured player failure")
+            };
+            var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+            Exception? reportedFailure = null;
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                reportSettingsApplyFailure: exception => reportedFailure = exception,
+                playerFactoryPort: factory,
+                playbackRuntimePort: runtime);
+            SetActiveLibraryProfile(viewModel, true);
+            AttachPlaylistTables(viewModel, root);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
+            dialog.AttachPresentationPort(presentation);
+            dialog.uBMplayPath = playerPath;
+            dialog.UsePlayeruBMplay = true;
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(new[] { "save", "factory-configured" }, sequence);
+            Assert.IsNotNull(reportedFailure);
+            StringAssert.Contains(reportedFailure!.Message, "configured player failure");
+            Assert.AreEqual(0, runtime.ApplyCount);
+            Assert.AreEqual(0, runtime.NotifyCount);
+            CollectionAssert.DoesNotContain(presentation.Requests, "close");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_StandaloneTransitionUsesDefaultPlayerFactory()
+    {
+        string root = CreateTemporaryRoot();
+        string configPath = Path.Combine(root, "lr2config.xml");
+        File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.OperationModeLR2DB = true;
+            settings.LR2RootPath = root;
+            settings.LR2ConfigXmlPath = configPath;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            var factory = new TestSettingsDialogPlayerFactoryPort(sequence);
+            var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                initializeOwner: _ => Task.FromResult(true),
+                playerFactoryPort: factory,
+                playbackRuntimePort: runtime);
+            SetActiveLibraryProfile(viewModel, false);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.OperationModeLR2DB = false;
+            SetActiveLibraryProfile(viewModel, true);
+            AttachPlaylistTables(viewModel, root);
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(
+                new[] { "save", "factory-default", "apply", "notify", "close" },
+                sequence);
+            Assert.IsFalse(settingsSession.Values.OperationModeLR2DB);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_NonPlaybackImpactStillNotifiesPlaybackOnce()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                playbackRuntimePort: runtime);
+            SetActiveLibraryProfile(viewModel, true);
+            AttachPlaylistTables(viewModel, root);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+            dialog.OverwritePlaylistUrlsWithCompletion = !dialog.OverwritePlaylistUrlsWithCompletion;
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(new[] { "save", "notify", "close" }, sequence);
+            Assert.AreEqual(1, runtime.NotifyCount);
+            Assert.AreEqual(0, runtime.ApplyCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ApplySettingsAsync_ActiveProfileWithoutChanges_PublishesSingleCloseRequest()
     {
         string root = CreateTemporaryRoot();
@@ -714,7 +881,8 @@ public sealed class SettingDialogEditCompletionTests
                 viewModel,
                 viewModel.PlayHistory,
                 viewModel.LibraryFolderTree,
-                viewModel,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
                 viewModel.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
@@ -1346,7 +1514,9 @@ public sealed class SettingDialogEditCompletionTests
         Func<MainWindowViewModel, Task<bool>>? initializeOwner = null,
         Func<MainWindowViewModel, Task>? reloadScoresOnly = null,
         Action<Exception>? reportSettingsApplyFailure = null,
-        Func<MainWindowViewModel, Task>? reloadFileDiff = null)
+        Func<MainWindowViewModel, Task>? reloadFileDiff = null,
+        ISettingsDialogPlayerFactoryPort? playerFactoryPort = null,
+        ISettingsDialogPlaybackRuntimePort? playbackRuntimePort = null)
     {
         MainWindowViewModel viewModel = new ApplicationComposition(
             firstStartupProvider: () => firstStartup,
@@ -1361,8 +1531,11 @@ public sealed class SettingDialogEditCompletionTests
             uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
             .CreateMainWindowViewModel();
         typeof(SettingsDialogViewModel)
-            .GetField("playbackPort", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(viewModel.SettingDialog, new TestSettingsDialogPlaybackPort());
+            .GetField("playerFactoryPort", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(viewModel.SettingDialog, playerFactoryPort ?? new TestSettingsDialogPlayerFactoryPort());
+        typeof(SettingsDialogViewModel)
+            .GetField("playbackRuntimePort", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(viewModel.SettingDialog, playbackRuntimePort ?? new TestSettingsDialogPlaybackRuntimePort());
         return viewModel;
     }
 
@@ -1382,7 +1555,8 @@ public sealed class SettingDialogEditCompletionTests
             owner,
             owner.PlayHistory,
             runtime,
-            owner,
+            new TestSettingsDialogPlayerFactoryPort(),
+            new TestSettingsDialogPlaybackRuntimePort(),
             owner.Lr2SongDbSyncWorkflow,
             settingsSession.Reload,
             settingsSession.Save,
@@ -1432,6 +1606,19 @@ public sealed class SettingDialogEditCompletionTests
         typeof(MainWindowViewModel)
             .GetField("hasActiveLibraryProfile", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel, value);
+    }
+
+    private static void AttachPlaylistTables(MainWindowViewModel viewModel, string root)
+    {
+        string databasePath = Path.Combine(root, "settings-test-playlists.db");
+        File.WriteAllBytes(databasePath, []);
+        var tables = new BMSPlaylist(databasePath)
+        {
+            BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                new System.Collections.ObjectModel.ObservableCollection<BMSTable>(),
+                Dispatcher.CurrentDispatcher)
+        };
+        SetPrivateField(viewModel, "tables", tables);
     }
 
     private static void SetPrivateField(object instance, string fieldName, object value)
@@ -1717,28 +1904,70 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
-    private sealed class TestSettingsDialogPlaybackPort : ISettingsDialogPlaybackPort
+    private sealed class TestSettingsDialogPlayerFactoryPort : ISettingsDialogPlayerFactoryPort
     {
+        private readonly IList<string>? sequence;
+
+        internal TestSettingsDialogPlayerFactoryPort(IList<string>? sequence = null)
+        {
+            this.sequence = sequence;
+        }
+
+        internal Exception? DefaultFactoryFailure { get; set; }
+
+        internal Exception? ConfiguredFactoryFailure { get; set; }
+
         public IBMSPlayer CreateDefaultBmsPlayer()
         {
+            sequence?.Add("factory-default");
+            if (DefaultFactoryFailure != null)
+            {
+                throw DefaultFactoryFailure;
+            }
             return new RecordingPlaybackPlayer();
         }
 
         public IBMSPlayer CreateBmsPlayerForSettings(Settings settings)
         {
+            sequence?.Add("factory-configured");
+            if (ConfiguredFactoryFailure != null)
+            {
+                throw ConfiguredFactoryFailure;
+            }
             return new RecordingPlaybackPlayer();
         }
 
-        public IAudioDeviceTestPlaybackPort CreateAudioDeviceTestPlaybackPort()
+    }
+
+    private sealed class TestSettingsDialogPlaybackRuntimePort : ISettingsDialogPlaybackRuntimePort
+    {
+        private readonly IList<string>? sequence;
+
+        internal TestSettingsDialogPlaybackRuntimePort(IList<string>? sequence = null)
         {
-            return new TestAudioDeviceTestPlaybackPort();
+            this.sequence = sequence;
         }
+
+        internal int ApplyCount { get; private set; }
+
+        internal int NotifyCount { get; private set; }
+
+        internal IBMSPlayer? LastReplacementPlayer { get; private set; }
 
         public void ApplyPlayerSettings(IBMSPlayer replacementPlayer)
         {
+            ApplyCount++;
+            LastReplacementPlayer = replacementPlayer;
+            sequence?.Add("apply");
         }
 
         public void NotifySettingsChanged()
+        {
+            NotifyCount++;
+            sequence?.Add("notify");
+        }
+
+        public void StopPlayback()
         {
         }
     }

@@ -89,13 +89,15 @@ internal interface ISettingsDialogSearchRootRuntimePort
     void InvalidateLibraryFolderCache();
 }
 
-internal interface ISettingsDialogPlaybackPort
+internal interface ISettingsDialogPlayerFactoryPort
 {
     IBMSPlayer CreateDefaultBmsPlayer();
 
     IBMSPlayer CreateBmsPlayerForSettings(Properties.Settings settings);
+}
 
-    IAudioDeviceTestPlaybackPort CreateAudioDeviceTestPlaybackPort();
+internal interface ISettingsDialogPlaybackRuntimePort : IAudioDeviceTestPlaybackPort
+{
 
     void ApplyPlayerSettings(IBMSPlayer replacementPlayer);
 
