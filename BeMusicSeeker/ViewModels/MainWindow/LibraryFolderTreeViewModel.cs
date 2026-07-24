@@ -14,7 +14,7 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>
 /// Owns the library-folder tree presentation and its cache refresh pipeline.
 /// </summary>
-public sealed class LibraryFolderTreeViewModel : ViewModel
+public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearchRootRuntimePort
 {
     private readonly DispatcherCollection<string> bmsParentFolderList;
 
@@ -148,10 +148,33 @@ public sealed class LibraryFolderTreeViewModel : ViewModel
     /// </summary>
     internal void InvalidateLibraryFolderCache()
     {
+        if (library == null)
+        {
+            return;
+        }
         parentFolderListViewInitialized = false;
         MarkRefreshRequested();
-        library?.NotifyBMSDirectoriesChanged();
+        library.NotifyBMSDirectoriesChanged();
     }
+
+    internal bool IsLibraryAttached => library != null;
+
+    internal void ApplySearchTargets(IReadOnlyList<string> searchTargets)
+    {
+        if (library == null)
+        {
+            return;
+        }
+        library.SearchTargets = [.. (searchTargets ?? [])];
+    }
+
+    bool ISettingsDialogSearchRootRuntimePort.IsLibraryAttached => IsLibraryAttached;
+
+    void ISettingsDialogSearchRootRuntimePort.ApplySearchTargets(IReadOnlyList<string> searchTargets)
+        => ApplySearchTargets(searchTargets);
+
+    void ISettingsDialogSearchRootRuntimePort.InvalidateLibraryFolderCache()
+        => InvalidateLibraryFolderCache();
 
     /// <summary>
     /// Schedules one background cache preparation and one UI-thread apply.

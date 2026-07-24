@@ -1342,6 +1342,7 @@ public sealed class ApplicationCompositionTests
             viewModel,
             viewModel,
             viewModel,
+            viewModel.LibraryFolderTree,
             viewModel,
             viewModel.Lr2SongDbSyncWorkflow,
             initializeOwner: () => Task.FromResult(true),

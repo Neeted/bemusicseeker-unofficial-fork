@@ -79,6 +79,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsDialogLibraryPort libraryPort;
 
+    private readonly ISettingsDialogSearchRootRuntimePort searchRootRuntimePort;
+
     private readonly ISettingsDialogPlaybackPort playbackPort;
 
     private readonly Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow;
@@ -3722,6 +3724,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ISettingsDialogStatePort statePort,
         ISettingsDialogWorkspacePort workspacePort,
         ISettingsDialogLibraryPort libraryPort,
+        ISettingsDialogSearchRootRuntimePort searchRootRuntimePort,
         ISettingsDialogPlaybackPort playbackPort,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
         Action reloadSettings,
@@ -3741,6 +3744,7 @@ public partial class SettingsDialogViewModel : ViewModel
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
         this.workspacePort = workspacePort ?? throw new ArgumentNullException(nameof(workspacePort));
         this.libraryPort = libraryPort ?? throw new ArgumentNullException(nameof(libraryPort));
+        this.searchRootRuntimePort = searchRootRuntimePort ?? throw new ArgumentNullException(nameof(searchRootRuntimePort));
         this.playbackPort = playbackPort ?? throw new ArgumentNullException(nameof(playbackPort));
         this.lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow ?? throw new ArgumentNullException(nameof(lr2SongDbSyncWorkflow));
         this.reloadSettings = reloadSettings ?? throw new ArgumentNullException(nameof(reloadSettings));
@@ -4451,16 +4455,16 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void ApplyRuntimeSearchRootsForCurrentMode()
     {
-        if (!libraryPort.HasLibrary)
+        if (!searchRootRuntimePort.IsLibraryAttached)
         {
             return;
         }
         if (ApplicationSettings.OperationModeLR2DB && lr2config != null)
         {
-            libraryPort.SetSearchTargets(lr2config.GetBMSSearchDirectories());
+            searchRootRuntimePort.ApplySearchTargets(lr2config.GetBMSSearchDirectories());
             return;
         }
-        libraryPort.SetSearchTargets(GetStandaloneBmsRootPathsForCurrentSession());
+        searchRootRuntimePort.ApplySearchTargets(GetStandaloneBmsRootPathsForCurrentSession());
     }
 
     private bool IsLR2SongDBPathValid()
@@ -4740,14 +4744,14 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             else
             {
-                workspacePort.InvalidateLibraryFolderCache();
+                searchRootRuntimePort.InvalidateLibraryFolderCache();
             }
             isSearchRootsChanged = false;
             isBMSDirectoryAdded = false;
         }
         else
         {
-            workspacePort.InvalidateLibraryFolderCache();
+            searchRootRuntimePort.InvalidateLibraryFolderCache();
         }
     }
 
@@ -5397,14 +5401,14 @@ public partial class SettingsDialogViewModel : ViewModel
                 }
                 else
                 {
-                    workspacePort.InvalidateLibraryFolderCache();
+                    searchRootRuntimePort.InvalidateLibraryFolderCache();
                 }
                 isSearchRootsChanged = false;
                 isBMSDirectoryRemoved = false;
             }
             else
             {
-                workspacePort.InvalidateLibraryFolderCache();
+                searchRootRuntimePort.InvalidateLibraryFolderCache();
             }
             return;
         }
@@ -5441,14 +5445,14 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             else
             {
-                workspacePort.InvalidateLibraryFolderCache();
+                searchRootRuntimePort.InvalidateLibraryFolderCache();
             }
             isSearchRootsChanged = false;
             isBMSDirectoryRemoved = false;
         }
         else
         {
-            workspacePort.InvalidateLibraryFolderCache();
+            searchRootRuntimePort.InvalidateLibraryFolderCache();
         }
     }
 

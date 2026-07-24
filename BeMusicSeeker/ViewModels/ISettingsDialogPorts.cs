@@ -36,19 +36,13 @@ internal interface ISettingsDialogWorkspacePort
     void SubscribePlaylistTableChanges(PropertyChangedEventHandler handler);
 
     void UnsubscribePlaylistTableChanges(PropertyChangedEventHandler handler);
-
-    void InvalidateLibraryFolderCache();
 }
 
 internal interface ISettingsDialogLibraryPort
 {
-    bool HasLibrary { get; }
-
     CustomFolderOutputSettingsSnapshot CustomFolderOutputSettings { get; }
 
     bool HasOwnedChartUnderRealPath(string directoryPath);
-
-    void SetSearchTargets(IReadOnlyList<string> searchTargets);
 
     void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true);
 
@@ -79,6 +73,15 @@ internal interface ISettingsDialogLibraryPort
         IReadOnlyDictionary<string, string> pendingRenames,
         CustomFolderOutputSettingsSnapshot settings);
 
+}
+
+internal interface ISettingsDialogSearchRootRuntimePort
+{
+    bool IsLibraryAttached { get; }
+
+    void ApplySearchTargets(IReadOnlyList<string> searchTargets);
+
+    void InvalidateLibraryFolderCache();
 }
 
 internal interface ISettingsDialogPlaybackPort

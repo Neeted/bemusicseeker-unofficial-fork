@@ -123,11 +123,15 @@ public sealed class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             int reloadCount = 0;
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            var runtime = new RecordingSearchRootRuntimePort(sequence);
             var dialog = new SettingsDialogViewModel(
                 owner,
                 owner,
                 owner,
+                runtime,
                 owner,
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
@@ -138,6 +142,7 @@ public sealed class SettingDialogEditCompletionTests
                 reloadFileDiff: () =>
                 {
                     reloadCount++;
+                    sequence.Add("reload");
                     return Task.CompletedTask;
                 },
                 schemaDialogs: dialogs);
@@ -152,6 +157,10 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(secondRoot, settings.BMSRootPath, settings.BMSRootPath ?? "(null)");
             Assert.AreEqual(1, settingsSession.SaveCount);
             Assert.AreEqual(1, reloadCount);
+            CollectionAssert.AreEqual(new[] { "save", "apply", "reload" }, sequence);
+            CollectionAssert.AreEqual(
+                new[] { secondRoot },
+                runtime.LastSearchTargets.ToArray());
         }
         finally
         {
@@ -177,6 +186,7 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner,
                 owner,
+                owner.LibraryFolderTree,
                 owner,
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
@@ -216,6 +226,7 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner,
                 owner,
+                owner.LibraryFolderTree,
                 owner,
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
@@ -254,6 +265,7 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner,
                 owner,
+                owner.LibraryFolderTree,
                 owner,
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
@@ -316,6 +328,7 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner,
                 owner,
+                owner.LibraryFolderTree,
                 owner,
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
@@ -370,6 +383,7 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner,
                 owner,
+                owner.LibraryFolderTree,
                 owner,
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
@@ -433,6 +447,7 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 owner,
                 owner,
+                owner.LibraryFolderTree,
                 owner,
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
@@ -539,6 +554,7 @@ public sealed class SettingDialogEditCompletionTests
                 viewModel,
                 viewModel,
                 viewModel,
+                viewModel.LibraryFolderTree,
                 viewModel,
                 viewModel.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
@@ -1534,6 +1550,31 @@ public sealed class SettingDialogEditCompletionTests
 
         public void NotifySettingsChanged()
         {
+        }
+    }
+
+    private sealed class RecordingSearchRootRuntimePort : ISettingsDialogSearchRootRuntimePort
+    {
+        private readonly IList<string> sequence;
+
+        internal RecordingSearchRootRuntimePort(IList<string> sequence)
+        {
+            this.sequence = sequence;
+        }
+
+        public bool IsLibraryAttached => true;
+
+        internal IReadOnlyList<string> LastSearchTargets { get; private set; } = [];
+
+        public void ApplySearchTargets(IReadOnlyList<string> searchTargets)
+        {
+            LastSearchTargets = [.. (searchTargets ?? [])];
+            sequence.Add("apply");
+        }
+
+        public void InvalidateLibraryFolderCache()
+        {
+            sequence.Add("invalidate");
         }
     }
 

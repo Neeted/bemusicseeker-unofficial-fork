@@ -188,8 +188,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     private BMSPlaylist tables;
 
-    bool ISettingsDialogLibraryPort.HasLibrary => files != null;
-
     CustomFolderOutputSettingsSnapshot ISettingsDialogLibraryPort.CustomFolderOutputSettings
         => customFolderOutputSettingsProvider();
 
@@ -231,19 +229,8 @@ public partial class MainWindowViewModel : ViewModel,
     void ISettingsDialogWorkspacePort.UnsubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
         => PlaylistWorkspace.PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
 
-    void ISettingsDialogWorkspacePort.InvalidateLibraryFolderCache()
-        => LibraryFolderTree.InvalidateLibraryFolderCache();
-
     bool ISettingsDialogLibraryPort.HasOwnedChartUnderRealPath(string directoryPath)
         => files?.HasOwnedChartUnderRealPath(directoryPath) == true;
-
-    void ISettingsDialogLibraryPort.SetSearchTargets(IReadOnlyList<string> searchTargets)
-    {
-        if (files != null)
-        {
-            files.SearchTargets = [.. (searchTargets ?? [])];
-        }
-    }
 
     bool ISettingsDialogStatePort.IsFirstStartup => IsFirstStartup;
 
@@ -3174,6 +3161,7 @@ public partial class MainWindowViewModel : ViewModel,
             statePort: this,
             workspacePort: this,
             libraryPort: this,
+            searchRootRuntimePort: LibraryFolderTree,
             playbackPort: this,
             lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
             initializeOwner: () => applicationComposition.InitializeOwner(this),

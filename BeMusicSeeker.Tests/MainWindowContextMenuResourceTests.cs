@@ -2595,8 +2595,8 @@ public sealed class MainWindowContextMenuResourceTests
             "private async Task<Lr2SongDbSyncPreparedDataSurface> ReOutputAllCustomFoldersForLr2SongDbSyncCoreAsync",
             "private List<CustomFolderDefinition> BuildCustomFolderDefinitions(");
 
-        StringAssert.Contains(runtimeSync, "libraryPort.SetSearchTargets(lr2config.GetBMSSearchDirectories());");
-        StringAssert.Contains(runtimeSync, "libraryPort.SetSearchTargets(GetStandaloneBmsRootPathsForCurrentSession());");
+        StringAssert.Contains(runtimeSync, "searchRootRuntimePort.ApplySearchTargets(lr2config.GetBMSSearchDirectories());");
+        StringAssert.Contains(runtimeSync, "searchRootRuntimePort.ApplySearchTargets(GetStandaloneBmsRootPathsForCurrentSession());");
         StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("await ReloadFileDiffAsync();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");

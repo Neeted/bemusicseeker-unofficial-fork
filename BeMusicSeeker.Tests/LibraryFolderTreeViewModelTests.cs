@@ -159,6 +159,7 @@ public sealed class LibraryFolderTreeViewModelTests
             owner.CacheRefreshRequested += (_, _) => cacheRefreshRequests++;
 
             owner.AttachLibrary(library);
+            Assert.IsTrue(owner.IsLibraryAttached);
             Assert.AreEqual(0, parentFolderPropertyChanges);
             CollectionAssert.AreEqual(
                 new[] { secondRoot, firstRoot },
@@ -167,7 +168,10 @@ public sealed class LibraryFolderTreeViewModelTests
             cacheRefreshRequests = 0;
 
             int propertyChangesBeforeInvalidation = parentFolderPropertyChanges;
-            library.SearchTargets = [replacementRoot, secondRoot];
+            owner.ApplySearchTargets([replacementRoot, secondRoot]);
+            CollectionAssert.AreEqual(
+                new[] { replacementRoot, secondRoot },
+                library.SearchTargets.ToArray());
             owner.InvalidateLibraryFolderCache();
 
             CollectionAssert.AreEqual(
@@ -183,6 +187,23 @@ public sealed class LibraryFolderTreeViewModelTests
                 Directory.Delete(tempRootPath, recursive: true);
             }
         }
+    }
+
+    [TestMethod]
+    public void DetachedLibrary_SearchRootRuntimeIsNoOp()
+    {
+        var owner = new LibraryFolderTreeViewModel(
+            _ => true,
+            _ => new ExplorerOpenResult(),
+            () => Dispatcher.CurrentDispatcher);
+        int refreshRequests = 0;
+        owner.CacheRefreshRequested += (_, _) => refreshRequests++;
+
+        Assert.IsFalse(owner.IsLibraryAttached);
+        owner.ApplySearchTargets(["detached"]);
+        owner.InvalidateLibraryFolderCache();
+
+        Assert.AreEqual(0, refreshRequests);
     }
 
     [TestMethod]
