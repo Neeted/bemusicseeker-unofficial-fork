@@ -73,10 +73,12 @@ public sealed class ShellShutdownWorkflowOwnerTests
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, settingsEditSession: settingsSession);
 
         await owner.RequestWindowCloseAsync();
+        viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
         owner.CompleteTerminalShutdown();
         owner.CompleteTerminalShutdown();
 
         Assert.AreEqual(1, settingsSession.SaveCount);
+        Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
     }
 
     [TestMethod]
@@ -404,7 +406,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             settingsEditSession
                 ?? GetPrivateField<ApplicationComposition>(viewModel, "applicationComposition").SettingsEditSession,
             new SemaphoreSlim(1, 1),
-            viewModel.SetStartupUiInteractionBlocked,
+            viewModel.ProgressHub.StartupProgress,
             markShutdown ?? (_ => { }),
             dispatch ?? (action => action()),
             logShutdown ?? (_ => { }),

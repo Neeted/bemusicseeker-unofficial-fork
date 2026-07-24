@@ -9,7 +9,6 @@ internal static class TestStartupProgressOwnerFactory
         return new StartupProgressWorkflowOwner(
             () => new StartupProgressVersionSnapshot(),
             (_, _) => { },
-            () => { },
             action => action(),
             _ => { },
             _ => { },

@@ -35,6 +35,39 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupProgress_InteractionBlockPublishesOnlyForStateTransitions()
+    {
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
+        var changedProperties = new List<string>();
+        owner.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+        owner.SetStartupUiInteractionBlocked(true);
+        owner.SetStartupUiInteractionBlocked(true);
+        owner.SetStartupUiInteractionBlocked(false);
+        owner.SetStartupUiInteractionBlocked(false);
+
+        Assert.IsFalse(owner.IsStartupUiInteractionBlocked);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                nameof(StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked),
+                nameof(StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked)
+            },
+            changedProperties);
+    }
+
+    [TestMethod]
+    public void StartupProgress_FailureClearsInteractionBlockBeforeActiveOperationCheck()
+    {
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
+        owner.SetStartupUiInteractionBlocked(true);
+
+        owner.FailStartupProgressOperation("startup failed before operation");
+
+        Assert.IsFalse(owner.IsStartupUiInteractionBlocked);
+    }
+
+    [TestMethod]
     public void StartupProgress_ScoreOnlyCompletesThroughRuntimeRoutes()
     {
         StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.ScoreOnly);
@@ -88,7 +121,6 @@ public sealed class MainWindowViewModelStartupProgressTests
                 observedCallbackToken = operationToken;
                 observedToken = owner.GetActiveStartupProgressOperationToken();
             },
-            () => { },
             action => action(),
             _ => { },
             _ => { },

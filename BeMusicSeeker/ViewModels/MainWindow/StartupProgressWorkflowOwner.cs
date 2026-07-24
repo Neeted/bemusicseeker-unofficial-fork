@@ -31,7 +31,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
 {
     private readonly Func<StartupProgressVersionSnapshot> versionSnapshotProvider;
     private readonly Action<StartupProgressOperationKind, long> prepareOperation;
-    private readonly Action operationFailure;
     private readonly Action<Action> dispatch;
     private readonly Action<string> log;
     private readonly Action<long> startupInitializationCompleted;
@@ -42,6 +41,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     private StartupProgressState startupProgressState = new();
     private long startupProgressOperationTokenSeed;
     private bool isActive;
+
+    private bool isStartupUiInteractionBlocked;
     private string label = string.Empty;
     private string subLabel = string.Empty;
     private double progressValue;
@@ -50,7 +51,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     internal StartupProgressWorkflowOwner(
         Func<StartupProgressVersionSnapshot> versionSnapshotProvider,
         Action<StartupProgressOperationKind, long> prepareOperation,
-        Action operationFailure,
         Action<Action> dispatch,
         Action<string> log,
         Action<long> startupInitializationCompleted,
@@ -60,7 +60,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     {
         this.versionSnapshotProvider = versionSnapshotProvider ?? throw new ArgumentNullException(nameof(versionSnapshotProvider));
         this.prepareOperation = prepareOperation ?? throw new ArgumentNullException(nameof(prepareOperation));
-        this.operationFailure = operationFailure ?? throw new ArgumentNullException(nameof(operationFailure));
         this.dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.startupInitializationCompleted = startupInitializationCompleted
@@ -96,6 +95,37 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     {
         get => progressMaximum;
         private set => SetValue(ref progressMaximum, Math.Max(1.0, value), nameof(Maximum));
+    }
+
+    /// <summary>
+    /// Gets whether startup or terminal shutdown currently blocks shell interaction.
+    /// </summary>
+    public bool IsStartupUiInteractionBlocked
+    {
+        get
+        {
+            lock (startupProgressLock)
+            {
+                return isStartupUiInteractionBlocked;
+            }
+        }
+    }
+
+    internal void SetStartupUiInteractionBlocked(bool value)
+    {
+        bool changed;
+        lock (startupProgressLock)
+        {
+            changed = isStartupUiInteractionBlocked != value;
+            if (changed)
+            {
+                isStartupUiInteractionBlocked = value;
+            }
+        }
+        if (changed)
+        {
+            RaiseStartupProgressPropertyChanged(nameof(IsStartupUiInteractionBlocked));
+        }
     }
     internal bool IsOperationActive
     {
@@ -243,7 +273,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     /// <param name="subLabel">失敗時に表示する補足文言。</param>
     internal void FailStartupProgressOperation(string subLabel)
     {
-        operationFailure?.Invoke();
+        SetStartupUiInteractionBlocked(false);
         lock (startupProgressLock)
         {
             if (!startupProgressState.IsActive)

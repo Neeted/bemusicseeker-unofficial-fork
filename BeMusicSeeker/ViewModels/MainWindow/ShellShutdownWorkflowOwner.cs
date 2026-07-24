@@ -110,7 +110,7 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private readonly SemaphoreSlim mainOperationSemaphore;
 
-    private readonly Action<bool> setStartupUiInteractionBlocked;
+    private readonly StartupProgressWorkflowOwner startupProgressWorkflowOwner;
 
     private readonly Action<string> markCoordinatedShutdownStarted;
 
@@ -167,7 +167,7 @@ internal sealed class ShellShutdownWorkflowOwner
         PlaybackPanelViewModel playbackPanel,
         ISettingsEditSession settingsEditSession,
         SemaphoreSlim mainOperationSemaphore,
-        Action<bool> setStartupUiInteractionBlocked,
+        StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<string> markCoordinatedShutdownStarted,
         Func<Func<Task>, Task> dispatchToUi,
         Action<string> logShutdown,
@@ -187,7 +187,7 @@ internal sealed class ShellShutdownWorkflowOwner
         this.playbackPanel = playbackPanel ?? throw new ArgumentNullException(nameof(playbackPanel));
         this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
         this.mainOperationSemaphore = mainOperationSemaphore ?? throw new ArgumentNullException(nameof(mainOperationSemaphore));
-        this.setStartupUiInteractionBlocked = setStartupUiInteractionBlocked ?? throw new ArgumentNullException(nameof(setStartupUiInteractionBlocked));
+        this.startupProgressWorkflowOwner = startupProgressWorkflowOwner ?? throw new ArgumentNullException(nameof(startupProgressWorkflowOwner));
         this.markCoordinatedShutdownStarted = markCoordinatedShutdownStarted ?? throw new ArgumentNullException(nameof(markCoordinatedShutdownStarted));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logShutdown = logShutdown ?? throw new ArgumentNullException(nameof(logShutdown));
@@ -246,6 +246,7 @@ internal sealed class ShellShutdownWorkflowOwner
             }
             terminalResourcesClosed = true;
         }
+        TryShutdownStep("set_ui_unblocked", () => startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false));
         try
         {
             settingsEditSession.Save();
@@ -633,7 +634,7 @@ internal sealed class ShellShutdownWorkflowOwner
         var stopwatch = Stopwatch.StartNew();
         logShutdown("prepare_start reason=" + formatTextForLog(reason));
         int sqliteCloseFailureBaseline = ShutdownOperationTracker.SqliteCloseFailureCount;
-        TryShutdownStep("set_ui_blocked", () => setStartupUiInteractionBlocked(true));
+        TryShutdownStep("set_ui_blocked", () => startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true));
 
         ShutdownPreparationResult result = await CollectShutdownPreparationResultAsync(
             reason,

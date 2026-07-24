@@ -4,7 +4,7 @@
 
 ステータスバーの初期化・ライブラリリロード進捗は、`StartupProgressPhase` の `ExpectedPhases` と `CompletedPhases` から算出される。
 
-現状は、初期化開始時点では最小限のフェーズだけを `ExpectedPhases` に入れ、deferred 処理が実際に要求されたタイミングで待機対象を追加している。このため、途中で `StartupProgressMaximum` が増え、`StartupProgressValue` が減っていなくてもゲージの比率が下がって見えることがある。
+現状は、初期化開始時点では最小限のフェーズだけを `ExpectedPhases` に入れ、deferred 処理が実際に要求されたタイミングで待機対象を追加している。このため、途中で `StartupProgress.Maximum` が増え、`StartupProgress.Value` が減っていなくてもゲージの比率が下がって見えることがある。
 
 今後は、各 operation で発生し得るフェーズを開始時点で `ExpectedPhases` に入れ、不要・未発生・スキップが確定したフェーズは即座に完了扱いにする方針へ寄せる。これにより、ゲージの分母を operation 中に増やさず、見た目の巻き戻りを避ける。
 
@@ -14,17 +14,17 @@
 
 UI は `MainWindow.xaml` のステータスバーで以下に binding されている。
 
-- `IsStartupProgressActive`
-- `StartupProgressLabel`
-- `StartupProgressSubLabel`
-- `StartupProgressValue`
-- `StartupProgressMaximum`
+- `ProgressHub.StartupProgress.IsActive`
+- `ProgressHub.StartupProgress.Label`
+- `ProgressHub.StartupProgress.SubLabel`
+- `ProgressHub.StartupProgress.Value`
+- `ProgressHub.StartupProgress.Maximum`
 
-`MainWindowViewModel.RecomputeStartupProgressPresentation()` は次の考え方で値を作る。
+`StartupProgressWorkflowOwner.RecomputeStartupProgressPresentation()` は次の考え方で値を作る。
 
 ```text
-StartupProgressMaximum = ExpectedPhases に含まれるフェーズ数
-StartupProgressValue   = ExpectedPhases かつ CompletedPhases に含まれるフェーズ数
+StartupProgress.Maximum = ExpectedPhases に含まれるフェーズ数
+StartupProgress.Value   = ExpectedPhases かつ CompletedPhases に含まれるフェーズ数
 ```
 
 完了処理は `CompletedPhases |= phase` のため、完了済みフェーズ自体は基本的に減らない。巻き戻りの主因は `ExpectedPhases` が後から増えることにある。
@@ -120,7 +120,7 @@ UI 準備後:     Completed 3 / Expected 4
 deferred 追加: Completed 3 / Expected 10
 ```
 
-この場合、`StartupProgressValue` は 3 のままだが、`StartupProgressMaximum` が 4 から 10 に増えるため、ProgressBar の見た目は後退する。
+この場合、`StartupProgress.Value` は 3 のままだが、`StartupProgress.Maximum` が 4 から 10 に増えるため、ProgressBar の見た目は後退する。
 
 ### サブラベルの表示対象も後から変わる
 
@@ -356,11 +356,11 @@ Startup / ReloadTables の callback 付き external sync は `ReplaceReferenceBM
 
 ## テスト方針
 
-- `StartStartupProgressOperation(Startup)` 直後の `StartupProgressMaximum` が、Startup で想定する全フェーズ数になること。
-- `ReloadFiles` / `ReloadTables` 直後の `StartupProgressMaximum` が、それぞれの想定フェーズ数になること。
-- deferred request 発生時に `StartupProgressMaximum` が増えないこと。
-- request なしフェーズを skip 完了すると `StartupProgressValue` が増えること。
-- chart_info backfill / digest backfill / score hydration / ranking refresh / maintenance deferred の完了順が前後しても `StartupProgressValue` が減らないこと。
+- `StartStartupProgressOperation(Startup)` 直後の `StartupProgress.Maximum` が、Startup で想定する全フェーズ数になること。
+- `ReloadFiles` / `ReloadTables` 直後の `StartupProgress.Maximum` が、それぞれの想定フェーズ数になること。
+- deferred request 発生時に `StartupProgress.Maximum` が増えないこと。
+- request なしフェーズを skip 完了すると `StartupProgress.Value` が増えること。
+- chart_info backfill / digest backfill / score hydration / ranking refresh / maintenance deferred の完了順が前後しても `StartupProgress.Value` が減らないこと。
 - operation token が変わった後、古い Dispatcher 反映が UI 値を上書きしないこと。
 - `ReloadFiles` 後に playlist reference が request された場合でも、分母が増えず、完了時に value だけ進むこと。
 - `ReloadTables` 後に external sync が request された場合でも、分母が増えず、完了時に value だけ進むこと。

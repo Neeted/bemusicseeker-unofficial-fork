@@ -208,6 +208,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
+    private StartupProgressWorkflowOwner _startupInitialSelectionReadyOwner;
+
     private bool windowStateCapturedForClosing;
 
     /// <summary>
@@ -868,31 +870,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel viewModel && viewModel.IsStartupUiInteractionBlocked)
+        if (base.DataContext is MainWindowViewModel viewModel
+            && viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked)
         {
-            QueueStartupInitialSelectionUntilOperable(viewModel);
+            QueueStartupInitialSelectionUntilOperable(viewModel.ProgressHub.StartupProgress);
             return;
         }
         ApplyStartupInitialSelectionNow();
     }
 
-    private void QueueStartupInitialSelectionUntilOperable(MainWindowViewModel viewModel)
+    private void QueueStartupInitialSelectionUntilOperable(StartupProgressWorkflowOwner startupProgress)
     {
         if (_startupInitialSelectionReadyHandler != null)
         {
             return;
         }
+        _startupInitialSelectionReadyOwner = startupProgress;
         _startupInitialSelectionReadyHandler = delegate (object _, PropertyChangedEventArgs args)
         {
-            if (args == null || args.PropertyName != "IsStartupUiInteractionBlocked" || viewModel.IsStartupUiInteractionBlocked)
+            if (args == null
+                || args.PropertyName != nameof(StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked)
+                || startupProgress.IsStartupUiInteractionBlocked)
             {
                 return;
             }
-            viewModel.PropertyChanged -= _startupInitialSelectionReadyHandler;
+            startupProgress.PropertyChanged -= _startupInitialSelectionReadyHandler;
             _startupInitialSelectionReadyHandler = null;
+            _startupInitialSelectionReadyOwner = null;
             ApplyStartupInitialSelectionNow();
         };
-        viewModel.PropertyChanged += _startupInitialSelectionReadyHandler;
+        startupProgress.PropertyChanged += _startupInitialSelectionReadyHandler;
     }
 
     private void ApplyStartupInitialSelectionNow()
@@ -1111,16 +1118,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         var viewModel = closingViewModel;
-        if (viewModel != null && _startupInitialSelectionReadyHandler != null)
+        if (_startupInitialSelectionReadyOwner != null && _startupInitialSelectionReadyHandler != null)
         {
-            viewModel.PropertyChanged -= _startupInitialSelectionReadyHandler;
+            _startupInitialSelectionReadyOwner.PropertyChanged -= _startupInitialSelectionReadyHandler;
             _startupInitialSelectionReadyHandler = null;
+            _startupInitialSelectionReadyOwner = null;
         }
         if (viewModel != null)
         {
             viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested -= MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
         }
-        viewModel?.SetStartupUiInteractionBlocked(false);
         CancelRelatedDocumentRequest();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
         base.OnClosing(e);
@@ -1172,7 +1179,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             LogStartupUiBlocked(action, "closing");
             return true;
         }
-        if (base.DataContext is MainWindowViewModel viewModel && viewModel.IsStartupUiInteractionBlocked)
+        if (base.DataContext is MainWindowViewModel viewModel
+            && viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked)
         {
             LogStartupUiBlocked(action, "startup");
             return true;

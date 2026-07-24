@@ -256,21 +256,21 @@ metadata 同梱版の説明は短くする。
 
 ただし、起動初期化中にアプリを閉じると危険なため、更新適用による終了 / 再起動は安全に閉じられる状態になるまで許可しない。
 
-`CanApplyUpdateNow` は、ステータスバーの起動・リロード進捗ゲージが消えるタイミングと揃える。実装上は `MainWindowViewModel.IsStartupProgressActive == false` を基本条件にする。
+`CanApplyUpdateNow` は、ステータスバーの起動・リロード進捗ゲージが消えるタイミングと揃える。実装上は `ProgressHub.StartupProgress.IsActive == false`（canonical owner は `StartupProgressWorkflowOwner`）を基本条件にする。
 
-この境界は `StartupReadyOperable` ではない。`StartupReadyOperable` 到達時点では `IsStartupUiInteractionBlocked` が false になり通常操作は可能になるが、`StartupBackgroundTasksDone` などの expected background phase が残っている場合は進捗ゲージが `操作可能(バックグラウンド更新中)` として継続する。更新適用は process exit を伴うため、通常操作可能化より強く、進捗 operation 全体が完了してゲージが非表示になってから許可する。
+この境界は `StartupReadyOperable` ではない。`StartupReadyOperable` 到達時点では `StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked` が false になり通常操作は可能になるが、`StartupBackgroundTasksDone` などの expected background phase が残っている場合は進捗ゲージが `操作可能(バックグラウンド更新中)` として継続する。更新適用は process exit を伴うため、通常操作可能化より強く、進捗 operation 全体が完了してゲージが非表示になってから許可する。
 
-現行実装では、全 expected phase 完了後に完了ラベルを表示し、`ScheduleStartupProgressHide()` が約 2 秒後に progress state を clear して `IsStartupProgressActive=false` を反映する。ユーザーが見る「ゲージが消えるタイミング」はこの反映後である。
+現行実装では、全 expected phase 完了後に完了ラベルを表示し、`ScheduleStartupProgressHide()` が約 2 秒後に progress state を clear して `StartupProgressWorkflowOwner.IsActive=false` を反映する。ユーザーが見る「ゲージが消えるタイミング」はこの反映後である。
 
 初回実装方針:
 
 - `update.json` の確認と「更新があります」の表示は早期に行う。
-- `IsStartupProgressActive=true` の間は `今すぐ更新して再起動` を disabled にする、または `起動完了後に適用` として予約する。
-- `IsStartupProgressActive=false` になった後に `CanApplyUpdateNow` 相当の状態を true にし、更新適用ボタンを有効化する。
+- `ProgressHub.StartupProgress.IsActive=true` の間は `今すぐ更新して再起動` を disabled にする、または `起動完了後に適用` として予約する。
+- `ProgressHub.StartupProgress.IsActive=false` になった後に `CanApplyUpdateNow` 相当の状態を true にし、更新適用ボタンを有効化する。
 - ダウンロードだけ先に許可するかは UI 実装時に決める。閉じる処理だけは必ず gate する。
-- `IsStartupUiInteractionBlocked=false` は通常操作可能の境界として扱い、更新適用可能の境界には使わない。
-- `IsLibraryOperationInProgress` は `_IsStartupUiInteractionBlocked || startupProgressState.IsActive` 相当なので広い gate としては使えるが、UI の進捗ゲージ消滅と一致させる主条件は `IsStartupProgressActive=false` にする。
-- `ReloadFileDiff` / `ScoreOnly` / `FullReinitialize` / `ReloadTables` など起動後 operation 中も `IsStartupProgressActive=true` になるため、同じ gate で更新適用を止める。
+- `StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked=false` は通常操作可能の境界として扱い、更新適用可能の境界には使わない。
+- `IsLibraryOperationInProgress` は `StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked || StartupProgressWorkflowOwner.IsActive` 相当なので広い gate としては使えるが、UI の進捗ゲージ消滅と一致させる主条件は `ProgressHub.StartupProgress.IsActive=false` にする。
+- `ReloadFileDiff` / `ScoreOnly` / `FullReinitialize` / `ReloadTables` など起動後 operation 中も `ProgressHub.StartupProgress.IsActive=true` になるため、同じ gate で更新適用を止める。
 - 起動失敗やリロード失敗で progress state が failed 表示のまま残る場合は、自動適用は許可せず、release page を開く手動導線だけを残す。
 
 ## Update Apply Model
@@ -473,7 +473,7 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
 - [ ] Unit 3: Update Notification UI
   - [ ] 通常版 / metadata 同梱版を選べる更新通知 UI がある。
   - [ ] release page を開ける。
-  - [ ] update dialog view model の `CanApplyUpdateNow` が `!IsStartupProgressActive` に連動する。
+  - [ ] update dialog view model の `CanApplyUpdateNow` が `!ProgressHub.StartupProgress.IsActive` に連動する。
   - [ ] progress failed / reload 中は自動適用しない。
 - [ ] Unit 4: Download And Verify
   - [ ] asset download がある。
@@ -567,8 +567,8 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
 - asset が 1 件しかない場合は選べる項目を 1 件にする。
 - release page をブラウザで開けるようにする。
 - 初回実装では自動ダウンロード開始は行わず、ユーザー選択後に開始する。
-- `IsStartupProgressActive=true` の間は更新適用による終了 / 再起動を gate する。
-- `CanApplyUpdateNow` は update dialog view model 側の derived state とする。`MainWindowViewModel` には永続的な更新用 state を増やさず、dialog view model が owner `MainWindowViewModel.IsStartupProgressActive` の property change を購読して `!IsStartupProgressActive` を反映する。
+- `ProgressHub.StartupProgress.IsActive=true` の間は更新適用による終了 / 再起動を gate する。
+- `CanApplyUpdateNow` は update dialog view model 側の derived state とする。`MainWindowViewModel` には永続的な更新用 state を増やさず、dialog view model が `ProgressHub.StartupProgress` の property change を購読して `!ProgressHub.StartupProgress.IsActive` を反映する。
 - 起動完了待ちの予約が必要な場合は update dialog view model 側に `IsUpdateApplyReserved` を持たせ、`CanApplyUpdateNow` が true になった時点でユーザー確認または適用開始へ進む。
 
 検証:
@@ -577,7 +577,7 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
 - metadata 同梱版が manifest にない場合でも UI が破綻しない。
 - dialog を閉じた場合は何も変更しない。
 - `StartupReadyOperable` 到達後でも起動進捗ゲージが残っている間は更新適用を開始できない。
-- 起動進捗ゲージが消え、`IsStartupProgressActive=false` になった後に更新適用を開始できる。
+- 起動進捗ゲージが消え、`ProgressHub.StartupProgress.IsActive=false` になった後に更新適用を開始できる。
 - リロード / 再初期化 progress 中は更新適用を開始できない。
 - progress failed 表示中は自動適用ではなく手動導線になる。
 
@@ -697,14 +697,14 @@ scripts\Test-PortableUpdate.ps1
 
 - `update.json` は raw GitHub のみを正とする。
 - 更新確認と通知表示は起動後すぐ非同期に行う。
-- 更新適用による終了 / 再起動は `IsStartupProgressActive=false`、つまり起動・リロード進捗ゲージが消えるまで gate する。
+- 更新適用による終了 / 再起動は `ProgressHub.StartupProgress.IsActive=false`、つまり起動・リロード進捗ゲージが消えるまで gate する。
 - ダウンロード済み zip は更新成功後に削除する。
 - backup は 1 世代だけ保持する。
 - 更新チェックは `update.json` 専用とし、`update.json` が壊れている場合は更新チェック失敗として扱う。
 - draft release 作成時は release commit に tag を打ち、tag だけ push する。公開時は draft release を publish してから public default branch を push し、remote default branch が release commit を指すことを確認する。
 - updater は `update_work/current/` へコピーしたものを実行する。
 - local update verification 用 override は command-line switch `--update-manifest-url` のみにする。
-- `CanApplyUpdateNow` は update dialog view model 側の derived state とし、`!IsStartupProgressActive` を基本条件にする。
+- `CanApplyUpdateNow` は update dialog view model 側の derived state とし、`!ProgressHub.StartupProgress.IsActive` を基本条件にする。
 
 残り:
 

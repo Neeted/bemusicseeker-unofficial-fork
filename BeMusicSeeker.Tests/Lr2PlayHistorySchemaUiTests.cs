@@ -154,7 +154,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             owner.Lr2SongDbSyncWorkflow,
             settingsEditSession: SettingsEditSession.CreateDefault(),
             schemaDialogs: dialogs);
-        owner.SetStartupUiInteractionBlocked(true);
+        owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
         try
         {
             await settingDialog.InstallOrRepairLr2PlayHistorySchemaAsync();
@@ -165,7 +165,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         }
         finally
         {
-            owner.SetStartupUiInteractionBlocked(false);
+            owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
         }
     }
 

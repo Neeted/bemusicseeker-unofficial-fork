@@ -20,8 +20,8 @@
 ## 計算モデル
 
 ```text
-StartupProgressMaximum = ExpectedPhases に含まれる phase 数
-StartupProgressValue   = ExpectedPhases かつ CompletedPhases に含まれる phase 数
+StartupProgress.Maximum = ExpectedPhases に含まれる phase 数
+StartupProgress.Value   = ExpectedPhases かつ CompletedPhases に含まれる phase 数
 ```
 
 `ExpectedPhases` は `Startup` / `ReloadFileDiff` / `ScoreOnly` / `FullReinitialize` / `ReloadTables` の開始時に固定される。request 済みだが不要になった phase、または request されなかった phase は `SkippedPhases` と `CompletedPhases` に入る。

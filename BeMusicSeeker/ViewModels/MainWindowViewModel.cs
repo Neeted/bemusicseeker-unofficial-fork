@@ -573,8 +573,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly StartupProgressWorkflowOwner startupProgressWorkflowOwner;
 
-    private bool _IsStartupUiInteractionBlocked;
-
     private MainViewUpdateMode treeViewFilterTypeSelected;
 
     private object treeViewFilterParameterSelected;
@@ -1562,7 +1560,7 @@ public partial class MainWindowViewModel : ViewModel,
         LogUiSuppression("startup_ready_operable elapsedMs=" + startupReadyOperableStopwatch.ElapsedMilliseconds);
         startupReadyOperableStopwatch = null;
         startupReadyOperableReached = true;
-        SetStartupUiInteractionBlocked(false);
+        startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
         startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
         startupBackgroundTaskScheduler.Start();
         startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
@@ -2705,31 +2703,11 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    public bool IsStartupUiInteractionBlocked
-    {
-        get
-        {
-            return _IsStartupUiInteractionBlocked;
-        }
-    }
-
-    internal void SetStartupUiInteractionBlocked(bool value)
-    {
-        if (_IsStartupUiInteractionBlocked == value)
-        {
-            return;
-        }
-        _IsStartupUiInteractionBlocked = value;
-        RaisePropertyChanged("IsStartupUiInteractionBlocked");
-        RaisePropertyChanged("IsLibraryOperationInProgress");
-        RaiseLibraryOperationAvailabilityChanged();
-    }
-
     public bool IsLibraryOperationInProgress
     {
         get
         {
-            return _IsStartupUiInteractionBlocked
+            return startupProgressWorkflowOwner.IsStartupUiInteractionBlocked
                 || (startupProgressWorkflowOwner.IsOperationActive
                     && (!startupProgressWorkflowOwner.IsFailed || !startupProgressWorkflowOwner.IsRetryableFailure))
                 || IsChartPackageMutationInProgress;
@@ -2840,7 +2818,6 @@ public partial class MainWindowViewModel : ViewModel,
         startupProgressWorkflowOwner = new StartupProgressWorkflowOwner(
             CaptureStartupProgressVersionSnapshot,
             PrepareStartupProgressOperation,
-            () => SetStartupUiInteractionBlocked(false),
             DispatchStartupProgressPresentation,
             LogUiSuppression,
             TryLogStartupInitializationComplete,
@@ -3077,7 +3054,7 @@ public partial class MainWindowViewModel : ViewModel,
             PlaybackPanel,
             applicationComposition.SettingsEditSession,
             _semaphore,
-            SetStartupUiInteractionBlocked,
+            startupProgressWorkflowOwner,
             App.MarkCoordinatedShutdownStarted,
             DispatchShellShutdownActionAsync,
             LogShutdown,
@@ -3495,7 +3472,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void StartupProgressWorkflowOwnerPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        if (e?.PropertyName == nameof(StartupProgressWorkflowOwner.IsOperationActive)
+        if (e?.PropertyName == nameof(StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked)
+            || e.PropertyName == nameof(StartupProgressWorkflowOwner.IsOperationActive)
             || e.PropertyName == nameof(StartupProgressWorkflowOwner.IsFailed)
             || e.PropertyName == nameof(StartupProgressWorkflowOwner.IsRetryableFailure))
         {
@@ -3936,7 +3914,7 @@ public partial class MainWindowViewModel : ViewModel,
     internal async Task<bool> InitializeAsync()
     {
         await _semaphore.WaitAsync();
-        SetStartupUiInteractionBlocked(true);
+        startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
         initializationCompleted = false;
         RaisePropertyChanged(() => IsInitializationCompleted);
@@ -3967,7 +3945,7 @@ public partial class MainWindowViewModel : ViewModel,
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
-            SetStartupUiInteractionBlocked(false);
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
             SettingDialog?.RequestOpen();
             return false;
         }
@@ -3977,7 +3955,7 @@ public partial class MainWindowViewModel : ViewModel,
             if (applicationComposition.IsFirstStartup)
             {
                 _semaphore.Release();
-                SetStartupUiInteractionBlocked(false);
+                startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
                 SettingDialog?.RequestInitialSetupLanguageDialog();
                 return false;
             }
@@ -3986,7 +3964,7 @@ public partial class MainWindowViewModel : ViewModel,
                 ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Startup settings validation notification");
             }
             _semaphore.Release();
-            SetStartupUiInteractionBlocked(false);
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
             SettingDialog?.RequestOpen();
             return false;
         }
@@ -3995,7 +3973,7 @@ public partial class MainWindowViewModel : ViewModel,
             if (startupSettings.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings))
             {
                 _semaphore.Release();
-                SetStartupUiInteractionBlocked(false);
+                startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
                 return false;
             }
         }
@@ -4006,7 +3984,7 @@ public partial class MainWindowViewModel : ViewModel,
             string text2 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
-            SetStartupUiInteractionBlocked(false);
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
             SettingDialog?.RequestOpen();
             return false;
         }
@@ -4067,7 +4045,7 @@ public partial class MainWindowViewModel : ViewModel,
             string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
-            SetStartupUiInteractionBlocked(false);
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
             SettingDialog?.RequestOpen();
             return false;
         }
@@ -4395,7 +4373,7 @@ public partial class MainWindowViewModel : ViewModel,
             string text4 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text4 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
-            SetStartupUiInteractionBlocked(false);
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
             SettingDialog?.RequestOpen();
             return false;
         }

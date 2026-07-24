@@ -35,7 +35,7 @@ startup_ui_blocked action=tree_pending_install_select reason=startup
 
 ## 短期対策
 
-- `MainWindowViewModel.IsStartupUiInteractionBlocked` を追加し、初期化開始から `startup_ready_operable` まで true にする。
+- `StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked` を起動進捗 owner の状態として持ち、初期化開始から `startup_ready_operable` まで true にする。
 - 起動完了前の DataGrid ヘッダー右クリック、行右クリック、ソート、TreeView 選択、行ダブルクリック、Enter 再生、URL セルクリック、セル編集をガードする。
 - ガード時は `e.Handled = true` または `e.Cancel = true` とし、処理本体に入らない。
 - DataGrid ヘッダー ContextMenu は `x:Shared="False"` にして、ヘッダー間で同じ ContextMenu インスタンスを共有しない。

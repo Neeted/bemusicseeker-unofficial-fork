@@ -956,9 +956,9 @@ public sealed class SettingDialogEditCompletionTests
             InvokePrivateMethod(dialog, "SetScoreReloadPending", false);
             Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
 
-            InvokePrivateMethod(viewModel, "SetStartupUiInteractionBlocked", true);
+            viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
             Assert.IsFalse(dialog.CanRequestLr2SongDbSyncDataResync);
-            InvokePrivateMethod(viewModel, "SetStartupUiInteractionBlocked", false);
+            viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
             Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
 
             changedProperties.Clear();
@@ -974,7 +974,7 @@ public sealed class SettingDialogEditCompletionTests
 
             changedProperties.Clear();
             dialog.Dispose();
-            InvokePrivateMethod(viewModel, "SetStartupUiInteractionBlocked", true);
+            viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
             CollectionAssert.DoesNotContain(
                 changedProperties,
                 nameof(dialog.CanRequestLr2SongDbSyncDataResync));
@@ -1351,7 +1351,7 @@ public sealed class SettingDialogEditCompletionTests
 
             Assert.IsFalse(initialized);
             CollectionAssert.AreEqual(new[] { "initial-setup" }, presentation.Requests);
-            Assert.IsFalse(viewModel.IsStartupUiInteractionBlocked);
+            Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
             Assert.IsFalse(viewModel.IsInitializationCompleted);
             Assert.IsFalse(viewModel.HasActiveLibraryProfile);
         }
