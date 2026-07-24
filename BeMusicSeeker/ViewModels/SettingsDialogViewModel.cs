@@ -75,6 +75,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsDialogStatePort statePort;
 
+    private readonly ISettingsDialogFirstStartupStatePort firstStartupStatePort;
+
     private readonly ISettingsDialogWorkspacePort workspacePort;
 
     private readonly ISettingsDialogCustomFolderOutputPort customFolderOutputPort;
@@ -317,7 +319,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 await SaveSettingsForInitialInitialize();
                 saveMs = saveStopwatch.ElapsedMilliseconds;
-                if (statePort.IsFirstStartup)
+                if (firstStartupStatePort.IsFirstStartup)
                 {
                     totalStopwatch.Stop();
                     ShowUiMessage(
@@ -3724,6 +3726,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     internal SettingsDialogViewModel(
         ISettingsDialogStatePort statePort,
+        ISettingsDialogFirstStartupStatePort firstStartupStatePort,
         ISettingsDialogWorkspacePort workspacePort,
         ISettingsDialogCustomFolderOutputPort customFolderOutputPort,
         ISettingsDialogPlayHistoryPort playHistoryPort,
@@ -3745,6 +3748,8 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         SettingsDialogViewModel settingDialogViewModel = this;
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
+        this.firstStartupStatePort = firstStartupStatePort
+            ?? throw new ArgumentNullException(nameof(firstStartupStatePort));
         this.workspacePort = workspacePort ?? throw new ArgumentNullException(nameof(workspacePort));
         this.customFolderOutputPort = customFolderOutputPort
             ?? throw new ArgumentNullException(nameof(customFolderOutputPort));

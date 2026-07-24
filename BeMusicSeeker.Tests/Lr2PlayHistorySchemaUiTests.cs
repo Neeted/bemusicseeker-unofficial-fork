@@ -81,6 +81,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         var dialogs = new RecordingUiDialogService();
         var settingDialog = new SettingsDialogViewModel(
             owner,
+            new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             owner.PlayHistory,
@@ -130,6 +131,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
             owner,
+            new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             playHistory,
@@ -196,6 +198,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
             owner,
+            new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             playHistory,
@@ -256,6 +259,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
             owner,
+            new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             playHistory,

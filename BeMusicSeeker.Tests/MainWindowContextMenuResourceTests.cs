@@ -3880,7 +3880,7 @@ public sealed class MainWindowContextMenuResourceTests
         string fileInitializeBlock = ExtractBetween(
             viewModelCode,
             "startupReadyDataReached = false;",
-            "if (firstStartupProvider())");
+            "if (applicationComposition.IsFirstStartup)");
 
         StringAssert.Contains(fileInitializeBlock, "files.InitializeStartup");
         StringAssert.Contains(fileInitializeBlock, "FailStartupProgressOperation(ex.Message);");

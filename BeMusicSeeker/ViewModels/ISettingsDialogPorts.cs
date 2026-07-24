@@ -10,8 +10,6 @@ internal interface ISettingsDialogStatePort
 {
     bool HasActiveLibraryProfile { get; }
 
-    bool IsFirstStartup { get; }
-
     bool IsLibraryOperationInProgress { get; }
 
     void MarkLibraryInitializationFailed();
@@ -19,6 +17,11 @@ internal interface ISettingsDialogStatePort
     void SubscribeStateChanges(PropertyChangedEventHandler handler);
 
     void UnsubscribeStateChanges(PropertyChangedEventHandler handler);
+}
+
+internal interface ISettingsDialogFirstStartupStatePort
+{
+    bool IsFirstStartup { get; }
 }
 
 internal interface ISettingsDialogWorkspacePort

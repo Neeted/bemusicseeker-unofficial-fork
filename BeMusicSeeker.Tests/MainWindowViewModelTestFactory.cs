@@ -25,6 +25,16 @@ internal static class MainWindowViewModelTestFactory
 
 }
 
+internal sealed class TestFirstStartupStatePort : ISettingsDialogFirstStartupStatePort
+{
+    internal TestFirstStartupStatePort(bool isFirstStartup = false)
+    {
+        IsFirstStartup = isFirstStartup;
+    }
+
+    public bool IsFirstStartup { get; }
+}
+
 internal sealed class RecordingSettingsDialogPresentationPort : ISettingDialogPresentationPort
 {
     private readonly Action<string>? observer;

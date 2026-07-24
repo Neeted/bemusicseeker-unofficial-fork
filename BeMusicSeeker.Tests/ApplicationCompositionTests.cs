@@ -389,9 +389,9 @@ public sealed class ApplicationCompositionTests
             },
             uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
-        Assert.IsTrue(composition.FirstStartupProvider());
+        Assert.IsTrue(composition.IsFirstStartup);
         composition.CompleteFirstStartup();
-        Assert.IsFalse(composition.FirstStartupProvider());
+        Assert.IsFalse(composition.IsFirstStartup);
         Assert.IsTrue(completed);
     }
 
@@ -1340,6 +1340,7 @@ public sealed class ApplicationCompositionTests
 
         SettingsDialogViewModel redisplayed = composition.CreateSettingDialogViewModel(
             viewModel,
+            composition,
             viewModel.PlaylistWorkspace,
             viewModel.PlaylistWorkspace,
             viewModel.PlayHistory,

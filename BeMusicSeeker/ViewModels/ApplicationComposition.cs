@@ -22,7 +22,7 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>
 /// アプリケーション起動時に ViewModel へ渡す production composition を構築します。
 /// </summary>
-internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
+internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort, ISettingsDialogFirstStartupStatePort
 {
     private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
 
@@ -151,9 +151,11 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     internal IMainChartColumnSettingsStore MainChartColumnSettingsStore => mainChartColumnSettingsStore;
 
-    internal Func<bool> FirstStartupProvider => firstStartupProvider;
+    bool ISettingsDialogFirstStartupStatePort.IsFirstStartup => firstStartupProvider();
 
-    internal Action CompleteFirstStartup => completeFirstStartup;
+    internal bool IsFirstStartup => firstStartupProvider();
+
+    internal void CompleteFirstStartup() => completeFirstStartup();
 
     internal Action ReloadSettings => reloadSettings;
 
@@ -288,6 +290,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     internal SettingsDialogViewModel CreateSettingDialogViewModel(
         ISettingsDialogStatePort statePort,
+        ISettingsDialogFirstStartupStatePort firstStartupStatePort,
         ISettingsDialogWorkspacePort workspacePort,
         ISettingsDialogCustomFolderOutputPort customFolderOutputPort,
         ISettingsDialogPlayHistoryPort playHistoryPort,
@@ -302,6 +305,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         IUiDialogService schemaDialogs = new UiDialogCoordinator();
         return new SettingsDialogViewModel(
             statePort,
+            firstStartupStatePort,
             workspacePort,
             customFolderOutputPort,
             playHistoryPort,

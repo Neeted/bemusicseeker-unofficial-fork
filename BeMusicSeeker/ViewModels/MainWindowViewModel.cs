@@ -175,8 +175,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     public bool HasActiveLibraryProfile => hasActiveLibraryProfile;
 
-    internal bool IsFirstStartup => firstStartupProvider();
-
     private bool bmsonMigrationApprovedForSession;
 
     private bool initialSetupCompletionMessagePending;
@@ -184,8 +182,6 @@ public partial class MainWindowViewModel : ViewModel,
     private BMSLibrary files;
 
     private BMSPlaylist tables;
-
-    bool ISettingsDialogStatePort.IsFirstStartup => IsFirstStartup;
 
     void ISettingsDialogStatePort.MarkLibraryInitializationFailed()
         => MarkLibraryInitializationFailed();
@@ -203,10 +199,6 @@ public partial class MainWindowViewModel : ViewModel,
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
-
-    private readonly Func<bool> firstStartupProvider;
-
-    private readonly Action completeFirstStartup;
 
     private readonly Action reloadSettings;
 
@@ -2841,8 +2833,6 @@ public partial class MainWindowViewModel : ViewModel,
             : MainViewUpdateMode.FolderFilterSelected;
         startupSettingsProvider = composition.StartupSettingsProvider;
         customFolderOutputSettingsProvider = composition.CustomFolderOutputSettingsProvider;
-        firstStartupProvider = composition.FirstStartupProvider;
-        completeFirstStartup = composition.CompleteFirstStartup;
         reloadSettings = composition.ReloadSettings;
         saveSettings = composition.SaveSettings;
         playHistoryDisplaySettingsStore = composition.PlayHistoryDisplaySettingsStore;
@@ -3083,6 +3073,7 @@ public partial class MainWindowViewModel : ViewModel,
             queueRefreshWhenSelectionChanges: false);
         SettingDialog = applicationComposition.CreateSettingDialogViewModel(
             statePort: this,
+            firstStartupStatePort: applicationComposition,
             workspacePort: PlaylistWorkspace,
             customFolderOutputPort: PlaylistWorkspace,
             playHistoryPort: PlayHistory,
@@ -3985,7 +3976,7 @@ public partial class MainWindowViewModel : ViewModel,
         if (!SettingDialog.CheckValidation(out string startupValidationErrorMessage))
         {
             NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + (startupValidationErrorMessage ?? string.Empty).Replace(Environment.NewLine, " | "));
-            if (firstStartupProvider())
+            if (applicationComposition.IsFirstStartup)
             {
                 _semaphore.Release();
                 SetStartupUiInteractionBlocked(false);
@@ -4416,9 +4407,9 @@ public partial class MainWindowViewModel : ViewModel,
             LogInitStage("ui_suppress_end_called", "Initialize");
             startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
         }
-        if (firstStartupProvider())
+        if (applicationComposition.IsFirstStartup)
         {
-            completeFirstStartup();
+            applicationComposition.CompleteFirstStartup();
             initialSetupCompletionMessagePending = true;
         }
         initializationCompleted = true;
