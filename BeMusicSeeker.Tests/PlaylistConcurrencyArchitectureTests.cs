@@ -578,13 +578,17 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(mainWindowSource.Contains("CreateSettingsDialogApplicationContext"));
         Assert.IsFalse(mainWindowSource.Contains("new SettingDialogViewModel(this)"));
         StringAssert.Contains(settingDialogSource, "await statePort.ReloadScoresOnlyAsync();");
+        StringAssert.Contains(settingDialogSource, "await statePort.ReloadFileDiffAsync();");
         Assert.IsFalse(settingDialogSource.Contains("reloadScoresOnly"));
+        Assert.IsFalse(settingDialogSource.Contains("reloadFileDiff"));
         StringAssert.Contains(compositionSource, "ISettingsEditSession settingsEditSession = null");
         StringAssert.Contains(compositionSource, "settingsEditSession,");
         Assert.IsFalse(compositionSource.Contains("Func<MainWindowViewModel, Task<bool>> initializeOwner"));
         Assert.IsFalse(compositionSource.Contains("Func<MainWindowViewModel, Task> reloadScoresOnly"));
+        Assert.IsFalse(compositionSource.Contains("Func<MainWindowViewModel, Task> reloadFileDiff"));
         StringAssert.Contains(mainWindowSource, "Task<bool> ISettingsDialogStatePort.InitializeLibraryAsync()");
         StringAssert.Contains(mainWindowSource, "Task ISettingsDialogStatePort.ReloadScoresOnlyAsync()");
+        StringAssert.Contains(mainWindowSource, "Task ISettingsDialogStatePort.ReloadFileDiffAsync()");
     }
 
     [TestMethod]

@@ -128,7 +128,15 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var runtime = new RecordingSearchRootRuntimePort(sequence);
             var dialog = new SettingsDialogViewModel(
-                owner,
+                new TestSettingsDialogStatePort(
+                    owner,
+                    () => Task.FromResult(true),
+                    reloadFileDiff: () =>
+                    {
+                        reloadCount++;
+                        sequence.Add("reload");
+                        return Task.CompletedTask;
+                    }),
                 new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -140,12 +148,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadFileDiff: () =>
-                {
-                    reloadCount++;
-                    sequence.Add("reload");
-                    return Task.CompletedTask;
-                },
                 schemaDialogs: dialogs);
 
             await dialog.RequestRemoveBmsSearchRootAsync(root);
@@ -184,7 +186,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
-                owner,
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
                 new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -196,7 +198,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
             await dialog.RequestRemoveBmsSearchRootAsync(root);
@@ -225,7 +226,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
-                owner,
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
                 new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -237,7 +238,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
             await dialog.RequestRemoveBmsSearchRootAsync(string.Empty);
@@ -265,7 +265,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
-                owner,
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
                 new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -277,7 +277,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
             Exception? exception = null;
@@ -342,7 +341,15 @@ public sealed class SettingDialogEditCompletionTests
                 }
             };
             var dialog = new SettingsDialogViewModel(
-                owner,
+                new TestSettingsDialogStatePort(
+                    owner,
+                    () => Task.FromResult(true),
+                    reloadFileDiff: () =>
+                    {
+                        reloadCount++;
+                        sequence.Add("reload");
+                        return Task.CompletedTask;
+                    }),
                 new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -354,12 +361,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadFileDiff: () =>
-                {
-                    reloadCount++;
-                    sequence.Add("reload");
-                    return Task.CompletedTask;
-                },
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
@@ -536,7 +537,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
-                owner,
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
                 new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -548,7 +549,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
             Exception? exception = null;
@@ -601,7 +601,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
-                owner,
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
                 new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -613,7 +613,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
@@ -919,7 +918,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadFileDiff: () => Task.CompletedTask,
                 audioDeviceTestWorkflow: workflow);
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
@@ -1550,10 +1548,9 @@ public sealed class SettingDialogEditCompletionTests
             saveSettings: settingsSession.Save,
             settingsEditSession: settingsSession,
             reportSettingsApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
-            reloadFileDiff: reloadFileDiff,
             uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-        if (initializeOwner != null || reloadScoresOnly != null)
+        if (initializeOwner != null || reloadScoresOnly != null || reloadFileDiff != null)
         {
             SettingsDialogViewModel testDialog = new(
                 new TestSettingsDialogStatePort(
@@ -1568,7 +1565,10 @@ public sealed class SettingDialogEditCompletionTests
                     },
                     reloadScoresOnly: reloadScoresOnly == null
                         ? () => Task.CompletedTask
-                        : () => reloadScoresOnly(viewModel)),
+                        : () => reloadScoresOnly(viewModel),
+                    reloadFileDiff: reloadFileDiff == null
+                        ? () => Task.CompletedTask
+                        : () => reloadFileDiff(viewModel)),
                 new TestFirstStartupStatePort(firstStartup),
                 viewModel.PlaylistWorkspace,
                 viewModel.PlaylistWorkspace,
@@ -1580,9 +1580,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadFileDiff: reloadFileDiff == null
-                    ? () => Task.CompletedTask
-                    : () => reloadFileDiff(viewModel),
                 reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }));
             typeof(MainWindowViewModel)
                 .GetProperty("SettingDialog", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
@@ -1608,7 +1605,10 @@ public sealed class SettingDialogEditCompletionTests
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         var dialog = new SettingsDialogViewModel(
-            owner,
+            new TestSettingsDialogStatePort(
+                owner,
+                () => Task.FromResult(true),
+                reloadFileDiff: reloadFileDiff),
             new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -1620,7 +1620,6 @@ public sealed class SettingDialogEditCompletionTests
             settingsSession.Reload,
             settingsSession.Save,
             settingsSession,
-            reloadFileDiff: reloadFileDiff,
             schemaDialogs: dialogs);
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
         config.AddBMSSearchDirectories([bmsRoot, otherRoot]);

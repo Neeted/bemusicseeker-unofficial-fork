@@ -189,6 +189,9 @@ public partial class MainWindowViewModel : ViewModel,
     Task ISettingsDialogStatePort.ReloadScoresOnlyAsync()
         => ReloadScoresOnlyAsync();
 
+    Task ISettingsDialogStatePort.ReloadFileDiffAsync()
+        => ReloadFileDiffAsync();
+
     void ISettingsDialogStatePort.SubscribeStateChanges(PropertyChangedEventHandler handler)
         => PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
 
@@ -3083,8 +3086,7 @@ public partial class MainWindowViewModel : ViewModel,
             searchRootRuntimePort: LibraryFolderTree,
             playerFactoryPort: applicationComposition,
             playbackRuntimePort: PlaybackPanel,
-            lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
-            reloadFileDiff: () => applicationComposition.ReloadFileDiff(this));
+            lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow);
     }
 
     private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs request)

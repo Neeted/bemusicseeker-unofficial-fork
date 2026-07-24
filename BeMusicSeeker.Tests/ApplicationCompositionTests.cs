@@ -1346,8 +1346,7 @@ public sealed class ApplicationCompositionTests
             viewModel.LibraryFolderTree,
             composition,
             viewModel.PlaybackPanel,
-            viewModel.Lr2SongDbSyncWorkflow,
-            reloadFileDiff: () => Task.CompletedTask);
+            viewModel.Lr2SongDbSyncWorkflow);
         Assert.IsFalse(redisplayed.OperationModeLR2DB);
         Assert.AreEqual(3, session.ReloadCount);
 

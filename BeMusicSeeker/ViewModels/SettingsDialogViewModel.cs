@@ -107,8 +107,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsEditSession settingsEditSession;
 
-    private readonly Func<Task> reloadFileDiff;
-
     private readonly Action<Exception> reportApplyFailure;
 
     private readonly IUiDialogService schemaDialogs;
@@ -408,7 +406,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         try
         {
-            await reloadFileDiff();
+            await statePort.ReloadFileDiffAsync();
             SetFileDiffReloadPending(false);
         }
         catch
@@ -3728,7 +3726,6 @@ public partial class SettingsDialogViewModel : ViewModel
         Action reloadSettings,
         Action saveSettings,
         ISettingsEditSession settingsEditSession,
-        Func<Task> reloadFileDiff,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         Action<Exception> reportApplyFailure = null,
         IUiDialogService schemaDialogs = null,
@@ -3750,7 +3747,6 @@ public partial class SettingsDialogViewModel : ViewModel
         this.reloadSettings = reloadSettings ?? throw new ArgumentNullException(nameof(reloadSettings));
         this.saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
         this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
-        this.reloadFileDiff = reloadFileDiff ?? throw new ArgumentNullException(nameof(reloadFileDiff));
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
         this.reportApplyFailure = reportApplyFailure

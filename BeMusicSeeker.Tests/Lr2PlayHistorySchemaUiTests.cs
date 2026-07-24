@@ -92,7 +92,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             reloadSettings: () => { },
             saveSettings: () => { },
             settingsEditSession: SettingsEditSession.CreateDefault(),
-            reloadFileDiff: () => Task.CompletedTask,
             schemaDialogs: dialogs);
         owner.SetStartupUiInteractionBlocked(true);
         try
@@ -148,7 +147,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
-                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
@@ -217,7 +215,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
-                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
@@ -280,7 +277,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
-                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);

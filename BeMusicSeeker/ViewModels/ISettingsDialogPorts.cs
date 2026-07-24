@@ -16,6 +16,8 @@ internal interface ISettingsDialogStatePort
 
     Task ReloadScoresOnlyAsync();
 
+    Task ReloadFileDiffAsync();
+
     void SubscribeStateChanges(PropertyChangedEventHandler handler);
 
     void UnsubscribeStateChanges(PropertyChangedEventHandler handler);
