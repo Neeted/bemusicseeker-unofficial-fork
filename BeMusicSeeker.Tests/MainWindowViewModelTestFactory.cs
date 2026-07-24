@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Threading.Tasks;
 using System.Windows.Threading;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
@@ -80,8 +81,13 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 
     public event EventHandler? LibraryOperationAvailabilityChanged;
 
+    public event Action<Lr2PlayHistorySchemaStatusSnapshot>? Lr2PlayHistorySchemaStatusChanged;
+
     internal void NotifyLibraryOperationAvailabilityChanged()
         => LibraryOperationAvailabilityChanged?.Invoke(this, EventArgs.Empty);
+
+    internal void NotifyLr2PlayHistorySchemaStatusChanged(Lr2PlayHistorySchemaStatusSnapshot snapshot)
+        => Lr2PlayHistorySchemaStatusChanged?.Invoke(snapshot);
 }
 
 internal sealed class RecordingSettingsDialogPresentationPort : ISettingDialogPresentationPort

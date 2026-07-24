@@ -185,6 +185,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private event EventHandler libraryOperationAvailabilityChanged;
 
+    private event Action<Lr2PlayHistorySchemaStatusSnapshot> lr2PlayHistorySchemaStatusChanged;
+
     Task<bool> ISettingsDialogStatePort.InitializeLibraryAsync()
         => InitializeAsync();
 
@@ -198,6 +200,12 @@ public partial class MainWindowViewModel : ViewModel,
     {
         add => libraryOperationAvailabilityChanged += value;
         remove => libraryOperationAvailabilityChanged -= value;
+    }
+
+    event Action<Lr2PlayHistorySchemaStatusSnapshot> ISettingsDialogStatePort.Lr2PlayHistorySchemaStatusChanged
+    {
+        add => lr2PlayHistorySchemaStatusChanged += value;
+        remove => lr2PlayHistorySchemaStatusChanged -= value;
     }
 
     private readonly ApplicationComposition applicationComposition;
@@ -3607,7 +3615,7 @@ public partial class MainWindowViewModel : ViewModel,
                 LogInitStage("score_reload_call", "ReloadScoresOnly");
                 files.InitializeScoresOnly(null);
             }).LoggingAndPropagate("ReloadScoresOnly");
-            PublishLatestLr2PlayHistorySchemaCheckResultFromLibrary();
+            PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
             LogInitStage("score_reload_done", "ReloadScoresOnly");
             RefreshLibraryMainViewForCurrentFilter();
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
@@ -4378,7 +4386,7 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 files.InitializeStartup([taskAdd1, taskAdd2], semaphore);
             }).Logging("Initialize");
-            PublishLatestLr2PlayHistorySchemaCheckResultFromLibrary();
+            PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
             RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);
             LogInitStage("files_initialize_done", "Initialize");
             TryLogStartupReadyData();
@@ -4953,9 +4961,9 @@ public partial class MainWindowViewModel : ViewModel,
     {
         if (progress?.Stage == PlayHistoryReadWorkflowProgressStage.ReadCompleted)
         {
-            if (progress.Lr2SchemaCheckResult != null)
+            if (progress.Lr2SchemaStatusSnapshot != null)
             {
-                ApplyLr2PlayHistorySchemaCheckResultFromRead(progress.Lr2SchemaCheckResult);
+                PublishLr2PlayHistorySchemaStatusSnapshot(progress.Lr2SchemaStatusSnapshot);
             }
             LogPlayHistoryEvent(
                 "play_history_read_done",
@@ -5036,47 +5044,40 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void ApplyLr2PlayHistorySchemaCheckResultFromRead(Lr2PlayHistorySchemaCheckResult result)
+    private void PublishLr2PlayHistorySchemaStatusSnapshot(Lr2PlayHistorySchemaStatusSnapshot snapshot)
     {
-        if (result == null || !ApplicationSettings.OperationModeLR2DB)
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+
+        Dispatcher dispatcher = applicationComposition.UiDispatcherProvider();
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            lr2PlayHistorySchemaStatusChanged?.Invoke(snapshot);
+            return;
+        }
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
             return;
         }
-        Dispatcher dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.CheckAccess())
-        {
-            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-            {
-                return;
-            }
-            dispatcher.BeginInvoke(
-                DispatcherPriority.Background,
-                (Action)(() => ApplyLr2PlayHistorySchemaCheckResultFromRead(result)));
-            return;
-        }
-        if (SettingDialog?.OperationModeLR2DB == true
-            && string.Equals(ResolveMainViewLr2PlayHistoryScoreDbPath() ?? string.Empty, result.ScoreDbPath ?? string.Empty, StringComparison.OrdinalIgnoreCase))
-        {
-            SettingDialog.ApplyLr2PlayHistorySchemaCheckResult(result);
-        }
+        dispatcher.BeginInvoke(
+            DispatcherPriority.Background,
+            (Action)(() => lr2PlayHistorySchemaStatusChanged?.Invoke(snapshot)));
     }
 
-    private void PublishLatestLr2PlayHistorySchemaCheckResultFromLibrary()
+    private void PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary()
     {
         var stopwatch = Stopwatch.StartNew();
-        Lr2PlayHistorySchemaCheckResult result = files?.GetLr2PlayHistorySchemaCheckResultForDiagnostics();
-        if (result == null)
-        {
-            ResetLr2PlayHistorySchemaStatusFromLibrary();
-            LogSettingsPerformance("settings_schema_status_publish", stopwatch, "result=null action=reset");
-            return;
-        }
-        ApplyLr2PlayHistorySchemaCheckResultFromRead(result);
+        Lr2PlayHistorySchemaStatusSnapshot snapshot = files?.GetLr2PlayHistorySchemaStatusSnapshot()
+            ?? Lr2PlayHistorySchemaStatusSnapshot.Reset;
+        PublishLr2PlayHistorySchemaStatusSnapshot(snapshot);
         LogSettingsPerformance(
             "settings_schema_status_publish",
             stopwatch,
-            "result=published status=" + result.Status
-            + " path=" + (result.ScoreDbPath ?? string.Empty));
+            "result=" + (snapshot.IsReset ? "reset" : "published")
+            + " status=" + snapshot.Status
+            + " path=" + snapshot.ScoreDbPath);
     }
 
     private static void LogSettingsPerformance(string action, Stopwatch stopwatch, string detail = null)
@@ -5092,27 +5093,6 @@ public partial class MainWindowViewModel : ViewModel,
         catch
         {
         }
-    }
-
-    private void ResetLr2PlayHistorySchemaStatusFromLibrary()
-    {
-        if (SettingDialog == null)
-        {
-            return;
-        }
-        Dispatcher dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.CheckAccess())
-        {
-            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-            {
-                return;
-            }
-            dispatcher.BeginInvoke(
-                DispatcherPriority.Background,
-                (Action)ResetLr2PlayHistorySchemaStatusFromLibrary);
-            return;
-        }
-        SettingDialog.ClearLr2PlayHistorySchemaStatus();
     }
 
     private void LogPlayHistoryDisplayTargetFilter(

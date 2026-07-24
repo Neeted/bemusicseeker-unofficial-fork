@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -19,6 +20,68 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class Lr2PlayHistorySchemaUiTests
 {
+    [TestMethod]
+    public void SettingDialogSchemaStatusReceipt_FiltersPathAndClearsOnResetAndDispose()
+    {
+        var owner = MainWindowViewModelTestFactory.Create();
+        var statePort = new TestSettingsDialogStatePort(
+            owner,
+            () => Task.FromResult(true));
+        var settingDialog = new SettingsDialogViewModel(
+            statePort,
+            new TestFirstStartupStatePort(),
+            owner.PlaylistWorkspace,
+            owner.PlaylistWorkspace,
+            new RecordingPlayHistoryPort(),
+            owner.LibraryFolderTree,
+            new ApplicationComposition(uiDispatcherProvider: () => Dispatcher.CurrentDispatcher),
+            owner.PlaybackPanel,
+            owner.Lr2SongDbSyncWorkflow,
+            settingsEditSession: SettingsEditSession.CreateDefault());
+        const string scoreDbPath = "C:\\lr2\\score.db";
+        SetPrivateField(settingDialog, "operationModeLR2DB", true);
+        SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
+
+        Lr2PlayHistorySchemaStatusSnapshot matchingSnapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(
+            new Lr2PlayHistorySchemaCheckResult
+            {
+                Status = Lr2PlayHistorySchemaStatus.Installed,
+                ScoreDbPath = scoreDbPath,
+                Message = "matching"
+            });
+        statePort.NotifyLr2PlayHistorySchemaStatusChanged(matchingSnapshot);
+        Assert.AreSame(matchingSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
+
+        statePort.NotifyLr2PlayHistorySchemaStatusChanged(
+            Lr2PlayHistorySchemaStatusSnapshot.FromResult(
+                new Lr2PlayHistorySchemaCheckResult
+                {
+                    Status = Lr2PlayHistorySchemaStatus.Repairable,
+                    ScoreDbPath = "C:\\other\\score.db",
+                    Message = "stale"
+                }));
+        Assert.AreSame(matchingSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
+
+        SetPrivateField(settingDialog, "operationModeLR2DB", false);
+        statePort.NotifyLr2PlayHistorySchemaStatusChanged(
+            Lr2PlayHistorySchemaStatusSnapshot.FromResult(
+                new Lr2PlayHistorySchemaCheckResult
+                {
+                    Status = Lr2PlayHistorySchemaStatus.Repairable,
+                    ScoreDbPath = scoreDbPath,
+                    Message = "non-lr2"
+                }));
+        Assert.AreSame(matchingSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
+        SetPrivateField(settingDialog, "operationModeLR2DB", true);
+
+        statePort.NotifyLr2PlayHistorySchemaStatusChanged(Lr2PlayHistorySchemaStatusSnapshot.Reset);
+        Assert.IsNull(settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
+
+        settingDialog.Dispose();
+        statePort.NotifyLr2PlayHistorySchemaStatusChanged(matchingSnapshot);
+        Assert.IsNull(settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
+    }
+
     [TestMethod]
     public void Lr2ScoreDbPathResolver_ResolvesExistingPlayerScoreDbOnly()
     {
@@ -155,7 +218,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual("lr2_play_history_schema_uninstall", playHistory.LastInvalidationReason);
             Assert.AreEqual(1, playHistory.InvalidationCount);
             Assert.AreEqual(1, reloadCount);
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, settingDialog.Lr2PlayHistorySchemaCheckResult.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
             using var verify = new SQLiteConnection(scoreDbPath);
             Assert.AreEqual(1, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?;",
@@ -221,7 +284,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual("lr2_play_history_schema_uninstall", playHistory.LastInvalidationReason);
             Assert.AreEqual(1, playHistory.InvalidationCount);
             Assert.AreEqual(0, reloadCount);
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, settingDialog.Lr2PlayHistorySchemaCheckResult.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
             using var verify = new SQLiteConnection(scoreDbPath);
             Assert.AreEqual(0, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE name LIKE 'bms_lr2_%' OR name LIKE 'idx_bms_lr2_%';"));
@@ -279,7 +342,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(0, dialogs.MessageCount);
             Assert.AreEqual(0, reloadCount);
             Assert.AreEqual(0, playHistory.InvalidationCount);
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, settingDialog.Lr2PlayHistorySchemaCheckResult.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
             using var verify = new SQLiteConnection(scoreDbPath);
             Assert.AreEqual(1, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE type = 'trigger' AND name = ?;",
@@ -413,7 +476,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().Check(scoreDbPath, isLr2LinkedProfile)");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile)");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, isLr2LinkedProfile, uninstallMode)");
-        StringAssert.Contains(viewModel, "lr2PlayHistorySchemaCheckResult == null || CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema");
+        StringAssert.Contains(viewModel, "lr2PlayHistorySchemaStatusSnapshot == null || CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema");
         StringAssert.Contains(viewModel, "play_history_schema_");
 
         foreach (string key in RequiredResourceKeys)
@@ -435,11 +498,12 @@ public sealed class Lr2PlayHistorySchemaUiTests
 
     private static Lr2PlayHistorySchemaStatusPresentation CreatePresentation(Lr2PlayHistorySchemaStatus status)
     {
-        return Lr2PlayHistorySchemaStatusPresentation.Create(new Lr2PlayHistorySchemaCheckResult
-        {
-            Status = status,
-            Message = status.ToString()
-        });
+        return Lr2PlayHistorySchemaStatusPresentation.Create(
+            Lr2PlayHistorySchemaStatusSnapshot.FromResult(new Lr2PlayHistorySchemaCheckResult
+            {
+                Status = status,
+                Message = status.ToString()
+            }));
     }
 
     private static void CreateInstalledScoreDb(string scoreDbPath)

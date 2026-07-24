@@ -95,10 +95,6 @@ public sealed class PlaylistSummaryBulkEditTests
     public void PlaylistSummaryBulkEditDialogViewModel_AllowsLastPlaySortFolderRegardlessOfSchemaStatus()
     {
         var owner = MainWindowViewModelTestFactory.Create();
-        owner.SettingDialog.ApplyLr2PlayHistorySchemaCheckResult(new Lr2PlayHistorySchemaCheckResult
-        {
-            Status = Lr2PlayHistorySchemaStatus.SkippedProfile
-        });
         var dialog = new PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel(
             owner.PlaylistWorkspace,
             []);

@@ -23,6 +23,27 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlayHistoryReadModelTests
 {
     [TestMethod]
+    public void Lr2PlayHistorySchemaStatusSnapshot_DetachesMutableServiceResult()
+    {
+        var result = new Lr2PlayHistorySchemaCheckResult
+        {
+            Status = Lr2PlayHistorySchemaStatus.Installed,
+            ScoreDbPath = "score.db",
+            Message = "installed"
+        };
+
+        Lr2PlayHistorySchemaStatusSnapshot snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(result);
+        result.Status = Lr2PlayHistorySchemaStatus.Repairable;
+        result.ScoreDbPath = "other.db";
+        result.Message = "changed";
+
+        Assert.IsFalse(snapshot.IsReset);
+        Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, snapshot.Status);
+        Assert.AreEqual("score.db", snapshot.ScoreDbPath);
+        Assert.AreEqual("installed", snapshot.Message);
+    }
+
+    [TestMethod]
     public void PlayHistoryPeriodRequest_AllHasNoEpochBounds()
     {
         PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(

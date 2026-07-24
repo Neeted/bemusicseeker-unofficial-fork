@@ -2662,11 +2662,11 @@ public partial class BMSLibrary : NotificationObject
         }
     }
 
-    internal Lr2PlayHistorySchemaCheckResult GetLr2PlayHistorySchemaCheckResultForDiagnostics()
+    internal Lr2PlayHistorySchemaStatusSnapshot GetLr2PlayHistorySchemaStatusSnapshot()
     {
         using (rwlockBMSScores.GetReaderGuard())
         {
-            return lr2PlayHistorySchemaCheckResult;
+            return Lr2PlayHistorySchemaStatusSnapshot.FromResult(lr2PlayHistorySchemaCheckResult);
         }
     }
 

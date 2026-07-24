@@ -107,29 +107,29 @@ internal sealed class PlayHistoryReadWorkflowProgress
         PlayHistoryReadStageMetrics read,
         PlayHistoryPeriodIndexStageMetrics periodIndex,
         PlayHistoryProjectionStageMetrics projection,
-        Lr2PlayHistorySchemaCheckResult lr2SchemaCheckResult)
+        Lr2PlayHistorySchemaStatusSnapshot lr2SchemaStatusSnapshot)
     {
         Stage = stage;
         Read = read;
         PeriodIndex = periodIndex;
         Projection = projection;
-        Lr2SchemaCheckResult = lr2SchemaCheckResult;
+        Lr2SchemaStatusSnapshot = lr2SchemaStatusSnapshot;
     }
 
     internal PlayHistoryReadWorkflowProgressStage Stage { get; }
     internal PlayHistoryReadStageMetrics Read { get; }
     internal PlayHistoryPeriodIndexStageMetrics PeriodIndex { get; }
     internal PlayHistoryProjectionStageMetrics Projection { get; }
-    internal Lr2PlayHistorySchemaCheckResult Lr2SchemaCheckResult { get; }
+    internal Lr2PlayHistorySchemaStatusSnapshot Lr2SchemaStatusSnapshot { get; }
 
     internal static PlayHistoryReadWorkflowProgress ReadCompleted(
         PlayHistoryReadStageMetrics read,
-        Lr2PlayHistorySchemaCheckResult schemaCheckResult) => new(
+        Lr2PlayHistorySchemaStatusSnapshot schemaStatusSnapshot) => new(
             PlayHistoryReadWorkflowProgressStage.ReadCompleted,
             read,
             periodIndex: null,
             projection: null,
-            lr2SchemaCheckResult: schemaCheckResult);
+            lr2SchemaStatusSnapshot: schemaStatusSnapshot);
 
     internal static PlayHistoryReadWorkflowProgress PeriodIndexCompleted(
         PlayHistoryReadStageMetrics read,
@@ -138,7 +138,7 @@ internal sealed class PlayHistoryReadWorkflowProgress
             read,
             periodIndex,
             projection: null,
-            lr2SchemaCheckResult: null);
+            lr2SchemaStatusSnapshot: null);
 
     internal static PlayHistoryReadWorkflowProgress ProjectionCompleted(
         PlayHistoryReadStageMetrics read,
@@ -148,7 +148,7 @@ internal sealed class PlayHistoryReadWorkflowProgress
             read,
             periodIndex,
             projection,
-            lr2SchemaCheckResult: null);
+            lr2SchemaStatusSnapshot: null);
 }
 
 internal sealed class PlayHistoryReadStageMetrics
@@ -264,7 +264,6 @@ internal sealed class PlayHistoryReadWorkflowResult
         PlayHistoryReadStageMetrics read,
         PlayHistoryPeriodIndexStageMetrics periodIndex,
         PlayHistoryProjectionStageMetrics projection,
-        Lr2PlayHistorySchemaCheckResult lr2SchemaCheckResult,
         PlayHistoryReadPresentationBuildResult presentation)
     {
         Built = built;
@@ -273,7 +272,6 @@ internal sealed class PlayHistoryReadWorkflowResult
         Read = read;
         PeriodIndex = periodIndex;
         Projection = projection;
-        Lr2SchemaCheckResult = lr2SchemaCheckResult;
         Presentation = presentation;
     }
 
@@ -283,6 +281,5 @@ internal sealed class PlayHistoryReadWorkflowResult
     internal PlayHistoryReadStageMetrics Read { get; }
     internal PlayHistoryPeriodIndexStageMetrics PeriodIndex { get; }
     internal PlayHistoryProjectionStageMetrics Projection { get; }
-    internal Lr2PlayHistorySchemaCheckResult Lr2SchemaCheckResult { get; }
     internal PlayHistoryReadPresentationBuildResult Presentation { get; }
 }

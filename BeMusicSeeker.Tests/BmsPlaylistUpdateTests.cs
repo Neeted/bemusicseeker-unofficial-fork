@@ -2840,10 +2840,6 @@ public sealed class BmsPlaylistUpdateTests
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
-            viewModel.SettingDialog.ApplyLr2PlayHistorySchemaCheckResult(new Lr2PlayHistorySchemaCheckResult
-            {
-                Status = Lr2PlayHistorySchemaStatus.NotInstalled
-            });
             viewModel.PlaylistWorkspace.ApplyPlaylistSummaryCustomFolderOutputTypes(
                 [new PlaylistSummaryRow { TableRef = table }],
                 new PlaylistWorkspaceViewModel.PlaylistSummaryCustomFolderOutputPatch

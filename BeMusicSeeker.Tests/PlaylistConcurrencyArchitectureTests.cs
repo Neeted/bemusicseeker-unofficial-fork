@@ -586,6 +586,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(settingDialogSource.Contains("reloadScoresOnly"));
         Assert.IsFalse(settingDialogSource.Contains("reloadFileDiff"));
         StringAssert.Contains(settingDialogSource, "statePort.LibraryOperationAvailabilityChanged +=");
+        StringAssert.Contains(settingDialogSource, "statePort.Lr2PlayHistorySchemaStatusChanged +=");
+        Assert.IsFalse(settingDialogSource.Contains("ApplyLr2PlayHistorySchemaCheckResultFromRead"));
+        Assert.IsFalse(settingDialogSource.Contains("ResetLr2PlayHistorySchemaStatusFromLibrary"));
         Assert.IsFalse(settingDialogSource.Contains("SubscribeStateChanges"));
         Assert.IsFalse(settingDialogSource.Contains("UnsubscribeStateChanges"));
         StringAssert.Contains(compositionSource, "ISettingsEditSession settingsEditSession = null");
@@ -599,6 +602,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(mainWindowSource, "Task ISettingsDialogStatePort.ReloadScoresOnlyAsync()");
         StringAssert.Contains(mainWindowSource, "Task ISettingsDialogStatePort.ReloadFileDiffAsync()");
         StringAssert.Contains(mainWindowSource, "event EventHandler ISettingsDialogStatePort.LibraryOperationAvailabilityChanged");
+        StringAssert.Contains(mainWindowSource, "event Action<Lr2PlayHistorySchemaStatusSnapshot> ISettingsDialogStatePort.Lr2PlayHistorySchemaStatusChanged");
+        Assert.IsFalse(mainWindowSource.Contains("SettingDialog.ApplyLr2PlayHistorySchemaCheckResult"));
+        Assert.IsFalse(mainWindowSource.Contains("SettingDialog.ClearLr2PlayHistorySchemaStatus"));
         Assert.IsFalse(mainWindowSource.Contains("private readonly Action reloadSettings"));
         Assert.IsFalse(mainWindowSource.Contains("private readonly Action saveSettings"));
         Assert.IsFalse(mainWindowSource.Contains("ISettingsDialogStatePort.SubscribeStateChanges"));

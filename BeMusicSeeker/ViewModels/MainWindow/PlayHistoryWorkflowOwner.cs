@@ -403,7 +403,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             failure: null);
         Lr2PlayHistoryReadResult lr2ReadResult = null;
         BeatorajaPlayHistoryReadResult beatorajaReadResult = null;
-        Lr2PlayHistorySchemaCheckResult lr2SchemaCheckResult = null;
+        Lr2PlayHistorySchemaStatusSnapshot lr2SchemaStatusSnapshot = null;
         Lr2PlayHistorySchemaStatus schemaStatus;
         int rawReadCount;
         IReadOnlyList<PlayHistoryDiagnostic> readDiagnostics;
@@ -426,7 +426,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     periodRequest.ToLr2ReadRequest(request.Source.ScoreDbPath, request.Source.IsLr2LinkedProfile),
                     cancellationToken,
                     out readCacheHit);
-                lr2SchemaCheckResult = lr2ReadResult?.SchemaCheckResult;
+                Lr2PlayHistorySchemaCheckResult schemaCheckResult = lr2ReadResult?.SchemaCheckResult;
+                lr2SchemaStatusSnapshot = schemaCheckResult == null
+                    ? null
+                    : Lr2PlayHistorySchemaStatusSnapshot.FromResult(schemaCheckResult);
                 schemaStatus = lr2ReadResult.SchemaStatus;
                 rawReadCount = lr2ReadResult.Rows.Count;
                 readDiagnostics = lr2ReadResult.Diagnostics;
@@ -441,7 +444,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 readStage,
                 periodStage,
                 projectionStage,
-                lr2SchemaCheckResult,
                 presentation: null);
         }
 
@@ -454,7 +456,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             rawReadCount,
             readDiagnostics?.Count ?? 0,
             readMs);
-        request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.ReadCompleted(readStage, lr2SchemaCheckResult));
+        request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.ReadCompleted(readStage, lr2SchemaStatusSnapshot));
         if (!IsCurrentRequest(requestId))
         {
             return new PlayHistoryReadWorkflowResult(
@@ -464,7 +466,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 readStage,
                 periodStage,
                 projectionStage,
-                lr2SchemaCheckResult,
                 presentation: null);
         }
 
@@ -526,7 +527,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     readStage,
                     periodStage,
                     projectionStage,
-                    lr2SchemaCheckResult,
                     presentation: null);
             }
             request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.PeriodIndexCompleted(readStage, periodStage));
@@ -539,7 +539,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     readStage,
                     periodStage,
                     projectionStage,
-                    lr2SchemaCheckResult,
                     presentation: null);
             }
         }
@@ -603,7 +602,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     readStage,
                     periodStage,
                     projectionStage,
-                    lr2SchemaCheckResult,
                     presentation: null);
             }
         }
@@ -658,7 +656,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             readStage,
             periodStage,
             projectionStage,
-            lr2SchemaCheckResult,
             presentation);
     }
 

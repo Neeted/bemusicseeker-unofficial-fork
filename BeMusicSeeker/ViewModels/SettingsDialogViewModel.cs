@@ -454,6 +454,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly EventHandler libraryOperationAvailabilityChangedHandler;
 
+    private readonly Action<Lr2PlayHistorySchemaStatusSnapshot> lr2PlayHistorySchemaStatusChangedHandler;
+
     private readonly PropertyChangedEventHandler playlistTableChangedHandler;
 
     private readonly PropertyChangedEventListener resourceServiceEventListener;
@@ -526,7 +528,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private string tempLR2ConfigXmlPath;
 
-    private Lr2PlayHistorySchemaCheckResult lr2PlayHistorySchemaCheckResult;
+    private Lr2PlayHistorySchemaStatusSnapshot lr2PlayHistorySchemaStatusSnapshot;
 
     private string lr2PlayHistoryScoreDbPath;
 
@@ -1029,13 +1031,13 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public bool IsBmsSearchRootEditorEnabled => !OperationModeLR2DB || lr2config != null;
 
-    internal Lr2PlayHistorySchemaCheckResult Lr2PlayHistorySchemaCheckResult => lr2PlayHistorySchemaCheckResult;
+    internal Lr2PlayHistorySchemaStatusSnapshot Lr2PlayHistorySchemaStatusSnapshot => lr2PlayHistorySchemaStatusSnapshot;
 
     public string Lr2PlayHistoryScoreDbPath => lr2PlayHistoryScoreDbPath ?? string.Empty;
 
-    public string Lr2PlayHistorySchemaStatusText => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).StatusText;
+    public string Lr2PlayHistorySchemaStatusText => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaStatusSnapshot).StatusText;
 
-    public string Lr2PlayHistorySchemaMessage => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).Message;
+    public string Lr2PlayHistorySchemaMessage => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaStatusSnapshot).Message;
 
     public string Lr2PlayHistorySchemaDetailText
     {
@@ -1053,9 +1055,9 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    public bool CanInstallLr2PlayHistorySchema => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).CanInstall;
+    public bool CanInstallLr2PlayHistorySchema => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaStatusSnapshot).CanInstall;
 
-    public bool CanRepairLr2PlayHistorySchema => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).CanRepair;
+    public bool CanRepairLr2PlayHistorySchema => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaStatusSnapshot).CanRepair;
 
     /// <summary>
     /// LR2 play history schema に対して enable/repair のどちらかを実行できるかを返します。
@@ -1064,7 +1066,7 @@ public partial class SettingsDialogViewModel : ViewModel
     public bool CanInstallOrRepairLr2PlayHistorySchema =>
         OperationModeLR2DB
         && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath)
-        && (lr2PlayHistorySchemaCheckResult == null || CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema);
+        && (lr2PlayHistorySchemaStatusSnapshot == null || CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema);
 
     /// <summary>
     /// LR2 play history schema の enable/repair 統合ボタンに表示する文言を返します。
@@ -1073,7 +1075,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            Lr2PlayHistorySchemaStatusPresentation presentation = Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult);
+            Lr2PlayHistorySchemaStatusPresentation presentation = Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaStatusSnapshot);
             if (presentation.CanInstall)
             {
                 return BeMusicSeeker.Properties.Resources.Lr2_play_history_schema_install;
@@ -1191,7 +1193,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         await RefreshLr2PlayHistorySchemaStatusAsync(force: true);
-        Lr2PlayHistorySchemaCheckResult before = Lr2PlayHistorySchemaCheckResult;
+        Lr2PlayHistorySchemaStatusSnapshot before = Lr2PlayHistorySchemaStatusSnapshot;
         if (before == null || !CanUninstallLr2PlayHistorySchema)
         {
             return;
@@ -1303,11 +1305,11 @@ public partial class SettingsDialogViewModel : ViewModel
         UiDialogRoute.ThrowIfNotShown(result, routeName);
     }
 
-    internal void ResetLr2PlayHistorySchemaStatus()
+    private void ResetLr2PlayHistorySchemaStatus()
     {
         string nextScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
         bool nextOperationMode = OperationModeLR2DB;
-        if (lr2PlayHistorySchemaCheckResult != null
+        if (lr2PlayHistorySchemaStatusSnapshot != null
             && lr2PlayHistorySchemaCheckOperationMode == nextOperationMode
             && string.Equals(lr2PlayHistoryScoreDbPath ?? string.Empty, nextScoreDbPath ?? string.Empty, StringComparison.OrdinalIgnoreCase))
         {
@@ -1315,15 +1317,7 @@ public partial class SettingsDialogViewModel : ViewModel
             return;
         }
         lr2PlayHistoryScoreDbPath = nextScoreDbPath;
-        lr2PlayHistorySchemaCheckResult = null;
-        lr2PlayHistorySchemaCheckOperationMode = null;
-        RaiseLr2PlayHistorySchemaStatusChanged();
-    }
-
-    internal void ClearLr2PlayHistorySchemaStatus()
-    {
-        lr2PlayHistoryScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
-        lr2PlayHistorySchemaCheckResult = null;
+        lr2PlayHistorySchemaStatusSnapshot = null;
         lr2PlayHistorySchemaCheckOperationMode = null;
         RaiseLr2PlayHistorySchemaStatusChanged();
     }
@@ -1359,17 +1353,48 @@ public partial class SettingsDialogViewModel : ViewModel
         return result;
     }
 
-    internal void ApplyLr2PlayHistorySchemaCheckResult(Lr2PlayHistorySchemaCheckResult result)
+    private void ApplyLr2PlayHistorySchemaStatusSnapshot(Lr2PlayHistorySchemaStatusSnapshot snapshot)
     {
-        lr2PlayHistoryScoreDbPath = result?.ScoreDbPath ?? ResolveLr2PlayHistoryScoreDbPath();
-        lr2PlayHistorySchemaCheckResult = result;
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+
+        if (snapshot.IsReset)
+        {
+            lr2PlayHistoryScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
+            lr2PlayHistorySchemaStatusSnapshot = null;
+            lr2PlayHistorySchemaCheckOperationMode = null;
+            RaiseLr2PlayHistorySchemaStatusChanged();
+            return;
+        }
+
+        if (!OperationModeLR2DB
+            || !string.Equals(snapshot.ScoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        lr2PlayHistoryScoreDbPath = snapshot.ScoreDbPath;
+        lr2PlayHistorySchemaStatusSnapshot = snapshot;
+        lr2PlayHistorySchemaCheckOperationMode = OperationModeLR2DB;
+        RaiseLr2PlayHistorySchemaStatusChanged();
+    }
+
+    private void ApplyLr2PlayHistorySchemaCheckResult(Lr2PlayHistorySchemaCheckResult result)
+    {
+        Lr2PlayHistorySchemaStatusSnapshot snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(result);
+        lr2PlayHistoryScoreDbPath = snapshot.IsReset
+            ? ResolveLr2PlayHistoryScoreDbPath()
+            : snapshot.ScoreDbPath;
+        lr2PlayHistorySchemaStatusSnapshot = snapshot.IsReset ? null : snapshot;
         lr2PlayHistorySchemaCheckOperationMode = OperationModeLR2DB;
         RaiseLr2PlayHistorySchemaStatusChanged();
     }
 
     private bool HasFreshLr2PlayHistorySchemaCheckResult(string scoreDbPath, bool isLr2LinkedProfile)
     {
-        return lr2PlayHistorySchemaCheckResult != null
+        return lr2PlayHistorySchemaStatusSnapshot != null
             && lr2PlayHistorySchemaCheckOperationMode == isLr2LinkedProfile
             && string.Equals(lr2PlayHistoryScoreDbPath ?? string.Empty, scoreDbPath ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
@@ -1414,7 +1439,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RaiseLr2PlayHistorySchemaStatusChanged()
     {
-        RaisePropertyChanged(() => Lr2PlayHistorySchemaCheckResult);
+        RaisePropertyChanged(() => Lr2PlayHistorySchemaStatusSnapshot);
         RaisePropertyChanged(() => Lr2PlayHistoryScoreDbPath);
         RaisePropertyChanged(() => Lr2PlayHistorySchemaStatusText);
         RaisePropertyChanged(() => Lr2PlayHistorySchemaMessage);
@@ -3775,6 +3800,9 @@ public partial class SettingsDialogViewModel : ViewModel
         libraryOperationAvailabilityChangedHandler = (_, _) =>
             settingDialogViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         statePort.LibraryOperationAvailabilityChanged += libraryOperationAvailabilityChangedHandler;
+        lr2PlayHistorySchemaStatusChangedHandler = snapshot =>
+            settingDialogViewModel.ApplyLr2PlayHistorySchemaStatusSnapshot(snapshot);
+        statePort.Lr2PlayHistorySchemaStatusChanged += lr2PlayHistorySchemaStatusChangedHandler;
         resourceServiceEventListener = new PropertyChangedEventListener(ResourceService.Current);
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
@@ -7248,6 +7276,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             workspacePort.UnsubscribePlaylistTableChanges(playlistTableChangedHandler);
             statePort.LibraryOperationAvailabilityChanged -= libraryOperationAvailabilityChangedHandler;
+            statePort.Lr2PlayHistorySchemaStatusChanged -= lr2PlayHistorySchemaStatusChangedHandler;
         }
     }
 

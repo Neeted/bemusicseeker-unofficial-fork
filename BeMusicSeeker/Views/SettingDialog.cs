@@ -108,7 +108,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             string detail =
                 "handlerMs=" + handlerMs
                 + " operationModeLR2DB=" + settingDialogViewModel.OperationModeLR2DB.ToString().ToLowerInvariant()
-                + " schemaStatus=" + (settingDialogViewModel.Lr2PlayHistorySchemaCheckResult?.Status.ToString() ?? "Unknown");
+                + " schemaStatus=" + (settingDialogViewModel.Lr2PlayHistorySchemaStatusSnapshot?.Status.ToString() ?? "Unknown");
             Dispatcher.BeginInvoke(
                 DispatcherPriority.ContextIdle,
                 (Action)(() => LogSettingsDialogPerformance(

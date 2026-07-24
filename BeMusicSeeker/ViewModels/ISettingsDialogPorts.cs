@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -19,6 +20,8 @@ internal interface ISettingsDialogStatePort
     Task ReloadFileDiffAsync();
 
     event EventHandler LibraryOperationAvailabilityChanged;
+
+    event Action<Lr2PlayHistorySchemaStatusSnapshot> Lr2PlayHistorySchemaStatusChanged;
 }
 
 internal interface ISettingsDialogFirstStartupStatePort

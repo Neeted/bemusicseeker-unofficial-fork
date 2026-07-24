@@ -29,9 +29,9 @@ internal sealed class Lr2PlayHistorySchemaStatusPresentation
 
     internal bool CanRepair { get; }
 
-    internal static Lr2PlayHistorySchemaStatusPresentation Create(Lr2PlayHistorySchemaCheckResult result)
+    internal static Lr2PlayHistorySchemaStatusPresentation Create(Lr2PlayHistorySchemaStatusSnapshot result)
     {
-        if (result == null)
+        if (result == null || result.IsReset)
         {
             return new Lr2PlayHistorySchemaStatusPresentation(
                 Lr2PlayHistorySchemaStatus.Unreadable,
