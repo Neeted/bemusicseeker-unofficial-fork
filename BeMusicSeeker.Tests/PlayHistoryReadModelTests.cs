@@ -3521,7 +3521,7 @@ public sealed class PlayHistoryReadModelTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
     }
 
     [TestMethod]

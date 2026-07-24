@@ -610,7 +610,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 message => lifecycleLogs.Add(message),
-                (exception, message) => failureLogs.Add((exception, message)), request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => failureLogs.Add((exception, message)), (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
             workspace.RefreshPlaylistTreeTables(playlist);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             int progressCount = 0;
@@ -758,7 +759,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogs);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogs);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
             workspace.IsPlaylistDetailViewActive = true;
@@ -866,10 +867,6 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 _ => { },
                 (exception, message) => { },
-                request => request(false),
-                request => request(false),
-                () => false,
-                _ => false,
                 (_, _) => false,
                 (_, _) => false,
                 PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler,
@@ -1508,7 +1505,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
@@ -7566,7 +7563,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
                 new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
                 {
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)

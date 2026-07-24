@@ -12,13 +12,24 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private void PlaylistTreeStorePropertyChanged(object sender, PropertyChangedEventArgs e)
     {
+        lock (playlistHydrationNotificationDispatchLock)
+        {
+            PlaylistTreeStorePropertyChangedCore(sender, e);
+        }
+    }
+
+    private void PlaylistTreeStorePropertyChangedCore(object sender, PropertyChangedEventArgs e)
+    {
         BMSPlaylist sourceStore;
         DispatcherCollection<BMSTable> sourceTables;
         long generation;
         int hydrationVersion;
+        PlaylistHydrationCompletionReceipt hydrationReceipt = null;
+        PlaylistHydrationCompletionReceipt receiptToInvalidate = null;
         bool tablesChanged = false;
         bool hydrationRequested = false;
         bool hydrationCompleted = false;
+        PlaylistEntriesHydrationVersionChangedEventArgs pendingCompletionToPublish = null;
         lock (playlistTreeStoreSyncRoot)
         {
             if (!ReferenceEquals(sender, playlistTreeStore))
@@ -28,7 +39,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             sourceStore = playlistTreeStore;
             if (string.Equals(e?.PropertyName, nameof(BMSPlaylist.BMSTables), StringComparison.Ordinal))
             {
-                AttachObservedPlaylistTreeTables(playlistTreeStore?.BMSTables);
+                receiptToInvalidate = AttachObservedPlaylistTreeTables(playlistTreeStore?.BMSTables);
                 sourceTables = observedPlaylistTreeTables;
                 generation = Volatile.Read(ref playlistTreeNotificationGeneration);
                 tablesChanged = true;
@@ -39,6 +50,9 @@ public sealed partial class PlaylistWorkspaceViewModel
                 hydrationVersion = playlistTreeStore?.PlaylistEntriesHydrationRequestedVersion ?? 0;
                 sourceTables = observedPlaylistTreeTables;
                 generation = Volatile.Read(ref playlistTreeNotificationGeneration);
+                receiptToInvalidate = DetachPlaylistHydrationCompletionReceiptUnsafe();
+                hydrationReceipt = new PlaylistHydrationCompletionReceipt();
+                playlistHydrationCompletionReceipt = hydrationReceipt;
                 hydrationRequested = true;
             }
             else if (string.Equals(e?.PropertyName, nameof(BMSPlaylist.PlaylistEntriesHydrationCompletedVersion), StringComparison.Ordinal))
@@ -46,54 +60,126 @@ public sealed partial class PlaylistWorkspaceViewModel
                 hydrationVersion = playlistTreeStore?.PlaylistEntriesHydrationCompletedVersion ?? 0;
                 sourceTables = observedPlaylistTreeTables;
                 generation = Volatile.Read(ref playlistTreeNotificationGeneration);
-                hydrationCompleted = true;
+                if (playlistHydrationCompletionReceipt != null
+                    && !playlistHydrationCompletionReceipt.IsRequestPublished)
+                {
+                    pendingPlaylistHydrationCompletion = new PlaylistEntriesHydrationVersionChangedEventArgs(
+                        hydrationVersion,
+                        sourceStore,
+                        sourceTables,
+                        generation,
+                        playlistHydrationCompletionReceipt);
+                }
+                else
+                {
+                    receiptToInvalidate = DetachPlaylistHydrationCompletionReceiptUnsafe();
+                    hydrationReceipt = new PlaylistHydrationCompletionReceipt(requestAlreadyPublished: true);
+                    playlistHydrationCompletionReceipt = hydrationReceipt;
+                    hydrationCompleted = true;
+                }
             }
             else
             {
                 return;
             }
         }
+        receiptToInvalidate?.Invalidate();
 
         if (tablesChanged)
         {
-            if (TryHoldPlaylistTreePresentation("playlist_tables_changed"))
-            {
-                return;
-            }
             DispatchPlaylistStoreNotification(() =>
             {
                 if (IsCurrentPlaylistTreeNotification(sourceStore, sourceTables, generation))
                 {
-                    HandlePlaylistTablesChanged("playlist_tables_changed");
+                    RequestPlaylistTreePresentationRefresh("playlist_tables_changed");
                 }
             });
             return;
         }
         if (hydrationRequested)
         {
-            lock (playlistTreeStoreSyncRoot)
+            if (!IsCurrentPlaylistTreeNotification(sourceStore, sourceTables, generation))
             {
-                if (!IsCurrentPlaylistTreeNotification(sourceStore, sourceTables, generation))
-                {
-                    return;
-                }
-                PlaylistEntriesHydrationRequested?.Invoke(
-                    this,
-                    new PlaylistEntriesHydrationVersionChangedEventArgs(hydrationVersion));
+                return;
+            }
+            PlaylistEntriesHydrationRequested?.Invoke(
+                this,
+                new PlaylistEntriesHydrationVersionChangedEventArgs(
+                    hydrationVersion,
+                    sourceStore,
+                    sourceTables,
+                    generation,
+                    hydrationReceipt));
+            pendingCompletionToPublish = CompletePlaylistHydrationRequestPublication(
+                sourceStore,
+                sourceTables,
+                generation,
+                hydrationReceipt);
+            if (pendingCompletionToPublish != null)
+            {
+                RequestPlaylistEntriesHydrationCompleted(
+                    pendingCompletionToPublish.Version,
+                    pendingCompletionToPublish.SourceStore,
+                    pendingCompletionToPublish.SourceTables,
+                    pendingCompletionToPublish.Generation,
+                    pendingCompletionToPublish.CompletionReceipt);
             }
             return;
         }
         if (hydrationCompleted)
         {
-            lock (playlistTreeStoreSyncRoot)
+            if (IsCurrentPlaylistTreeNotification(sourceStore, sourceTables, generation))
             {
-                if (!IsCurrentPlaylistTreeNotification(sourceStore, sourceTables, generation))
-                {
-                    return;
-                }
-                HandlePlaylistEntriesHydrationCompleted(hydrationVersion);
+                RequestPlaylistEntriesHydrationCompleted(
+                    hydrationVersion,
+                    sourceStore,
+                    sourceTables,
+                    generation,
+                    hydrationReceipt);
             }
         }
+    }
+
+    private PlaylistEntriesHydrationVersionChangedEventArgs CompletePlaylistHydrationRequestPublication(
+        BMSPlaylist sourceStore,
+        DispatcherCollection<BMSTable> sourceTables,
+        long generation,
+        PlaylistHydrationCompletionReceipt requestReceipt)
+    {
+        PlaylistHydrationCompletionReceipt requestReceiptToInvalidate = null;
+        PlaylistEntriesHydrationVersionChangedEventArgs pendingCompletion = null;
+        lock (playlistTreeStoreSyncRoot)
+        {
+            if (!ReferenceEquals(playlistTreeStore, sourceStore)
+                || !ReferenceEquals(observedPlaylistTreeTables, sourceTables)
+                || Volatile.Read(ref playlistTreeNotificationGeneration) != generation
+                || !ReferenceEquals(playlistHydrationCompletionReceipt, requestReceipt)
+                || !requestReceipt.MarkRequestPublished())
+            {
+                return null;
+            }
+
+            if (pendingPlaylistHydrationCompletion != null
+                && ReferenceEquals(
+                    pendingPlaylistHydrationCompletion.CompletionReceipt,
+                    requestReceipt))
+            {
+                pendingCompletion = pendingPlaylistHydrationCompletion;
+                pendingPlaylistHydrationCompletion = null;
+                requestReceiptToInvalidate = DetachPlaylistHydrationCompletionReceiptUnsafe();
+                PlaylistHydrationCompletionReceipt completionReceipt =
+                    new(requestAlreadyPublished: true);
+                playlistHydrationCompletionReceipt = completionReceipt;
+                pendingCompletion = new PlaylistEntriesHydrationVersionChangedEventArgs(
+                    pendingCompletion.Version,
+                    pendingCompletion.SourceStore,
+                    pendingCompletion.SourceTables,
+                    pendingCompletion.Generation,
+                    completionReceipt);
+            }
+        }
+        requestReceiptToInvalidate?.Invalidate();
+        return pendingCompletion;
     }
 
     private void PlaylistTreeTablesCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
@@ -111,15 +197,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             sourceTables = observedPlaylistTreeTables;
             generation = Volatile.Read(ref playlistTreeNotificationGeneration);
         }
-        if (TryHoldPlaylistTreePresentation("playlist_tables_collection_changed"))
-        {
-            return;
-        }
         DispatchPlaylistStoreNotification(() =>
         {
             if (IsCurrentPlaylistTreeNotification(sourceStore, sourceTables, generation))
             {
-                HandlePlaylistTablesChanged("playlist_tables_collection_changed");
+                RequestPlaylistTreePresentationRefresh("playlist_tables_collection_changed");
             }
         });
     }
@@ -163,6 +245,69 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    internal bool IsCurrentPlaylistTreeNotificationSnapshot(
+        BMSPlaylist sourceStore,
+        DispatcherCollection<BMSTable> sourceTables,
+        long generation)
+    {
+        return IsCurrentPlaylistTreeNotification(sourceStore, sourceTables, generation);
+    }
+
+    internal bool TryBeginPlaylistHydrationNotification(
+        BMSPlaylist sourceStore,
+        DispatcherCollection<BMSTable> sourceTables,
+        long generation,
+        PlaylistHydrationCompletionReceipt receipt)
+    {
+        if (sourceStore == null || receipt == null)
+        {
+            return true;
+        }
+        lock (playlistTreeStoreSyncRoot)
+        {
+            return ReferenceEquals(playlistTreeStore, sourceStore)
+                && ReferenceEquals(observedPlaylistTreeTables, sourceTables)
+                && Volatile.Read(ref playlistTreeNotificationGeneration) == generation
+                && ReferenceEquals(playlistHydrationCompletionReceipt, receipt)
+                && receipt.TryBegin();
+        }
+    }
+
+    internal bool ExecuteCurrentPlaylistHydrationNotification(
+        BMSPlaylist sourceStore,
+        DispatcherCollection<BMSTable> sourceTables,
+        long generation,
+        PlaylistHydrationCompletionReceipt receipt,
+        Action action)
+    {
+        if (action == null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+        lock (playlistTreeStoreSyncRoot)
+        {
+            if (sourceStore != null
+                && (!ReferenceEquals(playlistTreeStore, sourceStore)
+                    || !ReferenceEquals(observedPlaylistTreeTables, sourceTables)
+                    || Volatile.Read(ref playlistTreeNotificationGeneration) != generation))
+            {
+                return false;
+            }
+
+            if (receipt == null)
+            {
+                action();
+                return true;
+            }
+
+            // Hold the store lease for the whole receipt-gated callback.  A replacement
+            // may invalidate the receipt only after it commits its new source/generation,
+            // so the callback cannot validate an old snapshot and then perform its side
+            // effect against a newly attached store.
+            return receipt.ExecuteIfCurrent(action);
+        }
+    }
+
     private void DispatchPlaylistStoreNotification(Action action)
     {
         if (action == null)
@@ -172,25 +317,21 @@ public sealed partial class PlaylistWorkspaceViewModel
         dispatchPresentation(action);
     }
 
-    private bool TryHoldPlaylistTreePresentation(string reason)
+    private void RequestPlaylistTreePresentationRefresh(string reason)
     {
-        if (playlistTreeRefreshSuppressedProvider())
-        {
-            RequestPlaylistSummaryDataRefresh(reason);
-            return true;
-        }
-        if (playlistTreeRefreshDeferredProvider(reason))
-        {
-            RequestPlaylistSummaryDataRefresh(reason);
-            return true;
-        }
-        return false;
+        RaiseRequiredEvent(
+            PlaylistPresentationRefreshRequested,
+            new PlaylistPresentationRefreshRequestedEventArgs(
+                PlaylistPresentationRefreshKind.Tree,
+                reason),
+            nameof(PlaylistPresentationRefreshRequested));
     }
 
-    private void HandlePlaylistTablesChanged(string reason)
+    internal void ApplyPlaylistTreePresentationRefresh(string reason, bool deferred)
     {
-        if (TryHoldPlaylistTreePresentation(reason))
+        if (deferred)
         {
+            RequestPlaylistSummaryDataRefresh(reason);
             return;
         }
 
@@ -199,29 +340,125 @@ public sealed partial class PlaylistWorkspaceViewModel
         RequestPlaylistSummaryDataRefresh(reason);
     }
 
-    private void HandlePlaylistEntriesHydrationCompleted(int version)
+    private void RequestPlaylistEntriesHydrationCompleted(
+        int version,
+        BMSPlaylist sourceStore,
+        DispatcherCollection<BMSTable> sourceTables,
+        long generation,
+        PlaylistHydrationCompletionReceipt receipt)
     {
-        PlaylistEntriesHydrationCompleted?.Invoke(
-            this,
-            new PlaylistEntriesHydrationVersionChangedEventArgs(version));
-        if (playlistTreeRefreshDeferredProvider("playlist_entries_hydration_completed"))
+        RaiseRequiredEvent(
+            PlaylistPresentationRefreshRequested,
+            new PlaylistPresentationRefreshRequestedEventArgs(
+                PlaylistPresentationRefreshKind.HydrationCompleted,
+                "playlist_entries_hydration_completed",
+                hydrationVersion: version,
+                hydrationSourceStore: sourceStore,
+                hydrationSourceTables: sourceTables,
+                hydrationNotificationGeneration: generation,
+                hydrationCompletionReceipt: receipt),
+            nameof(PlaylistPresentationRefreshRequested));
+    }
+
+    internal bool PublishPlaylistEntriesHydrationCompleted(
+        int version,
+        BMSPlaylist sourceStore = null,
+        DispatcherCollection<BMSTable> sourceTables = null,
+        long generation = 0L,
+        PlaylistHydrationCompletionReceipt receipt = null)
+    {
+        bool published = false;
+        if (!ExecuteCurrentPlaylistHydrationNotification(
+            sourceStore,
+            sourceTables,
+            generation,
+            receipt,
+            () =>
+            {
+                PlaylistEntriesHydrationCompleted?.Invoke(
+                    this,
+                    new PlaylistEntriesHydrationVersionChangedEventArgs(
+                        version,
+                        sourceStore,
+                        sourceTables,
+                        generation,
+                        receipt));
+                published = true;
+            }))
         {
+            return false;
+        }
+        return published;
+    }
+
+    internal bool ApplyPlaylistEntriesHydrationCompleted(
+        int version,
+        bool deferred,
+        BMSPlaylist sourceStore = null,
+        DispatcherCollection<BMSTable> sourceTables = null,
+        long generation = 0L,
+        PlaylistHydrationCompletionReceipt receipt = null)
+    {
+        bool applied = false;
+        void ApplyCore()
+        {
+            if (sourceStore != null
+                && !IsCurrentPlaylistTreeNotificationSnapshot(sourceStore, sourceTables, generation))
+            {
+                return;
+            }
+            if (receipt != null && !receipt.IsBegun)
+            {
+                return;
+            }
             RequestPlaylistSummaryDataRefresh(
                 "playlist_entries_hydration_completed");
-            return;
+            if (!deferred)
+            {
+                RequestPlaylistDetailReloadRefresh();
+            }
+            applied = true;
         }
-        RequestPlaylistSummaryDataRefresh(
-            "playlist_entries_hydration_completed");
-        RequestPlaylistDetailReloadRefresh();
+
+        if (receipt != null)
+        {
+            return ExecuteCurrentPlaylistHydrationNotification(
+                sourceStore,
+                sourceTables,
+                generation,
+                receipt,
+                ApplyCore)
+                && applied;
+        }
+
+        ApplyCore();
+        return applied;
     }
 }
 
 internal sealed class PlaylistEntriesHydrationVersionChangedEventArgs : EventArgs
 {
-    internal PlaylistEntriesHydrationVersionChangedEventArgs(int version)
+    internal PlaylistEntriesHydrationVersionChangedEventArgs(
+        int version,
+        BMSPlaylist sourceStore = null,
+        DispatcherCollection<BMSTable> sourceTables = null,
+        long generation = 0L,
+        PlaylistHydrationCompletionReceipt receipt = null)
     {
         Version = version;
+        SourceStore = sourceStore;
+        SourceTables = sourceTables;
+        Generation = generation;
+        CompletionReceipt = receipt;
     }
 
     internal int Version { get; }
+
+    internal BMSPlaylist SourceStore { get; }
+
+    internal DispatcherCollection<BMSTable> SourceTables { get; }
+
+    internal long Generation { get; }
+
+    internal PlaylistHydrationCompletionReceipt CompletionReceipt { get; }
 }

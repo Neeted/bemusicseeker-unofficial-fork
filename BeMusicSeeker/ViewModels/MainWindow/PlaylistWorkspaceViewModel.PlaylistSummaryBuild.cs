@@ -60,14 +60,17 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool dataRefreshRequired,
         bool rebuildAsync)
     {
-        PlaylistSummaryDeferredRefreshKind refresh = TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired);
+        bool deferredRebuildAsync;
+        PlaylistSummaryDeferredRefreshKind refresh = TakeDeferredPlaylistSummaryRefresh(
+            dataRefreshRequired,
+            out deferredRebuildAsync);
         if (!IsPlaylistSummaryMode)
         {
             return 0L;
         }
         if (refresh == PlaylistSummaryDeferredRefreshKind.Data)
         {
-            return RebuildPlaylistSummaryView(rebuildAsync);
+            return RebuildPlaylistSummaryView(rebuildAsync && deferredRebuildAsync);
         }
         if (refresh == PlaylistSummaryDeferredRefreshKind.Presentation)
         {

@@ -506,6 +506,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private long deferredStartupPresentationInFlightOperationToken;
 
+    private UiRefreshChannel playlistPresentationRefreshApplyInFlight = UiRefreshChannel.None;
+
     private readonly object lockUiSuppression = new();
 
     private readonly object startupInitializationCompletionLock = new();
@@ -997,12 +999,27 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (startupBackgroundTaskProgressSynchronization)
         {
-            lock (lockUiSuppression)
+            lock (startupInitializationCompletionLock)
             {
-                if (deferredStartupPresentationInFlightOperationToken == operationToken)
+                lock (lockUiSuppression)
                 {
-                    deferredStartupPresentationInFlightMask = UiRefreshChannel.None;
-                    deferredStartupPresentationInFlightOperationToken = 0L;
+                    if (deferredStartupPresentationInFlightOperationToken == operationToken)
+                    {
+                        deferredStartupPresentationInFlightMask = UiRefreshChannel.None;
+                        deferredStartupPresentationInFlightOperationToken = 0L;
+
+                        // Clearing the in-flight marker and draining work that arrived during
+                        // the flush must be one arbitration interval.  Otherwise a request
+                        // reentrant with the final drain can observe the old marker, queue
+                        // itself, and remain stranded after the marker is cleared.
+                        while (!IsPlaylistSummaryRefreshDeferredNowUnsafe()
+                            && PlaylistWorkspace.HasDeferredPlaylistSummaryRefresh())
+                        {
+                            PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
+                                dataRefreshRequired: false,
+                                rebuildAsync: true);
+                        }
+                    }
                 }
             }
         }
@@ -1057,12 +1074,10 @@ public partial class MainWindowViewModel : ViewModel
         return GetStartupPresentationDeferredChannels(mask, reason, CanShowStartupBasicLibraryMainView(currentTreeMode)) != UiRefreshChannel.None;
     }
 
-    private void InvokePlaylistSummaryPresentationRefreshGate(Action<bool> request)
+    private bool IsPlaylistSummaryPresentationRefreshDeferred(out bool applyReservation)
     {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
+        applyReservation = false;
+        bool deferred;
         lock (startupBackgroundTaskProgressSynchronization)
         {
             bool startupCompletionLogged;
@@ -1095,17 +1110,26 @@ public partial class MainWindowViewModel : ViewModel
                         || startupPresentationFlushInFlight
                         || (deferredStartupPresentationOperationToken == operationToken
                             && (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None));
-                request(suppressUiUpdateDepth > 0 || startupPresentationDeferred);
+                deferred = suppressUiUpdateDepth > 0 || startupPresentationDeferred;
+                if (!deferred
+                    && (playlistPresentationRefreshApplyInFlight & summaryMask) != UiRefreshChannel.None)
+                {
+                    deferred = true;
+                }
+                if (!deferred)
+                {
+                    playlistPresentationRefreshApplyInFlight |= summaryMask;
+                    applyReservation = true;
+                }
             }
         }
+        return deferred;
     }
 
-    private void InvokePlaylistSummaryDataRefreshGate(Action<bool> request)
+    private bool IsPlaylistSummaryDataRefreshDeferred(out bool applyReservation)
     {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
+        applyReservation = false;
+        bool deferred;
         lock (startupBackgroundTaskProgressSynchronization)
         {
             bool startupCompletionLogged;
@@ -1133,18 +1157,262 @@ public partial class MainWindowViewModel : ViewModel
                     deferredStartupPresentationOperationToken = operationToken;
                     deferredStartupPresentationMask |= summaryMask;
                 }
-                bool deferred = suppressUiUpdateDepth > 0
+                deferred = suppressUiUpdateDepth > 0
                     || (operationToken != 0L
                         && (startupOperationActive
                             || startupPresentationFlushInFlight
                             || (deferredStartupPresentationOperationToken == operationToken
-                                && (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None)));
-                request(deferred);
+                        && (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None)));
+                if (!deferred
+                    && (playlistPresentationRefreshApplyInFlight & summaryMask) != UiRefreshChannel.None)
+                {
+                    deferred = true;
+                }
+                if (!deferred)
+                {
+                    playlistPresentationRefreshApplyInFlight |= summaryMask;
+                    applyReservation = true;
+                }
                 if (suppressUiUpdateDepth > 0)
                 {
                     pendingUiRefreshMask |= suppressedUiRefreshMask & summaryMask;
                 }
             }
+        }
+        return deferred;
+    }
+
+    private void CompletePlaylistPresentationRefreshApply(UiRefreshChannel channel)
+    {
+        bool reservationCleared = false;
+        try
+        {
+            while (true)
+            {
+                lock (startupBackgroundTaskProgressSynchronization)
+                {
+                    lock (startupInitializationCompletionLock)
+                    {
+                        lock (lockUiSuppression)
+                        {
+                            bool deferred = IsPlaylistSummaryRefreshDeferredNowUnsafe();
+                            bool pending = PlaylistWorkspace.HasDeferredPlaylistSummaryRefresh();
+                            if (deferred || !pending)
+                            {
+                                playlistPresentationRefreshApplyInFlight &= ~channel;
+                                reservationCleared = true;
+                                return;
+                            }
+                            // Keep the arbitration locks while draining.  A suppression
+                            // or startup transition on another thread must not enter the
+                            // gap between the decision and the actual deferred apply.
+                            PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
+                                dataRefreshRequired: false,
+                                rebuildAsync: true);
+                        }
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (!reservationCleared)
+            {
+                lock (startupBackgroundTaskProgressSynchronization)
+                {
+                    lock (startupInitializationCompletionLock)
+                    {
+                        lock (lockUiSuppression)
+                        {
+                            playlistPresentationRefreshApplyInFlight &= ~channel;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void ApplyPlaylistSummaryDataRefreshAtomically(
+        PlaylistWorkspaceViewModel workspace,
+        bool rebuildAsync,
+        out bool applyReservation)
+    {
+        applyReservation = false;
+        lock (startupBackgroundTaskProgressSynchronization)
+        {
+            lock (startupInitializationCompletionLock)
+            {
+                lock (lockUiSuppression)
+                {
+                    bool deferred = IsPlaylistSummaryDataRefreshDeferred(out applyReservation);
+                    workspace.ApplyPlaylistSummaryDataRefresh(deferred, rebuildAsync);
+                }
+            }
+        }
+    }
+
+    private void ExecutePlaylistSummaryPresentationRefreshWithArbitration(
+        PlaylistWorkspaceViewModel workspace,
+        out bool applyReservation)
+    {
+        applyReservation = false;
+        lock (startupBackgroundTaskProgressSynchronization)
+        {
+            lock (startupInitializationCompletionLock)
+            {
+                lock (lockUiSuppression)
+                {
+                    bool deferred = IsPlaylistSummaryPresentationRefreshDeferred(out applyReservation);
+                    workspace.ApplyPlaylistSummaryPresentationRefresh(deferred);
+                }
+            }
+        }
+    }
+
+    private bool IsPlaylistSummaryRefreshDeferredNow()
+    {
+        lock (startupBackgroundTaskProgressSynchronization)
+        {
+            lock (startupInitializationCompletionLock)
+            {
+                lock (lockUiSuppression)
+                {
+                    return IsPlaylistSummaryRefreshDeferredNowUnsafe();
+                }
+            }
+        }
+    }
+
+    // The caller holds startupBackgroundTaskProgressSynchronization,
+    // startupInitializationCompletionLock, and lockUiSuppression.
+    private bool IsPlaylistSummaryRefreshDeferredNowUnsafe()
+    {
+        long activeOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+        long operationToken = activeOperationToken != 0L
+            ? activeOperationToken
+            : startupCompletionContinuationToken;
+        NormalizeDeferredStartupPresentationMaskUnsafe(operationToken);
+        bool startupOperationActive = !startupInitializationCompleteLogged
+            && operationToken != 0L
+            && startupProgressWorkflowOwner.IsOperationActive
+            && startupProgressWorkflowOwner.CurrentOperationKind == StartupProgressOperationKind.Startup;
+        UiRefreshChannel summaryMask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
+        bool startupPresentationFlushInFlight = operationToken != 0L
+            && deferredStartupPresentationInFlightOperationToken == operationToken
+            && (deferredStartupPresentationInFlightMask & summaryMask) != UiRefreshChannel.None;
+        bool startupPresentationDeferred = operationToken != 0L
+            && (startupOperationActive
+                || startupPresentationFlushInFlight
+                || (deferredStartupPresentationOperationToken == operationToken
+                    && (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None));
+        return suppressUiUpdateDepth > 0 || startupPresentationDeferred;
+    }
+
+    private bool IsPlaylistTreePresentationDeferred(string reason)
+    {
+        if (TrySuppress(UiRefreshChannel.PlaylistTree))
+        {
+            return true;
+        }
+        return TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, reason);
+    }
+
+    private void PlaylistWorkspacePlaylistPresentationRefreshRequested(
+        object sender,
+        PlaylistPresentationRefreshRequestedEventArgs request)
+    {
+        if (sender is not PlaylistWorkspaceViewModel workspace)
+        {
+            throw new InvalidOperationException(
+                "Playlist presentation refresh request sender is not the composed workspace.");
+        }
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        switch (request.Kind)
+        {
+            case PlaylistPresentationRefreshKind.SummaryData:
+                bool dataApplyReservation = false;
+                try
+                {
+                    ApplyPlaylistSummaryDataRefreshAtomically(
+                        workspace,
+                        request.RebuildAsync,
+                        out dataApplyReservation);
+                }
+                finally
+                {
+                    if (dataApplyReservation)
+                    {
+                        CompletePlaylistPresentationRefreshApply(UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView);
+                    }
+                }
+                return;
+            case PlaylistPresentationRefreshKind.SummaryPresentation:
+                bool presentationApplyReservation = false;
+                try
+                {
+                    ExecutePlaylistSummaryPresentationRefreshWithArbitration(
+                        workspace,
+                        out presentationApplyReservation);
+                }
+                finally
+                {
+                    if (presentationApplyReservation)
+                    {
+                        CompletePlaylistPresentationRefreshApply(UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView);
+                    }
+                }
+                return;
+            case PlaylistPresentationRefreshKind.Tree:
+                workspace.ApplyPlaylistTreePresentationRefresh(
+                    request.Reason,
+                    IsPlaylistTreePresentationDeferred(request.Reason));
+                return;
+            case PlaylistPresentationRefreshKind.HydrationCompleted:
+                if (!workspace.TryBeginPlaylistHydrationNotification(
+                    request.HydrationSourceStore,
+                    request.HydrationSourceTables,
+                    request.HydrationNotificationGeneration,
+                    request.HydrationCompletionReceipt))
+                {
+                    return;
+                }
+                if (!workspace.PublishPlaylistEntriesHydrationCompleted(
+                    request.HydrationVersion,
+                    request.HydrationSourceStore,
+                    request.HydrationSourceTables,
+                    request.HydrationNotificationGeneration,
+                    request.HydrationCompletionReceipt))
+                {
+                    return;
+                }
+                bool hydrationPresentationApplied = workspace.ExecuteCurrentPlaylistHydrationNotification(
+                    request.HydrationSourceStore,
+                    request.HydrationSourceTables,
+                    request.HydrationNotificationGeneration,
+                    request.HydrationCompletionReceipt,
+                    () =>
+                    {
+                        bool hydrationDeferred = IsPlaylistTreePresentationDeferred(request.Reason);
+                        workspace.ApplyPlaylistEntriesHydrationCompleted(
+                            request.HydrationVersion,
+                            hydrationDeferred,
+                            request.HydrationSourceStore,
+                            request.HydrationSourceTables,
+                            request.HydrationNotificationGeneration,
+                            request.HydrationCompletionReceipt);
+                    });
+                if (!hydrationPresentationApplied)
+                {
+                    return;
+                }
+                return;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown playlist presentation refresh request kind: " + request.Kind);
         }
     }
 
@@ -2667,10 +2935,6 @@ public partial class MainWindowViewModel : ViewModel
             CollectPlaylistReloadCleanupGarbage,
             LogPlaylistReload,
             (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message),
-            InvokePlaylistSummaryPresentationRefreshGate,
-            InvokePlaylistSummaryDataRefreshGate,
-            () => TrySuppress(UiRefreshChannel.PlaylistTree),
-            reason => TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, reason),
             (reason, work) => startupBackgroundTaskScheduler.Queue(
                 "external_playlist_sync",
                 reason,
@@ -2686,6 +2950,7 @@ public partial class MainWindowViewModel : ViewModel
             ApplyMainChartListPresentationActionAsync,
             () => DispatcherHelper.UIDispatcher.CheckAccess());
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
+        PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
@@ -4315,24 +4580,64 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistEntriesHydrationVersionChangedEventArgs e)
     {
-        startupProgressWorkflowOwner.TrackStartupProgressPlaylistEntriesHydrationRequested(
-            e?.Version ?? 0,
-            startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
+        if (sender is not PlaylistWorkspaceViewModel workspace)
+        {
+            throw new InvalidOperationException(
+                "Playlist hydration request sender is not the composed workspace.");
+        }
+        if (!workspace.TryBeginPlaylistHydrationNotification(
+            e?.SourceStore,
+            e?.SourceTables,
+            e?.Generation ?? 0L,
+            e?.CompletionReceipt))
+        {
+            return;
+        }
+        workspace.ExecuteCurrentPlaylistHydrationNotification(
+            e?.SourceStore,
+            e?.SourceTables,
+            e?.Generation ?? 0L,
+            e?.CompletionReceipt,
+            () =>
+            {
+                startupProgressWorkflowOwner.TrackStartupProgressPlaylistEntriesHydrationRequested(
+                    e?.Version ?? 0,
+                    startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
+            });
     }
 
     private void PlaylistWorkspacePlaylistEntriesHydrationCompleted(
         object sender,
         PlaylistEntriesHydrationVersionChangedEventArgs e)
     {
-        int version = e?.Version ?? 0;
-        long operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
-        startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistEntriesHydration(version, operationToken);
-        startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistReferenceFromHydration(version, operationToken);
-        if (PlayHistory.SelectedDisplayTarget.UsesProjection)
+        if (sender is not PlaylistWorkspaceViewModel workspace)
         {
-            playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
-                PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty);
+            throw new InvalidOperationException(
+                "Playlist hydration completion sender is not the composed workspace.");
         }
+        void ApplyHydrationLifecycle()
+        {
+            int version = e?.Version ?? 0;
+            long operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+            startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistEntriesHydration(version, operationToken);
+            startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistReferenceFromHydration(version, operationToken);
+            if (PlayHistory.SelectedDisplayTarget.UsesProjection)
+            {
+                playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
+                    PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty);
+            }
+        }
+        if (e?.CompletionReceipt != null)
+        {
+            workspace.ExecuteCurrentPlaylistHydrationNotification(
+                e.SourceStore,
+                e.SourceTables,
+                e.Generation,
+                e.CompletionReceipt,
+                ApplyHydrationLifecycle);
+            return;
+        }
+        ApplyHydrationLifecycle();
     }
 
     private void PlaylistWorkspacePlaylistExternalSyncQueued(

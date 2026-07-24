@@ -67,14 +67,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     internal PlaylistTableLevelOverwriteWorkflowOwner PlaylistTableLevelOverwriteWorkflow { get; }
 
-    private readonly Action<Action<bool>> playlistSummaryPresentationRefreshGate;
-
-    private readonly Action<Action<bool>> playlistSummaryDataRefreshGate;
-
-    private readonly Func<bool> playlistTreeRefreshSuppressedProvider;
-
-    private readonly Func<string, bool> playlistTreeRefreshDeferredProvider;
-
     private IPlaylistDetailDataSource detailDataSource;
 
     internal PlaylistDetailBuildState DetailBuildState { get; }
@@ -150,10 +142,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action playlistReloadCleanupGarbageCollector,
         Action<string> playlistReloadLog,
         Action<Exception, string> playlistSyncFailureLog,
-        Action<Action<bool>> playlistSummaryPresentationRefreshGate,
-        Action<Action<bool>> playlistSummaryDataRefreshGate,
-        Func<bool> playlistTreeRefreshSuppressedProvider,
-        Func<string, bool> playlistTreeRefreshDeferredProvider,
         Func<string, Func<Task>, bool> playlistExternalSyncScheduler,
         Func<string, Func<Task>, bool> playlistReferenceApplyScheduler,
         Func<Action, Task> playlistRestoreUiApplyScheduler,
@@ -226,14 +214,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistReloadLog));
         this.playlistSyncFailureLog = playlistSyncFailureLog
             ?? throw new ArgumentNullException(nameof(playlistSyncFailureLog));
-        this.playlistSummaryPresentationRefreshGate = playlistSummaryPresentationRefreshGate
-            ?? throw new ArgumentNullException(nameof(playlistSummaryPresentationRefreshGate));
-        this.playlistSummaryDataRefreshGate = playlistSummaryDataRefreshGate
-            ?? throw new ArgumentNullException(nameof(playlistSummaryDataRefreshGate));
-        this.playlistTreeRefreshSuppressedProvider = playlistTreeRefreshSuppressedProvider
-            ?? throw new ArgumentNullException(nameof(playlistTreeRefreshSuppressedProvider));
-        this.playlistTreeRefreshDeferredProvider = playlistTreeRefreshDeferredProvider
-            ?? throw new ArgumentNullException(nameof(playlistTreeRefreshDeferredProvider));
         this.playlistExternalSyncScheduler = playlistExternalSyncScheduler
             ?? throw new ArgumentNullException(nameof(playlistExternalSyncScheduler));
         this.playlistRestoreUiApplyScheduler = playlistRestoreUiApplyScheduler
@@ -298,6 +278,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     }
 
     internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
+
+    internal event EventHandler<PlaylistPresentationRefreshRequestedEventArgs> PlaylistPresentationRefreshRequested;
 
     internal async Task ResetPlaylistSummaryColumnsToDefaultAsync()
     {
@@ -658,6 +640,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private bool deferredPlaylistSummaryDataRefreshRequested;
 
+    private bool deferredPlaylistSummaryDataRebuildAsync = true;
+
     private bool deferredPlaylistSummaryPresentationRefreshRequested;
 
     /// <summary>
@@ -917,6 +901,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
                     playlistSummaryDataRebuildGeneration++;
                     playlistSummaryPresentationGeneration++;
                     deferredPlaylistSummaryDataRefreshRequested = false;
+                    deferredPlaylistSummaryDataRebuildAsync = true;
                     deferredPlaylistSummaryPresentationRefreshRequested = false;
                     ClearPlaylistSummarySelectionRestoreUnsafe();
                 }
@@ -1135,7 +1120,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     }
 
     internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(
-        Action<long> beforeRefreshRequested = null)
+        Action<long> beforeRefreshRequested = null,
+        bool rebuildAsync = true)
     {
         CancellationTokenSource cancellation;
         PlaylistSummaryDataRefreshRequestResult result;
@@ -1150,6 +1136,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             if (queued)
             {
                 deferredPlaylistSummaryDataRefreshRequested = true;
+                deferredPlaylistSummaryDataRebuildAsync &= rebuildAsync;
                 deferredPlaylistSummaryPresentationRefreshRequested = false;
             }
             result = new PlaylistSummaryDataRefreshRequestResult
@@ -1186,20 +1173,23 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             throw new ArgumentNullException(nameof(reason));
         }
         PlaylistSummaryDataRefreshRequestResult request = RequestPlaylistSummaryDataRefresh(
-            beforeRefreshRequested);
-        bool drainNow = true;
+            beforeRefreshRequested,
+            rebuildAsync);
         if (request.Queued)
         {
-            playlistSummaryDataRefreshGate(deferred => drainNow = !deferred);
+            RaiseRequiredEvent(
+                PlaylistPresentationRefreshRequested,
+                new PlaylistPresentationRefreshRequestedEventArgs(
+                    PlaylistPresentationRefreshKind.SummaryData,
+                    reason,
+                    rebuildAsync),
+                nameof(PlaylistPresentationRefreshRequested));
+            if (!HasDeferredPlaylistSummaryRefresh())
+            {
+                return CurrentPlaylistSummaryDataRebuildGeneration;
+            }
         }
-        if (!request.Queued || !drainNow)
-        {
-            return request.NextBuildGeneration;
-        }
-        long drainedGeneration = DrainDeferredPlaylistSummaryRefresh(
-            dataRefreshRequired: false,
-            rebuildAsync);
-        return drainedGeneration != 0L ? drainedGeneration : request.NextBuildGeneration;
+        return request.NextBuildGeneration;
     }
 
     internal void RequestDeferredPlaylistSummaryPresentationRefresh()
@@ -1238,16 +1228,33 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     /// </summary>
     internal void RequestPlaylistSummaryPresentationRefresh()
     {
-        playlistSummaryPresentationRefreshGate(deferred =>
+        RaiseRequiredEvent(
+            PlaylistPresentationRefreshRequested,
+            new PlaylistPresentationRefreshRequestedEventArgs(
+                PlaylistPresentationRefreshKind.SummaryPresentation,
+                "playlist_summary_presentation"),
+            nameof(PlaylistPresentationRefreshRequested));
+    }
+
+    internal void ApplyPlaylistSummaryDataRefresh(bool deferred, bool rebuildAsync)
+    {
+        if (!deferred)
         {
-            RequestDeferredPlaylistSummaryPresentationRefresh();
-            if (!deferred)
-            {
-                DrainDeferredPlaylistSummaryRefresh(
-                    dataRefreshRequired: false,
-                    rebuildAsync: true);
-            }
-        });
+            DrainDeferredPlaylistSummaryRefresh(
+                dataRefreshRequired: false,
+                rebuildAsync);
+        }
+    }
+
+    internal void ApplyPlaylistSummaryPresentationRefresh(bool deferred)
+    {
+        RequestDeferredPlaylistSummaryPresentationRefresh();
+        if (!deferred)
+        {
+            DrainDeferredPlaylistSummaryRefresh(
+                dataRefreshRequired: false,
+                rebuildAsync: true);
+        }
     }
 
     /// <summary>
@@ -1264,11 +1271,20 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)
     {
+        return TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired, out _);
+    }
+
+    internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(
+        bool dataRefreshRequired,
+        out bool rebuildAsync)
+    {
         lock (playlistSummaryTransitionLock)
         {
             bool applyDataRefresh = dataRefreshRequired || deferredPlaylistSummaryDataRefreshRequested;
             bool applyPresentationRefresh = deferredPlaylistSummaryPresentationRefreshRequested;
+            rebuildAsync = deferredPlaylistSummaryDataRebuildAsync;
             deferredPlaylistSummaryDataRefreshRequested = false;
+            deferredPlaylistSummaryDataRebuildAsync = true;
             deferredPlaylistSummaryPresentationRefreshRequested = false;
             if (playlistSummaryDataBuildStopped)
             {

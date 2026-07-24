@@ -532,7 +532,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
 
         Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspace(
             action => action(),
@@ -699,7 +699,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, urlPresentationScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogService);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, urlPresentationScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogService);
         workspace.PlaylistUrlInstallTreeExpansionRequested += actualTreeExpansionSink;
         return workspace;
     }
@@ -748,7 +748,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
@@ -792,7 +792,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
     }
 
     private static PlaylistDetailRow CreatePlaylistUrlRow(string? url, string? diffUrl)

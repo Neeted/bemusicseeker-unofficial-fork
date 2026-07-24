@@ -18,6 +18,12 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private long playlistTreeNotificationGeneration;
 
+    private PlaylistHydrationCompletionReceipt playlistHydrationCompletionReceipt;
+
+    private PlaylistEntriesHydrationVersionChangedEventArgs pendingPlaylistHydrationCompletion;
+
+    private readonly object playlistHydrationNotificationDispatchLock = new();
+
     private readonly object playlistTreeStoreSyncRoot = new();
 
     private bool isPlaylistTreeExpanded = true;
@@ -97,86 +103,102 @@ public sealed partial class PlaylistWorkspaceViewModel
     private void AttachPlaylistTreeStore(BMSPlaylist nextStore, BMSLibrary nextLibrary)
     {
         SetPlaylistExternalSyncReceiptSubscription(nextStore, nextLibrary);
+        PlaylistHydrationCompletionReceipt receiptToInvalidate;
         lock (playlistTreeStoreSyncRoot)
         {
             if (ReferenceEquals(playlistTreeStore, nextStore))
             {
-                AttachObservedPlaylistTreeTables(nextStore?.BMSTables);
+                receiptToInvalidate = AttachObservedPlaylistTreeTables(nextStore?.BMSTables);
                 PlaylistReferenceApplyWorkflow.AttachContext(
                     nextStore,
                     nextLibrary,
                     Volatile.Read(ref playlistTreeNotificationGeneration));
-                return;
             }
+            else
+            {
+                receiptToInvalidate = DetachPlaylistHydrationCompletionReceiptUnsafe();
 
-            if (playlistTreeStore != null)
-            {
-                playlistTreeStore.PropertyChanged -= PlaylistTreeStorePropertyChanged;
-                playlistTreeStore.PlaylistEntriesHydrationReceiptPublished -= PlaylistTreeStoreHydrationReceiptPublished;
-            }
-            if (observedPlaylistTreeTables != null)
-            {
-                observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
-            }
+                if (playlistTreeStore != null)
+                {
+                    playlistTreeStore.PropertyChanged -= PlaylistTreeStorePropertyChanged;
+                    playlistTreeStore.PlaylistEntriesHydrationReceiptPublished -= PlaylistTreeStoreHydrationReceiptPublished;
+                }
+                if (observedPlaylistTreeTables != null)
+                {
+                    observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
+                }
 
-            playlistTreeStore = nextStore;
-            Interlocked.Increment(ref playlistTreeNotificationGeneration);
-            PlaylistReferenceApplyWorkflow.AttachContext(
-                nextStore,
-                nextLibrary,
-                Volatile.Read(ref playlistTreeNotificationGeneration));
-            observedPlaylistTreeTables = null;
-            if (playlistTreeStore != null)
-            {
-                playlistTreeStore.PropertyChanged += PlaylistTreeStorePropertyChanged;
-                playlistTreeStore.PlaylistEntriesHydrationReceiptPublished += PlaylistTreeStoreHydrationReceiptPublished;
-                AttachObservedPlaylistTreeTables(playlistTreeStore.BMSTables);
+                playlistTreeStore = nextStore;
+                Interlocked.Increment(ref playlistTreeNotificationGeneration);
+                PlaylistReferenceApplyWorkflow.AttachContext(
+                    nextStore,
+                    nextLibrary,
+                    Volatile.Read(ref playlistTreeNotificationGeneration));
+                observedPlaylistTreeTables = null;
+                if (playlistTreeStore != null)
+                {
+                    playlistTreeStore.PropertyChanged += PlaylistTreeStorePropertyChanged;
+                    playlistTreeStore.PlaylistEntriesHydrationReceiptPublished += PlaylistTreeStoreHydrationReceiptPublished;
+                    AttachObservedPlaylistTreeTables(playlistTreeStore.BMSTables);
+                }
             }
         }
+        receiptToInvalidate?.Invalidate();
     }
 
-    private void AttachObservedPlaylistTreeTables(DispatcherCollection<BMSTable> nextTables)
+    private PlaylistHydrationCompletionReceipt AttachObservedPlaylistTreeTables(
+        DispatcherCollection<BMSTable> nextTables)
     {
-        lock (playlistTreeStoreSyncRoot)
+        if (ReferenceEquals(observedPlaylistTreeTables, nextTables))
         {
-            if (ReferenceEquals(observedPlaylistTreeTables, nextTables))
-            {
-                return;
-            }
-            if (observedPlaylistTreeTables != null)
-            {
-                observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
-            }
-            observedPlaylistTreeTables = nextTables;
-            long generation = Interlocked.Increment(ref playlistTreeNotificationGeneration);
-            PlaylistReferenceApplyWorkflow.AttachContext(
-                playlistTreeStore,
-                subscribedPlaylistExternalSyncLibrary,
-                generation);
-            if (observedPlaylistTreeTables != null)
-            {
-                observedPlaylistTreeTables.CollectionChanged += PlaylistTreeTablesCollectionChanged;
-            }
+            return null;
         }
+
+        PlaylistHydrationCompletionReceipt receiptToInvalidate = DetachPlaylistHydrationCompletionReceiptUnsafe();
+        if (observedPlaylistTreeTables != null)
+        {
+            observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
+        }
+        observedPlaylistTreeTables = nextTables;
+        long generation = Interlocked.Increment(ref playlistTreeNotificationGeneration);
+        PlaylistReferenceApplyWorkflow.AttachContext(
+            playlistTreeStore,
+            subscribedPlaylistExternalSyncLibrary,
+            generation);
+        if (observedPlaylistTreeTables != null)
+        {
+            observedPlaylistTreeTables.CollectionChanged += PlaylistTreeTablesCollectionChanged;
+        }
+        return receiptToInvalidate;
+    }
+
+    private PlaylistHydrationCompletionReceipt DetachPlaylistHydrationCompletionReceiptUnsafe()
+    {
+        PlaylistHydrationCompletionReceipt receipt = playlistHydrationCompletionReceipt;
+        playlistHydrationCompletionReceipt = null;
+        pendingPlaylistHydrationCompletion = null;
+        return receipt;
     }
 
     private void ApplyPlaylistTreeTablesSource(bool raiseWhenUnchanged = false)
     {
         DispatcherCollection<BMSTable> nextTables;
         bool changed;
+        PlaylistHydrationCompletionReceipt receiptToInvalidate;
         lock (playlistTreeStoreSyncRoot)
         {
             nextTables = playlistTreeStore == null
                 ? emptyPlaylistTreeTables
                     ?? throw new InvalidOperationException("Playlist tree source is not configured.")
                 : playlistTreeStore.BMSTables;
-            AttachObservedPlaylistTreeTables(nextTables);
+            receiptToInvalidate = AttachObservedPlaylistTreeTables(nextTables);
             changed = !ReferenceEquals(playlistTreeTables, nextTables);
             if (changed)
             {
                 playlistTreeTables = nextTables;
             }
         }
+        receiptToInvalidate?.Invalidate();
         if (changed || raiseWhenUnchanged)
         {
             RaisePropertyChanged(nameof(PlaylistTreeTables));

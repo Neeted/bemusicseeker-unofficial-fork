@@ -82,7 +82,8 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            AttachImmediatePlaylistPresentationRouter(missingProviderWorkspace);
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
 
@@ -112,7 +113,8 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            AttachImmediatePlaylistPresentationRouter(workspace);
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
             DateTime completedAt = DateTime.Now;
@@ -434,7 +436,8 @@ public sealed class ApplicationCompositionTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        AttachImmediatePlaylistPresentationRouter(playlistWorkspace);
 
         Assert.IsNotNull(mainChartList);
         Assert.IsNotNull(playlistWorkspace);
@@ -481,7 +484,8 @@ public sealed class ApplicationCompositionTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        AttachImmediatePlaylistPresentationRouter(playlistWorkspace);
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
@@ -595,8 +599,8 @@ public sealed class ApplicationCompositionTests
                 () => { },
                 _ => { },
                 (exception, message) => { },
-                request => request(false),
-                request => request(true), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            AttachPlaylistPresentationRouter(workspace, deferSummaryData: true);
             workspace.IsPlaylistSummaryMode = true;
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
@@ -720,8 +724,8 @@ public sealed class ApplicationCompositionTests
                 () => { },
                 _ => { },
                 (exception, message) => { },
-                request => request(false),
-                request => request(true), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            AttachPlaylistPresentationRouter(workspace, deferSummaryData: true);
             workspace.PlaylistSummarySelectionRestoreRequested += restoreRequests.Add;
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
@@ -926,7 +930,8 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            AttachImmediatePlaylistPresentationRouter(workspace);
             var queuedReasons = new List<string>();
             playlist.StartupBackgroundTaskScheduler = (_, reason, _, _) =>
             {
@@ -1005,6 +1010,40 @@ public sealed class ApplicationCompositionTests
             BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = operationMode;
             BeMusicSeeker.Properties.Settings.Default.PlayHistorySelectedDisplayTargetIdentity = displayTargetIdentity;
         }
+    }
+
+    [TestMethod]
+    public void MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter()
+    {
+        RunOnStaDispatcherThread(() =>
+        {
+            Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
+            DispatcherHelper.UIDispatcher = Dispatcher.CurrentDispatcher;
+            try
+            {
+                var composition = new ApplicationComposition(
+                    firstStartupProvider: () => false,
+                    completeFirstStartup: () => { },
+                    reloadSettings: () => { },
+                    saveSettings: () => { },
+                    initializeOwner: _ => Task.FromResult(true));
+                MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+                PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+                workspace.IsPlaylistSummaryMode = true;
+
+                long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+                Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache([], dataGeneration));
+
+                workspace.RequestPlaylistSummaryPresentationRefresh();
+
+                Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh());
+                Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
+            }
+            finally
+            {
+                DispatcherHelper.UIDispatcher = previousDispatcher;
+            }
+        });
     }
 
     [TestMethod]
@@ -1470,6 +1509,82 @@ public sealed class ApplicationCompositionTests
             new BmsRankingCacheDownloadRuntime(() => null!),
             new ChartFileOperationSynchronizer(),
             new TestUiDialogService());
+    }
+
+    private static void AttachImmediatePlaylistPresentationRouter(PlaylistWorkspaceViewModel workspace)
+    {
+        AttachPlaylistPresentationRouter(workspace, deferSummaryData: false);
+    }
+
+    private static void AttachPlaylistPresentationRouter(
+        PlaylistWorkspaceViewModel workspace,
+        bool deferSummaryData)
+    {
+        workspace.PlaylistEntriesHydrationRequested += (_, request) =>
+        {
+            if (!workspace.TryBeginPlaylistHydrationNotification(
+                request.SourceStore,
+                request.SourceTables,
+                request.Generation,
+                request.CompletionReceipt))
+            {
+                return;
+            }
+            workspace.ExecuteCurrentPlaylistHydrationNotification(
+                request.SourceStore,
+                request.SourceTables,
+                request.Generation,
+                request.CompletionReceipt,
+                () => { });
+        };
+        workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+        {
+            switch (request.Kind)
+            {
+                case PlaylistPresentationRefreshKind.SummaryData:
+                    workspace.ApplyPlaylistSummaryDataRefresh(deferSummaryData, request.RebuildAsync);
+                    break;
+                case PlaylistPresentationRefreshKind.SummaryPresentation:
+                    workspace.ApplyPlaylistSummaryPresentationRefresh(deferred: false);
+                    break;
+                case PlaylistPresentationRefreshKind.Tree:
+                    workspace.ApplyPlaylistTreePresentationRefresh(request.Reason, deferred: false);
+                    break;
+                case PlaylistPresentationRefreshKind.HydrationCompleted:
+                    if (request.HydrationSourceStore != null
+                        && !workspace.IsCurrentPlaylistTreeNotificationSnapshot(
+                            request.HydrationSourceStore,
+                            request.HydrationSourceTables,
+                            request.HydrationNotificationGeneration))
+                    {
+                        break;
+                    }
+                    if (!workspace.TryBeginPlaylistHydrationNotification(
+                        request.HydrationSourceStore,
+                        request.HydrationSourceTables,
+                        request.HydrationNotificationGeneration,
+                        request.HydrationCompletionReceipt))
+                    {
+                        break;
+                    }
+                    workspace.PublishPlaylistEntriesHydrationCompleted(
+                        request.HydrationVersion,
+                        request.HydrationSourceStore,
+                        request.HydrationSourceTables,
+                        request.HydrationNotificationGeneration,
+                        request.HydrationCompletionReceipt);
+                    workspace.ApplyPlaylistEntriesHydrationCompleted(
+                        request.HydrationVersion,
+                        deferred: false,
+                        request.HydrationSourceStore,
+                        request.HydrationSourceTables,
+                        request.HydrationNotificationGeneration,
+                        request.HydrationCompletionReceipt);
+                    break;
+                default:
+                    throw new InvalidOperationException("Unknown playlist presentation refresh request kind.");
+            }
+        };
     }
 
     private sealed class FakeSettingsEditSession : ISettingsEditSession

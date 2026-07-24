@@ -11,6 +11,75 @@ namespace BeMusicSeeker.Tests;
 
 internal static class PlaylistWorkspaceTestPorts
 {
+    internal static void AttachImmediatePlaylistPresentationRouter(PlaylistWorkspaceViewModel workspace)
+    {
+        workspace.PlaylistEntriesHydrationRequested += (_, request) =>
+        {
+            if (!workspace.TryBeginPlaylistHydrationNotification(
+                request.SourceStore,
+                request.SourceTables,
+                request.Generation,
+                request.CompletionReceipt))
+            {
+                return;
+            }
+            workspace.ExecuteCurrentPlaylistHydrationNotification(
+                request.SourceStore,
+                request.SourceTables,
+                request.Generation,
+                request.CompletionReceipt,
+                () => { });
+        };
+        workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+        {
+            switch (request.Kind)
+            {
+                case PlaylistPresentationRefreshKind.SummaryData:
+                    workspace.ApplyPlaylistSummaryDataRefresh(deferred: false, request.RebuildAsync);
+                    break;
+                case PlaylistPresentationRefreshKind.SummaryPresentation:
+                    workspace.ApplyPlaylistSummaryPresentationRefresh(deferred: false);
+                    break;
+                case PlaylistPresentationRefreshKind.Tree:
+                    workspace.ApplyPlaylistTreePresentationRefresh(request.Reason, deferred: false);
+                    break;
+                case PlaylistPresentationRefreshKind.HydrationCompleted:
+                    if (request.HydrationSourceStore != null
+                        && !workspace.IsCurrentPlaylistTreeNotificationSnapshot(
+                            request.HydrationSourceStore,
+                            request.HydrationSourceTables,
+                            request.HydrationNotificationGeneration))
+                    {
+                        break;
+                    }
+                    if (!workspace.TryBeginPlaylistHydrationNotification(
+                        request.HydrationSourceStore,
+                        request.HydrationSourceTables,
+                        request.HydrationNotificationGeneration,
+                        request.HydrationCompletionReceipt))
+                    {
+                        break;
+                    }
+                    workspace.PublishPlaylistEntriesHydrationCompleted(
+                        request.HydrationVersion,
+                        request.HydrationSourceStore,
+                        request.HydrationSourceTables,
+                        request.HydrationNotificationGeneration,
+                        request.HydrationCompletionReceipt);
+                    workspace.ApplyPlaylistEntriesHydrationCompleted(
+                        request.HydrationVersion,
+                        deferred: false,
+                        request.HydrationSourceStore,
+                        request.HydrationSourceTables,
+                        request.HydrationNotificationGeneration,
+                        request.HydrationCompletionReceipt);
+                    break;
+                default:
+                    throw new InvalidOperationException("Unknown playlist presentation refresh request kind.");
+            }
+        };
+    }
+
     internal static PlaylistUrlAcquisitionWorkflow CreateUrlAcquisitionWorkflow(Action<string>? log = null)
     {
         return new PlaylistUrlAcquisitionWorkflow(
