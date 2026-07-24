@@ -755,7 +755,10 @@ public sealed class PendingPackageWorkflowOwnerTests
         var events = new List<string>();
         ChartFile chart = CreateChart(installDestination: @"C:\Installed\song.bms");
         ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
-        var store = new RecordingStore(events);
+        var store = new RecordingStore(events)
+        {
+            EmptyPendingSection = true
+        };
         var presentation = new RecordingPresentation(events);
         var playback = new RecordingPlayback(events);
         var dialogs = new FakeUiDialogService
@@ -775,6 +778,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         Assert.IsTrue(result.Succeeded);
         Assert.IsNull(result.Failure);
         Assert.IsTrue(result.ShouldApplyView);
+        Assert.AreEqual(PackageCatalogSection.Pending, result.EmptySection);
         CollectionAssert.AreEqual(
             new[]
             {
@@ -894,7 +898,11 @@ public sealed class PendingPackageWorkflowOwnerTests
         var events = new List<string>();
         var mutationFailure = new InvalidOperationException("force install failed");
         var cleanupFailure = new InvalidOperationException("refresh cleanup failed");
-        var store = new RecordingStore(events) { Failure = mutationFailure };
+        var store = new RecordingStore(events)
+        {
+            Failure = mutationFailure,
+            EmptyPendingSection = true
+        };
         var presentation = new RecordingPresentation(events)
         {
             EndRefreshSuppressionFailure = cleanupFailure
@@ -912,6 +920,7 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         Assert.IsFalse(result.Succeeded);
         Assert.IsTrue(result.ShouldApplyView);
+        Assert.AreEqual(PackageCatalogSection.Pending, result.EmptySection);
         Assert.IsInstanceOfType<AggregateException>(result.Failure);
         CollectionAssert.AreEqual(
             new[]
@@ -927,6 +936,38 @@ public sealed class PendingPackageWorkflowOwnerTests
         var exception = (AggregateException)result.Failure;
         Assert.AreSame(mutationFailure, exception.InnerExceptions[0]);
         Assert.AreSame(cleanupFailure, exception.InnerExceptions[1]);
+    }
+
+    [TestMethod]
+    public async Task ForceInstallPackagesAsync_DoesNotCapturePendingSectionBeforeMutation()
+    {
+        var events = new List<string>();
+        var suppressionFailure = new InvalidOperationException("suppression start failed");
+        var store = new RecordingStore(events)
+        {
+            EmptyPendingSection = true,
+            EmptyPendingSectionFailure = new InvalidOperationException("empty-section query should not run")
+        };
+        var presentation = new RecordingPresentation(events)
+        {
+            StartRefreshSuppressionFailure = suppressionFailure
+        };
+        var owner = CreateOwner(
+            CreateLibrary,
+            events,
+            store,
+            AcceptedDialogs(),
+            presentation: presentation,
+            playback: new RecordingPlayback(events));
+
+        PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync(
+            [ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())])]);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsTrue(result.ShouldApplyView);
+        Assert.IsNull(result.EmptySection);
+        Assert.AreEqual(0, store.IsPendingSectionEmptyCount);
+        Assert.AreSame(suppressionFailure, result.Failure);
     }
 
     [TestMethod]
@@ -1446,6 +1487,8 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal Exception? EndRefreshSuppressionFailure { get; set; }
 
+        internal Exception? StartRefreshSuppressionFailure { get; set; }
+
         internal void OnActivityChanged(object sender, EventArgs e)
         {
             var activity = (ChartMutationActivityOwner)sender;
@@ -1467,6 +1510,10 @@ public sealed class PendingPackageWorkflowOwnerTests
                 case PendingPackageRefreshSuppressionChangedEventArgs suppressionChanged:
                     if (suppressionChanged.IsSuppressed)
                     {
+                        if (StartRefreshSuppressionFailure != null)
+                        {
+                            throw StartRefreshSuppressionFailure;
+                        }
                         LastRefreshScope = suppressionChanged.Scope
                             ?? throw new InvalidOperationException("Refresh suppression scope was not published.");
                         events.Add("suppression-start");
@@ -1565,6 +1612,12 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal Exception? Failure { get; set; }
 
+        internal bool EmptyPendingSection { get; set; }
+
+        internal Exception? EmptyPendingSectionFailure { get; set; }
+
+        internal int IsPendingSectionEmptyCount { get; private set; }
+
         internal Action<BMSLibrary>? SearchPackagesAction { get; set; }
 
         public void SearchPackages(
@@ -1662,6 +1715,16 @@ public sealed class PendingPackageWorkflowOwnerTests
             events.Add("store-manual-install");
             LastPackages = packages;
             ThrowIfConfigured();
+        }
+
+        public bool IsPendingSectionEmpty(BMSLibrary library)
+        {
+            IsPendingSectionEmptyCount++;
+            if (EmptyPendingSectionFailure != null)
+            {
+                throw EmptyPendingSectionFailure;
+            }
+            return EmptyPendingSection;
         }
 
         public IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> GetDuplicateInstallRepairConfirmations(

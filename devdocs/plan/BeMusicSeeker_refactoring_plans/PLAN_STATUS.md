@@ -58,8 +58,8 @@ Non-goals:
 | Batch | Unit | State | Closure family |
 |---|---|---|---|
 | `UI05-T2` | `B1` | `completed` | `root shell / lifecycle / composition` |
-| `UI05-T2` | `B2` | `active` | `view-host / binding / typed presentation` |
-| `UI05-T2` | `B3` | `pending` | `production-route legacy seam / test surface` |
+| `UI05-T2` | `B2` | `completed` | `view-host / binding / typed presentation` |
+| `UI05-T2` | `B3` | `active` | `production-route legacy seam / test surface` |
 
 ## Current code evidence
 

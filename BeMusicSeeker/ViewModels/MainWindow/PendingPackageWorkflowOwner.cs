@@ -62,11 +62,16 @@ internal sealed class PendingPackageMutationAppliedEventArgs : PendingPackageWor
 
 internal sealed class PendingPackageMutationResult
 {
-    private PendingPackageMutationResult(bool succeeded, Exception failure, bool shouldApplyView)
+    private PendingPackageMutationResult(
+        bool succeeded,
+        Exception failure,
+        bool shouldApplyView,
+        PackageCatalogSection? emptySection)
     {
         Succeeded = succeeded;
         Failure = failure;
         ShouldApplyView = shouldApplyView;
+        EmptySection = emptySection;
     }
 
     internal bool Succeeded { get; }
@@ -75,24 +80,35 @@ internal sealed class PendingPackageMutationResult
 
     internal bool ShouldApplyView { get; }
 
-    internal static PendingPackageMutationResult Completed { get; } = new(true, null, true);
+    internal PackageCatalogSection? EmptySection { get; }
 
-    internal static PendingPackageMutationResult Rejected { get; } = new(false, null, false);
+    internal static PendingPackageMutationResult Completed { get; } = new(true, null, true, null);
+
+    internal static PendingPackageMutationResult Rejected { get; } = new(false, null, false, null);
+
+    internal static PendingPackageMutationResult CompletedFor(PackageCatalogSection? emptySection)
+    {
+        return new PendingPackageMutationResult(true, null, true, emptySection);
+    }
 
     internal static PendingPackageMutationResult FailedBeforeMutation(Exception failure)
     {
         return new PendingPackageMutationResult(
             false,
             failure ?? throw new ArgumentNullException(nameof(failure)),
-            false);
+            false,
+            null);
     }
 
-    internal static PendingPackageMutationResult FailedAfterMutation(Exception failure)
+    internal static PendingPackageMutationResult FailedAfterMutation(
+        Exception failure,
+        PackageCatalogSection? emptySection = null)
     {
         return new PendingPackageMutationResult(
             false,
             failure ?? throw new ArgumentNullException(nameof(failure)),
-            true);
+            true,
+            emptySection);
     }
 }
 
@@ -144,6 +160,8 @@ internal interface IPendingPackageStore
     void ManualInstallPackages(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages);
+
+    bool IsPendingSectionEmpty(BMSLibrary library);
 
     IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> GetDuplicateInstallRepairConfirmations(
         BMSLibrary library,
@@ -746,17 +764,22 @@ internal sealed class PendingPackageWorkflowOwner
         Action<BMSLibrary> mutation,
         IReadOnlyList<ChartPackage> packages)
     {
+        bool pendingSectionEmpty = false;
         try
         {
             await Task.Run(() => Execute(
                 mutation,
                 PendingPackageRefreshScope.PackageMutation,
-                CreatePlaybackTargetSnapshot(packages)));
-            return PendingPackageMutationResult.Completed;
+                CreatePlaybackTargetSnapshot(packages),
+                captureMutationFacts: library => pendingSectionEmpty = store.IsPendingSectionEmpty(library)));
+            return PendingPackageMutationResult.CompletedFor(
+                pendingSectionEmpty ? PackageCatalogSection.Pending : null);
         }
         catch (Exception exception)
         {
-            return PendingPackageMutationResult.FailedAfterMutation(exception);
+            return PendingPackageMutationResult.FailedAfterMutation(
+                exception,
+                pendingSectionEmpty ? PackageCatalogSection.Pending : null);
         }
     }
 
@@ -1092,7 +1115,8 @@ internal sealed class PendingPackageWorkflowOwner
         Action<BMSLibrary> mutation,
         PendingPackageRefreshScope refreshScope = PendingPackageRefreshScope.DestinationState,
         IReadOnlyList<ChartFile> playbackTargets = null,
-        bool requiresLibrary = true)
+        bool requiresLibrary = true,
+        Action<BMSLibrary> captureMutationFacts = null)
     {
         BMSLibrary library = libraryProvider();
         if (requiresLibrary && library == null)
@@ -1103,6 +1127,7 @@ internal sealed class PendingPackageWorkflowOwner
         IDisposable operationGate = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
+        bool mutationAttempted = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
@@ -1115,6 +1140,7 @@ internal sealed class PendingPackageWorkflowOwner
             }
             suppressionStarted = true;
             PublishRefreshSuppressionChanged(isSuppressed: true, refreshScope);
+            mutationAttempted = true;
             mutation(library);
         }
         catch (Exception ex)
@@ -1123,6 +1149,10 @@ internal sealed class PendingPackageWorkflowOwner
         }
         finally
         {
+            if (mutationAttempted && captureMutationFacts != null && library != null)
+            {
+                CaptureCleanupFailure(() => captureMutationFacts(library), failures);
+            }
             if (suppressionStarted)
             {
                 CaptureCleanupFailure(
@@ -1354,6 +1384,11 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         IReadOnlyList<ChartPackage> packages)
     {
         library.InstallPendingPackagesToEstimatedDestinations(packages);
+    }
+
+    public bool IsPendingSectionEmpty(BMSLibrary library)
+    {
+        return library?.ChartPackagesPending?.Count == 0;
     }
 
     public IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> GetDuplicateInstallRepairConfirmations(

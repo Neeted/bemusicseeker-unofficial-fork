@@ -123,6 +123,24 @@ public sealed class PackageCatalogWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task RemovePackageAsync_PublishesEmptySectionIntent()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events)
+        {
+            EmptySection = PackageCatalogSection.Pending
+        };
+        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+
+        PackageCatalogMutationResult result = await owner.RemovePackageAsync(
+            PackageCatalogSection.Pending,
+            new ChartPackage());
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(PackageCatalogSection.Pending, result.EmptySection);
+    }
+
+    [TestMethod]
     public async Task RemovePackageAsync_InstalledDoesNotPrompt()
     {
         var events = new List<string>();
@@ -243,9 +261,42 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var events = new List<string>();
         var mutationFailure = new InvalidOperationException("remove failed");
         var cleanupFailure = new InvalidOperationException("cleanup failed");
-        var store = new RecordingStore(events) { Failure = mutationFailure };
+        var store = new RecordingStore(events)
+        {
+            Failure = mutationFailure,
+            EmptySection = PackageCatalogSection.Installed
+        };
         var phaseObserver = new RecordingPhaseObserver(events) { EndActivityFailure = cleanupFailure };
         var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), phaseObserver);
+
+        PackageCatalogMutationResult result = await owner.RemovePackageAsync(
+            PackageCatalogSection.Installed,
+            new ChartPackage());
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsTrue(result.ShouldApplyView);
+        Assert.AreEqual(PackageCatalogSection.Installed, result.EmptySection);
+        Assert.IsInstanceOfType<AggregateException>(result.Failure);
+        var exception = (AggregateException)result.Failure;
+        Assert.AreSame(mutationFailure, exception.InnerExceptions[0]);
+        Assert.AreSame(cleanupFailure, exception.InnerExceptions[1]);
+        CollectionAssert.AreEqual(
+            new[] { "activity-start", "suppression-start", "store-remove-packages", "suppression-end", "activity-end" },
+            events);
+    }
+
+    [TestMethod]
+    public async Task RemovePackageAsync_PreservesMutationBeforeEmptySectionFailures()
+    {
+        var events = new List<string>();
+        var mutationFailure = new InvalidOperationException("remove failed");
+        var emptySectionFailure = new InvalidOperationException("empty-section query failed");
+        var store = new RecordingStore(events)
+        {
+            Failure = mutationFailure,
+            EmptySectionFailure = emptySectionFailure
+        };
+        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
 
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Installed,
@@ -256,10 +307,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         Assert.IsInstanceOfType<AggregateException>(result.Failure);
         var exception = (AggregateException)result.Failure;
         Assert.AreSame(mutationFailure, exception.InnerExceptions[0]);
-        Assert.AreSame(cleanupFailure, exception.InnerExceptions[1]);
-        CollectionAssert.AreEqual(
-            new[] { "activity-start", "suppression-start", "store-remove-packages", "suppression-end", "activity-end" },
-            events);
+        Assert.AreSame(emptySectionFailure, exception.InnerExceptions[1]);
     }
 
     [TestMethod]
@@ -417,6 +465,10 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
         internal IReadOnlyList<ChartPackage> ResolvedPackages { get; set; } = [];
 
+        internal PackageCatalogSection? EmptySection { get; set; }
+
+        internal Exception? EmptySectionFailure { get; set; }
+
         internal Exception? Failure { get; set; }
 
         public void RemoveAll(BMSLibrary library, PackageCatalogSection section)
@@ -448,6 +500,15 @@ public sealed class PackageCatalogWorkflowOwnerTests
             LastSection = section;
             LastTargets = targets;
             return ResolvedPackages;
+        }
+
+        public bool IsSectionEmpty(BMSLibrary library, PackageCatalogSection section)
+        {
+            if (EmptySectionFailure != null)
+            {
+                throw EmptySectionFailure;
+            }
+            return EmptySection == section;
         }
 
         private void ThrowIfConfigured()

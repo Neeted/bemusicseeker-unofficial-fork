@@ -38,15 +38,22 @@ internal interface IPackageCatalogStore
         BMSLibrary library,
         PackageCatalogSection section,
         IReadOnlyList<ChartOperationTarget> targets);
+
+    bool IsSectionEmpty(BMSLibrary library, PackageCatalogSection section);
 }
 
 internal sealed class PackageCatalogMutationResult
 {
-    private PackageCatalogMutationResult(bool succeeded, Exception failure, bool shouldApplyView)
+    private PackageCatalogMutationResult(
+        bool succeeded,
+        Exception failure,
+        bool shouldApplyView,
+        PackageCatalogSection? emptySection)
     {
         Succeeded = succeeded;
         Failure = failure;
         ShouldApplyView = shouldApplyView;
+        EmptySection = emptySection;
     }
 
     internal bool Succeeded { get; }
@@ -55,16 +62,26 @@ internal sealed class PackageCatalogMutationResult
 
     internal bool ShouldApplyView { get; }
 
-    internal static PackageCatalogMutationResult Completed { get; } = new(true, null, true);
+    internal PackageCatalogSection? EmptySection { get; }
 
-    internal static PackageCatalogMutationResult Rejected { get; } = new(false, null, false);
+    internal static PackageCatalogMutationResult Completed { get; } = new(true, null, true, null);
 
-    internal static PackageCatalogMutationResult Failed(Exception failure)
+    internal static PackageCatalogMutationResult Rejected { get; } = new(false, null, false, null);
+
+    internal static PackageCatalogMutationResult CompletedFor(PackageCatalogSection? emptySection)
+    {
+        return new PackageCatalogMutationResult(true, null, true, emptySection);
+    }
+
+    internal static PackageCatalogMutationResult Failed(
+        Exception failure,
+        PackageCatalogSection? emptySection = null)
     {
         return new PackageCatalogMutationResult(
             false,
             failure ?? throw new ArgumentNullException(nameof(failure)),
-            true);
+            true,
+            emptySection);
     }
 
     internal static PackageCatalogMutationResult FailedBeforeMutation(Exception failure)
@@ -72,7 +89,8 @@ internal sealed class PackageCatalogMutationResult
         return new PackageCatalogMutationResult(
             false,
             failure ?? throw new ArgumentNullException(nameof(failure)),
-            false);
+            false,
+            null);
     }
 }
 
@@ -112,7 +130,7 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             return Task.FromResult(confirmation);
         }
-        return Task.Run(() => Execute(library => store.RemoveAll(library, section)));
+        return Task.Run(() => Execute(section, library => store.RemoveAll(library, section)));
     }
 
     internal Task<PackageCatalogMutationResult> RemovePackageAsync(
@@ -137,7 +155,7 @@ internal sealed class PackageCatalogWorkflowOwner
                 return Task.FromResult(confirmation);
             }
         }
-        return Task.Run(() => Execute(library => store.RemovePackages(library, section, [package])));
+        return Task.Run(() => Execute(section, library => store.RemovePackages(library, section, [package])));
     }
 
     internal Task<PackageCatalogMutationResult> RemoveSelectionAsync(PackageCatalogRemovalRequest request)
@@ -155,7 +173,7 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             return Task.FromResult(confirmation);
         }
-        return Task.Run(() => Execute(library =>
+        return Task.Run(() => Execute(request.Section, library =>
         {
             IReadOnlyList<ChartPackage> packages = store.ResolvePackages(
                 library,
@@ -165,7 +183,9 @@ internal sealed class PackageCatalogWorkflowOwner
         }));
     }
 
-    private PackageCatalogMutationResult Execute(Action<BMSLibrary> mutation)
+    private PackageCatalogMutationResult Execute(
+        PackageCatalogSection section,
+        Action<BMSLibrary> mutation)
     {
         BMSLibrary library = libraryProvider();
         if (library == null)
@@ -176,6 +196,8 @@ internal sealed class PackageCatalogWorkflowOwner
         IDisposable operationGate = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
+        bool mutationAttempted = false;
+        PackageCatalogSection? emptySection = null;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
@@ -184,7 +206,15 @@ internal sealed class PackageCatalogWorkflowOwner
             operationGate = chartFileOperations.Enter();
             suppressionStarted = true;
             PublishMutationPhase(PackageCatalogMutationPhase.RefreshSuppressionStarted);
-            mutation(library);
+            mutationAttempted = true;
+            try
+            {
+                mutation(library);
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ExceptionDispatchInfo.Capture(ex));
+            }
         }
         catch (Exception ex)
         {
@@ -192,6 +222,18 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         finally
         {
+            if (mutationAttempted)
+            {
+                CaptureCleanupFailure(
+                    () =>
+                    {
+                        if (store.IsSectionEmpty(library, section))
+                        {
+                            emptySection = section;
+                        }
+                    },
+                    failures);
+            }
             if (suppressionStarted)
             {
                 CaptureCleanupFailure(
@@ -214,10 +256,11 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         return failures.Count switch
         {
-            0 => PackageCatalogMutationResult.Completed,
-            1 => PackageCatalogMutationResult.Failed(failures[0].SourceException),
+            0 => PackageCatalogMutationResult.CompletedFor(emptySection),
+            1 => PackageCatalogMutationResult.Failed(failures[0].SourceException, emptySection),
             _ => PackageCatalogMutationResult.Failed(
-                new AggregateException(failures.Select(failure => failure.SourceException))),
+                new AggregateException(failures.Select(failure => failure.SourceException)),
+                emptySection),
         };
     }
 
@@ -326,6 +369,17 @@ internal sealed class BmsLibraryPackageCatalogStore : IPackageCatalogStore
             .Select(target => source.FirstOrDefault(package => ContainsChartTarget(package, target)))
             .Where(package => package != null)
             .Distinct()];
+    }
+
+    public bool IsSectionEmpty(BMSLibrary library, PackageCatalogSection section)
+    {
+        if (library == null)
+        {
+            return false;
+        }
+        return section == PackageCatalogSection.Pending
+            ? library.ChartPackagesPending?.Count == 0
+            : library.ChartPackagesInstalled?.Count == 0;
     }
 
     private static bool ContainsChartTarget(ChartPackage package, ChartOperationTarget target)

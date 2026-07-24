@@ -4,10 +4,15 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -1100,7 +1105,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
         string mutationObserver = ExtractBetween(
             mainWindowCode,
-            "private static async Task<bool> ObservePackageCatalogMutationAsync",
+            "private static async Task<PackageCatalogMutationResult> ObservePackageCatalogMutationAsync",
             "private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
         string removePendingPackage = ExtractBetween(
             mainWindowCode,
@@ -1149,7 +1154,7 @@ public sealed class MainWindowContextMenuResourceTests
             "_ = Task.FromException(result.Failure).Logging(routeName)");
         Assert.IsTrue(
             mutationObserver.IndexOf("_ = Task.FromException(result.Failure).Logging(routeName)", StringComparison.Ordinal)
-            < mutationObserver.LastIndexOf("return result.ShouldApplyView;", StringComparison.Ordinal));
+            < mutationObserver.LastIndexOf("return result;", StringComparison.Ordinal));
         StringAssert.Contains(ownerCode, "dialogs.ConfirmAsync(");
         StringAssert.Contains(ownerCode, "store.RemoveAll(");
         StringAssert.Contains(ownerCode, "store.RemovePackages(");
@@ -3615,14 +3620,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(forceInstall.Contains("() =>"));
         StringAssert.Contains(forceInstall, "private async Task ForceInstallSelectedPendingChartsAsync");
         Assert.IsFalse(forceInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
-        int forceInstallApplyGuard = forceInstall.IndexOf("if (result.ShouldApplyView)", StringComparison.Ordinal);
-        int forceInstallGridClear = forceInstall.IndexOf("ClearMainGridSelection();", StringComparison.Ordinal);
-        int forceInstallSelectionApply = forceInstall.IndexOf("selectionPlan.Apply(this);", StringComparison.Ordinal);
-        int forceInstallFailurePropagation = forceInstall.IndexOf("PropagatePendingPackageMutationFailureAsync(", StringComparison.Ordinal);
-        Assert.IsTrue(forceInstallApplyGuard >= 0
-            && forceInstallGridClear > forceInstallApplyGuard
-            && forceInstallSelectionApply > forceInstallGridClear
-            && forceInstallFailurePropagation > forceInstallSelectionApply);
+        StringAssert.Contains(forceInstall, "ApplyPendingPackageMutationViewAsync(");
+        Assert.IsFalse(forceInstall.Contains("selectionPlan.Apply(this);"));
+        Assert.IsFalse(forceInstall.Contains("NavigateInstallAsync"));
         StringAssert.Contains(manualInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(manualInstall, "PendingInstallPackageOperationRequest.CreateManualInstall(targets)");
         StringAssert.Contains(manualInstall, "viewModel.PendingPackages");
@@ -3633,14 +3633,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(manualInstall.Contains("() =>"));
         StringAssert.Contains(manualInstall, "private async Task ManualInstallSelectedPendingChartsAsync");
         Assert.IsFalse(manualInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
-        int manualInstallApplyGuard = manualInstall.IndexOf("if (result.ShouldApplyView)", StringComparison.Ordinal);
-        int manualInstallGridClear = manualInstall.IndexOf("ClearMainGridSelection();", StringComparison.Ordinal);
-        int manualInstallSelectionApply = manualInstall.IndexOf("selectionPlan.Apply(this);", StringComparison.Ordinal);
-        int manualInstallFailurePropagation = manualInstall.IndexOf("PropagatePendingPackageMutationFailureAsync(", StringComparison.Ordinal);
-        Assert.IsTrue(manualInstallApplyGuard >= 0
-            && manualInstallGridClear > manualInstallApplyGuard
-            && manualInstallSelectionApply > manualInstallGridClear
-            && manualInstallFailurePropagation > manualInstallSelectionApply);
+        StringAssert.Contains(manualInstall, "ApplyPendingPackageMutationViewAsync(");
+        Assert.IsFalse(manualInstall.Contains("selectionPlan.Apply(this);"));
+        Assert.IsFalse(manualInstall.Contains("NavigateInstallAsync"));
         StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(deletePackages, "PackageCatalogRemovalRequest.CreatePending(selectedPendingTargets)");
         StringAssert.Contains(deletePackages, "PackageCatalogRemovalRequest.CreateInstalled(selectedInstalledTargets)");
@@ -3657,6 +3652,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(deletePackages.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(deletePackages.Contains("ObservePackageCatalogConfirmation"));
+        StringAssert.Contains(deletePackages, "ApplyPackageCatalogMutationViewAsync(");
+        Assert.IsFalse(deletePackages.Contains("selectionPlan.Apply(this);"));
+        Assert.IsFalse(deletePackages.Contains("NavigateInstallAsync"));
         int handledIndex = deletePackages.LastIndexOf("e.Handled = true;", StringComparison.Ordinal);
         int mutationObserverIndex = deletePackages.LastIndexOf("ObservePackageCatalogMutationAsync(", StringComparison.Ordinal);
         Assert.IsTrue(handledIndex >= 0 && mutationObserverIndex > handledIndex);
@@ -3684,38 +3682,22 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(clearPackageDestination.IndexOf("e.Handled = true", StringComparison.Ordinal) < clearPackageDestination.IndexOf("await viewModel.PendingPackages", StringComparison.Ordinal));
         StringAssert.Contains(forceInstallPackage, ".ForceInstallPackagesAsync(");
         StringAssert.Contains(forceInstallPackage, "ObservePendingPackageMutationAsync(");
-        StringAssert.Contains(forceInstallPackage, "PropagatePendingPackageMutationFailureAsync(");
         StringAssert.Contains(forceInstallPackage, "CaptureNextSiblingOrRoot(");
         Assert.IsFalse(forceInstallPackage.Contains("prepareShellForMutation"));
         Assert.IsFalse(forceInstallPackage.Contains("() =>"));
-        int forcePackageApplyGuard = forceInstallPackage.IndexOf("if (result.ShouldApplyView)", StringComparison.Ordinal);
-        int forcePackageSelectionApply = forceInstallPackage.IndexOf("selectionPlan.Apply(this);", StringComparison.Ordinal);
-        int forcePackageFailurePropagation = forceInstallPackage.IndexOf("PropagatePendingPackageMutationFailureAsync(", StringComparison.Ordinal);
-        int forcePackageSuccessNavigation = forceInstallPackage.IndexOf("if (result.Succeeded", StringComparison.Ordinal);
-        int forcePackageNavigation = forceInstallPackage.IndexOf("NavigateInstallAsync", StringComparison.Ordinal);
-        Assert.IsTrue(forcePackageApplyGuard >= 0
-            && forcePackageSelectionApply > forcePackageApplyGuard
-            && forcePackageFailurePropagation > forcePackageSelectionApply
-            && forcePackageSuccessNavigation > forcePackageFailurePropagation
-            && forcePackageNavigation > forcePackageSuccessNavigation);
+        StringAssert.Contains(forceInstallPackage, "ApplyPendingPackageMutationViewAsync(");
+        Assert.IsFalse(forceInstallPackage.Contains("selectionPlan.Apply(this);"));
+        Assert.IsFalse(forceInstallPackage.Contains("NavigateInstallAsync"));
         Assert.IsTrue(forceInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < forceInstallPackage.IndexOf("viewModel.PendingPackages", StringComparison.Ordinal));
         Assert.IsFalse(forceInstallPackage.Contains("viewModel.ForceInstallPendingPackages"));
         StringAssert.Contains(manualInstallPackage, ".ManualInstallPackagesAsync(");
         StringAssert.Contains(manualInstallPackage, "ObservePendingPackageMutationAsync(");
-        StringAssert.Contains(manualInstallPackage, "PropagatePendingPackageMutationFailureAsync(");
         StringAssert.Contains(manualInstallPackage, "CaptureNextSiblingOrRoot(");
         Assert.IsFalse(manualInstallPackage.Contains("prepareShellForMutation"));
         Assert.IsFalse(manualInstallPackage.Contains("() =>"));
-        int manualPackageApplyGuard = manualInstallPackage.IndexOf("if (result.ShouldApplyView)", StringComparison.Ordinal);
-        int manualPackageSelectionApply = manualInstallPackage.IndexOf("selectionPlan.Apply(this);", StringComparison.Ordinal);
-        int manualPackageFailurePropagation = manualInstallPackage.IndexOf("PropagatePendingPackageMutationFailureAsync(", StringComparison.Ordinal);
-        int manualPackageSuccessNavigation = manualInstallPackage.IndexOf("if (result.Succeeded", StringComparison.Ordinal);
-        int manualPackageNavigation = manualInstallPackage.IndexOf("NavigateInstallAsync", StringComparison.Ordinal);
-        Assert.IsTrue(manualPackageApplyGuard >= 0
-            && manualPackageSelectionApply > manualPackageApplyGuard
-            && manualPackageFailurePropagation > manualPackageSelectionApply
-            && manualPackageSuccessNavigation > manualPackageFailurePropagation
-            && manualPackageNavigation > manualPackageSuccessNavigation);
+        StringAssert.Contains(manualInstallPackage, "ApplyPendingPackageMutationViewAsync(");
+        Assert.IsFalse(manualInstallPackage.Contains("selectionPlan.Apply(this);"));
+        Assert.IsFalse(manualInstallPackage.Contains("NavigateInstallAsync"));
         Assert.IsTrue(manualInstallPackage.IndexOf("e.Handled = true", StringComparison.Ordinal) < manualInstallPackage.IndexOf("viewModel.PendingPackages", StringComparison.Ordinal));
         Assert.IsFalse(manualInstallPackage.Contains("Settings.Default"));
         StringAssert.Contains(searchPackageDestination, ".SearchPackagesAsync(PendingInstallDestinationSearchKind.InstallDestination, [pkg])");
@@ -3746,6 +3728,147 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(openPackageSource.Contains("ExplorerOpenService.OpenFileAndSelect"));
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
         Assert.AreEqual(2, Regex.Matches(xaml, "Click=\"treeViewInstallPackageContextMenuOpenExplorerClick\"").Count);
+    }
+
+    [TestMethod]
+    public void PendingPackageMutationTerminalApplyPreservesOwnerAndViewFailures()
+    {
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string helper = ExtractBetween(
+            mainWindowCode,
+            "private async Task ApplyPendingPackageMutationViewAsync",
+            "private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
+
+        StringAssert.Contains(helper, "Exception applyFailure = null;");
+        StringAssert.Contains(helper, "applyFailure = exception;");
+        StringAssert.Contains(helper, "Exception mutationFailure = null;");
+        StringAssert.Contains(helper, "await PropagatePendingPackageMutationFailureAsync(result, routeName);");
+        StringAssert.Contains(helper, ".LoggingAndPropagate(routeName);");
+        StringAssert.Contains(helper, "throw new AggregateException(failures);");
+        int ownerFailureIndex = helper.IndexOf(
+            "await PropagatePendingPackageMutationFailureAsync(result, routeName);",
+            StringComparison.Ordinal);
+        int aggregateIndex = helper.IndexOf(
+            "throw new AggregateException(failures);",
+            StringComparison.Ordinal);
+        Assert.IsTrue(ownerFailureIndex >= 0 && aggregateIndex > ownerFailureIndex);
+    }
+
+    [TestMethod]
+    public async Task PendingPackageMutationTerminalApply_AggregatesOwnerBeforePrepareFailure()
+    {
+        var ownerFailure = new InvalidOperationException("mutation failed");
+        var prepareFailure = new InvalidOperationException("view preparation failed");
+        var window = (MainWindow)FormatterServices.GetUninitializedObject(typeof(MainWindow));
+
+        AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
+            () => InvokePendingPackageMutationViewAsync(
+                window,
+                null,
+                PendingPackageMutationResult.FailedAfterMutation(
+                    ownerFailure,
+                    PackageCatalogSection.Pending),
+                null,
+                () => throw prepareFailure));
+
+        Assert.AreSame(ownerFailure, exception.InnerExceptions[0]);
+        Assert.AreSame(prepareFailure, exception.InnerExceptions[1]);
+    }
+
+    [TestMethod]
+    public void PendingPackageMutationTerminalApply_NavigatesOnceOnlyForInitiallySelectedRoot()
+    {
+        RunOnStaDispatcherThread(() =>
+        {
+            var composition = new ApplicationComposition(
+                firstStartupProvider: () => false,
+                completeFirstStartup: () => { },
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            int navigationCount = 0;
+            viewModel.RegularChartList.InstallNavigationPresentationRequested +=
+                (_, _) => navigationCount++;
+            var window = (MainWindow)FormatterServices.GetUninitializedObject(typeof(MainWindow));
+
+            var selectedRoot = new TreeViewItem { IsSelected = true };
+            InvokePendingPackageMutationViewAsync(
+                window,
+                viewModel,
+                PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Pending),
+                selectedRoot)
+                .GetAwaiter()
+                .GetResult();
+            Assert.AreEqual(1, navigationCount);
+
+            var unselectedRoot = new TreeViewItem();
+            InvokePendingPackageMutationViewAsync(
+                window,
+                viewModel,
+                PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Pending),
+                unselectedRoot)
+                .GetAwaiter()
+                .GetResult();
+            Assert.AreEqual(1, navigationCount);
+        });
+    }
+
+    private static Task InvokePendingPackageMutationViewAsync(
+        MainWindow window,
+        MainWindowViewModel? viewModel,
+        PendingPackageMutationResult result,
+        TreeViewItem? sectionRoot,
+        Action? prepareView = null)
+    {
+        MethodInfo method = typeof(MainWindow).GetMethod(
+            "ApplyPendingPackageMutationViewAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Pending package terminal-apply helper was not found.");
+        return (Task)method.Invoke(
+            window,
+            [
+                viewModel,
+                result,
+                null,
+                sectionRoot,
+                PackageCatalogSection.Pending,
+                MainViewUpdateMode.PendingInstallFolderSelected,
+                "PendingPackageMutationTerminalApplyTests",
+                prepareView
+            ]);
+    }
+
+    private static void RunOnStaDispatcherThread(Action action)
+    {
+        Exception? exception = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+            finally
+            {
+                Dispatcher dispatcher = Dispatcher.FromThread(Thread.CurrentThread);
+                if (dispatcher != null && !dispatcher.HasShutdownStarted)
+                {
+                    dispatcher.InvokeShutdown();
+                }
+            }
+        })
+        {
+            IsBackground = true
+        };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (exception != null)
+        {
+            ExceptionDispatchInfo.Capture(exception).Throw();
+        }
     }
 
     [TestMethod]

@@ -10,6 +10,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -4279,7 +4280,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             "treeViewInstallPendingContextMenuClearAllClick");
     }
 
-    private static async Task<bool> ObservePackageCatalogMutationAsync(
+    private static async Task<PackageCatalogMutationResult> ObservePackageCatalogMutationAsync(
         Task<PackageCatalogMutationResult> operation,
         string routeName)
     {
@@ -4295,11 +4296,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         if (result.Failure == null)
         {
-            return result.Succeeded;
+            return result;
         }
 
         _ = Task.FromException(result.Failure).Logging(routeName);
-        return result.ShouldApplyView;
+        return result;
     }
 
     private static async Task<PendingPackageMutationResult> ObservePendingPackageMutationAsync(
@@ -4328,6 +4329,114 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (result?.Failure != null)
         {
             await Task.FromException(result.Failure).LoggingAndPropagate(routeName);
+        }
+    }
+
+    private async Task ApplyPackageCatalogMutationViewAsync(
+        MainWindowViewModel viewModel,
+        PackageCatalogMutationResult result,
+        PackageCatalogSelectionPlan selectionPlan,
+        TreeViewItem sectionRoot,
+        PackageCatalogSection section,
+        MainViewUpdateMode emptySectionMode,
+        string routeName,
+        Action prepareView = null)
+    {
+        if (result == null || !result.ShouldApplyView)
+        {
+            return;
+        }
+        bool sectionRootWasSelected = sectionRoot?.IsSelected == true;
+        prepareView?.Invoke();
+        selectionPlan?.Apply(this);
+        if (result.EmptySection == section
+            && sectionRootWasSelected
+            && sectionRoot?.IsSelected == true
+            && sectionRoot.Items.Count == 0)
+        {
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(emptySectionMode)
+                .Logging(routeName);
+        }
+    }
+
+    private async Task ApplyPendingPackageMutationViewAsync(
+        MainWindowViewModel viewModel,
+        PendingPackageMutationResult result,
+        PackageCatalogSelectionPlan selectionPlan,
+        TreeViewItem sectionRoot,
+        PackageCatalogSection section,
+        MainViewUpdateMode emptySectionMode,
+        string routeName,
+        Action prepareView = null)
+    {
+        if (result == null)
+        {
+            return;
+        }
+        bool sectionRootWasSelected = result.ShouldApplyView
+            && sectionRoot?.IsSelected == true;
+        Exception applyFailure = null;
+        if (result.ShouldApplyView)
+        {
+            try
+            {
+                prepareView?.Invoke();
+                selectionPlan?.Apply(this);
+            }
+            catch (Exception exception)
+            {
+                applyFailure = exception;
+            }
+        }
+        Exception navigationFailure = null;
+        if (applyFailure == null
+            && result.ShouldApplyView
+            && result.EmptySection == section
+            && sectionRootWasSelected
+            && sectionRoot?.IsSelected == true
+            && sectionRoot.Items.Count == 0)
+        {
+            try
+            {
+                await viewModel.RegularChartList
+                    .NavigateInstallAsync(emptySectionMode)
+                    .LoggingAndPropagate(routeName);
+            }
+            catch (Exception exception)
+            {
+                navigationFailure = exception;
+            }
+        }
+        Exception mutationFailure = null;
+        try
+        {
+            await PropagatePendingPackageMutationFailureAsync(result, routeName);
+        }
+        catch (Exception exception)
+        {
+            mutationFailure = exception;
+        }
+        var failures = new List<Exception>();
+        if (mutationFailure != null)
+        {
+            failures.Add(mutationFailure);
+        }
+        if (applyFailure != null)
+        {
+            failures.Add(applyFailure);
+        }
+        if (navigationFailure != null)
+        {
+            failures.Add(navigationFailure);
+        }
+        if (failures.Count == 1)
+        {
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        }
+        if (failures.Count > 1)
+        {
+            throw new AggregateException(failures);
         }
     }
 
@@ -4419,22 +4528,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             treeViewItemInstallPending,
             pkg,
             "treeViewInstallPackageContextMenuClearFolderClick");
-        bool removed = await ObservePackageCatalogMutationAsync(
+        PackageCatalogMutationResult result = await ObservePackageCatalogMutationAsync(
             viewModel.PackageCatalog.RemovePackageAsync(
                 PackageCatalogSection.Pending,
                 pkg),
             "treeViewInstallPackageContextMenuClearFolderClick");
-        if (!removed)
-        {
-            return;
-        }
-        selectionPlan.Apply(this);
-        if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
-        {
-            await viewModel.RegularChartList
-                .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
-                .Logging("treeViewInstallPackageContextMenuClearFolderClick");
-        }
+        await ApplyPackageCatalogMutationViewAsync(
+            viewModel,
+            result,
+            selectionPlan,
+            treeViewItemInstallPending,
+            PackageCatalogSection.Pending,
+            MainViewUpdateMode.PendingInstallFolderSelected,
+            "treeViewInstallPackageContextMenuClearFolderClick");
     }
 
     private async void treeViewInstalledFolderContextMenuClearFolderClick(object sender, RoutedEventArgs e)
@@ -4460,22 +4566,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             newlyInstalledTreeViewItem,
             pkg,
             "treeViewInstalledFolderContextMenuClearFolderClick");
-        bool removed = await ObservePackageCatalogMutationAsync(
+        PackageCatalogMutationResult result = await ObservePackageCatalogMutationAsync(
             viewModel.PackageCatalog.RemovePackageAsync(
                 PackageCatalogSection.Installed,
                 pkg),
             "treeViewInstalledFolderContextMenuClearFolderClick");
-        if (!removed)
-        {
-            return;
-        }
-        selectionPlan.Apply(this);
-        if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
-        {
-            await viewModel.RegularChartList
-                .NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected)
-                .Logging("treeViewInstalledFolderContextMenuClearFolderClick");
-        }
+        await ApplyPackageCatalogMutationViewAsync(
+            viewModel,
+            result,
+            selectionPlan,
+            newlyInstalledTreeViewItem,
+            PackageCatalogSection.Installed,
+            MainViewUpdateMode.NewlyInstalledFolderSelected,
+            "treeViewInstalledFolderContextMenuClearFolderClick");
     }
 
     private async void treeViewInstallPackageContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
@@ -4529,21 +4632,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
             viewModel.PendingPackages.ForceInstallPackagesAsync([pkg]),
             "treeViewInstallPackageContextMenuForceInstallClick");
-        if (result.ShouldApplyView)
-        {
-            selectionPlan.Apply(this);
-        }
-        await PropagatePendingPackageMutationFailureAsync(
+        await ApplyPendingPackageMutationViewAsync(
+            viewModel,
             result,
+            selectionPlan,
+            treeViewItemInstallPending,
+            PackageCatalogSection.Pending,
+            MainViewUpdateMode.PendingInstallFolderSelected,
             "treeViewInstallPackageContextMenuForceInstallClick");
-        if (result.Succeeded
-            && treeViewItemInstallPending.IsSelected
-            && treeViewItemInstallPending.Items.Count == 0)
-        {
-            await viewModel.RegularChartList
-                .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
-                .LoggingAndPropagate("treeViewInstallPackageContextMenuForceInstallClick");
-        }
     }
 
     private async void treeViewInstallPackageContextMenuManualInstallClick(object sender, RoutedEventArgs e)
@@ -4573,21 +4669,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
             viewModel.PendingPackages.ManualInstallPackagesAsync([pkg]),
             "treeViewInstallPackageContextMenuManualInstallClick");
-        if (result.ShouldApplyView)
-        {
-            selectionPlan.Apply(this);
-        }
-        await PropagatePendingPackageMutationFailureAsync(
+        await ApplyPendingPackageMutationViewAsync(
+            viewModel,
             result,
+            selectionPlan,
+            treeViewItemInstallPending,
+            PackageCatalogSection.Pending,
+            MainViewUpdateMode.PendingInstallFolderSelected,
             "treeViewInstallPackageContextMenuManualInstallClick");
-        if (result.Succeeded
-            && treeViewItemInstallPending.IsSelected
-            && treeViewItemInstallPending.Items.Count == 0)
-        {
-            await viewModel.RegularChartList
-                .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
-                .LoggingAndPropagate("treeViewInstallPackageContextMenuManualInstallClick");
-        }
     }
 
     private async void treeViewInstallPackageContextMenuSearchInstallationDirectoryClick(object sender, RoutedEventArgs e)
@@ -6530,14 +6619,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
             viewModel.PendingPackages.InstallPendingAsync(request),
             "forceInstallSelectedPendingCharts");
-        if (result.ShouldApplyView)
-        {
-            ClearMainGridSelection();
-            selectionPlan.Apply(this);
-        }
-        await PropagatePendingPackageMutationFailureAsync(
+        await ApplyPendingPackageMutationViewAsync(
+            viewModel,
             result,
-            "forceInstallSelectedPendingCharts");
+            selectionPlan,
+            treeViewItemInstallPending,
+            PackageCatalogSection.Pending,
+            MainViewUpdateMode.PendingInstallFolderSelected,
+            "forceInstallSelectedPendingCharts",
+            ClearMainGridSelection);
     }
 
     private async void manualInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
@@ -6576,14 +6666,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
             viewModel.PendingPackages.InstallPendingAsync(request),
             "manualInstallSelectedPendingCharts");
-        if (result.ShouldApplyView)
-        {
-            ClearMainGridSelection();
-            selectionPlan.Apply(this);
-        }
-        await PropagatePendingPackageMutationFailureAsync(
+        await ApplyPendingPackageMutationViewAsync(
+            viewModel,
             result,
-            "manualInstallSelectedPendingCharts");
+            selectionPlan,
+            treeViewItemInstallPending,
+            PackageCatalogSection.Pending,
+            MainViewUpdateMode.PendingInstallFolderSelected,
+            "manualInstallSelectedPendingCharts",
+            ClearMainGridSelection);
     }
 
     private async void searchInstallDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
@@ -6668,31 +6759,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             }
         }
         e.Handled = true;
-        bool removed = await ObservePackageCatalogMutationAsync(
+        PackageCatalogMutationResult result = await ObservePackageCatalogMutationAsync(
             operation,
             "tableContextMenuItemDeleteInstallPackagesClick");
-        if (!removed)
-        {
-            return;
-        }
-        ClearMainGridSelection();
-        selectionPlan.Apply(this);
-        if (request.IsPending)
-        {
-            if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
-            {
-                await viewModel.RegularChartList
-                    .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
-                    .Logging("tableContextMenuItemDeleteInstallPackagesClick");
-            }
-            return;
-        }
-        if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
-        {
-            await viewModel.RegularChartList
-                .NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected)
-                .Logging("tableContextMenuItemDeleteInstallPackagesClick");
-        }
+        await ApplyPackageCatalogMutationViewAsync(
+            viewModel,
+            result,
+            selectionPlan,
+            request.IsPending ? treeViewItemInstallPending : newlyInstalledTreeViewItem,
+            request.Section,
+            request.IsPending
+                ? MainViewUpdateMode.PendingInstallFolderSelected
+                : MainViewUpdateMode.NewlyInstalledFolderSelected,
+            "tableContextMenuItemDeleteInstallPackagesClick",
+            ClearMainGridSelection);
     }
 
     private bool TryCreatePackageCatalogRemovalRequest(bool isPendingSelected, bool isInstalledSelected, out PackageCatalogRemovalRequest request)
