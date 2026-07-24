@@ -235,7 +235,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
         gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
 
-        viewModel.StartupUpdateWorkflow.Start();
+        viewModel.ShellActivationWorkflow.ActivateConstructedShell();
     }
 
     private async void MainWindow_ContentRendered(object sender, EventArgs e)
@@ -247,12 +247,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
 
-        Task<bool> initializationTask = viewModel.InitializeAsync();
-        ApplyStartupInitialSelectionRequest();
-        _ = Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)(() =>
-        {
-            viewModel.ElevatedProcessWarningWorkflow.Start(CanPresentElevatedProcessWarning);
-        }));
+        Task initializationTask = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
+            ApplyStartupInitialSelectionRequest,
+            action => Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, action),
+            CanPresentElevatedProcessWarning);
         await initializationTask.LoggingAndPropagate("MainWindow_ContentRendered");
     }
 

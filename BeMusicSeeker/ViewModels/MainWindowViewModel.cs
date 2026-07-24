@@ -102,6 +102,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     internal ElevatedProcessWarningWorkflowOwner ElevatedProcessWarningWorkflow { get; private set; }
 
+    internal ShellActivationWorkflowOwner ShellActivationWorkflow { get; private set; }
+
     internal ShellShutdownWorkflowOwner ShellShutdownWorkflow { get; private set; }
 
     /// <summary>
@@ -2879,6 +2881,10 @@ public partial class MainWindowViewModel : ViewModel,
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
+        ShellActivationWorkflow = new ShellActivationWorkflowOwner(
+            StartupUpdateWorkflow,
+            ElevatedProcessWarningWorkflow,
+            InitializeAsync);
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PackageCatalog = childComposition.PackageCatalogWorkflow;

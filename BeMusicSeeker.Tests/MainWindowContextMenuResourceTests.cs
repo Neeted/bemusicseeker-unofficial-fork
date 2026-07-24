@@ -2140,10 +2140,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(settingDialogCode, "ApplySettingsAsync()");
         StringAssert.Contains(settingDialogCode, "LoggingAndPropagate(\"buttonOKClick\")");
         Assert.IsFalse(mainWindowXaml.Contains("EventName=\"ContentRendered\""));
-        StringAssert.Contains(mainWindowCode, "Task<bool> initializationTask = viewModel.InitializeAsync();");
-        StringAssert.Contains(mainWindowCode, "ApplyStartupInitialSelectionRequest();");
         string contentRendered = ExtractMethodBody(mainWindowCode, "private async void MainWindow_ContentRendered");
         StringAssert.Contains(contentRendered, "await initializationTask.LoggingAndPropagate(\"MainWindow_ContentRendered\")");
+        StringAssert.Contains(contentRendered, "viewModel.ShellActivationWorkflow.ActivateRenderedShell(");
+        StringAssert.Contains(contentRendered, "ApplyStartupInitialSelectionRequest,");
         StringAssert.Contains(mainWindowCode, "viewModel.PropertyChanged += MainWindowViewModel_PropertyChanged;");
         StringAssert.Contains(mainWindowCode, "subscribedViewModel.PropertyChanged -= MainWindowViewModel_PropertyChanged;");
         string initializationHandler = ExtractMethodBody(mainWindowCode, "private void MainWindowViewModel_PropertyChanged");

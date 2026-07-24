@@ -234,7 +234,7 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(mainWindowCode.Contains("PrepareStartupUpdateShutdownAsync"));
         Assert.IsFalse(mainWindowCode.Contains("StartupUpdateShutdownPreparationRequest"));
         Assert.IsFalse(mainWindowCode.Contains("ShutdownPreparationRequested"));
-        StringAssert.Contains(mainWindowCode, "viewModel.StartupUpdateWorkflow.Start();");
+        StringAssert.Contains(mainWindowCode, "viewModel.ShellActivationWorkflow.ActivateConstructedShell();");
         StringAssert.Contains(mainWindowCode, "new UpdateAvailableDialog(request.Result, viewModel.ProgressHub)");
         Assert.IsFalse(mainWindowCode.Contains("CheckForUpdatesAsync("), "MainWindow must not own the startup update check.");
         Assert.IsFalse(mainWindowCode.Contains("DownloadAndApplyUpdateAsync("), "MainWindow must not own update download/apply orchestration.");
@@ -242,7 +242,7 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(mainWindowCode.Contains("TryDeleteDownloadedUpdatePackage("), "MainWindow must not own downloaded-package cleanup.");
         Assert.IsFalse(mainWindowCode.Contains("updateCheckService"), "MainWindow must not retain the update-check service field.");
         Assert.IsFalse(mainWindowCode.Contains("updateDownloadService"), "MainWindow must not retain the update-download service field.");
-        StringAssert.Contains(mainWindowCode, "ElevatedProcessWarningWorkflow.Start(CanPresentElevatedProcessWarning);");
+        StringAssert.Contains(mainWindowCode, "viewModel.ShellActivationWorkflow.ActivateRenderedShell(");
         StringAssert.Contains(mainWindowCode, "UiDialogRoute.ShowMessageBox(");
         StringAssert.Contains(mainWindowCode, "Warn_ElevatedProcessDragDropLimited");
         Assert.IsFalse(mainWindowCode.Contains("ShowElevatedProcessWarningIfNeeded"), "MainWindow must not retain the elevated warning workflow.");

@@ -19,7 +19,7 @@
 - active outcome base commit: `6d170cb9`
 - observed production checkpoint: `464040f6`
 - active execution package: `UI05-T Terminal shell closure`
-- execution anchor: `UI05-T1 Closure inventory and classification`
+- execution anchor: `UI05-T2 Grouped residual closure`
 
 目的:
 
@@ -45,21 +45,21 @@ Non-goals:
 
 | Step | State | Exit condition |
 |---|---|---|
-| `UI05-T1 Closure inventory and classification` | active | 現行root / View / XAML / presentation / test surfaceを`BLOCKING`、`ALLOWED_BOUNDARY`、`DEFERRED_OWNER`へ有限分類し、T2 batchをmaterializeする |
-| `UI05-T2 Grouped residual closure` | pending | `BLOCKING`を最大3 owner-family unitで閉じる。blockerがなければskip |
+| `UI05-T1 Closure inventory and classification` | completed | 現行root / View / XAML / presentation / test surfaceを有限分類し、T2 batchをmaterializeした |
+| `UI05-T2 Grouped residual closure` | active | `BLOCKING`を最大3 owner-family unitで閉じる |
 | `UI05-T3 Outcome closure` | pending | Full verification、UI smoke、fresh outcome review、修正、UI-05 completionと次Outcomeのready化 |
 
 ## Active implementation batch
 
-状態: not materialized
+状態: active
 
-`UI05-T1`のplannerを一度だけ起動し、0〜3個のT2 unitをここへ記録する。planner結果だけのcommitは作らず、最初のcode unitと同じworktree / commitに含める。batchに`active`または`pending`がある間はplannerを再起動しない。
-
-materialize後の形式:
+`UI05-T2`はT1 plannerが作成した有限batchであり、B1から依存順に実装する。batchに`active`または`pending`がある間はplannerを再起動しない。
 
 | Batch | Unit | State | Closure family |
 |---|---|---|---|
-| `<batch-id>` | `<B1 / B2 / B3>` | `<active / pending / completed / skipped>` | `<root shell / view-host / seam>` |
+| `UI05-T2` | `B1` | `completed` | `root shell / lifecycle / composition` |
+| `UI05-T2` | `B2` | `active` | `view-host / binding / typed presentation` |
+| `UI05-T2` | `B3` | `pending` | `production-route legacy seam / test surface` |
 
 ## Current code evidence
 
