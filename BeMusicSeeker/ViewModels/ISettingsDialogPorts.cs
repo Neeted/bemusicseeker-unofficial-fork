@@ -18,9 +18,7 @@ internal interface ISettingsDialogStatePort
 
     Task ReloadFileDiffAsync();
 
-    void SubscribeStateChanges(PropertyChangedEventHandler handler);
-
-    void UnsubscribeStateChanges(PropertyChangedEventHandler handler);
+    event EventHandler LibraryOperationAvailabilityChanged;
 }
 
 internal interface ISettingsDialogFirstStartupStatePort

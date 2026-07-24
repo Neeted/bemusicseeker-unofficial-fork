@@ -78,11 +78,10 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 
     public Task ReloadFileDiffAsync() => reloadFileDiff();
 
-    public void SubscribeStateChanges(PropertyChangedEventHandler handler)
-        => owner.PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
+    public event EventHandler? LibraryOperationAvailabilityChanged;
 
-    public void UnsubscribeStateChanges(PropertyChangedEventHandler handler)
-        => owner.PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
+    internal void NotifyLibraryOperationAvailabilityChanged()
+        => LibraryOperationAvailabilityChanged?.Invoke(this, EventArgs.Empty);
 }
 
 internal sealed class RecordingSettingsDialogPresentationPort : ISettingDialogPresentationPort

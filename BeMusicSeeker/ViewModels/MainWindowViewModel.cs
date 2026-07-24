@@ -183,6 +183,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private BMSPlaylist tables;
 
+    private event EventHandler libraryOperationAvailabilityChanged;
+
     Task<bool> ISettingsDialogStatePort.InitializeLibraryAsync()
         => InitializeAsync();
 
@@ -192,11 +194,11 @@ public partial class MainWindowViewModel : ViewModel,
     Task ISettingsDialogStatePort.ReloadFileDiffAsync()
         => ReloadFileDiffAsync();
 
-    void ISettingsDialogStatePort.SubscribeStateChanges(PropertyChangedEventHandler handler)
-        => PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
-
-    void ISettingsDialogStatePort.UnsubscribeStateChanges(PropertyChangedEventHandler handler)
-        => PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
+    event EventHandler ISettingsDialogStatePort.LibraryOperationAvailabilityChanged
+    {
+        add => libraryOperationAvailabilityChanged += value;
+        remove => libraryOperationAvailabilityChanged -= value;
+    }
 
     private readonly ApplicationComposition applicationComposition;
 
@@ -1818,6 +1820,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             RaisePropertyChanged(() => IsChartPackageMutationInProgress);
             RaisePropertyChanged(() => IsLibraryOperationInProgress);
+            RaiseLibraryOperationAvailabilityChanged();
         }
     }
 
@@ -1828,12 +1831,14 @@ public partial class MainWindowViewModel : ViewModel,
         {
             RaisePropertyChanged(() => IsChartPackageMutationInProgress);
             RaisePropertyChanged(() => IsLibraryOperationInProgress);
+            RaiseLibraryOperationAvailabilityChanged();
         }
         else if (depth < 0)
         {
             Interlocked.Exchange(ref chartPackageMutationDepth, 0);
             RaisePropertyChanged(() => IsChartPackageMutationInProgress);
             RaisePropertyChanged(() => IsLibraryOperationInProgress);
+            RaiseLibraryOperationAvailabilityChanged();
         }
     }
 
@@ -2713,6 +2718,7 @@ public partial class MainWindowViewModel : ViewModel,
         _IsStartupUiInteractionBlocked = value;
         RaisePropertyChanged("IsStartupUiInteractionBlocked");
         RaisePropertyChanged("IsLibraryOperationInProgress");
+        RaiseLibraryOperationAvailabilityChanged();
     }
 
     public bool IsLibraryOperationInProgress
@@ -2727,6 +2733,9 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
     public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
+
+    private void RaiseLibraryOperationAvailabilityChanged()
+        => libraryOperationAvailabilityChanged?.Invoke(this, EventArgs.Empty);
 
     private void ChartFiltersModeFilterChanged(object sender, EventArgs e)
     {
@@ -3488,6 +3497,7 @@ public partial class MainWindowViewModel : ViewModel,
             || e.PropertyName == nameof(StartupProgressWorkflowOwner.IsRetryableFailure))
         {
             RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
+            RaiseLibraryOperationAvailabilityChanged();
         }
     }
 
@@ -3936,6 +3946,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             hasActiveLibraryProfile = false;
             RaisePropertyChanged(() => HasActiveLibraryProfile);
+            RaiseLibraryOperationAvailabilityChanged();
         }
         _ = string.Empty;
         string text = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
@@ -4405,6 +4416,7 @@ public partial class MainWindowViewModel : ViewModel,
         hasActiveLibraryProfile = true;
         RaisePropertyChanged(() => IsInitializationCompleted);
         RaisePropertyChanged(() => HasActiveLibraryProfile);
+        RaiseLibraryOperationAvailabilityChanged();
         PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
         _semaphore.Release();
         LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");

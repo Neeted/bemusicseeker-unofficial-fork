@@ -977,7 +977,26 @@ public sealed class SettingDialogEditCompletionTests
             InvokePrivateMethod(viewModel, "SetStartupUiInteractionBlocked", false);
             Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
 
+            changedProperties.Clear();
+            viewModel.WindowTitle += " test";
+            CollectionAssert.DoesNotContain(
+                changedProperties,
+                nameof(dialog.CanRequestLr2SongDbSyncDataResync));
+            CollectionAssert.DoesNotContain(
+                changedProperties,
+                nameof(dialog.IsLr2SongDbSyncDataResyncBlockedByLibraryOperation));
+
             await dialog.RequestLr2SongDbSyncAsync();
+
+            changedProperties.Clear();
+            dialog.Dispose();
+            InvokePrivateMethod(viewModel, "SetStartupUiInteractionBlocked", true);
+            CollectionAssert.DoesNotContain(
+                changedProperties,
+                nameof(dialog.CanRequestLr2SongDbSyncDataResync));
+            CollectionAssert.DoesNotContain(
+                changedProperties,
+                nameof(dialog.IsLr2SongDbSyncDataResyncBlockedByLibraryOperation));
         }
         finally
         {

@@ -456,7 +456,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private Settings ApplicationSettings => settingsEditSession.Values;
 
-    private readonly PropertyChangedEventHandler stateChangedHandler;
+    private readonly EventHandler libraryOperationAvailabilityChangedHandler;
 
     private readonly PropertyChangedEventHandler playlistTableChangedHandler;
 
@@ -3780,9 +3780,9 @@ public partial class SettingsDialogViewModel : ViewModel
             settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
         };
         workspacePort.SubscribePlaylistTableChanges(playlistTableChangedHandler);
-        stateChangedHandler = (_, _) =>
+        libraryOperationAvailabilityChangedHandler = (_, _) =>
             settingDialogViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
-        statePort.SubscribeStateChanges(stateChangedHandler);
+        statePort.LibraryOperationAvailabilityChanged += libraryOperationAvailabilityChangedHandler;
         resourceServiceEventListener = new PropertyChangedEventListener(ResourceService.Current);
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
@@ -7255,7 +7255,7 @@ public partial class SettingsDialogViewModel : ViewModel
         if (disposing)
         {
             workspacePort.UnsubscribePlaylistTableChanges(playlistTableChangedHandler);
-            statePort.UnsubscribeStateChanges(stateChangedHandler);
+            statePort.LibraryOperationAvailabilityChanged -= libraryOperationAvailabilityChangedHandler;
         }
     }
 
