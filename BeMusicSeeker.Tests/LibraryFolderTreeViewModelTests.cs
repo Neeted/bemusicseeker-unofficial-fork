@@ -207,6 +207,64 @@ public sealed class LibraryFolderTreeViewModelTests
     }
 
     [TestMethod]
+    public void AttachedLibrary_OwnedChartQueryPreservesPathBoundariesForBmsAndBmson()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_LibraryFolderTree_OwnedChart_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+
+        try
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            }
+
+            string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
+            string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
+            string[] bmsValues = new string[29];
+            bmsValues[0] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            bmsValues[7] = bmsPath;
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [BMSFile.FromSongTableRawValues(bmsValues)],
+                BmsonSongs =
+                [
+                    new LR2SongDBExtended.bmson_song
+                    {
+                        path = bmsonPath,
+                        md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    }
+                ]
+            };
+            var owner = new LibraryFolderTreeViewModel(
+                _ => true,
+                _ => new ExplorerOpenResult(),
+                () => Dispatcher.CurrentDispatcher);
+
+            owner.AttachLibrary(library);
+
+            Assert.IsTrue(owner.HasOwnedChartUnderRealPath(Path.Combine("C:\\Installed", "Bms")));
+            Assert.IsTrue(owner.HasOwnedChartUnderRealPath(Path.Combine("C:\\Installed", "Bmson")));
+            Assert.IsTrue(owner.HasOwnedChartUnderRealPath("C:\\Installed"));
+            Assert.IsFalse(owner.HasOwnedChartUnderRealPath("C:\\Install"));
+            Assert.IsFalse(owner.HasOwnedChartUnderRealPath(Path.Combine("C:\\Installed", "Missing")));
+            Assert.IsFalse(owner.HasOwnedChartUnderRealPath(null));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void OpenFolderInExplorer_ValidatesBeforeOpeningExactlyOnce()
     {
         List<string> validationPaths = [];

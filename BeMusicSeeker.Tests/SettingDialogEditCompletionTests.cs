@@ -323,12 +323,25 @@ public sealed class SettingDialogEditCompletionTests
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
+            var sequence = new List<string>();
+            int reloadCount = 0;
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            var runtime = new RecordingSearchRootRuntimePort(sequence)
+            {
+                HasOwnedChartUnderRealPathHandler = directoryPath =>
+                {
+                    sequence.Add("query");
+                    CollectionAssert.DoesNotContain(
+                        new BeMusicSeeker.Models.LR2.LR2Config(configPath).GetBMSSearchDirectories().ToArray(),
+                        directoryPath);
+                    return true;
+                }
+            };
             var dialog = new SettingsDialogViewModel(
                 owner,
                 owner.PlaylistWorkspace,
                 owner,
-                owner.LibraryFolderTree,
+                runtime,
                 owner,
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
@@ -336,7 +349,12 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () => Task.CompletedTask,
-                reloadFileDiff: () => Task.CompletedTask,
+                reloadFileDiff: () =>
+                {
+                    reloadCount++;
+                    sequence.Add("reload");
+                    return Task.CompletedTask;
+                },
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
@@ -350,6 +368,139 @@ public sealed class SettingDialogEditCompletionTests
             CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories().ToArray(), bmsRoot);
             CollectionAssert.Contains(config.GetBMSSearchDirectories().ToArray(), otherRoot);
             Assert.AreEqual(0, settingsSession.SaveCount);
+            CollectionAssert.DoesNotContain(
+                new BeMusicSeeker.Models.LR2.LR2Config(configPath).GetBMSSearchDirectories().ToArray(),
+                bmsRoot);
+            Assert.AreEqual(1, reloadCount);
+            CollectionAssert.AreEqual(new[] { "query", "apply", "reload" }, sequence);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(installRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RequestRemoveBmsSearchRootAsync_Lr2RootWithoutOwnedChart_InvalidatesFolderCache()
+    {
+        string root = CreateTemporaryRoot();
+        string bmsRoot = Path.Combine(root, "bms");
+        string otherRoot = Path.Combine(root, "other");
+        string installRoot = CreateTemporaryRoot();
+        Directory.CreateDirectory(bmsRoot);
+        Directory.CreateDirectory(otherRoot);
+        Directory.CreateDirectory(installRoot);
+        string configPath = Path.Combine(root, "config.xml");
+        File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(bmsRoot);
+            settings.OperationModeLR2DB = true;
+            settings.LR2ConfigXmlPath = configPath;
+            settings.BMSInstallDir = installRoot;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            var sequence = new List<string>();
+            int reloadCount = 0;
+            var runtime = new RecordingSearchRootRuntimePort(sequence)
+            {
+                HasOwnedChartUnderRealPathHandler = _ =>
+                {
+                    sequence.Add("query");
+                    return false;
+                }
+            };
+            (SettingsDialogViewModel dialog, _) = CreateLr2RemovalDialog(
+                settingsSession,
+                dialogs,
+                runtime,
+                configPath,
+                bmsRoot,
+                otherRoot,
+                () =>
+                {
+                    reloadCount++;
+                    sequence.Add("reload");
+                    return Task.CompletedTask;
+                });
+
+            await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
+
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+            Assert.AreEqual(0, reloadCount);
+            CollectionAssert.AreEqual(new[] { "query", "apply", "invalidate" }, sequence);
+            CollectionAssert.DoesNotContain(
+                new BeMusicSeeker.Models.LR2.LR2Config(configPath).GetBMSSearchDirectories().ToArray(),
+                bmsRoot);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(installRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RequestRemoveBmsSearchRootAsync_Lr2OwnedChartQueryFailure_PresentsFailureWithoutRuntimeApply()
+    {
+        string root = CreateTemporaryRoot();
+        string bmsRoot = Path.Combine(root, "bms");
+        string otherRoot = Path.Combine(root, "other");
+        string installRoot = CreateTemporaryRoot();
+        Directory.CreateDirectory(bmsRoot);
+        Directory.CreateDirectory(otherRoot);
+        Directory.CreateDirectory(installRoot);
+        string configPath = Path.Combine(root, "config.xml");
+        File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(bmsRoot);
+            settings.OperationModeLR2DB = true;
+            settings.LR2ConfigXmlPath = configPath;
+            settings.BMSInstallDir = installRoot;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            var sequence = new List<string>();
+            int reloadCount = 0;
+            var runtime = new RecordingSearchRootRuntimePort(sequence)
+            {
+                HasOwnedChartUnderRealPathHandler = _ =>
+                {
+                    sequence.Add("query");
+                    throw new InvalidOperationException("owned chart query failure");
+                }
+            };
+            (SettingsDialogViewModel dialog, _) = CreateLr2RemovalDialog(
+                settingsSession,
+                dialogs,
+                runtime,
+                configPath,
+                bmsRoot,
+                otherRoot,
+                () =>
+                {
+                    reloadCount++;
+                    sequence.Add("reload");
+                    return Task.CompletedTask;
+                });
+
+            await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
+
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            StringAssert.Contains(dialogs.LastMessageText, "owned chart query failure");
+            Assert.AreEqual(0, settingsSession.SaveCount);
+            Assert.AreEqual(0, reloadCount);
+            CollectionAssert.AreEqual(new[] { "query" }, sequence);
             CollectionAssert.DoesNotContain(
                 new BeMusicSeeker.Models.LR2.LR2Config(configPath).GetBMSSearchDirectories().ToArray(),
                 bmsRoot);
@@ -1207,6 +1358,36 @@ public sealed class SettingDialogEditCompletionTests
         return viewModel;
     }
 
+    private static (SettingsDialogViewModel Dialog, BeMusicSeeker.Models.LR2.LR2Config Config) CreateLr2RemovalDialog(
+        CountingSettingsEditSession settingsSession,
+        RecordingRootDialogService dialogs,
+        ISettingsDialogSearchRootRuntimePort runtime,
+        string configPath,
+        string bmsRoot,
+        string otherRoot,
+        Func<Task> reloadFileDiff)
+    {
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        var dialog = new SettingsDialogViewModel(
+            owner,
+            owner.PlaylistWorkspace,
+            owner,
+            runtime,
+            owner,
+            owner.Lr2SongDbSyncWorkflow,
+            settingsSession.Reload,
+            settingsSession.Save,
+            settingsSession,
+            initializeOwner: () => Task.FromResult(true),
+            reloadScoresOnly: () => Task.CompletedTask,
+            reloadFileDiff: reloadFileDiff,
+            schemaDialogs: dialogs);
+        var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+        config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
+        SetPrivateField(dialog, "lr2ConfigValue", config);
+        return (dialog, config);
+    }
+
     private static Settings CreateValidStandaloneSettings(string root)
     {
         var settings = new Settings
@@ -1563,6 +1744,11 @@ public sealed class SettingDialogEditCompletionTests
         }
 
         public bool IsLibraryAttached => true;
+
+        internal Func<string, bool> HasOwnedChartUnderRealPathHandler { get; set; } = _ => false;
+
+        public bool HasOwnedChartUnderRealPath(string directoryPath)
+            => HasOwnedChartUnderRealPathHandler(directoryPath);
 
         internal IReadOnlyList<string> LastSearchTargets { get; private set; } = [];
 

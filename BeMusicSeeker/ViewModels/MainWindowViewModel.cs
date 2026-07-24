@@ -190,9 +190,6 @@ public partial class MainWindowViewModel : ViewModel,
     CustomFolderOutputSettingsSnapshot ISettingsDialogLibraryPort.CustomFolderOutputSettings
         => customFolderOutputSettingsProvider();
 
-    bool ISettingsDialogLibraryPort.HasOwnedChartUnderRealPath(string directoryPath)
-        => files?.HasOwnedChartUnderRealPath(directoryPath) == true;
-
     bool ISettingsDialogStatePort.IsFirstStartup => IsFirstStartup;
 
     void ISettingsDialogStatePort.MarkLibraryInitializationFailed()

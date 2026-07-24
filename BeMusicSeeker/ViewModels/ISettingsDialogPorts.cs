@@ -42,8 +42,6 @@ internal interface ISettingsDialogLibraryPort
 {
     CustomFolderOutputSettingsSnapshot CustomFolderOutputSettings { get; }
 
-    bool HasOwnedChartUnderRealPath(string directoryPath);
-
     void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true);
 
     void RefreshPlayHistoryDisplayTargetSetsFromSettings(bool queueRefreshWhenSelectionChanges);
@@ -78,6 +76,8 @@ internal interface ISettingsDialogLibraryPort
 internal interface ISettingsDialogSearchRootRuntimePort
 {
     bool IsLibraryAttached { get; }
+
+    bool HasOwnedChartUnderRealPath(string directoryPath);
 
     void ApplySearchTargets(IReadOnlyList<string> searchTargets);
 

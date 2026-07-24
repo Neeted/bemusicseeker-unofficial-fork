@@ -5554,7 +5554,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                 RaisePropertyChanged(() => BMSInstallDir);
                 RaiseValidationStateChanged();
-                if (libraryPort.HasOwnedChartUnderRealPath(dir))
+                if (searchRootRuntimePort.HasOwnedChartUnderRealPath(dir))
                 {
                     isBMSDirectoryRemoved = true;
                 }

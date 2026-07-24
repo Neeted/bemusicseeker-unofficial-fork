@@ -159,6 +159,9 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
 
     internal bool IsLibraryAttached => library != null;
 
+    internal bool HasOwnedChartUnderRealPath(string directoryPath)
+        => library?.HasOwnedChartUnderRealPath(directoryPath) == true;
+
     internal void ApplySearchTargets(IReadOnlyList<string> searchTargets)
     {
         if (library == null)
@@ -169,6 +172,9 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     }
 
     bool ISettingsDialogSearchRootRuntimePort.IsLibraryAttached => IsLibraryAttached;
+
+    bool ISettingsDialogSearchRootRuntimePort.HasOwnedChartUnderRealPath(string directoryPath)
+        => HasOwnedChartUnderRealPath(directoryPath);
 
     void ISettingsDialogSearchRootRuntimePort.ApplySearchTargets(IReadOnlyList<string> searchTargets)
         => ApplySearchTargets(searchTargets);
