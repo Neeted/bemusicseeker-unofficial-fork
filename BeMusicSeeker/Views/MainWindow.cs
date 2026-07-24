@@ -208,7 +208,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
-    private bool settingsSavedForClosing;
+    private bool windowStateCapturedForClosing;
 
     /// <summary>
     /// <see cref="MainWindow"/> クラスの新しいインスタンスを初期化します。
@@ -1069,7 +1069,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void ApplyTerminalShutdown()
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        SaveSettingsForClosing(viewModel);
+        CaptureWindowStateForClosing();
         viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
         if (Application.Current != null)
         {
@@ -1084,7 +1084,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void MainWindow_Closed(object sender, EventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        SaveSettingsForClosing(viewModel);
+        CaptureWindowStateForClosing();
         viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
         UnsubscribeViewModelUiInteractions();
     }
@@ -1092,7 +1092,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <summary>
     /// ウィンドウが閉じられる直前に呼び出されます。
     /// 現在のUI状態（TreeViewの幅、ウィンドウの配置や最大化状態など）を
-    /// ユーザー設定 (Settings.Default) に保存します。
+    /// ユーザー設定 (Settings.Default) に反映します。
     /// </summary>
     /// <param name="e">キャンセル可能なイベントデータ。</param>
     protected override void OnClosing(CancelEventArgs e)
@@ -1124,17 +1124,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         CancelRelatedDocumentRequest();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
         base.OnClosing(e);
-        SaveSettingsForClosing(viewModel);
+        CaptureWindowStateForClosing();
         closingViewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
     }
 
-    private void SaveSettingsForClosing(MainWindowViewModel viewModel)
+    private void CaptureWindowStateForClosing()
     {
-        if (settingsSavedForClosing)
+        if (windowStateCapturedForClosing)
         {
             return;
         }
-        settingsSavedForClosing = true;
+        windowStateCapturedForClosing = true;
         try
         {
             Settings.Default.TreeViewWidth = ResolveTreeViewWidthForSave(
@@ -1144,7 +1144,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         catch (Exception ex)
         {
-            NLogWrapper.FileLogger?.Warn("Failed to save tree view width: " + ex.Message);
+            NLogWrapper.FileLogger?.Warn("Failed to capture tree view width: " + ex.Message);
         }
         try
         {
@@ -1154,18 +1154,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         catch (Exception ex)
         {
-            NLogWrapper.FileLogger?.Warn("Failed to save window placement: " + ex.Message);
-        }
-        try
-        {
-            if (viewModel != null)
-            {
-                viewModel.SaveSettingsForShutdown();
-            }
-        }
-        catch (Exception ex)
-        {
-            NLogWrapper.FileLogger?.Warn("Failed to save settings on closing: " + ex.Message);
+            NLogWrapper.FileLogger?.Warn("Failed to capture window placement: " + ex.Message);
         }
     }
     private static void CloseContextMenuIfOpen(ContextMenu contextMenu)

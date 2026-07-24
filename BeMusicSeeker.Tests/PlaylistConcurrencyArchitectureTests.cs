@@ -616,10 +616,34 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string viewModelSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string shutdownOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "ShellShutdownWorkflowOwner.cs");
 
-        StringAssert.Contains(viewModelSource, "applicationComposition.SettingsEditSession.Save();");
+        StringAssert.Contains(shutdownOwnerSource, "private readonly ISettingsEditSession settingsEditSession;");
+        StringAssert.Contains(shutdownOwnerSource, "settingsEditSession.Save();");
         Assert.IsFalse(viewModelSource.Contains("private readonly Action saveSettings"));
-        StringAssert.Contains(mainWindowSource, "viewModel.SaveSettingsForShutdown();");
+        Assert.IsFalse(viewModelSource.Contains("SaveSettingsForShutdown"));
+        StringAssert.Contains(mainWindowSource, "CaptureWindowStateForClosing();");
+        StringAssert.Contains(mainWindowSource, "CompleteTerminalShutdown();");
+        StringAssert.Contains(mainWindowSource, "private bool windowStateCapturedForClosing;");
+        string applyTerminalShutdown = ExtractMethodBody(mainWindowSource, "private void ApplyTerminalShutdown()");
+        Assert.IsTrue(
+            HasCaptureBeforeTerminalCompletion(applyTerminalShutdown));
+        string closedHandler = ExtractMethodBody(mainWindowSource, "private void MainWindow_Closed");
+        Assert.IsTrue(
+            HasCaptureBeforeTerminalCompletion(closedHandler));
+        string closingHandler = ExtractMethodBody(mainWindowSource, "protected override void OnClosing");
+        Assert.IsTrue(
+            HasCaptureBeforeTerminalCompletion(closingHandler));
+        string captureMethod = ExtractMethodBody(mainWindowSource, "private void CaptureWindowStateForClosing()");
+        StringAssert.Contains(captureMethod, "if (windowStateCapturedForClosing)");
+        Assert.IsFalse(captureMethod.Contains("SaveSettingsForShutdown"));
+        Assert.IsFalse(captureMethod.Contains("SettingsEditSession.Save"));
+        Assert.IsFalse(mainWindowSource.Contains("SaveSettingsForShutdown"));
+        Assert.IsFalse(mainWindowSource.Contains("SettingsEditSession.Save();"));
         Assert.IsFalse(mainWindowSource.Contains("Settings.Default.Save();"));
     }
 
@@ -907,6 +931,13 @@ public sealed class PlaylistConcurrencyArchitectureTests
 
         Assert.Fail(methodName + " body was not closed.");
         return string.Empty;
+    }
+
+    private static bool HasCaptureBeforeTerminalCompletion(string source)
+    {
+        int captureIndex = source.IndexOf("CaptureWindowStateForClosing();", StringComparison.Ordinal);
+        int completionIndex = source.IndexOf("CompleteTerminalShutdown();", StringComparison.Ordinal);
+        return captureIndex >= 0 && completionIndex >= 0 && captureIndex < completionIndex;
     }
 
     private static string ExtractBlockBody(string source, string blockHeader)

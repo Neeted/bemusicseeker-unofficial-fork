@@ -69,11 +69,83 @@ public sealed class ShellShutdownWorkflowOwnerTests
     public async Task TerminalResourceCleanupIsIdempotentAfterClosePreparation()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
+        var settingsSession = new RecordingSettingsEditSession();
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, settingsEditSession: settingsSession);
 
         await owner.RequestWindowCloseAsync();
         owner.CompleteTerminalShutdown();
         owner.CompleteTerminalShutdown();
+
+        Assert.AreEqual(1, settingsSession.SaveCount);
+    }
+
+    [TestMethod]
+    public void TerminalSettingsAreSavedBeforePlayerCleanupAndOnlyOnce()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var events = new List<string>();
+        var settingsSession = new RecordingSettingsEditSession(() => events.Add("settings_save"));
+        var player = new FakeBmsPlayer(() => events.Add("player_close"));
+        FieldInfo playerField = typeof(PlaybackPanelViewModel)
+            .GetField("bmsPlayer", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(playerField);
+        playerField.SetValue(viewModel.PlaybackPanel, player);
+
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            settingsEditSession: settingsSession);
+
+        owner.CompleteTerminalShutdown();
+        owner.CompleteTerminalShutdown();
+
+        Assert.AreEqual(1, settingsSession.SaveCount);
+        Assert.AreEqual(1, player.CloseProcessCount);
+        Assert.IsTrue(events.IndexOf("settings_save") < events.IndexOf("player_close"));
+    }
+
+    [TestMethod]
+    public void TerminalSettingsSaveFailureIsWarnedAndCleanupContinues()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var warnings = new List<string>();
+        var settingsSession = new RecordingSettingsEditSession
+        {
+            SaveException = new InvalidOperationException("settings unavailable")
+        };
+        var player = new FakeBmsPlayer();
+        FieldInfo playerField = typeof(PlaybackPanelViewModel)
+            .GetField("bmsPlayer", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(playerField);
+        playerField.SetValue(viewModel.PlaybackPanel, player);
+
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            settingsEditSession: settingsSession,
+            logShutdownWarning: warnings.Add);
+
+        owner.CompleteTerminalShutdown();
+        owner.CompleteTerminalShutdown();
+
+        Assert.AreEqual(1, settingsSession.SaveCount);
+        Assert.AreEqual(1, player.CloseProcessCount);
+        StringAssert.Contains(string.Join("\n", warnings), "settings_save_failed");
+    }
+
+    [TestMethod]
+    public async Task StartupUpdateTerminalPathUsesTheSameSettingsSaveOwner()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var settingsSession = new RecordingSettingsEditSession();
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            settingsEditSession: settingsSession);
+
+        ShutdownPreparationResult preparation = await owner.PrepareForStartupUpdateAsync("update");
+        Assert.AreEqual("update", preparation.Reason);
+
+        owner.CompleteTerminalShutdown();
+
+        Assert.AreEqual(1, settingsSession.SaveCount);
     }
 
     [TestMethod]
@@ -302,7 +374,10 @@ public sealed class ShellShutdownWorkflowOwnerTests
         MainWindowViewModel viewModel,
         Func<Func<Task>, Task>? dispatch = null,
         Action<string>? markShutdown = null,
-        StartupUpdateWorkflowOwner? startupUpdate = null)
+        StartupUpdateWorkflowOwner? startupUpdate = null,
+        ISettingsEditSession? settingsEditSession = null,
+        Action<string>? logShutdown = null,
+        Action<string>? logShutdownWarning = null)
     {
         StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
             viewModel,
@@ -326,12 +401,14 @@ public sealed class ShellShutdownWorkflowOwnerTests
             viewModel.MaintenanceRescanWorkflow,
             viewModel.FolderAutoRenameWorkflow,
             viewModel.PlaybackPanel,
+            settingsEditSession
+                ?? GetPrivateField<ApplicationComposition>(viewModel, "applicationComposition").SettingsEditSession,
             new SemaphoreSlim(1, 1),
             viewModel.SetStartupUiInteractionBlocked,
             markShutdown ?? (_ => { }),
             dispatch ?? (action => action()),
-            _ => { },
-            _ => { },
+            logShutdown ?? (_ => { }),
+            logShutdownWarning ?? (_ => { }),
             value => value ?? string.Empty);
     }
 
@@ -382,6 +459,13 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
     private sealed class FakeBmsPlayer : IBMSPlayer
     {
+        private readonly Action? onClose;
+
+        internal FakeBmsPlayer(Action? onClose = null)
+        {
+            this.onClose = onClose;
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
 
         public string ExePath { get; set; } = string.Empty;
@@ -408,6 +492,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         public void CloseProcess()
         {
             CloseProcessCount++;
+            onClose?.Invoke();
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurrentTime)));
         }
         public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null) { }
@@ -423,5 +508,35 @@ public sealed class ShellShutdownWorkflowOwnerTests
         public void IncreaseHighSpeed() { }
         public void DecreaseHighSpeed() { }
         public void VolumeChanged() { }
+    }
+
+    private sealed class RecordingSettingsEditSession : ISettingsEditSession
+    {
+        private readonly Action? onSave;
+
+        internal RecordingSettingsEditSession(Action? onSave = null)
+        {
+            this.onSave = onSave;
+        }
+
+        public BeMusicSeeker.Properties.Settings Values { get; } = BeMusicSeeker.Properties.Settings.Default;
+
+        public int SaveCount { get; private set; }
+
+        public Exception? SaveException { get; set; }
+
+        public void Reload()
+        {
+        }
+
+        public void Save()
+        {
+            SaveCount++;
+            onSave?.Invoke();
+            if (SaveException != null)
+            {
+                throw SaveException;
+            }
+        }
     }
 }

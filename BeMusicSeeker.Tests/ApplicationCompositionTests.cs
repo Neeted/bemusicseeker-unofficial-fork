@@ -1296,7 +1296,7 @@ public sealed class ApplicationCompositionTests
         Assert.IsFalse(redisplayed.OperationModeLR2DB);
         Assert.AreEqual(3, session.ReloadCount);
 
-        viewModel.SaveSettingsForShutdown();
+        viewModel.ShellShutdownWorkflow.CompleteTerminalShutdown();
 
         Assert.AreEqual(2, session.SaveCount);
         CollectionAssert.AreEqual(

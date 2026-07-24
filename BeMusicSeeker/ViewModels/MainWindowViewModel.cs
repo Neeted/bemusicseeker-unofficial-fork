@@ -3075,6 +3075,7 @@ public partial class MainWindowViewModel : ViewModel,
             MaintenanceRescanWorkflow,
             FolderAutoRenameWorkflow,
             PlaybackPanel,
+            applicationComposition.SettingsEditSession,
             _semaphore,
             SetStartupUiInteractionBlocked,
             App.MarkCoordinatedShutdownStarted,
@@ -3532,11 +3533,6 @@ public partial class MainWindowViewModel : ViewModel,
     private static string FormatTextForLog(string value)
     {
         return (value ?? string.Empty).Replace(Environment.NewLine, " | ");
-    }
-
-    internal void SaveSettingsForShutdown()
-    {
-        applicationComposition.SettingsEditSession.Save();
     }
 
     private static string FormatBool(bool value)

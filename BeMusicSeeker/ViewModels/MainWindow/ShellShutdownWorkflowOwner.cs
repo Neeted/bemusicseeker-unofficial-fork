@@ -106,6 +106,8 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private readonly PlaybackPanelViewModel playbackPanel;
 
+    private readonly ISettingsEditSession settingsEditSession;
+
     private readonly SemaphoreSlim mainOperationSemaphore;
 
     private readonly Action<bool> setStartupUiInteractionBlocked;
@@ -163,6 +165,7 @@ internal sealed class ShellShutdownWorkflowOwner
         MaintenanceRescanWorkflowOwner maintenanceRescanWorkflow,
         FolderAutoRenameWorkflowOwner folderAutoRenameWorkflow,
         PlaybackPanelViewModel playbackPanel,
+        ISettingsEditSession settingsEditSession,
         SemaphoreSlim mainOperationSemaphore,
         Action<bool> setStartupUiInteractionBlocked,
         Action<string> markCoordinatedShutdownStarted,
@@ -182,6 +185,7 @@ internal sealed class ShellShutdownWorkflowOwner
         this.maintenanceRescanWorkflow = maintenanceRescanWorkflow ?? throw new ArgumentNullException(nameof(maintenanceRescanWorkflow));
         this.folderAutoRenameWorkflow = folderAutoRenameWorkflow ?? throw new ArgumentNullException(nameof(folderAutoRenameWorkflow));
         this.playbackPanel = playbackPanel ?? throw new ArgumentNullException(nameof(playbackPanel));
+        this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
         this.mainOperationSemaphore = mainOperationSemaphore ?? throw new ArgumentNullException(nameof(mainOperationSemaphore));
         this.setStartupUiInteractionBlocked = setStartupUiInteractionBlocked ?? throw new ArgumentNullException(nameof(setStartupUiInteractionBlocked));
         this.markCoordinatedShutdownStarted = markCoordinatedShutdownStarted ?? throw new ArgumentNullException(nameof(markCoordinatedShutdownStarted));
@@ -241,6 +245,14 @@ internal sealed class ShellShutdownWorkflowOwner
                 return;
             }
             terminalResourcesClosed = true;
+        }
+        try
+        {
+            settingsEditSession.Save();
+        }
+        catch (Exception exception)
+        {
+            LogWarningSafely(exception, "settings_save_failed");
         }
         Task regularChartListStop = BeginShutdownRequested("terminal_close");
         try
