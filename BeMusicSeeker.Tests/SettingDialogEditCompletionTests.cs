@@ -35,7 +35,7 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             var settingDialog = new SettingDialog
             {
-                DataContext = viewModel.settingDialog,
+                DataContext = viewModel.SettingDialog,
                 PlaylistWorkspace = viewModel.PlaylistWorkspace
             };
             var uriDialog = new LoadPlaylistURIDialog
@@ -60,11 +60,12 @@ public sealed class SettingDialogEditCompletionTests
                 var player = new RecordingPlaybackPlayer();
                 MainWindowViewModel viewModel = new ApplicationComposition(
                         settingsEditSession: settingsSession,
-                        defaultBmsPlayerFactory: () => player)
+                        defaultBmsPlayerFactory: () => player,
+                        uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
                     .CreateMainWindowViewModel();
                 var settingDialog = new SettingDialog
                 {
-                    DataContext = viewModel.settingDialog,
+                    DataContext = viewModel.SettingDialog,
                     PlaybackPanel = viewModel.PlaybackPanel
                 };
                 settingDialog.Measure(new Size(1000, 800));
@@ -123,11 +124,17 @@ public sealed class SettingDialogEditCompletionTests
             };
             int reloadCount = 0;
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+            var dialog = new SettingsDialogViewModel(
                 owner,
+                owner,
+                owner,
+                owner,
+                owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
+                initializeOwner: () => Task.FromResult(true),
+                reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () =>
                 {
                     reloadCount++;
@@ -140,7 +147,7 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(1, dialogs.ConfirmationCount);
             Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
             CollectionAssert.DoesNotContain(
-                MainWindowViewModel.SettingDialogViewModel.DeserializeStandaloneBmsRootPaths(settings.StandaloneBmsRootPaths).ToArray(),
+                SettingsDialogViewModel.DeserializeStandaloneBmsRootPaths(settings.StandaloneBmsRootPaths).ToArray(),
                 root);
             Assert.AreEqual(secondRoot, settings.BMSRootPath, settings.BMSRootPath ?? "(null)");
             Assert.AreEqual(1, settingsSession.SaveCount);
@@ -166,11 +173,18 @@ public sealed class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+            var dialog = new SettingsDialogViewModel(
                 owner,
+                owner,
+                owner,
+                owner,
+                owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
+                initializeOwner: () => Task.FromResult(true),
+                reloadScoresOnly: () => Task.CompletedTask,
+                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
             await dialog.RequestRemoveBmsSearchRootAsync(root);
@@ -198,11 +212,18 @@ public sealed class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+            var dialog = new SettingsDialogViewModel(
                 owner,
+                owner,
+                owner,
+                owner,
+                owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
+                initializeOwner: () => Task.FromResult(true),
+                reloadScoresOnly: () => Task.CompletedTask,
+                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
             await dialog.RequestRemoveBmsSearchRootAsync(string.Empty);
@@ -229,11 +250,18 @@ public sealed class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("dialog failure"))
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+            var dialog = new SettingsDialogViewModel(
                 owner,
+                owner,
+                owner,
+                owner,
+                owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
+                initializeOwner: () => Task.FromResult(true),
+                reloadScoresOnly: () => Task.CompletedTask,
+                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
             Exception? exception = null;
@@ -251,7 +279,7 @@ public sealed class SettingDialogEditCompletionTests
             StringAssert.Contains(exception!.Message, "failed");
             Assert.AreEqual(0, settingsSession.SaveCount);
             CollectionAssert.Contains(
-                MainWindowViewModel.SettingDialogViewModel.DeserializeStandaloneBmsRootPaths(settingsSession.Values.StandaloneBmsRootPaths).ToArray(),
+                SettingsDialogViewModel.DeserializeStandaloneBmsRootPaths(settingsSession.Values.StandaloneBmsRootPaths).ToArray(),
                 root);
         }
         finally
@@ -284,17 +312,24 @@ public sealed class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+            var dialog = new SettingsDialogViewModel(
                 owner,
+                owner,
+                owner,
+                owner,
+                owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
+                initializeOwner: () => Task.FromResult(true),
+                reloadScoresOnly: () => Task.CompletedTask,
+                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
-            typeof(MainWindowViewModel)
-                .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(owner, config);
+            typeof(SettingsDialogViewModel)
+                .GetField("lr2ConfigValue", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(dialog, config);
 
             await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
 
@@ -331,11 +366,18 @@ public sealed class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+            var dialog = new SettingsDialogViewModel(
                 owner,
+                owner,
+                owner,
+                owner,
+                owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
+                initializeOwner: () => Task.FromResult(true),
+                reloadScoresOnly: () => Task.CompletedTask,
+                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
             Exception? exception = null;
@@ -352,7 +394,7 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(1, settingsSession.SaveCount);
             Assert.AreEqual(0, dialogs.MessageCount);
             CollectionAssert.Contains(
-                MainWindowViewModel.SettingDialogViewModel.DeserializeStandaloneBmsRootPaths(settings.StandaloneBmsRootPaths).ToArray(),
+                SettingsDialogViewModel.DeserializeStandaloneBmsRootPaths(settings.StandaloneBmsRootPaths).ToArray(),
                 root);
             CollectionAssert.Contains(dialog.StandaloneBmsRootPathList.ToArray(), root);
         }
@@ -387,17 +429,24 @@ public sealed class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new MainWindowViewModel.SettingDialogViewModel(
+            var dialog = new SettingsDialogViewModel(
                 owner,
+                owner,
+                owner,
+                owner,
+                owner.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
+                initializeOwner: () => Task.FromResult(true),
+                reloadScoresOnly: () => Task.CompletedTask,
+                reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
-            typeof(MainWindowViewModel)
-                .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(owner, config);
+            typeof(SettingsDialogViewModel)
+                .GetField("lr2ConfigValue", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(dialog, config);
             SetPrivateField(config, "_configPath", Path.Combine(root, "missing", "config.xml"));
 
             await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
@@ -428,13 +477,13 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 firstStartup: false);
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            dialog.PresentationRequested += (_, request) => sequence.Add(request.Kind.ToString());
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
 
             await dialog.ApplySettingsAsync();
 
-            CollectionAssert.AreEqual(new[] { "save", "CloseOverlay" }, sequence);
+            CollectionAssert.AreEqual(new[] { "save", "close" }, sequence);
             Assert.AreEqual(1, settingsSession.SaveCount);
             Assert.IsFalse(dialog.HasPendingSettingChanges());
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
@@ -454,15 +503,15 @@ public sealed class SettingDialogEditCompletionTests
             var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
-            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
 
             await dialog.ApplySettingsAsync();
 
             CollectionAssert.AreEqual(
-                new[] { MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay },
-                requests);
+                new[] { "close" },
+                presentation.Requests);
             Assert.IsFalse(dialog.IsEditCompletionInProgress);
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
         }
@@ -486,14 +535,21 @@ public sealed class SettingDialogEditCompletionTests
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new BlockingAudioDeviceTestRuntime(runtimeStarted, releaseRuntime));
-            MainWindowViewModel.SettingDialogViewModel dialog = new(
+            SettingsDialogViewModel dialog = new(
                 viewModel,
+                viewModel,
+                viewModel,
+                viewModel,
+                viewModel.Lr2SongDbSyncWorkflow,
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
+                initializeOwner: () => Task.FromResult(true),
+                reloadScoresOnly: () => Task.CompletedTask,
+                reloadFileDiff: () => Task.CompletedTask,
                 audioDeviceTestWorkflow: workflow);
-            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
-            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
 
             Task testTask = dialog.RunAudioDeviceTestAsync();
 
@@ -505,8 +561,8 @@ public sealed class SettingDialogEditCompletionTests
             dialog.CancelCommand.Execute();
             Assert.AreEqual(0, settingsSession.SaveCount);
             CollectionAssert.DoesNotContain(
-                requests,
-                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+                presentation.Requests,
+                "close");
 
             releaseRuntime.Set();
             await testTask;
@@ -530,7 +586,7 @@ public sealed class SettingDialogEditCompletionTests
             var settingsSession = new CountingSettingsEditSession(settings);
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             var changedProperties = new List<string>();
             dialog.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
 
@@ -584,10 +640,11 @@ public sealed class SettingDialogEditCompletionTests
                     {
                         reloadStarted.Set();
                         return reloadRelease.Task;
-                    })
+                    },
+                    uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
                     .CreateMainWindowViewModel();
                 SetActiveLibraryProfile(viewModel, true);
-                MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = viewModel.settingDialog;
+                SettingsDialogViewModel settingDialogViewModel = viewModel.SettingDialog;
                 settingDialogViewModel.BeatorajaPlayerId = "player2";
                 var settingDialog = new SettingDialog
                 {
@@ -598,9 +655,9 @@ public sealed class SettingDialogEditCompletionTests
                     .GetValue(settingDialog)!;
                 using var closeRequestObserved = new ManualResetEventSlim();
                 DispatcherFrame? frame = null;
-                settingDialogViewModel.PresentationRequested += (_, request) =>
+                settingDialogViewModel.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
                 {
-                    if (request.Kind == MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay)
+                    if (request == "close")
                     {
                         closeRequestObserved.Set();
                         if (frame != null)
@@ -608,7 +665,7 @@ public sealed class SettingDialogEditCompletionTests
                             frame.Continue = false;
                         }
                     }
-                };
+                }));
 
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
 
@@ -659,15 +716,15 @@ public sealed class SettingDialogEditCompletionTests
                         TaskScheduler.Default);
                 });
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            dialog.PresentationRequested += (_, request) => sequence.Add(request.Kind.ToString());
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
             dialog.BeatorajaPlayerId = "player2";
 
             Task applyTask = dialog.ApplySettingsAsync();
             reloadStarted.Wait();
             Assert.IsTrue(dialog.IsEditCompletionInProgress);
             Assert.IsFalse(applyTask.IsCompleted);
-            CollectionAssert.DoesNotContain(sequence, "CloseOverlay");
+            CollectionAssert.DoesNotContain(sequence, "close");
 
             reloadRelease.SetResult(true);
             await applyTask;
@@ -676,7 +733,7 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual("save", sequence[0]);
             Assert.AreEqual("reload-start", sequence[1]);
             Assert.AreEqual("reload-completed", sequence[2]);
-            Assert.AreEqual("CloseOverlay", sequence[3]);
+            Assert.AreEqual("close", sequence[3]);
             Assert.AreEqual(1, settingsSession.SaveCount);
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
         }
@@ -709,9 +766,9 @@ public sealed class SettingDialogEditCompletionTests
                 },
                 reportSettingsApplyFailure: _ => sequence.Add("failure"));
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
-            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
             dialog.BeatorajaPlayerId = "player2";
 
             await dialog.ApplySettingsAsync();
@@ -720,8 +777,8 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(1, settingsSession.SaveCount);
             Assert.IsTrue(dialog.HasPendingSettingChanges(), string.Join("|", sequence));
             CollectionAssert.DoesNotContain(
-                requests,
-                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+                presentation.Requests,
+                "close");
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
             Assert.IsFalse(dialog.IsEditCancellationEnabled);
 
@@ -732,8 +789,8 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(2, reloadCount);
             Assert.IsFalse(dialog.HasPendingSettingChanges());
             CollectionAssert.Contains(
-                requests,
-                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+                presentation.Requests,
+                "close");
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
             Assert.IsTrue(dialog.IsEditCancellationEnabled);
         }
@@ -769,21 +826,21 @@ public sealed class SettingDialogEditCompletionTests
                         TaskScheduler.Default);
                 });
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            dialog.PresentationRequested += (_, request) => sequence.Add(request.Kind.ToString());
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
             dialog.StandaloneBmsRootPathList.Add(addedRoot);
 
             Task applyTask = dialog.ApplySettingsAsync();
             reloadStarted.Wait();
             Assert.IsTrue(dialog.IsEditCompletionInProgress);
             Assert.IsFalse(applyTask.IsCompleted);
-            CollectionAssert.DoesNotContain(sequence, "CloseOverlay");
+            CollectionAssert.DoesNotContain(sequence, "close");
 
             reloadRelease.SetResult(true);
             await applyTask;
 
             CollectionAssert.AreEqual(
-                new[] { "save", "reload-start", "reload-completed", "CloseOverlay" },
+                new[] { "save", "reload-start", "reload-completed", "close" },
                 sequence,
                 string.Join("|", sequence));
             Assert.IsFalse(dialog.HasPendingSettingChanges());
@@ -819,10 +876,10 @@ public sealed class SettingDialogEditCompletionTests
                 },
                 reportSettingsApplyFailure: _ => sequence.Add("failure"));
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.StandaloneBmsRootPathList.Add(addedRoot);
-            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
-            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
 
             await dialog.ApplySettingsAsync();
 
@@ -830,8 +887,8 @@ public sealed class SettingDialogEditCompletionTests
             Assert.IsTrue(dialog.HasPendingSettingChanges(), string.Join("|", sequence));
             Assert.IsFalse(dialog.IsEditCancellationEnabled);
             CollectionAssert.DoesNotContain(
-                requests,
-                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+                presentation.Requests,
+                "close");
 
             await dialog.ApplySettingsAsync();
 
@@ -842,8 +899,8 @@ public sealed class SettingDialogEditCompletionTests
             Assert.IsFalse(dialog.HasPendingSettingChanges());
             Assert.IsTrue(dialog.IsEditCancellationEnabled);
             CollectionAssert.Contains(
-                requests,
-                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+                presentation.Requests,
+                "close");
         }
         finally
         {
@@ -878,7 +935,7 @@ public sealed class SettingDialogEditCompletionTests
                 },
                 reportSettingsApplyFailure: _ => { });
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.BeatorajaPlayerId = "player2";
 
             await dialog.ApplySettingsAsync();
@@ -964,9 +1021,9 @@ public sealed class SettingDialogEditCompletionTests
                         TaskContinuationOptions.ExecuteSynchronously,
                         TaskScheduler.Default);
                 });
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             settingsSession.SaveObserved = () => sequence.Add("save");
-            dialog.PresentationRequested += (_, request) => sequence.Add(request.Kind.ToString());
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
             Assert.IsTrue(dialog.CheckValidation(out string validationError), validationError);
 
@@ -978,7 +1035,7 @@ public sealed class SettingDialogEditCompletionTests
             await applyTask;
 
             CollectionAssert.AreEqual(
-                new[] { "save", "initialize-start", "initialize-completed", "CloseOverlay" },
+                new[] { "save", "initialize-start", "initialize-completed", "close" },
                 sequence);
             Assert.AreEqual(1, initializeCount);
             Assert.AreEqual(1, settingsSession.SaveCount);
@@ -1003,9 +1060,9 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
-            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
 
             Task first = Task.Run(() => dialog.ApplySettingsAsync());
@@ -1018,8 +1075,8 @@ public sealed class SettingDialogEditCompletionTests
 
             Assert.AreEqual(1, settingsSession.SaveCount);
             CollectionAssert.AreEqual(
-                new[] { MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay },
-                requests);
+                new[] { "close" },
+                presentation.Requests);
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
         }
         finally
@@ -1045,9 +1102,9 @@ public sealed class SettingDialogEditCompletionTests
                     return Task.FromResult(initializeCount != 1);
                 });
             SetActiveLibraryProfile(viewModel, true);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
-            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
             SetPrivateField(dialog, "tempOperationModeLR2DB", !dialog.OperationModeLR2DB);
 
             await dialog.ApplySettingsAsync();
@@ -1055,16 +1112,16 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(1, initializeCount);
             Assert.IsFalse(viewModel.HasActiveLibraryProfile);
             CollectionAssert.DoesNotContain(
-                requests,
-                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+                presentation.Requests,
+                "close");
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
 
             await dialog.ApplySettingsAsync();
 
             Assert.AreEqual(2, initializeCount);
             CollectionAssert.Contains(
-                requests,
-                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+                presentation.Requests,
+                "close");
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
         }
         finally
@@ -1089,17 +1146,17 @@ public sealed class SettingDialogEditCompletionTests
                     initializeCount++;
                     return Task.FromResult(false);
                 });
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
-            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
 
             await dialog.ApplySettingsAsync();
 
             Assert.AreEqual(1, initializeCount);
             Assert.IsFalse(viewModel.HasActiveLibraryProfile);
             CollectionAssert.DoesNotContain(
-                requests,
-                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+                presentation.Requests,
+                "close");
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
         }
         finally
@@ -1116,7 +1173,7 @@ public sealed class SettingDialogEditCompletionTests
         Action<Exception>? reportSettingsApplyFailure = null,
         Func<MainWindowViewModel, Task>? reloadFileDiff = null)
     {
-        return new ApplicationComposition(
+        MainWindowViewModel viewModel = new ApplicationComposition(
             firstStartupProvider: () => firstStartup,
             completeFirstStartup: () => { },
             reloadSettings: settingsSession.Reload,
@@ -1124,9 +1181,14 @@ public sealed class SettingDialogEditCompletionTests
             settingsEditSession: settingsSession,
             initializeOwner: initializeOwner,
             reloadScoresOnly: reloadScoresOnly,
-            reportSettingsApplyFailure: reportSettingsApplyFailure,
-            reloadFileDiff: reloadFileDiff)
+            reportSettingsApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
+            reloadFileDiff: reloadFileDiff,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
             .CreateMainWindowViewModel();
+        typeof(SettingsDialogViewModel)
+            .GetField("playbackPort", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(viewModel.SettingDialog, new TestSettingsDialogPlaybackPort());
+        return viewModel;
     }
 
     private static Settings CreateValidStandaloneSettings(string root)
@@ -1445,6 +1507,32 @@ public sealed class SettingDialogEditCompletionTests
     private sealed class TestAudioDeviceTestPlaybackPort : IAudioDeviceTestPlaybackPort
     {
         public void StopPlayback()
+        {
+        }
+    }
+
+    private sealed class TestSettingsDialogPlaybackPort : ISettingsDialogPlaybackPort
+    {
+        public IBMSPlayer CreateDefaultBmsPlayer()
+        {
+            return new RecordingPlaybackPlayer();
+        }
+
+        public IBMSPlayer CreateBmsPlayerForSettings(Settings settings)
+        {
+            return new RecordingPlaybackPlayer();
+        }
+
+        public IAudioDeviceTestPlaybackPort CreateAudioDeviceTestPlaybackPort()
+        {
+            return new TestAudioDeviceTestPlaybackPort();
+        }
+
+        public void ApplyPlayerSettings(IBMSPlayer replacementPlayer)
+        {
+        }
+
+        public void NotifySettingsChanged()
         {
         }
     }

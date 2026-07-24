@@ -154,7 +154,8 @@ public partial class App : System.Windows.Application
     {
         try
         {
-            ApplicationComposition composition = ApplicationComposition.CreateDefault();
+            ApplicationComposition composition = new ApplicationComposition(
+                uiDispatcherProvider: () => base.Dispatcher);
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
             Resources["vm"] = viewModel;
             MainWindow mainWindow = new(viewModel);

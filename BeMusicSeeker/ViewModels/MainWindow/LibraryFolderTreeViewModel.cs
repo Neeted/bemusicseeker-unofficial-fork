@@ -16,7 +16,9 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public sealed class LibraryFolderTreeViewModel : ViewModel
 {
-    private readonly DispatcherCollection<string> bmsParentFolderList = new(DispatcherHelper.UIDispatcher);
+    private readonly DispatcherCollection<string> bmsParentFolderList;
+
+    private readonly Dispatcher uiDispatcher;
 
     private readonly object refreshLock = new();
 
@@ -39,11 +41,16 @@ public sealed class LibraryFolderTreeViewModel : ViewModel
     internal LibraryFolderTreeViewModel(
         Func<string, bool> directoryExists,
         Func<string, ExplorerOpenResult> openDirectory,
+        Func<Dispatcher> uiDispatcherProvider,
         Action<string> log = null,
         Action<string> logWarning = null)
     {
         this.directoryExists = directoryExists ?? throw new ArgumentNullException(nameof(directoryExists));
         this.openDirectory = openDirectory ?? throw new ArgumentNullException(nameof(openDirectory));
+        Func<Dispatcher> dispatcherProvider = uiDispatcherProvider ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
+        uiDispatcher = dispatcherProvider()
+            ?? throw new InvalidOperationException("A live UI dispatcher is required for the library folder tree.");
+        bmsParentFolderList = new DispatcherCollection<string>(uiDispatcher);
         this.log = log ?? (_ => { });
         this.logWarning = logWarning ?? (_ => { });
     }
@@ -185,7 +192,20 @@ public sealed class LibraryFolderTreeViewModel : ViewModel
                 logWarning("ui_stall_library_folder_tree_prepare_failed message=" + ex.Message);
             }
 
-            DispatcherHelper.UIDispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
+            Dispatcher dispatcher = uiDispatcher;
+            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                lock (refreshLock)
+                {
+                    deferredRefreshQueued = false;
+                }
+                return;
+            }
+
+            DispatcherOperation operation;
+            try
+            {
+                operation = dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
             {
                 var stopwatch = Stopwatch.StartNew();
                 bool shouldReschedule = false;
@@ -230,7 +250,8 @@ public sealed class LibraryFolderTreeViewModel : ViewModel
                             || !ReferenceEquals(library, refreshLibrary);
                         deferredRefreshQueued = false;
                     }
-                    if (requestAnotherRefresh)
+                    bool dispatcherShuttingDown = dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished;
+                    if (requestAnotherRefresh && !dispatcherShuttingDown)
                     {
                         CacheRefreshRequested?.Invoke(this, EventArgs.Empty);
                     }
@@ -242,7 +263,25 @@ public sealed class LibraryFolderTreeViewModel : ViewModel
                     }
                 }
             });
+                operation.Aborted += (_, _) => ClearDeferredRefreshQueue();
+                if (operation.Status == DispatcherOperationStatus.Aborted)
+                {
+                    ClearDeferredRefreshQueue();
+                }
+            }
+            catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                ClearDeferredRefreshQueue();
+            }
         });
+    }
+
+    private void ClearDeferredRefreshQueue()
+    {
+        lock (refreshLock)
+        {
+            deferredRefreshQueued = false;
+        }
     }
 
     private void LibraryPropertyChanged(object sender, PropertyChangedEventArgs e)

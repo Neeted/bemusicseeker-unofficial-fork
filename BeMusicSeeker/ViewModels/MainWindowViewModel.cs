@@ -46,7 +46,11 @@ namespace BeMusicSeeker.ViewModels;
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel
+public partial class MainWindowViewModel : ViewModel,
+    ISettingsDialogStatePort,
+    ISettingsDialogWorkspacePort,
+    ISettingsDialogLibraryPort,
+    ISettingsDialogPlaybackPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -185,6 +189,95 @@ public partial class MainWindowViewModel : ViewModel
     private BMSLibrary files;
 
     private BMSPlaylist tables;
+
+    bool ISettingsDialogLibraryPort.HasLibrary => files != null;
+
+    CustomFolderOutputSettingsSnapshot ISettingsDialogLibraryPort.CustomFolderOutputSettings
+        => customFolderOutputSettingsProvider();
+
+    bool ISettingsDialogWorkspacePort.HasPlaylistTables
+        => tables?.BMSTables != null;
+
+    IReadOnlyList<PlaylistTablePresentationSnapshot> ISettingsDialogWorkspacePort.CapturePlaylistPresentationSnapshots()
+    {
+        BMSPlaylist playlist = tables;
+        if (playlist == null)
+        {
+            return [];
+        }
+
+        playlist.AcquireReaderLockBMSTables();
+        try
+        {
+            return [.. (playlist.BMSTables ?? Enumerable.Empty<BMSTable>())
+                .Where(table => table != null)
+                .Select(PlaylistTablePresentationSnapshot.From)];
+        }
+        finally
+        {
+            playlist.FreeReaderLockBMSTables();
+        }
+    }
+
+    bool ISettingsDialogWorkspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string beatorajaRootPath)
+        => PlaylistWorkspace.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(beatorajaRootPath);
+
+    Task ISettingsDialogWorkspacePort.RunWithPlaylistOperationNotificationsAsync(
+        Func<Task> operation,
+        string operationName)
+        => PlaylistWorkspace.RunWithPlaylistOperationNotificationsAsync(operation, operationName);
+
+    void ISettingsDialogWorkspacePort.SubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
+        => PlaylistWorkspace.PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
+
+    void ISettingsDialogWorkspacePort.UnsubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
+        => PlaylistWorkspace.PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
+
+    void ISettingsDialogWorkspacePort.InvalidateLibraryFolderCache()
+        => LibraryFolderTree.InvalidateLibraryFolderCache();
+
+    bool ISettingsDialogLibraryPort.HasOwnedChartUnderRealPath(string directoryPath)
+        => files?.HasOwnedChartUnderRealPath(directoryPath) == true;
+
+    void ISettingsDialogLibraryPort.SetSearchTargets(IReadOnlyList<string> searchTargets)
+    {
+        if (files != null)
+        {
+            files.SearchTargets = [.. (searchTargets ?? [])];
+        }
+    }
+
+    bool ISettingsDialogStatePort.IsFirstStartup => IsFirstStartup;
+
+    void ISettingsDialogStatePort.MarkLibraryInitializationFailed()
+        => MarkLibraryInitializationFailed();
+
+    void ISettingsDialogStatePort.InvalidatePlayHistoryReadCache(string reason)
+        => InvalidatePlayHistoryReadCache(reason);
+
+    void ISettingsDialogStatePort.SubscribeStateChanges(PropertyChangedEventHandler handler)
+        => PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
+
+    void ISettingsDialogStatePort.UnsubscribeStateChanges(PropertyChangedEventHandler handler)
+        => PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
+
+    IBMSPlayer ISettingsDialogPlaybackPort.CreateDefaultBmsPlayer()
+        => applicationComposition.CreateDefaultBmsPlayer();
+
+    IBMSPlayer ISettingsDialogPlaybackPort.CreateBmsPlayerForSettings(Properties.Settings settings)
+        => applicationComposition.CreateBmsPlayerForSettings(settings);
+
+    IAudioDeviceTestPlaybackPort ISettingsDialogPlaybackPort.CreateAudioDeviceTestPlaybackPort()
+        => new PlaybackPanelAudioDeviceTestPlaybackPort(PlaybackPanel);
+
+    void ISettingsDialogPlaybackPort.ApplyPlayerSettings(IBMSPlayer replacementPlayer)
+    {
+        PlaybackPanel.StopPlayback(closeProcess: false);
+        PlaybackPanel.ReplacePlayer(replacementPlayer);
+    }
+
+    void ISettingsDialogPlaybackPort.NotifySettingsChanged()
+        => PlaybackPanel.NotifySettingsChanged();
 
     private readonly ApplicationComposition applicationComposition;
 
@@ -565,7 +658,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private object treeViewFilterParameterSelected;
 
-    public SettingDialogViewModel settingDialog { get; private set; }
+    public SettingsDialogViewModel SettingDialog { get; private set; }
 
     private static void LogUiSuppression(string message)
     {
@@ -1025,53 +1118,12 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private static UiRefreshChannel GetStartupBasicPresentationChannels(bool includeLibraryMainView)
-    {
-        UiRefreshChannel channels = StartupBasicPresentationChannels;
-        if (includeLibraryMainView)
-        {
-            channels |= UiRefreshChannel.LibraryMainView;
-        }
-        return channels;
-    }
-
     private static UiRefreshChannel GetStartupPresentationDeferredChannels(UiRefreshChannel mask, string reason, bool includeBasicLibraryMainView)
     {
-        UiRefreshChannel deferredChannel = mask & StartupDeferredPresentationChannels;
-        if (string.Equals(reason, StartupUiSuppressFlushReason, StringComparison.Ordinal))
-        {
-            deferredChannel &= ~GetStartupBasicPresentationChannels(includeBasicLibraryMainView);
-        }
-        return deferredChannel;
-    }
-
-    internal static bool IsStartupPresentationDeferredForTest(
-        MainViewUpdateMode currentTreeMode,
-        bool startupUiSuppressFlush,
-        bool libraryMainView,
-        bool libraryFolderTree,
-        bool playlistTree,
-        bool duplicateTree)
-    {
-        UiRefreshChannel mask = UiRefreshChannel.None;
-        if (libraryMainView)
-        {
-            mask |= UiRefreshChannel.LibraryMainView;
-        }
-        if (libraryFolderTree)
-        {
-            mask |= UiRefreshChannel.LibraryFolderTree;
-        }
-        if (playlistTree)
-        {
-            mask |= UiRefreshChannel.PlaylistTree;
-        }
-        if (duplicateTree)
-        {
-            mask |= UiRefreshChannel.DuplicateTree;
-        }
-        string reason = startupUiSuppressFlush ? StartupUiSuppressFlushReason : "background_hydration";
-        return GetStartupPresentationDeferredChannels(mask, reason, CanShowStartupBasicLibraryMainView(currentTreeMode)) != UiRefreshChannel.None;
+        return (UiRefreshChannel)StartupPresentationPolicy.GetDeferredPresentationChannels(
+            (int)mask,
+            string.Equals(reason, StartupUiSuppressFlushReason, StringComparison.Ordinal),
+            includeBasicLibraryMainView);
     }
 
     private bool IsPlaylistSummaryPresentationRefreshDeferred(out bool applyReservation)
@@ -1535,25 +1587,10 @@ public partial class MainWindowViewModel : ViewModel
 
     private static bool IsStartupReadyUiMaskSatisfied(UiRefreshChannel mask)
     {
-        return (mask & UiRefreshChannel.InstallTree) != 0;
-    }
-
-    internal static bool IsStartupReadyUiMaskSatisfiedForTest(bool installTree, bool libraryMainView, bool playlistTree)
-    {
-        UiRefreshChannel mask = UiRefreshChannel.None;
-        if (installTree)
-        {
-            mask |= UiRefreshChannel.InstallTree;
-        }
-        if (libraryMainView)
-        {
-            mask |= UiRefreshChannel.LibraryMainView;
-        }
-        if (playlistTree)
-        {
-            mask |= UiRefreshChannel.PlaylistTree;
-        }
-        return IsStartupReadyUiMaskSatisfied(mask);
+        return StartupPresentationPolicy.IsReadyUiMaskSatisfied(
+            installTree: (mask & UiRefreshChannel.InstallTree) != 0,
+            libraryMainView: (mask & UiRefreshChannel.LibraryMainView) != 0,
+            playlistTree: (mask & UiRefreshChannel.PlaylistTree) != 0);
     }
 
     private void TryLogStartupReadyInstall(UiRefreshChannel mask)
@@ -2826,6 +2863,9 @@ public partial class MainWindowViewModel : ViewModel
             queueRefreshWhenSelectionChanges);
     }
 
+    void ISettingsDialogLibraryPort.RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges)
+        => RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges);
+
     private void SchedulePlayHistoryDisplayTargetCatalogRefresh(Action refresh)
     {
         Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
@@ -2926,7 +2966,7 @@ public partial class MainWindowViewModel : ViewModel
             () => files,
             () => lr2config,
             LogPlaylistSummaryBulkWarning,
-            new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher),
+            new DispatcherCollection<BMSTable>(applicationComposition.UiDispatcherProvider()),
             (reason, work) => startupBackgroundTaskScheduler.Queue("playlist_library_index_prewarm", reason, null, work),
             () => startupReadyOperableReached,
             () => treeViewFilterTypeSelected,
@@ -2948,7 +2988,7 @@ public partial class MainWindowViewModel : ViewModel
                 work,
                 shutdownReason => PlaylistWorkspace.PlaylistReferenceApplyWorkflow.DiscardForShutdown(shutdownReason)),
             ApplyMainChartListPresentationActionAsync,
-            () => DispatcherHelper.UIDispatcher.CheckAccess());
+            () => applicationComposition.UiDispatcherProvider().CheckAccess());
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
@@ -2970,7 +3010,7 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             PlaylistWorkspace,
             applicationComposition.CreateDefaultBmsPlayer,
-            () => DispatcherHelper.UIDispatcher,
+            applicationComposition.UiDispatcherProvider,
             chartFileOperations,
             LogMainViewBuild,
             DispatchMainChartListAction,
@@ -3132,7 +3172,16 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         PlayHistory.RestoreDisplayTargetIdentity(playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
-        settingDialog = applicationComposition.CreateSettingDialogViewModel(this);
+        SettingDialog = applicationComposition.CreateSettingDialogViewModel(
+            statePort: this,
+            workspacePort: this,
+            libraryPort: this,
+            playbackPort: this,
+            lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
+            initializeOwner: () => applicationComposition.InitializeOwner(this),
+            reloadScoresOnly: () => applicationComposition.ReloadScoresOnly(this),
+            reloadFileDiff: () => applicationComposition.ReloadFileDiff(this),
+            invalidatePlayHistoryReadCache: InvalidatePlayHistoryReadCache);
     }
 
     private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs request)
@@ -3586,6 +3635,54 @@ public partial class MainWindowViewModel : ViewModel
             queueRefreshWhenSelectionChanges);
     }
 
+    void ISettingsDialogLibraryPort.RefreshPlayHistoryDisplayTargetSetsFromSettings(bool queueRefreshWhenSelectionChanges)
+        => RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges);
+
+    void ISettingsDialogLibraryPort.ChangeCustomFolderBaseDirectoryWithSettings(
+        string outputDirBaseBefore,
+        string outputDirBaseAfter,
+        string additionalOutputBaseDirsBefore,
+        string additionalOutputBaseDirsAfter,
+        CustomFolderOutputSettingsSnapshot settings)
+        => tables?.ChangeCustomFolderBaseDirectoryWithSettings(
+            outputDirBaseBefore,
+            outputDirBaseAfter,
+            additionalOutputBaseDirsBefore,
+            additionalOutputBaseDirsAfter,
+            settings);
+
+    void ISettingsDialogLibraryPort.ChangeCustomFolderBaseDirectoryRootWithSettings(
+        string outputDirBaseBefore,
+        string outputDirBaseAfter,
+        CustomFolderOutputSettingsSnapshot settings)
+        => tables?.ChangeCustomFolderBaseDirectoryRootWithSettings(
+            outputDirBaseBefore,
+            outputDirBaseAfter,
+            settings);
+
+    void ISettingsDialogLibraryPort.SchedulePlaylistUrlCompletionRefresh(string reason)
+        => tables?.SchedulePlaylistUrlCompletionRefresh(reason);
+
+    void ISettingsDialogLibraryPort.QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath)
+        => tables?.BmtOutput.QueueBeatorajaBmtExportAll(reason, cleanupTablePath);
+
+    bool ISettingsDialogLibraryPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+        string previousRootOutputBaseDirectory,
+        CustomFolderOutputSettingsSnapshot settings)
+        => tables?.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+            previousRootOutputBaseDirectory,
+            configOverride: lr2config,
+            settings: settings) == true;
+
+    int ISettingsDialogLibraryPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
+        string previousAdditionalOutputBaseDirectories,
+        IReadOnlyDictionary<string, string> pendingRenames,
+        CustomFolderOutputSettingsSnapshot settings)
+        => tables?.ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
+            previousAdditionalOutputBaseDirectories,
+            pendingRenames,
+            settings) ?? 0;
+
     private void RaiseUiInteractionOnUiThread(EventHandler handler, string interactionName)
     {
         if (handler == null)
@@ -3619,18 +3716,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             LogUiInteractionSkippedOnShutdown(interactionName);
         }
-    }
-
-    private void RaiseSettingDialogOpenRequested()
-    {
-        if (settingDialog == null)
-        {
-            return;
-        }
-
-        RaiseUiInteractionOnUiThread(
-            (_, _) => settingDialog.RequestOpen(),
-            nameof(SettingDialogViewModel.OpenRequested));
     }
 
     private void RaiseInitialSetupLanguageDialogRequested()
@@ -4016,7 +4101,7 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
 
-        if (settingDialog.SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupCustomFolderSettings))
+        if (SettingDialog.SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupCustomFolderSettings))
         {
             LogInitStage("custom_folder_root_output_search_root_repair", "Initialize");
         }
@@ -4091,10 +4176,10 @@ public partial class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseSettingDialogOpenRequested();
+            SettingDialog?.RequestOpen();
             return false;
         }
-        if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))
+        if (!SettingDialog.CheckValidation(out string startupValidationErrorMessage))
         {
             NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + (startupValidationErrorMessage ?? string.Empty).Replace(Environment.NewLine, " | "));
             if (firstStartupProvider())
@@ -4110,7 +4195,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseSettingDialogOpenRequested();
+            SettingDialog?.RequestOpen();
             return false;
         }
         try
@@ -4130,7 +4215,7 @@ public partial class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseSettingDialogOpenRequested();
+            SettingDialog?.RequestOpen();
             return false;
         }
         long operationToken;
@@ -4191,7 +4276,7 @@ public partial class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseSettingDialogOpenRequested();
+            SettingDialog?.RequestOpen();
             return false;
         }
         LoadColumnSetting();
@@ -4519,7 +4604,7 @@ public partial class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text4 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseSettingDialogOpenRequested();
+            SettingDialog?.RequestOpen();
             return false;
         }
         finally
@@ -5180,10 +5265,10 @@ public partial class MainWindowViewModel : ViewModel
                 (Action)(() => ApplyLr2PlayHistorySchemaCheckResultFromRead(result)));
             return;
         }
-        if (settingDialog?.OperationModeLR2DB == true
+        if (SettingDialog?.OperationModeLR2DB == true
             && string.Equals(ResolveMainViewLr2PlayHistoryScoreDbPath() ?? string.Empty, result.ScoreDbPath ?? string.Empty, StringComparison.OrdinalIgnoreCase))
         {
-            settingDialog.ApplyLr2PlayHistorySchemaCheckResult(result);
+            SettingDialog.ApplyLr2PlayHistorySchemaCheckResult(result);
         }
     }
 
@@ -5222,7 +5307,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void ResetLr2PlayHistorySchemaStatusFromLibrary()
     {
-        if (settingDialog == null)
+        if (SettingDialog == null)
         {
             return;
         }
@@ -5238,7 +5323,7 @@ public partial class MainWindowViewModel : ViewModel
                 (Action)ResetLr2PlayHistorySchemaStatusFromLibrary);
             return;
         }
-        settingDialog.ClearLr2PlayHistorySchemaStatus();
+        SettingDialog.ClearLr2PlayHistorySchemaStatus();
     }
 
     private void LogPlayHistoryDisplayTargetFilter(

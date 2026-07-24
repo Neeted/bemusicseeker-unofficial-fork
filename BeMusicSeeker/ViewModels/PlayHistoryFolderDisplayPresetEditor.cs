@@ -157,7 +157,10 @@ public sealed class PlayHistoryFolderPresetPlaylistOption : ViewModel
     /// <param name="table">候補 playlist。</param>
     /// <param name="isSelected">現在のプリセットに含まれているか。</param>
     /// <param name="selectionChanged">選択状態変更時の通知先。</param>
-    internal PlayHistoryFolderPresetPlaylistOption(BMSTable table, bool isSelected, Action<PlayHistoryFolderPresetPlaylistOption> selectionChanged)
+    internal PlayHistoryFolderPresetPlaylistOption(
+        PlaylistTablePresentationSnapshot table,
+        bool isSelected,
+        Action<PlayHistoryFolderPresetPlaylistOption> selectionChanged)
     {
         Table = table ?? throw new ArgumentNullException(nameof(table));
         this.isSelected = isSelected;
@@ -168,7 +171,7 @@ public sealed class PlayHistoryFolderPresetPlaylistOption : ViewModel
     /// <summary>
     /// 候補 playlist を取得します。
     /// </summary>
-    internal BMSTable Table { get; }
+    internal PlaylistTablePresentationSnapshot Table { get; }
 
     /// <summary>
     /// 設定ダイアログに表示する playlist 名を取得します。
@@ -200,7 +203,7 @@ public sealed class PlayHistoryFolderPresetPlaylistOption : ViewModel
     {
         return new PlayHistoryDisplayTargetReference
         {
-            PlaylistId = Table.playlist_id
+            PlaylistId = Table.PlaylistId
         };
     }
 
@@ -217,20 +220,17 @@ public sealed class PlayHistoryFolderPresetPlaylistOption : ViewModel
     /// <summary>
     /// 指定された playlist と保存済み参照が一致するかどうかを判定します。
     /// </summary>
-    /// <param name="table">現在読み込まれている playlist。</param>
-    /// <param name="reference">保存済み playlist 参照。</param>
-    /// <returns>playlist.id が一致する場合は <c>true</c>。</returns>
-    internal static bool Matches(BMSTable table, PlayHistoryDisplayTargetReference reference)
+    internal static bool Matches(PlaylistTablePresentationSnapshot table, PlayHistoryDisplayTargetReference reference)
     {
         return reference?.PlaylistId.HasValue == true
-            && table?.playlist_id == reference.PlaylistId;
+            && table?.PlaylistId == reference.PlaylistId;
     }
 
-    private static string BuildDisplayName(BMSTable table)
+    private static string BuildDisplayName(PlaylistTablePresentationSnapshot table)
     {
-        string name = NormalizeText(table.name) ?? NormalizeText(table.org_name) ?? "(playlist)";
-        string symbol = NormalizeText(table.symbol) ?? NormalizeText(table.org_symbol);
-        string id = table.playlist_id?.ToString(CultureInfo.InvariantCulture);
+        string name = NormalizeText(table.Name) ?? NormalizeText(table.OriginalName) ?? "(playlist)";
+        string symbol = NormalizeText(table.Symbol) ?? NormalizeText(table.OriginalSymbol);
+        string id = table.PlaylistId?.ToString(CultureInfo.InvariantCulture);
         return string.IsNullOrWhiteSpace(symbol)
             ? name + FormatId(id)
             : name + " [" + symbol + "]" + FormatId(id);

@@ -250,7 +250,9 @@ public sealed class ChartListVirtualViewTests
             BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = false;
             BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = false;
             var player = new RecordingBmsPlayer();
-            var composition = new ApplicationComposition(defaultBmsPlayerFactory: () => player);
+            var composition = new ApplicationComposition(
+                defaultBmsPlayerFactory: () => player,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
             var viewModel = new MainWindowViewModel(composition);
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);

@@ -99,6 +99,8 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             temp_custom_folder_output_settings?.LR2CustomFolderOutputBaseDir,
             CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(temp_custom_folder_output_settings?.LR2CustomFolderAdditionalOutputBaseDirs));
 
+    public bool OperationModeLR2DB => temp_custom_folder_output_settings?.OperationModeLR2DB == true;
+
     public ObservableCollection<string> folder_order
     {
         get

@@ -47,7 +47,7 @@ namespace BeMusicSeeker.Views;
 /// UIの初期化、主要なイベントハンドリング（ドラッグ＆ドロップ、ウィンドウ状態の変更、閉じる処理など）、
 /// および非同期のアップデートチェッカー等のグローバルな制御を統括します。
 /// </summary>
-public partial class MainWindow : Window, IComponentConnector, IStyleConnector
+public partial class MainWindow : Window, IComponentConnector, IStyleConnector, ISettingDialogPresentationPort
 {
     public static readonly DependencyProperty PlaybackOverlayVisibilityProperty = DependencyProperty.Register(
         nameof(PlaybackOverlayVisibility),
@@ -159,7 +159,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
+        if (base.DataContext is not MainWindowViewModel { SettingDialog: { } settingDialogViewModel } viewModel)
         {
             return;
         }
@@ -223,6 +223,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         DataContext = viewModel;
         InitializeComponent();
+        viewModel.SettingDialog.AttachPresentationPort(this);
         ApplySavedTreeViewWidth();
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
         Deactivated += MainWindow_Deactivated;
@@ -313,8 +314,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
         viewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
         viewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
-        viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;
-        viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
@@ -330,8 +329,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         subscribedViewModel.PropertyChanged -= MainWindowViewModel_PropertyChanged;
-        subscribedViewModel.settingDialog.OpenRequested -= MainWindowViewModel_SettingDialogOpenRequested;
-        subscribedViewModel.settingDialog.PresentationRequested -= MainWindowViewModel_SettingDialogPresentationRequested;
+        subscribedViewModel.SettingDialog.DetachPresentationPort(this);
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallTreeExpansionRequested -= MainWindow_PlaylistUrlInstallTreeExpansionRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyValidationError -= MainWindow_PlaylistPropertyValidationError;
@@ -737,33 +735,56 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         _ = base.Dispatcher.InvokeAsync((Action)ApplyTerminalShutdown).Task;
     }
 
-    private void MainWindowViewModel_SettingDialogOpenRequested(object sender, EventArgs e)
+    void ISettingDialogPresentationPort.OpenSettingsDialog()
     {
-        if (ReferenceEquals(activeOverlayDialog, initialSetupLanguageDialog))
+        RunOnUiThread(() =>
         {
-            HideOverlayDialog(initialSetupLanguageDialog);
-        }
+            if (ReferenceEquals(activeOverlayDialog, initialSetupLanguageDialog))
+            {
+                HideOverlayDialog(initialSetupLanguageDialog);
+            }
 
-        ShowOverlayDialog(settingDialog);
+            ShowOverlayDialog(settingDialog);
+        });
     }
 
-    private void MainWindowViewModel_SettingDialogPresentationRequested(
-        object sender,
-        MainWindowViewModel.SettingDialogViewModel.PresentationRequestedEventArgs request)
+    void ISettingDialogPresentationPort.CloseSettingsDialog()
     {
-        if (request == null)
+        RunOnUiThread(() => HideOverlayDialog(settingDialog));
+    }
+
+    void ISettingDialogPresentationPort.RefreshAppearanceSelection()
+    {
+        RunOnUiThread(() =>
+        {
+            if (base.DataContext is MainWindowViewModel viewModel)
+            {
+                settingDialog.RefreshAppearanceThemeSelection(viewModel.SettingDialog);
+            }
+        });
+    }
+
+    private void RunOnUiThread(Action action)
+    {
+        if (action == null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+        if (Dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
             return;
         }
-
-        if (request.Kind == MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay)
+        try
         {
-            HideOverlayDialog(settingDialog);
+            Dispatcher.BeginInvoke(DispatcherPriority.Normal, action);
         }
-        else if (request.Kind == MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.RefreshAppearanceSelection
-            && base.DataContext is MainWindowViewModel viewModel)
+        catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
-            settingDialog.RefreshAppearanceThemeSelection(viewModel.settingDialog);
         }
     }
 
@@ -4211,7 +4232,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = viewModel.settingDialog;
+        SettingsDialogViewModel settingDialogViewModel = viewModel.SettingDialog;
         await settingDialogViewModel.RequestRemoveBmsSearchRootAsync(path)
             .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
     }

@@ -223,7 +223,7 @@
               </GroupBox>
             </DockPanel>
           </TabItem>
-          <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Custom_folder, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}">
+          <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Custom_folder, Mode=OneWay}" IsEnabled="{Binding OperationModeLR2DB}">
             <DockPanel>
               <GroupBox DockPanel.Dock="Bottom" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_output_dst, Mode=OneWay}">
                 <StackPanel>

@@ -4,6 +4,7 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace BeMusicSeeker.Tests;
 
@@ -21,7 +22,8 @@ public sealed class MainChartColumnSettingsBoundaryTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             mainChartColumnSettingsStore: store,
-            playlistWorkspaceDialogService: dialogs);
+            playlistWorkspaceDialogService: dialogs,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
         MainChartListColumnSelection selection = viewModel.MainChartList.LoadColumnSetting(

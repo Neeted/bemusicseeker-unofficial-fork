@@ -395,18 +395,18 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void StartupReadyUiMask_RequiresInstallTreeOnly()
     {
-        Assert.IsFalse(MainWindowViewModel.IsStartupReadyUiMaskSatisfiedForTest(false, true, true));
-        Assert.IsTrue(MainWindowViewModel.IsStartupReadyUiMaskSatisfiedForTest(true, false, false));
+        Assert.IsFalse(StartupPresentationPolicy.IsReadyUiMaskSatisfied(false, true, true));
+        Assert.IsTrue(StartupPresentationPolicy.IsReadyUiMaskSatisfied(true, false, false));
     }
 
     [TestMethod]
     public void StartupPresentationDeferPolicyKeepsBasicCatalogFlushRules()
     {
-        Assert.IsFalse(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+        Assert.IsFalse(StartupPresentationPolicy.IsPresentationDeferred(
             MainViewUpdateMode.FolderFilterSelected, true, true, false, false, false));
-        Assert.IsTrue(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+        Assert.IsTrue(StartupPresentationPolicy.IsPresentationDeferred(
             MainViewUpdateMode.FolderFilterSelected, true, false, false, false, true));
-        Assert.IsTrue(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+        Assert.IsTrue(StartupPresentationPolicy.IsPresentationDeferred(
             MainViewUpdateMode.FileMissingFilterSelected, true, true, false, false, false));
     }
 

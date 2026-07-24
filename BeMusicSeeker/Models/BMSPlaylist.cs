@@ -1784,6 +1784,147 @@ public partial class BMSPlaylist : NotificationObject
     }
 
     /// <summary>
+    /// 追加カスタムフォルダ出力先の登録変更をプレイリスト本体へ反映し、必要な移行を実行します。
+    /// </summary>
+    /// <param name="previousAdditionalOutputBaseDirectories">変更前の追加出力先定義。</param>
+    /// <param name="pendingRenames">編集中に確定した登録名の変更。</param>
+    /// <param name="settings">変更後のカスタムフォルダ出力設定。</param>
+    /// <returns>変更したプレイリスト数。</returns>
+    internal int ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
+        string previousAdditionalOutputBaseDirectories,
+        IReadOnlyDictionary<string, string> pendingRenames,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        if (settings == null || BMSTables == null)
+        {
+            return 0;
+        }
+
+        IReadOnlyList<CustomFolderOutputBaseEntry> oldEntries = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
+            CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(previousAdditionalOutputBaseDirectories));
+        IReadOnlyList<CustomFolderOutputBaseEntry> newEntries = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
+            CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(settings.LR2CustomFolderAdditionalOutputBaseDirs));
+        Dictionary<string, CustomFolderOutputBaseEntry> newByName = newEntries
+            .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, CustomFolderOutputBaseEntry> oldByName = oldEntries
+            .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var processedTables = new HashSet<BMSTable>();
+        var changedTables = new List<BMSTable>();
+        var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
+        var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
+
+        using (rwlockBMSTables.GetWriterGuard())
+        {
+            foreach (CustomFolderOutputBaseEntry oldEntry in oldEntries)
+            {
+                string newName = null;
+                if (pendingRenames != null
+                    && pendingRenames.TryGetValue(oldEntry.Name, out string renamedName)
+                    && newByName.ContainsKey(renamedName))
+                {
+                    newName = renamedName;
+                }
+                else if (newByName.ContainsKey(oldEntry.Name))
+                {
+                    newName = oldEntry.Name;
+                }
+
+                string newBasePath = newName == null
+                    ? settings.LR2CustomFolderOutputBaseDir
+                    : newByName[newName].Path;
+                if (newName != null
+                    && string.Equals(oldEntry.Name, newName, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(oldEntry.Path),
+                        CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(newBasePath),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                ApplyCustomFolderOutputBaseNameChange(
+                    oldEntry.Name,
+                    oldEntry.Path,
+                    newName,
+                    processedTables,
+                    changedTables,
+                    outputDirPathBeforeByTable,
+                    outputBaseDirPathBeforeByTable,
+                    settings);
+            }
+
+            foreach (CustomFolderOutputBaseEntry newEntry in newEntries)
+            {
+                if (oldByName.ContainsKey(newEntry.Name))
+                {
+                    continue;
+                }
+
+                ApplyCustomFolderOutputBaseNameChange(
+                    newEntry.Name,
+                    null,
+                    newEntry.Name,
+                    processedTables,
+                    changedTables,
+                    outputDirPathBeforeByTable,
+                    outputBaseDirPathBeforeByTable,
+                    settings);
+            }
+        }
+
+        if (changedTables.Count > 0)
+        {
+            MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
+                changedTables,
+                outputDirPathBeforeByTable,
+                "setting_custom_folder_output_base_registration_changed",
+                outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
+                settings: settings);
+        }
+        return changedTables.Count;
+    }
+
+    private void ApplyCustomFolderOutputBaseNameChange(
+        string oldBaseName,
+        string oldBasePath,
+        string newBaseName,
+        ISet<BMSTable> processedTables,
+        ICollection<BMSTable> changedTables,
+        IDictionary<BMSTable, string> outputDirPathBeforeByTable,
+        IDictionary<BMSTable, string> outputBaseDirPathBeforeByTable,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        if (string.IsNullOrWhiteSpace(oldBaseName))
+        {
+            return;
+        }
+
+        foreach (BMSTable table in BMSTables.Where(table =>
+            table != null
+            && !processedTables.Contains(table)
+            && string.Equals(table.custom_folder_output_base_name, oldBaseName, StringComparison.OrdinalIgnoreCase)))
+        {
+            processedTables.Add(table);
+            string outputDirName = table.Output_dir;
+            string beforeDirectory = !string.IsNullOrWhiteSpace(oldBasePath)
+                && !string.IsNullOrWhiteSpace(outputDirName)
+                ? Path.Combine(oldBasePath, outputDirName)
+                : null;
+            if (settings.OperationModeLR2DB
+                && !table.is_root_folder
+                && !string.IsNullOrWhiteSpace(beforeDirectory))
+            {
+                outputDirPathBeforeByTable.Add(table, beforeDirectory);
+                outputBaseDirPathBeforeByTable.Add(table, oldBasePath);
+            }
+            table.custom_folder_output_base_name = CustomFolderOutputBaseRegistry.NormalizeBaseName(newBaseName);
+            changedTables.Add(table);
+        }
+    }
+
+    /// <summary>
     /// プレイリストのカスタムフォルダ出力先変更をファイルシステムへ反映します。
     /// </summary>
     /// <param name="bmsTable">移行対象のプレイリスト。</param>

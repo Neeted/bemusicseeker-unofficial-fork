@@ -223,7 +223,7 @@ public sealed class DialogRouteConsolidationTests
         string requestsCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogRequests.cs"));
         string windowResultCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiWindowDialogResult.cs"));
         string selectedChartMutationOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartMutationWorkflowOwner.cs"));
-        string settingDialogViewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.SettingDialogViewModel.cs"));
+        string settingDialogViewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
         Assert.IsFalse(mainWindowCode.Contains(".ShowDialog("), "MainWindow modal windows must go through UiDialogCoordinator.");
         Assert.IsFalse(settingDialogCode.Contains(".ShowDialog("), "SettingDialog modal windows must go through UiDialogCoordinator.");
@@ -370,9 +370,9 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(mainWindowCode, "internal void HideOverlayDialog(FrameworkElement dialog)");
         StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(settingDialog)");
         StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(initialSetupLanguageDialog)");
-        StringAssert.Contains(mainWindowCode, "viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;");
+        StringAssert.Contains(mainWindowCode, "viewModel.SettingDialog.AttachPresentationPort(this);");
         StringAssert.Contains(mainWindowCode, "InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;");
-        StringAssert.Contains(mainWindowXaml, "SettingsCommand=\"{Binding DataContext.settingDialog.OpenCommand, ElementName=window}\"");
+        StringAssert.Contains(mainWindowXaml, "SettingsCommand=\"{Binding DataContext.SettingDialog.OpenCommand, ElementName=window}\"");
         string playbackPanelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaybackPanelView.xaml"));
         StringAssert.Contains(playbackPanelCode, "Command=\"{Binding SettingsCommand, ElementName=playbackPanelView}\"");
         Assert.IsFalse(mainWindowXaml.Contains("InteractionMessageTrigger"), "MainWindow must not use Livet message triggers for overlay or table callbacks.");

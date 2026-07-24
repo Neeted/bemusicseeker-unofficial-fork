@@ -79,11 +79,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
     {
         var owner = MainWindowViewModelTestFactory.Create();
         var dialogs = new RecordingUiDialogService();
-        var settingDialog = new MainWindowViewModel.SettingDialogViewModel(
+        var settingDialog = new SettingsDialogViewModel(
             owner,
+            owner,
+            owner,
+            owner,
+            owner.Lr2SongDbSyncWorkflow,
             reloadSettings: () => { },
             saveSettings: () => { },
             settingsEditSession: SettingsEditSession.CreateDefault(),
+            initializeOwner: () => Task.FromResult(true),
             reloadScoresOnly: () => Task.CompletedTask,
             reloadFileDiff: () => Task.CompletedTask,
             schemaDialogs: dialogs,
@@ -121,11 +126,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
             };
             int reloadCount = 0;
             string invalidationReason = string.Empty;
-            var settingDialog = new MainWindowViewModel.SettingDialogViewModel(
-                owner,
+            var settingDialog = new SettingsDialogViewModel(
+            owner,
+            owner,
+            owner,
+            owner,
+            owner.Lr2SongDbSyncWorkflow,
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
+                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () =>
                 {
                     reloadCount++;
@@ -179,11 +189,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
             };
             int reloadCount = 0;
             string invalidationReason = string.Empty;
-            var settingDialog = new MainWindowViewModel.SettingDialogViewModel(
-                owner,
+            var settingDialog = new SettingsDialogViewModel(
+            owner,
+            owner,
+            owner,
+            owner,
+            owner.Lr2SongDbSyncWorkflow,
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
+                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () =>
                 {
                     reloadCount++;
@@ -231,11 +246,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var dialogs = new RecordingUiDialogService { AcceptUninstall = false };
             int reloadCount = 0;
             int invalidationCount = 0;
-            var settingDialog = new MainWindowViewModel.SettingDialogViewModel(
-                owner,
+            var settingDialog = new SettingsDialogViewModel(
+            owner,
+            owner,
+            owner,
+            owner,
+            owner.Lr2SongDbSyncWorkflow,
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
+                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () =>
                 {
                     reloadCount++;
@@ -275,7 +295,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string codeBehind = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string uninstallDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Lr2PlayHistorySchemaUninstallDialog.xaml"));
-        string viewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string viewModel = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
+        string rootViewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
         string playHistorySchemaUi = ExtractBetween(
@@ -378,7 +399,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             uninstallOwnerCommand.IndexOf("invalidatePlayHistoryReadCache(\"lr2_play_history_schema_uninstall\")", StringComparison.Ordinal)
             < uninstallOwnerCommand.IndexOf("await ReloadScoresOnlyAsync();", StringComparison.Ordinal));
 
-        StringAssert.Contains(viewModel, "Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(startupSettings.LR2RootPath, lr2config.GetPlayerId)");
+        StringAssert.Contains(rootViewModel, "Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(startupSettings.LR2RootPath, lr2config.GetPlayerId)");
         StringAssert.Contains(viewModel, "Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(ApplicationSettings.LR2RootPath, () => lr2config?.GetPlayerId())");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().Check(scoreDbPath, isLr2LinkedProfile)");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile)");

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Reflection;
+using System.Windows.Threading;
 using BeMusicSeeker;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -15,19 +16,13 @@ public sealed class SettingDialogOpenCommandTests
     public void OpenCommand_PublishesExactlyOneOwnerRequest()
     {
         MainWindowViewModel viewModel = CreateViewModel();
-        int requestCount = 0;
-        object requestSender = null!;
-        viewModel.settingDialog.OpenRequested += (sender, _) =>
-        {
-            requestCount++;
-            requestSender = sender;
-        };
+        var presentation = new RecordingSettingsDialogPresentationPort();
+        viewModel.SettingDialog.AttachPresentationPort(presentation);
 
-        Assert.IsTrue(viewModel.settingDialog.OpenCommand.CanExecute);
-        viewModel.settingDialog.OpenCommand.Execute();
+        Assert.IsTrue(viewModel.SettingDialog.OpenCommand.CanExecute);
+        viewModel.SettingDialog.OpenCommand.Execute();
 
-        Assert.AreEqual(1, requestCount);
-        Assert.AreSame(viewModel.settingDialog, requestSender);
+        CollectionAssert.AreEqual(new[] { "open" }, presentation.Requests);
     }
 
     [TestMethod]
@@ -35,7 +30,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         MainWindowViewModel viewModel = CreateViewModel();
 
-        viewModel.settingDialog.OpenCommand.Execute();
+        viewModel.SettingDialog.OpenCommand.Execute();
     }
 
     [TestMethod]
@@ -55,9 +50,9 @@ public sealed class SettingDialogOpenCommandTests
             }
 
             MainWindowViewModel viewModel = CreateViewModel();
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
-            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
 
             dialog.ShowRecommUpdatedMsg = !previousShowRecommUpdatedMsg;
             Assert.IsTrue(dialog.HasPendingSettingChanges());
@@ -67,10 +62,10 @@ public sealed class SettingDialogOpenCommandTests
             CollectionAssert.AreEqual(
                 new[]
                 {
-                    MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.RefreshAppearanceSelection,
-                    MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay
+                    "refresh",
+                    "close"
                 },
-                requests);
+                presentation.Requests);
             Assert.IsFalse(dialog.HasPendingSettingChanges());
             Assert.AreEqual(previousShowRecommUpdatedMsg, dialog.ShowRecommUpdatedMsg);
             Assert.IsFalse(dialog.IsEditCompletionInProgress);
@@ -89,7 +84,8 @@ public sealed class SettingDialogOpenCommandTests
     {
         return new ApplicationComposition(
             firstStartupProvider: () => false,
-            completeFirstStartup: () => { })
+            completeFirstStartup: () => { },
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
             .CreateMainWindowViewModel();
     }
 

@@ -1617,7 +1617,8 @@ public sealed class BmsPlaylistUpdateTests
             providerCallCount = 0;
             var viewModel = new ApplicationComposition(
                 BmsLibraryOptionsSnapshot.CreateCurrent,
-                customFolderOutputSettingsProvider: getOutputSettings).CreateMainWindowViewModelForTest();
+                customFolderOutputSettingsProvider: getOutputSettings,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -2771,7 +2772,8 @@ public sealed class BmsPlaylistUpdateTests
             var viewModel = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
-                customFolderOutputSettingsProvider: getOperationSettings).CreateMainWindowViewModelForTest();
+                customFolderOutputSettingsProvider: getOperationSettings,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -2838,7 +2840,7 @@ public sealed class BmsPlaylistUpdateTests
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
-            viewModel.settingDialog.ApplyLr2PlayHistorySchemaCheckResult(new Lr2PlayHistorySchemaCheckResult
+            viewModel.SettingDialog.ApplyLr2PlayHistorySchemaCheckResult(new Lr2PlayHistorySchemaCheckResult
             {
                 Status = Lr2PlayHistorySchemaStatus.NotInstalled
             });
@@ -2943,7 +2945,8 @@ public sealed class BmsPlaylistUpdateTests
             var viewModel = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
-                customFolderOutputSettingsProvider: getOperationSettings).CreateMainWindowViewModelForTest();
+                customFolderOutputSettingsProvider: getOperationSettings,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -3078,7 +3081,8 @@ public sealed class BmsPlaylistUpdateTests
             };
             var viewModel = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
-                customFolderOutputSettingsProvider: getViewModelSettings).CreateMainWindowViewModelForTest();
+                customFolderOutputSettingsProvider: getViewModelSettings,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             var library = new BMSLibrary(songDbPath);
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -3661,7 +3665,8 @@ public sealed class BmsPlaylistUpdateTests
                 MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             var viewModel = new ApplicationComposition(
-                playlistWorkspaceDialogService: dialogs).CreateMainWindowViewModelForTest();
+                playlistWorkspaceDialogService: dialogs,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -3725,7 +3730,8 @@ public sealed class BmsPlaylistUpdateTests
 
             Settings.Default.OperationModeLR2DB = true;
             var conflictViewModel = new ApplicationComposition(
-                playlistWorkspaceDialogService: dialogs).CreateMainWindowViewModelForTest();
+                playlistWorkspaceDialogService: dialogs,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(conflictViewModel, playlist);
@@ -3883,7 +3889,8 @@ public sealed class BmsPlaylistUpdateTests
             };
             var viewModel = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
-                customFolderOutputSettingsProvider: getViewModelSettings).CreateMainWindowViewModelForTest();
+                customFolderOutputSettingsProvider: getViewModelSettings,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(viewModel, playlist);
@@ -3896,21 +3903,24 @@ public sealed class BmsPlaylistUpdateTests
             Settings.Default.LR2CustomFolderOutputBaseDir = globalNormalOutputBaseDir;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = globalRootOutputBaseDir;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = globalAdditionalOutputBaseDirs;
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
-            typeof(MainWindowViewModel.SettingDialogViewModel)
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            typeof(SettingsDialogViewModel)
+                .GetField("lr2ConfigValue", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(dialog, config);
+            typeof(SettingsDialogViewModel)
                 .GetField("tempLR2CustomFolderOutputDir", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(dialog, oldNormalOutputBaseDir);
-            typeof(MainWindowViewModel.SettingDialogViewModel)
+            typeof(SettingsDialogViewModel)
                 .GetField("tempLR2CustomFolderAsRootOutputDir", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(dialog, oldRootOutputBaseDir);
-            typeof(MainWindowViewModel.SettingDialogViewModel)
+            typeof(SettingsDialogViewModel)
                 .GetField("tempLR2CustomFolderAdditionalOutputBaseDirs", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(dialog, oldAdditionalOutputBaseDirs);
 
-            Type impactType = typeof(MainWindowViewModel.SettingDialogViewModel)
+            Type impactType = typeof(SettingsDialogViewModel)
                 .GetNestedType("SettingsPostSaveImpact", BindingFlags.NonPublic)!;
             object impact = Enum.Parse(impactType, "CustomFolderSearchRootSync");
-            MethodInfo postSaveMethod = typeof(MainWindowViewModel.SettingDialogViewModel)
+            MethodInfo postSaveMethod = typeof(SettingsDialogViewModel)
                 .GetMethod("necessaryStepsAfterSaved", BindingFlags.Instance | BindingFlags.NonPublic)!;
             await (Task)postSaveMethod.Invoke(dialog, [impact]);
 
@@ -4023,13 +4033,17 @@ public sealed class BmsPlaylistUpdateTests
                 {
                     viewModelProviderCallCount++;
                     return startupSettings;
-                }).CreateMainWindowViewModelForTest();
+                },
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(viewModel, playlist);
             typeof(MainWindowViewModel)
                 .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(viewModel, config);
+            typeof(SettingsDialogViewModel)
+                .GetField("lr2ConfigValue", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(viewModel.SettingDialog, config);
 
             Settings.Default.OperationModeLR2DB = false;
             Settings.Default.LR2CustomFolderOutputBaseDir = globalNormalOutputBaseDir;
@@ -7664,7 +7678,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getOperationSettings,
-                playlistWorkspaceDialogService: dialogs).CreateMainWindowViewModelForTest();
+                playlistWorkspaceDialogService: dialogs,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -7775,7 +7790,8 @@ public sealed class BmsPlaylistUpdateTests
             var viewModel = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
-                customFolderOutputSettingsProvider: getOperationSettings).CreateMainWindowViewModelForTest();
+                customFolderOutputSettingsProvider: getOperationSettings,
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);

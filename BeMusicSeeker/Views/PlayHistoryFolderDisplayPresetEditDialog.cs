@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Views;
 /// </summary>
 public partial class PlayHistoryFolderDisplayPresetEditDialog : Window
 {
-    private readonly MainWindowViewModel.SettingDialogViewModel settingDialogViewModel;
+    private readonly SettingsDialogViewModel settingDialogViewModel;
 
     /// <summary>
     /// 編集ダイアログを初期化します。
@@ -19,7 +19,7 @@ public partial class PlayHistoryFolderDisplayPresetEditDialog : Window
     /// <param name="settingDialogViewModel">設定ダイアログ ViewModel。</param>
     /// <param name="session">編集セッション。</param>
     public PlayHistoryFolderDisplayPresetEditDialog(
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel,
+        SettingsDialogViewModel settingDialogViewModel,
         PlayHistoryFolderDisplayPresetEditSession session)
     {
         this.settingDialogViewModel = settingDialogViewModel;

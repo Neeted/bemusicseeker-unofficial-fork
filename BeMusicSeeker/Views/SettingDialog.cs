@@ -99,7 +99,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (e.NewValue is true && base.DataContext is MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (e.NewValue is true && base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
             var stopwatch = Stopwatch.StartNew();
             RefreshAppearanceThemeSelection(settingDialogViewModel);
@@ -118,22 +118,16 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
-    internal void RefreshAppearanceThemeSelection(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+    internal void RefreshAppearanceThemeSelection(SettingsDialogViewModel settingDialogViewModel)
     {
         comboBoxAppearanceTheme.GetBindingExpression(Selector.SelectedValueProperty)?.UpdateTarget();
         comboBoxAppearanceTheme.SelectedValue ??= settingDialogViewModel.AppearanceTheme;
     }
 
-    private MainWindowViewModel.SettingDialogViewModel GetSettingDialogViewModel()
+    private SettingsDialogViewModel GetSettingDialogViewModel()
     {
-        return base.DataContext as MainWindowViewModel.SettingDialogViewModel
+        return base.DataContext as SettingsDialogViewModel
             ?? throw new InvalidOperationException("Setting dialog view model is unavailable.");
-    }
-
-    private MainWindowViewModel GetMainWindowViewModel()
-    {
-        return Window.GetWindow(this)?.DataContext as MainWindowViewModel
-            ?? throw new InvalidOperationException("Setting dialog host view model is unavailable.");
     }
 
     private async void buttonOKClick(object sender, RoutedEventArgs e)
@@ -145,7 +139,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void PickRootFolderForSetting(string propertyName, string selectedPath, string title = null)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         UiFolderPickerResult result = new UiDialogCoordinator()
             .PickFolderAsync(new UiFolderPickerRequest(
                 title,
@@ -164,7 +158,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void PickDirectoryForSetting(string propertyName, string selectedPath, string title = null)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         UiFolderPickerResult result = new UiDialogCoordinator()
             .PickFolderAsync(new UiFolderPickerRequest(
                 title,
@@ -183,7 +177,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void PickFileForSetting(string propertyName, string title, string fileName, string filter, string initialDirectory)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         UiFilePickerResult result = new UiDialogCoordinator()
             .PickFileAsync(new UiFilePickerRequest(
                 title,
@@ -231,13 +225,13 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void browseLr2RootPathButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(nameof(settingDialogViewModel.LR2RootPath), settingDialogViewModel.LR2RootPath);
     }
 
     private void browseLr2SongDbPathButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
             nameof(settingDialogViewModel.LR2SongDBPath),
             "song.db を開く",
@@ -248,7 +242,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void browseLr2ConfigPathButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
             nameof(settingDialogViewModel.LR2ConfigXmlPath),
             "config.xml を開く",
@@ -259,13 +253,13 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void browseBeatorajaRootPathButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(nameof(settingDialogViewModel.BeatorajaRootPath), settingDialogViewModel.BeatorajaRootPath);
     }
 
     private void importBeatorajaTableUrlsButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
             ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
         playlistWorkspace.StartBeatorajaTableUrlImport(settingDialogViewModel.BeatorajaRootPath);
@@ -273,7 +267,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void browseStagefilePathButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
             nameof(settingDialogViewModel.StagefilePath),
             BeMusicSeeker.Properties.Resources.Open_image,
@@ -284,7 +278,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void browseUbmplayPathButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
             nameof(settingDialogViewModel.uBMplayPath),
             "uBMplay.exe を開く",
@@ -295,7 +289,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void browseBmIdxViewPathButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
             nameof(settingDialogViewModel.BMIIDXViewPath),
             "BMIIDXView2015.exe を開く",
@@ -306,12 +300,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void browseEncoderExeDirButtonClick(object sender, RoutedEventArgs e)
     {
-        PickDirectoryForSetting(nameof(MainWindowViewModel.SettingDialogViewModel.EncoderExeDir), null, BeMusicSeeker.Properties.Resources.Record_setting_encoder_dir_dialog);
+        PickDirectoryForSetting(nameof(SettingsDialogViewModel.EncoderExeDir), null, BeMusicSeeker.Properties.Resources.Record_setting_encoder_dir_dialog);
     }
 
     private void browseLr2CustomFolderOutputDirButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(
             nameof(settingDialogViewModel.LR2CustomFolderOutputDir),
             FirstNonEmpty(settingDialogViewModel.LR2CustomFolderOutputDir, settingDialogViewModel.LR2RootPath));
@@ -319,7 +313,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void browseLr2CustomFolderAsRootOutputDirButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(
             nameof(settingDialogViewModel.LR2CustomFolderAsRootOutputDir),
             FirstNonEmptyOrDirectoryOfSecond(settingDialogViewModel.LR2CustomFolderAsRootOutputDir, settingDialogViewModel.LR2CustomFolderOutputDir));
@@ -327,7 +321,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void addBmsInstallDirButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         UiFolderPickerResult result = new UiDialogCoordinator()
             .PickFolderAsync(new UiFolderPickerRequest(
                 selectedPath: settingDialogViewModel.AvailableBMSDirectories?.FirstOrDefault(),
@@ -345,7 +339,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void browseLr2BackupPathButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(nameof(settingDialogViewModel.LR2BackupPath), settingDialogViewModel.LR2BackupPath);
     }
 
@@ -371,11 +365,10 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void resyncLr2SongDbSyncDataButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = GetMainWindowViewModel();
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         if (!settingDialogViewModel.CanRequestLr2SongDbSyncDataResync)
         {
-            if (viewModel.IsLibraryOperationInProgress)
+            if (settingDialogViewModel.IsLr2SongDbSyncDataResyncBlockedByLibraryOperation)
             {
                 UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
             }
@@ -436,7 +429,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void installOrRepairLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
@@ -453,7 +446,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void uninstallLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
@@ -499,7 +492,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
@@ -544,7 +537,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void buttonAddBmsSearchRootPathsClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
@@ -565,7 +558,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void buttonAddCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
@@ -589,7 +582,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void buttonRemoveCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
             settingDialogViewModel.RemoveSelectedCustomFolderAdditionalOutputBaseDir();
         }
@@ -597,7 +590,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void buttonRenameCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
             settingDialogViewModel.RenameSelectedCustomFolderAdditionalOutputBaseDir();
         }
@@ -605,7 +598,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void buttonAddPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
             ShowPlayHistoryFolderDisplayPresetEditDialog(settingDialogViewModel, null);
         }
@@ -613,7 +606,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void buttonRemovePlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
             settingDialogViewModel.RemoveSelectedPlayHistoryFolderDisplayPreset();
         }
@@ -621,14 +614,14 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void buttonEditPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
             ShowPlayHistoryFolderDisplayPresetEditDialog(settingDialogViewModel, settingDialogViewModel.SelectedPlayHistoryFolderDisplayPreset);
         }
     }
 
     private void ShowPlayHistoryFolderDisplayPresetEditDialog(
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel,
+        SettingsDialogViewModel settingDialogViewModel,
         PlayHistoryFolderDisplayPresetEditor preset)
     {
         if (settingDialogViewModel == null)
@@ -656,7 +649,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
     private void bmsSearchRootPathListBoxDrop(object sender, DragEventArgs e)
     {
         if (TryGetDroppedDirectories(e, out List<string> directories)
-            && base.DataContext is MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+            && base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
             settingDialogViewModel.AddBmsSearchRootPaths(directories);
         }
@@ -678,7 +671,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void buttonPlayerTestClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
             await settingDialogViewModel.RunAudioDeviceTestAsync();
         }

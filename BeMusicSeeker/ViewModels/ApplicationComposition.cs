@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -67,6 +68,8 @@ internal sealed class ApplicationComposition
 
     private readonly IUiDialogService playlistWorkspaceDialogService;
 
+    private readonly Func<Dispatcher> uiDispatcherProvider;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -88,7 +91,8 @@ internal sealed class ApplicationComposition
         Func<MainWindowViewModel, Task> reloadScoresOnly = null,
         Action<Exception> reportSettingsApplyFailure = null,
         Func<MainWindowViewModel, Task> reloadFileDiff = null,
-        IUiDialogService playlistWorkspaceDialogService = null)
+        IUiDialogService playlistWorkspaceDialogService = null,
+        Func<Dispatcher> uiDispatcherProvider = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -99,6 +103,8 @@ internal sealed class ApplicationComposition
             ?? (owner => owner.InitializeAsync());
         this.reloadScoresOnly = reloadScoresOnly;
         this.reloadFileDiff = reloadFileDiff;
+        this.uiDispatcherProvider = uiDispatcherProvider
+            ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
@@ -153,6 +159,14 @@ internal sealed class ApplicationComposition
 
     internal Action SaveSettings => saveSettings;
 
+    internal Func<MainWindowViewModel, Task<bool>> InitializeOwner => initializeOwner;
+
+    internal Func<MainWindowViewModel, Task> ReloadScoresOnly =>
+        reloadScoresOnly ?? (owner => owner.ReloadScoresOnlyAsync());
+
+    internal Func<MainWindowViewModel, Task> ReloadFileDiff =>
+        reloadFileDiff ?? (owner => owner.ReloadFileDiffAsync());
+
     internal IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore => keywordSearchHistorySettingsStore;
 
     internal IPlayHistoryDisplaySettingsStore PlayHistoryDisplaySettingsStore => playHistoryDisplaySettingsStore;
@@ -161,6 +175,8 @@ internal sealed class ApplicationComposition
         installDestinationSettingsProvider;
 
     internal ISettingsEditSession SettingsEditSession => settingsEditSession;
+
+    internal Func<Dispatcher> UiDispatcherProvider => uiDispatcherProvider;
 
     private static App GetApplication()
     {
@@ -270,33 +286,39 @@ internal sealed class ApplicationComposition
         return new PlaylistDetailDataSource(library, playlists, mainChartList.RowProjection);
     }
 
-    internal MainWindowViewModel.SettingDialogViewModel CreateSettingDialogViewModel(MainWindowViewModel owner)
+    internal SettingsDialogViewModel CreateSettingDialogViewModel(
+        ISettingsDialogStatePort statePort,
+        ISettingsDialogWorkspacePort workspacePort,
+        ISettingsDialogLibraryPort libraryPort,
+        ISettingsDialogPlaybackPort playbackPort,
+        Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
+        Func<Task<bool>> initializeOwner,
+        Func<Task> reloadScoresOnly,
+        Func<Task> reloadFileDiff,
+        Action<string> invalidatePlayHistoryReadCache)
     {
-        if (owner == null)
-        {
-            throw new ArgumentNullException(nameof(owner));
-        }
         IUiDialogService schemaDialogs = new UiDialogCoordinator();
-        return new MainWindowViewModel.SettingDialogViewModel(
-            owner,
+        return new SettingsDialogViewModel(
+            statePort,
+            workspacePort,
+            libraryPort,
+            playbackPort,
+            lr2SongDbSyncWorkflow,
             reloadSettings,
             saveSettings,
             settingsEditSession,
-            () => initializeOwner(owner),
-            reloadScoresOnly == null
-                ? owner.ReloadScoresOnlyAsync
-                : () => reloadScoresOnly(owner),
+            initializeOwner,
+            reloadScoresOnly,
+            reloadFileDiff,
+            playHistoryDisplaySettingsStore,
+            invalidatePlayHistoryReadCache,
             reportSettingsApplyFailure,
-            reloadFileDiff == null
-                ? owner.ReloadFileDiffAsync
-                : () => reloadFileDiff(owner),
             schemaDialogs: schemaDialogs,
-            invalidatePlayHistoryReadCache: owner.InvalidatePlayHistoryReadCache,
             applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(
                 schemaDialogs,
                 new Lr2ApplicationDataUninstallStore()),
             audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
-                new PlaybackPanelAudioDeviceTestPlaybackPort(owner.PlaybackPanel),
+                playbackPort.CreateAudioDeviceTestPlaybackPort(),
                 new BassAudioDeviceTestRuntime()));
     }
 
@@ -528,11 +550,6 @@ internal sealed class ApplicationComposition
             lr2PlaylistFolderSynchronization);
     }
 
-    internal static ApplicationComposition CreateDefault()
-    {
-        return new ApplicationComposition();
-    }
-
     internal MainWindowViewModel CreateMainWindowViewModel()
     {
         return new MainWindowViewModel(this);
@@ -623,6 +640,7 @@ internal sealed class MainWindowChildComposition
         LibraryFolderTree = new LibraryFolderTreeViewModel(
             libraryFolderTreeDirectoryExists,
             libraryFolderTreeExplorerOpen,
+            uiDispatcherProvider,
             libraryFolderTreeLog,
             libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();

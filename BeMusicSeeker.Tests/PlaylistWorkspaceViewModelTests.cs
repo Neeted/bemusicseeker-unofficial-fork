@@ -458,7 +458,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("DrainExternalPlaylistImportQueueAsync(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("private bool CompleteImportedPlaylistRegistrations(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("StartBeatorajaTableUrlImport(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("ImportBeatorajaTableUrlsAsync(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildBeatorajaTableUrlImportTargets(", StringComparison.Ordinal));
         string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "SettingDialog.cs");
@@ -490,7 +489,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, logicalSource.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("RestoreBMSTables(", StringComparison.Ordinal));
         Assert.AreEqual(-1, settingDialogSource.IndexOf("viewModel.BackupBMSTables(", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "ownerViewModel.PlaylistWorkspace.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(");
+        StringAssert.Contains(logicalSource, "ISettingsDialogWorkspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistFolderRemovalConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested(", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "DeleteSelectedEntriesAsync(GetSelectedGridRowsSnapshot())");
@@ -1109,7 +1108,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             "PlaylistWorkspaceViewModel.TreeSelection.cs");
 
         Assert.AreEqual(-1, rootSource.IndexOf("SnapshotPlayHistoryDisplayTargetTables", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("AcquireReaderLockBMSTables", StringComparison.Ordinal));
         StringAssert.Contains(rootSource, "PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot()");
         StringAssert.Contains(rootSource, "PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot,");
         StringAssert.Contains(workspaceTreeSource, "internal List<BMSTable> CapturePlaylistTreeTablesSnapshot()");

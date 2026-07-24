@@ -29,7 +29,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         try
         {
             var viewModel = MainWindowViewModelTestFactory.Create();
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
             Assert.IsFalse(dialog.HasPendingSettingChanges());
@@ -57,7 +57,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.IsTrue(dialog.HasPendingSettingChanges());
 
             SetDialogField(dialog, "operationModeLR2DB", GetDialogField<bool>(dialog, "tempOperationModeLR2DB"));
-            typeof(MainWindowViewModel.SettingDialogViewModel)
+            typeof(SettingsDialogViewModel)
                 .GetMethod("backupSavedSettings", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(dialog, null);
 
@@ -79,7 +79,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         try
         {
             var viewModel = MainWindowViewModelTestFactory.Create();
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
 
@@ -111,9 +111,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             }
             Settings.Default.PlayHistoryDisplayTargetSetsJson = string.Empty;
             var viewModel = MainWindowViewModelTestFactory.Create();
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             BMSTable tableA = CreatePresetTable(101, "Satellite", "SAT");
             BMSTable tableB = CreatePresetTable(202, "Satellite", "SAT");
+            tableA.symbol = string.Empty;
             SetViewModelTables(viewModel, songDbPath, [tableA, tableB]);
 
             dialog.AddPlayHistoryFolderDisplayPreset();
@@ -126,8 +127,17 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.AreEqual(Resources.Play_history_folder_display_preset_default_name, draft.Name);
             Assert.AreEqual(1, draft.Targets.Count);
             Assert.AreEqual(101, draft.Targets[0].PlaylistId);
-            Assert.IsTrue(PlayHistoryFolderPresetPlaylistOption.Matches(tableA, draft.Targets[0]));
-            Assert.IsFalse(PlayHistoryFolderPresetPlaylistOption.Matches(tableB, draft.Targets[0]));
+            PlayHistoryFolderPresetPlaylistOption tableAOption = new(
+                PlaylistTablePresentationSnapshot.From(tableA),
+                isSelected: true,
+                selectionChanged: null);
+            StringAssert.Contains(tableAOption.DisplayName, "[SAT]");
+            Assert.IsTrue(PlayHistoryFolderPresetPlaylistOption.Matches(
+                PlaylistTablePresentationSnapshot.From(tableA),
+                draft.Targets[0]));
+            Assert.IsFalse(PlayHistoryFolderPresetPlaylistOption.Matches(
+                PlaylistTablePresentationSnapshot.From(tableB),
+                draft.Targets[0]));
 
             preset.Name = string.Empty;
             Assert.IsFalse(InvokeValidatePlayHistoryFolderDisplayPresets(dialog, out string emptyNameError));
@@ -219,7 +229,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 }
             ]);
             var viewModel = MainWindowViewModelTestFactory.Create();
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.PlayHistoryDisplayTargetSetsJson = savedJson;
             InvokeBackupSavedSettings(dialog);
 
@@ -462,7 +472,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.SetBMSSearchDirectories([manualBmsRoot, normalOutputBase, additionalOutputBase, rootOutputChild]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
@@ -501,8 +511,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         string child = Path.Combine(parent, "Child");
         string sibling = Path.Combine(root, "Sibling");
 
-        IReadOnlyList<MainWindowViewModel.SettingDialogViewModel.NestedBmsSearchRootConflict> conflicts =
-            MainWindowViewModel.SettingDialogViewModel.CollectNestedBmsSearchRootConflicts([child, sibling, parent]);
+        IReadOnlyList<SettingsDialogViewModel.NestedBmsSearchRootConflict> conflicts =
+            SettingsDialogViewModel.CollectNestedBmsSearchRootConflicts([child, sibling, parent]);
 
         Assert.AreEqual(1, conflicts.Count);
         Assert.AreEqual(parent, conflicts[0].ParentPath);
@@ -539,7 +549,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             string configPath = Path.Combine(tempRootPath, "LR2files", "Config", "config.xml");
             config.SetBMSSearchDirectories([parent, child]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2SongDBPath = songDbPath;
             Settings.Default.LR2ConfigXmlPath = configPath;
@@ -605,7 +615,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             string configPath = Path.Combine(tempRootPath, "LR2files", "Config", "config.xml");
             config.SetBMSSearchDirectories([parent]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2SongDBPath = songDbPath;
             Settings.Default.LR2ConfigXmlPath = configPath;
@@ -663,7 +673,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.SetBMSSearchDirectories([manualBmsRoot, normalOutputBase, rootOutputChild]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
@@ -673,7 +683,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", "[]");
 
             object?[] args = [rootOutputBase, null];
-            bool isValid = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+            bool isValid = (bool)typeof(SettingsDialogViewModel)
                 .GetMethod("ValidateCustomFolderAsRootOutputBaseDir", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(string), typeof(string).MakeByRefType()], null)!
                 .Invoke(dialog, args)!;
 
@@ -712,7 +722,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.SetBMSSearchDirectories([manualBmsRoot, rootOutputBase, staleOutputRoot]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", string.Empty);
@@ -723,7 +733,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
 
-            bool changed = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+            bool changed = (bool)typeof(SettingsDialogViewModel)
                 .GetMethod("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(dialog, null)!;
 
@@ -758,7 +768,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.SetBMSSearchDirectories([manualBmsRoot, rootOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", string.Empty);
@@ -769,7 +779,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "MissingPlaylistOutput" }]);
 
-            bool changed = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+            bool changed = (bool)typeof(SettingsDialogViewModel)
                 .GetMethod("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(dialog, null)!;
 
@@ -809,7 +819,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.SetBMSSearchDirectories([parentBmsRoot, rootOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
@@ -825,7 +835,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
 
-            bool changed = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+            bool changed = (bool)typeof(SettingsDialogViewModel)
                 .GetMethod("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(dialog, null)!;
 
@@ -870,7 +880,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             string configPath = Path.Combine(tempRootPath, "LR2files", "Config", "config.xml");
             config.SetBMSSearchDirectories([manualBmsRoot, normalOutputBase, rootOutputBase, rootOutputChild]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2ConfigXmlPath = configPath;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
@@ -920,7 +930,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.AddBMSSearchDirectories([manualBmsRoot, normalOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
@@ -960,7 +970,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.AddBMSSearchDirectories([normalOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
@@ -1001,7 +1011,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.AddBMSSearchDirectories([previousNormalOutput]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.LR2CustomFolderOutputBaseDir = currentNormalOutput;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
@@ -1046,7 +1056,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.AddBMSSearchDirectories([normalOutputBase, previousAdditionalOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
@@ -1091,7 +1101,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.AddBMSSearchDirectories([normalOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = currentRootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
@@ -1133,7 +1143,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.AddBMSSearchDirectories([manualBmsRoot, normalOutputBase, rootOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
@@ -1190,7 +1200,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.AddBMSSearchDirectories([normalOutputBase, rootOutputBase, additionalOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
@@ -1238,7 +1248,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             LR2Config config = CreateConfig(tempRootPath);
             config.AddBMSSearchDirectories([oldNormalOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
-            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2CustomFolderOutputBaseDir = newNormalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
@@ -1272,7 +1282,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         typeof(MainWindowViewModel)
             .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel, config);
-        SetDialogField(viewModel.settingDialog, "operationModeLR2DB", true);
+        typeof(SettingsDialogViewModel)
+            .GetField("lr2ConfigValue", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(viewModel.SettingDialog, config);
+        SetDialogField(viewModel.SettingDialog, "operationModeLR2DB", true);
         return viewModel;
     }
 
@@ -1285,16 +1298,16 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         return new LR2Config(configPath);
     }
 
-    private static void SetDialogField(MainWindowViewModel.SettingDialogViewModel dialog, string fieldName, object value)
+    private static void SetDialogField(SettingsDialogViewModel dialog, string fieldName, object value)
     {
-        typeof(MainWindowViewModel.SettingDialogViewModel)
+        typeof(SettingsDialogViewModel)
             .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(dialog, value);
     }
 
-    private static void InvokeBackupSavedSettings(MainWindowViewModel.SettingDialogViewModel dialog)
+    private static void InvokeBackupSavedSettings(SettingsDialogViewModel dialog)
     {
-        typeof(MainWindowViewModel.SettingDialogViewModel)
+        typeof(SettingsDialogViewModel)
             .GetMethod("backupSavedSettings", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(dialog, null);
     }
@@ -1346,9 +1359,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
     }
 
-    private static object[] InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(MainWindowViewModel.SettingDialogViewModel dialog)
+    private static object[] InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(SettingsDialogViewModel dialog)
     {
-        return ((System.Collections.IEnumerable)typeof(MainWindowViewModel.SettingDialogViewModel)
+        return ((System.Collections.IEnumerable)typeof(SettingsDialogViewModel)
             .GetMethod("CollectCustomFolderOutputBaseJukeboxAdoptionConflicts", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(dialog, null)!)
             .Cast<object>()
@@ -1356,12 +1369,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     private static bool InvokeValidateCustomFolderOutputBaseDir(
-        MainWindowViewModel.SettingDialogViewModel dialog,
+        SettingsDialogViewModel dialog,
         string path,
         out string errMsg)
     {
         object?[] args = [path, null];
-        bool result = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+        bool result = (bool)typeof(SettingsDialogViewModel)
             .GetMethod("ValidateCustomFolderOutputBaseDir", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(string), typeof(string).MakeByRefType()], null)!
             .Invoke(dialog, args)!;
         errMsg = (string)args[1]!;
@@ -1369,9 +1382,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     private static CustomFolderOutputBaseSearchRootSyncPlan InvokePrepareCustomFolderNormalOutputBaseSearchRootSync(
-        MainWindowViewModel.SettingDialogViewModel dialog)
+        SettingsDialogViewModel dialog)
     {
-        return (CustomFolderOutputBaseSearchRootSyncPlan)typeof(MainWindowViewModel.SettingDialogViewModel)
+        return (CustomFolderOutputBaseSearchRootSyncPlan)typeof(SettingsDialogViewModel)
             .GetMethod("PrepareCustomFolderNormalOutputBaseSearchRootSync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(dialog, null)!;
     }
@@ -1385,7 +1398,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
     private static string InvokeBuildCustomFolderOutputBaseJukeboxAdoptionMessage(int conflictCount)
     {
-        Type dialogType = typeof(MainWindowViewModel.SettingDialogViewModel);
+        Type dialogType = typeof(SettingsDialogViewModel);
         Type conflictType = dialogType
             .GetNestedType("CustomFolderOutputBaseJukeboxAdoptionConflict", BindingFlags.NonPublic)!;
         Type listType = typeof(List<>).MakeGenericType(conflictType);
@@ -1410,20 +1423,20 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     private static bool InvokeValidatePlayHistoryFolderDisplayPresets(
-        MainWindowViewModel.SettingDialogViewModel dialog,
+        SettingsDialogViewModel dialog,
         out string errMsg)
     {
         object?[] args = [null];
-        bool result = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+        bool result = (bool)typeof(SettingsDialogViewModel)
             .GetMethod("ValidatePlayHistoryFolderDisplayPresets", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(dialog, args)!;
         errMsg = (string)args[0]!;
         return result;
     }
 
-    private static T GetDialogField<T>(MainWindowViewModel.SettingDialogViewModel dialog, string fieldName)
+    private static T GetDialogField<T>(SettingsDialogViewModel dialog, string fieldName)
     {
-        return (T)typeof(MainWindowViewModel.SettingDialogViewModel)
+        return (T)typeof(SettingsDialogViewModel)
             .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(dialog)!;
     }

@@ -371,17 +371,12 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "Models",
             "BmsLibraryInternal",
             "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
-        string settingDialogSource = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "MainWindowViewModel.SettingDialogViewModel.cs"));
+        string settingDialogSource = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
         StringAssert.Contains(playlistSource, "SyncCustomFolderOutputSearchRootsAfterSettingsChange(");
         StringAssert.Contains(playlistSource, "customFolderOutputMaintenanceOwner.SyncCustomFolderOutputSearchRootsAfterSettingsChange(");
         StringAssert.Contains(maintenanceOwnerSource, "config.SetBMSSearchDirectories(nextDirectories);");
-        StringAssert.Contains(settingDialogSource, "ownerViewModel.tables.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(");
+        StringAssert.Contains(settingDialogSource, "libraryPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(");
         Assert.IsFalse(settingDialogSource.Contains("lr2config.SetBMSSearchDirectories(nextDirectories)"));
         Assert.IsFalse(settingDialogSource.Contains("private static bool IsRootOutputBaseAdoptionRemovalTarget"));
     }
@@ -393,7 +388,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(source, "CustomFolderOutputSettingsSnapshot startupCustomFolderSettings = null;");
         StringAssert.Contains(source, "startupCustomFolderSettings = customFolderOutputSettingsProvider()");
         StringAssert.Contains(source, "RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);");
-        StringAssert.Contains(source, "settingDialog.SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupCustomFolderSettings)");
+        StringAssert.Contains(source, "SettingDialog.SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupCustomFolderSettings)");
         Assert.IsFalse(
             source.Contains("private void RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad()"),
             "Startup root repair must not reacquire settings through an unscoped provider call.");
@@ -440,11 +435,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(bulkDialogSource, "ownerWorkspace.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings");
         Assert.IsFalse(bulkDialogSource.Contains("CreatePlaylistCustomFolderOutputBaseOptions(includeNoChange"));
 
-        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "MainWindowViewModel.SettingDialogViewModel.cs");
+        string settingDialogSource = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         Assert.IsFalse(settingDialogSource.Contains("useCurrentSettingsWhenMissing"));
         Assert.IsFalse(settingDialogSource.Contains("Settings.Default."));
         Assert.IsFalse(settingDialogSource.Contains("ReadAdditionalBaseDirectories()"));
@@ -525,13 +516,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "BeMusicSeeker",
             "Views",
             "SettingDialog.cs");
-        string viewModelSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "MainWindowViewModel.SettingDialogViewModel.cs");
+        string viewModelSource = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
-        StringAssert.Contains(viewModelSource, "ownerViewModel.IsFirstStartup");
+        StringAssert.Contains(viewModelSource, "statePort.IsFirstStartup");
         StringAssert.Contains(viewModelSource, "Msg_initsetting_completed");
         Assert.IsFalse(viewSource.Contains("firstStartup"));
         Assert.IsFalse(viewSource.Contains("((App)Application.Current).firstStartup"));
@@ -540,11 +527,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void SettingDialogSettingsPersistence_UsesCompositionBoundary()
     {
-        string source = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "MainWindowViewModel.SettingDialogViewModel.cs");
+        string source = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
         StringAssert.Contains(source, "this.reloadSettings();");
         StringAssert.Contains(source, "saveSettings();");
@@ -555,11 +538,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void SettingDialogSettingsValues_UseInjectedEditSession()
     {
-        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "MainWindowViewModel.SettingDialogViewModel.cs");
+        string settingDialogSource = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
@@ -578,11 +557,16 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(settingDialogSource, "private readonly ISettingsEditSession settingsEditSession;");
         StringAssert.Contains(settingDialogSource, "private Settings ApplicationSettings => settingsEditSession.Values;");
         Assert.IsFalse(settingDialogOwnerSource.Contains("Settings.Default."));
-        StringAssert.Contains(mainWindowSource, "applicationComposition.CreateSettingDialogViewModel(this)");
+        StringAssert.Contains(mainWindowSource, "statePort: this,");
+        StringAssert.Contains(mainWindowSource, "workspacePort: this,");
+        StringAssert.Contains(mainWindowSource, "libraryPort: this,");
+        StringAssert.Contains(mainWindowSource, "playbackPort: this,");
+        StringAssert.Contains(mainWindowSource, "applicationComposition.CreateSettingDialogViewModel(");
+        Assert.IsFalse(mainWindowSource.Contains("CreateSettingsDialogApplicationContext"));
         Assert.IsFalse(mainWindowSource.Contains("new SettingDialogViewModel(this)"));
         StringAssert.Contains(compositionSource, "ISettingsEditSession settingsEditSession = null");
         StringAssert.Contains(compositionSource, "settingsEditSession,");
-        StringAssert.Contains(compositionSource, "() => initializeOwner(owner)");
+        StringAssert.Contains(compositionSource, "Func<Task<bool>> initializeOwner,");
     }
 
     [TestMethod]
@@ -644,11 +628,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "BeMusicSeeker",
             "ViewModels",
             "MainWindowViewModel.cs");
-        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "MainWindowViewModel.SettingDialogViewModel.cs");
+        string settingDialogSource = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
         StringAssert.Contains(mainWindowSource, "playHistoryDisplaySettingsStore.DisplayTargetSetsJson");
         StringAssert.Contains(mainWindowSource, "playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity");

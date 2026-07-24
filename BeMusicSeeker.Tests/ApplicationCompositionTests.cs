@@ -28,7 +28,9 @@ public sealed class ApplicationCompositionTests
             OperationModeLR2DB = false,
             PendingInstallEstimateMaxParallelPackages = 7
         };
-        var composition = new ApplicationComposition(() => snapshot);
+        var composition = new ApplicationComposition(
+            () => snapshot,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         Assert.AreSame(snapshot, composition.BmsLibraryOptionsProvider());
     }
@@ -55,7 +57,9 @@ public sealed class ApplicationCompositionTests
                     new ObservableCollection<BMSTable>(),
                     Dispatcher.CurrentDispatcher)
             };
-            var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+            var composition = new ApplicationComposition(
+                () => new BmsLibraryOptionsSnapshot(),
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
             MainChartListViewModel missingProviderMainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel missingProviderWorkspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
@@ -130,6 +134,7 @@ public sealed class ApplicationCompositionTests
             PlaylistPropertyDialogViewModel dialog =
                 await workspace.CreatePlaylistPropertyDialogAsync();
             Assert.IsNotNull(dialog);
+            Assert.AreEqual(BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB, dialog.OperationModeLR2DB);
             Assert.AreEqual(2, playlist.BMSTables.Count);
             Assert.AreSame(dialog, workspace.ActivePropertyDialog);
             Assert.AreEqual(
@@ -159,7 +164,8 @@ public sealed class ApplicationCompositionTests
         };
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
-            () => snapshot);
+            () => snapshot,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         Assert.AreSame(snapshot, composition.StartupSettingsProvider());
     }
@@ -167,7 +173,8 @@ public sealed class ApplicationCompositionTests
     [TestMethod]
     public void CompositionCreatesTheDefaultInternalBmsPlayer()
     {
-        var composition = new ApplicationComposition();
+        var composition = new ApplicationComposition(
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         Assert.IsInstanceOfType(composition.CreateDefaultBmsPlayer(), typeof(InternalBMSAutoPlayerSoundOnly));
     }
@@ -181,7 +188,8 @@ public sealed class ApplicationCompositionTests
         File.WriteAllBytes(executablePath, []);
         try
         {
-            var composition = new ApplicationComposition();
+            var composition = new ApplicationComposition(
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
             var settings = new StartupSettingsSnapshot
             {
                 UsePlayeruBMplay = true,
@@ -208,7 +216,8 @@ public sealed class ApplicationCompositionTests
         File.WriteAllBytes(executablePath, []);
         try
         {
-            var composition = new ApplicationComposition();
+            var composition = new ApplicationComposition(
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
             var settings = new StartupSettingsSnapshot
             {
                 UsePlayerBMIIDXView = true,
@@ -238,7 +247,8 @@ public sealed class ApplicationCompositionTests
         File.WriteAllText(configPath, "<config />");
         try
         {
-            var composition = new ApplicationComposition();
+            var composition = new ApplicationComposition(
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
             var settings = new StartupSettingsSnapshot
             {
                 UsePlayerLR2body = true,
@@ -263,7 +273,9 @@ public sealed class ApplicationCompositionTests
         bool originalBmi = BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView;
         bool originalLr2 = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
         var expected = new InternalBMSAutoPlayerSoundOnly();
-        var composition = new ApplicationComposition(defaultBmsPlayerFactory: () => expected);
+        var composition = new ApplicationComposition(
+            defaultBmsPlayerFactory: () => expected,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
         try
         {
             BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay = false;
@@ -296,7 +308,8 @@ public sealed class ApplicationCompositionTests
             string missingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
             BeMusicSeeker.Properties.Settings.Default.LR2RootPath = missingRoot;
             BeMusicSeeker.Properties.Settings.Default.LR2ConfigXmlPath = Path.Combine(missingRoot, "LR2files", "Config.xml");
-            var composition = new ApplicationComposition();
+            var composition = new ApplicationComposition(
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
             InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
                 () => composition.CreateBmsPlayerForSettings(BeMusicSeeker.Properties.Settings.Default));
@@ -323,7 +336,8 @@ public sealed class ApplicationCompositionTests
         };
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
-            playlistUrlCompletionOptionsProvider: () => snapshot);
+            playlistUrlCompletionOptionsProvider: () => snapshot,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         Assert.AreSame(snapshot, composition.PlaylistUrlCompletionOptionsProvider());
     }
@@ -339,7 +353,8 @@ public sealed class ApplicationCompositionTests
         };
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
-            beatorajaBmtOptionsProvider: () => snapshot);
+            beatorajaBmtOptionsProvider: () => snapshot,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         Assert.AreSame(snapshot, composition.BeatorajaBmtOptionsProvider());
     }
@@ -353,7 +368,8 @@ public sealed class ApplicationCompositionTests
         };
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
-            customFolderOutputSettingsProvider: () => snapshot);
+            customFolderOutputSettingsProvider: () => snapshot,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         Assert.AreSame(snapshot, composition.CustomFolderOutputSettingsProvider());
     }
@@ -370,7 +386,8 @@ public sealed class ApplicationCompositionTests
             {
                 firstStartup = false;
                 completed = true;
-            });
+            },
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         Assert.IsTrue(composition.FirstStartupProvider());
         composition.CompleteFirstStartup();
@@ -386,7 +403,8 @@ public sealed class ApplicationCompositionTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             reloadSettings: () => reloaded = true,
-            saveSettings: () => saved = true);
+            saveSettings: () => saved = true,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         composition.ReloadSettings();
         composition.SaveSettings();
@@ -398,7 +416,9 @@ public sealed class ApplicationCompositionTests
     [TestMethod]
     public void CompositionCreatesMainTableOwnersFromOneBoundary()
     {
-        var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
         MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(
             action => action(),
             _ =>
@@ -449,7 +469,9 @@ public sealed class ApplicationCompositionTests
     [TestMethod]
     public void CompositionCreatesMainWindowChildOwnersFromOneBoundary()
     {
-        var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
         MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(
             action => action(),
             _ =>
@@ -490,7 +512,7 @@ public sealed class ApplicationCompositionTests
             mainChartList,
             playlistWorkspace,
             () => new InternalBMSAutoPlayerSoundOnly(),
-            () => null,
+            () => Dispatcher.CurrentDispatcher,
             new ChartFileOperationSynchronizer(),
             _ =>
             {
@@ -571,7 +593,9 @@ public sealed class ApplicationCompositionTests
                     new ObservableCollection<BMSTable>([first, second]),
                     Dispatcher.CurrentDispatcher)
             };
-            var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+            var composition = new ApplicationComposition(
+                () => new BmsLibraryOptionsSnapshot(),
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
             MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
@@ -606,7 +630,7 @@ public sealed class ApplicationCompositionTests
                 mainChartList,
                 workspace,
                 () => new InternalBMSAutoPlayerSoundOnly(),
-                () => null,
+                () => Dispatcher.CurrentDispatcher,
                 new ChartFileOperationSynchronizer(),
                 _ => { },
                 action => action(),
@@ -695,7 +719,9 @@ public sealed class ApplicationCompositionTests
                     new ObservableCollection<BMSTable>([first, second, third]),
                     Dispatcher.CurrentDispatcher)
             };
-            var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+            var composition = new ApplicationComposition(
+                () => new BmsLibraryOptionsSnapshot(),
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
             var restoreRequests = new List<PlaylistSummarySelectionRestoreRequest>();
             MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
@@ -731,7 +757,7 @@ public sealed class ApplicationCompositionTests
                 mainChartList,
                 workspace,
                 () => new InternalBMSAutoPlayerSoundOnly(),
-                () => null,
+                () => Dispatcher.CurrentDispatcher,
                 new ChartFileOperationSynchronizer(),
                 _ => { },
                 action => action(),
@@ -991,7 +1017,8 @@ public sealed class ApplicationCompositionTests
             {
             },
             reloadSettings: () => reloadCount++,
-            saveSettings: () => saveCount++);
+            saveSettings: () => saveCount++,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         Assert.AreEqual(1, reloadCount);
@@ -1000,7 +1027,7 @@ public sealed class ApplicationCompositionTests
         string displayTargetIdentity = BeMusicSeeker.Properties.Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
         try
         {
-            viewModel.settingDialog.SaveOperationModeForRestart(operationMode);
+            viewModel.SettingDialog.SaveOperationModeForRestart(operationMode);
 
             Assert.AreEqual(2, reloadCount);
             Assert.AreEqual(1, saveCount);
@@ -1026,7 +1053,8 @@ public sealed class ApplicationCompositionTests
                     completeFirstStartup: () => { },
                     reloadSettings: () => { },
                     saveSettings: () => { },
-                    initializeOwner: _ => Task.FromResult(true));
+                    initializeOwner: _ => Task.FromResult(true),
+                    uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
                 PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
                 workspace.IsPlaylistSummaryMode = true;
@@ -1061,7 +1089,8 @@ public sealed class ApplicationCompositionTests
                     firstStartupProvider: () => false,
                     completeFirstStartup: () =>
                     {
-                    });
+                    },
+                    uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
                 int uiThreadId = Thread.CurrentThread.ManagedThreadId;
                 int workerThreadId = 0;
@@ -1150,7 +1179,8 @@ public sealed class ApplicationCompositionTests
             completeFirstStartup: () =>
             {
             },
-            settingsEditSession: session);
+            settingsEditSession: session,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         try
         {
@@ -1159,7 +1189,7 @@ public sealed class ApplicationCompositionTests
             Assert.AreSame(session, composition.SettingsEditSession);
             Assert.AreEqual(1, session.ReloadCount);
 
-            viewModel.settingDialog.SaveOperationModeForRestart(operationMode);
+            viewModel.SettingDialog.SaveOperationModeForRestart(operationMode);
 
             Assert.AreEqual(2, session.ReloadCount);
             Assert.AreEqual(1, session.SaveCount);
@@ -1181,7 +1211,8 @@ public sealed class ApplicationCompositionTests
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
-            settingsEditSession: session);
+            settingsEditSession: session,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         StartupSettingsSnapshot snapshot = composition.StartupSettingsProvider();
 
@@ -1203,7 +1234,9 @@ public sealed class ApplicationCompositionTests
             DeletePendingPackageSourceAfterInstall = true
         };
         var session = new FakeSettingsEditSession { Values = values };
-        var composition = new ApplicationComposition(settingsEditSession: session);
+        var composition = new ApplicationComposition(
+            settingsEditSession: session,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         BmsLibraryOptionsSnapshot libraryOptions = composition.BmsLibraryOptionsProvider();
         PlaylistUrlCompletionOptionsSnapshot playlistOptions = composition.PlaylistUrlCompletionOptionsProvider();
@@ -1238,7 +1271,9 @@ public sealed class ApplicationCompositionTests
             PlaylistSummaryColumnsSettings = summaryColumns
         };
         var session = new FakeSettingsEditSession { Values = values };
-        var composition = new ApplicationComposition(settingsEditSession: session);
+        var composition = new ApplicationComposition(
+            settingsEditSession: session,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         Assert.AreSame(
             columns,
@@ -1259,7 +1294,9 @@ public sealed class ApplicationCompositionTests
             PlayHistoryDisplayTargetSetsJson = "display-target-sets"
         };
         var session = new FakeSettingsEditSession { Values = values };
-        var composition = new ApplicationComposition(settingsEditSession: session);
+        var composition = new ApplicationComposition(
+            settingsEditSession: session,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         Assert.AreEqual("keyword-history", composition.KeywordSearchHistorySettingsStore.KeywordSearchHistory);
         Assert.AreEqual("playlist-keyword-history", composition.KeywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory);
@@ -1287,20 +1324,30 @@ public sealed class ApplicationCompositionTests
             completeFirstStartup: () =>
             {
             },
-            settingsEditSession: session);
+            settingsEditSession: session,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
         Assert.AreEqual(1, session.ReloadCount);
         Assert.AreSame(values, composition.SettingsEditSession.Values);
 
-        viewModel.settingDialog.SaveOperationModeForRestart(operationMode: false);
+        viewModel.SettingDialog.SaveOperationModeForRestart(operationMode: false);
 
         Assert.IsFalse(values.OperationModeLR2DB);
         Assert.AreEqual(2, session.ReloadCount);
         Assert.AreEqual(1, session.SaveCount);
 
-        MainWindowViewModel.SettingDialogViewModel redisplayed = composition.CreateSettingDialogViewModel(viewModel);
+        SettingsDialogViewModel redisplayed = composition.CreateSettingDialogViewModel(
+            viewModel,
+            viewModel,
+            viewModel,
+            viewModel,
+            viewModel.Lr2SongDbSyncWorkflow,
+            initializeOwner: () => Task.FromResult(true),
+            reloadScoresOnly: () => Task.CompletedTask,
+            reloadFileDiff: () => Task.CompletedTask,
+            invalidatePlayHistoryReadCache: viewModel.InvalidatePlayHistoryReadCache);
         Assert.IsFalse(redisplayed.OperationModeLR2DB);
         Assert.AreEqual(3, session.ReloadCount);
 
@@ -1327,11 +1374,12 @@ public sealed class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
-                settingsEditSession: new FakeSettingsEditSession { Values = values });
+                settingsEditSession: new FakeSettingsEditSession { Values = values },
+                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
-            CollectionAssert.Contains(viewModel.settingDialog.CustomFolderAdditionalOutputBaseDirList, sessionPath);
-            CollectionAssert.DoesNotContain(viewModel.settingDialog.CustomFolderAdditionalOutputBaseDirList, globalPath);
+            CollectionAssert.Contains(viewModel.SettingDialog.CustomFolderAdditionalOutputBaseDirList, sessionPath);
+            CollectionAssert.DoesNotContain(viewModel.SettingDialog.CustomFolderAdditionalOutputBaseDirList, globalPath);
         }
         finally
         {
@@ -1348,7 +1396,8 @@ public sealed class ApplicationCompositionTests
             LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-additional\"]"
         };
         var composition = new ApplicationComposition(
-            settingsEditSession: new FakeSettingsEditSession { Values = values });
+            settingsEditSession: new FakeSettingsEditSession { Values = values },
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
         IReadOnlyList<PlaylistCustomFolderOutputBaseOption> options =
@@ -1378,7 +1427,8 @@ public sealed class ApplicationCompositionTests
             saveSettings: () =>
             {
             },
-            keywordSearchHistorySettingsStore: store);
+            keywordSearchHistorySettingsStore: store,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         viewModel.ChartFilters.CommitKeywordSearchHistory("new");
@@ -1407,7 +1457,8 @@ public sealed class ApplicationCompositionTests
             saveSettings: () =>
             {
             },
-            keywordSearchHistorySettingsStore: store);
+            keywordSearchHistorySettingsStore: store,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
@@ -1462,7 +1513,8 @@ public sealed class ApplicationCompositionTests
             saveSettings: () =>
             {
             },
-            playHistoryDisplaySettingsStore: store);
+            playHistoryDisplaySettingsStore: store,
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
