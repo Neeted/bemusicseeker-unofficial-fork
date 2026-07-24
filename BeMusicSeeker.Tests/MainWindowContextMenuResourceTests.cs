@@ -2101,8 +2101,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "await SaveSettings();");
         StringAssert.Contains(viewModelCode, "ClosePresentation();");
         StringAssert.Contains(viewModelCode, "bool initializationSucceeded = true;");
-        StringAssert.Contains(viewModelCode, "initializationSucceeded = await initializeOwner();");
-        StringAssert.Contains(viewModelCode, "statePort.MarkLibraryInitializationFailed();");
+        StringAssert.Contains(viewModelCode, "initializationSucceeded = await statePort.InitializeLibraryAsync();");
+        Assert.IsFalse(viewModelCode.Contains("MarkLibraryInitializationFailed"));
         StringAssert.Contains(viewModelCode, "if (initializationSucceeded)");
         StringAssert.Contains(viewModelCode, "IsEditCompletionInProgress = false;");
         Assert.IsFalse(settingDialogCode.Contains("settings_save_and_close"));

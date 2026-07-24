@@ -183,8 +183,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private BMSPlaylist tables;
 
-    void ISettingsDialogStatePort.MarkLibraryInitializationFailed()
-        => MarkLibraryInitializationFailed();
+    Task<bool> ISettingsDialogStatePort.InitializeLibraryAsync()
+        => InitializeAsync();
 
     void ISettingsDialogStatePort.SubscribeStateChanges(PropertyChangedEventHandler handler)
         => PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
@@ -3081,7 +3081,6 @@ public partial class MainWindowViewModel : ViewModel,
             playerFactoryPort: applicationComposition,
             playbackRuntimePort: PlaybackPanel,
             lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
-            initializeOwner: () => applicationComposition.InitializeOwner(this),
             reloadScoresOnly: () => applicationComposition.ReloadScoresOnly(this),
             reloadFileDiff: () => applicationComposition.ReloadFileDiff(this));
     }
@@ -3920,20 +3919,6 @@ public partial class MainWindowViewModel : ViewModel,
             return lr2config;
         }
         return new LR2Config(startupSettings.LR2ConfigXmlPath);
-    }
-
-    internal void MarkLibraryInitializationFailed()
-    {
-        if (initializationCompleted)
-        {
-            initializationCompleted = false;
-            RaisePropertyChanged(() => IsInitializationCompleted);
-        }
-        if (hasActiveLibraryProfile)
-        {
-            hasActiveLibraryProfile = false;
-            RaisePropertyChanged(() => HasActiveLibraryProfile);
-        }
     }
 
     internal async Task<bool> InitializeAsync()

@@ -140,7 +140,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () =>
                 {
@@ -198,7 +197,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
@@ -241,7 +239,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
@@ -283,7 +280,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
@@ -362,7 +358,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () =>
                 {
@@ -558,7 +553,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
@@ -625,7 +619,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
@@ -933,7 +926,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 audioDeviceTestWorkflow: workflow);
@@ -1564,18 +1556,50 @@ public sealed class SettingDialogEditCompletionTests
         ISettingsDialogPlayerFactoryPort? playerFactoryPort = null,
         ISettingsDialogPlaybackRuntimePort? playbackRuntimePort = null)
     {
-        MainWindowViewModel viewModel = new ApplicationComposition(
+        var composition = new ApplicationComposition(
             firstStartupProvider: () => firstStartup,
             completeFirstStartup: () => { },
             reloadSettings: settingsSession.Reload,
             saveSettings: settingsSession.Save,
             settingsEditSession: settingsSession,
-            initializeOwner: initializeOwner,
             reloadScoresOnly: reloadScoresOnly,
             reportSettingsApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
             reloadFileDiff: reloadFileDiff,
-            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
-            .CreateMainWindowViewModel();
+            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
+        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+        if (initializeOwner != null)
+        {
+            SettingsDialogViewModel testDialog = new(
+                new TestSettingsDialogStatePort(
+                    viewModel,
+                    () => initializeOwner(viewModel),
+                    () =>
+                    {
+                        SetPrivateField(viewModel, "initializationCompleted", false);
+                        SetPrivateField(viewModel, "hasActiveLibraryProfile", false);
+                    }),
+                new TestFirstStartupStatePort(firstStartup),
+                viewModel.PlaylistWorkspace,
+                viewModel.PlaylistWorkspace,
+                viewModel.PlayHistory,
+                viewModel.LibraryFolderTree,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
+                viewModel.Lr2SongDbSyncWorkflow,
+                settingsSession.Reload,
+                settingsSession.Save,
+                settingsSession,
+                reloadScoresOnly: reloadScoresOnly == null
+                    ? () => Task.CompletedTask
+                    : () => reloadScoresOnly(viewModel),
+                reloadFileDiff: reloadFileDiff == null
+                    ? () => Task.CompletedTask
+                    : () => reloadFileDiff(viewModel),
+                reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }));
+            typeof(MainWindowViewModel)
+                .GetProperty("SettingDialog", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+                .SetValue(viewModel, testDialog);
+        }
         typeof(SettingsDialogViewModel)
             .GetField("playerFactoryPort", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel.SettingDialog, playerFactoryPort ?? new TestSettingsDialogPlayerFactoryPort());
@@ -1608,7 +1632,6 @@ public sealed class SettingDialogEditCompletionTests
             settingsSession.Reload,
             settingsSession.Save,
             settingsSession,
-            initializeOwner: () => Task.FromResult(true),
             reloadScoresOnly: () => Task.CompletedTask,
             reloadFileDiff: reloadFileDiff,
             schemaDialogs: dialogs);

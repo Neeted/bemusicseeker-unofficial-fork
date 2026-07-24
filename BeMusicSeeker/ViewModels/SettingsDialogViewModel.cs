@@ -107,8 +107,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsEditSession settingsEditSession;
 
-    private readonly Func<Task<bool>> initializeOwner;
-
     private readonly Func<Task> reloadScoresOnly;
 
     private readonly Func<Task> reloadFileDiff;
@@ -329,7 +327,7 @@ public partial class SettingsDialogViewModel : ViewModel
                         "Initial settings completion notification");
                     totalStopwatch.Start();
                 }
-                bool initializationSucceeded = await initializeOwner();
+                bool initializationSucceeded = await statePort.InitializeLibraryAsync();
                 if (initializationSucceeded)
                 {
                     SetScoreReloadPending(false);
@@ -339,7 +337,6 @@ public partial class SettingsDialogViewModel : ViewModel
                 }
                 else
                 {
-                    statePort.MarkLibraryInitializationFailed();
                     outcome = "saved_initialization_failed";
                 }
             }
@@ -351,11 +348,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 if (needRestart.HasFlag(RestartMode.All)
                     || (needRestart.HasFlag(RestartMode.ScoreOnly) && needRestart.HasFlag(RestartMode.FolderOnly)))
                 {
-                    initializationSucceeded = await initializeOwner();
-                    if (!initializationSucceeded)
-                    {
-                        statePort.MarkLibraryInitializationFailed();
-                    }
+                    initializationSucceeded = await statePort.InitializeLibraryAsync();
                 }
                 else if (needRestart.HasFlag(RestartMode.ScoreOnly))
                 {
@@ -3737,7 +3730,6 @@ public partial class SettingsDialogViewModel : ViewModel
         Action reloadSettings,
         Action saveSettings,
         ISettingsEditSession settingsEditSession,
-        Func<Task<bool>> initializeOwner,
         Func<Task> reloadScoresOnly,
         Func<Task> reloadFileDiff,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
@@ -3761,7 +3753,6 @@ public partial class SettingsDialogViewModel : ViewModel
         this.reloadSettings = reloadSettings ?? throw new ArgumentNullException(nameof(reloadSettings));
         this.saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
         this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
-        this.initializeOwner = initializeOwner ?? throw new ArgumentNullException(nameof(initializeOwner));
         this.reloadScoresOnly = reloadScoresOnly ?? throw new ArgumentNullException(nameof(reloadScoresOnly));
         this.reloadFileDiff = reloadFileDiff ?? throw new ArgumentNullException(nameof(reloadFileDiff));
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore

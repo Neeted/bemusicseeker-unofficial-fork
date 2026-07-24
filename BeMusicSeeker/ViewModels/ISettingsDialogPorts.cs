@@ -12,7 +12,7 @@ internal interface ISettingsDialogStatePort
 
     bool IsLibraryOperationInProgress { get; }
 
-    void MarkLibraryInitializationFailed();
+    Task<bool> InitializeLibraryAsync();
 
     void SubscribeStateChanges(PropertyChangedEventHandler handler);
 

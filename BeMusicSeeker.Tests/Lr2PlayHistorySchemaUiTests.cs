@@ -92,7 +92,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             reloadSettings: () => { },
             saveSettings: () => { },
             settingsEditSession: SettingsEditSession.CreateDefault(),
-            initializeOwner: () => Task.FromResult(true),
             reloadScoresOnly: () => Task.CompletedTask,
             reloadFileDiff: () => Task.CompletedTask,
             schemaDialogs: dialogs);
@@ -142,7 +141,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () =>
                 {
                     reloadCount++;
@@ -209,7 +207,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () =>
                 {
                     reloadCount++;
@@ -270,7 +267,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
-                initializeOwner: () => Task.FromResult(true),
                 reloadScoresOnly: () =>
                 {
                     reloadCount++;

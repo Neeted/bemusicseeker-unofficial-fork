@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.ViewModels;
 
@@ -33,6 +35,44 @@ internal sealed class TestFirstStartupStatePort : ISettingsDialogFirstStartupSta
     }
 
     public bool IsFirstStartup { get; }
+}
+
+internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
+{
+    private readonly MainWindowViewModel owner;
+    private readonly Func<Task<bool>> initializeLibrary;
+    private readonly Action? initializationFailed;
+
+    internal TestSettingsDialogStatePort(
+        MainWindowViewModel owner,
+        Func<Task<bool>> initializeLibrary,
+        Action? initializationFailed = null)
+    {
+        this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
+        this.initializeLibrary = initializeLibrary
+            ?? throw new ArgumentNullException(nameof(initializeLibrary));
+        this.initializationFailed = initializationFailed;
+    }
+
+    public bool HasActiveLibraryProfile => owner.HasActiveLibraryProfile;
+
+    public bool IsLibraryOperationInProgress => owner.IsLibraryOperationInProgress;
+
+    public async Task<bool> InitializeLibraryAsync()
+    {
+        bool initialized = await initializeLibrary();
+        if (!initialized)
+        {
+            initializationFailed?.Invoke();
+        }
+        return initialized;
+    }
+
+    public void SubscribeStateChanges(PropertyChangedEventHandler handler)
+        => owner.PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
+
+    public void UnsubscribeStateChanges(PropertyChangedEventHandler handler)
+        => owner.PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
 }
 
 internal sealed class RecordingSettingsDialogPresentationPort : ISettingDialogPresentationPort

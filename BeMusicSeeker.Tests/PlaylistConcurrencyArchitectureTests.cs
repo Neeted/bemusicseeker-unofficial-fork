@@ -579,7 +579,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(mainWindowSource.Contains("new SettingDialogViewModel(this)"));
         StringAssert.Contains(compositionSource, "ISettingsEditSession settingsEditSession = null");
         StringAssert.Contains(compositionSource, "settingsEditSession,");
-        StringAssert.Contains(compositionSource, "Func<Task<bool>> initializeOwner,");
+        Assert.IsFalse(compositionSource.Contains("Func<MainWindowViewModel, Task<bool>> initializeOwner"));
+        StringAssert.Contains(mainWindowSource, "Task<bool> ISettingsDialogStatePort.InitializeLibraryAsync()");
     }
 
     [TestMethod]

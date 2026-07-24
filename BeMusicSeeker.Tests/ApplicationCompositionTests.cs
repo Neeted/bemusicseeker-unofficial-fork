@@ -1053,7 +1053,6 @@ public sealed class ApplicationCompositionTests
                     completeFirstStartup: () => { },
                     reloadSettings: () => { },
                     saveSettings: () => { },
-                    initializeOwner: _ => Task.FromResult(true),
                     uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
                 PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
@@ -1348,7 +1347,6 @@ public sealed class ApplicationCompositionTests
             composition,
             viewModel.PlaybackPanel,
             viewModel.Lr2SongDbSyncWorkflow,
-            initializeOwner: () => Task.FromResult(true),
             reloadScoresOnly: () => Task.CompletedTask,
             reloadFileDiff: () => Task.CompletedTask);
         Assert.IsFalse(redisplayed.OperationModeLR2DB);
