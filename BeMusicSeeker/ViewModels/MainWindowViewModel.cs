@@ -48,7 +48,6 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public partial class MainWindowViewModel : ViewModel,
     ISettingsDialogStatePort,
-    ISettingsDialogWorkspacePort,
     ISettingsDialogLibraryPort,
     ISettingsDialogPlaybackPort
 {
@@ -190,44 +189,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     CustomFolderOutputSettingsSnapshot ISettingsDialogLibraryPort.CustomFolderOutputSettings
         => customFolderOutputSettingsProvider();
-
-    bool ISettingsDialogWorkspacePort.HasPlaylistTables
-        => tables?.BMSTables != null;
-
-    IReadOnlyList<PlaylistTablePresentationSnapshot> ISettingsDialogWorkspacePort.CapturePlaylistPresentationSnapshots()
-    {
-        BMSPlaylist playlist = tables;
-        if (playlist == null)
-        {
-            return [];
-        }
-
-        playlist.AcquireReaderLockBMSTables();
-        try
-        {
-            return [.. (playlist.BMSTables ?? Enumerable.Empty<BMSTable>())
-                .Where(table => table != null)
-                .Select(PlaylistTablePresentationSnapshot.From)];
-        }
-        finally
-        {
-            playlist.FreeReaderLockBMSTables();
-        }
-    }
-
-    bool ISettingsDialogWorkspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string beatorajaRootPath)
-        => PlaylistWorkspace.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(beatorajaRootPath);
-
-    Task ISettingsDialogWorkspacePort.RunWithPlaylistOperationNotificationsAsync(
-        Func<Task> operation,
-        string operationName)
-        => PlaylistWorkspace.RunWithPlaylistOperationNotificationsAsync(operation, operationName);
-
-    void ISettingsDialogWorkspacePort.SubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
-        => PlaylistWorkspace.PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
-
-    void ISettingsDialogWorkspacePort.UnsubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
-        => PlaylistWorkspace.PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
 
     bool ISettingsDialogLibraryPort.HasOwnedChartUnderRealPath(string directoryPath)
         => files?.HasOwnedChartUnderRealPath(directoryPath) == true;
@@ -3159,7 +3120,7 @@ public partial class MainWindowViewModel : ViewModel,
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         SettingDialog = applicationComposition.CreateSettingDialogViewModel(
             statePort: this,
-            workspacePort: this,
+            workspacePort: PlaylistWorkspace,
             libraryPort: this,
             searchRootRuntimePort: LibraryFolderTree,
             playbackPort: this,

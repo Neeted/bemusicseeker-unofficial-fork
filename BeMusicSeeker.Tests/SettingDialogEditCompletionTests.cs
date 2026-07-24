@@ -129,7 +129,7 @@ public sealed class SettingDialogEditCompletionTests
             var runtime = new RecordingSearchRootRuntimePort(sequence);
             var dialog = new SettingsDialogViewModel(
                 owner,
-                owner,
+                owner.PlaylistWorkspace,
                 owner,
                 runtime,
                 owner,
@@ -184,7 +184,7 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 owner,
-                owner,
+                owner.PlaylistWorkspace,
                 owner,
                 owner.LibraryFolderTree,
                 owner,
@@ -224,7 +224,7 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 owner,
-                owner,
+                owner.PlaylistWorkspace,
                 owner,
                 owner.LibraryFolderTree,
                 owner,
@@ -263,7 +263,7 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 owner,
-                owner,
+                owner.PlaylistWorkspace,
                 owner,
                 owner.LibraryFolderTree,
                 owner,
@@ -326,7 +326,7 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 owner,
-                owner,
+                owner.PlaylistWorkspace,
                 owner,
                 owner.LibraryFolderTree,
                 owner,
@@ -381,7 +381,7 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 owner,
-                owner,
+                owner.PlaylistWorkspace,
                 owner,
                 owner.LibraryFolderTree,
                 owner,
@@ -445,7 +445,7 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 owner,
-                owner,
+                owner.PlaylistWorkspace,
                 owner,
                 owner.LibraryFolderTree,
                 owner,
@@ -552,7 +552,7 @@ public sealed class SettingDialogEditCompletionTests
                 new BlockingAudioDeviceTestRuntime(runtimeStarted, releaseRuntime));
             SettingsDialogViewModel dialog = new(
                 viewModel,
-                viewModel,
+                viewModel.PlaylistWorkspace,
                 viewModel,
                 viewModel.LibraryFolderTree,
                 viewModel,

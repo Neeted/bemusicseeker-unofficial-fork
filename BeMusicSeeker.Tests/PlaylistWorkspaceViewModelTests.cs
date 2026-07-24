@@ -489,7 +489,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, logicalSource.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("RestoreBMSTables(", StringComparison.Ordinal));
         Assert.AreEqual(-1, settingDialogSource.IndexOf("viewModel.BackupBMSTables(", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "ISettingsDialogWorkspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide");
+        StringAssert.Contains(workspaceSource, "ISettingsDialogWorkspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistFolderRemovalConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested(", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "DeleteSelectedEntriesAsync(GetSelectedGridRowsSnapshot())");
@@ -904,6 +904,50 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.IsTrue(initialized.CanLoadPlaylistUri);
             Assert.IsTrue(initialized.CanLoadPlaylistCollection);
             Assert.IsTrue(initialized.CanLoadBuiltInTables);
+        }
+        finally
+        {
+            if (Directory.Exists(Path.GetDirectoryName(databasePath)!))
+            {
+                Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SettingsWorkspacePort_ExposesCanonicalImmutablePlaylistSnapshot()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var table = new BMSTable
+            {
+                playlist_id = 1,
+                name = "Initial",
+                symbol = "I"
+            };
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            ISettingsDialogWorkspacePort settingsPort = workspace;
+
+            Assert.IsTrue(settingsPort.HasPlaylistTables);
+            PlaylistTablePresentationSnapshot snapshot = settingsPort.CapturePlaylistPresentationSnapshots().Single();
+            table.name = "Changed";
+
+            Assert.AreEqual("Initial", snapshot.Name);
         }
         finally
         {

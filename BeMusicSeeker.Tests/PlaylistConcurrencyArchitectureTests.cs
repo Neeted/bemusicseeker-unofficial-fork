@@ -558,7 +558,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(settingDialogSource, "private Settings ApplicationSettings => settingsEditSession.Values;");
         Assert.IsFalse(settingDialogOwnerSource.Contains("Settings.Default."));
         StringAssert.Contains(mainWindowSource, "statePort: this,");
-        StringAssert.Contains(mainWindowSource, "workspacePort: this,");
+        StringAssert.Contains(mainWindowSource, "workspacePort: PlaylistWorkspace,");
         StringAssert.Contains(mainWindowSource, "libraryPort: this,");
         StringAssert.Contains(mainWindowSource, "playbackPort: this,");
         StringAssert.Contains(mainWindowSource, "applicationComposition.CreateSettingDialogViewModel(");

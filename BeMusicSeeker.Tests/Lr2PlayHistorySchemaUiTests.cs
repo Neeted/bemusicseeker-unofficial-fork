@@ -81,7 +81,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         var dialogs = new RecordingUiDialogService();
         var settingDialog = new SettingsDialogViewModel(
             owner,
-            owner,
+            owner.PlaylistWorkspace,
             owner,
             owner.LibraryFolderTree,
             owner,
@@ -129,7 +129,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             string invalidationReason = string.Empty;
             var settingDialog = new SettingsDialogViewModel(
             owner,
-            owner,
+            owner.PlaylistWorkspace,
             owner,
             owner.LibraryFolderTree,
             owner,
@@ -193,7 +193,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             string invalidationReason = string.Empty;
             var settingDialog = new SettingsDialogViewModel(
             owner,
-            owner,
+            owner.PlaylistWorkspace,
             owner,
             owner.LibraryFolderTree,
             owner,
@@ -251,7 +251,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             int invalidationCount = 0;
             var settingDialog = new SettingsDialogViewModel(
             owner,
-            owner,
+            owner.PlaylistWorkspace,
             owner,
             owner.LibraryFolderTree,
             owner,

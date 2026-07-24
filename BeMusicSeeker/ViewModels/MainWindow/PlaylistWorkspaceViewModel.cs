@@ -19,7 +19,7 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>
 /// Owns playlist detail state and the complete playlist-summary build and presentation workflow.
 /// </summary>
-public sealed partial class PlaylistWorkspaceViewModel : ViewModel
+public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDialogWorkspacePort
 {
     private readonly Action<Action> dispatchPresentation;
 
@@ -276,6 +276,44 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         propertySaveService.PlaylistPropertyEntriesChanged += ForwardPlaylistEntriesChanged;
         propertySaveService.PlaylistOperationNotificationPresentationRequested += ForwardPlaylistOperationNotificationPresentationRequested;
     }
+
+    bool ISettingsDialogWorkspacePort.HasPlaylistTables
+        => getPlaylistStore()?.BMSTables != null;
+
+    IReadOnlyList<PlaylistTablePresentationSnapshot> ISettingsDialogWorkspacePort.CapturePlaylistPresentationSnapshots()
+    {
+        BMSPlaylist playlist = getPlaylistStore();
+        if (playlist == null)
+        {
+            return [];
+        }
+
+        playlist.AcquireReaderLockBMSTables();
+        try
+        {
+            return [.. (playlist.BMSTables ?? Enumerable.Empty<BMSTable>())
+                .Where(table => table != null)
+                .Select(PlaylistTablePresentationSnapshot.From)];
+        }
+        finally
+        {
+            playlist.FreeReaderLockBMSTables();
+        }
+    }
+
+    bool ISettingsDialogWorkspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string beatorajaRootPath)
+        => HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(beatorajaRootPath);
+
+    Task ISettingsDialogWorkspacePort.RunWithPlaylistOperationNotificationsAsync(
+        Func<Task> operation,
+        string operationName)
+        => RunWithPlaylistOperationNotificationsAsync(operation, operationName);
+
+    void ISettingsDialogWorkspacePort.SubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
+        => PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
+
+    void ISettingsDialogWorkspacePort.UnsubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
+        => PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
 
     internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
 

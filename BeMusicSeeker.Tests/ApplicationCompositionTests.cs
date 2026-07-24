@@ -1340,7 +1340,7 @@ public sealed class ApplicationCompositionTests
 
         SettingsDialogViewModel redisplayed = composition.CreateSettingDialogViewModel(
             viewModel,
-            viewModel,
+            viewModel.PlaylistWorkspace,
             viewModel,
             viewModel.LibraryFolderTree,
             viewModel,
