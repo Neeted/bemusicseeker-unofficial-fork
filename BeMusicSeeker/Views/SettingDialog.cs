@@ -31,6 +31,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
         typeof(SettingDialog),
         new PropertyMetadata(null));
 
+    public static readonly DependencyProperty PlaylistWorkspaceProperty = DependencyProperty.Register(
+        nameof(PlaylistWorkspace),
+        typeof(PlaylistWorkspaceViewModel),
+        typeof(SettingDialog),
+        new PropertyMetadata(null));
+
     internal Binding bindingLR2CustomFolderOutputDir;
 
     internal Binding bindingBMSInstallDir;
@@ -39,6 +45,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
     {
         get => (PlaybackPanelViewModel)GetValue(PlaybackPanelProperty);
         set => SetValue(PlaybackPanelProperty, value);
+    }
+
+    public PlaylistWorkspaceViewModel PlaylistWorkspace
+    {
+        get => (PlaylistWorkspaceViewModel)GetValue(PlaylistWorkspaceProperty);
+        set => SetValue(PlaylistWorkspaceProperty, value);
     }
 
     private static void ThrowIfPickerFailed(UiDialogStatus status, Exception exception, string routeName)
@@ -253,9 +265,10 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void importBeatorajaTableUrlsButtonClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel mainWindowViewModel = GetMainWindowViewModel();
         MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        mainWindowViewModel.PlaylistWorkspace.StartBeatorajaTableUrlImport(settingDialogViewModel.BeatorajaRootPath);
+        PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
+            ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
+        playlistWorkspace.StartBeatorajaTableUrlImport(settingDialogViewModel.BeatorajaRootPath);
     }
 
     private void browseStagefilePathButtonClick(object sender, RoutedEventArgs e)
@@ -392,8 +405,9 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemBackupButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = GetMainWindowViewModel();
-        if (viewModel.PlaylistWorkspace.PlaylistTreeTables == null)
+        PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
+            ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
+        if (playlistWorkspace.PlaylistTreeTables == null)
         {
             return;
         }
@@ -410,7 +424,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             settingDialogOperationGrid.IsEnabled = false;
             try
             {
-                await viewModel.PlaylistWorkspace.BackupPlaylistAsync(result.FileName)
+                await playlistWorkspace.BackupPlaylistAsync(result.FileName)
                     .Logging("detailTabItemBackupButtonClicked");
             }
             finally
@@ -456,8 +470,9 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = GetMainWindowViewModel();
-        if (viewModel.PlaylistWorkspace.PlaylistTreeTables == null
+        PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
+            ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
+        if (playlistWorkspace.PlaylistTreeTables == null
             || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
         {
             return;
@@ -472,7 +487,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         if (result.Status == UiDialogStatus.Accepted)
         {
             settingDialogOperationGrid.IsEnabled = false;
-            await viewModel.PlaylistWorkspace.RestorePlaylistBackupAsync(result.FileName)
+            await playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)
                 .Logging("detailTabItemRestoreButtonClicked");
             await base.Dispatcher.BeginInvoke((Action)delegate
             {

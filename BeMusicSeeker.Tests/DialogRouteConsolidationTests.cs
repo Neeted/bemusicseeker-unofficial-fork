@@ -92,6 +92,7 @@ public sealed class DialogRouteConsolidationTests
         string fastDirectoryEnumeratorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "FastDirectoryEnumerator.cs"));
         string taskExCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "TaskEx.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
 
         Assert.IsFalse(playlistCode.Contains("DispatcherMessageBox.Show("), "BMSPlaylist must return operation notifications instead of showing message boxes from the model layer.");
         Assert.IsFalse(ubmplayCode.Contains("DispatcherMessageBox.Show("), "uBMplay must report startup failures to its caller instead of showing message boxes from the model layer.");
@@ -100,7 +101,7 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(playlistCode.Contains("OperationNotificationScope"), "BMSPlaylist must not own the mutable presentation scope.");
         Assert.IsFalse(playlistCode.Contains("QueueOperationNotification"), "BMSPlaylist must not own the notification queue implementation.");
         StringAssert.Contains(playlistCode, "OperationNotificationOwner");
-        StringAssert.Contains(viewModelCode, "PresentPlaylistOperationNotifications(");
+        StringAssert.Contains(mainWindowCode, "PresentPlaylistOperationNotifications(");
         Assert.IsFalse(viewModelCode.Contains("BMSPlaylist.BeginOperationNotificationScope()"));
     }
 

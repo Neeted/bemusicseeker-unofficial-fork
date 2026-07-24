@@ -2688,16 +2688,10 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
-        PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested += PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested += PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested;
         PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested;
-        PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
-        PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
-        PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
-        PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
-        PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
         PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
@@ -5467,114 +5461,6 @@ public partial class MainWindowViewModel : ViewModel
         DispatchMainChartListAction(() => ProgressHub.UpdateInstallEstimationProgress(snapshot));
     }
 
-    private void ShowPlaylistLoadFailure(Exception ex)
-    {
-        string message = BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist;
-        if (ex != null && !string.IsNullOrWhiteSpace(ex.Message))
-        {
-            message = message + Environment.NewLine + ex.Message;
-        }
-        ShowUiMessage(message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-    }
-
-    private void ShowBeatorajaTableUrlImportSummary(BeatorajaTableUrlImportSummary summary)
-    {
-        if (summary == null)
-        {
-            return;
-        }
-        var message = new StringBuilder();
-        message.AppendFormat(
-            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_summary_format,
-            summary.ExistingCount,
-            summary.ImportedCount,
-            summary.RestoredFromBmtCount,
-            summary.FailedCount,
-            summary.WarningCount);
-        AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_warning_header, summary.WarningOutcomes);
-        AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_failed_header, summary.FailedOutcomes);
-        ShowUiMessage(
-            message.ToString(),
-            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_title,
-            summary.FailedCount > 0 || summary.WarningCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information);
-    }
-
-    private static void AppendBeatorajaTableUrlImportOutcomeSamples(StringBuilder message, string header, IReadOnlyList<BeatorajaTableUrlImportOutcome> outcomes)
-    {
-        const int maxSamples = 5;
-        if (message == null || outcomes == null || outcomes.Count == 0)
-        {
-            return;
-        }
-        message.AppendLine();
-        message.AppendLine();
-        message.AppendLine(header);
-        foreach (BeatorajaTableUrlImportOutcome outcome in outcomes.Take(maxSamples))
-        {
-            string nameOrUri = !string.IsNullOrWhiteSpace(outcome.TableName) ? outcome.TableName : (outcome.Uri?.ToString() ?? outcome.RawUrl ?? string.Empty);
-            if (outcome.Exception != null && !string.IsNullOrWhiteSpace(outcome.Exception.Message))
-            {
-                message.AppendLine("- " + nameOrUri + " (" + outcome.Exception.Message + ")");
-            }
-            else
-            {
-                message.AppendLine("- " + nameOrUri);
-            }
-        }
-        if (outcomes.Count > maxSamples)
-        {
-            message.AppendLine("- ...");
-        }
-    }
-
-    private void ShowExternalPlaylistImportQueueSummary(ExternalPlaylistImportQueueSummary summary)
-    {
-        if (summary == null || !summary.HasNotifiableItems)
-        {
-            return;
-        }
-        var message = new StringBuilder();
-        message.AppendFormat(
-            BeMusicSeeker.Properties.Resources.Playlist_import_result_summary_format,
-            summary.ImportedCount,
-            summary.SkippedDuplicateNameCount,
-            summary.FailedCount);
-        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_skipped_header, summary.SkippedDuplicateNameOutcomes);
-        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_failed_header, summary.FailedOutcomes);
-        ShowUiMessage(
-            message.ToString(),
-            BeMusicSeeker.Properties.Resources.Playlist_import_result_title,
-            summary.FailedCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information);
-    }
-
-    private static void AppendImportOutcomeSamples(StringBuilder message, string header, IReadOnlyList<ExternalPlaylistImportOutcome> outcomes)
-    {
-        const int maxSamples = 5;
-        if (message == null || outcomes == null || outcomes.Count == 0)
-        {
-            return;
-        }
-        message.AppendLine();
-        message.AppendLine();
-        message.AppendLine(header);
-        foreach (ExternalPlaylistImportOutcome outcome in outcomes.Take(maxSamples))
-        {
-            string nameOrUri = !string.IsNullOrWhiteSpace(outcome.TableName) ? outcome.TableName : (outcome.Uri?.ToString() ?? string.Empty);
-            if (outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed && outcome.Exception != null && !string.IsNullOrWhiteSpace(outcome.Exception.Message))
-            {
-                message.AppendLine("- " + nameOrUri + " (" + outcome.Exception.Message + ")");
-            }
-            else
-            {
-                message.AppendLine("- " + nameOrUri);
-            }
-        }
-        if (outcomes.Count > maxSamples)
-        {
-            message.AppendLine("- ...");
-        }
-    }
-
     private void ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(string reason)
     {
         try
@@ -5692,27 +5578,6 @@ public partial class MainWindowViewModel : ViewModel
             .GetAwaiter()
             .GetResult();
         ThrowIfUiDialogNotShown(result, routeName);
-    }
-
-    private static void PresentPlaylistOperationNotifications(
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
-        string routeName)
-    {
-        if (receipt == null)
-        {
-            return;
-        }
-        foreach (PlaylistOperationNotificationOwner.OperationNotification notification in receipt.Notifications)
-        {
-            MessageBoxImage icon = notification.Severity switch
-            {
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
-                _ => MessageBoxImage.None,
-            };
-            ShowUiMessage(notification.Message, notification.Caption, icon, routeName);
-        }
     }
 
     private static bool ToUiConfirmationDecision(UiDialogResult result, string routeName)

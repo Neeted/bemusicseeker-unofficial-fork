@@ -304,6 +304,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
         viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += MainWindow_PlaylistPropertyExternalSyncFailed;
         viewModel.PlaylistWorkspace.PlaylistSyncProgressChanged += MainWindow_PlaylistSyncProgressChanged;
+        viewModel.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
+        viewModel.PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
+        viewModel.PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
+        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
+        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
+        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;
         viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
@@ -330,6 +336,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested -= MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed -= MainWindow_PlaylistPropertyExternalSyncFailed;
         subscribedViewModel.PlaylistWorkspace.PlaylistSyncProgressChanged -= MainWindow_PlaylistSyncProgressChanged;
+        subscribedViewModel.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested -= MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
+        subscribedViewModel.PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady -= MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
+        subscribedViewModel.PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed -= MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
+        subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
+        subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
+        subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
@@ -370,6 +382,224 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         else
         {
             Dispatcher.BeginInvoke(attachPlaybackPanel);
+        }
+    }
+
+    private void MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady(
+        object sender,
+        ExternalPlaylistImportQueueSummaryReadyEventArgs request)
+    {
+        ShowExternalPlaylistImportQueueSummary(request?.Summary);
+    }
+
+    private void MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested(
+        object sender,
+        PlaylistOperationNotificationPresentationRequestedEventArgs request)
+    {
+        PresentPlaylistOperationNotifications(request?.Receipt, request?.RouteName);
+    }
+
+    private void MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed(
+        object sender,
+        ExternalPlaylistImportSummaryRefreshFailedEventArgs request)
+    {
+        if (request?.Exception == null)
+        {
+            return;
+        }
+        ShowUiMessage(
+            BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + request.Exception.Message,
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxImage.Exclamation,
+            "external playlist import summary refresh failure notification");
+    }
+
+    private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested(
+        object sender,
+        BeatorajaTableUrlImportConfirmationRequestedEventArgs request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        request.Confirmed = ShowUiConfirmation(
+            BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxImage.Question,
+            MessageBoxButton.OKCancel,
+            "beatoraja Table URL import confirmation");
+    }
+
+    private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested(
+        object sender,
+        BeatorajaTableUrlImportNotificationRequestedEventArgs request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        MessageBoxImage icon = request.Kind switch
+        {
+            BeatorajaTableUrlImportNotificationKind.Information => MessageBoxImage.Information,
+            BeatorajaTableUrlImportNotificationKind.Warning => MessageBoxImage.Exclamation,
+            BeatorajaTableUrlImportNotificationKind.Error => MessageBoxImage.Hand,
+            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
+        };
+        ShowUiMessage(request.Message, request.Caption, icon, request.RouteName);
+    }
+
+    private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady(
+        object sender,
+        BeatorajaTableUrlImportSummaryReadyEventArgs request)
+    {
+        ShowBeatorajaTableUrlImportSummary(request?.Summary);
+    }
+
+    private static bool ShowUiConfirmation(
+        string messageBoxText,
+        string caption,
+        MessageBoxImage icon,
+        MessageBoxButton button,
+        string routeName)
+    {
+        UiDialogResult result = new UiDialogCoordinator()
+            .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon))
+            .GetAwaiter()
+            .GetResult();
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " failed: no result");
+        }
+        return result.Status switch
+        {
+            UiDialogStatus.Accepted => true,
+            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
+            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
+            _ => throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Exception)
+        };
+    }
+
+    private static void ShowUiMessage(
+        string messageBoxText,
+        string caption,
+        MessageBoxImage icon,
+        string routeName)
+    {
+        UiDialogResult result = new UiDialogCoordinator()
+            .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, MessageBoxResult.OK))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfUiDialogNotShown(result, routeName);
+    }
+
+    private void ShowBeatorajaTableUrlImportSummary(BeatorajaTableUrlImportSummary summary)
+    {
+        if (summary == null)
+        {
+            return;
+        }
+        var message = new StringBuilder();
+        message.AppendFormat(
+            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_summary_format,
+            summary.ExistingCount,
+            summary.ImportedCount,
+            summary.RestoredFromBmtCount,
+            summary.FailedCount,
+            summary.WarningCount);
+        AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_warning_header, summary.WarningOutcomes);
+        AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_failed_header, summary.FailedOutcomes);
+        ShowUiMessage(
+            message.ToString(),
+            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_title,
+            summary.FailedCount > 0 || summary.WarningCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
+            "beatoraja Table URL import summary");
+    }
+
+    private static void AppendBeatorajaTableUrlImportOutcomeSamples(StringBuilder message, string header, IReadOnlyList<BeatorajaTableUrlImportOutcome> outcomes)
+    {
+        const int maxSamples = 5;
+        if (message == null || outcomes == null || outcomes.Count == 0)
+        {
+            return;
+        }
+        message.AppendLine();
+        message.AppendLine();
+        message.AppendLine(header);
+        foreach (BeatorajaTableUrlImportOutcome outcome in outcomes.Take(maxSamples))
+        {
+            string nameOrUri = !string.IsNullOrWhiteSpace(outcome.TableName) ? outcome.TableName : (outcome.Uri?.ToString() ?? outcome.RawUrl ?? string.Empty);
+            message.AppendLine(outcome.Exception != null && !string.IsNullOrWhiteSpace(outcome.Exception.Message)
+                ? "- " + nameOrUri + " (" + outcome.Exception.Message + ")"
+                : "- " + nameOrUri);
+        }
+        if (outcomes.Count > maxSamples)
+        {
+            message.AppendLine("- ...");
+        }
+    }
+
+    private void ShowExternalPlaylistImportQueueSummary(ExternalPlaylistImportQueueSummary summary)
+    {
+        if (summary == null || !summary.HasNotifiableItems)
+        {
+            return;
+        }
+        var message = new StringBuilder();
+        message.AppendFormat(
+            BeMusicSeeker.Properties.Resources.Playlist_import_result_summary_format,
+            summary.ImportedCount,
+            summary.SkippedDuplicateNameCount,
+            summary.FailedCount);
+        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_skipped_header, summary.SkippedDuplicateNameOutcomes);
+        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_failed_header, summary.FailedOutcomes);
+        ShowUiMessage(
+            message.ToString(),
+            BeMusicSeeker.Properties.Resources.Playlist_import_result_title,
+            summary.FailedCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
+            "external playlist import summary");
+    }
+
+    private static void AppendImportOutcomeSamples(StringBuilder message, string header, IReadOnlyList<ExternalPlaylistImportOutcome> outcomes)
+    {
+        const int maxSamples = 5;
+        if (message == null || outcomes == null || outcomes.Count == 0)
+        {
+            return;
+        }
+        message.AppendLine();
+        message.AppendLine();
+        message.AppendLine(header);
+        foreach (ExternalPlaylistImportOutcome outcome in outcomes.Take(maxSamples))
+        {
+            string nameOrUri = !string.IsNullOrWhiteSpace(outcome.TableName) ? outcome.TableName : (outcome.Uri?.ToString() ?? string.Empty);
+            message.AppendLine(outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed && outcome.Exception != null && !string.IsNullOrWhiteSpace(outcome.Exception.Message)
+                ? "- " + nameOrUri + " (" + outcome.Exception.Message + ")"
+                : "- " + nameOrUri);
+        }
+        if (outcomes.Count > maxSamples)
+        {
+            message.AppendLine("- ...");
+        }
+    }
+
+    private static void PresentPlaylistOperationNotifications(
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
+        string routeName)
+    {
+        if (receipt == null)
+        {
+            return;
+        }
+        foreach (PlaylistOperationNotificationOwner.OperationNotification notification in receipt.Notifications)
+        {
+            MessageBoxImage icon = notification.Severity switch
+            {
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
+                _ => MessageBoxImage.None,
+            };
+            ShowUiMessage(notification.Message, notification.Caption, icon, routeName);
         }
     }
 

@@ -130,7 +130,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, workspaceSource.IndexOf("presentPlaylistOperationNotifications", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;");
         StringAssert.Contains(workspaceSource, "PlaylistOperationNotificationPresentationRequestedEventArgs(session.TakeReceipt(), routeName)");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested +=", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;");
         StringAssert.Contains(workspaceSource, "private readonly Func<LR2Config> getLr2Config;");
         StringAssert.Contains(entrySnapshotSource, "using (table.ReaderWriterLock.GetReaderGuard())");
         StringAssert.Contains(entrySnapshotSource, "return [.. table.GetEntriesExceptDummy()]");
@@ -414,17 +415,22 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested += PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady +=", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
         Assert.IsFalse(logicalSource.Contains("PlaylistWorkspace.PlaylistImportNotificationsFlushRequested"));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed +=", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
         Assert.AreEqual(-1, logicalSource.IndexOf("ExternalPlaylistImportSummaryRefreshRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ConfigureExternalPlaylistImportLogging(", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureExternalPlaylistImportLogging(", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ConfigureBeatorajaTableUrlImportLogging(", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureBeatorajaTableUrlImportLogging(", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested +=", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested +=", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady +=", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;");
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;");
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;");
         StringAssert.Contains(workspaceSource, "internal bool TryEnqueueExternalPlaylistCollectionImport(BMSTableSimple source)");
         StringAssert.Contains(workspaceSource, "internal bool TryEnqueueBuiltInExternalPlaylistImport(string rawTag)");
         StringAssert.Contains(workspaceSource, "internal ExternalPlaylistUriSubmissionResult SubmitExternalPlaylistUriText(string input)");
@@ -448,7 +454,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("ImportBeatorajaTableUrlsAsync(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildBeatorajaTableUrlImportTargets(", StringComparison.Ordinal));
         string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "SettingDialog.cs");
-        StringAssert.Contains(settingDialogSource, "mainWindowViewModel.PlaylistWorkspace.StartBeatorajaTableUrlImport(");
+        StringAssert.Contains(settingDialogSource, "playlistWorkspace.StartBeatorajaTableUrlImport(");
         StringAssert.Contains(workspaceSource, "internal Task BackupPlaylistAsync(string fileName)");
         StringAssert.Contains(workspaceSource, "playlist backup notification");
         StringAssert.Contains(workspaceSource, "internal async Task ExportPlaylistTableAsync(BMSTable bmsTable)");
@@ -463,11 +469,11 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, workspaceSource.IndexOf("Application.Current", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("DispatcherHelper", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("MessageBox", StringComparison.Ordinal));
-        StringAssert.Contains(settingDialogSource, "viewModel.PlaylistWorkspace.BackupPlaylistAsync(result.FileName)");
+        StringAssert.Contains(settingDialogSource, "playlistWorkspace.BackupPlaylistAsync(result.FileName)");
         string restoreHandlerSource = SourceTextTestHelper.ExtractMethodBody(
             settingDialogSource,
             "private async void detailTabItemRestoreButtonClicked(");
-        StringAssert.Contains(restoreHandlerSource, "viewModel.PlaylistWorkspace.RestorePlaylistBackupAsync(result.FileName)");
+        StringAssert.Contains(restoreHandlerSource, "playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)");
         Assert.AreEqual(-1, restoreHandlerSource.IndexOf("Task.Run", StringComparison.Ordinal));
         Assert.AreEqual(-1, restoreHandlerSource.IndexOf("viewModel.RestoreBMSTables(", StringComparison.Ordinal));
         StringAssert.Contains(restoreHandlerSource, "Application.Current.MainWindow.Close();");

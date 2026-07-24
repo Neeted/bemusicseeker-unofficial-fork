@@ -2112,6 +2112,34 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistDialogs_UseDirectWorkspaceComposition()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+
+        StringAssert.Contains(mainWindowXaml, "<v:SettingDialog x:Name=\"settingDialog\" DataContext=\"{Binding settingDialog}\" PlaybackPanel=\"{Binding DataContext.PlaybackPanel, ElementName=window}\" PlaylistWorkspace=\"{Binding DataContext.PlaylistWorkspace, ElementName=window}\"");
+        StringAssert.Contains(mainWindowXaml, "<v:LoadPlaylistURIDialog x:Name=\"loadPlaylistURIDialog\" DataContext=\"{Binding PlaylistWorkspace}\"");
+        StringAssert.Contains(settingDialogCode, "DependencyProperty PlaylistWorkspaceProperty");
+        StringAssert.Contains(settingDialogCode, "public PlaylistWorkspaceViewModel PlaylistWorkspace");
+        StringAssert.Contains(settingDialogCode, "playlistWorkspace.StartBeatorajaTableUrlImport(");
+        StringAssert.Contains(settingDialogCode, "playlistWorkspace.BackupPlaylistAsync(result.FileName)");
+        StringAssert.Contains(settingDialogCode, "playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)");
+        Assert.IsFalse(settingDialogCode.Contains("mainWindowViewModel.PlaylistWorkspace.StartBeatorajaTableUrlImport("));
+        Assert.IsFalse(settingDialogCode.Contains("viewModel.PlaylistWorkspace.BackupPlaylistAsync("));
+        Assert.IsFalse(settingDialogCode.Contains("viewModel.PlaylistWorkspace.RestorePlaylistBackupAsync("));
+        StringAssert.Contains(loadPlaylistCode, "base.DataContext is PlaylistWorkspaceViewModel playlistWorkspace");
+        Assert.IsFalse(loadPlaylistCode.Contains("base.DataContext is MainWindowViewModel"));
+        StringAssert.Contains(mainWindowCode, "PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;");
+        StringAssert.Contains(mainWindowCode, "PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;");
+        Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistOperationNotificationPresentationRequested"));
+        Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady"));
+    }
+
+    [TestMethod]
     public void FirstStartupValidationFailure_UsesInitialSetupLanguageDialog()
     {
         string root = FindRepositoryRoot();

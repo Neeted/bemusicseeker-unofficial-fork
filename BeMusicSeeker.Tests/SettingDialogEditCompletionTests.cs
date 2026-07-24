@@ -28,6 +28,27 @@ namespace BeMusicSeeker.Tests;
 public sealed class SettingDialogEditCompletionTests
 {
     [TestMethod]
+    public void PlaylistDialogs_UsePlaylistWorkspaceOwnerComposition()
+    {
+        RunOnStaDispatcherThread(() =>
+        {
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            var settingDialog = new SettingDialog
+            {
+                DataContext = viewModel.settingDialog,
+                PlaylistWorkspace = viewModel.PlaylistWorkspace
+            };
+            var uriDialog = new LoadPlaylistURIDialog
+            {
+                DataContext = viewModel.PlaylistWorkspace
+            };
+
+            Assert.AreSame(viewModel.PlaylistWorkspace, settingDialog.PlaylistWorkspace);
+            Assert.AreSame(viewModel.PlaylistWorkspace, uriDialog.DataContext);
+        });
+    }
+
+    [TestMethod]
     public void SettingDialogVolumeBinding_UsesComposedPlaybackOwner()
     {
         RunOnStaDispatcherThread(() =>

@@ -47,64 +47,6 @@ public partial class MainWindowViewModel
             MessageBoxResult.OK);
     }
 
-    private void PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady(
-        object sender,
-        ExternalPlaylistImportQueueSummaryReadyEventArgs request)
-    {
-        ShowExternalPlaylistImportQueueSummary(request?.Summary);
-    }
-
-    private void PlaylistWorkspacePlaylistOperationNotificationPresentationRequested(
-        object sender,
-        PlaylistOperationNotificationPresentationRequestedEventArgs request)
-    {
-        PresentPlaylistOperationNotifications(request.Receipt, request.RouteName);
-    }
-
-    private void PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed(
-        object sender,
-        ExternalPlaylistImportSummaryRefreshFailedEventArgs request)
-    {
-        ShowUiMessage(
-            BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + request.Exception.Message,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxImage.Exclamation,
-            "external playlist import summary refresh failure notification");
-    }
-
-    private void PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested(
-        object sender,
-        BeatorajaTableUrlImportConfirmationRequestedEventArgs request)
-    {
-        request.Confirmed = ShowUiConfirmation(
-            BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxImage.Question,
-            MessageBoxButton.OKCancel,
-            "beatoraja Table URL import confirmation");
-    }
-
-    private void PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested(
-        object sender,
-        BeatorajaTableUrlImportNotificationRequestedEventArgs request)
-    {
-        MessageBoxImage icon = request.Kind switch
-        {
-            BeatorajaTableUrlImportNotificationKind.Information => MessageBoxImage.Information,
-            BeatorajaTableUrlImportNotificationKind.Warning => MessageBoxImage.Exclamation,
-            BeatorajaTableUrlImportNotificationKind.Error => MessageBoxImage.Hand,
-            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
-        };
-        ShowUiMessage(request.Message, request.Caption, icon, request.RouteName);
-    }
-
-    private void PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady(
-        object sender,
-        BeatorajaTableUrlImportSummaryReadyEventArgs request)
-    {
-        ShowBeatorajaTableUrlImportSummary(request?.Summary);
-    }
-
     private void PlaylistWorkspacePlaylistReferenceSortInvalidationRequested(object sender, EventArgs e)
     {
         InvalidateNormalLibraryReferenceTableSortKeys();

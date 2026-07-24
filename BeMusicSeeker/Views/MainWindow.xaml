@@ -1949,8 +1949,8 @@
         </Grid>
       </DockPanel>
       <v:InitialSetupLanguageDialog x:Name="initialSetupLanguageDialog" DataContext="{Binding settingDialog}" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="1" />
-      <v:SettingDialog x:Name="settingDialog" DataContext="{Binding settingDialog}" PlaybackPanel="{Binding DataContext.PlaybackPanel, ElementName=window}" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="1" />
-      <v:LoadPlaylistURIDialog x:Name="loadPlaylistURIDialog" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="2" />
+      <v:SettingDialog x:Name="settingDialog" DataContext="{Binding settingDialog}" PlaybackPanel="{Binding DataContext.PlaybackPanel, ElementName=window}" PlaylistWorkspace="{Binding DataContext.PlaylistWorkspace, ElementName=window}" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="1" />
+      <v:LoadPlaylistURIDialog x:Name="loadPlaylistURIDialog" DataContext="{Binding PlaylistWorkspace}" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="2" />
       <v:PlaylistPropertyDialog x:Name="playlistPropertyDialog" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="3" />
       <v:PlaylistSummaryBulkEditDialog x:Name="playlistSummaryBulkEditDialog" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="4" />
       <StackPanel Name="windowCaptionPanel" DockPanel.Dock="Top" Orientation="Horizontal" Margin="0" HorizontalAlignment="Right" VerticalAlignment="Top">

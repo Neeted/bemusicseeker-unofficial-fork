@@ -25,7 +25,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 
     private void CancelAndClose(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel)
+        if (base.DataContext is PlaylistWorkspaceViewModel)
         {
             GetDialogHost().HideOverlayDialog(this);
             textBoxURIInput.Text = string.Empty;
@@ -34,9 +34,9 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 
     private void SaveAndClose(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
+        if (base.DataContext is PlaylistWorkspaceViewModel playlistWorkspace)
         {
-            ExternalPlaylistUriSubmissionResult submission = viewModel.PlaylistWorkspace
+            ExternalPlaylistUriSubmissionResult submission = playlistWorkspace
                 .SubmitExternalPlaylistUriText(textBoxURIInput.Text);
             if (!submission.HasValidUris)
             {
