@@ -1459,6 +1459,11 @@ public sealed class MainWindowContextMenuResourceTests
             "BeMusicSeeker",
             "Views",
             "MainWindow.cs");
+        string progressHubCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "OperationProgressHubViewModel.cs");
         string startupProgressOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
@@ -1553,7 +1558,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowViewModelCode.Contains("public string PlaylistSyncProgressSubLabel"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public double PlaylistSyncProgressValue"));
         Assert.IsFalse(mainWindowViewModelCode.Contains("public double PlaylistSyncProgressMaximum"));
-        StringAssert.Contains(mainWindowCode, "subscribedViewModel.ProgressHub.UpdatePlaylistSyncProgress(request.Snapshot);");
+        StringAssert.Contains(progressHubCode, "private void UpdatePlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)");
+        StringAssert.Contains(progressHubCode, "PlaylistWorkspacePlaylistSyncProgressChanged");
     }
 
     [TestMethod]
@@ -2260,7 +2266,16 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string rootViewModelCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string progressHubCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "OperationProgressHubViewModel.cs");
         string startupProgressOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
@@ -2292,13 +2307,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "public bool IsLibraryOperationInProgress");
         StringAssert.Contains(startupProgressOwnerCode, "internal long GetActiveStartupProgressOperationToken()");
         StringAssert.Contains(startupProgressOwnerCode, "internal bool IsStartupProgressOperationTokenCurrent(long operationToken)");
-        StringAssert.Contains(mainWindowCode, "playlistSyncProgressUiVersion");
-        StringAssert.Contains(mainWindowCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion)");
-        StringAssert.Contains(mainWindowCode, "|| IsShellClosingOrClosed()");
-        StringAssert.Contains(mainWindowCode, "|| subscribedViewModel == null)");
-        StringAssert.Contains(mainWindowCode, "if (Dispatcher.CheckAccess())");
-        StringAssert.Contains(mainWindowCode, "Dispatcher.BeginInvoke(reflect);");
-        Assert.IsFalse(viewModelCode.Contains("playlistSyncProgressUiVersion"));
+        StringAssert.Contains(progressHubCode, "playlistSyncProgressUiVersion");
+        StringAssert.Contains(progressHubCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion)");
+        StringAssert.Contains(progressHubCode, "|| isShellClosing()");
+        StringAssert.Contains(progressHubCode, "dispatchPlaylistProgressAction(reflect);");
+        Assert.IsFalse(mainWindowCode.Contains("playlistSyncProgressUiVersion"));
+        Assert.IsFalse(rootViewModelCode.Contains("playlistSyncProgressUiVersion"));
         StringAssert.Contains(startupProgressOwnerCode, "startupProgressState.OperationKind == StartupProgressOperationKind.ReloadFileDiff");
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
         StringAssert.Contains(reloadFileDiff, ".LoggingAndPropagate(\"ReloadFileDiff\")");
@@ -4637,11 +4651,11 @@ public sealed class MainWindowContextMenuResourceTests
             "BeMusicSeeker",
             "Models",
             "PlaylistUrlAcquisitionWorkflow.cs"));
-        string statusBridge = File.ReadAllText(Path.Combine(
-            root,
+        string progressHubCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
-            "MainWindowViewModel.PlaylistUrlAcquisitionEvents.cs"));
+            "MainWindow",
+            "OperationProgressHubViewModel.cs");
         string compositionCode = File.ReadAllText(Path.Combine(
             root,
             "BeMusicSeeker",
@@ -4730,11 +4744,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowCode.Contains("RunPlaylistOperationWithNotifications"));
         StringAssert.Contains(workspaceCode, "GetPlaylistUrlAcquisitionOptions");
         StringAssert.Contains(workspaceCode, "PlaylistUrlDownloadStatusChanged");
-        StringAssert.Contains(statusBridge, "UpdatePlaylistUrlDownloadStatus");
-        Assert.IsFalse(statusBridge.Contains("PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested"));
-        Assert.IsFalse(statusBridge.Contains("PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested"));
-        Assert.IsFalse(statusBridge.Contains("PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady"));
-        Assert.IsFalse(statusBridge.Contains("PlaylistUrlInstallTreeExpansionRequested"));
+        StringAssert.Contains(progressHubCode, "PlaylistWorkspacePlaylistUrlDownloadStatusChanged");
+        StringAssert.Contains(progressHubCode, "UpdatePlaylistUrlDownloadStatus(snapshot)");
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistWorkspacePlaylistUrlDownloadStatusChanged"));
         StringAssert.Contains(workspaceCode, "playlistWorkspaceDialogService.ConfirmAsync(");
         StringAssert.Contains(workspaceCode, "playlistWorkspaceDialogService.ShowMessageAsync(");
         StringAssert.Contains(workspaceCode, "Confirm_SelectedPlaylistExternalPackageLookup");

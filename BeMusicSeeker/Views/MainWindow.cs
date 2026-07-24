@@ -63,8 +63,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private int _duplicateMaintenanceSelectionVersion;
 
-    private long playlistSyncProgressUiVersion;
-
     private FrameworkElement activeOverlayDialog;
 
     private MainWindowViewModel subscribedViewModel;
@@ -306,7 +304,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
         viewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
         viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += MainWindow_PlaylistPropertyExternalSyncFailed;
-        viewModel.PlaylistWorkspace.PlaylistSyncProgressChanged += MainWindow_PlaylistSyncProgressChanged;
         viewModel.PlaylistWorkspace.MutationRejected += MainWindow_PlaylistWorkspaceMutationRejected;
         viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested += MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;
         viewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
@@ -336,7 +333,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested -= MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested -= MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed -= MainWindow_PlaylistPropertyExternalSyncFailed;
-        subscribedViewModel.PlaylistWorkspace.PlaylistSyncProgressChanged -= MainWindow_PlaylistSyncProgressChanged;
         subscribedViewModel.PlaylistWorkspace.MutationRejected -= MainWindow_PlaylistWorkspaceMutationRejected;
         subscribedViewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested -= MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested -= MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
@@ -1403,31 +1399,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             MessageBoxButton.OK,
             MessageBoxImage.Hand,
             MessageBoxResult.OK);
-    }
-
-    private void MainWindow_PlaylistSyncProgressChanged(
-        object sender,
-        PlaylistSyncProgressChangedEventArgs request)
-    {
-        long uiVersion = Interlocked.Increment(ref playlistSyncProgressUiVersion);
-        Action reflect = delegate
-        {
-            if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion)
-                || IsShellClosingOrClosed()
-                || subscribedViewModel == null)
-            {
-                return;
-            }
-            subscribedViewModel.ProgressHub.UpdatePlaylistSyncProgress(request.Snapshot);
-        };
-        if (Dispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            Dispatcher.BeginInvoke(reflect);
-        }
     }
 
     private void MainWindowViewModel_PlaylistSummarySelectionRestoreRequested(PlaylistSummarySelectionRestoreRequest request)

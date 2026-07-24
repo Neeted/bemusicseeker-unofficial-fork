@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -11,6 +12,60 @@ namespace BeMusicSeeker.Tests;
 
 internal static class PlaylistWorkspaceTestPorts
 {
+    internal static PlaylistWorkspaceViewModel CreateProgressWorkspace(
+        Action<Action> dispatch,
+        PlaylistUrlAcquisitionWorkflow? acquisitionWorkflow = null,
+        IUiDialogService? dialogService = null,
+        Action<IReadOnlyList<string>>? installSink = null,
+        Action<Uri>? browserSink = null,
+        Func<bool>? installQueueActiveProvider = null)
+    {
+        return new PlaylistWorkspaceViewModel(
+            dispatch ?? throw new ArgumentNullException(nameof(dispatch)),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot(),
+            acquisitionWorkflow ?? CreateUrlAcquisitionWorkflow(),
+            CreateExternalPackageLookupService(),
+            UrlAcquisitionOptionsProvider,
+            installQueueActiveProvider ?? InactiveInstallQueueProvider,
+            installSink ?? PlaylistUrlInstallSink,
+            browserSink ?? PlaylistUrlBrowserOpenSink,
+            ExternalPlaylistImportWarningLog,
+            ExternalPlaylistImportInfoLog,
+            BeatorajaTableUrlImportWarningLog,
+            BeatorajaTableUrlImportInfoLog,
+            PlaylistSummaryColumnSettingsStore,
+            PlaylistSummaryBmtSortCoordinator,
+            KeywordSearchHistorySettingsStore,
+            PlaylistStoreProvider,
+            PlaylistPropertySaveService,
+            () => null!,
+            () => null!,
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(Dispatcher.CurrentDispatcher),
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { },
+            (exception, message) => { },
+            (_, _) => false,
+            (_, _) => false,
+            action =>
+            {
+                dispatch(action);
+                return Task.CompletedTask;
+            },
+            () => true,
+            dialogService);
+    }
+
     internal static void AttachImmediatePlaylistPresentationRouter(PlaylistWorkspaceViewModel workspace)
     {
         workspace.PlaylistEntriesHydrationRequested += (_, request) =>

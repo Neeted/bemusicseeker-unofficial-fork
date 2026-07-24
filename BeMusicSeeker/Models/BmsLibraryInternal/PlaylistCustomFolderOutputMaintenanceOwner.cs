@@ -191,7 +191,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = CreateProjection(table, settings);
             PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
-            ReOutputProjectionsAsync(
+            CustomFolderBatchOutputResult result = ReOutputProjectionsAsync(
                 [projection],
                 tableCount: 1,
                 reason: "ReOutputCustomFolder",
@@ -201,6 +201,11 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 settings: settings)
                 .GetAwaiter()
                 .GetResult();
+            if (result.HasUnverifiedFiles)
+            {
+                notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, ResolveOutputDirectory(table, settings)));
+                return false;
+            }
             DeleteEmptyOutputDirectory(projection.OutputDirectory);
             return true;
         }
@@ -236,7 +241,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             {
                 PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
             }
-            ReOutputProjectionsAsync(
+            CustomFolderBatchOutputResult result = ReOutputProjectionsAsync(
                 [projection],
                 tableCount: 1,
                 reason: "MigrateCustomFolderOutputDirectory",
@@ -246,6 +251,11 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 settings: settings)
                 .GetAwaiter()
                 .GetResult();
+            if (result.HasUnverifiedFiles)
+            {
+                notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, resolvedOutputDirectoryAfter));
+                return false;
+            }
 
             if (sameDirectory)
             {
@@ -387,7 +397,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             projections.Add(projection);
         }
 
-        ReOutputProjectionsAsync(
+        CustomFolderBatchOutputResult result = ReOutputProjectionsAsync(
             projections,
             plans.Count,
             reason,
@@ -399,6 +409,11 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             stopwatch: Stopwatch.StartNew())
             .GetAwaiter()
             .GetResult();
+        if (result.HasUnverifiedFiles)
+        {
+            throw new InvalidOperationException(
+                "Custom-folder output could not verify one or more existing files before migration.");
+        }
 
         IReadOnlyCollection<string> protectedDirectories = CreateMigrationProtectedOutputDirectories(
             plans.Select(plan => plan.OutputDirectoryAfter),
@@ -567,11 +582,16 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             operation,
             reason,
             settings);
-        Lr2FolderFileDbSyncResult syncResult = syncMaterialization(new CustomFolderBatchMaterializationRequest(materialization));
-        progressCallback?.Invoke(total, total, Resources.Custom_folder_db_sync_progress_single_label);
-        persistStatuses(
-            [.. projections],
-            PlaylistCustomFolderOutputOwner.CreatePhysicalSurfaceFromSyncItems(materialization.SyncItems));
+        Lr2FolderFileDbSyncResult syncResult = materialization.HasUnverifiedFiles
+            ? null
+            : syncMaterialization(new CustomFolderBatchMaterializationRequest(materialization));
+        if (!materialization.HasUnverifiedFiles)
+        {
+            progressCallback?.Invoke(total, total, Resources.Custom_folder_db_sync_progress_single_label);
+            persistStatuses(
+                [.. projections],
+                PlaylistCustomFolderOutputOwner.CreatePhysicalSurfaceFromSyncItems(materialization.SyncItems));
+        }
         stopwatch.Stop();
 
         Lr2SongDbSyncPreparedDataSurface preparedDataSurface = buildPreparedDataSurface
@@ -579,19 +599,20 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 materialization.Lr2FolderSurfaceScopeDirectories,
                 materialization.SyncItems,
                 directoryEntries: materialization.DirectoryEntries,
-                discoveryComplete: projectionFailedCount == 0)
+                discoveryComplete: projectionFailedCount == 0 && !materialization.HasUnverifiedFiles)
             : Lr2SongDbSyncPreparedDataSurface.Empty;
         logPerformance?.Invoke((operation ?? "playlist_custom_folder_output")
             + " done reason=" + (reason ?? "unknown")
             + " tableCount=" + tableCount
             + " projectionFailedCount=" + projectionFailedCount
-            + " reOutputCount=" + projections.Count
+            + " reOutputCount=" + (materialization.HasUnverifiedFiles ? 0 : projections.Count)
             + " syncUpserted=" + (syncResult?.UpsertedCount ?? 0)
             + " syncDeleted=" + (syncResult?.DeletedCount ?? 0)
+            + " unverifiedFileCount=" + materialization.UnverifiedFilePaths.Count
             + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         return Task.FromResult(new CustomFolderBatchOutputResult
         {
-            ReOutputCount = projections.Count,
+            ReOutputCount = materialization.HasUnverifiedFiles ? 0 : projections.Count,
             Materialization = materialization,
             SyncResult = syncResult,
             PreparedDataSurface = preparedDataSurface,
@@ -1061,6 +1082,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     internal sealed class CustomFolderBatchOutputResult
     {
         internal int ReOutputCount { get; init; }
+
+        internal bool HasUnverifiedFiles => Materialization?.HasUnverifiedFiles == true;
 
         internal PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult Materialization { get; init; }
 

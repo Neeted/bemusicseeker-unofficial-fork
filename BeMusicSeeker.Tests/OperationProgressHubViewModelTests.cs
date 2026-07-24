@@ -11,6 +11,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Net;
 
 namespace BeMusicSeeker.Tests;
 
@@ -49,21 +50,48 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsTrue(SpinWait.SpinUntil(() => hub.InstallPipelineValue == 1, TimeSpan.FromSeconds(5)));
         Assert.AreEqual(1, hub.InstallPipelineValue);
         Assert.IsTrue(hub.InstallPipelineCanCancel);
-
-        hub.UpdatePlaylistUrlDownloadStatus(new PlaylistUrlDownloadStatusSnapshot(
-            isActive: true,
-            totalCount: 9,
-            completedCount: 2,
-            currentDisplayName: "url",
-            canCancel: true,
-            labelFormat: "{0}/{1}"));
-        Assert.AreEqual(2, hub.InstallPipelineValue);
-        Assert.AreEqual(9, hub.InstallPipelineMaximum);
-        Assert.AreEqual("url", hub.InstallPipelineSubLabel);
-
-        hub.UpdatePlaylistUrlDownloadStatus(PlaylistUrlDownloadStatusSnapshot.Inactive);
-        Assert.AreEqual(1, hub.InstallPipelineValue);
         StringAssert.Contains(hub.InstallPipelineSubLabel, "drop.zip");
+
+        string urlRoot = Path.Combine(
+            Path.GetTempPath(),
+            nameof(OperationProgressHubViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(urlRoot);
+        try
+        {
+            var urlGateway = new BlockingPlaylistUrlDownloadGateway(urlRoot);
+            var playlistWorkspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(
+                action => action(),
+                new PlaylistUrlAcquisitionWorkflow(urlGateway, _ => { }),
+                new AcceptedDialogService());
+            hub.AttachPlaylistProgressSources(playlistWorkspace, action => action(), () => false);
+
+            Task urlAcquisition = playlistWorkspace.RunPlaylistUrlBatchAsync(
+                [new Uri("https://example.invalid/priority.zip")],
+                isDiffUrl: false);
+            Assert.IsTrue(urlGateway.ReadStarted.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(hub.IsInstallPipelineStatusActive);
+            Assert.AreEqual(1, hub.InstallPipelineMaximum);
+            Assert.AreEqual(0, hub.InstallPipelineValue);
+            Assert.AreEqual("https://example.invalid/priority.zip", hub.InstallPipelineSubLabel);
+            Assert.IsTrue(hub.InstallPipelineCanCancel);
+
+            urlGateway.Response.TrySetResult(new AppHttpResponse(
+                new Uri("https://example.invalid/priority.zip"),
+                new MemoryStream([1, 2, 3], writable: false)));
+            urlAcquisition.GetAwaiter().GetResult();
+
+            Assert.IsTrue(hub.IsInstallPipelineStatusActive);
+            Assert.AreEqual(1, hub.InstallPipelineValue);
+            StringAssert.Contains(hub.InstallPipelineSubLabel, "drop.zip");
+        }
+        finally
+        {
+            if (Directory.Exists(urlRoot))
+            {
+                Directory.Delete(urlRoot, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
@@ -147,10 +175,11 @@ public sealed class OperationProgressHubViewModelTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub);
         var changedProperties = new List<string>();
         hub.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
 
-        hub.UpdatePlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
             IsActive = true,
             TotalTableCount = 2,
@@ -177,7 +206,8 @@ public sealed class OperationProgressHubViewModelTests
     public void PlaylistSyncPresentation_InactiveSnapshotClearsState()
     {
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        hub.UpdatePlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub);
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
             IsActive = true,
             TotalTableCount = 1,
@@ -186,13 +216,75 @@ public sealed class OperationProgressHubViewModelTests
             LabelFormat = "{0}/{1}"
         });
 
-        hub.UpdatePlaylistSyncProgress(new PlaylistSyncProgressSnapshot());
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot());
 
         Assert.IsFalse(hub.IsPlaylistSyncProgressActive);
         Assert.AreEqual(string.Empty, hub.PlaylistSyncProgressLabel);
         Assert.AreEqual(string.Empty, hub.PlaylistSyncProgressSubLabel);
         Assert.AreEqual(0.0, hub.PlaylistSyncProgressValue);
         Assert.AreEqual(0.0, hub.PlaylistSyncProgressMaximum);
+    }
+
+    [TestMethod]
+    public void PlaylistSyncPresentation_DropsOlderQueuedSnapshotWhenNewerSnapshotArrives()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        var queued = new List<Action>();
+        PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub, queued.Add);
+
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = true,
+            TotalTableCount = 2,
+            CompletedTableCount = 1,
+            CurrentTableName = "active",
+            LabelFormat = "{0}/{1}"
+        });
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot());
+
+        Assert.AreEqual(2, queued.Count);
+        queued[0]();
+        Assert.IsFalse(hub.IsPlaylistSyncProgressActive);
+        queued[1]();
+        Assert.IsFalse(hub.IsPlaylistSyncProgressActive);
+    }
+
+    [TestMethod]
+    public void PlaylistSyncPresentation_SuppressesQueuedSnapshotDuringShellClosing()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        var queued = new List<Action>();
+        bool isShellClosing = false;
+        PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(
+            hub,
+            queued.Add,
+            () => isShellClosing);
+
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = true,
+            TotalTableCount = 1,
+            CompletedTableCount = 1,
+            CurrentTableName = "active",
+            LabelFormat = "{0}/{1}"
+        });
+        isShellClosing = true;
+
+        Assert.AreEqual(1, queued.Count);
+        queued[0]();
+        Assert.IsFalse(hub.IsPlaylistSyncProgressActive);
+    }
+
+    [TestMethod]
+    public void PlaylistProgressSources_CannotBeAttachedTwice()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub);
+
+        Assert.ThrowsException<InvalidOperationException>(() => hub.AttachPlaylistProgressSources(
+            workspace,
+            action => action(),
+            () => false));
     }
 
     [TestMethod]
@@ -306,6 +398,22 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncCleanupVisible);
+    }
+
+    private static PlaylistWorkspaceViewModel AttachPlaylistProgressSources(
+        OperationProgressHubViewModel hub,
+        Action<Action>? dispatch = null,
+        Func<bool>? shellClosingPredicate = null)
+    {
+        Action<Action> actualDispatch = dispatch ?? (action => action());
+        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(
+            actualDispatch,
+            dialogService: new AcceptedDialogService());
+        hub.AttachPlaylistProgressSources(
+            workspace,
+            actualDispatch,
+            shellClosingPredicate ?? (() => false));
+        return workspace;
     }
 
     private sealed class ProgressWorkflowFixture : IDisposable
@@ -483,5 +591,35 @@ public sealed class OperationProgressHubViewModelTests
             UiProgressRequest request,
             Func<UiProgressContext, Task> operation,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class BlockingPlaylistUrlDownloadGateway : IPlaylistUrlDownloadGateway
+    {
+        private readonly string temporaryDirectory;
+
+        internal BlockingPlaylistUrlDownloadGateway(string temporaryDirectory)
+        {
+            this.temporaryDirectory = temporaryDirectory;
+        }
+
+        internal ManualResetEventSlim ReadStarted { get; } = new(false);
+
+        internal TaskCompletionSource<AppHttpResponse> Response { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
+        {
+            ReadStarted.Set();
+            return Response.Task;
+        }
+
+        public string GetTemporaryDirectory() => temporaryDirectory;
+
+        public FileStream OpenWrite(string path, FileMode mode, FileAccess access, FileShare share) =>
+            new(path, mode, access, share);
+
+        public bool FileExists(string path) => File.Exists(path);
+
+        public void DeleteFile(string path) => File.Delete(path);
     }
 }

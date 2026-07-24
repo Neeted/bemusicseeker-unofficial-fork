@@ -57,10 +57,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         string entrySnapshotSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.EntrySnapshot.cs");
         string logicalSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string playlistUrlEventsSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindowViewModel.PlaylistUrlAcquisitionEvents.cs");
         string bmtSortSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSummaryBmtSortCoordinator.cs");
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
@@ -616,9 +612,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryBulkOperationFinished", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncStarted", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncFinished", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSyncProgressChanged", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSyncProgressChanged += MainWindow_PlaylistSyncProgressChanged;");
-        StringAssert.Contains(mainWindowSource, "subscribedViewModel.PlaylistWorkspace.PlaylistSyncProgressChanged -= MainWindow_PlaylistSyncProgressChanged;");
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspacePlaylistSyncProgressChanged", StringComparison.Ordinal));
+        Assert.IsFalse(mainWindowSource.Contains("PlaylistSyncProgressChanged += MainWindow_PlaylistSyncProgressChanged"));
+        Assert.IsFalse(mainWindowSource.Contains("PlaylistSyncProgressChanged -= MainWindow_PlaylistSyncProgressChanged"));
         foreach (string propertyDialogEvent in new[]
         {
             "PlaylistPropertyValidationError",
@@ -647,7 +643,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryDataRefreshDecision", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;");
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummarySelectionRestoreRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playlistUrlEventsSource.IndexOf("PlaylistSummarySelectionRestoreRequested", StringComparison.Ordinal));
+        Assert.IsFalse(rootSource.Contains("PlaylistWorkspacePlaylistUrlDownloadStatusChanged"));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryRows", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryPresentationRows", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("DrainPlaylistSummaryRefresh(", StringComparison.Ordinal));

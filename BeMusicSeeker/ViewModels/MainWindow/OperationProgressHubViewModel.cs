@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Livet;
@@ -87,6 +88,14 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private bool workflowProgressSourcesAttached;
 
+    private bool playlistProgressSourcesAttached;
+
+    private long playlistSyncProgressUiVersion;
+
+    private Action<Action> dispatchPlaylistProgressAction;
+
+    private Func<bool> isShellClosing;
+
     public StartupProgressWorkflowOwner StartupProgress { get; }
 
     internal OperationProgressHubViewModel(StartupProgressWorkflowOwner startupProgress)
@@ -124,6 +133,38 @@ public sealed class OperationProgressHubViewModel : ViewModel
         packageInstallWorkflow.StatusChanged += UpdateDropInstallQueueStatus;
         maintenanceRescanWorkflow.ProgressChanged += UpdateMaintenanceRescanProgress;
         folderAutoRenameWorkflow.ProgressChanged += UpdateFolderAutoRenameProgress;
+    }
+
+    /// <summary>
+    /// Connects playlist progress producers directly to this presentation owner.
+    /// </summary>
+    internal void AttachPlaylistProgressSources(
+        PlaylistWorkspaceViewModel playlistWorkspace,
+        Action<Action> dispatchPresentationAction,
+        Func<bool> shellClosingPredicate)
+    {
+        if (playlistWorkspace == null)
+        {
+            throw new ArgumentNullException(nameof(playlistWorkspace));
+        }
+        if (dispatchPresentationAction == null)
+        {
+            throw new ArgumentNullException(nameof(dispatchPresentationAction));
+        }
+        if (shellClosingPredicate == null)
+        {
+            throw new ArgumentNullException(nameof(shellClosingPredicate));
+        }
+        if (playlistProgressSourcesAttached)
+        {
+            throw new InvalidOperationException("Playlist progress sources are already attached.");
+        }
+
+        dispatchPlaylistProgressAction = dispatchPresentationAction;
+        isShellClosing = shellClosingPredicate;
+        playlistProgressSourcesAttached = true;
+        playlistWorkspace.PlaylistSyncProgressChanged += PlaylistWorkspacePlaylistSyncProgressChanged;
+        playlistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
     }
 
     /// <summary>
@@ -379,7 +420,24 @@ public sealed class OperationProgressHubViewModel : ViewModel
         internal set => SetValue(ref playlistSyncProgressMaximum, value, nameof(PlaylistSyncProgressMaximum));
     }
 
-    internal void UpdatePlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
+    private void PlaylistWorkspacePlaylistSyncProgressChanged(
+        object sender,
+        PlaylistSyncProgressChangedEventArgs request)
+    {
+        long uiVersion = Interlocked.Increment(ref playlistSyncProgressUiVersion);
+        Action reflect = delegate
+        {
+            if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion)
+                || isShellClosing())
+            {
+                return;
+            }
+            UpdatePlaylistSyncProgress(request?.Snapshot);
+        };
+        dispatchPlaylistProgressAction(reflect);
+    }
+
+    private void UpdatePlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
     {
         bool isActive = snapshot?.IsActive == true;
         IsPlaylistSyncProgressActive = isActive;
@@ -545,7 +603,14 @@ public sealed class OperationProgressHubViewModel : ViewModel
         RefreshInstallPipelinePresentation();
     }
 
-    internal void UpdatePlaylistUrlDownloadStatus(PlaylistUrlDownloadStatusSnapshot snapshot)
+    private void PlaylistWorkspacePlaylistUrlDownloadStatusChanged(
+        object sender,
+        PlaylistUrlDownloadStatusSnapshot snapshot)
+    {
+        dispatchPlaylistProgressAction(() => UpdatePlaylistUrlDownloadStatus(snapshot));
+    }
+
+    private void UpdatePlaylistUrlDownloadStatus(PlaylistUrlDownloadStatusSnapshot snapshot)
     {
         playlistUrlDownloadStatus = snapshot ?? PlaylistUrlDownloadStatusSnapshot.Inactive;
         RefreshInstallPipelinePresentation();

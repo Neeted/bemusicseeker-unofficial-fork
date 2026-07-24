@@ -2790,7 +2790,6 @@ public partial class MainWindowViewModel : ViewModel,
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
-        PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
         PlaylistWorkspace.PlaylistKeywordValueCandidatesChanged += PlaylistWorkspacePlaylistKeywordValueCandidatesChanged;
         PlaylistWorkspace.PlaylistEntriesHydrationRequested += PlaylistWorkspacePlaylistEntriesHydrationRequested;
@@ -2964,6 +2963,10 @@ public partial class MainWindowViewModel : ViewModel,
             LogShutdown,
             LogShutdownWarning,
             FormatTextForLog);
+        ProgressHub.AttachPlaylistProgressSources(
+            PlaylistWorkspace,
+            DispatchMainChartListAction,
+            () => ShellShutdownWorkflow?.IsClosingOrClosed == true);
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         PlayHistory.RestoreDisplayTargetIdentity(playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);

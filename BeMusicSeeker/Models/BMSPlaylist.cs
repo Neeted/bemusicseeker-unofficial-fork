@@ -2072,6 +2072,11 @@ public partial class BMSPlaylist : NotificationObject
             yieldBetweenTables,
             progressCallback,
             settings: settings);
+        if (result.HasUnverifiedFiles)
+        {
+            throw new InvalidOperationException(
+                "Custom-folder output could not verify one or more existing files before LR2 synchronization preparation.");
+        }
         return result.PreparedDataSurface ?? Lr2SongDbSyncPreparedDataSurface.Empty;
     }
 
@@ -2142,6 +2147,11 @@ public partial class BMSPlaylist : NotificationObject
             + " verifyRootOutputDirectoryRows=" + verifyRootOutputDirectoryRows.ToString().ToLowerInvariant()
             + " targetMs=" + targetStopwatch.ElapsedMilliseconds
             + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        if (result.HasUnverifiedFiles)
+        {
+            throw new InvalidOperationException(
+                "Custom-folder output could not verify one or more existing files during hydration repair.");
+        }
         return result.ReOutputCount;
     }
 
@@ -4435,7 +4445,7 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
-        customFolderOutputMaintenanceOwner.ReOutputTablesAsync(
+        CustomFolderBatchOutputResult result = customFolderOutputMaintenanceOwner.ReOutputTablesAsync(
             tableList,
             reason,
             "playlist_custom_folder_output_bulk",
@@ -4447,6 +4457,11 @@ public partial class BMSPlaylist : NotificationObject
             settings)
             .GetAwaiter()
             .GetResult();
+        if (result.HasUnverifiedFiles)
+        {
+            throw new InvalidOperationException(
+                "Custom-folder output could not verify one or more existing files before committing playlist headers.");
+        }
         CommitBMSTableHeadersToDB(tableList);
     }
 

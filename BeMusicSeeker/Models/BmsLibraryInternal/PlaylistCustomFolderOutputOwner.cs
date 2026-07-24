@@ -230,9 +230,21 @@ internal sealed class PlaylistCustomFolderOutputOwner
                     {
                         LongPathFileSystem.CreateDirectory(fileDirectory);
                     }
-                    bool writeRequired = projection.ForceWriteFilePaths.Contains(file.FilePath)
+                    bool forceWrite = projection.ForceWriteFilePaths.Contains(file.FilePath);
+                    ExistingFileState existingFileState = ExistingFileState.Missing;
+                    if (!forceWrite && physicalEntry?.LastWriteTimeUtc == null)
+                    {
+                        existingFileState = InspectExistingFile(file.FilePath, text, shiftJis);
+                        if (existingFileState == ExistingFileState.Unverified)
+                        {
+                            result.UnverifiedFilePaths.Add(file.FilePath);
+                            continue;
+                        }
+                    }
+
+                    bool writeRequired = forceWrite
                         || (physicalEntry?.LastWriteTimeUtc == null
-                            && !IsExistingFileContentCurrent(file.FilePath, text, shiftJis));
+                            && existingFileState != ExistingFileState.Current);
                     if (writeRequired)
                     {
                         WriteAllText(file.FilePath, text, shiftJis);
@@ -681,16 +693,29 @@ internal sealed class PlaylistCustomFolderOutputOwner
         writer.Write(text);
     }
 
-    private static bool IsExistingFileContentCurrent(string path, string text, Encoding encoding)
+    private static ExistingFileState InspectExistingFile(string path, string text, Encoding encoding)
     {
         if (!LongPathFileSystem.FileExists(path))
         {
-            return false;
+            return ExistingFileState.Missing;
         }
 
-        byte[] expected = encoding.GetBytes(text ?? string.Empty);
-        byte[] actual = LongPathFileSystem.ReadAllBytes(path);
-        return expected.SequenceEqual(actual);
+        try
+        {
+            byte[] expected = encoding.GetBytes(text ?? string.Empty);
+            byte[] actual = LongPathFileSystem.ReadAllBytes(path);
+            return expected.SequenceEqual(actual)
+                ? ExistingFileState.Current
+                : ExistingFileState.Outdated;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException)
+        {
+            return ExistingFileState.Missing;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            return ExistingFileState.Unverified;
+        }
     }
 
     private static IEnumerable<string> ReadLines(string text)
@@ -800,6 +825,10 @@ internal sealed class PlaylistCustomFolderOutputOwner
 
         internal List<Lr2FolderFileSyncItem> SyncItems { get; } = [];
 
+        internal List<string> UnverifiedFilePaths { get; } = [];
+
+        internal bool HasUnverifiedFiles => UnverifiedFilePaths.Count > 0;
+
         internal Dictionary<string, RootFileEnumerationEntry> DirectoryEntries { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         internal int WrittenFileCount { get; set; }
@@ -813,6 +842,14 @@ internal sealed class PlaylistCustomFolderOutputOwner
         internal List<string> PruneExcludedDirectories { get; } = [];
 
         internal List<string> EmptyOutputDirectories { get; } = [];
+    }
+
+    private enum ExistingFileState
+    {
+        Missing,
+        Current,
+        Outdated,
+        Unverified
     }
 
     internal sealed class CustomFolderOutputPhysicalMtimeSignatureIndex(

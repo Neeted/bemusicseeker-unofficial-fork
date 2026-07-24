@@ -403,6 +403,56 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     }
 
     [TestMethod]
+    public async Task PlaylistUrlProgressAttachedHubPublishesActiveCancelAndTerminalStates()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
+            var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            var dialogs = new RecordingPlaylistUrlDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+                action => action(),
+                acquisitionWorkflow: acquisitionWorkflow,
+                dialogService: dialogs);
+            var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+            hub.AttachPlaylistProgressSources(workspace, action => action(), () => false);
+
+            Task acquisition = workspace.RunPlaylistUrlBatchAsync(
+                [new Uri("https://example.invalid/running.zip")],
+                isDiffUrl: false);
+            await gateway.ReadStarted.Task;
+
+            Assert.IsTrue(hub.IsInstallPipelineStatusActive);
+            Assert.IsTrue(hub.InstallPipelineCanCancel);
+            workspace.CancelPlaylistUrlDownload();
+            Assert.IsFalse(hub.InstallPipelineCanCancel);
+
+            gateway.Response.TrySetResult(new AppHttpResponse(
+                new Uri("https://example.invalid/running.zip"),
+                new MemoryStream([1, 2, 3], writable: false)));
+            await acquisition;
+
+            Assert.IsFalse(hub.IsInstallPipelineStatusActive);
+            Assert.AreEqual(0, hub.InstallPipelineValue);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task SingleDownloadedPackage_UsesInstallSinkBeforeTreeExpansionPresentation()
     {
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
