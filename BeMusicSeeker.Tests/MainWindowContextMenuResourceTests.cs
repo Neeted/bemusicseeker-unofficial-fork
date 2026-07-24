@@ -715,7 +715,7 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string viewExecutionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.ViewExecution.cs");
         string displayTargetRefreshOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargetRefresh.cs");
-        string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void BeginChartPackageMutation");
+        string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void ChartMutationActivityChanged");
         string playlistStoreNotifications = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs");
         string state = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
         string workflowOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
@@ -3236,13 +3236,15 @@ public sealed class MainWindowContextMenuResourceTests
         string selectedMutationOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartMutationWorkflowOwner.cs");
         StringAssert.Contains(viewModelCode, "SelectedChartMutations.WorkflowChanged += SelectedChartMutationWorkflowChanged;");
-        StringAssert.Contains(selectedMutationOwnerCode, "PublishActivityChanged(isActive: true)");
+        StringAssert.Contains(selectedMutationOwnerCode, "chartMutationActivity.Enter()");
         StringAssert.Contains(selectedMutationOwnerCode, "PublishRefreshSuppressionChanged(isSuppressed: true");
         StringAssert.Contains(selectedMutationOwnerCode, "PublishMutationApplied(libraryPathChanged: true)");
         Assert.IsFalse(viewModelCode.Contains("ISelectedChartMutationActivityPort"));
         Assert.IsFalse(viewModelCode.Contains("ISelectedChartMutationRefreshPort"));
         Assert.IsFalse(selectedMutationOwnerCode.Contains("ISelectedChartMutationActivityPort"));
         Assert.IsFalse(selectedMutationOwnerCode.Contains("ISelectedChartMutationRefreshPort"));
+        Assert.IsFalse(viewModelCode.Contains("SelectedChartMutationActivityChangedEventArgs"));
+        Assert.IsFalse(selectedMutationOwnerCode.Contains("SelectedChartMutationActivityChangedEventArgs"));
         string contextMenuResource = ExtractBetween(
             mainWindowCode,
             "private bool TryGetTableContextMenuResource",
@@ -5239,13 +5241,15 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(ownerCode, "showConfirmationProvider()");
         StringAssert.Contains(ownerCode, "Msg_merge_bms_target");
         StringAssert.Contains(ownerCode, "Msg_cleanup_duplicate_hash");
-        StringAssert.Contains(ownerCode, "PublishActivityChanged(isActive: true)");
+        StringAssert.Contains(ownerCode, "chartMutationActivity.Enter()");
         StringAssert.Contains(ownerCode, "PublishRefreshSuppressionChanged(isSuppressed: true)");
         StringAssert.Contains(ownerCode, "PublishRefreshPriorityWindowChanged(isActive: true");
         Assert.IsFalse(viewModelCode.Contains("IDuplicateMaintenanceActivityPort"));
         Assert.IsFalse(viewModelCode.Contains("IDuplicateMaintenanceRefreshPort"));
         Assert.IsFalse(ownerCode.Contains("IDuplicateMaintenanceActivityPort"));
         Assert.IsFalse(ownerCode.Contains("IDuplicateMaintenanceRefreshPort"));
+        Assert.IsFalse(viewModelCode.Contains("DuplicateMaintenanceActivityChangedEventArgs"));
+        Assert.IsFalse(ownerCode.Contains("DuplicateMaintenanceActivityChangedEventArgs"));
         Assert.IsFalse(ownerCode.Contains("NoOpDuplicateMaintenance"));
         string duplicateContextHandler = ExtractMethodBody(
             mainWindowCode,

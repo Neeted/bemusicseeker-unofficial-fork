@@ -114,11 +114,15 @@ public sealed class BmsLibraryMutationBoundaryTests
         string autoRenameAllMethod = ExtractMethodBody(librarySource, "internal bool AutoRenameAllChartFolders(");
         string dialogEnqueueMethod = ExtractMethodBody(librarySource, "internal void Enqueue(OperationDialogMessage message)");
 
-        StringAssert.Contains(source, "public bool IsChartPackageMutationInProgress");
+        StringAssert.Contains(source, "internal ChartMutationActivityOwner ChartMutationActivity");
+        Assert.IsFalse(source.Contains("chartPackageMutationDepth"));
+        Assert.IsFalse(source.Contains("BeginChartPackageMutation"));
+        Assert.IsFalse(source.Contains("EndChartPackageMutation"));
+        Assert.IsFalse(source.Contains("IsChartPackageMutationInProgress"));
         StringAssert.Contains(source, "private void RunPendingInstallMutation(Action action");
         StringAssert.Contains(source, "RunChartPackageMutation(action");
         StringAssert.Contains(runMethod, "BeginOperationDialogScope()");
-        StringAssert.Contains(runMethod, "BeginChartPackageMutation()");
+        StringAssert.Contains(runMethod, "ChartMutationActivity.Enter()");
         StringAssert.Contains(runMethod, "using (chartFileOperations.Enter())");
         StringAssert.Contains(runMethod, "EndUiUpdateSuppression()");
         StringAssert.Contains(runMethod, "dialogScope?.Flush()");
@@ -161,7 +165,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         string searchCorrectInstallationDirectory = ExtractMethodBody(source, "private async void tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
 
         StringAssert.Contains(source, "private bool ShouldBlockChartPackageMutationInteraction");
-        StringAssert.Contains(source, "viewModel.IsChartPackageMutationInProgress");
+        StringAssert.Contains(source, "viewModel.ChartMutationActivity.IsActive");
         StringAssert.Contains(rowContextMenu, "ShouldBlockChartPackageMutationInteraction(\"custom_table_row_context_menu\")");
         StringAssert.Contains(tableContextMenuOpened, "ShouldBlockChartPackageMutationInteraction(\"datagrid_context_menu_opened\")");
         StringAssert.Contains(removeInstallDestination, "ShouldBlockChartPackageMutationInteraction");

@@ -22,16 +22,6 @@ internal abstract class PendingPackageWorkflowChangedEventArgs : EventArgs
 {
 }
 
-internal sealed class PendingPackageActivityChangedEventArgs : PendingPackageWorkflowChangedEventArgs
-{
-    internal PendingPackageActivityChangedEventArgs(bool isActive)
-    {
-        IsActive = isActive;
-    }
-
-    internal bool IsActive { get; }
-}
-
 internal sealed class PendingPackageRefreshSuppressionChangedEventArgs : PendingPackageWorkflowChangedEventArgs
 {
     internal PendingPackageRefreshSuppressionChangedEventArgs(
@@ -191,6 +181,7 @@ internal sealed class PendingPackageWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
+    private readonly ChartMutationActivityOwner chartMutationActivity;
     private readonly IPendingPackageMutationPlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly IPendingPackageStore store;
@@ -203,6 +194,7 @@ internal sealed class PendingPackageWorkflowOwner
     internal PendingPackageWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
+        ChartMutationActivityOwner chartMutationActivity,
         IPendingPackageMutationPlaybackPort playback,
         IUiDialogService dialogs,
         Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
@@ -212,6 +204,7 @@ internal sealed class PendingPackageWorkflowOwner
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
+        this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
@@ -1108,14 +1101,13 @@ internal sealed class PendingPackageWorkflowOwner
         }
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable operationGate = null;
-        bool activityStarted = false;
+        IDisposable activityLease = null;
         bool suppressionStarted = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
             dialogScope = library?.BeginOperationDialogScope();
-            activityStarted = true;
-            PublishActivityChanged(isActive: true);
+            activityLease = chartMutationActivity.Enter();
             operationGate = chartFileOperations.Enter();
             if (playbackTargets != null)
             {
@@ -1141,11 +1133,9 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 CaptureCleanupFailure(operationGate.Dispose, failures);
             }
-            if (activityStarted)
+            if (activityLease != null)
             {
-                CaptureCleanupFailure(
-                    () => PublishActivityChanged(isActive: false),
-                    failures);
+                CaptureCleanupFailure(activityLease.Dispose, failures);
             }
             if (dialogScope != null)
             {
@@ -1155,13 +1145,6 @@ internal sealed class PendingPackageWorkflowOwner
         }
         ThrowFailures(failures);
         return true;
-    }
-
-    private void PublishActivityChanged(bool isActive)
-    {
-        WorkflowChanged?.Invoke(
-            this,
-            new PendingPackageActivityChangedEventArgs(isActive));
     }
 
     private void PublishRefreshSuppressionChanged(

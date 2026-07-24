@@ -3501,6 +3501,7 @@ public sealed class RegularChartListOwnerTests
         return new PendingPackageWorkflowOwner(
               () => null!,
               new ChartFileOperationSynchronizer(),
+              new ChartMutationActivityOwner(),
               new NoOpPendingPackageMutationPlaybackPort(),
               new TestUiDialogService(),
               () => new InstallDestinationWorkflowSettingsSnapshot(

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -534,6 +535,9 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.MaintenanceTree);
             Assert.IsNotNull(childComposition.PlayHistory);
             Assert.IsNotNull(childComposition.PendingPackageWorkflow);
+            Assert.AreSame(
+                childComposition.ChartMutationActivity,
+                GetChartMutationActivity(childComposition.PendingPackageWorkflow));
             Assert.IsNotNull(childComposition.RegularChartListOwner);
             Assert.IsNotNull(childComposition.PackageInstallWorkflow);
             Assert.IsNotNull(childComposition.MaintenanceRescanWorkflow);
@@ -544,6 +548,15 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.ScoreViewerRegistrationWorkflow);
             Assert.IsNotNull(childComposition.ZeroNoteMaintenanceWorkflow);
             Assert.IsNotNull(childComposition.PackageCatalogWorkflow);
+            Assert.AreSame(
+                childComposition.ChartMutationActivity,
+                GetChartMutationActivity(childComposition.PackageCatalogWorkflow));
+            Assert.AreSame(
+                childComposition.ChartMutationActivity,
+                GetChartMutationActivity(childComposition.DuplicateMaintenanceWorkflow));
+            Assert.AreSame(
+                childComposition.ChartMutationActivity,
+                GetChartMutationActivity(childComposition.SelectedChartMutations));
             Assert.IsNotNull(childComposition.SelectedChartAudioConversion);
             Assert.IsNotNull(childComposition.SelectedChartExternalActions);
             Assert.IsNotNull(childComposition.Lr2SongDbSyncWorkflow);
@@ -553,6 +566,14 @@ public sealed class ApplicationCompositionTests
         {
             childComposition.RegularChartListOwner.Dispose();
         }
+    }
+
+    private static ChartMutationActivityOwner GetChartMutationActivity(object workflowOwner)
+    {
+        return (ChartMutationActivityOwner)workflowOwner
+            .GetType()
+            .GetField("chartMutationActivity", BindingFlags.Instance | BindingFlags.NonPublic)
+            .GetValue(workflowOwner);
     }
 
     [TestMethod]

@@ -22,16 +22,6 @@ internal abstract class SelectedChartMutationWorkflowChangedEventArgs : EventArg
 {
 }
 
-internal sealed class SelectedChartMutationActivityChangedEventArgs : SelectedChartMutationWorkflowChangedEventArgs
-{
-    internal SelectedChartMutationActivityChangedEventArgs(bool isActive)
-    {
-        IsActive = isActive;
-    }
-
-    internal bool IsActive { get; }
-}
-
 internal sealed class SelectedChartMutationRefreshSuppressionChangedEventArgs : SelectedChartMutationWorkflowChangedEventArgs
 {
     internal SelectedChartMutationRefreshSuppressionChangedEventArgs(
@@ -203,6 +193,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
+    private readonly ChartMutationActivityOwner chartMutationActivity;
     private readonly ISelectedChartMutationPlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly ISelectedChartMutationStore store;
@@ -210,12 +201,14 @@ internal sealed class SelectedChartMutationWorkflowOwner
     internal SelectedChartMutationWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
+        ChartMutationActivityOwner chartMutationActivity,
         ISelectedChartMutationPlaybackPort playback,
         IUiDialogService dialogs,
         ISelectedChartMutationStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
+        this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.store = store ?? new BmsLibrarySelectedChartMutationStore();
@@ -502,14 +495,13 @@ internal sealed class SelectedChartMutationWorkflowOwner
 
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable operationGate = null;
-        bool activityStarted = false;
+        IDisposable activityLease = null;
         bool suppressionStarted = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
             dialogScope = library.BeginOperationDialogScope();
-            activityStarted = true;
-            PublishActivityChanged(isActive: true);
+            activityLease = chartMutationActivity.Enter();
             operationGate = chartFileOperations.Enter();
             stopPlayback?.Invoke();
             suppressionStarted = true;
@@ -532,11 +524,9 @@ internal sealed class SelectedChartMutationWorkflowOwner
             {
                 CaptureCleanupFailure(operationGate.Dispose, failures);
             }
-            if (activityStarted)
+            if (activityLease != null)
             {
-                CaptureCleanupFailure(
-                    () => PublishActivityChanged(isActive: false),
-                    failures);
+                CaptureCleanupFailure(activityLease.Dispose, failures);
             }
             if (dialogScope != null)
             {
@@ -551,13 +541,6 @@ internal sealed class SelectedChartMutationWorkflowOwner
             _ => SelectedChartMutationResult.Failed(
                 new AggregateException(failures.Select(failure => failure.SourceException))),
         };
-    }
-
-    private void PublishActivityChanged(bool isActive)
-    {
-        WorkflowChanged?.Invoke(
-            this,
-            new SelectedChartMutationActivityChangedEventArgs(isActive));
     }
 
     private void PublishRefreshSuppressionChanged(

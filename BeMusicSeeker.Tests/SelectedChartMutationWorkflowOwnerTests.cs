@@ -484,13 +484,16 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         FakeUiDialogService dialogs,
         RecordingStore store)
     {
+        ChartMutationActivityOwner activity = new();
         var owner = new SelectedChartMutationWorkflowOwner(
             () => (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary)),
             new ChartFileOperationSynchronizer(),
+            activity,
             presentation,
             dialogs,
             store);
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
+        activity.ActivityChanged += presentation.OnActivityChanged;
         return owner;
     }
 
@@ -558,15 +561,18 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal int EncodingRefreshCalls { get; private set; }
 
+        internal void OnActivityChanged(object sender, EventArgs e)
+        {
+            var activity = (ChartMutationActivityOwner)sender;
+            Events.Add(activity.IsActive ? "activity-start" : "activity-end");
+        }
+
         internal void OnWorkflowChanged(
             object sender,
             SelectedChartMutationWorkflowChangedEventArgs e)
         {
             switch (e)
             {
-                case SelectedChartMutationActivityChangedEventArgs activityChanged:
-                    Events.Add(activityChanged.IsActive ? "activity-start" : "activity-end");
-                    break;
                 case SelectedChartMutationRefreshSuppressionChangedEventArgs suppressionChanged:
                     if (suppressionChanged.IsSuppressed)
                     {

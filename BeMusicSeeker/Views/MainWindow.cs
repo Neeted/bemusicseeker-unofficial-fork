@@ -1190,7 +1190,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private bool ShouldBlockChartPackageMutationInteraction(string action)
     {
-        if (base.DataContext is MainWindowViewModel viewModel && viewModel.IsChartPackageMutationInProgress)
+        if (base.DataContext is MainWindowViewModel viewModel && viewModel.ChartMutationActivity.IsActive)
         {
             installPerformanceLogger?.Info("chart_package_mutation_ui_blocked action=" + action);
             return true;

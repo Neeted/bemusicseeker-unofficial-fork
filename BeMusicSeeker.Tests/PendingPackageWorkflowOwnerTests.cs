@@ -1357,9 +1357,11 @@ public sealed class PendingPackageWorkflowOwnerTests
         Func<InstallDestinationWorkflowSettingsSnapshot>? settingsProvider = null)
     {
         presentation ??= new RecordingPresentation(events);
+        ChartMutationActivityOwner activity = new();
         var owner = new PendingPackageWorkflowOwner(
             libraryProvider,
             chartFileOperations ?? new ChartFileOperationSynchronizer(),
+            activity,
             playback ?? new RecordingPlayback(events),
             dialogs,
             settingsProvider ?? DefaultSettings,
@@ -1367,6 +1369,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             explorerOpener,
             fileExplorerOpener);
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
+        activity.ActivityChanged += presentation.OnActivityChanged;
         return owner;
     }
 
@@ -1443,6 +1446,16 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal Exception? EndRefreshSuppressionFailure { get; set; }
 
+        internal void OnActivityChanged(object sender, EventArgs e)
+        {
+            var activity = (ChartMutationActivityOwner)sender;
+            events.Add(activity.IsActive ? "activity-start" : "activity-end");
+            if (!activity.IsActive && EndActivityFailure != null)
+            {
+                throw EndActivityFailure;
+            }
+        }
+
         internal PendingPackageRefreshScope LastRefreshScope { get; private set; }
 
         internal void OnWorkflowChanged(
@@ -1451,13 +1464,6 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             switch (e)
             {
-                case PendingPackageActivityChangedEventArgs activityChanged:
-                    events.Add(activityChanged.IsActive ? "activity-start" : "activity-end");
-                    if (!activityChanged.IsActive && EndActivityFailure != null)
-                    {
-                        throw EndActivityFailure;
-                    }
-                    break;
                 case PendingPackageRefreshSuppressionChangedEventArgs suppressionChanged:
                     if (suppressionChanged.IsSuppressed)
                     {

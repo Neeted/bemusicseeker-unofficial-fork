@@ -594,6 +594,7 @@ internal sealed class MainWindowChildComposition
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
+        ChartMutationActivity = new ChartMutationActivityOwner();
         ProgressHub = new OperationProgressHubViewModel(startupProgressWorkflowOwner);
         if (bmsPlayerFactory == null)
         {
@@ -620,6 +621,7 @@ internal sealed class MainWindowChildComposition
         PendingPackageWorkflow = new PendingPackageWorkflowOwner(
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
             chartFileOperations,
+            ChartMutationActivity,
             PlaybackPanel,
             installDestinationDialogService ?? throw new ArgumentNullException(nameof(installDestinationDialogService)),
             installDestinationSettingsProvider ?? throw new ArgumentNullException(nameof(installDestinationSettingsProvider)));
@@ -679,10 +681,12 @@ internal sealed class MainWindowChildComposition
         PackageCatalogWorkflow = new PackageCatalogWorkflowOwner(
             packageCatalogLibraryProvider ?? (() => null),
             chartFileOperations,
+            ChartMutationActivity,
             installDestinationDialogService);
         DuplicateMaintenanceWorkflow = new DuplicateMaintenanceWorkflowOwner(
             duplicateMaintenanceLibraryProvider ?? throw new ArgumentNullException(nameof(duplicateMaintenanceLibraryProvider)),
             chartFileOperations,
+            ChartMutationActivity,
             PlaybackPanel,
             duplicateMaintenanceDialogService ?? throw new ArgumentNullException(nameof(duplicateMaintenanceDialogService)),
             showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)),
@@ -692,6 +696,7 @@ internal sealed class MainWindowChildComposition
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,
+            ChartMutationActivity,
             PlaybackPanel,
             selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)));
         SelectedChartExternalActions = new SelectedChartExternalActionWorkflowOwner(
@@ -723,6 +728,8 @@ internal sealed class MainWindowChildComposition
     internal PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
 
     internal OperationProgressHubViewModel ProgressHub { get; }
+
+    internal ChartMutationActivityOwner ChartMutationActivity { get; }
 
     internal PlaybackPanelViewModel PlaybackPanel { get; }
 

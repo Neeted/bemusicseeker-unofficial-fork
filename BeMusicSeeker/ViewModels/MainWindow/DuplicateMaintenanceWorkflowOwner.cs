@@ -17,16 +17,6 @@ internal abstract class DuplicateMaintenanceWorkflowChangedEventArgs : EventArgs
 {
 }
 
-internal sealed class DuplicateMaintenanceActivityChangedEventArgs : DuplicateMaintenanceWorkflowChangedEventArgs
-{
-    internal DuplicateMaintenanceActivityChangedEventArgs(bool isActive)
-    {
-        IsActive = isActive;
-    }
-
-    internal bool IsActive { get; }
-}
-
 internal sealed class DuplicateMaintenanceRefreshSuppressionChangedEventArgs : DuplicateMaintenanceWorkflowChangedEventArgs
 {
     internal DuplicateMaintenanceRefreshSuppressionChangedEventArgs(bool isSuppressed)
@@ -144,6 +134,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
+    private readonly ChartMutationActivityOwner chartMutationActivity;
     private readonly IDuplicateMaintenancePlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly Func<bool> showConfirmationProvider;
@@ -159,6 +150,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
+        ChartMutationActivityOwner chartMutationActivity,
         IDuplicateMaintenancePlaybackPort playback,
         IUiDialogService dialogs,
         Func<bool> showConfirmationProvider,
@@ -169,6 +161,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
+        this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.showConfirmationProvider = showConfirmationProvider ?? throw new ArgumentNullException(nameof(showConfirmationProvider));
@@ -507,7 +500,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         BMSLibrary library = null;
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable operationGate = null;
-        bool activityStarted = false;
+        IDisposable activityLease = null;
         bool suppressionStarted = false;
         bool refreshPriorityStarted = false;
         try
@@ -520,8 +513,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                     new InvalidOperationException("Duplicate maintenance library is not available."));
             }
             dialogScope = library.BeginOperationDialogScope();
-            PublishActivityChanged(isActive: true);
-            activityStarted = true;
+            activityLease = chartMutationActivity.Enter();
             operationGate = chartFileOperations.Enter();
             stopPlayback();
             PublishRefreshSuppressionChanged(isSuppressed: true);
@@ -555,11 +547,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 CaptureCleanupFailure(operationGate.Dispose, failures);
             }
-            if (activityStarted)
+            if (activityLease != null)
             {
-                CaptureCleanupFailure(
-                    () => PublishActivityChanged(isActive: false),
-                    failures);
+                CaptureCleanupFailure(activityLease.Dispose, failures);
             }
             if (dialogScope != null)
             {
@@ -577,13 +567,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 ? failures[0].SourceException
                 : new AggregateException(failures.Select(failure => failure.SourceException)),
             removedChartCount);
-    }
-
-    private void PublishActivityChanged(bool isActive)
-    {
-        WorkflowChanged?.Invoke(
-            this,
-            new DuplicateMaintenanceActivityChangedEventArgs(isActive));
     }
 
     private void PublishRefreshSuppressionChanged(bool isSuppressed)

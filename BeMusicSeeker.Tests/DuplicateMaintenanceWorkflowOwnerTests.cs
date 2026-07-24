@@ -282,9 +282,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Func<DuplicateGroup, string>? duplicateGroupNextHeaderProvider = null,
         bool showConfirmation = true)
     {
+        ChartMutationActivityOwner activity = new();
         var owner = new DuplicateMaintenanceWorkflowOwner(
             CreateLibrary,
             new ChartFileOperationSynchronizer(),
+            activity,
             presentation,
             dialogs,
             () => showConfirmation,
@@ -293,6 +295,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             duplicateGroupNextHeaderProvider ?? (_ => (string)null!),
             store);
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
+        activity.ActivityChanged += presentation.OnActivityChanged;
         return owner;
     }
 
@@ -341,19 +344,22 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         internal Exception? EndActivityFailure { get; set; }
 
+        internal void OnActivityChanged(object sender, EventArgs e)
+        {
+            var activity = (ChartMutationActivityOwner)sender;
+            events.Add(activity.IsActive ? "activity-start" : "activity-end");
+            if (!activity.IsActive && EndActivityFailure != null)
+            {
+                throw EndActivityFailure;
+            }
+        }
+
         internal void OnWorkflowChanged(
             object sender,
             DuplicateMaintenanceWorkflowChangedEventArgs e)
         {
             switch (e)
             {
-                case DuplicateMaintenanceActivityChangedEventArgs activityChanged:
-                    events.Add(activityChanged.IsActive ? "activity-start" : "activity-end");
-                    if (!activityChanged.IsActive && EndActivityFailure != null)
-                    {
-                        throw EndActivityFailure;
-                    }
-                    break;
                 case DuplicateMaintenanceRefreshSuppressionChangedEventArgs suppressionChanged:
                     events.Add(suppressionChanged.IsSuppressed ? "suppression-start" : "suppression-end");
                     break;

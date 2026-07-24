@@ -11,10 +11,8 @@ namespace BeMusicSeeker.ViewModels;
 
 internal enum PackageCatalogMutationPhase
 {
-    ActivityStarted,
     RefreshSuppressionStarted,
-    RefreshSuppressionEnded,
-    ActivityEnded
+    RefreshSuppressionEnded
 }
 
 internal sealed class PackageCatalogMutationPhaseEventArgs : EventArgs
@@ -82,6 +80,7 @@ internal sealed class PackageCatalogWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
+    private readonly ChartMutationActivityOwner chartMutationActivity;
     private readonly IUiDialogService dialogs;
     private readonly IPackageCatalogStore store;
 
@@ -90,11 +89,13 @@ internal sealed class PackageCatalogWorkflowOwner
     internal PackageCatalogWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
+        ChartMutationActivityOwner chartMutationActivity,
         IUiDialogService dialogs,
         IPackageCatalogStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
+        this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.store = store ?? new BmsLibraryPackageCatalogStore();
     }
@@ -173,14 +174,13 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable operationGate = null;
-        bool activityStarted = false;
+        IDisposable activityLease = null;
         bool suppressionStarted = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
             dialogScope = library.BeginOperationDialogScope();
-            activityStarted = true;
-            PublishMutationPhase(PackageCatalogMutationPhase.ActivityStarted);
+            activityLease = chartMutationActivity.Enter();
             operationGate = chartFileOperations.Enter();
             suppressionStarted = true;
             PublishMutationPhase(PackageCatalogMutationPhase.RefreshSuppressionStarted);
@@ -202,11 +202,9 @@ internal sealed class PackageCatalogWorkflowOwner
             {
                 CaptureCleanupFailure(operationGate.Dispose, failures);
             }
-            if (activityStarted)
+            if (activityLease != null)
             {
-                CaptureCleanupFailure(
-                    () => PublishMutationPhase(PackageCatalogMutationPhase.ActivityEnded),
-                    failures);
+                CaptureCleanupFailure(activityLease.Dispose, failures);
             }
             if (dialogScope != null)
             {

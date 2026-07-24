@@ -54,6 +54,8 @@ public partial class MainWindowViewModel : ViewModel,
     /// </summary>
     public OperationProgressHubViewModel ProgressHub { get; }
 
+    internal ChartMutationActivityOwner ChartMutationActivity { get; private set; }
+
     /// <summary>
     /// Gets the composed package-install workflow that owns dropped and playlist-url ingress.
     /// </summary>
@@ -499,8 +501,6 @@ public partial class MainWindowViewModel : ViewModel,
     private readonly ChartFileOperationSynchronizer chartFileOperations = new();
 
     private readonly SemaphoreSlim packageInstallLibraryGate = new(1, 1);
-
-    private int chartPackageMutationDepth;
 
     private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.MainWindowViewModel");
 
@@ -1816,51 +1816,17 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void BeginChartPackageMutation()
-    {
-        if (Interlocked.Increment(ref chartPackageMutationDepth) == 1)
-        {
-            RaisePropertyChanged(() => IsChartPackageMutationInProgress);
-            RaisePropertyChanged(() => IsLibraryOperationInProgress);
-            RaiseLibraryOperationAvailabilityChanged();
-        }
-    }
-
-    private void EndChartPackageMutation()
-    {
-        int depth = Interlocked.Decrement(ref chartPackageMutationDepth);
-        if (depth == 0)
-        {
-            RaisePropertyChanged(() => IsChartPackageMutationInProgress);
-            RaisePropertyChanged(() => IsLibraryOperationInProgress);
-            RaiseLibraryOperationAvailabilityChanged();
-        }
-        else if (depth < 0)
-        {
-            Interlocked.Exchange(ref chartPackageMutationDepth, 0);
-            RaisePropertyChanged(() => IsChartPackageMutationInProgress);
-            RaisePropertyChanged(() => IsLibraryOperationInProgress);
-            RaiseLibraryOperationAvailabilityChanged();
-        }
-    }
-
     private void PackageCatalogMutationPhasePublished(
         object sender,
         PackageCatalogMutationPhaseEventArgs e)
     {
         switch (e.Phase)
         {
-            case PackageCatalogMutationPhase.ActivityStarted:
-                BeginChartPackageMutation();
-                break;
             case PackageCatalogMutationPhase.RefreshSuppressionStarted:
                 BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
                 break;
             case PackageCatalogMutationPhase.RefreshSuppressionEnded:
                 EndUiUpdateSuppression();
-                break;
-            case PackageCatalogMutationPhase.ActivityEnded:
-                EndChartPackageMutation();
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(e.Phase), e.Phase, "Unsupported package catalog mutation phase.");
@@ -1873,16 +1839,6 @@ public partial class MainWindowViewModel : ViewModel,
     {
         switch (e)
         {
-            case DuplicateMaintenanceActivityChangedEventArgs activityChanged:
-                if (activityChanged.IsActive)
-                {
-                    BeginChartPackageMutation();
-                }
-                else
-                {
-                    EndChartPackageMutation();
-                }
-                break;
             case DuplicateMaintenanceRefreshSuppressionChangedEventArgs suppressionChanged:
                 if (suppressionChanged.IsSuppressed)
                 {
@@ -1922,16 +1878,6 @@ public partial class MainWindowViewModel : ViewModel,
     {
         switch (e)
         {
-            case SelectedChartMutationActivityChangedEventArgs activityChanged:
-                if (activityChanged.IsActive)
-                {
-                    BeginChartPackageMutation();
-                }
-                else
-                {
-                    EndChartPackageMutation();
-                }
-                break;
             case SelectedChartMutationRefreshSuppressionChangedEventArgs suppressionChanged:
                 if (!suppressionChanged.IsSuppressed)
                 {
@@ -1981,16 +1927,6 @@ public partial class MainWindowViewModel : ViewModel,
     {
         switch (e)
         {
-            case PendingPackageActivityChangedEventArgs activityChanged:
-                if (activityChanged.IsActive)
-                {
-                    BeginChartPackageMutation();
-                }
-                else
-                {
-                    EndChartPackageMutation();
-                }
-                break;
             case PendingPackageRefreshSuppressionChangedEventArgs suppressionChanged:
                 if (!suppressionChanged.IsSuppressed)
                 {
@@ -2060,12 +1996,11 @@ public partial class MainWindowViewModel : ViewModel,
             return;
         }
         BMSLibrary.OperationDialogScope dialogScope = null;
-        bool mutationStarted = false;
+        IDisposable mutationActivityLease = null;
         try
         {
             dialogScope = files?.BeginOperationDialogScope();
-            mutationStarted = true;
-            BeginChartPackageMutation();
+            mutationActivityLease = ChartMutationActivity.Enter();
             using (chartFileOperations.Enter())
             {
                 if (stopPlayback != null)
@@ -2104,10 +2039,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         finally
         {
-            if (mutationStarted)
-            {
-                EndChartPackageMutation();
-            }
+            mutationActivityLease?.Dispose();
             dialogScope?.Dispose();
             dialogScope?.Flush();
         }
@@ -2132,12 +2064,11 @@ public partial class MainWindowViewModel : ViewModel,
         }
         T result = default;
         BMSLibrary.OperationDialogScope dialogScope = null;
-        bool mutationStarted = false;
+        IDisposable mutationActivityLease = null;
         try
         {
             dialogScope = files?.BeginOperationDialogScope();
-            mutationStarted = true;
-            BeginChartPackageMutation();
+            mutationActivityLease = ChartMutationActivity.Enter();
             using (chartFileOperations.Enter())
             {
                 if (stopPlayback != null)
@@ -2176,10 +2107,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         finally
         {
-            if (mutationStarted)
-            {
-                EndChartPackageMutation();
-            }
+            mutationActivityLease?.Dispose();
             dialogScope?.Dispose();
             dialogScope?.Flush();
         }
@@ -2710,11 +2638,15 @@ public partial class MainWindowViewModel : ViewModel,
             return startupProgressWorkflowOwner.IsStartupUiInteractionBlocked
                 || (startupProgressWorkflowOwner.IsOperationActive
                     && (!startupProgressWorkflowOwner.IsFailed || !startupProgressWorkflowOwner.IsRetryableFailure))
-                || IsChartPackageMutationInProgress;
+                || ChartMutationActivity.IsActive;
         }
     }
 
-    public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
+    private void ChartMutationActivityChanged(object sender, EventArgs e)
+    {
+        RaisePropertyChanged(() => IsLibraryOperationInProgress);
+        RaiseLibraryOperationAvailabilityChanged();
+    }
 
     private void RaiseLibraryOperationAvailabilityChanged()
         => libraryOperationAvailabilityChanged?.Invoke(this, EventArgs.Empty);
@@ -2951,6 +2883,8 @@ public partial class MainWindowViewModel : ViewModel,
             libraryFolderTreeLog: LogUiSuppression,
             libraryFolderTreeLogWarning: LogUiSuppressionWarning);
         ProgressHub = childComposition.ProgressHub;
+        ChartMutationActivity = childComposition.ChartMutationActivity;
+        ChartMutationActivity.ActivityChanged += ChartMutationActivityChanged;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
         LibraryFolderTree = childComposition.LibraryFolderTree;

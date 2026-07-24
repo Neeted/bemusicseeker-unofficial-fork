@@ -269,12 +269,15 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var events = new List<string>();
         var store = new RecordingStore(events);
         var phaseObserver = new RecordingPhaseObserver(events);
+        ChartMutationActivityOwner activity = new();
         var owner = new PackageCatalogWorkflowOwner(
             CreateLibrary,
             synchronizer,
+            activity,
             AcceptedDialogs(),
             store);
         owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
+        activity.ActivityChanged += phaseObserver.OnActivityChanged;
         using var gateHeld = new ManualResetEventSlim();
         using var releaseGate = new ManualResetEventSlim();
         var gateThread = new Thread(() =>
@@ -316,12 +319,15 @@ public sealed class PackageCatalogWorkflowOwnerTests
         RecordingPhaseObserver? phaseObserver = null)
     {
         phaseObserver ??= new RecordingPhaseObserver(events);
+        ChartMutationActivityOwner activity = new();
         var owner = new PackageCatalogWorkflowOwner(
             libraryProvider,
             new ChartFileOperationSynchronizer(),
+            activity,
             dialogs,
             store);
         owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
+        activity.ActivityChanged += phaseObserver.OnActivityChanged;
         return owner;
     }
 
@@ -365,25 +371,28 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
         internal Task ActivityStarted => activityStarted.Task;
 
+        internal void OnActivityChanged(object sender, EventArgs e)
+        {
+            var activity = (ChartMutationActivityOwner)sender;
+            events.Add(activity.IsActive ? "activity-start" : "activity-end");
+            if (activity.IsActive)
+            {
+                activityStarted.TrySetResult(true);
+            }
+            if (!activity.IsActive && EndActivityFailure != null)
+            {
+                throw EndActivityFailure;
+            }
+        }
+
         internal void OnPhasePublished(object sender, PackageCatalogMutationPhaseEventArgs e)
         {
             events.Add(e.Phase switch
             {
-                PackageCatalogMutationPhase.ActivityStarted => "activity-start",
                 PackageCatalogMutationPhase.RefreshSuppressionStarted => "suppression-start",
                 PackageCatalogMutationPhase.RefreshSuppressionEnded => "suppression-end",
-                PackageCatalogMutationPhase.ActivityEnded => "activity-end",
                 _ => throw new ArgumentOutOfRangeException(nameof(e.Phase), e.Phase, "Unsupported package catalog mutation phase.")
             });
-            if (e.Phase == PackageCatalogMutationPhase.ActivityStarted)
-            {
-                activityStarted.TrySetResult(true);
-            }
-            if (e.Phase == PackageCatalogMutationPhase.ActivityEnded
-                && EndActivityFailure != null)
-            {
-                throw EndActivityFailure;
-            }
         }
     }
 
