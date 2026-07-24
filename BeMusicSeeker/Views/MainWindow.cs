@@ -304,6 +304,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
         viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += MainWindow_PlaylistPropertyExternalSyncFailed;
         viewModel.PlaylistWorkspace.PlaylistSyncProgressChanged += MainWindow_PlaylistSyncProgressChanged;
+        viewModel.PlaylistWorkspace.MutationRejected += MainWindow_PlaylistWorkspaceMutationRejected;
+        viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested += MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;
+        viewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
         viewModel.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
         viewModel.PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
         viewModel.PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
@@ -336,6 +339,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested -= MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed -= MainWindow_PlaylistPropertyExternalSyncFailed;
         subscribedViewModel.PlaylistWorkspace.PlaylistSyncProgressChanged -= MainWindow_PlaylistSyncProgressChanged;
+        subscribedViewModel.PlaylistWorkspace.MutationRejected -= MainWindow_PlaylistWorkspaceMutationRejected;
+        subscribedViewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested -= MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;
+        subscribedViewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested -= MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested -= MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
         subscribedViewModel.PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady -= MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
         subscribedViewModel.PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed -= MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
@@ -390,6 +396,48 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ExternalPlaylistImportQueueSummaryReadyEventArgs request)
     {
         ShowExternalPlaylistImportQueueSummary(request?.Summary);
+    }
+
+    private void MainWindow_PlaylistWorkspaceMutationRejected(
+        object sender,
+        PlaylistWorkspaceMutationRejectedEventArgs request)
+    {
+        string message = request.Kind switch
+        {
+            PlaylistWorkspaceMutationKind.RenameFolder => BeMusicSeeker.Properties.Resources.Msg_failed_rename_playlist_folder,
+            PlaylistWorkspaceMutationKind.RemoveFolder => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder,
+            PlaylistWorkspaceMutationKind.CreateFolder => BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder,
+            PlaylistWorkspaceMutationKind.AddEntries => BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry,
+            PlaylistWorkspaceMutationKind.RemoveEntries => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry,
+            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
+        };
+        ShowUiMessage(
+            message,
+            BeMusicSeeker.Properties.Resources.Error,
+            MessageBoxImage.Hand,
+            "playlist mutation rejection notification");
+    }
+
+    private void MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested(
+        object sender,
+        PlaylistRemovalInvalidOutputDirectoryEventArgs request)
+    {
+        ShowUiMessage(
+            BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
+            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
+            MessageBoxImage.Exclamation,
+            request.RouteName);
+    }
+
+    private void MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested(
+        object sender,
+        PlaylistSummaryBulkInvalidOutputDirectoryEventArgs request)
+    {
+        ShowUiMessage(
+            BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
+            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
+            MessageBoxImage.Exclamation,
+            request.RouteName);
     }
 
     private void MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested(
@@ -3726,7 +3774,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// プレイリストルートのコンテキストメニューから「Walkureのおすすめフォルダ」関連のテーブル読み込みが選択された場合の処理。
     /// LR2IDの設定状況のチェックや、更新モード/閲覧モードに応じたユーザー確認ダイアログを挟んだ後、非同期で登録処理へ進みます。
     /// </summary>
-    private void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(object sender, RoutedEventArgs e)
+    private async void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel viewModel
             || viewModel.PlaylistWorkspace == null
@@ -3734,7 +3782,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        viewModel.PlaylistWorkspace.TryEnqueueRecommendedPlaylistImport((string)menuItem.Tag);
+        await viewModel.PlaylistWorkspace
+            .EnqueueRecommendedPlaylistImportAsync((string)menuItem.Tag)
+            .LoggingAndPropagate("treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick");
     }
 
     /// <summary>

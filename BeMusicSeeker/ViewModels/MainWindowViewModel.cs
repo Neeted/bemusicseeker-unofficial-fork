@@ -2687,12 +2687,7 @@ public partial class MainWindowViewModel : ViewModel
             () => DispatcherHelper.UIDispatcher.CheckAccess());
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
-        PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
-        PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested += PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;
-        PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested += PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested;
-        PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested;
-        PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
         PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
@@ -3077,33 +3072,6 @@ public partial class MainWindowViewModel : ViewModel
                 ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
                 : MainViewUpdateMode.PlaylistFilterSelected,
             selection);
-    }
-
-    private static void PlaylistWorkspaceMutationRejected(
-        object sender,
-        PlaylistWorkspaceMutationRejectedEventArgs request)
-    {
-        string message = request.Kind switch
-        {
-            PlaylistWorkspaceMutationKind.RenameFolder => BeMusicSeeker.Properties.Resources.Msg_failed_rename_playlist_folder,
-            PlaylistWorkspaceMutationKind.RemoveFolder => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder,
-            PlaylistWorkspaceMutationKind.CreateFolder => BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder,
-            PlaylistWorkspaceMutationKind.AddEntries => BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry,
-            PlaylistWorkspaceMutationKind.RemoveEntries => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry,
-            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
-        };
-        ShowUiMessage(message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-    }
-
-    private void PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested(
-        object sender,
-        PlaylistSummaryBulkInvalidOutputDirectoryEventArgs request)
-    {
-        ShowUiMessage(
-            BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
-            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
-            MessageBoxImage.Exclamation,
-            request.RouteName);
     }
 
     private void PlaylistWorkspacePlaylistDetailReloadRefreshRequested(object sender, EventArgs e)

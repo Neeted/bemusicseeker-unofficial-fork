@@ -1,14 +1,13 @@
-using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    internal event EventHandler<PlaylistSummaryExternalSyncConfirmationRequestedEventArgs> PlaylistSummaryExternalSyncConfirmationRequested;
-
     internal async Task HandlePlaylistSummaryCellActionAsync(
         IEnumerable<PlaylistSummaryRow> selectedRows,
         PlaylistSummaryRow row,
@@ -78,7 +77,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         switch (columnId)
         {
             case "IsExternalSync":
-                if (!ConfirmPlaylistSummaryExternalSyncChange(value))
+                if (!await ConfirmPlaylistSummaryExternalSyncChangeAsync(value))
                 {
                     return;
                 }
@@ -113,25 +112,19 @@ public sealed partial class PlaylistWorkspaceViewModel
         return actionRows;
     }
 
-    private bool ConfirmPlaylistSummaryExternalSyncChange(bool enable)
+    private Task<bool> ConfirmPlaylistSummaryExternalSyncChangeAsync(bool enable)
     {
-        EventHandler<PlaylistSummaryExternalSyncConfirmationRequestedEventArgs> handler =
-            PlaylistSummaryExternalSyncConfirmationRequested
-            ?? throw new InvalidOperationException("Playlist summary external-sync confirmation is not configured.");
-        var request = new PlaylistSummaryExternalSyncConfirmationRequestedEventArgs(enable);
-        handler(this, request);
-        return request.Confirmed;
+        return ConfirmPlaylistWorkspaceDialogAsync(
+            new UiConfirmationRequest(
+                enable
+                    ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
+                    : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.Cancel),
+            enable
+                ? "Playlist summary sync enable confirmation"
+                : "Playlist summary sync disable confirmation");
     }
-}
-
-internal sealed class PlaylistSummaryExternalSyncConfirmationRequestedEventArgs : EventArgs
-{
-    internal PlaylistSummaryExternalSyncConfirmationRequestedEventArgs(bool enable)
-    {
-        Enable = enable;
-    }
-
-    internal bool Enable { get; }
-
-    internal bool Confirmed { get; set; }
 }

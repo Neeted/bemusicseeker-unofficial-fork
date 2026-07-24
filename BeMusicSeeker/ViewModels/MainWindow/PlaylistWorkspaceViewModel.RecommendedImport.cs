@@ -1,19 +1,20 @@
 using System;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    internal event EventHandler<PlaylistRecommendedTableImportConfirmationRequestedEventArgs> PlaylistRecommendedTableImportConfirmationRequested;
-
     /// <summary>
-    /// Requests shell confirmation for a recommended-table import and enqueues it when approved.
+    /// Confirms and enqueues a recommended-table import.
     /// </summary>
     /// <param name="rawTag">The recommended-table URI stored in the menu item's tag.</param>
     /// <returns><see langword="true"/> when the import was enqueued.</returns>
-    internal bool TryEnqueueRecommendedPlaylistImport(string rawTag)
+    internal async Task<bool> EnqueueRecommendedPlaylistImportAsync(string rawTag)
     {
         if (IsWriteLockHeldBMSTablesInitializeMin)
         {
@@ -23,14 +24,35 @@ public sealed partial class PlaylistWorkspaceViewModel
         Uri uri = new(rawTag);
         BMSLibrary library = getPlaylistLibrary();
         int lr2Id = library?.LR2ID ?? 0;
-        var request = new PlaylistRecommendedTableImportConfirmationRequestedEventArgs(
-            lr2Id,
-            Regex.Match(rawTag, "mode=update").Success);
-        EventHandler<PlaylistRecommendedTableImportConfirmationRequestedEventArgs> handler =
-            PlaylistRecommendedTableImportConfirmationRequested
-            ?? throw new InvalidOperationException("Recommended playlist table import confirmation is not configured.");
-        handler(this, request);
-        if (request.Lr2Id == 0 || !request.Confirmed)
+        if (lr2Id == 0)
+        {
+            await ShowPlaylistWorkspaceMessageAsync(
+                UiMessageRequest.CreateError(
+                    BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_error,
+                    BeMusicSeeker.Properties.Resources.Error),
+                "Playlist recommended table import LR2ID error notification");
+            return false;
+        }
+
+        bool isUpdateMode = Regex.Match(rawTag, "mode=update").Success;
+        bool confirmed = await ConfirmPlaylistWorkspaceDialogAsync(
+            new UiConfirmationRequest(
+                "LR2ID: " + lr2Id + (isUpdateMode
+                    ? BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_update_mode
+                    : BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_readonly_mode),
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.OK),
+            isUpdateMode
+                ? "Playlist recommended table update confirmation"
+                : "Playlist recommended table read-only confirmation");
+        if (!confirmed)
+        {
+            return false;
+        }
+
+        if (IsWriteLockHeldBMSTablesInitializeMin)
         {
             return false;
         }
@@ -38,19 +60,47 @@ public sealed partial class PlaylistWorkspaceViewModel
         EnqueueExternalPlaylistBMSTableImports([uri]);
         return true;
     }
-}
 
-internal sealed class PlaylistRecommendedTableImportConfirmationRequestedEventArgs : EventArgs
-{
-    internal PlaylistRecommendedTableImportConfirmationRequestedEventArgs(int lr2Id, bool isUpdateMode)
+    private async Task<bool> ConfirmPlaylistWorkspaceDialogAsync(
+        UiConfirmationRequest request,
+        string routeName)
     {
-        Lr2Id = lr2Id;
-        IsUpdateMode = isUpdateMode;
+        UiDialogResult result = await playlistWorkspaceDialogService.ConfirmAsync(request)
+            .ConfigureAwait(true);
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " returned no dialog result.");
+        }
+        return result.Status switch
+        {
+            UiDialogStatus.Accepted => true,
+            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
+            UiDialogStatus.ClosedByUser => result.IsPositive,
+            _ => throw new InvalidOperationException(
+                routeName + " could not be displayed (" + result.Status + ").",
+                result.Exception)
+        };
     }
 
-    internal int Lr2Id { get; }
-
-    internal bool IsUpdateMode { get; }
-
-    internal bool Confirmed { get; set; }
+    private async Task ShowPlaylistWorkspaceMessageAsync(
+        UiMessageRequest request,
+        string routeName)
+    {
+        UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(request)
+            .ConfigureAwait(true);
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " returned no dialog result.");
+        }
+        if (result.Status is UiDialogStatus.Accepted
+            or UiDialogStatus.Rejected
+            or UiDialogStatus.CancelledByUser
+            or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+        throw new InvalidOperationException(
+            routeName + " could not be displayed (" + result.Status + ").",
+            result.Exception);
+    }
 }

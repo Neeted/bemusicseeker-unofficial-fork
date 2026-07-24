@@ -244,7 +244,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf("TryResetPlaylistSummaryColumnsToDefault", StringComparison.Ordinal));
         string recommendedImportSource = SourceTextTestHelper.ExtractMethodBody(
             mainWindowSource,
-            "private void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(");
+            "private async void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(");
         Assert.AreEqual(-1, recommendedImportSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
         Assert.AreEqual(-1, recommendedImportSource.IndexOf("Msg_load_recommended_tables_", StringComparison.Ordinal));
         Assert.AreEqual(-1, recommendedImportSource.IndexOf("viewModel.LR2ID", StringComparison.Ordinal));
@@ -252,7 +252,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, recommendedImportSource.IndexOf("new Uri", StringComparison.Ordinal));
         Assert.AreEqual(-1, recommendedImportSource.IndexOf("Regex.Match", StringComparison.Ordinal));
         Assert.AreEqual(-1, recommendedImportSource.IndexOf("EnqueueExternalPlaylistBMSTableImport", StringComparison.Ordinal));
-        StringAssert.Contains(recommendedImportSource, "viewModel.PlaylistWorkspace.TryEnqueueRecommendedPlaylistImport((string)menuItem.Tag);");
+        StringAssert.Contains(recommendedImportSource, "EnqueueRecommendedPlaylistImportAsync((string)menuItem.Tag)");
+        StringAssert.Contains(recommendedImportSource, "LoggingAndPropagate(\"treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick\")");
         StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
         StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
         StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");
@@ -405,16 +406,22 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(levelOverwriteSource, "ReplaceBmsFileLevelByTableEntryLevel(table)");
         Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistSummaryColumnResetConfirmationRequested", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal async Task ResetPlaylistSummaryColumnsToDefaultAsync()");
-        StringAssert.Contains(workspaceSource, "PlaylistRecommendedTableImportConfirmationRequested");
-        StringAssert.Contains(workspaceSource, "internal bool TryEnqueueRecommendedPlaylistImport(string rawTag)");
-        StringAssert.Contains(workspaceSource, "if (request.Lr2Id == 0 || !request.Confirmed)");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistRecommendedTableImportConfirmationRequested", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal async Task<bool> EnqueueRecommendedPlaylistImportAsync(string rawTag)");
+        StringAssert.Contains(workspaceSource, "ShowPlaylistWorkspaceMessageAsync(");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested += PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested += PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.MutationRejected += MainWindow_PlaylistWorkspaceMutationRejected;");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested += MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;");
+        StringAssert.Contains(mainWindowSource, "subscribedViewModel.PlaylistWorkspace.MutationRejected -= MainWindow_PlaylistWorkspaceMutationRejected;");
+        StringAssert.Contains(mainWindowSource, "subscribedViewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested -= MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;");
+        StringAssert.Contains(mainWindowSource, "subscribedViewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested -= MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady +=", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
         Assert.IsFalse(logicalSource.Contains("PlaylistWorkspace.PlaylistImportNotificationsFlushRequested"));
@@ -468,7 +475,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "playlistRestoreUiApplyScheduler(() => RestorePlaylistBackup(playlistDump))");
         Assert.AreEqual(-1, workspaceSource.IndexOf("Application.Current", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("DispatcherHelper", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("MessageBox", StringComparison.Ordinal));
+        Assert.AreEqual(-1, workspaceSource.IndexOf("MessageBox.Show", StringComparison.Ordinal));
         StringAssert.Contains(settingDialogSource, "playlistWorkspace.BackupPlaylistAsync(result.FileName)");
         string restoreHandlerSource = SourceTextTestHelper.ExtractMethodBody(
             settingDialogSource,
@@ -564,8 +571,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal void ApplyPlaylistSummaryBmtOutput(");
         StringAssert.Contains(workspaceSource, "internal async Task ApplyPlaylistSummaryCellActionAsync(");
         StringAssert.Contains(workspaceSource, "internal async Task HandlePlaylistSummaryCellActionAsync(");
-        StringAssert.Contains(workspaceSource, "PlaylistSummaryExternalSyncConfirmationRequested");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested;");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistSummaryExternalSyncConfirmationRequested", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummarySyncFromCustomTableAsync", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummaryRootFromCustomTableAsync", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummaryBmtOutputFromCustomTableAsync", StringComparison.Ordinal));
@@ -2146,15 +2153,12 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryCellActionRequiresExternalSyncConfirmation()
     {
-        var workspace = CreateDetailWorkspace(out _);
-        var table = new BMSTable { is_external_sync = false };
-        bool confirmationRequested = false;
-        workspace.PlaylistSummaryExternalSyncConfirmationRequested += (_, request) =>
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
         {
-            confirmationRequested = true;
-            Assert.IsTrue(request.Enable);
-            request.Confirmed = false;
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
+        var workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
+        var table = new BMSTable { is_external_sync = false };
 
         await workspace.ApplyPlaylistSummaryCellActionAsync(
             [
@@ -2164,7 +2168,85 @@ public sealed class PlaylistWorkspaceViewModelTests
             "IsExternalSync",
             value: true);
 
-        Assert.IsTrue(confirmationRequested);
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges,
+            dialogs.LastConfirmationRequest.MessageBoxText);
+        Assert.IsFalse(table.is_external_sync);
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryCellActionAcceptsDisableConfirmationAndMutatesTable()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher)
+            };
+            var table = new BMSTable
+            {
+                name = "Summary table",
+                Output_dir = "Summary table",
+                is_external_sync = true,
+                Folder_order = []
+            };
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistWorkspaceDialogService: dialogs);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+
+            await workspace.ApplyPlaylistSummaryCellActionAsync(
+                [new PlaylistSummaryRow { TableRef = table }],
+                "IsExternalSync",
+                value: false);
+
+            Assert.IsNotNull(dialogs.LastConfirmationRequest);
+            Assert.AreEqual(
+                BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
+                dialogs.LastConfirmationRequest.MessageBoxText);
+            Assert.IsFalse(table.is_external_sync);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryCellActionPropagatesDialogFailureWithoutMutation()
+    {
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable)
+        };
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistStoreProvider: () => new BMSPlaylist(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))),
+            playlistWorkspaceDialogService: dialogs);
+        var table = new BMSTable { is_external_sync = false };
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => workspace.ApplyPlaylistSummaryCellActionAsync(
+                [new PlaylistSummaryRow { TableRef = table }],
+                "IsExternalSync",
+                value: true));
+
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
         Assert.IsFalse(table.is_external_sync);
     }
 
@@ -2347,7 +2429,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void PlaylistWorkspaceRecommendedImportConfirmationPreservesModeAndRejectsMissingLr2Id()
+    public async Task PlaylistWorkspaceRecommendedImportShowsMissingLr2IdMessageWithoutEnqueueing()
     {
         string databasePath = Path.Combine(
             Path.GetTempPath(),
@@ -2364,21 +2446,188 @@ public sealed class PlaylistWorkspaceViewModelTests
                     new ObservableCollection<BMSTable>(),
                     System.Windows.Threading.Dispatcher.CurrentDispatcher)
             };
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
-                playlistStoreProvider: () => playlist);
-            var requests = new List<(int Lr2Id, bool IsUpdateMode)>();
-            workspace.PlaylistRecommendedTableImportConfirmationRequested += (_, request) =>
-            {
-                requests.Add((request.Lr2Id, request.IsUpdateMode));
-                request.Confirmed = true;
-            };
+                playlistStoreProvider: () => playlist,
+                playlistWorkspaceDialogService: dialogs);
 
-            Assert.IsFalse(workspace.TryEnqueueRecommendedPlaylistImport(
+            Assert.IsFalse(await workspace.EnqueueRecommendedPlaylistImportAsync(
                 "https://example.test/recommended?mode=update"));
-            Assert.IsFalse(workspace.TryEnqueueRecommendedPlaylistImport(
-                "https://example.test/recommended?mode=readonly"));
-            CollectionAssert.AreEqual(new[] { (0, true), (0, false) }, requests);
+            Assert.IsNotNull(dialogs.LastMessageRequest);
+            Assert.AreEqual(
+                BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_error,
+                dialogs.LastMessageRequest.MessageBoxText);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task PlaylistWorkspaceRecommendedImportAcceptsConfirmationAndEnqueues()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher)
+            };
+            BMSLibrary library = new(databasePath);
+            typeof(BMSLibrary)
+                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(library, 123);
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                playlistWorkspaceDialogService: dialogs);
+            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
+                summaryReady.TrySetResult(request.Summary);
+
+            Assert.IsTrue(await workspace.EnqueueRecommendedPlaylistImportAsync(
+                "bmseeker:table.unsupported?mode=readonly"));
+            Assert.IsNotNull(dialogs.LastConfirmationRequest);
+            Task completed = await Task.WhenAny(
+                summaryReady.Task,
+                Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+            Assert.AreSame(summaryReady.Task, completed);
+            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task.ConfigureAwait(false);
+            Assert.AreEqual(1, summary.FailedCount);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceRecommendedImportRejectsOrCancelsAfterShowingValidConfirmation()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            BMSLibrary library = new(databasePath);
+            typeof(BMSLibrary)
+                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(library, 123);
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher)
+            };
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                playlistWorkspaceDialogService: dialogs);
+
+            Assert.IsFalse(await workspace.EnqueueRecommendedPlaylistImportAsync(
+                "bmseeker:table.recommended?mode=update"));
+            dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
+            Assert.IsFalse(await workspace.EnqueueRecommendedPlaylistImportAsync(
+                "bmseeker:table.recommended?mode=update"));
+            IDisposable? initializationGuard = null;
+            dialogs.ConfirmationFactory = _ =>
+            {
+                object initializationLock = typeof(BMSPlaylist)
+                    .GetField("rwlockBMSTablesInitializeMin", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .GetValue(playlist)!;
+                initializationGuard = (IDisposable)initializationLock
+                    .GetType()
+                    .GetMethod("GetWriterGuard", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+                    .Invoke(initializationLock, null)!;
+                return UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+            };
+            try
+            {
+                Assert.IsFalse(await workspace.EnqueueRecommendedPlaylistImportAsync(
+                    "bmseeker:table.recommended?mode=update"));
+            }
+            finally
+            {
+                initializationGuard?.Dispose();
+            }
+            Assert.IsNotNull(dialogs.LastConfirmationRequest);
+            StringAssert.Contains(
+                dialogs.LastConfirmationRequest.MessageBoxText,
+                "LR2ID: 123");
+            StringAssert.Contains(
+                dialogs.LastConfirmationRequest.MessageBoxText,
+                BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_update_mode);
+            Assert.AreEqual(MessageBoxButton.OKCancel, dialogs.LastConfirmationRequest.Button);
+            Assert.AreEqual(MessageBoxResult.OK, dialogs.LastConfirmationRequest.DefaultResult);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceRecommendedImportPropagatesUnavailableConfirmation()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            BMSLibrary library = new(databasePath);
+            typeof(BMSLibrary)
+                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(library, 123);
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher)
+            };
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                playlistWorkspaceDialogService: dialogs);
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => workspace.EnqueueRecommendedPlaylistImportAsync(
+                    "bmseeker:table.recommended?mode=readonly"));
+            Assert.IsNotNull(dialogs.LastConfirmationRequest);
         }
         finally
         {
