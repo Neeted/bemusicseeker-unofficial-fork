@@ -92,7 +92,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             reloadSettings: () => { },
             saveSettings: () => { },
             settingsEditSession: SettingsEditSession.CreateDefault(),
-            reloadScoresOnly: () => Task.CompletedTask,
             reloadFileDiff: () => Task.CompletedTask,
             schemaDialogs: dialogs);
         owner.SetStartupUiInteractionBlocked(true);
@@ -127,9 +126,17 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 SelectedUninstallMode = Lr2PlayHistorySchemaUninstallMode.TriggersOnly
             };
             int reloadCount = 0;
+            var statePort = new TestSettingsDialogStatePort(
+                owner,
+                () => Task.FromResult(true),
+                reloadScoresOnly: () =>
+                {
+                    reloadCount++;
+                    return Task.CompletedTask;
+                });
             var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
-            owner,
+            statePort,
             new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -141,11 +148,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
-                reloadScoresOnly: () =>
-                {
-                    reloadCount++;
-                    return Task.CompletedTask;
-                },
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
@@ -193,9 +195,17 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 SelectedUninstallMode = Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers
             };
             int reloadCount = 0;
+            var statePort = new TestSettingsDialogStatePort(
+                owner,
+                () => Task.FromResult(true),
+                reloadScoresOnly: () =>
+                {
+                    reloadCount++;
+                    return Task.CompletedTask;
+                });
             var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
-            owner,
+            statePort,
             new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -207,11 +217,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
-                reloadScoresOnly: () =>
-                {
-                    reloadCount++;
-                    return Task.CompletedTask;
-                },
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
@@ -253,9 +258,17 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var owner = MainWindowViewModelTestFactory.Create();
             var dialogs = new RecordingUiDialogService { AcceptUninstall = false };
             int reloadCount = 0;
+            var statePort = new TestSettingsDialogStatePort(
+                owner,
+                () => Task.FromResult(true),
+                reloadScoresOnly: () =>
+                {
+                    reloadCount++;
+                    return Task.CompletedTask;
+                });
             var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
-            owner,
+            statePort,
             new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -267,11 +280,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 reloadSettings: () => { },
                 saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
-                reloadScoresOnly: () =>
-                {
-                    reloadCount++;
-                    return Task.CompletedTask;
-                },
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);

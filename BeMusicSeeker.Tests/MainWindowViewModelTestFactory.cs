@@ -41,17 +41,20 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 {
     private readonly MainWindowViewModel owner;
     private readonly Func<Task<bool>> initializeLibrary;
+    private readonly Func<Task> reloadScoresOnly;
     private readonly Action? initializationFailed;
 
     internal TestSettingsDialogStatePort(
         MainWindowViewModel owner,
         Func<Task<bool>> initializeLibrary,
-        Action? initializationFailed = null)
+        Action? initializationFailed = null,
+        Func<Task>? reloadScoresOnly = null)
     {
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         this.initializeLibrary = initializeLibrary
             ?? throw new ArgumentNullException(nameof(initializeLibrary));
         this.initializationFailed = initializationFailed;
+        this.reloadScoresOnly = reloadScoresOnly ?? (() => Task.CompletedTask);
     }
 
     public bool HasActiveLibraryProfile => owner.HasActiveLibraryProfile;
@@ -67,6 +70,8 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
         }
         return initialized;
     }
+
+    public Task ReloadScoresOnlyAsync() => reloadScoresOnly();
 
     public void SubscribeStateChanges(PropertyChangedEventHandler handler)
         => owner.PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));

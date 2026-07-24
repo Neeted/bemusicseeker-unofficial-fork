@@ -140,7 +140,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () =>
                 {
                     reloadCount++;
@@ -197,7 +196,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
@@ -239,7 +237,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
@@ -280,7 +277,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
@@ -358,7 +354,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () =>
                 {
                     reloadCount++;
@@ -553,7 +548,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
 
@@ -619,7 +613,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
@@ -926,7 +919,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadScoresOnly: () => Task.CompletedTask,
                 reloadFileDiff: () => Task.CompletedTask,
                 audioDeviceTestWorkflow: workflow);
             var presentation = new RecordingSettingsDialogPresentationPort();
@@ -1011,19 +1003,14 @@ public sealed class SettingDialogEditCompletionTests
                 var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
                 using var reloadStarted = new ManualResetEventSlim();
                 var reloadRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                MainWindowViewModel viewModel = new ApplicationComposition(
-                    firstStartupProvider: () => false,
-                    completeFirstStartup: () => { },
-                    reloadSettings: settingsSession.Reload,
-                    saveSettings: settingsSession.Save,
-                    settingsEditSession: settingsSession,
+                MainWindowViewModel viewModel = CreateViewModel(
+                    settingsSession,
+                    firstStartup: false,
                     reloadScoresOnly: _ =>
                     {
                         reloadStarted.Set();
                         return reloadRelease.Task;
-                    },
-                    uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
-                    .CreateMainWindowViewModel();
+                    });
                 SetActiveLibraryProfile(viewModel, true);
                 SettingsDialogViewModel settingDialogViewModel = viewModel.SettingDialog;
                 settingDialogViewModel.BeatorajaPlayerId = "player2";
@@ -1562,22 +1549,26 @@ public sealed class SettingDialogEditCompletionTests
             reloadSettings: settingsSession.Reload,
             saveSettings: settingsSession.Save,
             settingsEditSession: settingsSession,
-            reloadScoresOnly: reloadScoresOnly,
             reportSettingsApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
             reloadFileDiff: reloadFileDiff,
             uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-        if (initializeOwner != null)
+        if (initializeOwner != null || reloadScoresOnly != null)
         {
             SettingsDialogViewModel testDialog = new(
                 new TestSettingsDialogStatePort(
                     viewModel,
-                    () => initializeOwner(viewModel),
+                    initializeOwner == null
+                        ? () => viewModel.InitializeAsync()
+                        : () => initializeOwner(viewModel),
                     () =>
                     {
                         SetPrivateField(viewModel, "initializationCompleted", false);
                         SetPrivateField(viewModel, "hasActiveLibraryProfile", false);
-                    }),
+                    },
+                    reloadScoresOnly: reloadScoresOnly == null
+                        ? () => Task.CompletedTask
+                        : () => reloadScoresOnly(viewModel)),
                 new TestFirstStartupStatePort(firstStartup),
                 viewModel.PlaylistWorkspace,
                 viewModel.PlaylistWorkspace,
@@ -1589,9 +1580,6 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession.Reload,
                 settingsSession.Save,
                 settingsSession,
-                reloadScoresOnly: reloadScoresOnly == null
-                    ? () => Task.CompletedTask
-                    : () => reloadScoresOnly(viewModel),
                 reloadFileDiff: reloadFileDiff == null
                     ? () => Task.CompletedTask
                     : () => reloadFileDiff(viewModel),
@@ -1632,7 +1620,6 @@ public sealed class SettingDialogEditCompletionTests
             settingsSession.Reload,
             settingsSession.Save,
             settingsSession,
-            reloadScoresOnly: () => Task.CompletedTask,
             reloadFileDiff: reloadFileDiff,
             schemaDialogs: dialogs);
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);

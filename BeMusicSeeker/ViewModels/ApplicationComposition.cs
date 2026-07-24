@@ -58,8 +58,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly Func<IBMSPlayer> defaultBmsPlayerFactory;
 
-    private readonly Func<MainWindowViewModel, Task> reloadScoresOnly;
-
     private readonly Func<MainWindowViewModel, Task> reloadFileDiff;
 
     private readonly Action<Exception> reportSettingsApplyFailure;
@@ -85,7 +83,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         ISettingsEditSession settingsEditSession = null,
         Func<IBMSPlayer> defaultBmsPlayerFactory = null,
         Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider = null,
-        Func<MainWindowViewModel, Task> reloadScoresOnly = null,
         Action<Exception> reportSettingsApplyFailure = null,
         Func<MainWindowViewModel, Task> reloadFileDiff = null,
         IUiDialogService playlistWorkspaceDialogService = null,
@@ -96,7 +93,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
             ?? (() => new InternalBMSAutoPlayerSoundOnly());
-        this.reloadScoresOnly = reloadScoresOnly;
         this.reloadFileDiff = reloadFileDiff;
         this.uiDispatcherProvider = uiDispatcherProvider
             ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
@@ -155,9 +151,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     internal Action ReloadSettings => reloadSettings;
 
     internal Action SaveSettings => saveSettings;
-
-    internal Func<MainWindowViewModel, Task> ReloadScoresOnly =>
-        reloadScoresOnly ?? (owner => owner.ReloadScoresOnlyAsync());
 
     internal Func<MainWindowViewModel, Task> ReloadFileDiff =>
         reloadFileDiff ?? (owner => owner.ReloadFileDiffAsync());
@@ -291,7 +284,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         ISettingsDialogPlayerFactoryPort playerFactoryPort,
         ISettingsDialogPlaybackRuntimePort playbackRuntimePort,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
-        Func<Task> reloadScoresOnly,
         Func<Task> reloadFileDiff)
     {
         IUiDialogService schemaDialogs = new UiDialogCoordinator();
@@ -308,7 +300,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             reloadSettings,
             saveSettings,
             settingsEditSession,
-            reloadScoresOnly,
             reloadFileDiff,
             playHistoryDisplaySettingsStore,
             reportSettingsApplyFailure,

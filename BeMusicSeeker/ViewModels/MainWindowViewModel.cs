@@ -186,6 +186,9 @@ public partial class MainWindowViewModel : ViewModel,
     Task<bool> ISettingsDialogStatePort.InitializeLibraryAsync()
         => InitializeAsync();
 
+    Task ISettingsDialogStatePort.ReloadScoresOnlyAsync()
+        => ReloadScoresOnlyAsync();
+
     void ISettingsDialogStatePort.SubscribeStateChanges(PropertyChangedEventHandler handler)
         => PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
 
@@ -3081,7 +3084,6 @@ public partial class MainWindowViewModel : ViewModel,
             playerFactoryPort: applicationComposition,
             playbackRuntimePort: PlaybackPanel,
             lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
-            reloadScoresOnly: () => applicationComposition.ReloadScoresOnly(this),
             reloadFileDiff: () => applicationComposition.ReloadFileDiff(this));
     }
 

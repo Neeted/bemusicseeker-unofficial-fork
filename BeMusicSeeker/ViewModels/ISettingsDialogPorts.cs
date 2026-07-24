@@ -14,6 +14,8 @@ internal interface ISettingsDialogStatePort
 
     Task<bool> InitializeLibraryAsync();
 
+    Task ReloadScoresOnlyAsync();
+
     void SubscribeStateChanges(PropertyChangedEventHandler handler);
 
     void UnsubscribeStateChanges(PropertyChangedEventHandler handler);
