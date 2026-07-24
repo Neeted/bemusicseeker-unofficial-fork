@@ -540,8 +540,10 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string source = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
-        StringAssert.Contains(source, "this.reloadSettings();");
-        StringAssert.Contains(source, "saveSettings();");
+        StringAssert.Contains(source, "this.settingsEditSession.Reload();");
+        StringAssert.Contains(source, "settingsEditSession.Save();");
+        Assert.IsFalse(source.Contains("reloadSettings"));
+        Assert.IsFalse(source.Contains("saveSettings"));
         Assert.IsFalse(source.Contains("Settings.Default.Reload();"));
         Assert.IsFalse(source.Contains("Settings.Default.Save();"));
     }
@@ -567,6 +569,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
 
         StringAssert.Contains(settingDialogSource, "private readonly ISettingsEditSession settingsEditSession;");
         StringAssert.Contains(settingDialogSource, "private Settings ApplicationSettings => settingsEditSession.Values;");
+        Assert.IsFalse(settingDialogSource.Contains("private readonly Action reloadSettings"));
+        Assert.IsFalse(settingDialogSource.Contains("private readonly Action saveSettings"));
         Assert.IsFalse(settingDialogOwnerSource.Contains("Settings.Default."));
         StringAssert.Contains(mainWindowSource, "statePort: this,");
         StringAssert.Contains(mainWindowSource, "workspacePort: PlaylistWorkspace,");
@@ -589,10 +593,14 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(compositionSource.Contains("Func<MainWindowViewModel, Task<bool>> initializeOwner"));
         Assert.IsFalse(compositionSource.Contains("Func<MainWindowViewModel, Task> reloadScoresOnly"));
         Assert.IsFalse(compositionSource.Contains("Func<MainWindowViewModel, Task> reloadFileDiff"));
+        Assert.IsFalse(compositionSource.Contains("reloadSettings"));
+        Assert.IsFalse(compositionSource.Contains("saveSettings"));
         StringAssert.Contains(mainWindowSource, "Task<bool> ISettingsDialogStatePort.InitializeLibraryAsync()");
         StringAssert.Contains(mainWindowSource, "Task ISettingsDialogStatePort.ReloadScoresOnlyAsync()");
         StringAssert.Contains(mainWindowSource, "Task ISettingsDialogStatePort.ReloadFileDiffAsync()");
         StringAssert.Contains(mainWindowSource, "event EventHandler ISettingsDialogStatePort.LibraryOperationAvailabilityChanged");
+        Assert.IsFalse(mainWindowSource.Contains("private readonly Action reloadSettings"));
+        Assert.IsFalse(mainWindowSource.Contains("private readonly Action saveSettings"));
         Assert.IsFalse(mainWindowSource.Contains("ISettingsDialogStatePort.SubscribeStateChanges"));
         Assert.IsFalse(mainWindowSource.Contains("ISettingsDialogStatePort.UnsubscribeStateChanges"));
     }
@@ -603,7 +611,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string viewModelSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
 
-        StringAssert.Contains(viewModelSource, "saveSettings();");
+        StringAssert.Contains(viewModelSource, "applicationComposition.SettingsEditSession.Save();");
+        Assert.IsFalse(viewModelSource.Contains("private readonly Action saveSettings"));
         StringAssert.Contains(mainWindowSource, "viewModel.SaveSettingsForShutdown();");
         Assert.IsFalse(mainWindowSource.Contains("Settings.Default.Save();"));
     }

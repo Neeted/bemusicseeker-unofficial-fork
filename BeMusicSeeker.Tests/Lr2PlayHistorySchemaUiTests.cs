@@ -89,8 +89,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            reloadSettings: () => { },
-            saveSettings: () => { },
             settingsEditSession: SettingsEditSession.CreateDefault(),
             schemaDialogs: dialogs);
         owner.SetStartupUiInteractionBlocked(true);
@@ -144,8 +142,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-                reloadSettings: () => { },
-                saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
                 schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
@@ -212,8 +208,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-                reloadSettings: () => { },
-                saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
                 schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
@@ -274,8 +268,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-                reloadSettings: () => { },
-                saveSettings: () => { },
                 settingsEditSession: SettingsEditSession.CreateDefault(),
                 schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);

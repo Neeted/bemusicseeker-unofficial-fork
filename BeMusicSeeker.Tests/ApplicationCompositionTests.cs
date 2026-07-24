@@ -396,24 +396,6 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
-    public void CompositionKeepsTheConfiguredSettingsPersistenceBoundary()
-    {
-        bool reloaded = false;
-        bool saved = false;
-        var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            reloadSettings: () => reloaded = true,
-            saveSettings: () => saved = true,
-            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
-
-        composition.ReloadSettings();
-        composition.SaveSettings();
-
-        Assert.IsTrue(reloaded);
-        Assert.IsTrue(saved);
-    }
-
-    [TestMethod]
     public void CompositionCreatesMainTableOwnersFromOneBoundary()
     {
         var composition = new ApplicationComposition(
@@ -1006,40 +988,6 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
-    public void MainWindowSettingDialogUsesCompositionSettingsPersistenceDelegates()
-    {
-        int reloadCount = 0;
-        int saveCount = 0;
-        var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            firstStartupProvider: () => false,
-            completeFirstStartup: () =>
-            {
-            },
-            reloadSettings: () => reloadCount++,
-            saveSettings: () => saveCount++,
-            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
-
-        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-        Assert.AreEqual(1, reloadCount);
-
-        bool operationMode = BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB;
-        string displayTargetIdentity = BeMusicSeeker.Properties.Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
-        try
-        {
-            viewModel.SettingDialog.SaveOperationModeForRestart(operationMode);
-
-            Assert.AreEqual(2, reloadCount);
-            Assert.AreEqual(1, saveCount);
-        }
-        finally
-        {
-            BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = operationMode;
-            BeMusicSeeker.Properties.Settings.Default.PlayHistorySelectedDisplayTargetIdentity = displayTargetIdentity;
-        }
-    }
-
-    [TestMethod]
     public void MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter()
     {
         RunOnStaDispatcherThread(() =>
@@ -1051,8 +999,6 @@ public sealed class ApplicationCompositionTests
                 var composition = new ApplicationComposition(
                     firstStartupProvider: () => false,
                     completeFirstStartup: () => { },
-                    reloadSettings: () => { },
-                    saveSettings: () => { },
                     uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
                 PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
@@ -1420,12 +1366,6 @@ public sealed class ApplicationCompositionTests
             completeFirstStartup: () =>
             {
             },
-            reloadSettings: () =>
-            {
-            },
-            saveSettings: () =>
-            {
-            },
             keywordSearchHistorySettingsStore: store,
             uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
@@ -1448,12 +1388,6 @@ public sealed class ApplicationCompositionTests
             () => new BmsLibraryOptionsSnapshot(),
             firstStartupProvider: () => false,
             completeFirstStartup: () =>
-            {
-            },
-            reloadSettings: () =>
-            {
-            },
-            saveSettings: () =>
             {
             },
             keywordSearchHistorySettingsStore: store,
@@ -1504,12 +1438,6 @@ public sealed class ApplicationCompositionTests
             () => new BmsLibraryOptionsSnapshot(),
             firstStartupProvider: () => false,
             completeFirstStartup: () =>
-            {
-            },
-            reloadSettings: () =>
-            {
-            },
-            saveSettings: () =>
             {
             },
             playHistoryDisplaySettingsStore: store,

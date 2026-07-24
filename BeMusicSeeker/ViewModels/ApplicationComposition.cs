@@ -42,10 +42,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly Action completeFirstStartup;
 
-    private readonly Action reloadSettings;
-
-    private readonly Action saveSettings;
-
     private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
 
     private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
@@ -74,8 +70,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IMainChartColumnSettingsStore mainChartColumnSettingsStore = null,
         Func<bool> firstStartupProvider = null,
         Action completeFirstStartup = null,
-        Action reloadSettings = null,
-        Action saveSettings = null,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore = null,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         ISettingsEditSession settingsEditSession = null,
@@ -112,10 +106,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? (() => GetApplication().firstStartup);
         this.completeFirstStartup = completeFirstStartup
             ?? (() => GetApplication().firstStartup = false);
-        this.reloadSettings = reloadSettings
-            ?? this.settingsEditSession.Reload;
-        this.saveSettings = saveSettings
-            ?? this.settingsEditSession.Save;
         this.keywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
             ?? new SettingsKeywordSearchHistorySettingsStore(() => this.settingsEditSession.Values);
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
@@ -143,10 +133,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     internal bool IsFirstStartup => firstStartupProvider();
 
     internal void CompleteFirstStartup() => completeFirstStartup();
-
-    internal Action ReloadSettings => reloadSettings;
-
-    internal Action SaveSettings => saveSettings;
 
     internal IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore => keywordSearchHistorySettingsStore;
 
@@ -289,8 +275,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             playerFactoryPort,
             playbackRuntimePort,
             lr2SongDbSyncWorkflow,
-            reloadSettings,
-            saveSettings,
             settingsEditSession,
             playHistoryDisplaySettingsStore,
             reportSettingsApplyFailure,

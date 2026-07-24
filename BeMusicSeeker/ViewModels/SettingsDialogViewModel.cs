@@ -99,10 +99,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool isEditCompletionInProgress;
 
-    private readonly Action reloadSettings;
-
-    private readonly Action saveSettings;
-
     private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
 
     private readonly ISettingsEditSession settingsEditSession;
@@ -3723,8 +3719,6 @@ public partial class SettingsDialogViewModel : ViewModel
         ISettingsDialogPlayerFactoryPort playerFactoryPort,
         ISettingsDialogPlaybackRuntimePort playbackRuntimePort,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
-        Action reloadSettings,
-        Action saveSettings,
         ISettingsEditSession settingsEditSession,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         Action<Exception> reportApplyFailure = null,
@@ -3744,8 +3738,6 @@ public partial class SettingsDialogViewModel : ViewModel
         this.playerFactoryPort = playerFactoryPort ?? throw new ArgumentNullException(nameof(playerFactoryPort));
         this.playbackRuntimePort = playbackRuntimePort ?? throw new ArgumentNullException(nameof(playbackRuntimePort));
         this.lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow ?? throw new ArgumentNullException(nameof(lr2SongDbSyncWorkflow));
-        this.reloadSettings = reloadSettings ?? throw new ArgumentNullException(nameof(reloadSettings));
-        this.saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
         this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
@@ -3810,7 +3802,7 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             playHistoryPort.RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges: false);
         });
-        this.reloadSettings();
+        this.settingsEditSession.Reload();
         if (ApplicationSettings.OperationModeLR2DB)
         {
             try
@@ -4729,7 +4721,7 @@ public partial class SettingsDialogViewModel : ViewModel
             if (!ApplicationSettings.OperationModeLR2DB)
             {
                 PersistStandaloneBmsRootPathsToSettings();
-                saveSettings();
+                settingsEditSession.Save();
             }
             ApplyRuntimeSearchRootsForCurrentMode();
             if (isBMSDirectoryAdded)
@@ -5421,7 +5413,7 @@ public partial class SettingsDialogViewModel : ViewModel
             try
             {
                 PersistStandaloneBmsRootPathsToSettings();
-                saveSettings();
+                settingsEditSession.Save();
             }
             catch
             {
@@ -6812,7 +6804,7 @@ public partial class SettingsDialogViewModel : ViewModel
             if (userConfigNeedsSave)
             {
                 var userConfigStopwatch = Stopwatch.StartNew();
-                saveSettings();
+                settingsEditSession.Save();
                 userConfigSaveMs = userConfigStopwatch.ElapsedMilliseconds;
                 userConfigSaved = true;
             }
@@ -6897,10 +6889,10 @@ public partial class SettingsDialogViewModel : ViewModel
     public void SaveOperationModeForRestart(bool operationMode)
     {
         string playHistorySelectedDisplayTargetIdentity = playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity;
-        reloadSettings();
+        settingsEditSession.Reload();
         ApplicationSettings.OperationModeLR2DB = operationMode;
         playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;
-        saveSettings();
+        settingsEditSession.Save();
     }
 
     public void ResetSettings()

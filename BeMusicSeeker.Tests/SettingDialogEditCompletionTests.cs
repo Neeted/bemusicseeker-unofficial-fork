@@ -145,8 +145,6 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                settingsSession.Reload,
-                settingsSession.Save,
                 settingsSession,
                 schemaDialogs: dialogs);
 
@@ -195,8 +193,6 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                settingsSession.Reload,
-                settingsSession.Save,
                 settingsSession,
                 schemaDialogs: dialogs);
 
@@ -235,8 +231,6 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                settingsSession.Reload,
-                settingsSession.Save,
                 settingsSession,
                 schemaDialogs: dialogs);
 
@@ -274,8 +268,6 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                settingsSession.Reload,
-                settingsSession.Save,
                 settingsSession,
                 schemaDialogs: dialogs);
 
@@ -358,8 +350,6 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                settingsSession.Reload,
-                settingsSession.Save,
                 settingsSession,
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
@@ -546,8 +536,6 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                settingsSession.Reload,
-                settingsSession.Save,
                 settingsSession,
                 schemaDialogs: dialogs);
 
@@ -610,8 +598,6 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                settingsSession.Reload,
-                settingsSession.Save,
                 settingsSession,
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
@@ -915,8 +901,6 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 viewModel.Lr2SongDbSyncWorkflow,
-                settingsSession.Reload,
-                settingsSession.Save,
                 settingsSession,
                 audioDeviceTestWorkflow: workflow);
             var presentation = new RecordingSettingsDialogPresentationPort();
@@ -1563,8 +1547,6 @@ public sealed class SettingDialogEditCompletionTests
         var composition = new ApplicationComposition(
             firstStartupProvider: () => firstStartup,
             completeFirstStartup: () => { },
-            reloadSettings: settingsSession.Reload,
-            saveSettings: settingsSession.Save,
             settingsEditSession: settingsSession,
             reportSettingsApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
             uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
@@ -1596,8 +1578,6 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 viewModel.Lr2SongDbSyncWorkflow,
-                settingsSession.Reload,
-                settingsSession.Save,
                 settingsSession,
                 reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }));
             typeof(MainWindowViewModel)
@@ -1636,8 +1616,6 @@ public sealed class SettingDialogEditCompletionTests
             new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(),
             owner.Lr2SongDbSyncWorkflow,
-            settingsSession.Reload,
-            settingsSession.Save,
             settingsSession,
             schemaDialogs: dialogs);
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);

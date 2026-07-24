@@ -208,10 +208,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
-    private readonly Action reloadSettings;
-
-    private readonly Action saveSettings;
-
     private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
 
     internal IPlayHistoryDisplaySettingsStore PlayHistoryDisplaySettingsStore => playHistoryDisplaySettingsStore;
@@ -2848,8 +2844,6 @@ public partial class MainWindowViewModel : ViewModel,
             : MainViewUpdateMode.FolderFilterSelected;
         startupSettingsProvider = composition.StartupSettingsProvider;
         customFolderOutputSettingsProvider = composition.CustomFolderOutputSettingsProvider;
-        reloadSettings = composition.ReloadSettings;
-        saveSettings = composition.SaveSettings;
         playHistoryDisplaySettingsStore = composition.PlayHistoryDisplaySettingsStore;
         MainChartList = composition.CreateMainChartListViewModel(
             DispatchMainChartListPresentationAction,
@@ -3534,7 +3528,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     internal void SaveSettingsForShutdown()
     {
-        saveSettings();
+        applicationComposition.SettingsEditSession.Save();
     }
 
     private static string FormatBool(bool value)
