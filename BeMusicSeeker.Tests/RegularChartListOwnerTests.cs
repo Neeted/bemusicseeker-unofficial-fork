@@ -3312,36 +3312,95 @@ public sealed class RegularChartListOwnerTests
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
             Settings.Default.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
             Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+            RegularChartListOwner owner = CreateOwner(table, workspace);
 
-            MainChartListColumnSelection first = table.ResolveColumnSettingForViewUpdate(
-                MainViewUpdateMode.FolderFilterSelected,
-                MainViewUpdateMode.FolderFilterSelected);
-            workspace.CommitMainTableColumnSetting(table, first);
+            owner.InitializeColumnPresentation(MainViewUpdateMode.FolderFilterSelected);
             MainChartListColumnSelection second = table.ResolveColumnSettingForViewUpdate(
                 MainViewUpdateMode.SortUpdated,
                 MainViewUpdateMode.FolderFilterSelected);
 
-            Assert.IsFalse(first.Reused);
             Assert.IsTrue(second.Reused);
             Assert.AreSame(table.ColumnsSettings, second.ColumnsSettings);
             Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
             Assert.AreEqual(Visibility.Collapsed, workspace.ColumnSettingsVisibilityForPlaylist);
 
             CustomTableColumnSettings beforeInit = Settings.Default.StandardCustomTableColumnSettings;
-            MainChartListColumnSelection init = table.LoadColumnSetting(
-                MainViewUpdateMode.TreeViewFilterNotChanged,
-                MainViewUpdateMode.FolderFilterSelected,
-                isInit: true);
-            workspace.CommitMainTableColumnSetting(table, init);
+            owner.InitializeColumnPresentation(MainViewUpdateMode.FolderFilterSelected);
 
             Assert.AreNotSame(beforeInit, Settings.Default.StandardCustomTableColumnSettings);
             Assert.AreSame(Settings.Default.StandardCustomTableColumnSettings, table.ColumnsSettings);
+            owner.Dispose();
         }
         finally
         {
             Settings.Default.StandardCustomTableColumnSettings = previousStandard;
             Settings.Default.PlaylistSummaryColumnsSettings = previousSummary;
         }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void ResetCurrentColumnPresentation_ResetsAppliedModeAndPublishesRelatedState()
+    {
+        CustomTableColumnSettings previousPlayHistory = Settings.Default.PlayHistoryCustomTableColumnSettings;
+        PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
+        try
+        {
+            Settings.Default.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+            Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+            var table = new MainChartListViewModel(action => action());
+            var workspace = CreateWorkspaceForOwner();
+            var owner = CreateOwner(table, workspace);
+            var notifications = new List<string>();
+            table.PropertyChanged += (_, e) => notifications.Add("table:" + e.PropertyName);
+            workspace.PropertyChanged += (_, e) => notifications.Add("workspace:" + e.PropertyName);
+
+            owner.InitializeColumnPresentation(MainViewUpdateMode.PlayHistorySelected);
+            Settings.Default.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+            CustomTableColumnSettings persistedBeforeReset = Settings.Default.PlayHistoryCustomTableColumnSettings;
+            Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+            workspace.ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
+            notifications.Clear();
+
+            owner.ResetCurrentColumnPresentation();
+
+            Assert.AreNotSame(persistedBeforeReset, table.ColumnsSettings);
+            Assert.AreSame(Settings.Default.PlayHistoryCustomTableColumnSettings, table.ColumnsSettings);
+            Assert.AreEqual(MainViewUpdateMode.PlayHistorySelected, table.LastAppliedColumnMode);
+            Assert.AreEqual(Visibility.Collapsed, workspace.ColumnSettingsVisibilityForPlaylist);
+            Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
+            int tableColumnsIndex = notifications.IndexOf("table:ColumnsSettings");
+            int visibilityIndex = notifications.IndexOf("workspace:ColumnSettingsVisibilityForPlaylist");
+            int summaryIndex = notifications.IndexOf("workspace:PlaylistSummaryColumnsSettings");
+            Assert.IsTrue(tableColumnsIndex >= 0);
+            Assert.IsTrue(visibilityIndex > tableColumnsIndex);
+            Assert.IsTrue(summaryIndex > visibilityIndex);
+            owner.Dispose();
+        }
+        finally
+        {
+            Settings.Default.PlayHistoryCustomTableColumnSettings = previousPlayHistory;
+            Settings.Default.PlaylistSummaryColumnsSettings = previousSummary;
+        }
+    }
+
+    [TestMethod]
+    public void ResetCurrentColumnPresentation_WithoutInitializationFailsWithoutMutation()
+    {
+        var table = new MainChartListViewModel(action => action());
+        var workspace = CreateWorkspaceForOwner();
+        var owner = CreateOwner(table, workspace);
+        CustomTableColumnSettings columnsBefore = table.ColumnsSettings;
+        PlaylistSummaryColumnSettings summaryBefore = workspace.PlaylistSummaryColumnsSettings;
+        Visibility visibilityBefore = workspace.ColumnSettingsVisibilityForPlaylist;
+
+        Assert.ThrowsException<InvalidOperationException>(() => owner.ResetCurrentColumnPresentation());
+
+        Assert.AreSame(columnsBefore, table.ColumnsSettings);
+        Assert.AreSame(summaryBefore, workspace.PlaylistSummaryColumnsSettings);
+        Assert.AreEqual(visibilityBefore, workspace.ColumnSettingsVisibilityForPlaylist);
+        Assert.IsNull(table.LastAppliedColumnMode);
+        owner.Dispose();
     }
 
     [TestMethod]

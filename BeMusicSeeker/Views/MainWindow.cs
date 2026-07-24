@@ -1830,7 +1830,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             e.Handled = true;
             if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_init_column_settings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
             {
-                mainWindowViewModel.LoadColumnSetting();
+                mainWindowViewModel.RegularChartList.ResetCurrentColumnPresentation();
             }
         }
     }

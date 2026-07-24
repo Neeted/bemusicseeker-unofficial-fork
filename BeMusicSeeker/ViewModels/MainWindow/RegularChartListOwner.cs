@@ -1776,6 +1776,37 @@ internal sealed class RegularChartListOwner : IDisposable
         InvalidatePendingRequest();
     }
 
+    internal void InitializeColumnPresentation(MainViewUpdateMode currentTreeMode)
+    {
+        ApplyColumnPresentation(
+            mainChartList.LoadColumnSetting(
+                MainViewUpdateMode.TreeViewFilterNotChanged,
+                currentTreeMode,
+                isInit: true));
+    }
+
+    internal void ResetCurrentColumnPresentation()
+    {
+        MainViewUpdateMode currentMode = mainChartList.LastAppliedColumnMode
+            ?? throw new InvalidOperationException("The main chart column presentation has not been initialized.");
+        ApplyColumnPresentation(mainChartList.LoadColumnSetting(currentMode, currentMode, isInit: true));
+    }
+
+    private void ApplyColumnPresentation(MainChartListColumnSelection selection)
+    {
+        if (!selection.AppliedMode.HasValue)
+        {
+            throw new InvalidOperationException("The main chart column presentation did not resolve a view mode.");
+        }
+
+        mainChartList.ColumnsSettings = selection.ColumnsSettings;
+        PlaylistColumnPresentationCommit commit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+            selection.PlaylistColumnSettingsVisibility,
+            selection.PlaylistSummaryColumnsSettings);
+        mainChartList.CommitAppliedColumnMode(selection.AppliedMode);
+        playlistWorkspace.PublishColumnPresentation(commit);
+    }
+
     /// <summary>
     /// Applies a main-library refresh route and owns the regular request construction for that route.
     /// </summary>

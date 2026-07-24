@@ -867,23 +867,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         return new PlaylistMainTablePresentationCommit(columnPresentation, bindingMode);
     }
 
-    internal void CommitMainTableColumnSetting(
-        MainChartListViewModel mainChartList,
-        MainChartListColumnSelection selection)
-    {
-        if (mainChartList == null)
-        {
-            throw new ArgumentNullException(nameof(mainChartList));
-        }
-
-        mainChartList.ColumnsSettings = selection.ColumnsSettings;
-        PlaylistColumnPresentationCommit commit = CommitColumnPresentationWithoutNotification(
-            selection.PlaylistColumnSettingsVisibility,
-            selection.PlaylistSummaryColumnsSettings);
-        mainChartList.CommitAppliedColumnMode(selection.AppliedMode);
-        PublishColumnPresentation(commit);
-    }
-
     internal void PublishColumnPresentation(PlaylistColumnPresentationCommit commit)
     {
         if (commit == null)

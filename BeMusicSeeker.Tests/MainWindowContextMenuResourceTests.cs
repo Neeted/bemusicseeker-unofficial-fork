@@ -24,6 +24,29 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowContextMenuResourceTests
 {
     [TestMethod]
+    public void MainColumnReset_RoutesThroughRegularChartListOwner()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string rootViewModelSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string playlistWorkspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string regularOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "RegularChartListOwner.cs");
+
+        StringAssert.Contains(mainWindowSource, "mainWindowViewModel.RegularChartList.ResetCurrentColumnPresentation();");
+        Assert.IsFalse(rootViewModelSource.Contains("public void LoadColumnSetting()"));
+        Assert.IsFalse(rootViewModelSource.Contains("LoadColumnSetting();"));
+        StringAssert.Contains(rootViewModelSource, "regularChartListOwner.InitializeColumnPresentation(treeViewFilterTypeSelected);");
+        Assert.IsFalse(playlistWorkspaceSource.Contains("CommitMainTableColumnSetting"));
+        StringAssert.Contains(regularOwnerSource, "InitializeColumnPresentation(MainViewUpdateMode currentTreeMode)");
+        StringAssert.Contains(regularOwnerSource, "ResetCurrentColumnPresentation()");
+        StringAssert.Contains(regularOwnerSource, "CommitColumnPresentationWithoutNotification");
+        StringAssert.Contains(regularOwnerSource, "PublishColumnPresentation(commit)");
+    }
+
+    [TestMethod]
     public void ChartFilterInput_BindsToChildOwnerAndUsesRequestSnapshots()
     {
         string repositoryRoot = FindRepositoryRoot();

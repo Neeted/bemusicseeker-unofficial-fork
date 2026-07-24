@@ -316,9 +316,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal long LastPlaylistSummaryBuildCompletedTimestamp");
         StringAssert.Contains(workspaceSource, "CommitMainTablePresentationWithoutNotification(");
         StringAssert.Contains(workspaceSource, "PublishMainTablePresentation(");
-        Assert.AreEqual(-1, regularOwnerSource.IndexOf("CommitColumnPresentationWithoutNotification(", StringComparison.Ordinal));
+        StringAssert.Contains(regularOwnerSource, "CommitColumnPresentationWithoutNotification(");
         Assert.AreEqual(-1, regularOwnerSource.IndexOf("CommitBindingModeWithoutNotification(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, regularOwnerSource.IndexOf("PublishColumnPresentation(", StringComparison.Ordinal));
+        StringAssert.Contains(regularOwnerSource, "PublishColumnPresentation(");
         Assert.AreEqual(-1, regularOwnerSource.IndexOf("PublishBindingMode(", StringComparison.Ordinal));
         Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("CommitColumnPresentationWithoutNotification(", StringComparison.Ordinal));
         Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("CommitBindingModeWithoutNotification(", StringComparison.Ordinal));

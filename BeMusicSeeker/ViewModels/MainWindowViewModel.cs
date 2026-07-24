@@ -4075,7 +4075,7 @@ public partial class MainWindowViewModel : ViewModel,
             SettingDialog?.RequestOpen();
             return false;
         }
-        LoadColumnSetting();
+        regularChartListOwner.InitializeColumnPresentation(treeViewFilterTypeSelected);
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
         listenerForBMSLibrary.RegisterHandler(() => files.OwnedChartCollectionVersion, delegate
         {
@@ -5342,15 +5342,6 @@ public partial class MainWindowViewModel : ViewModel,
             return NormalLibraryBmsonSourceIdentityChangedReason;
         }
         return prefix + "_source_reference_changed";
-    }
-
-    public void LoadColumnSetting()
-    {
-        MainChartListColumnSelection selection = MainChartList.LoadColumnSetting(
-            MainViewUpdateMode.TreeViewFilterNotChanged,
-            treeViewFilterTypeSelected,
-            isInit: true);
-        PlaylistWorkspace.CommitMainTableColumnSetting(MainChartList, selection);
     }
 
     private void MaintenanceRescanWorkflowProgressChanged(MaintenanceWorkflowProgress progress)
