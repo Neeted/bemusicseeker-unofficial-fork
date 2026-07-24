@@ -40,11 +40,14 @@ public sealed class MainColumnSettingModeTests
     }
 
     [TestMethod]
-    public void ResolveMainViewOperationSection_MapsPlayHistoryToDedicatedSection()
+    public void MainChartListOperationContext_MapsPlayHistoryToDedicatedSection()
     {
+        var mainChartList = new MainChartListViewModel();
+        mainChartList.SetOperationContext(MainViewUpdateMode.PlayHistorySelected);
+
         Assert.AreEqual(
             MainViewOperationSection.PlayHistory,
-            MainWindowViewModel.ResolveMainViewOperationSection(MainViewUpdateMode.PlayHistorySelected));
+            mainChartList.CurrentOperationContext.OperationSection);
     }
 
     [TestMethod]

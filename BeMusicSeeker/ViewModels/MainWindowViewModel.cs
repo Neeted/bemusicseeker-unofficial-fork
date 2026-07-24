@@ -2229,34 +2229,6 @@ public partial class MainWindowViewModel : ViewModel,
         return true;
     }
 
-    internal MainViewOperationSection CurrentMainViewOperationSection => ResolveMainViewOperationSection(treeViewFilterTypeSelected);
-
-    internal ChartOperationSourceScope CurrentMainViewChartOperationSourceScope => ResolveMainViewChartOperationSourceScope(CurrentMainViewOperationSection);
-
-    internal static MainViewOperationSection ResolveMainViewOperationSection(MainViewUpdateMode mode)
-    {
-        return mode switch
-        {
-            MainViewUpdateMode.PendingInstallFolderSelected => MainViewOperationSection.InstallPending,
-            MainViewUpdateMode.NewlyInstalledFolderSelected => MainViewOperationSection.InstallInstalled,
-            MainViewUpdateMode.PlaylistFilterSelected or MainViewUpdateMode.PlaylistNotOwnedFilterSelected => MainViewOperationSection.Playlist,
-            MainViewUpdateMode.FullScanAllChartsFilterSelected or MainViewUpdateMode.FileMissingFilterSelected or MainViewUpdateMode.FileMissingIgnoredFilterSelected => MainViewOperationSection.FullScanCheck,
-            MainViewUpdateMode.ChartInfoParseErrorFilterSelected => MainViewOperationSection.ChartInfoParseError,
-            MainViewUpdateMode.PlayHistorySelected => MainViewOperationSection.PlayHistory,
-            _ => MainViewOperationSection.Library,
-        };
-    }
-
-    internal static ChartOperationSourceScope ResolveMainViewChartOperationSourceScope(MainViewOperationSection section)
-    {
-        return section switch
-        {
-            MainViewOperationSection.InstallPending => ChartOperationSourceScope.PendingPackage,
-            MainViewOperationSection.InstallInstalled => ChartOperationSourceScope.NewlyInstalledPackage,
-            _ => ChartOperationSourceScope.Library,
-        };
-    }
-
     private void InvalidateNormalLibraryIdentitySortKeys(string reason)
     {
         bool clearSourceRows = ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(reason);
@@ -2567,7 +2539,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void SyncMainChartListSortPresentation()
     {
-        bool isPlayHistory = CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory;
+        bool isPlayHistory = MainChartList.CurrentOperationContext.OperationSection == MainViewOperationSection.PlayHistory;
         ChartListSortParameters sortParameters = isPlayHistory
             ? playHistoryWorkflowOwner.CaptureSortParameters(out _)
             : CaptureActiveMainViewSortParameters();
@@ -2765,6 +2737,7 @@ public partial class MainWindowViewModel : ViewModel,
         MainChartList = composition.CreateMainChartListViewModel(
             DispatchMainChartListPresentationAction,
             LogMainViewBuild);
+        MainChartList.SetOperationContext(treeViewFilterTypeSelected);
         PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
             DispatchMainChartListAction,
             MainChartList,
@@ -3190,12 +3163,11 @@ public partial class MainWindowViewModel : ViewModel,
         }
         if (request.IsSummary)
         {
-            MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
+            MainViewOperationSection previousOperationSection = MainChartList.CurrentOperationContext.OperationSection;
             SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
             PlayHistory.ClearSummaryPresentation();
-            if (previousOperationSection != CurrentMainViewOperationSection)
+            if (previousOperationSection != MainChartList.CurrentOperationContext.OperationSection)
             {
-                RaisePropertyChanged(() => CurrentMainViewOperationSection);
                 SyncMainChartListSortPresentation();
             }
             if (request.SummaryModeChanged)
@@ -3230,7 +3202,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void RegularChartListOwnerSortChanged(object sender, MainChartListSortRequestedEventArgs request)
     {
-        if (CurrentMainViewOperationSection != MainViewOperationSection.PlayHistory && !IsPlaylistDetailWorkflowActive)
+        if (MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory && !IsPlaylistDetailWorkflowActive)
         {
             SyncMainChartListSortPresentation();
         }
@@ -3238,7 +3210,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void PlayHistorySortChanged(object sender, MainChartListSortRequestedEventArgs request)
     {
-        if (CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory)
+        if (MainChartList.CurrentOperationContext.OperationSection == MainViewOperationSection.PlayHistory)
         {
             SyncMainChartListSortPresentation();
         }
@@ -3259,17 +3231,16 @@ public partial class MainWindowViewModel : ViewModel,
             UpdateChartKeywordSearchContext();
         }
         PlaylistWorkspace.ClearPlaylistDetailSelection();
-        MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
+        MainViewOperationSection previousOperationSection = MainChartList.CurrentOperationContext.OperationSection;
         lock (playHistoryViewRequestLock)
         {
             treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
             treeViewFilterParameterSelected = request;
         }
+        MainChartList.SetOperationContext(MainViewUpdateMode.PlayHistorySelected);
         UpdateChartKeywordSearchContext();
-        if (previousOperationSection != CurrentMainViewOperationSection)
+        if (previousOperationSection != MainChartList.CurrentOperationContext.OperationSection)
         {
-            RaisePropertyChanged(() => CurrentMainViewOperationSection);
-            RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
             SyncMainChartListSortPresentation();
         }
 
@@ -3284,8 +3255,8 @@ public partial class MainWindowViewModel : ViewModel,
             : regularChartListOwner.IsCurrentSortRequest(request);
         if (isCurrent
             && (request.Target == MainChartListSortTarget.PlayHistory
-                ? CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory
-                : CurrentMainViewOperationSection != MainViewOperationSection.PlayHistory && !IsPlaylistDetailWorkflowActive))
+                ? MainChartList.CurrentOperationContext.OperationSection == MainViewOperationSection.PlayHistory
+                : MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory && !IsPlaylistDetailWorkflowActive))
         {
             RefreshChartRowsView(MainViewUpdateMode.SortUpdated, expectedSortTarget: request.Target);
         }
@@ -4578,7 +4549,7 @@ public partial class MainWindowViewModel : ViewModel,
         MainChartListSortTarget? expectedSortTarget = null)
     {
         if (expectedSortTarget.HasValue
-            && expectedSortTarget.Value != (CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory
+            && expectedSortTarget.Value != (MainChartList.CurrentOperationContext.OperationSection == MainViewOperationSection.PlayHistory
                 ? MainChartListSortTarget.PlayHistory
                 : MainChartListSortTarget.Regular))
         {
@@ -4588,7 +4559,7 @@ public partial class MainWindowViewModel : ViewModel,
         var viewBuildStopwatch = Stopwatch.StartNew();
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         MainViewUpdateMode requestedMode = mode;
-        MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
+        MainViewOperationSection previousOperationSection = MainChartList.CurrentOperationContext.OperationSection;
         if (mode == MainViewUpdateMode.TreeViewFilterNotChanged)
         {
             GetTreeViewFilterSelection(out mode, out parameter);
@@ -4645,10 +4616,8 @@ public partial class MainWindowViewModel : ViewModel,
             SetTreeViewFilterSelection(mode, parameter);
             UpdateChartKeywordSearchContext();
         }
-        if (previousOperationSection != CurrentMainViewOperationSection)
+        if (previousOperationSection != MainChartList.CurrentOperationContext.OperationSection)
         {
-            RaisePropertyChanged(() => CurrentMainViewOperationSection);
-            RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
             SyncMainChartListSortPresentation();
         }
         ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(mode, requestedMode, treeViewFilterTypeSelected, files != null);
@@ -4703,7 +4672,7 @@ public partial class MainWindowViewModel : ViewModel,
             filters);
         if (regularResult.WasCommitted && regularResult.SortWasReset)
         {
-            if (CurrentMainViewOperationSection != MainViewOperationSection.PlayHistory)
+            if (MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory)
             {
                 SyncMainChartListSortPresentation();
             }
@@ -5062,6 +5031,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             treeViewFilterTypeSelected = mode;
             treeViewFilterParameterSelected = IsPlaylistViewMode(mode) ? null : parameter;
+            MainChartList.SetOperationContext(mode);
         });
         playHistoryWorkflowOwner.ClearSummaryFilters();
     }

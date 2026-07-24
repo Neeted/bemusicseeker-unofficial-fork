@@ -457,19 +457,15 @@ public sealed class ChartListVirtualViewTests
         mainChartList.CellEditBeginningRequested += (_, request) => request.Accepted = true;
         mainChartList.CellEditStarted += (_, context) => started = context;
         mainChartList.CellEditEndedRequested += (_, request) => ended = request;
-        var context = new MainChartListCellEditContext(
-            row,
-            nameof(LibraryChartRow.Folder),
-            ChartOperationSourceScope.Library,
-            MainViewOperationSection.Library);
 
-        Assert.IsTrue(mainChartList.TryBeginCellEdit(context));
+        Assert.IsTrue(mainChartList.TryBeginCellEdit(row, nameof(LibraryChartRow.Folder)));
         mainChartList.NotifyCellEditStarted(row, nameof(LibraryChartRow.Folder));
         mainChartList.RequestCellEditEnded(row, nameof(LibraryChartRow.Folder), "renamed", commit: true);
 
-        Assert.AreSame(context, started);
+        Assert.IsNotNull(started);
+        Assert.AreSame(row, started!.Row);
         Assert.IsNotNull(ended);
-        Assert.AreSame(context, ended!.Context);
+        Assert.AreSame(started, ended!.Context);
         Assert.AreEqual(ChartOperationSourceScope.Library, ended.Context.SourceScope);
         Assert.AreEqual(MainViewOperationSection.Library, ended.Context.OperationSection);
         Assert.AreEqual("renamed", ended.Text);
@@ -486,20 +482,40 @@ public sealed class ChartListVirtualViewTests
         mainChartList.CellEditBeginningRequested += (_, request) => request.Accepted = true;
         mainChartList.CellEditStarted += (_, context) => started = context;
 
-        Assert.IsTrue(mainChartList.TryBeginCellEdit(new MainChartListCellEditContext(
-            abandonedRow,
-            nameof(LibraryChartRow.Folder),
-            ChartOperationSourceScope.Library,
-            MainViewOperationSection.Library)));
-        Assert.IsTrue(mainChartList.TryBeginCellEdit(new MainChartListCellEditContext(
-            activeRow,
-            nameof(LibraryChartRow.Folder),
-            ChartOperationSourceScope.Library,
-            MainViewOperationSection.Library)));
+        Assert.IsTrue(mainChartList.TryBeginCellEdit(abandonedRow, nameof(LibraryChartRow.Folder)));
+        Assert.IsTrue(mainChartList.TryBeginCellEdit(activeRow, nameof(LibraryChartRow.Folder)));
         mainChartList.NotifyCellEditStarted(activeRow, nameof(LibraryChartRow.Folder));
 
         Assert.IsNotNull(started);
         Assert.AreSame(activeRow, started!.Row);
+    }
+
+    [TestMethod]
+    public void MainChartList_OperationContextMapsModeAndCapturesCellEditSnapshot()
+    {
+        var mainChartList = new MainChartListViewModel();
+        MainChartListCellEditContext? captured = null;
+        mainChartList.CellEditBeginningRequested += (_, request) =>
+        {
+            captured = request.Context;
+            request.Accepted = true;
+        };
+
+        mainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+
+        Assert.AreEqual(MainViewOperationSection.InstallPending, mainChartList.CurrentOperationContext.OperationSection);
+        Assert.AreEqual(ChartOperationSourceScope.PendingPackage, mainChartList.CurrentOperationContext.SourceScope);
+        object row = new();
+        Assert.IsTrue(mainChartList.TryBeginCellEdit(row, nameof(LibraryChartRow.Folder)));
+
+        mainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+
+        Assert.IsNotNull(captured);
+        Assert.AreSame(row, captured!.Row);
+        Assert.AreEqual(MainViewOperationSection.InstallPending, captured.OperationSection);
+        Assert.AreEqual(ChartOperationSourceScope.PendingPackage, captured.SourceScope);
+        Assert.AreEqual(MainViewOperationSection.Library, mainChartList.CurrentOperationContext.OperationSection);
+        Assert.AreEqual(ChartOperationSourceScope.Library, mainChartList.CurrentOperationContext.SourceScope);
     }
 
     [TestMethod]

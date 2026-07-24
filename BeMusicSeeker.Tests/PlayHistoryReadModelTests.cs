@@ -1878,6 +1878,7 @@ public sealed class PlayHistoryReadModelTests
             viewModel,
             "treeViewFilterTypeSelected",
             MainViewUpdateMode.FolderFilterSelected);
+        viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
         viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
@@ -1896,6 +1897,7 @@ public sealed class PlayHistoryReadModelTests
             viewModel,
             "treeViewFilterTypeSelected",
             MainViewUpdateMode.PlayHistorySelected);
+        viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlayHistorySelected);
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
@@ -1921,6 +1923,7 @@ public sealed class PlayHistoryReadModelTests
             viewModel,
             "treeViewFilterTypeSelected",
             MainViewUpdateMode.FolderFilterSelected);
+        viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
@@ -1939,6 +1942,7 @@ public sealed class PlayHistoryReadModelTests
             viewModel,
             "treeViewFilterTypeSelected",
             MainViewUpdateMode.PlayHistorySelected);
+        viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlayHistorySelected);
 
         viewModel.MainChartList.SetSortPresentation(
             new MainChartListSortPresentation(
@@ -3225,6 +3229,37 @@ public sealed class PlayHistoryReadModelTests
             () => throw new InvalidOperationException("deactivation failed")));
         Assert.IsTrue(nextToken.IsCancellationRequested);
         Assert.IsNull(owner.SnapshotActiveRequest());
+    }
+
+    [TestMethod]
+    public void MainViewSelectionKeepsChartOperationContextSynchronizedWhenDeactivationRaises()
+    {
+        var viewModel = MainWindowViewModelTestFactory.Create();
+        PlayHistoryWorkflowOwner playHistory = viewModel.PlayHistory;
+        playHistory.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            string.Empty,
+            displayTargetRevision: 0);
+        playHistory.PropertyChanged += (_, args) =>
+        {
+            if (string.Equals(args.PropertyName, nameof(PlayHistoryWorkflowOwner.IsViewActive), StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("deactivation notification failed");
+            }
+        };
+
+        MethodInfo setSelection = typeof(MainWindowViewModel).GetMethod(
+            "SetTreeViewFilterSelection",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        Assert.ThrowsException<TargetInvocationException>(() => setSelection.Invoke(
+            viewModel,
+            new object[] { MainViewUpdateMode.FolderFilterSelected, null! }));
+
+        Assert.AreEqual(MainViewOperationSection.Library, viewModel.MainChartList.CurrentOperationContext.OperationSection);
+        Assert.AreEqual(ChartOperationSourceScope.Library, viewModel.MainChartList.CurrentOperationContext.SourceScope);
+        Assert.IsNull(playHistory.SnapshotActiveRequest());
     }
 
     [TestMethod]

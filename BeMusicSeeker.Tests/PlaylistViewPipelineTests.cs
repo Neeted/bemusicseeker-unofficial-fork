@@ -2995,8 +2995,9 @@ public sealed class PlaylistViewPipelineTests
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "Pending Bms", 7);
         var row = LibraryChartRow.FromBmsFile(file);
-        ChartOperationSourceScope sourceScope = MainWindowViewModel.ResolveMainViewChartOperationSourceScope(
-            MainWindowViewModel.ResolveMainViewOperationSection(MainViewUpdateMode.PendingInstallFolderSelected));
+        var mainChartList = new MainChartListViewModel();
+        mainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+        ChartOperationSourceScope sourceScope = mainChartList.CurrentOperationContext.SourceScope;
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target));
 
@@ -3294,10 +3295,11 @@ public sealed class PlaylistViewPipelineTests
         MainViewOperationSection expectedSection,
         ChartOperationSourceScope expectedScope)
     {
-        MainViewOperationSection section = MainWindowViewModel.ResolveMainViewOperationSection(mode);
+        var mainChartList = new MainChartListViewModel();
+        mainChartList.SetOperationContext(mode);
 
-        Assert.AreEqual(expectedSection, section);
-        Assert.AreEqual(expectedScope, MainWindowViewModel.ResolveMainViewChartOperationSourceScope(section));
+        Assert.AreEqual(expectedSection, mainChartList.CurrentOperationContext.OperationSection);
+        Assert.AreEqual(expectedScope, mainChartList.CurrentOperationContext.SourceScope);
     }
 
     [TestMethod]

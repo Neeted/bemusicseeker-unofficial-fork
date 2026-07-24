@@ -1706,7 +1706,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             e.Cancel = true;
             return;
         }
-        e.Cancel = !viewModel.MainChartList.TryBeginCellEdit(CreateMainChartListCellEditContext(viewModel, e.Row, e.EditPropertyName));
+        e.Cancel = !viewModel.MainChartList.TryBeginCellEdit(e.Row, e.EditPropertyName);
     }
 
     private void customTableView_CellEditStarted(object sender, CustomTableCellEditStartedEventArgs e)
@@ -1785,18 +1785,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         viewModel.MainChartList.RequestCellEditEnded(e.Row, e.EditPropertyName, e.Text, e.Commit);
-    }
-
-    private static MainChartListCellEditContext CreateMainChartListCellEditContext(
-        MainWindowViewModel viewModel,
-        object row,
-        string propertyName)
-    {
-        return new MainChartListCellEditContext(
-            row,
-            propertyName,
-            viewModel.CurrentMainViewChartOperationSourceScope,
-            viewModel.CurrentMainViewOperationSection);
     }
 
     private void RefreshCustomTableViewDisplayAsync()
@@ -1948,6 +1936,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return ResolveSelectedChartTargets(sourceScope, capability);
     }
 
+    private List<ChartOperationTarget> GetSelectedChartTargets(
+        ChartOperationSourceScope sourceScope,
+        ChartOperationCapabilities capability = ChartOperationCapabilities.None)
+    {
+        return ResolveSelectedChartTargets(sourceScope, capability);
+    }
+
     private List<ChartOperationTarget> ResolveSelectedChartTargets(ChartOperationSourceScope sourceScope, ChartOperationCapabilities capability)
     {
         return ChartOperationTargetSelectionResolver.Resolve(new ChartOperationTargetSelectionRequest(
@@ -1958,12 +1953,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private ChartOperationSourceScope GetCurrentChartOperationSourceScope()
     {
-        return (base.DataContext as MainWindowViewModel)?.CurrentMainViewChartOperationSourceScope ?? ChartOperationSourceScope.Library;
+        return GetCurrentMainChartOperationContext().SourceScope;
     }
 
     private MainViewOperationSection GetCurrentMainViewOperationSection()
     {
-        return (base.DataContext as MainWindowViewModel)?.CurrentMainViewOperationSection ?? MainViewOperationSection.Library;
+        return GetCurrentMainChartOperationContext().OperationSection;
+    }
+
+    private MainChartListOperationContext GetCurrentMainChartOperationContext()
+    {
+        return (base.DataContext as MainWindowViewModel)?.MainChartList.CurrentOperationContext
+            ?? MainChartListOperationContext.Library;
     }
 
     private static bool IsPendingMainViewSection(MainViewOperationSection section)
@@ -5228,11 +5229,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         _lastOpenedContextMenu = contextMenu;
         bool isPlaylistRow = GridRowResolver.IsPlaylistRow(row);
-        MainViewOperationSection effectiveSection = mainWindowViewModel.CurrentMainViewOperationSection;
+        MainChartListOperationContext operationContext = mainWindowViewModel.MainChartList.CurrentOperationContext;
+        MainViewOperationSection effectiveSection = operationContext.OperationSection;
         bool isPendingSelected = IsPendingMainViewSection(effectiveSection);
         bool isInstalledSelected = IsInstalledMainViewSection(effectiveSection);
         bool isPlaylistSelected = IsPlaylistMainViewSection(effectiveSection);
-        ChartOperationSourceScope sourceScope = mainWindowViewModel.CurrentMainViewChartOperationSourceScope;
+        ChartOperationSourceScope sourceScope = operationContext.SourceScope;
         if (!GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget rowTarget))
         {
             rowTarget = null;
@@ -5248,7 +5250,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             isInstalledSelected,
             isPlaylistSelected,
             rowTarget,
-            GetSelectedChartTargets(isPendingSelected)));
+            GetSelectedChartTargets(sourceScope)));
         bool isInstallListSelected = contextMenuState.IsInstallListSelected;
         bool isPlaylistContext = contextMenuState.IsPlaylistContext;
         string chartPath = rowTarget?.Chart?.Path;

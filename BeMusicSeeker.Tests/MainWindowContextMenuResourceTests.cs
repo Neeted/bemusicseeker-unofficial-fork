@@ -2864,7 +2864,7 @@ public sealed class MainWindowContextMenuResourceTests
         string cellEditEnded = ExtractBetween(
             mainWindowCode,
             "private void customTableView_CellEditEnded",
-            "private static MainChartListCellEditContext CreateMainChartListCellEditContext");
+            "private void RefreshCustomTableViewDisplayAsync");
         string regularOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
         string rootCellEditRoute = ExtractBetween(
@@ -3819,12 +3819,13 @@ public sealed class MainWindowContextMenuResourceTests
         string editEnded = ExtractBetween(
             mainWindowCode,
             "private void customTableView_CellEditEnded",
-            "private static MainChartListCellEditContext CreateMainChartListCellEditContext");
+            "private void RefreshCustomTableViewDisplayAsync");
         string regularOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
         StringAssert.Contains(editBeginning, "viewModel.MainChartList.TryBeginCellEdit(");
+        StringAssert.Contains(editBeginning, "e.Row, e.EditPropertyName");
         Assert.IsFalse(editBeginning.Contains("GetCompatibilityBmsFile"));
         StringAssert.Contains(editEnded, "viewModel.MainChartList.RequestCellEditEnded(");
         StringAssert.Contains(regularOwnerCode, "target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)");
@@ -3833,6 +3834,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("RegularChartListOwnerInstallDestinationEditRequested"));
         Assert.IsFalse(editEnded.Contains("PendingInstallDestinationEditTargetSnapshot"));
         Assert.IsFalse(editEnded.Contains("GetCompatibilityBmsFile"));
+        Assert.IsFalse(viewModelCode.Contains("CurrentMainViewOperationSection"));
+        Assert.IsFalse(viewModelCode.Contains("CurrentMainViewChartOperationSourceScope"));
+        StringAssert.Contains(mainWindowCode, "MainChartList.CurrentOperationContext");
     }
 
     [TestMethod]

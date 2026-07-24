@@ -258,7 +258,7 @@ Phase 1 完了判断:
 - 行ダブルクリック、Enter 再生を既存処理へ接続する。
 - 行右クリックで既存 `dataGridContextMenu` / `dataGridContextMenuPlaylistMissing` を開く。
 - `ContextMenu.Tag` に `CustomTableContextMenuContext(row, rowIndex)` を入れ、既存 click handler は `TryGetContextMenuRow` 経由で DataGridRow と CustomTableView の両方を解決する。
-- main table row の右クリック menu は、TreeView の `Selected` routed event で更新される補助状態ではなく、`MainWindowViewModel` の現在表示 mode から決まる `CurrentMainViewOperationSection` / `CurrentMainViewChartOperationSourceScope` を正本にする。保留画面では `InstallPending` / `PendingPackage`、導入済み画面では `InstallInstalled` / `NewlyInstalledPackage` として扱う。
+- main table row の右クリック menu は、TreeView の `Selected` routed event で更新される補助状態ではなく、`MainChartListViewModel.CurrentOperationContext` の immutable snapshot を正本にする。保留画面では `InstallPending` / `PendingPackage`、導入済み画面では `InstallInstalled` / `NewlyInstalledPackage` として扱う。
 - row menu log の `section=` はこの effective section を出し、TreeView 側の状態は診断用 `treeSection=` として併記する。`section=None` は main table row menu の正本としては使わない。
 - 列ヘッダー右クリックの列表示メニューへ接続する。
 - プレイリスト詳細 source row に `ClearDisplayText` / `RankDisplayText` を持たせる。`CLEAR` は表示名ではなく `ClearType` の数値順で sort するため、sort path は `clear` を使う。

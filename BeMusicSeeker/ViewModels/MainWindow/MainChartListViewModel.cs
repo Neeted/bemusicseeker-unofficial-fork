@@ -53,6 +53,8 @@ public sealed class MainChartListViewModel : ViewModel
 
     private MainChartListCellEditContext activeCellEditContext;
 
+    private MainChartListOperationContext operationContext = MainChartListOperationContext.Library;
+
     internal MainChartListViewModel()
         : this(action => action(), _ => { }, new SettingsMainChartColumnSettingsStore())
     {
@@ -419,6 +421,19 @@ public sealed class MainChartListViewModel : ViewModel
     public MainChartListSortPresentation SortParameters => sortParameters;
 
     /// <summary>
+    /// Gets the immutable operation context for the rows currently presented by the main chart table.
+    /// </summary>
+    internal MainChartListOperationContext CurrentOperationContext => Volatile.Read(ref operationContext);
+
+    /// <summary>
+    /// Updates the operation context synchronously with the shell's selected main-view mode.
+    /// </summary>
+    internal void SetOperationContext(MainViewUpdateMode mode)
+    {
+        Volatile.Write(ref operationContext, MainChartListOperationContext.FromMode(mode));
+    }
+
+    /// <summary>
     /// Updates the active sort presentation when the shell changes between regular and play-history views.
     /// </summary>
     /// <param name="value">The active sort parameters.</param>
@@ -454,7 +469,17 @@ public sealed class MainChartListViewModel : ViewModel
         SortRequested?.Invoke(this, new MainChartListSortRequestedEventArgs(columnName, direction, sortTarget));
     }
 
-    internal bool TryBeginCellEdit(MainChartListCellEditContext context)
+    internal bool TryBeginCellEdit(object row, string propertyName)
+    {
+        MainChartListOperationContext context = CurrentOperationContext;
+        return TryBeginCellEditCore(new MainChartListCellEditContext(
+            row,
+            propertyName,
+            context.SourceScope,
+            context.OperationSection));
+    }
+
+    private bool TryBeginCellEditCore(MainChartListCellEditContext context)
     {
         if (context == null)
         {
@@ -1040,6 +1065,46 @@ public sealed class MainChartListViewModel : ViewModel
                 disposable.Dispose();
             }
         }
+    }
+}
+
+internal sealed class MainChartListOperationContext
+{
+    internal static MainChartListOperationContext Library { get; } = new(
+        MainViewOperationSection.Library,
+        ChartOperationSourceScope.Library);
+
+    internal MainChartListOperationContext(
+        MainViewOperationSection operationSection,
+        ChartOperationSourceScope sourceScope)
+    {
+        OperationSection = operationSection;
+        SourceScope = sourceScope;
+    }
+
+    internal MainViewOperationSection OperationSection { get; }
+
+    internal ChartOperationSourceScope SourceScope { get; }
+
+    internal static MainChartListOperationContext FromMode(MainViewUpdateMode mode)
+    {
+        MainViewOperationSection section = mode switch
+        {
+            MainViewUpdateMode.PendingInstallFolderSelected => MainViewOperationSection.InstallPending,
+            MainViewUpdateMode.NewlyInstalledFolderSelected => MainViewOperationSection.InstallInstalled,
+            MainViewUpdateMode.PlaylistFilterSelected or MainViewUpdateMode.PlaylistNotOwnedFilterSelected => MainViewOperationSection.Playlist,
+            MainViewUpdateMode.FullScanAllChartsFilterSelected or MainViewUpdateMode.FileMissingFilterSelected or MainViewUpdateMode.FileMissingIgnoredFilterSelected => MainViewOperationSection.FullScanCheck,
+            MainViewUpdateMode.ChartInfoParseErrorFilterSelected => MainViewOperationSection.ChartInfoParseError,
+            MainViewUpdateMode.PlayHistorySelected => MainViewOperationSection.PlayHistory,
+            _ => MainViewOperationSection.Library,
+        };
+        ChartOperationSourceScope sourceScope = section switch
+        {
+            MainViewOperationSection.InstallPending => ChartOperationSourceScope.PendingPackage,
+            MainViewOperationSection.InstallInstalled => ChartOperationSourceScope.NewlyInstalledPackage,
+            _ => ChartOperationSourceScope.Library,
+        };
+        return new MainChartListOperationContext(section, sourceScope);
     }
 }
 
