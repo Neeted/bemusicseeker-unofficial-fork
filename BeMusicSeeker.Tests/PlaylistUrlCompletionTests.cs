@@ -218,15 +218,15 @@ public sealed class PlaylistUrlCompletionTests
                     "{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-stella-b\",\"url_diff\":\"https://example.com/diff-stella-b\"}" +
                     "]");
             };
-            var playlist = new BMSPlaylist(
+            var playlist = new TestBmsPlaylist(
                 tempDbPath,
                 null,
                 null,
                 null,
                 null,
-                PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-                BeatorajaBmtOptionsSnapshot.CreateCurrent,
-                CustomFolderOutputSettingsSnapshot.CreateCurrent,
+                () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
+                () => BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default),
+                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default),
                 null,
                 tsvFetcher,
                 stellaFetcher);
@@ -285,15 +285,15 @@ public sealed class PlaylistUrlCompletionTests
                 stellaFetchCount++;
                 return Task.FromResult("[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-stella\",\"url_diff\":\"https://example.com/diff-stella\"}]");
             };
-            var playlist = new BMSPlaylist(
+            var playlist = new TestBmsPlaylist(
                 tempDbPath,
                 null,
                 null,
                 null,
                 null,
-                PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-                BeatorajaBmtOptionsSnapshot.CreateCurrent,
-                CustomFolderOutputSettingsSnapshot.CreateCurrent,
+                () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
+                () => BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default),
+                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default),
                 null,
                 tsvFetcher,
                 stellaFetcher);
@@ -351,7 +351,7 @@ public sealed class PlaylistUrlCompletionTests
                 fetchCount++;
                 return Task.FromResult("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t\thttps://example.com/injected");
             };
-            var playlist = new BMSPlaylist(
+            var playlist = new TestBmsPlaylist(
                 tempDbPath,
                 null,
                 null,
@@ -413,7 +413,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new TestBmsPlaylist(tempDbPath);
             BMSTable table = CreateTable(4001, "LocalTable");
             var oldLastUpdate = DateTime.Now.AddDays(1);
             table.last_update = oldLastUpdate;
@@ -450,7 +450,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new TestBmsPlaylist(tempDbPath);
             BMSTable table = CreateTable(4002, "ExternalTable");
             table.Page_url = new Uri("https://example.com/page.html");
             table.Header_url = new Uri("https://example.com/header.json");
@@ -486,7 +486,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new TestBmsPlaylist(tempDbPath);
             BMSTable table = CreateTable(4003, "ShaTable");
             InsertPlaylistHeader(tempDbPath, table);
             TestablePlaylistEntry first = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "memo-1");
@@ -517,7 +517,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new TestBmsPlaylist(tempDbPath);
             BMSTable table = CreateTable(4005, "ShaToBothTable");
             InsertPlaylistHeader(tempDbPath, table);
             string sha256 = "4545454545454545454545454545454545454545454545454545454545454545";
@@ -590,7 +590,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new TestBmsPlaylist(tempDbPath);
             BMSTable table = CreateTable(4004, "BmsonTable");
             InsertPlaylistHeader(tempDbPath, table);
             var song = new LR2SongDBExtended.bmson_song

@@ -31,7 +31,7 @@ public sealed class BeatorajaBmtOptionsSnapshotTests
             Settings.Default.RegisterBeatorajaBmtUrls = true;
             Settings.Default.BeatorajaBmtHashOutputMode = "FillMissingMd5Sha256";
 
-            BeatorajaBmtOptionsSnapshot snapshot = BeatorajaBmtOptionsSnapshot.CreateCurrent();
+            BeatorajaBmtOptionsSnapshot snapshot = BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default);
 
             Assert.IsTrue(snapshot.EnableBeatorajaBmtOutput);
             Assert.IsTrue(snapshot.KeepBeatorajaBmtFilesWhenOutputDisabled);
@@ -65,7 +65,7 @@ public sealed class BeatorajaBmtOptionsSnapshotTests
             EnableBeatorajaBmtOutput = true,
             BeatorajaBmtTablePath = Path.Combine(tempDirectory, "table.json")
         };
-        var playlist = new BMSPlaylist(
+        var playlist = new TestBmsPlaylist(
             songDbPath,
             null,
             null,

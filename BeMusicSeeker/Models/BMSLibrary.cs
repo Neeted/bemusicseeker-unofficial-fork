@@ -2406,38 +2406,6 @@ public partial class BMSLibrary : NotificationObject
         public InstallEstimationEvaluationData EstimationData { get; set; }
     }
 
-    /// <summary>
-    /// LR2 の song.db を読み込み、このセッションで利用する BMS ライブラリを初期化します。
-    /// </summary>
-    /// <param name="_lr2SongDB">必須の LR2 song.db パスです。</param>
-    /// <param name="getLR2Config">必要時に LR2 設定を取得するコールバックです。</param>
-    /// <param name="_lr2ScoreDB">任意の LR2 score.db パスです。</param>
-    /// <exception cref="ArgumentNullException">song.db パスが null の場合に送出されます。</exception>
-    /// <exception cref="ArgumentException">指定された DB ファイルが存在しない場合に送出されます。</exception>
-    public BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config = null, string _lr2ScoreDB = null, string startupRequiredFileScanReason = null)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, null)
-    {
-    }
-
-    /// <summary>
-    /// テストや内部差し替え用の変更系ファイル操作サービスを指定して BMS ライブラリを初期化します。
-    /// </summary>
-    /// <param name="_lr2SongDB">必須の LR2 song.db パスです。</param>
-    /// <param name="getLR2Config">必要時に LR2 設定を取得するコールバックです。</param>
-    /// <param name="_lr2ScoreDB">任意の LR2 score.db パスです。</param>
-    /// <param name="fileMutationService">ReadOnly 補正や再試行を担う変更系ファイル操作サービスです。</param>
-    /// <exception cref="ArgumentNullException">song.db パスが null の場合に送出されます。</exception>
-    /// <exception cref="ArgumentException">指定された DB ファイルが存在しない場合に送出されます。</exception>
-    internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, null)
-    {
-    }
-
-    internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService, IBmsLibraryDialogService dialogService)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, null)
-    {
-    }
-
     internal BMSLibrary(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
@@ -2474,7 +2442,8 @@ public partial class BMSLibrary : NotificationObject
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
         this.startupRequiredFileScanReason = startupRequiredFileScanReason;
-        this.optionsSnapshotProvider = optionsSnapshotProvider ?? BmsLibraryOptionsSnapshot.CreateCurrent;
+        this.optionsSnapshotProvider = optionsSnapshotProvider
+            ?? throw new ArgumentNullException(nameof(optionsSnapshotProvider));
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new ScopedOperationDialogService(this);

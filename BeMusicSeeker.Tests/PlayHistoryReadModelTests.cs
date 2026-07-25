@@ -778,8 +778,8 @@ public sealed class PlayHistoryReadModelTests
 
             string songDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath)!, "song.db");
             File.WriteAllBytes(songDbPath, []);
-            var library = new BMSLibrary(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath);
             var owner = new PlayHistoryWorkflowOwner();
             var progressStages = new List<PlayHistoryReadWorkflowProgressStage>();
             PlayHistoryViewRequest firstRequest = owner.BeginRequest(

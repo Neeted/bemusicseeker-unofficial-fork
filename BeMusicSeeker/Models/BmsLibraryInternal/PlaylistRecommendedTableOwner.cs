@@ -165,6 +165,8 @@ internal sealed class PlaylistRecommendedTableOwner
 
     private readonly object insaneTableLock = new();
 
+    private readonly Func<CustomFolderOutputSettingsSnapshot> playlistSettingsProvider;
+
     private readonly object overjoyTableLock = new();
 
     private readonly object estimationTableLock = new();
@@ -187,7 +189,8 @@ internal sealed class PlaylistRecommendedTableOwner
         Func<SemaphoreSlim> initializationSemaphoreProvider,
         Func<Uri, BMSTable> externalTableLoader,
         IPlaylistRecommendedTableHttpClient httpClient,
-        PlaylistOperationNotificationOwner notificationOwner)
+        PlaylistOperationNotificationOwner notificationOwner,
+        Func<CustomFolderOutputSettingsSnapshot> playlistSettingsProvider)
     {
         this.lr2ScoreDbPath = lr2ScoreDbPath;
         this.bmsScoresProvider = bmsScoresProvider;
@@ -195,6 +198,7 @@ internal sealed class PlaylistRecommendedTableOwner
         this.externalTableLoader = externalTableLoader ?? throw new ArgumentNullException(nameof(externalTableLoader));
         this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         this.notificationOwner = notificationOwner ?? throw new ArgumentNullException(nameof(notificationOwner));
+        this.playlistSettingsProvider = playlistSettingsProvider ?? throw new ArgumentNullException(nameof(playlistSettingsProvider));
     }
 
     internal BMSTable LoadWalkureTable(Uri pageUri, BMSTable baseTable = null)
@@ -563,7 +567,9 @@ internal sealed class PlaylistRecommendedTableOwner
         table.symbol = table.org_symbol = "R★";
         try
         {
-            if (baseTable == null || !Settings.Default.ShowRecommUpdatedMsg)
+            CustomFolderOutputSettingsSnapshot settings = playlistSettingsProvider()
+                ?? throw new InvalidOperationException("Playlist settings provider returned null.");
+            if (baseTable == null || !settings.ShowRecommUpdatedMsg)
             {
                 return;
             }

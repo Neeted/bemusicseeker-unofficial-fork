@@ -844,7 +844,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 wav_files_existing = 1
             }, suppressPropertyChanged: true);
             ChartFile activeChart = ChartFileProjection.FromBmsFile(active);
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [active],
                 BmsonSongs = []
@@ -868,7 +868,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE maintenance\r\n", Encoding.ASCII);
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             file.path = chartPath;
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [file], []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
@@ -919,7 +919,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 wav_files_existing = 0
             }, suppressPropertyChanged: true);
             ChartFile targetChart = ChartFileProjection.FromBmsFile(target, includeWarningSnapshot: false);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [target, unrelated], []);
             EnsureCurrentResourceHealthIndex(library);
 
@@ -949,7 +949,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             TestableBmsFile unrelated = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             unrelated.path = unrelatedPath;
             ChartFile targetChart = ChartFileProjection.FromBmsFile(target, includeWarningSnapshot: false);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [target, unrelated], []);
             library.BMSFiles = new List<BMSFile> { target, unrelated };
 
@@ -978,7 +978,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 is_files_warning_ignored = false
             }, suppressPropertyChanged: true);
             ChartFile chart = ChartFileProjection.FromBmsFile(file);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [file], []);
             EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -1010,7 +1010,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             var changedProperties = new List<string>();
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {
@@ -1077,7 +1077,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 }
             ]);
 
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [file], []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             library.StartupBackgroundTaskScheduler = delegate (string _, string _, string _, Func<System.Threading.Tasks.Task> work)
@@ -1131,7 +1131,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 is_files_warning_ignored = false
             }, suppressPropertyChanged: true);
             ChartFile targetChart = ChartFileProjection.FromBmsFile(target);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [target, unrelated], []);
             library.BMSFiles = new List<BMSFile> { target, unrelated };
 
@@ -1159,7 +1159,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 is_files_warning_ignored = false
             }, suppressPropertyChanged: true);
             ChartFile chart = ChartFileProjection.FromBmsFile(file);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [file], []);
             EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -1567,7 +1567,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 encoding = "shift_jis",
                 is_encoding_fixed = false
             }, suppressPropertyChanged: true);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [garbled, fixedGarbled, lr2Warning, parentBlankWithoutWarning, registered], []);
 
             List<ChartFile> garbledCharts = [.. library.ChartFilesGarbled];

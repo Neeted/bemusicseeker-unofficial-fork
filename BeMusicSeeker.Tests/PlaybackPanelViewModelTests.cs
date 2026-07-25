@@ -1193,7 +1193,7 @@ public sealed class PlaybackPanelViewModelTests
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
-        panel.AttachLibrary(new BMSLibrary(songDbPath));
+        panel.AttachLibrary(new TestBmsLibrary(songDbPath));
         return panel;
     }
 

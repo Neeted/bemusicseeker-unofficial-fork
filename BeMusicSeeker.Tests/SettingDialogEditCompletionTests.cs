@@ -1668,7 +1668,7 @@ public sealed class SettingDialogEditCompletionTests
     {
         string databasePath = Path.Combine(root, "settings-test-playlists.db");
         File.WriteAllBytes(databasePath, []);
-        var tables = new BMSPlaylist(databasePath)
+        var tables = new TestBmsPlaylist(databasePath)
         {
             BMSTables = new Livet.DispatcherCollection<BMSTable>(
                 new System.Collections.ObjectModel.ObservableCollection<BMSTable>(),

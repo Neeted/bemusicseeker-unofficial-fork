@@ -462,7 +462,7 @@ public sealed class OperationProgressHubViewModelTests
             using (var _ = new LR2SongDBExtended(databasePath))
             {
             }
-            BMSLibrary library = new(databasePath, null, null, string.Empty);
+            BMSLibrary library = new TestBmsLibrary(databasePath, null, null, string.Empty);
             var packageProgressStarted = new ManualResetEventSlim(false);
             var maintenanceProgressStarted = new ManualResetEventSlim(false);
             var folderProgressStarted = new ManualResetEventSlim(false);

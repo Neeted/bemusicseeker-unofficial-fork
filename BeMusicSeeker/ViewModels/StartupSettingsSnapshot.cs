@@ -58,10 +58,17 @@ internal sealed class StartupSettingsSnapshot
 
     public Uri TableListURL { get; init; }
 
-    public static StartupSettingsSnapshot CreateCurrent()
-    {
-        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
-    }
+    public bool StartupSelectInstallPending { get; init; }
+
+    public bool ShowDuplicateFileCheckConfirmMsg { get; init; }
+
+    public bool UseBeatorajaScoreDb { get; init; }
+
+    public string BeatorajaRootPath { get; init; }
+
+    public string BeatorajaPlayerId { get; init; }
+
+    public string BeatorajaScoreDbPath { get; init; }
 
     internal static StartupSettingsSnapshot CreateCurrent(Settings settings)
     {
@@ -92,7 +99,13 @@ internal sealed class StartupSettingsSnapshot
             LR2BackupSpan = settings.LR2BackupSpan,
             LR2BackupNum = settings.LR2BackupNum,
             SkipInitPlaylistLoad = settings.SkipInitPlaylistLoad,
-            TableListURL = settings.TableListURL
+            TableListURL = settings.TableListURL,
+            StartupSelectInstallPending = settings.StartupSelectInstallPending,
+            ShowDuplicateFileCheckConfirmMsg = settings.ShowDuplicateFileCheckConfirmMsg,
+            UseBeatorajaScoreDb = settings.UseBeatorajaScoreDb,
+            BeatorajaRootPath = settings.BeatorajaRootPath,
+            BeatorajaPlayerId = settings.BeatorajaPlayerId,
+            BeatorajaScoreDbPath = settings.BeatorajaScoreDbPath
         };
     }
 

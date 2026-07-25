@@ -45,7 +45,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
             {
             }
-            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var calls = new List<string>();
             var failures = new List<PackageInstallFailure>();
             var eventOrder = new List<string>();
@@ -137,8 +137,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(secondDb))
             {
             }
-            var first = new BMSLibrary(firstDb, null, null, string.Empty);
-            var second = new BMSLibrary(secondDb, null, null, string.Empty);
+            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
             var started = new ManualResetEventSlim(false);
             var release = new ManualResetEventSlim(false);
             var completion = new ManualResetEventSlim(false);
@@ -195,8 +195,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(secondDb))
             {
             }
-            var first = new BMSLibrary(firstDb, null, null, string.Empty);
-            var second = new BMSLibrary(secondDb, null, null, string.Empty);
+            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
             var chartFileOperations = new ChartFileOperationSynchronizer();
             var chartMutationActivity = new ChartMutationActivityOwner();
             int mutationCalls = 0;
@@ -270,8 +270,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(secondDb))
             {
             }
-            var first = new BMSLibrary(firstDb, null, null, string.Empty);
-            var second = new BMSLibrary(secondDb, null, null, string.Empty);
+            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
             int failurePublished = 0;
             int diagnosticReports = 0;
             var owner = new PackageInstallWorkflowOwner(
@@ -328,7 +328,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
             {
             }
-            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             var owner = new PackageInstallWorkflowOwner(
                 new ChartFileOperationSynchronizer(),
@@ -376,7 +376,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
             {
             }
-            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             var owner = new PackageInstallWorkflowOwner(
                 new ChartFileOperationSynchronizer(),
@@ -427,7 +427,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
             {
             }
-            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             var owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed"),
@@ -476,7 +476,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
             {
             }
-            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var started = new ManualResetEventSlim(false);
             var release = new ManualResetEventSlim(false);
             var completion = new ManualResetEventSlim(false);
@@ -538,8 +538,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(secondDb))
             {
             }
-            var first = new BMSLibrary(firstDb, null, null, string.Empty);
-            var second = new BMSLibrary(secondDb, null, null, string.Empty);
+            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
             var firstStarted = new ManualResetEventSlim(false);
             var releaseFirst = new ManualResetEventSlim(false);
             var secondCompleted = new ManualResetEventSlim(false);
@@ -606,7 +606,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
             {
             }
-            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             var owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
@@ -648,7 +648,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
             {
             }
-            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             var secondFinished = new ManualResetEventSlim(false);
             var owner = CreateOwner(

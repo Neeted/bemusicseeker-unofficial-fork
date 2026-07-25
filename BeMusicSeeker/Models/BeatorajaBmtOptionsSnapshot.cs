@@ -20,11 +20,6 @@ internal sealed class BeatorajaBmtOptionsSnapshot
 
     public string BeatorajaBmtHashOutputMode { get; init; }
 
-    internal static BeatorajaBmtOptionsSnapshot CreateCurrent()
-    {
-        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
-    }
-
     internal static BeatorajaBmtOptionsSnapshot CreateCurrent(Settings settings)
     {
         if (settings == null)

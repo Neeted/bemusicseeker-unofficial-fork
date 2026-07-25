@@ -110,7 +110,7 @@ public sealed class RegularChartListOwnerTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 DuplicateChartGroups = []
             };
@@ -181,7 +181,7 @@ public sealed class RegularChartListOwnerTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles =
                 [
@@ -256,7 +256,7 @@ public sealed class RegularChartListOwnerTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\catch-up.bms")];
             RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
             RegularMaterializedChartListApplyResult materialized = owner.TryApplyMaterialized(
@@ -300,7 +300,7 @@ public sealed class RegularChartListOwnerTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
             using var applied = new ManualResetEventSlim();
             int appliedCount = 0;
@@ -334,7 +334,7 @@ public sealed class RegularChartListOwnerTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
             owner.AttachNormalLibraryRefreshSource(library);
             using var applyEntered = new ManualResetEventSlim();
@@ -385,7 +385,7 @@ public sealed class RegularChartListOwnerTests
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE shutdown\r\n");
             var file = CreateTestableBmsFile(chartPath);
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [file]
             };
@@ -458,7 +458,7 @@ public sealed class RegularChartListOwnerTests
             File.WriteAllText(secondChartPath, "#PLAYER 1\r\n#TITLE second\r\n");
             var firstFile = CreateTestableBmsFile(firstChartPath);
             var secondFile = CreateTestableBmsFile(secondChartPath);
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [firstFile, secondFile]
             };
@@ -551,7 +551,7 @@ public sealed class RegularChartListOwnerTests
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE queued\r\n");
             var file = CreateTestableBmsFile(chartPath);
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [file]
             };
@@ -625,7 +625,7 @@ public sealed class RegularChartListOwnerTests
                 wav_files_defined = 2,
                 wav_files_existing = 1
             });
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [file]
             };
@@ -661,7 +661,7 @@ public sealed class RegularChartListOwnerTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\queued.bms")];
             var pendingActions = new Queue<Action>();
             RegularChartListOwner owner = CreateOwner(
@@ -695,7 +695,7 @@ public sealed class RegularChartListOwnerTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\queued-stop.bms")];
             var pendingActions = new Queue<Action>();
             RegularChartListOwner owner = CreateOwner(

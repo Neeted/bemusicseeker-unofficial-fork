@@ -20,10 +20,9 @@ internal sealed class CustomFolderOutputSettingsSnapshot
 
     public bool EnableDownloadLr2IrScoreAndDetectUnsent { get; init; }
 
-    internal static CustomFolderOutputSettingsSnapshot CreateCurrent()
-    {
-        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
-    }
+    public int PlaylistDefaultIgnoreFolderOutput { get; init; }
+
+    public bool ShowRecommUpdatedMsg { get; init; }
 
     internal static CustomFolderOutputSettingsSnapshot CreateCurrent(Settings settings)
     {
@@ -39,7 +38,9 @@ internal sealed class CustomFolderOutputSettingsSnapshot
             LR2CustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDir,
             LR2CustomFolderOutputBaseDirRootType = settings.LR2CustomFolderOutputBaseDirRootType,
             LR2CustomFolderAdditionalOutputBaseDirs = settings.LR2CustomFolderAdditionalOutputBaseDirs,
-            EnableDownloadLr2IrScoreAndDetectUnsent = settings.EnableDownloadLr2IrScoreAndDetectUnsent
+            EnableDownloadLr2IrScoreAndDetectUnsent = settings.EnableDownloadLr2IrScoreAndDetectUnsent,
+            PlaylistDefaultIgnoreFolderOutput = settings.PlaylistDefaultIgnoreFolderOutput,
+            ShowRecommUpdatedMsg = settings.ShowRecommUpdatedMsg
         };
     }
 

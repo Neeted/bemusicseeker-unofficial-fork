@@ -178,7 +178,8 @@ internal sealed class PlaylistExternalSyncOwner
             }
             else
             {
-                bmsTable.ignore_folder_output = ReadNewPlaylistIgnoreFolderOutputDefault();
+                bmsTable.ignore_folder_output = NormalizeNewPlaylistIgnoreFolderOutputDefault(
+                    GetCustomFolderOutputSettings().PlaylistDefaultIgnoreFolderOutput);
             }
 
             resolvedDataUri = bmsTable.GetAbsoluteDataUrl();
@@ -1283,10 +1284,9 @@ internal sealed class PlaylistExternalSyncOwner
         return string.IsNullOrWhiteSpace(value) ? "(empty)" : value;
     }
 
-    private static LR2SongDBExtended.playlist.CustomFolderType ReadNewPlaylistIgnoreFolderOutputDefault()
+    private static LR2SongDBExtended.playlist.CustomFolderType NormalizeNewPlaylistIgnoreFolderOutputDefault(int value)
     {
         return (LR2SongDBExtended.playlist.CustomFolderType)(
-            Settings.Default.PlaylistDefaultIgnoreFolderOutput
-            & (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders);
+            value & (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders);
     }
 }

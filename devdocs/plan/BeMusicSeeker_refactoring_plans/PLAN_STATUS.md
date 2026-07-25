@@ -12,34 +12,32 @@
 
 ## Active outcome
 
-### `OWN-01 Residual owner-boundary reconciliation`
+### `MIG-01 Configuration and application-context closure`
 
-状態: completed
+状態: in progress
 
-- active outcome base commit: `3088771c`
-- observed production checkpoint: `3088771c`
-- active execution package: `OWN-01 Residual owner-boundary reconciliation`
-- execution anchor: `Owner-boundary closure` (completed)
-- next outcome: `MIG-01 Configuration and application-context closure` (ready)
+- active outcome base commit: `15f9b965`
+- observed production checkpoint: `15f9b965`
+- active execution package: `MIG-01 Configuration and application-context closure`
+- execution anchor: `Configuration consumption closure`
+- sequence cursor: `MIG-01-B2 Playback / player settings gateway`
+- next outcome: `MIG-02 Path, process and updater closure` (not started)
 
 目的:
 
-pending estimated-install、playlist custom-folder status persistence、library facade-owned writer、cross-owner lock callback host、test-only production seamを、既存ownerまたは用途限定portへ閉じる。完了済みUI / library / playlist ownerを再抽出せず、production route、durable/live順序、旧surface削除、behavior verificationを一つのcorridorとして進める。
+configuration snapshot / purpose storeとapplication context / scheduler / lifetime portをproduction compositionから注入し、library・playlist・playback・Viewがgenerated settingsやglobal application contextを直接取得しない状態へ閉じる。setting key、serialized value、save timing、UI observable behavior、失敗契約は維持する。
 
-Acceptance criteria:
+完了条件:
 
-- pending estimated-install workflowがpackage、catalog、maintenance、resource-health ownerを直接接続し、`IPendingEstimatedInstallHost`とfacade lock / private-operation bridgeを退役させる。
-- custom-folder output statusのread / batch write / delete / repair-row queryがrepositoryまたはoutput ownerへ移り、`BMSPlaylist`のraw connection / SQL / transactionを退役させる。
-- library database writerとSQL boundaryがcatalog maintenance / mutation ownerまたはgatewayに収まり、generic facade callback writer、production `ForTest` seam、未使用writerを退役させる。
-- playlist external registrationとURL completionが登録owner / URL ownerのproduction routeへ接続され、root lock / mutable collection callback hostとstatic test seamを退役させる。
-- UI observable behavior、失敗契約、setting key / serialized value、DB schema / data、外部ファイル形式、external syncのcancellation / progressを維持する。
-- 各unitでproduction route、behavior tests、旧route / relay / seam削除、targeted verification、fresh static reviewを完了する。
-- outcome-wide Full verification、該当UI smoke、fresh outcome reviewを完了し、Gate scorecardを更新する。
+- library / playlist、playback/player、MainWindow view settings、application context / schedulerをB1〜B4のvertical unitで閉じる。
+- 各unitでproduction route、behavior test、旧fallback / relay / broad host削除、検証、fresh static reviewを完了する。
+- `Settings.Default`はconfiguration adapter / editor内、application / dispatcher globalはApp / View / view-host adapter内に限定し、path / process / native / UI technology残件は次Outcomeへ分類する。
+- outcome-wide Full verification、該当UI smoke、fresh outcome reviewを完了し、CFG-01 / CTX-01を`boundary met`へ更新する。
 
 Non-goals:
 
-- `Settings.Default`、application lifetime、dispatcher / global scheduler、path、process、native / UI technologyの最終境界化（`MIG-01`〜`MIG-04`）。
-- 既にcohesiveなcatalog、package、maintenance、resource-health、playlist persistence / output ownerの再分割。
+- path、process、updater、native、WPF / WinForms / COM technology、HintPath / output layoutの最終境界化（`MIG-02`〜`MIG-04`）。
+- `System.Configuration`の.NET 10移行方式、package replacement、production TFM変更（Gate後）。
 
 ## Stable terminal steps
 
@@ -52,16 +50,16 @@ Non-goals:
 
 ## Active implementation batch
 
-状態: completed
+状態: in progress
 
-`OWN-01` plannerが作成した有限batchであり、B1から依存順に実装する。batchに`active`または`pending`がある間はplannerを再起動しない。
+`MIG-01` plannerが作成した有限batchであり、B1から依存順に実装する。batchに`active`または`pending`がある間はplannerを再起動しない。
 
 | Batch | Unit | State | Closure family |
 |---|---|---|---|
-| `OWN-01` | `B1` | `completed` | `pending estimated-install` |
-| `OWN-01` | `B2` | `completed` | `playlist custom-folder persistence` |
-| `OWN-01` | `B3` | `completed` | `library DB writer / SQL seam` |
-| `OWN-01` | `B4` | `completed` | `playlist external registration / URL completion` |
+| `MIG-01` | `B1` | `completed` | `library / playlist configuration consumption` |
+| `MIG-01` | `B2` | `active` | `playback / player settings gateway` |
+| `MIG-01` | `B3` | `pending` | `MainWindow view settings and configuration seam` |
+| `MIG-01` | `B4` | `pending` | `application context / scheduler / lifetime` |
 
 ## Current code evidence
 
@@ -92,7 +90,7 @@ Non-goals:
 | PL-02 Playlist external-sync and output ownership | completed |
 | UI-05 Shell closure | completed |
 | OWN-01 Residual owner-boundary reconciliation | completed |
-| MIG-01 Configuration and application-context closure | ready |
+| MIG-01 Configuration and application-context closure | in progress |
 | MIG-02 Path, process and updater closure | not started |
 | MIG-03 Native interop and UI-host closure | not started |
 | MIG-04 Build, dependency and output closure | not started |

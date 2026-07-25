@@ -899,7 +899,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             typeof(MainWindowViewModel)
                 .GetMethod("RepairCustomFolderOutputSearchRootsBeforeStartupValidation", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(viewModel, [StartupSettingsSnapshot.CreateCurrent()]);
+                .Invoke(viewModel, [StartupSettingsSnapshot.CreateCurrent(Settings.Default)]);
 
             Assert.AreEqual(rootOutputChild, Settings.Default.BMSInstallDir);
             Assert.AreEqual(rootOutputChild, GetDialogField<string>(dialog, "tempBMSInstallDir"));
@@ -1344,7 +1344,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
     private static void SetViewModelTables(MainWindowViewModel viewModel, string songDbPath, BMSTable[] tables)
     {
-        var playlist = new BMSPlaylist(songDbPath)
+        var playlist = new TestBmsPlaylist(songDbPath)
         {
             BMSTables = new DispatcherCollection<BMSTable>(
                 new ObservableCollection<BMSTable>(tables),

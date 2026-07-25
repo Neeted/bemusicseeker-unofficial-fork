@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using BeMusicSeeker.Properties;
 using Newtonsoft.Json;
 using Ribbit.Util.Extensions;
 
@@ -17,11 +16,6 @@ internal sealed class CustomFolderOutputBaseEntry
 
 internal static class CustomFolderOutputBaseRegistry
 {
-    internal static IReadOnlyList<string> ReadAdditionalBaseDirectories()
-    {
-        return DeserializeBaseDirectories(Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
-    }
-
     internal static IReadOnlyList<string> DeserializeBaseDirectories(string serialized)
     {
         return DeserializeBaseDirectories(serialized, throwOnInvalidJson: false);
@@ -68,11 +62,6 @@ internal static class CustomFolderOutputBaseRegistry
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
-    internal static IReadOnlyList<CustomFolderOutputBaseEntry> CreateAdditionalEntries()
-    {
-        return CreateAdditionalEntries(ReadAdditionalBaseDirectories());
-    }
-
     internal static IReadOnlyList<CustomFolderOutputBaseEntry> CreateAdditionalEntries(IEnumerable<string> paths)
     {
         return [.. NormalizeBaseDirectories(paths)
@@ -82,14 +71,6 @@ internal static class CustomFolderOutputBaseRegistry
                 Path = path
             })
             .Where(entry => !string.IsNullOrWhiteSpace(entry.Name))];
-    }
-
-    internal static string ResolveNormalOutputBaseDirectory(string savedBaseName)
-    {
-        return ResolveNormalOutputBaseDirectory(
-            savedBaseName,
-            Settings.Default.LR2CustomFolderOutputBaseDir,
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
     }
 
     internal static string ResolveNormalOutputBaseDirectory(
@@ -135,14 +116,6 @@ internal static class CustomFolderOutputBaseRegistry
         return false;
     }
 
-    internal static string GetDisplayName(string savedBaseName)
-    {
-        return GetDisplayName(
-            savedBaseName,
-            Settings.Default.LR2CustomFolderOutputBaseDir,
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
-    }
-
     internal static string GetDisplayName(
         string savedBaseName,
         string defaultBaseDirectory,
@@ -157,11 +130,6 @@ internal static class CustomFolderOutputBaseRegistry
         }
 
         return GetDirectoryDisplayName(defaultBaseDirectory);
-    }
-
-    internal static bool ContainsBaseName(string savedBaseName)
-    {
-        return ContainsBaseName(savedBaseName, Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
     }
 
     internal static bool ContainsBaseName(string savedBaseName, string serializedAdditionalBaseDirectories)

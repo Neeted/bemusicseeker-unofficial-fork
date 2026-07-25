@@ -439,85 +439,6 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    /// <summary>
-    /// プレイリスト DB への接続情報と関連取得デリゲートを初期化します。
-    /// 必要なテーブルとインデックスもここで整備します。
-    /// </summary>
-    /// <param name="_lr2SongDB">プレイリスト保存先の LR2 Song DB パス。</param>
-    /// <param name="getLR2Config">LR2 設定を返すデリゲート。</param>
-    /// <param name="_lr2ScoreDB">推奨表更新に使う LR2 Score DB パス。</param>
-    /// <param name="getBMSScores">ローカルスコア一覧を返すデリゲート。</param>
-    /// <param name="getBeatorajaBmtSongHashResolver">beatoraja `.bmt` 出力用 hash 補完 resolver を返すデリゲート。</param>
-    /// <exception cref="ArgumentNullException"><paramref name="_lr2SongDB"/> が <see langword="null"/> の場合。</exception>
-    /// <exception cref="ArgumentException">必要な DB ファイルが存在しない場合。</exception>
-    public BMSPlaylist(
-        string _lr2SongDB,
-        Func<LR2Config> getLR2Config = null,
-        string _lr2ScoreDB = null,
-        Func<List<BMSScore>> getBMSScores = null,
-        Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver = null)
-        : this(
-            _lr2SongDB,
-            getLR2Config,
-            _lr2ScoreDB,
-            getBMSScores,
-            getBeatorajaBmtSongHashResolver,
-            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-            BeatorajaBmtOptionsSnapshot.CreateCurrent,
-            CustomFolderOutputSettingsSnapshot.CreateCurrent)
-    {
-    }
-
-    internal BMSPlaylist(
-        string _lr2SongDB,
-        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
-        : this(
-            _lr2SongDB,
-            null,
-            null,
-            null,
-            null,
-            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-            BeatorajaBmtOptionsSnapshot.CreateCurrent,
-            CustomFolderOutputSettingsSnapshot.CreateCurrent,
-            lr2PlaylistFolderSynchronization)
-    {
-    }
-
-    internal BMSPlaylist(
-        string _lr2SongDB,
-        Func<LR2Config> getLR2Config,
-        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
-        : this(
-            _lr2SongDB,
-            getLR2Config,
-            null,
-            null,
-            null,
-            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-            BeatorajaBmtOptionsSnapshot.CreateCurrent,
-            CustomFolderOutputSettingsSnapshot.CreateCurrent,
-            lr2PlaylistFolderSynchronization)
-    {
-    }
-
-    internal BMSPlaylist(
-        string _lr2SongDB,
-        string _lr2ScoreDB,
-        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
-        : this(
-            _lr2SongDB,
-            null,
-            _lr2ScoreDB,
-            null,
-            null,
-            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-            BeatorajaBmtOptionsSnapshot.CreateCurrent,
-            CustomFolderOutputSettingsSnapshot.CreateCurrent,
-            lr2PlaylistFolderSynchronization)
-    {
-    }
-
     internal BMSPlaylist(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
@@ -549,9 +470,12 @@ public partial class BMSPlaylist : NotificationObject
         playlistAggregatePersistenceOwner.SetActiveCollection([], _BMSTables);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         beatorajaBmtSongHashResolverFactory = getBeatorajaBmtSongHashResolver;
-        this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
-        this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
-        this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
+        this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider
+            ?? throw new ArgumentNullException(nameof(playlistUrlCompletionOptionsProvider));
+        this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider
+            ?? throw new ArgumentNullException(nameof(beatorajaBmtOptionsProvider));
+        this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
+            ?? throw new ArgumentNullException(nameof(customFolderOutputSettingsProvider));
         this.playlistUrlCompletionTsvContentFetcher = playlistUrlCompletionTsvContentFetcher;
         this.playlistUrlCompletionStellaContentFetcher = playlistUrlCompletionStellaContentFetcher;
         this.lr2PlaylistFolderSynchronization = lr2PlaylistFolderSynchronization;
@@ -582,7 +506,8 @@ public partial class BMSPlaylist : NotificationObject
             () => initSemaphore,
             uri => externalSyncOwnerLocal.LoadExternalTable(uri),
             new AppPlaylistRecommendedTableHttpClient(playlistHttpClient),
-            operationNotificationOwner);
+            operationNotificationOwner,
+            this.customFolderOutputSettingsProvider);
         externalSyncOwnerLocal = new PlaylistExternalSyncOwner(
             playlistHttpClient,
             recommendedTableOwner,
@@ -3290,7 +3215,10 @@ public partial class BMSPlaylist : NotificationObject
         string rootOutputBaseDir = null,
         CustomFolderOutputSettingsSnapshot settings = null)
     {
-        settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
+        if (settings == null)
+        {
+            throw new InvalidOperationException("Custom-folder output settings snapshot was not provided.");
+        }
         if (isRootFolder)
         {
             return rootOutputBaseDir ?? settings.LR2CustomFolderOutputBaseDirRootType;
@@ -3357,7 +3285,10 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
-        settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
+        if (settings == null)
+        {
+            throw new InvalidOperationException("Custom-folder output settings snapshot was not provided.");
+        }
         Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
         {
             FilePath = item.FilePath,
@@ -3647,9 +3578,9 @@ public partial class BMSPlaylist : NotificationObject
         };
     }
 
-    private static IReadOnlyCollection<string> CreateCustomFolderDirectoryRowGenerationScopes(string outputDir, BMSTable bmsTable = null)
+    private IReadOnlyCollection<string> CreateCustomFolderDirectoryRowGenerationScopes(string outputDir, BMSTable bmsTable = null)
     {
-        return CreateCustomFolderDirectoryRowGenerationScopes(outputDir, bmsTable, null);
+        return CreateCustomFolderDirectoryRowGenerationScopes(outputDir, bmsTable, GetCustomFolderOutputSettings());
     }
 
     private static IReadOnlyCollection<string> CreateCustomFolderDirectoryRowGenerationScopes(
@@ -3664,7 +3595,10 @@ public partial class BMSPlaylist : NotificationObject
         try
         {
             string normalizedOutputDir = Lr2FolderPath.NormalizeDirectoryPath(outputDir);
-            settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
+            if (settings == null)
+            {
+                throw new InvalidOperationException("Custom-folder output settings snapshot was not provided.");
+            }
             if (bmsTable?.is_root_folder != true)
             {
                 IEnumerable<string> normalOutputBases = new[]
@@ -3976,9 +3910,9 @@ public partial class BMSPlaylist : NotificationObject
         });
     }
 
-    internal static LR2SongDBExtended.playlist.CustomFolderType ReadNewPlaylistIgnoreFolderOutputDefault()
+    internal LR2SongDBExtended.playlist.CustomFolderType ReadNewPlaylistIgnoreFolderOutputDefault()
     {
-        return NormalizeNewPlaylistIgnoreFolderOutputDefault(Settings.Default.PlaylistDefaultIgnoreFolderOutput);
+        return NormalizeNewPlaylistIgnoreFolderOutputDefault(GetCustomFolderOutputSettings().PlaylistDefaultIgnoreFolderOutput);
     }
 
     internal static LR2SongDBExtended.playlist.CustomFolderType NormalizeNewPlaylistIgnoreFolderOutputDefault(int value)

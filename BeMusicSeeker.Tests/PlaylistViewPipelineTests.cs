@@ -2654,7 +2654,7 @@ public sealed class PlaylistViewPipelineTests
             };
             PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
             var viewModel = MainWindowViewModelTestFactory.Create();
-            typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, new BMSPlaylist(songDbPath));
+            typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, new TestBmsPlaylist(songDbPath));
 
             var context = new MainChartListCellEditContext(
                 row,

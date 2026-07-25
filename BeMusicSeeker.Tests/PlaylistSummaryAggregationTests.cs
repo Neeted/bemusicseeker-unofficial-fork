@@ -23,7 +23,7 @@ public sealed class PlaylistSummaryAggregationTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
 
@@ -180,7 +180,7 @@ public sealed class PlaylistSummaryAggregationTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             SetLibraryFilesWithoutNotification(library,
             [
                 CreateLibraryFile(@"C:\Songs\bms.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -210,7 +210,7 @@ public sealed class PlaylistSummaryAggregationTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles =
                 [
@@ -238,7 +238,7 @@ public sealed class PlaylistSummaryAggregationTests
         {
             BMSFile removedFile = CreateLibraryFile(@"C:\Songs\removed.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             BMSFile keptFile = CreateLibraryFile(@"C:\Songs\kept.bms", "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles = [removedFile, keptFile]
             };
@@ -263,7 +263,7 @@ public sealed class PlaylistSummaryAggregationTests
             const string chartPath = @"C:\Songs\replace.bms";
             BMSFile replacedFile = CreateLibraryFile(chartPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             BMSFile newFile = CreateLibraryFile(chartPath, "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles = [replacedFile]
             };
@@ -283,7 +283,7 @@ public sealed class PlaylistSummaryAggregationTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles =
                 [
@@ -333,7 +333,7 @@ public sealed class PlaylistSummaryAggregationTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles =
                 [
@@ -379,7 +379,7 @@ public sealed class PlaylistSummaryAggregationTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles =
                 [
@@ -416,7 +416,7 @@ public sealed class PlaylistSummaryAggregationTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles =
                 [

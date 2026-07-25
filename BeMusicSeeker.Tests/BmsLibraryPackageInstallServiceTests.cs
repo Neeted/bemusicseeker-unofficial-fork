@@ -31,7 +31,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 path = packageDirectoryPath
             };
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 ChartPackagesPending = CreatePackageCollection([pendingPackage])
             };
@@ -58,7 +58,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 {
                     path = packageDirectoryPath
                 };
-                var library = new BMSLibrary(songDbPath)
+                var library = new TestBmsLibrary(songDbPath)
                 {
                     ChartPackagesPending = CreatePackageCollection([pendingPackage])
                 };
@@ -118,7 +118,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 path = packageDirectoryPath
             };
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BmsonSongs = [installedBmson],
                 ChartPackagesPending = CreatePackageCollection([pendingPackage])
@@ -167,7 +167,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             pendingEntry.ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
             ChartPackage pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = null,
                 BmsonSongs = [installedBmson],
@@ -202,7 +202,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             requestedPackage.path = pendingDirectoryPath;
             requestedPackage.delete_parent = false;
 
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 ChartPackagesPending = CreatePackageCollection([])
             };
@@ -222,7 +222,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.Lr2Synchronization.Running = true;
             try
             {

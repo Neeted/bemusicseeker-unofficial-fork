@@ -235,7 +235,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 DuplicateChartGroups =
                 [
@@ -267,7 +267,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles =
                 [
@@ -306,7 +306,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             TestResourceInitializer.EnsureJapaneseResources();
             TestableBmsFile staleWarningFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
             staleWarningFile.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles =
                 [
@@ -333,7 +333,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(chartPath, "{}");
             try
             {
-                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
                 var song = new LR2SongDBExtended.bmson_song
                 {
                     path = chartPath,
@@ -371,7 +371,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(chartPath, "{}");
             try
             {
-                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
                 {
                     BmsonSongs =
                     [
@@ -415,7 +415,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(srcChartPath, "{}");
             try
             {
-                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
                 var sourceSong = new LR2SongDBExtended.bmson_song
                 {
                     path = srcChartPath,
@@ -487,7 +487,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                     songDb.InsertOrReplace(existingRow, typeof(LR2SongDB.song));
                 }
 
-                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
                 {
                     BMSFiles = [sourceFile],
                     BmsonSongs = []
@@ -540,7 +540,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             string duplicateHash = BmsonSongParser.Parse(srcChartPath).md5;
             try
             {
-                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
                 var sourceSong = new LR2SongDBExtended.bmson_song
                 {
                     path = srcChartPath,

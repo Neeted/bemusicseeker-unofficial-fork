@@ -141,7 +141,7 @@ public sealed class LibraryFolderTreeViewModelTests
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
             }
 
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.SearchTargets = [firstRoot, secondRoot, firstRoot];
             var owner = new LibraryFolderTreeViewModel(
                 _ => true,
@@ -229,7 +229,7 @@ public sealed class LibraryFolderTreeViewModelTests
             string[] bmsValues = new string[29];
             bmsValues[0] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             bmsValues[7] = bmsPath;
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [BMSFile.FromSongTableRawValues(bmsValues)],
                 BmsonSongs =

@@ -224,7 +224,8 @@ public sealed class PlaylistRecommendedTableOwnerTests
             initializationSemaphoreProvider: () => null,
             externalTableLoader: externalTableLoader ?? (_ => null!),
             httpClient: httpClient ?? new FakeHttpClient(),
-            notificationOwner: notificationOwner ?? new PlaylistOperationNotificationOwner());
+            notificationOwner: notificationOwner ?? new PlaylistOperationNotificationOwner(),
+            playlistSettingsProvider: () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default));
     }
 
     private sealed class FakeHttpClient : IPlaylistRecommendedTableHttpClient

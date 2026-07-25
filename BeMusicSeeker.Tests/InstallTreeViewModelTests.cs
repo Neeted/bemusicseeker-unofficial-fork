@@ -143,7 +143,7 @@ public sealed class InstallTreeViewModelTests
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
             }
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 ChartPackagesInstalled = CreatePackageCollection([]),
                 ChartPackagesPending = CreatePackageCollection([])

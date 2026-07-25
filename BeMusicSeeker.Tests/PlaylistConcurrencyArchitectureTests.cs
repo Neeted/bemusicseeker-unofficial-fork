@@ -828,7 +828,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "ViewModels",
             "MainWindowViewModel.cs");
 
-        StringAssert.Contains(source, "private Settings ApplicationSettings => applicationComposition.SettingsEditSession.Values;");
+        StringAssert.Contains(source, "applicationComposition.SettingsEditSession,");
+        StringAssert.Contains(source, "GetStartupSettingsSnapshot()");
         Assert.IsFalse(source.Contains("Settings.Default."));
     }
 

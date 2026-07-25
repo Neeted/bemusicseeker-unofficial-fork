@@ -16,11 +16,6 @@ internal sealed class PlaylistUrlCompletionOptionsSnapshot
 
     public bool OverwritePlaylistUrlsWithCompletion { get; init; }
 
-    internal static PlaylistUrlCompletionOptionsSnapshot CreateCurrent()
-    {
-        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
-    }
-
     internal static PlaylistUrlCompletionOptionsSnapshot CreateCurrent(Settings settings)
     {
         if (settings == null)

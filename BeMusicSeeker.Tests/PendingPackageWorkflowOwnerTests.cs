@@ -645,7 +645,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
             string missingDirectory = Path.Combine(tempDirectory, "missing");
             var store = new RecordingStore(events)
             {
@@ -703,7 +703,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
             string missingDirectory = Path.Combine(tempDirectory, "missing");
             var store = new RecordingStore(events)
             {

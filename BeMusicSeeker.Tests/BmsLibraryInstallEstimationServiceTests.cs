@@ -6,6 +6,7 @@ using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -3455,7 +3456,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
     private static BmsLibraryInstallEstimationService CreateService()
     {
-        return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70);
+        return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default), 70);
     }
 
     private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookupIndexSnapshot(IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs = null)

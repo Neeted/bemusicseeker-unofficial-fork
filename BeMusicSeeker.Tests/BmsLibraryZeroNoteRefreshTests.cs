@@ -21,7 +21,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
             var file = new TestableBmsFile
             {
                 path = "C:\\charts\\normal.bms"
@@ -56,7 +56,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
             var file = new TestableBmsFile
             {
                 path = chartPath
@@ -91,7 +91,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
             var file = new TestableBmsFile
             {
                 path = chartPath
@@ -114,7 +114,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
             var zeroNoteFile = new TestableBmsFile
             {
                 path = "C:\\charts\\zero.bms"

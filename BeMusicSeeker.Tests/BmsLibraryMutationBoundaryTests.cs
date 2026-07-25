@@ -23,7 +23,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService();
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
             string missingDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MutationBoundary_" + Guid.NewGuid().ToString("N"));
 
             using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
@@ -47,7 +47,7 @@ public sealed class BmsLibraryMutationBoundaryTests
             {
                 ResultToReturn = MessageBoxResult.Yes
             };
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
             var pendingFile = new TestableBmsFile
             {
                 path = "C:\\Pending\\Pkg\\chart.bms"
@@ -73,7 +73,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService();
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
             var pendingFile = new TestableBmsFile
             {
                 path = "C:\\Pending\\Pkg\\chart.bms"

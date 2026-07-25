@@ -14,6 +14,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -810,13 +811,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             File.WriteAllText(secondHeaderPath, "{\"name\":\"SecondImport\",\"symbol\":\"S\",\"output_dir\":\"SecondImport\",\"data_url\":\"./second-data.json\"}");
             File.WriteAllText(secondDataPath, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Second song\",\"artist\":\"Artist\",\"level\":\"2\"}]");
 
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
                     Dispatcher.CurrentDispatcher)
             };
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
@@ -887,7 +888,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -931,7 +932,7 @@ public sealed class PlaylistWorkspaceViewModelTests
                 name = "Initial",
                 symbol = "I"
             };
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table]),
@@ -969,7 +970,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -1033,7 +1034,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -1081,13 +1082,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             File.WriteAllText(secondHeaderPath, "{\"name\":\"WalkureImport\",\"symbol\":\"W\",\"output_dir\":\"WalkureImport\",\"data_url\":\"./walkure-data.json\"}");
             File.WriteAllText(secondDataPath, "[{\"md5\":\"dddddddddddddddddddddddddddddddd\",\"title\":\"Walkure song\",\"artist\":\"Artist\",\"level\":\"4\"}]");
 
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
                     Dispatcher.CurrentDispatcher)
             };
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
@@ -1240,7 +1241,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             BMSTable first = new() { name = "first" };
             BMSTable second = new() { name = "second" };
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([first, second]),
@@ -1423,13 +1424,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
                     Dispatcher.CurrentDispatcher)
             };
-            BMSLibrary library = new(songDbPath);
+            BMSLibrary library = new TestBmsLibrary(songDbPath);
             typeof(BMSLibrary)
                 .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(library, 123);
@@ -1525,7 +1526,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSLibrary library = new(songDbPath);
+            BMSLibrary library = new TestBmsLibrary(songDbPath);
             typeof(BMSLibrary)
                 .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(library, 123);
@@ -1643,7 +1644,7 @@ public sealed class PlaylistWorkspaceViewModelTests
                 name = "Current",
                 Page_url = new Uri("https://example.test/table")
             };
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([active]),
@@ -1708,7 +1709,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             BMSTable table = new() { name = "Edit target" };
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table]),
@@ -1784,7 +1785,7 @@ public sealed class PlaylistWorkspaceViewModelTests
                 name = "Initial name",
                 symbol = "OLD"
             };
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table]),
@@ -1844,7 +1845,7 @@ public sealed class PlaylistWorkspaceViewModelTests
                 ],
                 Folder_order = ["B"]
             };
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table]),
@@ -1932,13 +1933,13 @@ public sealed class PlaylistWorkspaceViewModelTests
                 seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
                 seed.InsertOrReplace(prefixedEntry, typeof(LR2SongDBExtended.playlist_entry));
             }
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table]),
                     Dispatcher.CurrentDispatcher)
             };
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => library,
@@ -2060,7 +2061,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var visibleTables = new ObservableCollection<BMSTable>();
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(visibleTables, null!)
             };
@@ -2148,13 +2149,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
                     Dispatcher.CurrentDispatcher)
             };
-            BMSLibrary library = new(songDbPath);
+            BMSLibrary library = new TestBmsLibrary(songDbPath);
             const string bmsMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string bmsonSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             BMSFile bmsFile = BMSFile.FromSongTableRawValues(CreateSongTableRow(bmsMd5, @"C:\Installed\bms-chart.bms"));
@@ -2234,7 +2235,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            BMSPlaylist playlist = new(songDbPath)
+            BMSPlaylist playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([new BMSTable { name = "Lock target" }]),
@@ -2298,7 +2299,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -2347,7 +2348,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         };
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
-            playlistStoreProvider: () => new BMSPlaylist(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))),
+            playlistStoreProvider: () => new TestBmsPlaylist(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))),
             playlistWorkspaceDialogService: dialogs);
         var table = new BMSTable { is_external_sync = false };
 
@@ -2551,7 +2552,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -2589,13 +2590,13 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
                     System.Windows.Threading.Dispatcher.CurrentDispatcher)
             };
-            BMSLibrary library = new(databasePath);
+            BMSLibrary library = new TestBmsLibrary(databasePath);
             typeof(BMSLibrary)
                 .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(library, 123);
@@ -2641,11 +2642,11 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            BMSLibrary library = new(databasePath);
+            BMSLibrary library = new TestBmsLibrary(databasePath);
             typeof(BMSLibrary)
                 .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(library, 123);
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -2715,11 +2716,11 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            BMSLibrary library = new(databasePath);
+            BMSLibrary library = new TestBmsLibrary(databasePath);
             typeof(BMSLibrary)
                 .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(library, 123);
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -2898,7 +2899,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            var playlist = new BMSPlaylist(databasePath)
+            var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -3861,7 +3862,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -3929,22 +3930,22 @@ public sealed class PlaylistWorkspaceViewModelTests
             }
             PlaylistPersistenceRepository.EnsureSchema(firstSongDbPath);
             PlaylistPersistenceRepository.EnsureSchema(secondSongDbPath);
-            var firstPlaylist = new BMSPlaylist(firstSongDbPath)
+            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([new BMSTable { name = "first" }]),
                     Dispatcher.CurrentDispatcher)
             };
             var secondTable = new BMSTable { name = "second" };
-            var secondPlaylist = new BMSPlaylist(secondSongDbPath)
+            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([secondTable]),
                     Dispatcher.CurrentDispatcher)
             };
             BMSPlaylist currentPlaylist = firstPlaylist;
-            BMSLibrary currentLibrary = new BMSLibrary(firstSongDbPath);
-            var secondLibrary = new BMSLibrary(secondSongDbPath);
+            BMSLibrary currentLibrary = new TestBmsLibrary(firstSongDbPath);
+            var secondLibrary = new TestBmsLibrary(secondSongDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => currentPlaylist,
@@ -4007,7 +4008,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -4068,7 +4069,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -4141,7 +4142,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -4197,7 +4198,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -4208,7 +4209,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             playlist.BMSTables.Add(hydrationTable);
             playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => true;
             playlist.QueueDeferredPlaylistEntriesHydration("queued_before_reference");
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             int schedulerCalls = 0;
             Func<Task>? scheduledWork = null;
             var queued = new List<PlaylistReferenceApplyQueuedEventArgs>();
@@ -4293,7 +4294,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[]
@@ -4313,7 +4314,7 @@ public sealed class PlaylistWorkspaceViewModelTests
                 scheduledWork = work();
                 return true;
             };
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
@@ -4355,7 +4356,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -4544,13 +4545,13 @@ public sealed class PlaylistWorkspaceViewModelTests
         Func<bool>? restoreUiThreadCheck = null)
     {
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-        BMSPlaylist createdPlaylist = new BMSPlaylist(
+        BMSPlaylist createdPlaylist = new TestBmsPlaylist(
             songDbPath,
             null,
             null,
             null,
             null,
-            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
+            () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
             () => new BeatorajaBmtOptionsSnapshot(),
             () => new CustomFolderOutputSettingsSnapshot())
         {
@@ -5593,7 +5594,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([first, second]),
@@ -5677,7 +5678,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([first, second]),
@@ -5753,7 +5754,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([first, second]),

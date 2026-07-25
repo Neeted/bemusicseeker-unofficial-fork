@@ -553,7 +553,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         using (new LR2SongDBExtended(songDbPath))
         {
         }
-        var library = new BMSLibrary(songDbPath);
+        var library = new TestBmsLibrary(songDbPath);
         var dbGateway = new BmsLibraryDbGateway(songDbPath);
         var storageRowsOwner = new CatalogStorageRowsOwner();
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();

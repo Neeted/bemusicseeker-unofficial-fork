@@ -22,7 +22,7 @@ public sealed class PlaylistUrlCompletionOptionsSnapshotTests
             Settings.Default.EnableStellaFullPlaylistUrlCompletion = true;
             Settings.Default.OverwritePlaylistUrlsWithCompletion = true;
 
-            PlaylistUrlCompletionOptionsSnapshot snapshot = PlaylistUrlCompletionOptionsSnapshot.CreateCurrent();
+            PlaylistUrlCompletionOptionsSnapshot snapshot = PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default);
 
             Assert.IsTrue(snapshot.EnablePlaylistUrlCompletion);
             Assert.AreEqual("https://example.invalid/playlist.tsv", snapshot.PlaylistMd5UrlMappingTsvUri);

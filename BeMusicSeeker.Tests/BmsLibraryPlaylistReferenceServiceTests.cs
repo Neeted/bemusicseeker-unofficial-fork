@@ -346,7 +346,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
                 md5 = null,
                 sha256 = new string('e', 64)
             };
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [source, included, otherDirectory],
                 BmsonSongs = [bmson, md5lessBmson]

@@ -1853,7 +1853,14 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private static void SetPrivateField(object target, string fieldName, object value)
     {
-        FieldInfo fieldInfo = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Type declaringType = target.GetType();
+        FieldInfo? fieldInfo = null;
+        while (declaringType != null && fieldInfo == null)
+        {
+            fieldInfo = declaringType.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            declaringType = declaringType.BaseType;
+        }
+
         Assert.IsNotNull(fieldInfo, fieldName);
         fieldInfo.SetValue(target, value);
     }
@@ -2023,7 +2030,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var library = new BMSLibrary(songDbPath, null!, null, null!, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService());
             testAction(tempRootPath, songDbPath, library);
         }
         finally

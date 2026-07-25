@@ -55,11 +55,6 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public int PendingInstallEstimateMaxParallelPackages { get; init; }
 
-    public static BmsLibraryOptionsSnapshot CreateCurrent()
-    {
-        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
-    }
-
     internal static BmsLibraryOptionsSnapshot CreateCurrent(Settings settings)
     {
         if (settings == null)

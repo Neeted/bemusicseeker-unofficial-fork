@@ -27,7 +27,7 @@ public sealed class PlaylistSchemaMigrationTests
                 db.Execute("CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
             }
 
-            _ = new BMSPlaylist(tempDbPath);
+            _ = new TestBmsPlaylist(tempDbPath);
 
             using var verify = new LR2SongDBExtended(tempDbPath);
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
@@ -113,7 +113,7 @@ public sealed class PlaylistSchemaMigrationTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            var playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new TestBmsPlaylist(tempDbPath);
             string separator = "\v" + Environment.NewLine;
             string legacyPlaylistDump =
                 "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, page_url, header_url, data_url, compat_prefix, last_update, org_name, org_symbol, ignore_folder_output, is_external_sync, output_dir, is_root_folder) "
@@ -142,7 +142,7 @@ public sealed class PlaylistSchemaMigrationTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new TestBmsPlaylist(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.Execute("DELETE FROM playlist_entry;");

@@ -52,7 +52,7 @@ public sealed class ApplicationCompositionTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -598,7 +598,7 @@ public sealed class ApplicationCompositionTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([first, second]),
@@ -732,7 +732,7 @@ public sealed class ApplicationCompositionTests
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
             var third = new BMSTable { playlist_id = 3, name = "Third", symbol = "T", bmt_sort = 3 };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([first, second, third]),
@@ -930,7 +930,7 @@ public sealed class ApplicationCompositionTests
             var second = new BMSTable { playlist_id = 12, name = "Second", is_bmt_output = false };
             var third = new BMSTable { playlist_id = 13, name = "Third", is_bmt_output = true };
             string bmtPath = Path.Combine(tempDirectory, "beatoraja", "table.json");
-            var playlist = new BMSPlaylist(
+            var playlist = new TestBmsPlaylist(
                 songDbPath,
                 null,
                 null,
@@ -1648,7 +1648,7 @@ public sealed class ApplicationCompositionTests
         };
         try
         {
-            var library = new BMSLibrary(
+            var library = new TestBmsLibrary(
                 songDbPath,
                 null,
                 null,

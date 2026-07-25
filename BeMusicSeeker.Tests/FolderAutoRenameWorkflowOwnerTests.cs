@@ -717,7 +717,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         using (var initialize = new LR2SongDBExtended(path))
         {
         }
-        return new BMSLibrary(path, null, null, string.Empty);
+        return new TestBmsLibrary(path, null, null, string.Empty);
     }
 
     private static IReadOnlyList<ChartOperationTarget> CreateSelectedTargets()

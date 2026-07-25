@@ -37,10 +37,10 @@ public sealed class BmsLibraryOptionsSnapshotTests
         try
         {
             Settings.Default.PendingInstallEstimateMaxParallelPackages = 3;
-            BmsLibraryOptionsSnapshot first = BmsLibraryOptionsSnapshot.CreateCurrent();
+            BmsLibraryOptionsSnapshot first = BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default);
 
             Settings.Default.PendingInstallEstimateMaxParallelPackages = 5;
-            BmsLibraryOptionsSnapshot second = BmsLibraryOptionsSnapshot.CreateCurrent();
+            BmsLibraryOptionsSnapshot second = BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default);
 
             Assert.AreEqual(3, first.PendingInstallEstimateMaxParallelPackages);
             Assert.AreEqual(5, second.PendingInstallEstimateMaxParallelPackages);

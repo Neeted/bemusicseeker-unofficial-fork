@@ -91,7 +91,7 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             int parentFolderCacheVersionChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {

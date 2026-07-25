@@ -256,7 +256,7 @@ public sealed class ChartListVirtualViewTests
             var viewModel = new MainWindowViewModel(composition);
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             viewModel.PlaybackPanel.AttachLibrary(library);
             var file = new TestableBmsFile();
@@ -2407,7 +2407,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
                 new ObservableCollection<ChartPackage>([package]),
                 Dispatcher.CurrentDispatcher);
@@ -2459,7 +2459,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
                 new ObservableCollection<ChartPackage>([package]),
                 Dispatcher.CurrentDispatcher);
@@ -2511,7 +2511,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
                 new ObservableCollection<ChartPackage>([package]),
                 Dispatcher.CurrentDispatcher);
@@ -2590,7 +2590,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
                 new ObservableCollection<ChartPackage>([package]),
                 Dispatcher.CurrentDispatcher);
@@ -2633,7 +2633,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
                 new ObservableCollection<ChartPackage>([package]),
                 Dispatcher.CurrentDispatcher);
@@ -2689,7 +2689,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([currentEntry]);
         try
         {
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
                 new ObservableCollection<ChartPackage>([package]),
                 Dispatcher.CurrentDispatcher);
@@ -2897,7 +2897,7 @@ public sealed class ChartListVirtualViewTests
             [tempRootPath]);
         try
         {
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [zeta, alpha],
                 DuplicateChartGroups = [duplicateGroup]

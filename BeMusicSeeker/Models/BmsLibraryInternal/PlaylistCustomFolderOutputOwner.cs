@@ -472,7 +472,10 @@ internal sealed class PlaylistCustomFolderOutputOwner
         {
             return;
         }
-        settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
+        if (settings == null)
+        {
+            throw new System.InvalidOperationException("Custom-folder output settings snapshot was not provided.");
+        }
         Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
         {
             FilePath = item.FilePath,

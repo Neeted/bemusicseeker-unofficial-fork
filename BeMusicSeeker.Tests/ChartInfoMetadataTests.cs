@@ -904,7 +904,7 @@ createTempDirectory);
                 CreateChartInfoRow(firstSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
                 CreateChartInfoRow(unrelatedSha, new string('b', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)
             ]);
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             Assert.IsFalse(library.ChartInfoIndexHydrated);
             Assert.AreEqual(0, library.ChartInfoIndexVersion);
@@ -3112,7 +3112,7 @@ createTempDirectory);
             LR2SongDBExtended.chart_info bmsRow = CreateChartInfoRow(bmsSha, file.hash, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             LR2SongDBExtended.chart_info bmsonRow = CreateChartInfoRow(bmsonSha, bmsonSong.md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             gateway.UpsertChartInfos([bmsRow, bmsonRow]);
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
             {
                 BMSFiles = [file],
                 BmsonSongs = [bmsonSong]
@@ -3186,7 +3186,7 @@ createTempDirectory);
                         totalCount: 1,
                         nowUtc: DateTime.UtcNow);
                 }
-                var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
+                var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
                 {
                     BMSFiles = [file]
                 };
@@ -3231,7 +3231,7 @@ createTempDirectory);
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: true);
 
@@ -3397,7 +3397,7 @@ createTempDirectory);
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingChart))]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             InvokeInstallChartPackages(library, [package], installDir);
 
@@ -3444,7 +3444,7 @@ createTempDirectory);
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong))]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             InvokeInstallChartPackages(library, [package], installDir);
 
@@ -3473,7 +3473,7 @@ createTempDirectory);
             var package = ChartPackage.FromChartEntries([pendingChart]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             InvokeInstallChartPackages(library, [package], installDir);
 
@@ -3524,7 +3524,7 @@ createTempDirectory);
                 CreateChartInfoParseFailureRow(new string('c', 32), string.Empty, Path.Combine(tempRootPath, "missing.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "missing", null),
                 CreateChartInfoParseFailureRow(staleBmsFile.hash, staleBmsFile.sha256, staleBmsFile.path, 0, "parse_failed", "InvalidDataException", "old", null)
             ]);
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
             {
                 BMSFiles = [bmsFile, staleBmsFile],
                 BmsonSongs = [bmsonSong]
@@ -3593,7 +3593,7 @@ createTempDirectory);
             [
                 CreateChartInfoParseFailureRow(sharedMd5, sharedSha256, bmsFile.path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null)
             ]);
-            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = [bmsonSong]

@@ -138,7 +138,7 @@ public sealed class MaintenanceTreeViewModelTests
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
             }
-            action(new BMSLibrary(songDbPath));
+            action(new TestBmsLibrary(songDbPath));
         }
         finally
         {

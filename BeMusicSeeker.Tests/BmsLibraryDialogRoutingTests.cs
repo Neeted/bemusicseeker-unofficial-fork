@@ -26,7 +26,7 @@ public sealed class BmsLibraryDialogRoutingTests
             {
                 ResultToReturn = MessageBoxResult.No
             };
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
             var pendingFile = new TestableBmsFile
             {
                 path = "C:\\Pending\\Pkg\\chart.bms"
@@ -53,7 +53,7 @@ public sealed class BmsLibraryDialogRoutingTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService();
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
             string missingDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Missing_" + Guid.NewGuid().ToString("N"));
 
             library.RenameChartFolder(missingDirectoryPath, "RenamedFolder");
@@ -72,7 +72,7 @@ public sealed class BmsLibraryDialogRoutingTests
         {
             const string fallbackReason = "empty_results_with_roots";
             var dialogService = new RecordingDialogService();
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
 
             library.ShowEverythingFallbackWarning(fallbackReason);
 
@@ -94,7 +94,7 @@ public sealed class BmsLibraryDialogRoutingTests
         {
             const string failureReason = "directory_enumeration_failed:C:\\BMS";
             var dialogService = new RecordingDialogService();
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
 
             library.ShowFileScanSkippedIncompleteWarning(failureReason);
 
@@ -116,7 +116,7 @@ public sealed class BmsLibraryDialogRoutingTests
         {
             const string failureReason = "empty_scan_with_existing_db";
             var dialogService = new RecordingDialogService();
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
 
             library.ShowEmptyScanWithExistingDbWarning(failureReason);
 
@@ -140,7 +140,7 @@ public sealed class BmsLibraryDialogRoutingTests
         {
             const string fallbackReason = "bridge_scan_failed:4";
             var dialogService = new RecordingDialogService();
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
 
             Assert.IsTrue(library.QueueEverythingFallbackWarning(fallbackReason));
             Assert.IsFalse(library.QueueEverythingFallbackWarning("second_reason"));
@@ -161,7 +161,7 @@ public sealed class BmsLibraryDialogRoutingTests
         {
             const string failureReason = "root_not_found:C:\\BMS";
             var dialogService = new RecordingDialogService();
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
 
             Assert.IsTrue(library.QueueFileScanSkippedIncompleteWarning(failureReason));
             Assert.IsFalse(library.QueueFileScanSkippedIncompleteWarning("second_reason"));
@@ -183,7 +183,7 @@ public sealed class BmsLibraryDialogRoutingTests
         {
             const string failureReason = "empty_scan_with_existing_db";
             var dialogService = new RecordingDialogService();
-            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
 
             Assert.IsTrue(library.QueueEmptyScanWithExistingDbWarning(failureReason));
             Assert.IsFalse(library.QueueEmptyScanWithExistingDbWarning("second_reason"));

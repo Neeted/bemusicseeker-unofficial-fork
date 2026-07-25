@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -247,7 +248,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         Directory.CreateDirectory(tempRoot);
         try
         {
-            var service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70);
+            var service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default), 70);
             testAction(service, tempRoot);
         }
         finally

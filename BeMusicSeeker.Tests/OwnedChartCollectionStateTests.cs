@@ -1599,7 +1599,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
             var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Second", "chart.bms"));
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             using var initialBmsFilesNotification = new ManualResetEventSlim(false);
             System.ComponentModel.PropertyChangedEventHandler initialHandler = delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {
@@ -1667,7 +1667,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
             var replacement = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Replacement", "chart.bms"));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [first],
                 BmsonSongs = []
@@ -1690,7 +1690,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
             var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = [bmsonSong]
@@ -1715,7 +1715,7 @@ public sealed class OwnedChartCollectionStateTests
             var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             List<BMSFile> inputBmsFiles = [bmsFile];
             List<LR2SongDBExtended.bmson_song> inputBmsonSongs = [bmsonSong];
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = inputBmsFiles,
                 BmsonSongs = inputBmsonSongs
@@ -1747,7 +1747,7 @@ public sealed class OwnedChartCollectionStateTests
             var bmsonSong = CreateBmsonSong(
                 Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = [bmsonSong]
@@ -1770,7 +1770,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var first = CreateBmsonSong(Path.Combine("C:\\Installed", "First", "chart.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             var second = CreateBmsonSong(Path.Combine("C:\\Installed", "Second", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, []);
             SetLibraryBmsonSongsWithoutNotification(library, [first, second]);
             List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
@@ -1810,7 +1810,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var pathless = CreateBmsonSong(null, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             var kept = CreateBmsonSong(Path.Combine("C:\\Installed", "Kept", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [],
                 BmsonSongs = [pathless, kept]
@@ -1841,7 +1841,7 @@ public sealed class OwnedChartCollectionStateTests
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService())
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService())
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = [],
@@ -1879,7 +1879,7 @@ public sealed class OwnedChartCollectionStateTests
                 wav_files_defined = 2,
                 wav_files_existing = 1
             }, suppressPropertyChanged: true);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             EnsureCurrentResourceHealthIndex(library);
@@ -1924,7 +1924,7 @@ public sealed class OwnedChartCollectionStateTests
                     wav_files_defined = 2,
                     wav_files_existing = 1
                 }, suppressPropertyChanged: true);
-                var library = new BMSLibrary(songDbPath);
+                var library = new TestBmsLibrary(songDbPath);
                 SetLibraryFilesWithoutNotification(library, [bmsFile]);
                 SetLibraryBmsonSongsWithoutNotification(library, []);
                 EnsureCurrentResourceHealthIndex(library);
@@ -1973,7 +1973,7 @@ public sealed class OwnedChartCollectionStateTests
             {
                 TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", newBmsPath);
                 LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(oldBmsonPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-                var library = new BMSLibrary(songDbPath);
+                var library = new TestBmsLibrary(songDbPath);
                 SetLibraryFilesWithoutNotification(library, [bmsFile]);
                 SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
                 SetDuplicateChartGroupsWithoutNotification(library, []);
@@ -2077,7 +2077,7 @@ public sealed class OwnedChartCollectionStateTests
             try
             {
                 TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath);
-                var library = new BMSLibrary(songDbPath)
+                var library = new TestBmsLibrary(songDbPath)
                 {
                     BMSFiles = [bmsFile],
                     BmsonSongs = [],
@@ -2147,7 +2147,7 @@ public sealed class OwnedChartCollectionStateTests
             var keptBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "aaa.bmson"), "dddddddddddddddddddddddddddddddd");
             var replacedBmson = CreateBmsonSong(replacedBmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
             var newBmson = CreateBmsonSong(replacedBmsonPath, "ffffffffffffffffffffffffffffffff");
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [keptBms, replacedBms]);
             SetLibraryBmsonSongsWithoutNotification(library, [replacedBmson, keptBmson]);
             InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
@@ -2213,7 +2213,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
             var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [keptBms]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             EnsureCurrentResourceHealthIndex(library);
@@ -2236,7 +2236,7 @@ public sealed class OwnedChartCollectionStateTests
             var oldBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsPath);
             var newBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", canonicalVariantBmsPath);
             var bmsonSong = CreateBmsonSong(bmsonPath, "cccccccccccccccccccccccccccccccc");
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [oldBms]);
             SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
@@ -2271,7 +2271,7 @@ public sealed class OwnedChartCollectionStateTests
             string chartPath = Path.Combine(rootPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 SearchTargets = [rootPath]
             };
@@ -2294,7 +2294,7 @@ public sealed class OwnedChartCollectionStateTests
             var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
             var duplicateAddedBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Bms", ".", "added.bms"));
             var addedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "added.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [keptBms],
                 BmsonSongs = []
@@ -2334,7 +2334,7 @@ public sealed class OwnedChartCollectionStateTests
             var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
             var duplicateAddedBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Bms", ".", "added.bms"));
             var addedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "added.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [keptBms],
                 BmsonSongs = []
@@ -2360,7 +2360,7 @@ public sealed class OwnedChartCollectionStateTests
             var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
             var removedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "removed.bms"));
             var addedBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Bms", "added.bms"));
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [keptBms, removedBms]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
@@ -2398,7 +2398,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
             var removedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "removed.bms"));
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [keptBms, removedBms]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             var result = new SongTableFileCheckResult
@@ -2423,7 +2423,7 @@ public sealed class OwnedChartCollectionStateTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             EnsureCurrentResourceHealthIndex(library);
@@ -2451,7 +2451,7 @@ public sealed class OwnedChartCollectionStateTests
             var lastByPath = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "z.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             var firstByPath = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "a.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             var middleByPath = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "m.bmson"), "cccccccccccccccccccccccccccccccc");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [],
                 BmsonSongs = [lastByPath, firstByPath]
@@ -2482,7 +2482,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
             var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
             InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
@@ -2506,7 +2506,7 @@ public sealed class OwnedChartCollectionStateTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = []
@@ -2535,7 +2535,7 @@ public sealed class OwnedChartCollectionStateTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = []
@@ -2564,7 +2564,7 @@ public sealed class OwnedChartCollectionStateTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = []
@@ -2595,7 +2595,7 @@ public sealed class OwnedChartCollectionStateTests
             string sharedPath = Path.Combine("C:\\Library", "Bms", "chart.bms");
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath, new string('b', 64));
             var duplicateOwner = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath, new string('c', 64));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile, duplicateOwner],
                 BmsonSongs = []
@@ -2625,7 +2625,7 @@ public sealed class OwnedChartCollectionStateTests
             string sharedPath = Path.Combine("C:\\Library", "Bmson", "chart.bmson");
             var bmsonSong = CreateBmsonSong(sharedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             var duplicateOwner = CreateBmsonSong(sharedPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [],
                 BmsonSongs = [bmsonSong, duplicateOwner]
@@ -2651,7 +2651,7 @@ public sealed class OwnedChartCollectionStateTests
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, new string('b', 64));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = []
@@ -2717,7 +2717,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
             var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = [bmsonSong]
@@ -2741,7 +2741,7 @@ public sealed class OwnedChartCollectionStateTests
             var firstBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
             var secondBmsFile = CreateFile(firstBmsFile.hash, Path.Combine("C:\\Installed", "Second", "chart.bms"));
             var otherBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Other", "chart.bms"));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [firstBmsFile, secondBmsFile, otherBmsFile],
                 BmsonSongs = []
@@ -2774,7 +2774,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var removedBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Removed", "chart.bms"));
             var keptBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Kept", "chart.bms"));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [removedBmsFile, keptBmsFile],
                 BmsonSongs = []
@@ -2803,7 +2803,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var initialBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Initial", "chart.bms"));
             var addedBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Added", "chart.bms"));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [initialBmsFile],
                 BmsonSongs = []
@@ -2831,7 +2831,7 @@ public sealed class OwnedChartCollectionStateTests
             string root = Path.Combine("C:\\Installed", "Warmup");
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(root, "Bms", "chart.bms"));
             var bmsonSong = CreateBmsonSong(Path.Combine(root, "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = [bmsonSong]
@@ -2857,7 +2857,7 @@ public sealed class OwnedChartCollectionStateTests
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "PrimaryWarmup", "Bms", "chart.bms"));
             var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "PrimaryWarmup", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = [bmsonSong]
@@ -2891,7 +2891,7 @@ public sealed class OwnedChartCollectionStateTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "PotentialDigest", "chart.bms"));
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = []
@@ -2925,7 +2925,7 @@ public sealed class OwnedChartCollectionStateTests
             File.WriteAllText(unregisterChartPath, "#PLAYER 1");
             var overlayBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", overlayChartPath);
             var unregisterBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", unregisterChartPath);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [overlayBms, unregisterBms]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -2959,7 +2959,7 @@ public sealed class OwnedChartCollectionStateTests
             Directory.CreateDirectory(Path.GetDirectoryName(chartPath));
             File.WriteAllText(chartPath, "#PLAYER 1");
             BMSFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -3008,7 +3008,7 @@ public sealed class OwnedChartCollectionStateTests
             File.WriteAllText(movedChartPath, "#PLAYER 1");
             var overlayBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", overlayChartPath);
             var movedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", movedChartPath);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [overlayBms, movedBms]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -3051,7 +3051,7 @@ public sealed class OwnedChartCollectionStateTests
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE hash update\r\n#BPM 120\r\n#00111:01\r\n", System.Text.Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             SetDuplicateChartGroupsWithoutNotification(library, []);
@@ -3119,7 +3119,7 @@ public sealed class OwnedChartCollectionStateTests
                 System.Text.Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             var bmsFile = CreateFile(snapshot.Md5, chartPath, snapshot.Sha256);
-            var library = new BMSLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             SetDuplicateChartGroupsWithoutNotification(library, []);
@@ -3156,7 +3156,7 @@ public sealed class OwnedChartCollectionStateTests
             string oldSha256 = new('b', 64);
             string newSha256 = new('c', 64);
             var bmsFile = CreateFile(md5, chartPath, oldSha256);
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
                 BmsonSongs = [],
@@ -3265,7 +3265,7 @@ public sealed class OwnedChartCollectionStateTests
             var nestedBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine(destinationDirectory, "Nested", "nested.bms"), new string('d', 64));
             var destinationBmson = CreateBmsonSong(Path.Combine(destinationDirectory, "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
             destinationBmson.sha256 = new string('f', 64);
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [destinationBms, sameHashOtherBms, nestedBms],
                 BmsonSongs = [destinationBmson]
@@ -3314,7 +3314,7 @@ public sealed class OwnedChartCollectionStateTests
             destinationBmson.sha256 = new string('b', 64);
             var otherBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Other", "chart.bmson"), destinationBmson.md5);
             otherBmson.sha256 = destinationBmson.sha256;
-            var library = new BMSLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = null,
                 BmsonSongs = [destinationBmson, otherBmson]

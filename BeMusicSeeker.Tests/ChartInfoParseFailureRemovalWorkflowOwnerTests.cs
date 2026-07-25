@@ -230,7 +230,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         using (var database = new LR2SongDBExtended(songDbPath))
         {
         }
-        return new BMSLibrary(songDbPath);
+        return new TestBmsLibrary(songDbPath);
     }
 
     private static void DeleteRoot(string root)

@@ -214,8 +214,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly ApplicationComposition applicationComposition;
 
-    private Settings ApplicationSettings => applicationComposition.SettingsEditSession.Values;
-
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
@@ -2559,6 +2557,7 @@ public partial class MainWindowViewModel : ViewModel,
             throw new ArgumentNullException(nameof(composition));
         }
         applicationComposition = composition;
+        startupSettingsProvider = composition.StartupSettingsProvider;
         startupBackgroundTaskScheduler = new StartupBackgroundTaskSchedulerOwner(
             () => ShellShutdownWorkflow?.IsShutdownRequested == true,
             LogUiSuppression,
@@ -2581,10 +2580,9 @@ public partial class MainWindowViewModel : ViewModel,
             () => startupBackgroundTaskScheduler.IsStarted && startupBackgroundTaskScheduler.IsIdle,
             (generation, revision) => startupBackgroundTaskScheduler.IsCurrentIdleSnapshot(generation, revision),
             startupBackgroundTaskProgressSynchronization);
-        treeViewFilterTypeSelected = ApplicationSettings.StartupSelectInstallPending
+        treeViewFilterTypeSelected = GetStartupSettingsSnapshot().StartupSelectInstallPending
             ? MainViewUpdateMode.PendingInstallFolderSelected
             : MainViewUpdateMode.FolderFilterSelected;
-        startupSettingsProvider = composition.StartupSettingsProvider;
         customFolderOutputSettingsProvider = composition.CustomFolderOutputSettingsProvider;
         playHistoryDisplaySettingsStore = composition.PlayHistoryDisplaySettingsStore;
         MainChartList = composition.CreateMainChartListViewModel(
@@ -2681,7 +2679,7 @@ public partial class MainWindowViewModel : ViewModel,
             zeroNoteLibraryProvider: () => files,
             packageCatalogLibraryProvider: () => files,
             duplicateMaintenanceDialogService: new UiDialogCoordinator(),
-            showDuplicateFileCheckConfirmProvider: () => ApplicationSettings.ShowDuplicateFileCheckConfirmMsg,
+            showDuplicateFileCheckConfirmProvider: () => GetStartupSettingsSnapshot().ShowDuplicateFileCheckConfirmMsg,
             duplicateMaintenanceLibraryProvider: () => files,
             selectedChartMutationDialogService: new UiDialogCoordinator(),
             selectedChartMutationLibraryProvider: () => files,
@@ -2695,7 +2693,7 @@ public partial class MainWindowViewModel : ViewModel,
                 new BmsLr2SongDbSyncWorkflowRuntime(
                     () => files,
                     () => tables,
-                    () => ApplicationSettings.OperationModeLR2DB),
+                    () => GetStartupSettingsSnapshot().OperationModeLR2DB),
                 new UiDialogCoordinator()),
             rankingCacheDownloadWorkflow: new RankingCacheDownloadWorkflowOwner(
                 new BmsRankingCacheDownloadRuntime(() => files),
@@ -4892,23 +4890,24 @@ public partial class MainWindowViewModel : ViewModel,
 
     private string ResolveMainViewLr2PlayHistoryScoreDbPath()
     {
-        if (!ApplicationSettings.OperationModeLR2DB)
+        StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
+        if (!settings.OperationModeLR2DB)
         {
             return null;
         }
         if (lr2config == null
-            && !string.IsNullOrWhiteSpace(ApplicationSettings.LR2ConfigXmlPath)
-            && File.Exists(ApplicationSettings.LR2ConfigXmlPath))
+            && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath)
+            && File.Exists(settings.LR2ConfigXmlPath))
         {
-            lr2config = new LR2Config(ApplicationSettings.LR2ConfigXmlPath);
+            lr2config = new LR2Config(settings.LR2ConfigXmlPath);
         }
-        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(ApplicationSettings.LR2RootPath, () => lr2config?.GetPlayerId());
+        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(settings.LR2RootPath, () => lr2config?.GetPlayerId());
     }
 
     private bool ShouldUseBeatorajaPlayHistoryProvider()
     {
         string scoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath();
-        return ApplicationSettings.UseBeatorajaScoreDb
+        return GetStartupSettingsSnapshot().UseBeatorajaScoreDb
             && files?.GetActiveScoreSourceForDiagnostics() == ActiveScoreSource.Beatoraja
             && !string.IsNullOrWhiteSpace(scoreDbPath)
             && File.Exists(scoreDbPath);
@@ -4916,11 +4915,12 @@ public partial class MainWindowViewModel : ViewModel,
 
     private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath()
     {
-        if (BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath))
+        StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
+        if (BeatorajaConfigService.IsBeatorajaRootPathValid(settings.BeatorajaRootPath))
         {
-            return BeatorajaConfigService.GetScoreDbPath(ApplicationSettings.BeatorajaRootPath, ApplicationSettings.BeatorajaPlayerId);
+            return BeatorajaConfigService.GetScoreDbPath(settings.BeatorajaRootPath, settings.BeatorajaPlayerId);
         }
-        return ApplicationSettings.BeatorajaScoreDbPath;
+        return settings.BeatorajaScoreDbPath;
     }
 
     private BeatorajaPlayHistoryScoreContext ResolveBeatorajaPlayHistoryScoreContext()
@@ -4936,6 +4936,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private PlayHistoryReadSourceContext ResolvePlayHistoryReadSourceContext()
     {
+        StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
         bool useBeatorajaProvider = ShouldUseBeatorajaPlayHistoryProvider();
         return useBeatorajaProvider
             ? PlayHistoryReadSourceContext.Beatoraja(
@@ -4943,7 +4944,7 @@ public partial class MainWindowViewModel : ViewModel,
                 ResolveBeatorajaPlayHistoryScoreContext())
             : PlayHistoryReadSourceContext.Lr2(
                 ResolveMainViewLr2PlayHistoryScoreDbPath(),
-                ApplicationSettings.OperationModeLR2DB);
+                settings.OperationModeLR2DB);
     }
 
     private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic(
