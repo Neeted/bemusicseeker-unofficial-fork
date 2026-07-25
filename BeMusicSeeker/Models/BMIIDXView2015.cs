@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -18,6 +17,8 @@ namespace BeMusicSeeker.Models;
 public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
+
+    private readonly IExternalPlayerProcessGateway processGateway;
 
     private enum KeyCode
     {
@@ -37,7 +38,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
 
     private const uint WM_ANOTHER_RESET = 1128u;
 
-    private Process BMIIDXView2015Process;
+    private IExternalPlayerProcessSession BMIIDXView2015Process;
 
     private string BMSFilePathPlaying;
 
@@ -156,11 +157,15 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
 
     public int LastMeasure { get; }
 
-    internal BMIIDXView2015(string exePath, IPlayerSettingsGateway playerSettingsGateway)
+    internal BMIIDXView2015(
+        string exePath,
+        IPlayerSettingsGateway playerSettingsGateway,
+        IExternalPlayerProcessGateway processGateway)
     {
         ExePath = exePath;
         this.playerSettingsGateway = playerSettingsGateway
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
+        this.processGateway = processGateway ?? throw new ArgumentNullException(nameof(processGateway));
         onExitEventHandlerDefault = BMIIDXView2015Exited;
     }
 
@@ -217,17 +222,15 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
     {
         lock (lockThis)
         {
-            Process[] processesByName = Process.GetProcessesByName("BMIIDXView2015");
-            Process[] processesByName2 = Process.GetProcessesByName("BMIIDXView2015_64");
-            Process[] array = [.. processesByName, .. processesByName2];
-            if (array.Length != 0)
+            IReadOnlyList<IExternalPlayerProcessSession> existingProcesses = processGateway.FindExisting(
+                ExternalPlayerProcessDiscoveryRequest.Create("BMIIDXView2015", "BMIIDXView2015_64"));
+            if (existingProcesses.Count != 0)
             {
                 if (BMIIDXView2015HandleShowing == IntPtr.Zero)
                 {
-                    Process[] array2 = array;
-                    foreach (Process bMIIDXView2015Process in array2)
+                    foreach (IExternalPlayerProcessSession process in existingProcesses)
                     {
-                        BMIIDXView2015Process = bMIIDXView2015Process;
+                        BMIIDXView2015Process = process;
                         CloseProcess();
                     }
                 }
@@ -238,16 +241,11 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
                 BMIIDXView2015HandleShowing = IntPtr.Zero;
                 BMIIDXView2015Process = null;
             }
-            var processStartInfo = new ProcessStartInfo(ExePath)
-            {
-                WindowStyle = ProcessWindowStyle.Minimized,
-                Arguments = "-S \"" + bmsFilePath + "\""
-            };
-            BMIIDXView2015Process = new Process
-            {
-                StartInfo = processStartInfo,
-                EnableRaisingEvents = true
-            };
+            ExternalPlayerProcessLaunchRequest launchRequest = ExternalPlayerProcessLaunchRequest.Create(
+                ExePath,
+                "-S \"" + bmsFilePath + "\"",
+                System.Diagnostics.ProcessWindowStyle.Minimized);
+            BMIIDXView2015Process = processGateway.Prepare(launchRequest);
             BMIIDXView2015Process.Exited += onExitEventHandlerDefault;
             if (onExitEventHandler != null)
             {

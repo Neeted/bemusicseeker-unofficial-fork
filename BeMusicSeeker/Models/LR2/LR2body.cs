@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using Livet;
 using Ribbit.Windows;
 
@@ -16,13 +16,15 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 
+    private readonly IExternalPlayerProcessGateway processGateway;
+
     private readonly LR2Config lr2Config;
 
     private string BMSFilePathPlaying;
 
     private bool isPausing;
 
-    private Process LR2bodyProcess;
+    private IExternalPlayerProcessSession LR2bodyProcess;
 
     private IntPtr LR2bodyHandleShowing = IntPtr.Zero;
 
@@ -123,12 +125,17 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     public int LastMeasure { get; }
 
-    internal LR2body(string exePath, LR2Config config, IPlayerSettingsGateway playerSettingsGateway)
+    internal LR2body(
+        string exePath,
+        LR2Config config,
+        IPlayerSettingsGateway playerSettingsGateway,
+        IExternalPlayerProcessGateway processGateway)
     {
         ExePath = exePath ?? throw new ArgumentNullException("exePath", "引数をnullに出来ません");
         lr2Config = config ?? throw new ArgumentNullException("config", "引数をnullに出来ません");
         this.playerSettingsGateway = playerSettingsGateway
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
+        this.processGateway = processGateway ?? throw new ArgumentNullException(nameof(processGateway));
         onExitEventHandlerDefault = LR2bodyExited;
     }
 
@@ -187,14 +194,13 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         lock (lockThis)
         {
             isPausing = false;
-            Process[] processesByName = Process.GetProcessesByName("LR2body");
-            Process[] processesByName2 = Process.GetProcessesByName("LRHbody");
-            List<Process> list = [.. processesByName, .. processesByName2];
-            if (list.Count != 0)
+            IReadOnlyList<IExternalPlayerProcessSession> existingProcesses = processGateway.FindExisting(
+                ExternalPlayerProcessDiscoveryRequest.Create("LR2body", "LRHbody"));
+            if (existingProcesses.Count != 0)
             {
                 if (LR2bodyProcess == null)
                 {
-                    foreach (Process item in list)
+                    foreach (IExternalPlayerProcessSession item in existingProcesses)
                     {
                         LR2bodyProcess = item;
                         CloseProcess();
@@ -207,16 +213,11 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 LR2bodyHandleShowing = IntPtr.Zero;
                 LR2bodyProcess = null;
             }
-            var processStartInfo = new ProcessStartInfo(ExePath)
-            {
-                WindowStyle = ProcessWindowStyle.Hidden,
-                Arguments = "-A -NS \"" + bmsFilePath + "\""
-            };
-            LR2bodyProcess = new Process
-            {
-                StartInfo = processStartInfo,
-                EnableRaisingEvents = true
-            };
+            ExternalPlayerProcessLaunchRequest launchRequest = ExternalPlayerProcessLaunchRequest.Create(
+                ExePath,
+                "-A -NS \"" + bmsFilePath + "\"",
+                System.Diagnostics.ProcessWindowStyle.Hidden);
+            LR2bodyProcess = processGateway.Prepare(launchRequest);
             LR2bodyProcess.Exited += onExitEventHandlerDefault;
             if (onExitEventHandler != null)
             {

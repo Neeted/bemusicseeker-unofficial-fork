@@ -68,6 +68,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     private readonly IExternalShellGateway externalShellGateway;
 
+    private readonly IExternalPlayerProcessGateway externalPlayerProcessGateway;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -87,7 +89,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         IApplicationLifetimePort applicationLifetime = null,
         ICultureCatalog cultureCatalog = null,
         ApplicationPathSnapshot applicationPathSnapshot = null,
-        IExternalShellGateway externalShellGateway = null)
+        IExternalShellGateway externalShellGateway = null,
+        IExternalPlayerProcessGateway externalPlayerProcessGateway = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -97,6 +100,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             ?? throw new ArgumentNullException(nameof(cultureCatalog));
         this.applicationPathSnapshot = applicationPathSnapshot ?? ApplicationPathPolicy.Current;
         this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
+        this.externalPlayerProcessGateway = externalPlayerProcessGateway ?? ExternalPlayerProcessGatewayPolicy.Current;
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
@@ -440,11 +444,11 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         }
         if (startupSettings.UsePlayeruBMplay)
         {
-            return new uBMplay(startupSettings.uBMplayPath, playerSettingsGateway);
+            return new uBMplay(startupSettings.uBMplayPath, playerSettingsGateway, externalPlayerProcessGateway);
         }
         if (startupSettings.UsePlayerBMIIDXView)
         {
-            return new BMIIDXView2015(startupSettings.BMIIDXViewPath, playerSettingsGateway);
+            return new BMIIDXView2015(startupSettings.BMIIDXViewPath, playerSettingsGateway, externalPlayerProcessGateway);
         }
         if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))
         {
@@ -452,7 +456,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             {
                 throw new ArgumentNullException(nameof(createLr2PlayerConfig));
             }
-            return new LR2body(startupSettings.LR2bodyPath, createLr2PlayerConfig(), playerSettingsGateway);
+            return new LR2body(startupSettings.LR2bodyPath, createLr2PlayerConfig(), playerSettingsGateway, externalPlayerProcessGateway);
         }
         return null;
     }

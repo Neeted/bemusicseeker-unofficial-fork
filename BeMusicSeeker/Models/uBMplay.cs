@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Ini;
 using System.IO;
 using System.Linq;
@@ -19,6 +18,8 @@ namespace BeMusicSeeker.Models;
 public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
+
+    private readonly IExternalPlayerProcessGateway processGateway;
 
     private enum KeyCode
     {
@@ -140,7 +141,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         }
     }
 
-    private Process uBMplayProcess;
+    private IExternalPlayerProcessSession uBMplayProcess;
 
     private IntPtr uBMplayHandleShowing = IntPtr.Zero;
 
@@ -317,17 +318,21 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private List<IntPtr> uBMplayHandles()
     {
-        return [.. (from ProcessThread pt in uBMplayProcess.Threads
-                from wh in new ThreadWindowHandles((uint)pt.Id)
+        return [.. (from threadId in uBMplayProcess.ThreadIds
+                from wh in new ThreadWindowHandles((uint)threadId)
                 where wh != IntPtr.Zero
                 select wh)];
     }
 
-    internal uBMplay(string exePath, IPlayerSettingsGateway playerSettingsGateway)
+    internal uBMplay(
+        string exePath,
+        IPlayerSettingsGateway playerSettingsGateway,
+        IExternalPlayerProcessGateway processGateway)
     {
         ExePath = exePath;
         this.playerSettingsGateway = playerSettingsGateway
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
+        this.processGateway = processGateway ?? throw new ArgumentNullException(nameof(processGateway));
         onExitEventHandlerDefault = uBMplayExited;
     }
 
@@ -409,12 +414,13 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
     {
         bool flag = false;
         foregroundWindowHandle = Win32API.GetForegroundWindow();
-        Process[] processesByName = Process.GetProcessesByName("uBMplay");
-        if (processesByName.Length != 0)
+        IReadOnlyList<IExternalPlayerProcessSession> existingProcesses = processGateway.FindExisting(
+            ExternalPlayerProcessDiscoveryRequest.Create("uBMplay"));
+        if (existingProcesses.Count != 0)
         {
             if (uBMplayHandleShowing == IntPtr.Zero)
             {
-                uBMplayProcess = processesByName[0];
+                uBMplayProcess = existingProcesses[0];
                 CloseProcess();
             }
             else
@@ -428,19 +434,15 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 flag = true;
             }
         }
-        var processStartInfo = new ProcessStartInfo(ExePath);
-        if (!IS_WIN8OR10)
-        {
-            processStartInfo.WindowStyle = ProcessWindowStyle.Minimized;
-        }
-        processStartInfo.Arguments = "-SP \"" + bmsFilePath + "\"";
+        ExternalPlayerProcessLaunchRequest launchRequest = ExternalPlayerProcessLaunchRequest.Create(
+            ExePath,
+            "-SP \"" + bmsFilePath + "\"",
+            IS_WIN8OR10
+                ? System.Diagnostics.ProcessWindowStyle.Normal
+                : System.Diagnostics.ProcessWindowStyle.Minimized);
         if (uBMplayHandleShowing == IntPtr.Zero)
         {
-            uBMplayProcess = new Process
-            {
-                StartInfo = processStartInfo,
-                EnableRaisingEvents = true
-            };
+            uBMplayProcess = processGateway.Prepare(launchRequest);
             uBMplayProcess.Exited += onExitEventHandlerDefault;
             if (onExitEventHandler != null)
             {
@@ -494,7 +496,8 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         }
         else
         {
-            var process = Process.Start(processStartInfo);
+            IExternalPlayerProcessSession process = processGateway.Prepare(launchRequest);
+            process.Start();
             while (!process.HasExited)
             {
                 if (!IS_WIN8OR10)
