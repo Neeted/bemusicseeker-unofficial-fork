@@ -145,6 +145,73 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>
+    /// Persists mode-detection song rows under the catalog write gate.
+    /// </summary>
+    internal void ApplyModeChangeSongRows(IEnumerable<BMSFile> bmsFiles)
+    {
+        List<BMSFile> files = [.. (bmsFiles ?? []).Where(file => file != null)];
+        if (files.Count == 0)
+        {
+            return;
+        }
+        if (dbGateway == null)
+        {
+            throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        }
+
+        try
+        {
+            using (maintenanceWriteGate.GetWriterGuard())
+            {
+                dbGateway.UpsertSongs(files);
+            }
+        }
+        catch (Exception exception)
+        {
+            PublishCatalogWriteFailureFactBestEffort(new CatalogWriteFailureFact(
+                runId: "song_db_write",
+                stage: "lr2_song_db_mode_upsert_failed",
+                logReason: "setModeAndCommitToDB",
+                exception));
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Persists playlist level writeback rows under the catalog write gate.
+    /// </summary>
+    internal void ApplyPlaylistLevelRows(IEnumerable<BMSFile> bmsFiles)
+    {
+        List<BMSFile> files = [.. (bmsFiles ?? [])
+            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path) && file.level.HasValue)];
+        if (files.Count == 0)
+        {
+            return;
+        }
+        if (dbGateway == null)
+        {
+            throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        }
+
+        try
+        {
+            using (maintenanceWriteGate.GetWriterGuard())
+            {
+                dbGateway.UpdateSongLevels(files);
+            }
+        }
+        catch (Exception exception)
+        {
+            PublishCatalogWriteFailureFactBestEffort(new CatalogWriteFailureFact(
+                runId: "song_db_write",
+                stage: "lr2_song_db_playlist_level_update_failed",
+                logReason: "ReplaceBmsFileLevelByTableEntryLevel",
+                exception));
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Applies chart-info facts inside an already-open song database transaction.
     /// LR2 synchronization uses this narrow callback so song rows and chart-info
     /// rows retain one atomic transaction without creating a second writer route.

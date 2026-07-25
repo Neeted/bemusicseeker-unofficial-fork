@@ -16,6 +16,14 @@ namespace BeMusicSeeker.Tests;
 public sealed class AppSchemaPreflightServiceTests
 {
     [TestMethod]
+    public void BmsLibraryDbGatewaySqlQuote_PreservesLiteralEscapingBoundary()
+    {
+        Assert.AreEqual("'O''Reilly'", BmsLibraryDbGateway.SqlQuote("O'Reilly"));
+        Assert.AreEqual("''", BmsLibraryDbGateway.SqlQuote("  "));
+        Assert.AreEqual("''", BmsLibraryDbGateway.SqlQuote(null));
+    }
+
+    [TestMethod]
     [TestCategory("Playlist")]
     public void Inspect_LegacyPlaylistEntrySchema_RequiresWarningWithoutMutatingDatabase()
     {

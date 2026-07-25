@@ -2010,7 +2010,7 @@ internal sealed class BmsLibraryInitializationService
             songDb.BeginTransaction();
             foreach (string deletedSongPath in result.DeletedSongPaths)
             {
-                string deletedHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BMSPlaylist.SqlQuoteForTest(deletedSongPath) + " LIMIT 1;");
+                string deletedHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BmsLibraryDbGateway.SqlQuote(deletedSongPath) + " LIMIT 1;");
                 songDb.Delete<LR2SongDB.song>(deletedSongPath);
                 BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, deletedHash);
             }
@@ -2071,7 +2071,7 @@ internal sealed class BmsLibraryInitializationService
         {
             return false;
         }
-        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";") > 0;
+        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = " + BmsLibraryDbGateway.SqlQuote(tableName) + ";") > 0;
     }
 
     private static DateTime SafeGetLastWriteTimeUtc(string path)

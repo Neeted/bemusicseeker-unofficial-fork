@@ -1139,15 +1139,6 @@ public partial class BMSPlaylist : NotificationObject
         playlistEntriesHydrationOwner.EnsurePlaylistEntriesLoaded(table, reason);
     }
 
-    /// <summary>
-    /// DB から読み込んだ BMT 設定を永続化可能な既定値へ正規化します。
-    /// DB の transaction と書き戻しは <see cref="PlaylistPersistenceRepository"/> が担当します。
-    /// </summary>
-    internal static string SqlQuoteForTest(string value)
-    {
-        return sqlQuote(value);
-    }
-
     private List<string> makeCustomFolderTextsOtherFolder(
         BMSTable bmsTable,
         CustomFolderOutputSettingsSnapshot settings = null)

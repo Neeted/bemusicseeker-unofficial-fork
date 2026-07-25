@@ -100,6 +100,11 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
 
     internal const int ChartInfoMetadataBundleFormatVersion = 1;
 
+    internal static string SqlQuote(string value = null)
+    {
+        return !string.IsNullOrWhiteSpace(value) ? "'" + value.Replace("'", "''") + "'" : "''";
+    }
+
     public string SongDbPath { get; } = songDbPath ?? throw new ArgumentNullException(nameof(songDbPath));
 
     public string ScoreDbPath { get; } = scoreDbPath;
@@ -2202,7 +2207,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         long count = songDb.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
             + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash)
-            + " = " + BMSPlaylist.SqlQuoteForTest(md5) + ";");
+            + " = " + SqlQuote(md5) + ";");
         if (count <= 0)
         {
             songDb.Delete<LR2SongDBExtended.chart_digest_map>(md5);
@@ -2225,12 +2230,12 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
     private static bool TableExists(LR2SongDBExtended songDb, string schemaName, string tableName)
     {
         string masterTableName = string.IsNullOrWhiteSpace(schemaName) ? "sqlite_master" : schemaName + ".sqlite_master";
-        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM " + masterTableName + " WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";") > 0;
+        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM " + masterTableName + " WHERE type = 'table' AND name = " + SqlQuote(tableName) + ";") > 0;
     }
 
     private static bool IndexExists(LR2SongDBExtended songDb, string indexName)
     {
-        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = " + BMSPlaylist.SqlQuoteForTest(indexName) + ";") > 0;
+        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = " + SqlQuote(indexName) + ";") > 0;
     }
 
     private static void EnsureIndex(LR2SongDBExtended songDb, string indexName, string tableName, string columnName)
@@ -2261,7 +2266,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             "SELECT " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash)
             + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
             + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
-            + " = " + BMSPlaylist.SqlQuoteForTest(path)
+            + " = " + SqlQuote(path)
             + " LIMIT 1;");
     }
 
@@ -2526,7 +2531,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         long count = songDb.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName()
             + " WHERE " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName(row => row.name)
-            + " = " + BMSPlaylist.SqlQuoteForTest(AppSchemaVersionName)
+            + " = " + SqlQuote(AppSchemaVersionName)
             + " AND " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName(row => row.version)
             + " >= " + CurrentAppSchemaVersion + ";");
         return count > 0;
@@ -2736,7 +2741,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             return result;
         }
-        string tableSql = songDb.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";");
+        string tableSql = songDb.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + SqlQuote(tableName) + ";");
         if (string.IsNullOrWhiteSpace(tableSql)
             || tableSql.IndexOf("md5", StringComparison.OrdinalIgnoreCase) < 0
             || tableSql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) < 0)

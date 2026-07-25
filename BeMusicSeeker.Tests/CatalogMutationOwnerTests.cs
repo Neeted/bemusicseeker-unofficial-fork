@@ -965,6 +965,87 @@ public sealed class CatalogMutationOwnerTests
     }
 
     [TestMethod]
+    public void ApplyCatalogSongCommands_PersistModeAndPlaylistLevelRows()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogSongCommands_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            string songPath = Path.Combine("C:\\Library", "command.bms");
+            string[] rawValues = new string[29];
+            rawValues[0] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            rawValues[1] = "command.bms";
+            rawValues[7] = songPath;
+            rawValues[14] = "4";
+            rawValues[18] = "7";
+            BMSFile song = BMSFile.FromSongTableRawValues(rawValues);
+            var owner = new CatalogMutationOwner(
+                new CatalogStorageRowsOwner(),
+                new CatalogOwnedCollectionOwner(),
+                new BmsLibraryDbGateway(songDbPath));
+
+            owner.ApplyModeChangeSongRows([song]);
+            owner.ApplyPlaylistLevelRows([song]);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(7, verify.ExecuteScalar<int>("SELECT mode FROM song WHERE path = ?;", songPath));
+            Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", songPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyPlaylistLevelRows_RethrowsAndPublishesFailureFact()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogSongCommandFailure_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            string songPath = Path.Combine("C:\\Library", "command-failure.bms");
+            string[] rawValues = new string[29];
+            rawValues[0] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            rawValues[1] = "command-failure.bms";
+            rawValues[7] = songPath;
+            rawValues[14] = "4";
+            rawValues[18] = "7";
+            BMSFile song = BMSFile.FromSongTableRawValues(rawValues);
+            var failureFacts = new System.Collections.Generic.List<CatalogWriteFailureFact>();
+            var owner = new CatalogMutationOwner(
+                new CatalogStorageRowsOwner(),
+                new CatalogOwnedCollectionOwner(),
+                new BmsLibraryDbGateway(songDbPath),
+                failureFacts.Add);
+            owner.ApplyModeChangeSongRows([song]);
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER catalog_song_command_failure BEFORE UPDATE OF level ON song BEGIN SELECT RAISE(ABORT, 'forced level failure'); END;");
+            }
+
+            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyPlaylistLevelRows([song]));
+            Assert.AreEqual(1, failureFacts.Count);
+            Assert.AreEqual("lr2_song_db_playlist_level_update_failed", failureFacts[0].Stage);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(failureFacts[0].DisplayedMessage));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ChartInfoWriteRequest_SnapshotsRowsAndDeleteKeys()
     {
         var chartInfo = new LR2SongDBExtended.chart_info

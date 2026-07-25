@@ -779,6 +779,20 @@ public partial class BMSLibrary
 
             try
             {
+                BMSLibrary.LogInstallPerformanceWarn(
+                    "lr2_song_db_write failed"
+                    + " reason=" + (failureFact.LogReason ?? "unknown")
+                    + " stage=" + (failureFact.Stage ?? "lr2_song_db_write_failed")
+                    + " exception=" + (failureFact.ExceptionTypeName ?? "unknown")
+                    + " message=" + (failureFact.DisplayedMessage ?? string.Empty));
+            }
+            catch
+            {
+                // Failure logging must never replace the original catalog exception.
+            }
+
+            try
+            {
                 MarkLr2SongDbSyncIncomplete(
                     library.CurrentOptionsSnapshot,
                     failureFact.RunId,

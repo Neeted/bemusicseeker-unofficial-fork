@@ -46,8 +46,8 @@ Non-goals:
 |---|---|---|
 | `OWN-01-B1 Pending estimated-install ownership` | completed | pending estimated-installをworkflow ownerと用途別mutation capabilityへ接続し、旧hostを退役させた |
 | `OWN-01-B2 Custom-folder status repository ownership` | completed | custom-folder statusのraw connection / SQL / transactionをrepository / output ownerへ移した |
-| `OWN-01-B3 Library database writer and production seam closure` | active | facade-owned writer、generic callback、production `ForTest` SQL seamをcatalog gatewayへ移す |
-| `OWN-01-B4 External registration and URL completion closure` | pending | external registration callback hostとURL completion static test seamを退役させ、OWN-01をcompletion auditへ進める |
+| `OWN-01-B3 Library database writer and production seam closure` | completed | facade-owned writer、generic callback、production `ForTest` SQL seamをcatalog gatewayへ移した |
+| `OWN-01-B4 External registration and URL completion closure` | active | external registration callback hostとURL completion static test seamを退役させ、OWN-01をcompletion auditへ進める |
 
 ## Active implementation batch
 
@@ -59,8 +59,8 @@ Non-goals:
 |---|---|---|---|
 | `OWN-01` | `B1` | `completed` | `pending estimated-install` |
 | `OWN-01` | `B2` | `completed` | `playlist custom-folder persistence` |
-| `OWN-01` | `B3` | `active` | `library DB writer / SQL seam` |
-| `OWN-01` | `B4` | `pending` | `playlist external registration / URL completion` |
+| `OWN-01` | `B3` | `completed` | `library DB writer / SQL seam` |
+| `OWN-01` | `B4` | `active` | `playlist external registration / URL completion` |
 
 ## Current code evidence
 

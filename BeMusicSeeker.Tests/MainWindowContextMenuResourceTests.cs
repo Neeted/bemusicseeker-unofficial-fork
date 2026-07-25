@@ -3148,25 +3148,21 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("files?.BMSFiles"));
         StringAssert.Contains(libraryCode, "internal BmsFileLevelOverwriteOutcome ReplaceBmsFileLevelByTableEntryLevel(BMSTable bmsTable)");
         StringAssert.Contains(libraryCode, "List<BMSFile> bmsFiles = [.. from file in _BMSFiles ?? []");
-        StringAssert.Contains(libraryCode, "dbGateway.UpdateSongLevels(bmsFiles)");
+        StringAssert.Contains(libraryCode, "catalogMutationOwner.ApplyPlaylistLevelRows(bmsFiles)");
     }
 
     [TestMethod]
     public void Lr2SongDbRuntimeWritesUseLr2SongDbSyncStatusBoundary()
     {
-        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
-        string[] lines = libraryCode.Split(["\r\n", "\n"], StringSplitOptions.None);
-        for (int i = 0; i < lines.Length; i++)
-        {
-            if (lines[i].IndexOf("dbGateway.UpsertSongs(", StringComparison.Ordinal) < 0
-                && lines[i].IndexOf("dbGateway.UpdateSongLevels(", StringComparison.Ordinal) < 0)
-            {
-                continue;
-            }
-
-            string localContext = string.Join(Environment.NewLine, lines.Skip(Math.Max(0, i - 4)).Take(5));
-            StringAssert.Contains(localContext, "ExecuteLr2SongDbWrite(");
-        }
+        string libraryCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "BMSLibrary.cs");
+        string synchronizationOwnerCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "BMSLibrary.Lr2SynchronizationOwner.cs");
+        Assert.IsFalse(libraryCode.Contains("dbGateway.UpsertSongs("));
+        Assert.IsFalse(libraryCode.Contains("dbGateway.UpdateSongLevels("));
+        Assert.IsFalse(libraryCode.Contains("ExecuteLr2SongDbWrite("));
+        StringAssert.Contains(libraryCode, "catalogMutationOwner.ApplyModeChangeSongRows(list)");
+        StringAssert.Contains(libraryCode, "catalogMutationOwner.ApplyPlaylistLevelRows(bmsFiles)");
+        StringAssert.Contains(synchronizationOwnerCode, "\"lr2_song_db_write failed\"");
+        StringAssert.Contains(synchronizationOwnerCode, "failureFact.ExceptionTypeName");
     }
 
     [TestMethod]

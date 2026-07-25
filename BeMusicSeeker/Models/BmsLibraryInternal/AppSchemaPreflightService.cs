@@ -87,7 +87,7 @@ internal sealed class AppSchemaPreflightService
         {
             return false;
         }
-        string playlistEntrySql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(playlistEntryTableName) + ";");
+        string playlistEntrySql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + BmsLibraryDbGateway.SqlQuote(playlistEntryTableName) + ";");
         if (string.IsNullOrWhiteSpace(playlistEntrySql) || playlistEntrySql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) < 0)
         {
             return true;
@@ -118,7 +118,7 @@ internal sealed class AppSchemaPreflightService
         }
         else
         {
-            string chartDigestMapTableSql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(chartDigestMapTableName) + ";");
+            string chartDigestMapTableSql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + BmsLibraryDbGateway.SqlQuote(chartDigestMapTableName) + ";");
             if (string.IsNullOrWhiteSpace(chartDigestMapTableSql)
                 || chartDigestMapTableSql.IndexOf("md5", StringComparison.OrdinalIgnoreCase) < 0
                 || chartDigestMapTableSql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) < 0)
@@ -133,7 +133,7 @@ internal sealed class AppSchemaPreflightService
         }
         else
         {
-            string bmsonSongTableSql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(bmsonSongTableName) + ";");
+            string bmsonSongTableSql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + BmsLibraryDbGateway.SqlQuote(bmsonSongTableName) + ";");
             if (string.IsNullOrWhiteSpace(bmsonSongTableSql)
                 || bmsonSongTableSql.IndexOf("path", StringComparison.OrdinalIgnoreCase) < 0
                 || bmsonSongTableSql.IndexOf("md5", StringComparison.OrdinalIgnoreCase) < 0
@@ -170,7 +170,7 @@ internal sealed class AppSchemaPreflightService
         }
         long currentCount = db.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + tableName
-            + " WHERE name = " + BMSPlaylist.SqlQuoteForTest(BmsLibraryDbGateway.AppSchemaVersionName)
+            + " WHERE name = " + BmsLibraryDbGateway.SqlQuote(BmsLibraryDbGateway.AppSchemaVersionName)
             + " AND version >= " + BmsLibraryDbGateway.CurrentAppSchemaVersion + ";");
         if (currentCount > 0)
         {
@@ -178,7 +178,7 @@ internal sealed class AppSchemaPreflightService
         }
         long rowCount = db.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + tableName
-            + " WHERE name = " + BMSPlaylist.SqlQuoteForTest(BmsLibraryDbGateway.AppSchemaVersionName) + ";");
+            + " WHERE name = " + BmsLibraryDbGateway.SqlQuote(BmsLibraryDbGateway.AppSchemaVersionName) + ";");
         bool schemaRowExists = rowCount > 0;
         bool needsWarning = schemaRowExists || AppOwnedSchemaExists(db);
         return new AppSchemaVersionPreflight(needsRepair: true, needsWarning: needsWarning);
@@ -200,12 +200,12 @@ internal sealed class AppSchemaPreflightService
 
     private static bool TableExists(SQLiteConnection db, string tableName)
     {
-        return db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";") > 0;
+        return db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = " + BmsLibraryDbGateway.SqlQuote(tableName) + ";") > 0;
     }
 
     private static bool IndexExists(SQLiteConnection db, string indexName)
     {
-        return db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = " + BMSPlaylist.SqlQuoteForTest(indexName) + ";") > 0;
+        return db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = " + BmsLibraryDbGateway.SqlQuote(indexName) + ";") > 0;
     }
 
     private readonly struct AppSchemaVersionPreflight(bool needsRepair, bool needsWarning)

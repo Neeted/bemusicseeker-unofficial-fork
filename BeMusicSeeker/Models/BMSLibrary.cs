@@ -5082,34 +5082,6 @@ public partial class BMSLibrary : NotificationObject
             logReason: string.IsNullOrWhiteSpace(reason) ? "file_diff" : reason);
     }
 
-    private void ExecuteLr2SongDbWrite(Action writeAction, string stage, string logReason)
-    {
-        if (writeAction == null)
-        {
-            return;
-        }
-
-        try
-        {
-            writeAction();
-        }
-        catch (Exception ex)
-        {
-            string displayedMessage = GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | ");
-            lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
-                CurrentOptionsSnapshot,
-                stage: string.IsNullOrWhiteSpace(stage) ? "lr2_song_db_write_failed" : stage,
-                detail: (string.IsNullOrWhiteSpace(stage) ? "lr2_song_db_write_failed" : stage) + ": " + displayedMessage,
-                logReason: string.IsNullOrWhiteSpace(logReason) ? "lr2_song_db_write_failed" : logReason);
-            LogInstallPerformanceWarn("lr2_song_db_write failed"
-                + " reason=" + (string.IsNullOrWhiteSpace(logReason) ? "unknown" : logReason)
-                + " stage=" + (string.IsNullOrWhiteSpace(stage) ? "lr2_song_db_write_failed" : stage)
-                + " exception=" + ex.GetType().Name
-                + " message=" + displayedMessage);
-            throw;
-        }
-    }
-
     private List<string> CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(
         IEnumerable<string> rootDirectories,
         BmsLibraryOptionsSnapshot options = null)
@@ -5363,10 +5335,24 @@ public partial class BMSLibrary : NotificationObject
         {
             try
             {
-                ExecuteLr2SongDbWrite(
-                    () => result = catalogChartInfoOwner.BuildInline(reason, charts),
-                    stage: "lr2_song_db_chart_info_inline_upsert_failed",
-                    logReason: reason ?? "chart_info_inline_install");
+                try
+                {
+                    result = catalogChartInfoOwner.BuildInline(reason, charts);
+                }
+                catch (Exception exception)
+                {
+                    string displayedMessage = GetDisplayedExceptionMessage(exception).Replace(Environment.NewLine, " | ");
+                    lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
+                        CurrentOptionsSnapshot,
+                        stage: "lr2_song_db_chart_info_inline_upsert_failed",
+                        detail: "lr2_song_db_chart_info_inline_upsert_failed: " + displayedMessage,
+                        logReason: reason ?? "chart_info_inline_install");
+                    LogInstallPerformanceWarn("lr2_song_db_chart_info_inline_upsert failed"
+                        + " reason=" + (reason ?? "chart_info_inline_install")
+                        + " exception=" + exception.GetType().Name
+                        + " message=" + displayedMessage);
+                    throw;
+                }
                 if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
                 {
                     DispatchWarningPresentationChanged("install_package_inline_chart_info_parse_failure");
@@ -9579,10 +9565,7 @@ public partial class BMSLibrary : NotificationObject
             {
                 return 0;
             }
-            ExecuteLr2SongDbWrite(
-                () => dbGateway.UpsertSongs(list),
-                stage: "lr2_song_db_mode_upsert_failed",
-                logReason: nameof(setModeAndCommitToDB));
+            catalogMutationOwner.ApplyModeChangeSongRows(list);
             return list.Count;
         }
     }
@@ -11088,10 +11071,7 @@ public partial class BMSLibrary : NotificationObject
                                              select ApplyPlaylistEntryLevel(file, entry.level) into file
                                              where file != null
                                              select file];
-                ExecuteLr2SongDbWrite(
-                    () => dbGateway.UpdateSongLevels(bmsFiles),
-                    stage: "lr2_song_db_playlist_level_update_failed",
-                    logReason: nameof(ReplaceBmsFileLevelByTableEntryLevel));
+                catalogMutationOwner.ApplyPlaylistLevelRows(bmsFiles);
             }
         }
         return BmsFileLevelOverwriteOutcome.Completed;
@@ -11113,36 +11093,4 @@ public partial class BMSLibrary : NotificationObject
         return file;
     }
 
-    /// <summary>
-    /// 指定された BMS ファイル群の現在の状態を song.db にコミット（永続化）します。
-    /// </summary>
-    public void CommitBMSFiles(IEnumerable<BMSFile> _bmsFiles)
-    {
-        if (_bmsFiles == null)
-        {
-            throw new ArgumentNullException("_bmsFiles");
-        }
-        if (TryBlockLr2SongDbSyncMutation(nameof(CommitBMSFiles)))
-        {
-            return;
-        }
-        using IDisposable mutationSequence = lr2SynchronizationOwner.EnterLr2MutationSequence();
-        using IDisposable mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(CommitBMSFiles),
-            showMessage: false);
-        if (mutationReservation == null)
-        {
-            return;
-        }
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetWriterGuard())
-            {
-                ExecuteLr2SongDbWrite(
-                    () => dbGateway.UpsertSongs(_bmsFiles),
-                    stage: "lr2_song_db_commit_bms_files_failed",
-                    logReason: nameof(CommitBMSFiles));
-            }
-        }
-    }
 }
