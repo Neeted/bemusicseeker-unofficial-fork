@@ -5,12 +5,11 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
-using Livet;
 using Ribbit.BMS;
 
 namespace BeMusicSeeker.Models;
 
-public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, INotifyPropertyChanged
+public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 

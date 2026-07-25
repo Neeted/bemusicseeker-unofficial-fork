@@ -12,7 +12,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Livet.EventListeners;
 using Ribbit.Threading;
 using Ribbit.Util.Extensions;
 using SQLite;
@@ -210,7 +209,7 @@ public class BMSFile : LR2SongDB.song
 
     private readonly object lockObject = new();
 
-    private PropertyChangedEventListener listenerForBMSScore;
+    private PropertyChangedSubscription listenerForBMSScore;
 
     private BMSScore _bmsScore;
 
@@ -724,7 +723,7 @@ public class BMSFile : LR2SongDB.song
         {
             return;
         }
-        listenerForBMSScore = new PropertyChangedEventListener(bmsScore);
+        listenerForBMSScore = PropertyChangedSubscription.Create(bmsScore);
         listenerForBMSScore.RegisterHandler(() => bmsScore.ranking, delegate
         {
             RaisePropertyChanged(() => bmsScore);

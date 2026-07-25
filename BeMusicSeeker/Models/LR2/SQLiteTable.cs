@@ -1,13 +1,13 @@
 using System;
 using System.Linq.Expressions;
 using System.Reflection;
-using Livet;
+using BeMusicSeeker.Models;
 using Ribbit.Util.Extensions;
 using SQLite;
 
 namespace BeMusicSeeker.Models.LR2;
 
-public class SQLiteTable<SelfType> : NotificationObject
+public class SQLiteTable<SelfType> : ObservableObject
 {
     public static string GetTableName()
     {

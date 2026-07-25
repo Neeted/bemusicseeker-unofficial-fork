@@ -5,12 +5,11 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text.RegularExpressions;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
-using Livet;
-
 namespace BeMusicSeeker.Models.LR2;
 
-public class Backup : NotificationObject
+public class Backup : ObservableObject
 {
     /// <summary>
     /// バックアップ保存処理の結果を表します。Model 内で警告 dialog を直接表示しないため、UI に返す message を保持します。

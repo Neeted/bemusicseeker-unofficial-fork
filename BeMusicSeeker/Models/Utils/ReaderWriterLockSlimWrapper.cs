@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
-using Livet;
+using BeMusicSeeker.Models;
 using Ribbit.Threading;
 
 namespace BeMusicSeeker.Models.Utils;
 
-public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = LockRecursionPolicy.SupportsRecursion) : NotificationObject
+public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = LockRecursionPolicy.SupportsRecursion) : ObservableObject
 {
     private class ReaderGuard : Ribbit.Threading.ReaderGuard
     {

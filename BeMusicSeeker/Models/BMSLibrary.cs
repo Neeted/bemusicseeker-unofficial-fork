@@ -25,7 +25,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Codeplex.Data;
 using Livet;
-using Livet.EventListeners;
 using Microsoft.VisualBasic.FileIO;
 using NLog;
 using Ribbit.Logging;
@@ -180,7 +179,7 @@ internal sealed class NormalLibraryRefreshNotificationBatch
 /// プレイリスト (BMSTable) との参照解決、LR2IR キャッシュの取得、およびフォルダの移動・リネーム・削除といった
 /// ファイルシステム操作を一手に引き受けます。
 /// </summary>
-public partial class BMSLibrary : NotificationObject
+public partial class BMSLibrary : ObservableObject
 {
     internal sealed class DuplicateInstallRepairConfirmation
     {
@@ -737,15 +736,15 @@ public partial class BMSLibrary : NotificationObject
 
     private bool irScorePrefetchEnabled;
 
-    private readonly PropertyChangedEventListener listenerForRwlockBMSFilesInitializedAll;
+    private readonly PropertyChangedSubscription listenerForRwlockBMSFilesInitializedAll;
 
-    private readonly PropertyChangedEventListener listenerForRwlockBMSFilesInitializedMin;
+    private readonly PropertyChangedSubscription listenerForRwlockBMSFilesInitializedMin;
 
-    private readonly PropertyChangedEventListener listenerForRwlockDuplicateChartGroups;
+    private readonly PropertyChangedSubscription listenerForRwlockDuplicateChartGroups;
 
-    private readonly PropertyChangedEventListener listenerForRwlockPendingInstallCharts;
+    private readonly PropertyChangedSubscription listenerForRwlockPendingInstallCharts;
 
-    private readonly PropertyChangedEventListener listenerForRwlockBMSFiles;
+    private readonly PropertyChangedSubscription listenerForRwlockBMSFiles;
 
     private IReadOnlyList<BMSFile> _BMSFiles => catalogStorageRowsOwner.BmsRows;
 
@@ -2557,11 +2556,11 @@ public partial class BMSLibrary : NotificationObject
             resourceHealthOwner);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         dbGateway.EnsureLibraryStartupSchema();
-        listenerForRwlockBMSFilesInitializedAll = new PropertyChangedEventListener(rwlockBMSFilesInitializedAll);
-        listenerForRwlockBMSFilesInitializedMin = new PropertyChangedEventListener(rwlockBMSFilesInitializedMin);
-        listenerForRwlockDuplicateChartGroups = new PropertyChangedEventListener(rwlockDuplicateChartGroups);
-        listenerForRwlockPendingInstallCharts = new PropertyChangedEventListener(rwlockPendingInstallCharts);
-        listenerForRwlockBMSFiles = new PropertyChangedEventListener(rwlockBMSFiles);
+        listenerForRwlockBMSFilesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedAll);
+        listenerForRwlockBMSFilesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedMin);
+        listenerForRwlockDuplicateChartGroups = PropertyChangedSubscription.Create(rwlockDuplicateChartGroups);
+        listenerForRwlockPendingInstallCharts = PropertyChangedSubscription.Create(rwlockPendingInstallCharts);
+        listenerForRwlockBMSFiles = PropertyChangedSubscription.Create(rwlockBMSFiles);
         listenerForRwlockBMSFilesInitializedAll.RegisterHandler(() => rwlockBMSFilesInitializedAll.LockingWriteCount, delegate
         {
             RaisePropertyChanged(() => IsWriteLockHeldInitializeAll);

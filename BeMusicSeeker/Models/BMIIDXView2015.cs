@@ -7,12 +7,11 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
-using Livet;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models;
 
-public class BMIIDXView2015 : NotificationObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
+public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 

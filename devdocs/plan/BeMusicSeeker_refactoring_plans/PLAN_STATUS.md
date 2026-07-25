@@ -67,30 +67,30 @@ Non-goals:
 
 ## Active outcome
 
-### `MIG-03 Native interop and UI-host closure`
+### `MIG-04 Build, dependency and output closure`
 
-状態: completed
+状態: in progress
 
-- active outcome base commit: `06f36ef9`
-- observed production checkpoint: `b77bd206`
-- active execution package: `Native interop and UI-host closure`
-- execution anchor: `MIG-03-B4 Technology-neutral presentation contracts and MIG-03 closure` (completed)
-- sequence cursor: `MIG-03-B4 Technology-neutral presentation contracts and MIG-03 closure` (completed)
-- next outcome: `MIG-04 Build, dependency and output closure` (ready)
+- active outcome base commit: `89134990`
+- observed production checkpoint: `89134990`
+- active execution package: `Build, dependency and output closure`
+- execution anchor: `MIG-04-B1 Technology-neutral observable model contract` (active)
+- sequence cursor: `MIG-04-B1 Technology-neutral observable model contract` (active)
+- next outcome: `MIG-05 .NET 10 migration rehearsal and handoff` (ready)
 
 目的:
 
-native interop、manual load、CAS residual、WPF / WinForms / WebBrowser / COM technology boundaryを用途別platform adapterとview-hostへ閉じ、application / domain workflowへnative handle、loader policy、UI technology型を漏らさない。
+managed dependency、observable collection / notification contract、output layout、updater build / deployment routeをproject / application boundaryへ閉じ、既存のportable layout、update protocol、UI observable behavior、失敗契約を維持する。
 
 完了条件:
 
-- native call、manual load、legacy security、WPF / WinForms / COM routeをproduction callerからadapter / view-host、behavior test、旧route削除まで閉じる。
-- `NAT-01`、`INT-01`、`UIH-01`のowner境界を更新し、outcome-wide Full verification、該当UI smoke、fresh outcome reviewを完了する。
+- B1〜B4のvertical unitでproduction route、behavior test、旧Livet / relocation / updater path seam削除、検証、fresh static reviewを完了する。
+- `LAYOUT-01`、`DEP-01`、`DEPLOY-01`のowner境界を更新し、outcome-wide Full verification、Release executable smoke、fresh outcome reviewを完了する。
 
 Non-goals:
 
-- HintPath / output layout、project dependency、package replacementの最終境界化（`MIG-04`）。
-- .NET 10 retarget、production TFM変更（Gate後）。
+- package version、replacement、production TFM変更、deps.json / apphost / RID / publish layoutへの移行（`MIG-05`以降のmigration plan）。
+- release package作成、tag、push、publish（Refactoring Completion Gate後かつ明示指示後）。
 
 ## Stable terminal steps
 
@@ -105,7 +105,7 @@ Non-goals:
 
 状態: completed
 
-`MIG-01` plannerが作成した有限batchであり、B1から依存順に実装する。batchに`active`または`pending`がある間はplannerを再起動しない。
+`MIG-01` と `MIG-03` plannerが作成した完了済みの有限batchを記録する。各batchはB1から依存順に実装し、完了時にoutcome-wide verificationとreviewを閉じた。
 
 | Batch | Unit | State | Closure family |
 |---|---|---|---|
@@ -113,19 +113,23 @@ Non-goals:
 | `MIG-01` | `B2` | `completed` | `playback / player settings gateway` |
 | `MIG-01` | `B3` | `completed` | `MainWindow view settings and configuration seam` |
 | `MIG-01` | `B4` | `completed` | `application context / scheduler / lifetime` |
-
-## Active implementation batch
-
-状態: completed
-
-`MIG-03` plannerが作成した有限batchであり、B1から依存順に実装する。activeまたはpendingのunitがある間はplannerを再起動しない。
-
-| Batch | Unit | State | Closure family |
-|---|---|---|---|
 | `MIG-03` | `B1` | `completed` | `native file discovery and loader ownership` |
 | `MIG-03` | `B2` | `completed` | `audio SDK boundary` |
 | `MIG-03` | `B3` | `completed` | `external-player native window and host attachment` |
 | `MIG-03` | `B4` | `completed` | `technology-neutral presentation contracts and MIG-03 closure` |
+
+## Active implementation batch
+
+状態: in progress
+
+`MIG-04` plannerが作成した有限batchであり、B1から依存順に実装する。activeまたはpendingのunitがある間はplannerを再起動しない。
+
+| Batch | Unit | State | Closure family |
+|---|---|---|---|
+| `MIG-04` | `B1` | `active` | `technology-neutral observable model contract` |
+| `MIG-04` | `B2` | `pending` | `owner-held observable collections` |
+| `MIG-04` | `B3` | `pending` | `managed dependency graph and output policy` |
+| `MIG-04` | `B4` | `pending` | `updater dependency, deployment boundary and MIG-04 closure` |
 
 ## Current code evidence
 
@@ -162,7 +166,7 @@ Non-goals:
 | MIG-01 Configuration and application-context closure | completed |
 | MIG-02 Path, process and updater closure | completed |
 | MIG-03 Native interop and UI-host closure | completed |
-| MIG-04 Build, dependency and output closure | ready |
+| MIG-04 Build, dependency and output closure | in progress |
 | MIG-05 .NET 10 migration rehearsal and handoff | not started |
 | GATE-01 Refactoring completion audit | not started |
 

@@ -16,7 +16,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Codeplex.Data;
 using Livet;
-using Livet.EventListeners;
 using Newtonsoft.Json.Linq;
 using NLog;
 using Ribbit.Logging;
@@ -38,7 +37,7 @@ namespace BeMusicSeeker.Models;
 /// LR2 のプレイリスト定義、外部テーブル同期、カスタムフォルダ出力を一括管理します。
 /// DB 永続化と外部取得の境界が同居しているため、この型がプレイリスト関連処理の集約点です。
 /// </summary>
-public partial class BMSPlaylist : NotificationObject
+public partial class BMSPlaylist : ObservableObject
 {
     private const string CustomFolderOutputLr2FolderEnumerationGroupName = "lr2folder";
 
@@ -226,17 +225,17 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// 全件初期化ロックの状態変化を監視するリスナーです。
     /// </summary>
-    private readonly PropertyChangedEventListener listenerForRwlockBMSTablesInitializedAll;
+    private readonly PropertyChangedSubscription listenerForRwlockBMSTablesInitializedAll;
 
     /// <summary>
     /// 最小初期化ロックの状態変化を監視するリスナーです。
     /// </summary>
-    private readonly PropertyChangedEventListener listenerForRwlockBMSTablesInitializedMin;
+    private readonly PropertyChangedSubscription listenerForRwlockBMSTablesInitializedMin;
 
     /// <summary>
     /// プレイリスト一覧ロックの状態変化を監視するリスナーです。
     /// </summary>
-    private readonly PropertyChangedEventListener listenerForRwlockBMSTables;
+    private readonly PropertyChangedSubscription listenerForRwlockBMSTables;
 
     /// <summary>
     /// UI バインディングに公開するプレイリスト一覧を保持します。
@@ -642,9 +641,9 @@ public partial class BMSPlaylist : NotificationObject
         playlistEntriesHydrationOwner.PropertyChanged += (_, eventArgs) =>
             RaisePropertyChanged(eventArgs.PropertyName);
         playlistEntriesHydrationOwner.HydrationReceiptPublished += PlaylistEntriesHydrationReceiptPublishedHandler;
-        listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
-        listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
-        listenerForRwlockBMSTables = new PropertyChangedEventListener(rwlockBMSTables);
+        listenerForRwlockBMSTablesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSTablesInitializeAll);
+        listenerForRwlockBMSTablesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSTablesInitializeMin);
+        listenerForRwlockBMSTables = PropertyChangedSubscription.Create(rwlockBMSTables);
         listenerForRwlockBMSTablesInitializedAll.RegisterHandler(() => rwlockBMSTablesInitializeAll.LockingWriteCount, delegate
         {
             RaisePropertyChanged(() => IsWriteLockHeldBMSTablesInitializeAll);

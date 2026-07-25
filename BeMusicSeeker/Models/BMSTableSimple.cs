@@ -1,9 +1,7 @@
 using System;
-using Livet;
-
 namespace BeMusicSeeker.Models;
 
-public class BMSTableSimple : NotificationObject
+public class BMSTableSimple : ObservableObject
 {
     private readonly BMSTable table = new();
 

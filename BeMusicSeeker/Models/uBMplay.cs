@@ -8,12 +8,11 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
-using Livet;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models;
 
-public class uBMplay : NotificationObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
+public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 

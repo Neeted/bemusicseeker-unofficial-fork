@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,80 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistConcurrencyArchitectureTests
 {
+    [TestMethod]
+    public void ModelObservableState_UsesBclNotificationContract()
+    {
+        string modelsRoot = Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models");
+        string[] modelSources = Directory.GetFiles(modelsRoot, "*.cs", SearchOption.AllDirectories);
+
+        foreach (string modelSourcePath in modelSources)
+        {
+            string source = File.ReadAllText(modelSourcePath);
+            Assert.IsFalse(source.Contains("Livet.NotificationObject"), modelSourcePath);
+            Assert.IsFalse(source.Contains("PropertyChangedEventListener"), modelSourcePath);
+        }
+
+        Assert.AreEqual(typeof(ObservableObject), typeof(BMSLibrary).BaseType);
+        Assert.AreEqual(typeof(ObservableObject), typeof(BMSPlaylist).BaseType);
+        Assert.IsTrue(typeof(INotifyPropertyChanged).IsAssignableFrom(typeof(BMSLibrary)));
+        Assert.IsTrue(typeof(INotifyPropertyChanged).IsAssignableFrom(typeof(BMSPlaylist)));
+
+        Type notificationObjectType = typeof(Livet.NotificationObject);
+        Type[] modelTypes = typeof(ObservableObject).Assembly
+            .GetTypes()
+            .Where(type => type.IsClass
+                && type.Namespace?.StartsWith("BeMusicSeeker.Models", StringComparison.Ordinal) == true)
+            .ToArray();
+        foreach (Type modelType in modelTypes)
+        {
+            Assert.IsFalse(
+                notificationObjectType.IsAssignableFrom(modelType),
+                modelType.FullName + " must not inherit Livet.NotificationObject.");
+        }
+    }
+
+    [TestMethod]
+    public void ModelPropertyMutation_PublishesExistingPropertyNameOnce()
+    {
+        BMSScore score = new();
+        List<string> changedProperties = [];
+        score.PropertyChanged += (_, eventArgs) => changedProperties.Add(eventArgs.PropertyName);
+
+        score.ranking = 7;
+        score.ranking = 7;
+
+        CollectionAssert.AreEqual(new[] { "ranking" }, changedProperties);
+    }
+
+    [TestMethod]
+    public void ReaderWriterLock_PublishesLockCountThroughBclNotificationContract()
+    {
+        ReaderWriterLockSlimWrapper readerWriterLock = new();
+        List<string> changedProperties = [];
+        readerWriterLock.PropertyChanged += (_, eventArgs) => changedProperties.Add(eventArgs.PropertyName);
+
+        readerWriterLock.EnterReadLock();
+        readerWriterLock.ExitReadLock();
+
+        CollectionAssert.AreEqual(new[] { "LockingReadCount", "LockingReadCount" }, changedProperties);
+        readerWriterLock.Dispose();
+    }
+
+    [TestMethod]
+    public void PropertyChangedSubscription_ForwardsRegisteredPropertyAndStopsAfterDispose()
+    {
+        BMSScore score = new();
+        int callbackCount = 0;
+        PropertyChangedSubscription subscription = PropertyChangedSubscription.Create(score);
+        subscription.RegisterHandler(() => score.ranking, () => callbackCount++);
+
+        score.ranking = 1;
+        subscription.Dispose();
+        score.ranking = 2;
+
+        Assert.AreEqual(1, callbackCount);
+    }
+
     [TestMethod]
     public void ExternalTableRegistration_DoesNotMutateVisibleCollectionInsideRegistrationWriterBlock()
     {

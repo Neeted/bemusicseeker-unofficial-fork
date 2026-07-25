@@ -3,11 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
 using BeMusicSeeker.Models.LR2;
-using Livet;
-
 namespace BeMusicSeeker.Models;
 
-public class LR2IRCache : NotificationObject
+public class LR2IRCache : ObservableObject
 {
     internal Lr2IrRankingLookup Lookup { get; private set; }
     public List<LR2IRData> ranking { get; private set; }

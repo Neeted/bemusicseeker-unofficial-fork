@@ -6,11 +6,9 @@ using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
-using Livet;
-
 namespace BeMusicSeeker.Models.LR2;
 
-public class LR2body : NotificationObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
+public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 

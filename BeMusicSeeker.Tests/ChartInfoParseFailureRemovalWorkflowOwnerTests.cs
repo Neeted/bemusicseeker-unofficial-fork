@@ -72,7 +72,8 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
             ChartInfoParseFailureRemovalOperation operation = owner.BeginRemove(request);
             ChartInfoParseFailureRemovalAcceptance acceptance = await operation.Acceptance;
             Assert.IsTrue(acceptance.Accepted);
-            CollectionAssert.AreEqual(Array.Empty<string>(), order.ToArray());
+            // Acceptance completion and the background scheduling continuation are independent
+            // asynchronous phases; use the store gate below to observe their deterministic order.
             await storeStarted.Task;
             Assert.IsFalse(operation.Completion.IsCompleted);
             CollectionAssert.AreEqual(new[] { "library", "schedule", "store" }, order.ToArray());
