@@ -100,6 +100,29 @@ internal sealed class PlaylistAggregatePersistenceOwner
         public bool NeedsBmtExport => NeedsStatePersistence;
     }
 
+    internal sealed class PlaylistRegistrationPreparation
+    {
+        internal PlaylistRegistrationPreparation(
+            string name,
+            DateTime lastUpdate,
+            int bmtSort,
+            bool duplicateName)
+        {
+            Name = name ?? string.Empty;
+            LastUpdate = lastUpdate;
+            BmtSort = bmtSort;
+            DuplicateName = duplicateName;
+        }
+
+        internal string Name { get; }
+
+        internal DateTime LastUpdate { get; }
+
+        internal int BmtSort { get; }
+
+        internal bool DuplicateName { get; }
+    }
+
     [Serializable]
     internal sealed class PlaylistReloadApplyException : InvalidOperationException
     {
@@ -235,6 +258,61 @@ internal sealed class PlaylistAggregatePersistenceOwner
             registrationActive = true;
             return true;
         }
+    }
+
+    internal IReadOnlyList<PlaylistRegistrationPreparation> PrepareExternalRegistration(
+        IEnumerable<BMSTable> tables,
+        bool renameDuplicateName)
+    {
+        List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null).Distinct()];
+        if (tableList.Count == 0)
+        {
+            return [];
+        }
+        using (activeCollectionLock.GetWriterGuard())
+        {
+            lock (synchronization)
+            {
+                var reservedNames = new HashSet<string>(
+                    activeTableOrder.Select(table => table?.name).Where(name => name != null),
+                    StringComparer.Ordinal);
+                int nextBmtSort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(activeTableOrder);
+                var preparations = new List<PlaylistRegistrationPreparation>(tableList.Count);
+                foreach (BMSTable table in tableList)
+                {
+                    string desiredName = table.name ?? string.Empty;
+                    bool duplicateName = reservedNames.Contains(desiredName);
+                    string preparedName = duplicateName && renameDuplicateName
+                        ? ResolveUniqueRegistrationName(desiredName, reservedNames)
+                        : desiredName;
+                    preparations.Add(new PlaylistRegistrationPreparation(
+                        preparedName,
+                        table.last_update == default ? DateTime.Now : table.last_update,
+                        nextBmtSort++,
+                        duplicateName && !renameDuplicateName));
+                    reservedNames.Add(preparedName);
+                }
+                return preparations.AsReadOnly();
+            }
+        }
+    }
+
+    private static string ResolveUniqueRegistrationName(string desiredName, ISet<string> reservedNames)
+    {
+        string baseName = desiredName ?? string.Empty;
+        if (reservedNames?.Contains(baseName) != true)
+        {
+            return baseName;
+        }
+        for (int suffix = 1; suffix < int.MaxValue; suffix++)
+        {
+            string candidate = baseName + "(" + suffix.ToString(CultureInfo.InvariantCulture) + ")";
+            if (!reservedNames.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
+        throw new InvalidOperationException("Failed to resolve unique playlist name.");
     }
 
     internal void EndRegistration()

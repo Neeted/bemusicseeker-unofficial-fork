@@ -48,8 +48,6 @@ internal sealed class PlaylistExternalSyncOwner
 
     private readonly Action<string> logPerformance;
 
-    private readonly Func<IReadOnlyList<BMSTable>> getTablesSnapshot;
-
     private readonly Func<BMSTable, bool> addSingleVisibleTable;
 
     private readonly Func<IEnumerable<BMSTable>, BMSTable> addBatchVisibleTables;
@@ -65,8 +63,6 @@ internal sealed class PlaylistExternalSyncOwner
     private readonly Action<IEnumerable<BMSTable>, string> queueBeatorajaBmtExports;
 
     private readonly Action<IEnumerable<BMSTable>, string> applyCachedPlaylistUrlCompletions;
-
-    private readonly Action<Action> executeRegistrationPreparation;
 
     internal event EventHandler<PlaylistTableUpdateReceiptPublishedEventArgs> PlaylistTableUpdateReceiptPublished;
 
@@ -84,7 +80,6 @@ internal sealed class PlaylistExternalSyncOwner
         Action enterPlaylistUpdating = null,
         Action exitPlaylistUpdating = null,
         Action<string> logPerformance = null,
-        Func<IReadOnlyList<BMSTable>> getTablesSnapshot = null,
         Func<BMSTable, bool> addSingleVisibleTable = null,
         Func<IEnumerable<BMSTable>, BMSTable> addBatchVisibleTables = null,
         Action<IEnumerable<BMSTable>> removeVisibleTables = null,
@@ -92,8 +87,7 @@ internal sealed class PlaylistExternalSyncOwner
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> resolveCustomFolderOutputDirectory = null,
         Func<BMSTable, string, string, bool, string, string, bool, CustomFolderOutputSettingsSnapshot, bool> tryMigrateCustomFolderOutputDirectory = null,
         Action<IEnumerable<BMSTable>, string> queueBeatorajaBmtExports = null,
-        Action<IEnumerable<BMSTable>, string> applyCachedPlaylistUrlCompletions = null,
-        Action<Action> executeRegistrationPreparation = null)
+        Action<IEnumerable<BMSTable>, string> applyCachedPlaylistUrlCompletions = null)
     {
         this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         this.recommendedTableOwner = recommendedTableOwner ?? throw new ArgumentNullException(nameof(recommendedTableOwner));
@@ -108,7 +102,6 @@ internal sealed class PlaylistExternalSyncOwner
         this.enterPlaylistUpdating = enterPlaylistUpdating;
         this.exitPlaylistUpdating = exitPlaylistUpdating;
         this.logPerformance = logPerformance;
-        this.getTablesSnapshot = getTablesSnapshot;
         this.addSingleVisibleTable = addSingleVisibleTable;
         this.addBatchVisibleTables = addBatchVisibleTables;
         this.removeVisibleTables = removeVisibleTables;
@@ -117,7 +110,6 @@ internal sealed class PlaylistExternalSyncOwner
         this.tryMigrateCustomFolderOutputDirectory = tryMigrateCustomFolderOutputDirectory;
         this.queueBeatorajaBmtExports = queueBeatorajaBmtExports;
         this.applyCachedPlaylistUrlCompletions = applyCachedPlaylistUrlCompletions;
-        this.executeRegistrationPreparation = executeRegistrationPreparation;
     }
 
     internal BMSTable LoadExternalTable(Uri pageUri, BMSTable baseTable = null)
@@ -487,7 +479,7 @@ internal sealed class PlaylistExternalSyncOwner
         try
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            List<BMSTable> tableSnapshot = [.. (getTablesSnapshot?.Invoke() ?? [])];
+            List<BMSTable> tableSnapshot = [.. playlistAggregatePersistenceOwner.GetActiveCollectionSnapshot().Tables];
             List<BMSTable> reloadTargets = [.. tableSnapshot.Where(table =>
             {
                 Uri uri = table?.Page_url ?? table?.Header_url;
@@ -585,33 +577,25 @@ internal sealed class PlaylistExternalSyncOwner
         {
             cancellationToken.ThrowIfCancellationRequested();
             settings = GetCustomFolderOutputSettings();
-            ExecuteRegistrationPreparation(() =>
+            PlaylistAggregatePersistenceOwner.PlaylistRegistrationPreparation preparation =
+                playlistAggregatePersistenceOwner.PrepareExternalRegistration([bmsTable], renameDuplicateName).Single();
+            if (preparation.DuplicateName)
             {
-                if (bmsTable.last_update == default)
-                {
-                    bmsTable.last_update = DateTime.Now;
-                }
-                IReadOnlyList<BMSTable> currentTables = getTablesSnapshot?.Invoke() ?? [];
-                if (currentTables.Select(table => table?.name).Contains(bmsTable.name))
-                {
-                    if (!renameDuplicateName)
-                    {
-                        throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bmsTable.name);
-                    }
-                    bmsTable.name = ResolveUniqueImportedPlaylistName(bmsTable.name, currentTables);
-                }
-                if (string.IsNullOrWhiteSpace(bmsTable.Output_dir))
-                {
-                    throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
-                }
-                bmsTable.bmt_sort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(currentTables);
-                bmsTable.is_bmt_output = true;
-                if (settings.OperationModeLR2DB)
-                {
-                    migrateCustomFolderOutput = true;
-                    customFolderOutputDirectory = resolveCustomFolderOutputDirectory?.Invoke(bmsTable, settings);
-                }
-            });
+                throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bmsTable.name);
+            }
+            if (string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+            {
+                throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
+            }
+            bmsTable.last_update = preparation.LastUpdate;
+            bmsTable.name = preparation.Name;
+            bmsTable.bmt_sort = preparation.BmtSort;
+            bmsTable.is_bmt_output = true;
+            if (settings.OperationModeLR2DB)
+            {
+                migrateCustomFolderOutput = true;
+                customFolderOutputDirectory = resolveCustomFolderOutputDirectory?.Invoke(bmsTable, settings);
+            }
             await CommitAndAddBMSTableAsync(bmsTable).ConfigureAwait(false);
         }
         finally
@@ -673,46 +657,30 @@ internal sealed class PlaylistExternalSyncOwner
         {
             cancellationToken.ThrowIfCancellationRequested();
             settings = GetCustomFolderOutputSettings();
-            ExecuteRegistrationPreparation(() =>
+            IReadOnlyList<PlaylistAggregatePersistenceOwner.PlaylistRegistrationPreparation> preparations =
+                playlistAggregatePersistenceOwner.PrepareExternalRegistration(tableList, renameDuplicateName);
+            for (int index = 0; index < tableList.Count; index++)
             {
-                IReadOnlyList<BMSTable> currentTables = getTablesSnapshot?.Invoke() ?? [];
-                var reservedNames = new HashSet<string>(
-                    currentTables.Select(table => table?.name).Where(name => name != null),
-                    StringComparer.Ordinal);
-                int nextBmtSort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(currentTables);
-                foreach (BMSTable table in tableList)
+                BMSTable table = tableList[index];
+                PlaylistAggregatePersistenceOwner.PlaylistRegistrationPreparation preparation = preparations[index];
+                if (preparation.DuplicateName)
                 {
-                    if (table.last_update == default)
-                    {
-                        table.last_update = DateTime.Now;
-                    }
-                    string desiredName = table.name ?? string.Empty;
-                    if (reservedNames.Contains(desiredName))
-                    {
-                        if (!renameDuplicateName)
-                        {
-                            throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, table.name);
-                        }
-                        table.name = ResolveUniqueImportedPlaylistName(desiredName, reservedNames);
-                    }
-                    else
-                    {
-                        table.name = desiredName;
-                    }
-                    reservedNames.Add(table.name);
-                    if (string.IsNullOrWhiteSpace(table.Output_dir))
-                    {
-                        throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
-                    }
-                    table.bmt_sort = nextBmtSort++;
-                    table.is_bmt_output = true;
-                    if (settings.OperationModeLR2DB)
-                    {
-                        migrateCustomFolderOutputTables.Add(table);
-                        customFolderOutputTargets.Add((table, resolveCustomFolderOutputDirectory?.Invoke(table, settings)));
-                    }
+                    throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, table.name);
                 }
-            });
+                if (string.IsNullOrWhiteSpace(table.Output_dir))
+                {
+                    throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
+                }
+                table.last_update = preparation.LastUpdate;
+                table.name = preparation.Name;
+                table.bmt_sort = preparation.BmtSort;
+                table.is_bmt_output = true;
+                if (settings.OperationModeLR2DB)
+                {
+                    migrateCustomFolderOutputTables.Add(table);
+                    customFolderOutputTargets.Add((table, resolveCustomFolderOutputDirectory?.Invoke(table, settings)));
+                }
+            }
             await CommitAndAddBMSTablesAsync(tableList).ConfigureAwait(false);
         }
         finally
@@ -851,20 +819,6 @@ internal sealed class PlaylistExternalSyncOwner
         };
     }
 
-    private void ExecuteRegistrationPreparation(Action action)
-    {
-        if (action == null)
-        {
-            return;
-        }
-        if (executeRegistrationPreparation != null)
-        {
-            executeRegistrationPreparation(action);
-            return;
-        }
-        action();
-    }
-
     private void EnsureRegistrationPorts()
     {
         if (playlistAggregatePersistenceOwner == null
@@ -879,33 +833,6 @@ internal sealed class PlaylistExternalSyncOwner
     {
         return customFolderOutputSettingsProvider?.Invoke()
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
-    }
-
-    private static string ResolveUniqueImportedPlaylistName(string desiredName, IEnumerable<BMSTable> existingTables)
-    {
-        return ResolveUniqueImportedPlaylistName(
-            desiredName,
-            new HashSet<string>(
-                (existingTables ?? []).Select(table => table?.name).Where(name => name != null),
-                StringComparer.Ordinal));
-    }
-
-    private static string ResolveUniqueImportedPlaylistName(string desiredName, ISet<string> reservedNames)
-    {
-        string baseName = desiredName ?? string.Empty;
-        if (reservedNames?.Contains(baseName) != true)
-        {
-            return baseName;
-        }
-        for (int suffix = 1; suffix < int.MaxValue; suffix++)
-        {
-            string candidate = baseName + "(" + suffix.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
-            if (!reservedNames.Contains(candidate))
-            {
-                return candidate;
-            }
-        }
-        throw new InvalidOperationException("Failed to resolve unique playlist name.");
     }
 
     private async Task<PlaylistReloadTargetResult> ReloadPlaylistTargetCoreAsync(

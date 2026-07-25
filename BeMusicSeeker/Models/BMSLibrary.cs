@@ -2567,16 +2567,7 @@ public partial class BMSLibrary : NotificationObject
             CreatePendingEstimatedInstallNotificationCapability(),
             resourceHealthOwner);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
-        using (LR2SongDBExtended lR2SongDBExtended = dbGateway.OpenSongDb())
-        {
-            BmsLibraryDbGateway.EnsureSongLookupIndexes(lR2SongDBExtended);
-            lR2SongDBExtended.CreateTable<LR2SongDB.folder>();
-            lR2SongDBExtended.CreateTable<LR2SongDBExtended.install>();
-            BmsLibraryDbGateway.EnsureMaintenanceSchema(lR2SongDBExtended);
-            lR2SongDBExtended.CreateTable<LR2SongDBExtended.ir_score>();
-            BmsLibraryDbGateway.EnsureIrDataSchema(lR2SongDBExtended);
-            BmsLibraryDbGateway.EnsureChartInfoSchema(lR2SongDBExtended);
-        }
+        dbGateway.EnsureLibraryStartupSchema();
         listenerForRwlockBMSFilesInitializedAll = new PropertyChangedEventListener(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = new PropertyChangedEventListener(rwlockBMSFilesInitializedMin);
         listenerForRwlockDuplicateChartGroups = new PropertyChangedEventListener(rwlockDuplicateChartGroups);

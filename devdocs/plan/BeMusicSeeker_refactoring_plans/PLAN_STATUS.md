@@ -14,12 +14,13 @@
 
 ### `OWN-01 Residual owner-boundary reconciliation`
 
-状態: in progress
+状態: completed
 
 - active outcome base commit: `3088771c`
 - observed production checkpoint: `3088771c`
 - active execution package: `OWN-01 Residual owner-boundary reconciliation`
-- execution anchor: `Owner-boundary closure`
+- execution anchor: `Owner-boundary closure` (completed)
+- next outcome: `MIG-01 Configuration and application-context closure` (ready)
 
 目的:
 
@@ -47,11 +48,11 @@ Non-goals:
 | `OWN-01-B1 Pending estimated-install ownership` | completed | pending estimated-installをworkflow ownerと用途別mutation capabilityへ接続し、旧hostを退役させた |
 | `OWN-01-B2 Custom-folder status repository ownership` | completed | custom-folder statusのraw connection / SQL / transactionをrepository / output ownerへ移した |
 | `OWN-01-B3 Library database writer and production seam closure` | completed | facade-owned writer、generic callback、production `ForTest` SQL seamをcatalog gatewayへ移した |
-| `OWN-01-B4 External registration and URL completion closure` | active | external registration callback hostとURL completion static test seamを退役させ、OWN-01をcompletion auditへ進める |
+| `OWN-01-B4 External registration and URL completion closure` | completed | external registration callback hostとURL completion static test seamを退役させ、OWN-01のFull verificationとoutcome reviewを完了した |
 
 ## Active implementation batch
 
-状態: in progress
+状態: completed
 
 `OWN-01` plannerが作成した有限batchであり、B1から依存順に実装する。batchに`active`または`pending`がある間はplannerを再起動しない。
 
@@ -60,7 +61,7 @@ Non-goals:
 | `OWN-01` | `B1` | `completed` | `pending estimated-install` |
 | `OWN-01` | `B2` | `completed` | `playlist custom-folder persistence` |
 | `OWN-01` | `B3` | `completed` | `library DB writer / SQL seam` |
-| `OWN-01` | `B4` | `active` | `playlist external registration / URL completion` |
+| `OWN-01` | `B4` | `completed` | `playlist external registration / URL completion` |
 
 ## Current code evidence
 
@@ -70,6 +71,7 @@ Non-goals:
 - MainWindowにはtyped owner query / commandとWPF control mappingへ整理済みのrouteが多い。event数や行数だけで追加owner抽出を行わず、T1でfeature decision / orchestrationの実在を判定する。
 - `Settings.Default`、`Application.Current`、dispatcher、process等の残参照は、UI feature ownership違反でない限り`MIG-01`〜`MIG-04`へ分類する。
 - UI-05-T2 の grouped residual closure と T3 の outcome-wide Full verification、Release smoke、fresh outcome review、completion status更新が完了した。Full verificationは成功し、repository Release executableは応答可能で、fresh outcome reviewにMajor / Moderate指摘はない。
+- OWN-01-B1〜B4 の owner-boundary closure、outcome-wide Full verification、repository Release executable smoke、fresh outcome reviewが完了した。外部登録の準備はaggregate ownerのimmutable factsへ移り、URL completionはproduction scheduler routeで検証できる構造になっている。
 
 ## Outcome states
 
@@ -89,8 +91,8 @@ Non-goals:
 | PL-01 Playlist persistence and reload ownership | completed |
 | PL-02 Playlist external-sync and output ownership | completed |
 | UI-05 Shell closure | completed |
-| OWN-01 Residual owner-boundary reconciliation | in progress |
-| MIG-01 Configuration and application-context closure | not started |
+| OWN-01 Residual owner-boundary reconciliation | completed |
+| MIG-01 Configuration and application-context closure | ready |
 | MIG-02 Path, process and updater closure | not started |
 | MIG-03 Native interop and UI-host closure | not started |
 | MIG-04 Build, dependency and output closure | not started |
@@ -104,13 +106,13 @@ Non-goals:
 | Gate area | State | Current evidence / owner |
 |---|---|---|
 | UI ownership | met | T1 finite inventory、T2 grouped closure、Full verification、repository Release executable smoke、fresh outcome reviewが完了した |
-| Library ownership | in progress | pending estimated-install broad hostとlibrary facade-owned writerを`OWN-01`で閉じる |
-| Playlist ownership | in progress | custom-folder output status persistenceとexternal registration hostを`OWN-01`で閉じる |
+| Library ownership | met | pending estimated-install、library writer / SQL seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
+| Playlist ownership | met | custom-folder output status persistence、external registration preparation、URL completion test seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Configuration ownership | not met | global settings、application / dispatcher contextを`MIG-01`で境界化する |
 | Platform boundary | not met | path / process / updater、native / UI host、HintPath / output layoutを`MIG-02`〜`MIG-04`で閉じる |
 | Migration readiness | not met | disposable `net10.0-windows` restore / build rehearsalを`MIG-05`で実施する |
 | Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
-| Quality | in progress | UI-05のFull verification、Release smoke、fresh outcome reviewは完了。後続Outcome / Gate evidenceは未完了 |
+| Quality | in progress | UI-05とOWN-01のFull verification、Release smoke、fresh outcome reviewは完了。後続Outcome / Gate evidenceは未完了 |
 
 ## Active external blocker
 

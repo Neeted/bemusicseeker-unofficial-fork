@@ -24,6 +24,28 @@ public sealed class AppSchemaPreflightServiceTests
     }
 
     [TestMethod]
+    public void EnsureLibraryStartupSchema_ContainsLibraryOwnedTables()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            new BmsLibraryDbGateway(tempDbPath).EnsureLibraryStartupSchema();
+
+            using var db = new LR2SongDBExtended(tempDbPath);
+            List<string> tableNames = [.. db.Query<ColumnNameRow>(
+                "SELECT name FROM sqlite_master WHERE type = 'table';")
+                .Select(row => row.name)];
+            CollectionAssert.IsSubsetOf(
+                new[] { "folder", "install", "ir_score", "ir_data", "chart_info" },
+                tableNames);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
     [TestCategory("Playlist")]
     public void Inspect_LegacyPlaylistEntrySchema_RequiresWarningWithoutMutatingDatabase()
     {

@@ -154,6 +154,10 @@ public partial class BMSPlaylist : NotificationObject
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
+    private readonly Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher;
+
+    private readonly Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher;
+
     /// <summary>
     /// 初期化処理の連携用に一時保持するセマフォです。
     /// </summary>
@@ -523,7 +527,9 @@ public partial class BMSPlaylist : NotificationObject
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
-        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null)
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null,
+        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
+        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null)
     {
         if (_lr2SongDB == null)
         {
@@ -546,6 +552,8 @@ public partial class BMSPlaylist : NotificationObject
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
         this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
+        this.playlistUrlCompletionTsvContentFetcher = playlistUrlCompletionTsvContentFetcher;
+        this.playlistUrlCompletionStellaContentFetcher = playlistUrlCompletionStellaContentFetcher;
         this.lr2PlaylistFolderSynchronization = lr2PlaylistFolderSynchronization;
         operationNotificationOwner = new PlaylistOperationNotificationOwner();
         playlistEntriesHydrationOwner = new PlaylistEntriesHydrationOwner(
@@ -589,17 +597,6 @@ public partial class BMSPlaylist : NotificationObject
             EnterPlaylistUpdating,
             ExitPlaylistUpdating,
             LogPlaylistPerformance,
-            () =>
-            {
-                if (rwlockBMSTables.IsWriteLockHeld)
-                {
-                    return BMSTables == null ? [] : [.. BMSTables];
-                }
-                using (rwlockBMSTables.GetReaderGuard())
-                {
-                    return BMSTables == null ? [] : [.. BMSTables];
-                }
-            },
             table =>
             {
                 return InvokeBMSTablesCollectionMutation(delegate
@@ -672,15 +669,7 @@ public partial class BMSPlaylist : NotificationObject
                     inferOutputBaseDirectoryBeforeWhenMissing,
                     settings),
             (tables, reason) => BmtOutput.QueueBeatorajaBmtExportForTables(tables, reason),
-            ApplyCachedPlaylistUrlCompletionToTables,
-            action =>
-            {
-                using (rwlockBMSTablesInitializeMin.GetReaderGuard())
-                using (rwlockBMSTables.GetWriterGuard())
-                {
-                    action();
-                }
-            });
+            ApplyCachedPlaylistUrlCompletionToTables);
         externalSyncOwner = externalSyncOwnerLocal;
         customFolderOutputOwner = new PlaylistCustomFolderOutputOwner(
             this.customFolderOutputSettingsProvider,

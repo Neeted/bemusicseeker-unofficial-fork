@@ -18,19 +18,19 @@ public partial class BMSPlaylist
 
     private static readonly AppHttpClient playlistUrlCompletionStellaHttpClient = AppHttpClient.Create(PlaylistUrlCompletionTimeoutMs);
 
-    private static readonly object playlistUrlCompletionSnapshotLock = new();
+    private readonly object playlistUrlCompletionSnapshotLock = new();
 
     private readonly SemaphoreSlim playlistUrlCompletionRefreshSemaphore = new(1, 1);
 
-    private static IReadOnlyDictionary<string, PlaylistUrlCompletionCandidate> playlistUrlCompletionTsvSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyDictionary<string, PlaylistUrlCompletionCandidate> playlistUrlCompletionTsvSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
 
-    private static IReadOnlyDictionary<string, PlaylistUrlCompletionCandidate> playlistUrlCompletionStellaSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyDictionary<string, PlaylistUrlCompletionCandidate> playlistUrlCompletionStellaSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
 
-    private static Uri playlistUrlCompletionTsvSnapshotSourceUri;
+    private Uri playlistUrlCompletionTsvSnapshotSourceUri;
 
-    private static bool playlistUrlCompletionTsvSnapshotFetched;
+    private bool playlistUrlCompletionTsvSnapshotFetched;
 
-    private static bool playlistUrlCompletionStellaSnapshotFetched;
+    private bool playlistUrlCompletionStellaSnapshotFetched;
 
     private long playlistUrlCompletionRequestedVersion;
 
@@ -47,22 +47,6 @@ public partial class BMSPlaylist
     private bool IsPlaylistUrlCompletionEnabled()
     {
         return GetPlaylistUrlCompletionOptions().EnablePlaylistUrlCompletion;
-    }
-
-    internal static Func<Uri, CancellationToken, Task<string>> PlaylistUrlCompletionTsvContentFetcherForTests { get; set; }
-
-    internal static Func<Uri, CancellationToken, Task<string>> PlaylistUrlCompletionStellaContentFetcherForTests { get; set; }
-
-    internal static void ResetPlaylistUrlCompletionSourceCacheForTests()
-    {
-        lock (playlistUrlCompletionSnapshotLock)
-        {
-            playlistUrlCompletionTsvSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
-            playlistUrlCompletionStellaSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
-            playlistUrlCompletionTsvSnapshotSourceUri = null;
-            playlistUrlCompletionTsvSnapshotFetched = false;
-            playlistUrlCompletionStellaSnapshotFetched = false;
-        }
     }
 
     /// <summary>
@@ -287,7 +271,7 @@ public partial class BMSPlaylist
         }
     }
 
-    private static PlaylistUrlCompletionSourceSnapshot GetCachedPlaylistUrlCompletionTsvSnapshot()
+    private PlaylistUrlCompletionSourceSnapshot GetCachedPlaylistUrlCompletionTsvSnapshot()
     {
         lock (playlistUrlCompletionSnapshotLock)
         {
@@ -295,7 +279,7 @@ public partial class BMSPlaylist
         }
     }
 
-    private static PlaylistUrlCompletionSourceSnapshot GetCachedPlaylistUrlCompletionStellaSnapshot()
+    private PlaylistUrlCompletionSourceSnapshot GetCachedPlaylistUrlCompletionStellaSnapshot()
     {
         lock (playlistUrlCompletionSnapshotLock)
         {
@@ -303,39 +287,22 @@ public partial class BMSPlaylist
         }
     }
 
-    private static Task<string> FetchPlaylistUrlCompletionTsvContentAsync(Uri sourceUri, CancellationToken cancellationToken)
+    private Task<string> FetchPlaylistUrlCompletionTsvContentAsync(Uri sourceUri, CancellationToken cancellationToken)
     {
-        Func<Uri, CancellationToken, Task<string>> testFetcher = PlaylistUrlCompletionTsvContentFetcherForTests;
-        if (testFetcher != null)
+        if (playlistUrlCompletionTsvContentFetcher != null)
         {
-            return testFetcher(sourceUri, cancellationToken);
+            return playlistUrlCompletionTsvContentFetcher(sourceUri, cancellationToken);
         }
         return playlistUrlCompletionTsvHttpClient.GetStringAsync(sourceUri, null, cancellationToken);
     }
 
-    private static Task<string> FetchPlaylistUrlCompletionStellaContentAsync(Uri sourceUri, CancellationToken cancellationToken)
+    private Task<string> FetchPlaylistUrlCompletionStellaContentAsync(Uri sourceUri, CancellationToken cancellationToken)
     {
-        Func<Uri, CancellationToken, Task<string>> testFetcher = PlaylistUrlCompletionStellaContentFetcherForTests;
-        if (testFetcher != null)
+        if (playlistUrlCompletionStellaContentFetcher != null)
         {
-            return testFetcher(sourceUri, cancellationToken);
+            return playlistUrlCompletionStellaContentFetcher(sourceUri, cancellationToken);
         }
         return playlistUrlCompletionStellaHttpClient.GetStringAsync(sourceUri, null, cancellationToken);
-    }
-
-    internal async Task RefreshPlaylistUrlCompletionForTestsAsync(string reason)
-    {
-        await playlistUrlCompletionRefreshSemaphore.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            long targetVersion = Interlocked.Increment(ref playlistUrlCompletionRequestedVersion);
-            await RefreshPlaylistUrlCompletionCoreAsync(targetVersion, reason ?? "test").ConfigureAwait(false);
-            Interlocked.Exchange(ref playlistUrlCompletionCompletedVersion, targetVersion);
-        }
-        finally
-        {
-            playlistUrlCompletionRefreshSemaphore.Release();
-        }
     }
 
     private PlaylistUrlCompletionApplyStats ApplyPlaylistUrlCompletionToLoadedTablesCore(

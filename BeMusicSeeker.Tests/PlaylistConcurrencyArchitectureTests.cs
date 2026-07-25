@@ -1,5 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -55,6 +60,35 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "Batch external registration owner must keep collection mutation in the composed visible-collection port.");
         StringAssert.Contains(commitAndAddMethod, "playlistAggregatePersistenceOwner.CommitTablesWithEntries(");
         StringAssert.Contains(source, "playlistAggregatePersistenceOwner.TryBeginRegistration()");
+    }
+
+    [TestMethod]
+    public void ExternalTableRegistration_HasNoBroadPreparationCallbackParameters()
+    {
+        Type[] constructorParameterTypes = typeof(PlaylistExternalSyncOwner)
+            .GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .SelectMany(constructor => constructor.GetParameters())
+            .Select(parameter => parameter.ParameterType)
+            .ToArray();
+
+        CollectionAssert.DoesNotContain(constructorParameterTypes, typeof(Action<Action>));
+        CollectionAssert.DoesNotContain(constructorParameterTypes, typeof(Func<IReadOnlyList<BMSTable>>));
+    }
+
+    [TestMethod]
+    public void PlaylistUrlCompletion_HasNoStaticMutableDelegateMembers()
+    {
+        var staticDelegateMembers = typeof(BMSPlaylist)
+            .GetMembers(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(member => member switch
+            {
+                FieldInfo field => typeof(Delegate).IsAssignableFrom(field.FieldType),
+                PropertyInfo property => typeof(Delegate).IsAssignableFrom(property.PropertyType),
+                _ => false
+            })
+            .ToArray();
+
+        Assert.AreEqual(0, staticDelegateMembers.Length, "URL completion source providers must be instance-owned.");
     }
 
     [TestMethod]

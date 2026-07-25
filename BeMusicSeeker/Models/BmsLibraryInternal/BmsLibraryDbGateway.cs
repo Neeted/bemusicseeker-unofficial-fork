@@ -931,6 +931,18 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         }
     }
 
+    public void EnsureLibraryStartupSchema()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        EnsureSongLookupIndexes(songDb);
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.CreateTable<LR2SongDBExtended.install>();
+        EnsureMaintenanceSchema(songDb);
+        songDb.CreateTable<LR2SongDBExtended.ir_score>();
+        EnsureIrDataSchema(songDb);
+        EnsureChartInfoSchema(songDb);
+    }
+
     /// <summary>
     /// chart_info テーブルと関連 index を作成または修復します。
     /// </summary>
