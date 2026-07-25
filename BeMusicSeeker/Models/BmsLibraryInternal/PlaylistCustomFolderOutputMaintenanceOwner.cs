@@ -33,9 +33,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     private readonly Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization;
 
-    private readonly Action<IReadOnlyList<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection>, CustomFolderOutputPhysicalSurface> persistStatuses;
-
-    private readonly Action<BMSTable> deleteStatus;
+    private readonly PlaylistCustomFolderOutputStatusOwner statusOwner;
 
     private readonly Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> outputDirectoryResolver;
 
@@ -50,8 +48,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         Action<BMSTable, string> ensureEntriesLoaded,
         Func<LR2Config> lr2ConfigProvider,
         Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
-        Action<IReadOnlyList<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection>, CustomFolderOutputPhysicalSurface> persistStatuses,
-        Action<BMSTable> deleteStatus,
+        PlaylistCustomFolderOutputStatusOwner statusOwner,
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> outputDirectoryResolver,
         Action<string> logPerformance,
         PlaylistOperationNotificationOwner notificationOwner)
@@ -62,8 +59,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         this.ensureEntriesLoaded = ensureEntriesLoaded ?? throw new ArgumentNullException(nameof(ensureEntriesLoaded));
         this.lr2ConfigProvider = lr2ConfigProvider ?? throw new ArgumentNullException(nameof(lr2ConfigProvider));
         this.syncMaterialization = syncMaterialization ?? throw new ArgumentNullException(nameof(syncMaterialization));
-        this.persistStatuses = persistStatuses ?? throw new ArgumentNullException(nameof(persistStatuses));
-        this.deleteStatus = deleteStatus ?? throw new ArgumentNullException(nameof(deleteStatus));
+        this.statusOwner = statusOwner ?? throw new ArgumentNullException(nameof(statusOwner));
         this.outputDirectoryResolver = outputDirectoryResolver ?? throw new ArgumentNullException(nameof(outputDirectoryResolver));
         this.logPerformance = logPerformance;
         this.notificationOwner = notificationOwner ?? throw new ArgumentNullException(nameof(notificationOwner));
@@ -328,7 +324,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             SyncPrunedRows(
                 CreateDirectoryPruneScopes(outputDirectory, wasRootFolder, rootOutputBaseDirectory, settings));
-            deleteStatus(table);
+            statusOwner.DeleteStatus(table);
             return true;
         }
         catch
@@ -588,7 +584,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         if (!materialization.HasUnverifiedFiles)
         {
             progressCallback?.Invoke(total, total, Resources.Custom_folder_db_sync_progress_single_label);
-            persistStatuses(
+            statusOwner.PersistStatuses(
                 [.. projections],
                 PlaylistCustomFolderOutputOwner.CreatePhysicalSurfaceFromSyncItems(materialization.SyncItems));
         }

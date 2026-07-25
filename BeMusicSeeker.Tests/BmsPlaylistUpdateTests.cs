@@ -30,6 +30,61 @@ public sealed class BmsPlaylistUpdateTests
 {
     [TestMethod]
     [TestCategory("Playlist")]
+    public void PlaylistPersistenceRepository_CustomFolderOutputStatusRoundTripsAndDeletes()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var repository = new PlaylistPersistenceRepository(songDbPath);
+            var expected = new CustomFolderOutputStatusRow
+            {
+                PlaylistId = 7101,
+                OutputDirectory = "C:\\CustomFolder\\Table",
+                IsRootFolder = 1,
+                IgnoreFolderOutput = 4,
+                EntryType = 2,
+                FolderSortKey = 3,
+                FolderSortAscending = 0,
+                EnableUnsent = 1,
+                HeaderSha256 = "header",
+                DataSha256 = "data",
+                LastUpdateTicks = 123456789L,
+                PhysicalMtimeSignature = "mtime"
+            };
+
+            repository.PersistCustomFolderOutputStatusRows([expected]);
+
+            CustomFolderOutputStatusRow actual = repository.ReadCustomFolderOutputStatusRows().Single().Value;
+            Assert.AreEqual(expected.PlaylistId, actual.PlaylistId);
+            Assert.AreEqual(expected.OutputDirectory, actual.OutputDirectory);
+            Assert.AreEqual(expected.IsRootFolder, actual.IsRootFolder);
+            Assert.AreEqual(expected.IgnoreFolderOutput, actual.IgnoreFolderOutput);
+            Assert.AreEqual(expected.EntryType, actual.EntryType);
+            Assert.AreEqual(expected.FolderSortKey, actual.FolderSortKey);
+            Assert.AreEqual(expected.FolderSortAscending, actual.FolderSortAscending);
+            Assert.AreEqual(expected.EnableUnsent, actual.EnableUnsent);
+            Assert.AreEqual(expected.HeaderSha256, actual.HeaderSha256);
+            Assert.AreEqual(expected.DataSha256, actual.DataSha256);
+            Assert.AreEqual(expected.LastUpdateTicks, actual.LastUpdateTicks);
+            Assert.AreEqual(expected.PhysicalMtimeSignature, actual.PhysicalMtimeSignature);
+
+            repository.DeleteCustomFolderOutputStatus(expected.PlaylistId);
+            Assert.AreEqual(0, repository.ReadCustomFolderOutputStatusRows().Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void EnsureSchema_DoesNotMigrateLastPlaySortOutputMaskOrCreateLegacyMarker()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));

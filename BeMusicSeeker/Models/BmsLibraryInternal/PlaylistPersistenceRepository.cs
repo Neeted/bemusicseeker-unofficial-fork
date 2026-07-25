@@ -10,6 +10,33 @@ using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+internal sealed class CustomFolderOutputStatusRow
+{
+    public int PlaylistId { get; set; }
+
+    public string OutputDirectory { get; set; }
+
+    public int IsRootFolder { get; set; }
+
+    public int IgnoreFolderOutput { get; set; }
+
+    public int EntryType { get; set; }
+
+    public int FolderSortKey { get; set; }
+
+    public int FolderSortAscending { get; set; }
+
+    public int EnableUnsent { get; set; }
+
+    public string HeaderSha256 { get; set; }
+
+    public string DataSha256 { get; set; }
+
+    public long LastUpdateTicks { get; set; }
+
+    public string PhysicalMtimeSignature { get; set; }
+}
+
 /// <summary>
 /// プレイリスト永続化の DB 境界です。
 /// schema、hydration、playlist/course/entry の置換、削除、dump/restore を
@@ -80,6 +107,125 @@ internal sealed class PlaylistPersistenceRepository
             db.Execute("DROP TABLE IF EXISTS playlist_custom_folder_output_status;");
             db.Execute(createSql);
         }
+    }
+
+    internal Dictionary<int, CustomFolderOutputStatusRow> ReadCustomFolderOutputStatusRows()
+    {
+        using var db = new LR2SongDBExtended(songDbPath);
+        EnsureCustomFolderOutputStatusTable(db);
+        return db.Query<CustomFolderOutputStatusRow>(
+                "SELECT "
+                + "playlist_id AS PlaylistId,"
+                + "output_directory AS OutputDirectory,"
+                + "is_root_folder AS IsRootFolder,"
+                + "ignore_folder_output AS IgnoreFolderOutput,"
+                + "entry_type AS EntryType,"
+                + "folder_sort_key AS FolderSortKey,"
+                + "folder_sort_ascending AS FolderSortAscending,"
+                + "enable_unsent AS EnableUnsent,"
+                + "header_sha256 AS HeaderSha256,"
+                + "data_sha256 AS DataSha256,"
+                + "last_update_ticks AS LastUpdateTicks,"
+                + "physical_mtime_signature AS PhysicalMtimeSignature "
+                + "FROM playlist_custom_folder_output_status;")
+            .Where(row => row != null)
+            .GroupBy(row => row.PlaylistId)
+            .ToDictionary(group => group.Key, group => group.First());
+    }
+
+    internal void PersistCustomFolderOutputStatusRows(IEnumerable<CustomFolderOutputStatusRow> rows)
+    {
+        List<CustomFolderOutputStatusRow> rowList = [.. (rows ?? []).Where(row => row?.PlaylistId > 0)];
+        if (rowList.Count == 0)
+        {
+            return;
+        }
+
+        using var db = new LR2SongDBExtended(songDbPath);
+        EnsureCustomFolderOutputStatusTable(db);
+        string savepoint = db.SaveTransactionPoint();
+        try
+        {
+            foreach (CustomFolderOutputStatusRow row in rowList)
+            {
+                db.Execute(
+                    "INSERT OR REPLACE INTO playlist_custom_folder_output_status ("
+                    + "playlist_id, output_directory, is_root_folder, ignore_folder_output, entry_type, folder_sort_key, folder_sort_ascending, enable_unsent, header_sha256, data_sha256, last_update_ticks, physical_mtime_signature"
+                    + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                    row.PlaylistId,
+                    row.OutputDirectory ?? string.Empty,
+                    row.IsRootFolder,
+                    row.IgnoreFolderOutput,
+                    row.EntryType,
+                    row.FolderSortKey,
+                    row.FolderSortAscending,
+                    row.EnableUnsent,
+                    row.HeaderSha256 ?? string.Empty,
+                    row.DataSha256 ?? string.Empty,
+                    row.LastUpdateTicks,
+                    row.PhysicalMtimeSignature ?? string.Empty);
+            }
+            db.Commit();
+        }
+        catch
+        {
+            db.RollbackTo(savepoint);
+            throw;
+        }
+    }
+
+    internal void DeleteCustomFolderOutputStatus(int? playlistId)
+    {
+        if (!playlistId.HasValue)
+        {
+            return;
+        }
+
+        using var db = new LR2SongDBExtended(songDbPath);
+        EnsureCustomFolderOutputStatusTable(db);
+        db.Execute(
+            "DELETE FROM playlist_custom_folder_output_status WHERE playlist_id = ?;",
+            playlistId.Value);
+    }
+
+    internal IReadOnlyList<LR2SongDB.folder> QueryCustomFolderOutputRows(
+        IEnumerable<string> exactPaths,
+        IEnumerable<string> scopePaths,
+        bool layoutOnly)
+    {
+        List<string> exactPathList = [.. (exactPaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> scopePathList = [.. (scopePaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (exactPathList.Count == 0 && scopePathList.Count == 0)
+        {
+            return [];
+        }
+
+        using var db = new LR2SongDBExtended(songDbPath);
+        IEnumerable<LR2SongDB.folder> exactRows = layoutOnly
+            ? Lr2FolderExistingRowLookup.QueryExactPathsForCustomFolderLayout(db, exactPathList)
+            : Lr2FolderExistingRowLookup.QueryExactPaths(db, exactPathList);
+        IEnumerable<LR2SongDB.folder> scopeRows = layoutOnly
+            ? Lr2FolderExistingRowLookup.QueryCustomFolderLayoutPathPrefixScopes(db, scopePathList)
+            : Lr2FolderExistingRowLookup.QueryPathPrefixScopes(db, scopePathList);
+        return exactRows.Concat(scopeRows).ToList();
+    }
+
+    internal IReadOnlyList<LR2SongDB.folder> QueryCustomFolderLayoutRowsByExactPath(IEnumerable<string> paths)
+    {
+        List<string> pathList = [.. (paths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (pathList.Count == 0)
+        {
+            return [];
+        }
+
+        using var db = new LR2SongDBExtended(songDbPath);
+        return Lr2FolderExistingRowLookup.QueryExactPathsForCustomFolderLayout(db, pathList).ToList();
     }
 
     internal List<BMSTable> LoadPlaylistHeaders()
