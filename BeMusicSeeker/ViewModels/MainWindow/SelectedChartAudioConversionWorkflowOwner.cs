@@ -57,7 +57,7 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
         EncoderType encoder,
         SampleRate encoderSampleRate,
         SampleFormat encoderFormat,
-        RibbitBmsAutoPlayWriter.Normalization encoderNormalization,
+        AudioNormalization encoderNormalization,
         float encoderQuality,
         string encoderExeDirectory,
         float encoderAmplifier,
@@ -85,7 +85,7 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
 
     internal SampleFormat EncoderFormat { get; }
 
-    internal RibbitBmsAutoPlayWriter.Normalization EncoderNormalization { get; }
+    internal AudioNormalization EncoderNormalization { get; }
 
     internal float EncoderQuality { get; }
 
@@ -101,7 +101,7 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
 
     internal string SampleFormatDisplayName { get; }
 
-    internal static SelectedChartAudioConversionSettingsSnapshot CreateCurrent(Settings settings)
+    internal static SelectedChartAudioConversionSettingsSnapshot CreateCurrent(AudioEncodingSettingsSnapshot settings)
     {
         if (settings == null)
         {
@@ -113,7 +113,7 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
             settings.EncoderFormat,
             settings.EncoderNormalization,
             settings.EncoderQuality,
-            settings.EncoderExeDir,
+            settings.EncoderExeDirectory,
             settings.EncoderAmplifier,
             settings.EncodeFileNameFormat,
             GetEncoderDisplayName(settings.Encoder),
@@ -234,13 +234,13 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         Action<EncoderType> applyEncoderFallback,
         ISelectedChartAudioConversionPlaybackPort playback,
         IUiDialogService dialogs,
-        ISelectedChartAudioConversionExecutor executor = null)
+        ISelectedChartAudioConversionExecutor executor)
     {
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.applyEncoderFallback = applyEncoderFallback ?? throw new ArgumentNullException(nameof(applyEncoderFallback));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
-        this.executor = executor ?? new BassSelectedChartAudioConversionExecutor();
+        this.executor = executor ?? throw new ArgumentNullException(nameof(executor));
     }
 
     internal async Task<SelectedChartAudioConversionResult> RunAsync(
@@ -509,7 +509,7 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                         encoder,
                         settings.EncoderQuality,
                         outputPath,
-                        settings.EncoderNormalization,
+                        BassAudioMapping.ToBassNormalization(settings.EncoderNormalization),
                         settings.EncoderAmplifier);
                 }
                 catch (Exception ex)

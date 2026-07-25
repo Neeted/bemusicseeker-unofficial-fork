@@ -7,14 +7,14 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 using Livet;
 using Ribbit.BMS;
-using Ribbit.Logging;
-using Ribbit.Media;
 
 namespace BeMusicSeeker.Models;
 
 public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
+
+    private readonly IAudioPlaybackRuntime audioPlaybackRuntime;
 
     private readonly Stopwatch _timer = Stopwatch.StartNew();
 
@@ -64,10 +64,15 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
 
     private TimeSpan _duration = TimeSpan.MinValue;
 
-    internal InternalBMSAutoPlayerSoundOnly(IPlayerSettingsGateway playerSettingsGateway)
+    internal InternalBMSAutoPlayerSoundOnly(
+        IPlayerSettingsGateway playerSettingsGateway,
+        IAudioPlaybackRuntime audioPlaybackRuntime)
     {
         this.playerSettingsGateway = playerSettingsGateway
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
+        this.audioPlaybackRuntime = audioPlaybackRuntime
+            ?? throw new ArgumentNullException(nameof(audioPlaybackRuntime));
+        _playbackThreadAction = CreatePlaybackThreadAction();
     }
 
     public TimeSpan StopTime
@@ -367,9 +372,9 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
         }
     }
 
-    public InternalBMSAutoPlayerSoundOnly()
+    private Action CreatePlaybackThreadAction()
     {
-        _playbackThreadAction = delegate
+        return delegate
         {
             lock (_sharedObjectLock)
             {
@@ -413,8 +418,8 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
                         }
                         RaisePropertyChanged(() => CurrentTime);
                         StopTime = _player.StopTime;
-                        CurrentVoices = BassAudioPlayer.CurrentVoices;
-                        MaxVoices = BassAudioPlayer.MaxVoices;
+                        CurrentVoices = audioPlaybackRuntime.CurrentVoices;
+                        MaxVoices = audioPlaybackRuntime.MaxVoices;
                         NoteDensity = (int)_player.NoteDensity;
                         NoteDensityMax = (int)_player.NoteDensityMax;
                         Combo = _player.Combo;
@@ -449,8 +454,8 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
             CurrentTime = TimeSpan.MinValue;
             StopTime = _player?.StopTime ?? TimeSpan.Zero;
             CurrentVoices = 0;
-            BassAudioPlayer.ClearMaxVoices();
-            MaxVoices = BassAudioPlayer.MaxVoices;
+            audioPlaybackRuntime.ClearMaxVoices();
+            MaxVoices = audioPlaybackRuntime.MaxVoices;
             NoteDensity = (int)(_player?.NoteDensity ?? 0.0);
             NoteDensityMax = (int)(_player?.NoteDensityMax ?? 0.0);
             Bpm = (int)(_player?.Bms.Bpm?.ToDouble() ?? 0.0);
@@ -466,7 +471,7 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
             _fastForwarding = false;
             _fastBackwarding = false;
         }
-        BassAudioPlayer.Free();
+        audioPlaybackRuntime.Free();
     }
 
     public void DecreaseHighSpeed()
@@ -538,23 +543,13 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
         lock (_sharedObjectLock)
         {
             PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
-            BassAudioPlayer.DeviceDescriptor desc = (string.IsNullOrWhiteSpace(settings.PlayerDevice) ? default : new BassAudioPlayer.DeviceDescriptor(settings.PlayerDeviceName, settings.PlayerDevice));
-            BassAudioPlayer.Frequency = settings.PlayerSampleRate;
-            BassAudioPlayer.Format = settings.PlayerFormat;
-            BassAudioPlayer.DeviceVolume = (float)Math.Min(100, Math.Max(0, settings.PlayerVolume)) / 100f;
-            desc = BassAudioPlayer.Initialize(settings.PlayerDriver, desc, settings.PlayerBufferSize, settings.PlayerWASAPIParam);
-            BassAudioPlayer.DeviceDriver driver = BassAudioPlayer.DriverType;
-            if (BassAudioPlayer.DriverType < BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
-            {
-                driver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
-                NLogWrapper.TraceLogger.Warn("Sound device not found?");
-            }
+            AudioPlaybackInitializationResult initialization = audioPlaybackRuntime.Initialize(settings);
             playerSettingsGateway.ApplyNegotiatedAudioSettings(
-                driver,
-                desc.Driver,
-                desc.Name,
-                BassAudioPlayer.Frequency,
-                BassAudioPlayer.Format);
+                initialization.PlayerDriver,
+                initialization.PlayerDevice,
+                initialization.PlayerDeviceName,
+                initialization.PlayerSampleRate,
+                initialization.PlayerFormat);
             _fastForwarding = false;
             _fastBackwarding = false;
             Duration = TimeSpan.MinValue;
@@ -572,8 +567,8 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
             BmsDuration = bMSAutoPlayer.BmsDuration;
             StopTime = bMSAutoPlayer.StopTime;
             CurrentVoices = 0;
-            BassAudioPlayer.ClearMaxVoices();
-            MaxVoices = BassAudioPlayer.MaxVoices;
+            audioPlaybackRuntime.ClearMaxVoices();
+            MaxVoices = audioPlaybackRuntime.MaxVoices;
             NoteDensity = (int)bMSAutoPlayer.NoteDensity;
             NoteDensityMax = (int)bMSAutoPlayer.NoteDensityMax;
             Bpm = (int)bMSAutoPlayer.CurrentBpm;
@@ -625,6 +620,6 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
     public void VolumeChanged()
     {
         PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
-        BassAudioPlayer.DeviceVolume = (float)Math.Min(100, Math.Max(0, settings.PlayerVolume)) / 100f;
+        audioPlaybackRuntime.SetVolume(settings.PlayerVolume);
     }
 }

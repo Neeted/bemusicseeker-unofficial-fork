@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Ribbit.Media;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
@@ -61,7 +61,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     private static AudioDeviceTestRequest CreateRequest()
     {
         return new AudioDeviceTestRequest(
-            BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            AudioDriver.DirectSound,
             "driver",
             "Device",
             SampleRate.AUTO,
@@ -73,7 +73,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     }
 
     private static AudioDeviceTestResult CreateResult(
-        BassAudioPlayer.DeviceDriver driver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        AudioDriver driver = AudioDriver.DirectSound)
     {
         return new AudioDeviceTestResult(
             driver,

@@ -150,7 +150,10 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
 
             await dialog.RequestRemoveBmsSearchRootAsync(root);
 
@@ -201,7 +204,10 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
 
             await dialog.RequestRemoveBmsSearchRootAsync(root);
 
@@ -242,7 +248,10 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
 
             await dialog.RequestRemoveBmsSearchRootAsync(string.Empty);
             await dialog.RequestRemoveBmsSearchRootAsync(missing);
@@ -282,7 +291,10 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
 
             Exception? exception = null;
             try
@@ -367,7 +379,10 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
             typeof(SettingsDialogViewModel)
@@ -556,7 +571,10 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
 
             Exception? exception = null;
             try
@@ -621,7 +639,10 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
             typeof(SettingsDialogViewModel)
@@ -927,7 +948,9 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 audioDeviceTestWorkflow: workflow,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway());
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
 
@@ -1605,7 +1628,10 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             typeof(MainWindowViewModel)
                 .GetProperty("SettingDialog", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
                 .SetValue(viewModel, testDialog);
@@ -1646,7 +1672,10 @@ public sealed class SettingDialogEditCompletionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current);
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
         config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
         SetPrivateField(dialog, "lr2ConfigValue", config);
@@ -2110,7 +2139,7 @@ public sealed class SettingDialogEditCompletionTests
             runtimeStarted.Set();
             releaseRuntime.Wait();
             return new AudioDeviceTestResult(
-                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                AudioDriver.DirectSound,
                 request.PlayerDevice,
                 request.PlayerDeviceName,
                 request.PlayerSampleRate,

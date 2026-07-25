@@ -13,7 +13,7 @@ namespace BeMusicSeeker.ViewModels;
 internal sealed class AudioDeviceTestRequest
 {
     internal AudioDeviceTestRequest(
-        BassAudioPlayer.DeviceDriver playerDriver,
+        AudioDriver playerDriver,
         string playerDevice,
         string playerDeviceName,
         SampleRate playerSampleRate,
@@ -34,7 +34,7 @@ internal sealed class AudioDeviceTestRequest
         PlaySound = playSound;
     }
 
-    internal BassAudioPlayer.DeviceDriver PlayerDriver { get; }
+    internal AudioDriver PlayerDriver { get; }
 
     internal string PlayerDevice { get; }
 
@@ -56,7 +56,7 @@ internal sealed class AudioDeviceTestRequest
 internal sealed class AudioDeviceTestResult
 {
     internal AudioDeviceTestResult(
-        BassAudioPlayer.DeviceDriver playerDriver,
+        AudioDriver playerDriver,
         string playerDevice,
         string playerDeviceName,
         SampleRate playerSampleRate,
@@ -71,7 +71,7 @@ internal sealed class AudioDeviceTestResult
         PlayerLatency = playerLatency;
     }
 
-    internal BassAudioPlayer.DeviceDriver PlayerDriver { get; }
+    internal AudioDriver PlayerDriver { get; }
 
     internal string PlayerDevice { get; }
 
@@ -156,14 +156,14 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
             BassAudioPlayer.Format = request.PlayerFormat;
             BassAudioPlayer.DeviceVolume = Math.Min(100, Math.Max(0, request.PlayerVolume)) / 100f;
             descriptor = BassAudioPlayer.Initialize(
-                request.PlayerDriver,
+                BassAudioMapping.ToBassDriver(request.PlayerDriver),
                 descriptor,
                 request.PlayerBufferSize,
                 request.PlayerWASAPIParam);
-            BassAudioPlayer.DeviceDriver driver = BassAudioPlayer.DriverType;
-            if (driver < BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+            AudioDriver driver = BassAudioMapping.FromBassDriver(BassAudioPlayer.DriverType);
+            if (driver < AudioDriver.DirectSound)
             {
-                driver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
+                driver = AudioDriver.DirectSound;
                 NLogWrapper.TraceLogger.Warn("Sound device not found?");
             }
 

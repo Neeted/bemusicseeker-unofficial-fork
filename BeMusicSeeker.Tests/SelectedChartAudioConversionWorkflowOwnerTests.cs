@@ -13,7 +13,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Parago.Windows;
 using Ribbit.Media.Audio;
 using ModelBmsFile = BeMusicSeeker.Models.BMSFile;
-using RibbitBmsAutoPlayWriter = Ribbit.BMS.BMSAutoPlayWriter;
 
 namespace BeMusicSeeker.Tests;
 
@@ -216,7 +215,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 EncoderType.MP3_LAME,
                 SampleRate.SAMPLE_RATE_44100Hz,
                 SampleFormat.SAMPLE_INT_16BIT,
-                RibbitBmsAutoPlayWriter.Normalization.NONE,
+                AudioNormalization.None,
                 0.8f,
                 string.Empty,
                 1f,

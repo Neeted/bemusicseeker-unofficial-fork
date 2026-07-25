@@ -50,6 +50,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 
+    private readonly IAudioSettingsGateway audioSettingsGateway;
+
     private readonly Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider;
 
     private readonly Func<IBMSPlayer> defaultBmsPlayerFactory;
@@ -107,8 +109,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         this.updaterProcessGateway = updaterProcessGateway ?? UpdaterProcessGatewayPolicy.Current;
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
+        audioSettingsGateway = new SettingsAudioGateway(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
-            ?? (() => new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway));
+            ?? (() => new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway, new BassAudioPlaybackRuntime()));
         this.uiScheduler = uiScheduler
             ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
@@ -308,7 +311,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
                 new Lr2ApplicationDataUninstallStore()),
             audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
                 playbackRuntimePort,
-                new BassAudioDeviceTestRuntime(applicationPathSnapshot)));
+                new BassAudioDeviceTestRuntime(applicationPathSnapshot)),
+            audioDeviceCatalog: new BassAudioDeviceCatalog(),
+            audioSettingsGateway: audioSettingsGateway);
     }
 
     internal MainWindowChildComposition CreateMainWindowChildComposition(
@@ -362,6 +367,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
     {
         externalShellGateway ??= this.externalShellGateway;
         return new MainWindowChildComposition(
+            selectedChartAudioConversionExecutor ?? new BassSelectedChartAudioConversionExecutor(),
             mainChartList,
             playlistWorkspace,
             bmsPlayerFactory,
@@ -405,11 +411,10 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             chartInfoParseFailureRemovalDialogService,
             chartInfoParseFailureRemovalScheduler,
             selectedChartAudioConversionSettingsProvider
-                ?? (() => SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(settingsEditSession.Values)),
+                ?? (() => SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(audioSettingsGateway.CaptureEncodingSettings())),
             selectedChartAudioConversionEncoderFallback
-                ?? (encoder => settingsEditSession.Values.Encoder = encoder),
+                ?? audioSettingsGateway.ApplyEncoderFallback,
             selectedChartAudioConversionDialogService,
-            selectedChartAudioConversionExecutor,
             lr2SongDbSyncWorkflow,
             rankingCacheDownloadWorkflow,
             selectedChartExternalActionFileExists,
@@ -552,6 +557,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 internal sealed class MainWindowChildComposition
 {
     internal MainWindowChildComposition(
+        ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor,
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
         Func<IBMSPlayer> bmsPlayerFactory,
@@ -597,7 +603,6 @@ internal sealed class MainWindowChildComposition
         Func<SelectedChartAudioConversionSettingsSnapshot> selectedChartAudioConversionSettingsProvider = null,
         Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
         IUiDialogService selectedChartAudioConversionDialogService = null,
-        ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
         RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null,
         Func<string, bool> selectedChartExternalActionFileExists = null,

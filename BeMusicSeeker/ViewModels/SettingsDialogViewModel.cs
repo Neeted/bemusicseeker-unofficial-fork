@@ -31,9 +31,7 @@ using Livet.Commands;
 using Livet.EventListeners;
 using Microsoft.VisualBasic.FileIO;
 using NLog;
-using Ribbit.BMS;
 using Ribbit.Logging;
-using Ribbit.Media;
 using Ribbit.Media.Audio;
 using Ribbit.Net;
 using Ribbit.Util;
@@ -108,6 +106,10 @@ public partial class SettingsDialogViewModel : ViewModel
     private readonly ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow;
 
     private readonly AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow;
+
+    private readonly IAudioDeviceCatalog audioDeviceCatalog;
+
+    private readonly IAudioSettingsGateway audioSettingsGateway;
 
     private readonly IApplicationLifetimePort applicationLifetime;
 
@@ -674,7 +676,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private SampleFormat tempEncoderFormat;
 
-    private BMSAutoPlayWriter.Normalization tempEncoderNormalization;
+    private AudioNormalization tempEncoderNormalization;
 
     private float tempEncoderQuality;
 
@@ -688,7 +690,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private int tempPlayerDriverIndex;
 
-    private List<BassAudioPlayer.DeviceDescriptor> playerDeviceNames;
+    private List<AudioDeviceInfo> playerDeviceNames;
 
     private string tempPlayerDevice;
 
@@ -3433,33 +3435,33 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    public ReadOnlyDictionary<BMSAutoPlayWriter.Normalization, string> EncoderNormalizationNames => new(new Dictionary<BMSAutoPlayWriter.Normalization, string>
+    public ReadOnlyDictionary<AudioNormalization, string> EncoderNormalizationNames => new(new Dictionary<AudioNormalization, string>
         {
             {
-                BMSAutoPlayWriter.Normalization.NONE,
+                AudioNormalization.None,
                 BeMusicSeeker.Properties.Resources.Record_setting_normalize_none
             },
             {
-                BMSAutoPlayWriter.Normalization.PEAK_LEVEL,
+                AudioNormalization.PeakLevel,
                 BeMusicSeeker.Properties.Resources.Record_setting_normalize_peak
             },
             {
-                BMSAutoPlayWriter.Normalization.RMS_VALUE,
+                AudioNormalization.RmsValue,
                 BeMusicSeeker.Properties.Resources.Record_setting_normalize_average
             }
         });
 
-    public BMSAutoPlayWriter.Normalization EncoderNormalization
+    public AudioNormalization EncoderNormalization
     {
         get
         {
-            return ApplicationSettings.EncoderNormalization;
+            return audioSettingsGateway.EncoderNormalization;
         }
         set
         {
-            if (ApplicationSettings.EncoderNormalization != value)
+            if (audioSettingsGateway.EncoderNormalization != value)
             {
-                ApplicationSettings.EncoderNormalization = value;
+                audioSettingsGateway.EncoderNormalization = value;
                 RaisePropertyChanged("EncoderNormalization");
             }
         }
@@ -3551,15 +3553,15 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return (int)NormalizePlayerDriver(ApplicationSettings.PlayerDriver);
+            return (int)NormalizePlayerDriver(audioSettingsGateway.PlayerDriver);
         }
         set
         {
-            BassAudioPlayer.DeviceDriver driver = NormalizePlayerDriver((BassAudioPlayer.DeviceDriver)value);
-            if (ApplicationSettings.PlayerDriver != driver)
+            AudioDriver driver = NormalizePlayerDriver((AudioDriver)value);
+            if (audioSettingsGateway.PlayerDriver != driver)
             {
-                ApplicationSettings.PlayerDriver = driver;
-                playerDeviceNames = [.. BassAudioPlayer.DeviceList[ApplicationSettings.PlayerDriver]];
+                audioSettingsGateway.PlayerDriver = driver;
+                playerDeviceNames = [.. audioDeviceCatalog.GetDevices(driver)];
                 RaisePropertyChanged("PlayerDriverIndex");
                 RaisePropertyChanged(() => PlayerDeviceNames);
                 RaisePropertyChanged(() => PlayerDevice);
@@ -3567,20 +3569,20 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private static BassAudioPlayer.DeviceDriver NormalizePlayerDriver(BassAudioPlayer.DeviceDriver driver)
+    private static AudioDriver NormalizePlayerDriver(AudioDriver driver)
     {
-        if (driver < BassAudioPlayer.DeviceDriver.DIRECT_SOUND || driver > BassAudioPlayer.DeviceDriver.ASIO)
+        if (driver < AudioDriver.DirectSound || driver > AudioDriver.Asio)
         {
-            return BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
+            return AudioDriver.DirectSound;
         }
         return driver;
     }
 
-    public List<BassAudioPlayer.DeviceDescriptor> PlayerDeviceNames
+    public List<AudioDeviceInfo> PlayerDeviceNames
     {
         get
         {
-            return playerDeviceNames ??= [.. BassAudioPlayer.DeviceList[NormalizePlayerDriver(ApplicationSettings.PlayerDriver)]];
+            return playerDeviceNames ??= [.. audioDeviceCatalog.GetDevices(NormalizePlayerDriver(audioSettingsGateway.PlayerDriver))];
         }
         private set
         {
@@ -3606,16 +3608,16 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 return;
             }
-            BassAudioPlayer.DeviceDescriptor deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Driver == value);
+            AudioDeviceInfo deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Driver == value);
             ApplicationSettings.PlayerDevice = deviceDescriptor.Driver;
             ApplicationSettings.PlayerDeviceName = deviceDescriptor.Name;
             RaisePropertyChanged("PlayerDevice");
         }
     }
 
-    private BassAudioPlayer.DeviceDescriptor ResolvePlayerDeviceDescriptor()
+    private AudioDeviceInfo ResolvePlayerDeviceDescriptor()
     {
-        BassAudioPlayer.DeviceDescriptor deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Driver == ApplicationSettings.PlayerDevice);
+        AudioDeviceInfo deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Driver == ApplicationSettings.PlayerDevice);
         if (deviceDescriptor.Driver == null && ApplicationSettings.PlayerDevice != null)
         {
             deviceDescriptor = default;
@@ -3760,7 +3762,9 @@ public partial class SettingsDialogViewModel : ViewModel
         IApplicationLifetimePort applicationLifetime = null,
         ICultureCatalog cultureCatalog = null,
         IExternalShellGateway externalShellGateway = null,
-        ApplicationPathSnapshot applicationPathSnapshot = null)
+        ApplicationPathSnapshot applicationPathSnapshot = null,
+        IAudioDeviceCatalog audioDeviceCatalog = null,
+        IAudioSettingsGateway audioSettingsGateway = null)
     {
         SettingsDialogViewModel settingDialogViewModel = this;
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
@@ -3781,6 +3785,10 @@ public partial class SettingsDialogViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(externalShellGateway));
         this.applicationPathSnapshot = applicationPathSnapshot
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
+        this.audioDeviceCatalog = audioDeviceCatalog
+            ?? throw new ArgumentNullException(nameof(audioDeviceCatalog));
+        this.audioSettingsGateway = audioSettingsGateway
+            ?? throw new ArgumentNullException(nameof(audioSettingsGateway));
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
         this.reportApplyFailure = reportApplyFailure
@@ -3793,9 +3801,7 @@ public partial class SettingsDialogViewModel : ViewModel
         this.applicationDataUninstallWorkflow = applicationDataUninstallWorkflow
             ?? new ApplicationDataUninstallWorkflowOwner(this.schemaDialogs, new Lr2ApplicationDataUninstallStore());
         this.audioDeviceTestWorkflow = audioDeviceTestWorkflow
-            ?? new AudioDeviceTestWorkflowOwner(
-                playbackRuntimePort,
-                new BassAudioDeviceTestRuntime(this.applicationPathSnapshot));
+            ?? throw new ArgumentNullException(nameof(audioDeviceTestWorkflow));
         appearanceThemeOptions =
         [
             new AppearanceThemeOption(AppThemeService.Light),
@@ -4699,11 +4705,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool EncoderChecker(EncoderType encoder)
     {
-        string encoderDirectory = BassAudioWriter.EncoderDirectory;
-        BassAudioWriter.EncoderDirectory = EncoderExeDir;
-        bool result = BassAudioWriter.IsEncoderAvailable(encoder);
-        BassAudioWriter.EncoderDirectory = encoderDirectory;
-        return result;
+        return audioDeviceCatalog.IsEncoderAvailable(encoder, EncoderExeDir);
     }
 
     public void SetRootFolderPathFromPicker(string propertyName, string path)
@@ -5632,7 +5634,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         AudioDeviceTestRequest request = new(
-            ApplicationSettings.PlayerDriver,
+            audioSettingsGateway.PlayerDriver,
             ApplicationSettings.PlayerDevice,
             ApplicationSettings.PlayerDeviceName,
             ApplicationSettings.PlayerSampleRate,
@@ -5654,7 +5656,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 return;
             }
 
-            ApplicationSettings.PlayerDriver = result.PlayerDriver;
+            audioSettingsGateway.PlayerDriver = result.PlayerDriver;
             ApplicationSettings.PlayerDevice = result.PlayerDevice;
             ApplicationSettings.PlayerDeviceName = result.PlayerDeviceName;
             ApplicationSettings.PlayerSampleRate = result.PlayerSampleRate;
@@ -5848,12 +5850,12 @@ public partial class SettingsDialogViewModel : ViewModel
         tempEncoderSampleRate = ApplicationSettings.EncoderSampleRate;
         tempEncoderIndex = (int)ApplicationSettings.Encoder;
         tempEncoderFormat = ApplicationSettings.EncoderFormat;
-        tempEncoderNormalization = ApplicationSettings.EncoderNormalization;
+        tempEncoderNormalization = audioSettingsGateway.EncoderNormalization;
         tempEncoderExeDir = ApplicationSettings.EncoderExeDir;
         tempEncoderAmplifier = ApplicationSettings.EncoderAmplifier;
         tempEncoderQuality = ApplicationSettings.EncoderQuality;
         tempEncodeFileNameFormat = ApplicationSettings.EncodeFileNameFormat;
-        tempPlayerDriverIndex = (int)ApplicationSettings.PlayerDriver;
+        tempPlayerDriverIndex = (int)audioSettingsGateway.PlayerDriver;
         tempPlayerDevice = ApplicationSettings.PlayerDevice;
         tempPlayerDeviceName = ApplicationSettings.PlayerDeviceName;
         tempPlayerSampleRate = ApplicationSettings.PlayerSampleRate;
@@ -5973,12 +5975,12 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempEncoderSampleRate != ApplicationSettings.EncoderSampleRate
             || tempEncoderIndex != (int)ApplicationSettings.Encoder
             || tempEncoderFormat != ApplicationSettings.EncoderFormat
-            || tempEncoderNormalization != ApplicationSettings.EncoderNormalization
+            || tempEncoderNormalization != audioSettingsGateway.EncoderNormalization
             || !string.Equals(tempEncoderExeDir, ApplicationSettings.EncoderExeDir, StringComparison.OrdinalIgnoreCase)
             || tempEncoderAmplifier != ApplicationSettings.EncoderAmplifier
             || tempEncoderQuality != ApplicationSettings.EncoderQuality
             || !string.Equals(tempEncodeFileNameFormat, ApplicationSettings.EncodeFileNameFormat, StringComparison.Ordinal)
-            || tempPlayerDriverIndex != (int)ApplicationSettings.PlayerDriver
+            || tempPlayerDriverIndex != (int)audioSettingsGateway.PlayerDriver
             || !string.Equals(tempPlayerDevice, ApplicationSettings.PlayerDevice, StringComparison.Ordinal)
             || !string.Equals(tempPlayerDeviceName, ApplicationSettings.PlayerDeviceName, StringComparison.Ordinal)
             || tempPlayerSampleRate != ApplicationSettings.PlayerSampleRate
@@ -7005,15 +7007,15 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.EncoderSampleRate = tempEncoderSampleRate;
         ApplicationSettings.Encoder = (EncoderType)tempEncoderIndex;
         ApplicationSettings.EncoderFormat = tempEncoderFormat;
-        ApplicationSettings.EncoderNormalization = tempEncoderNormalization;
+        audioSettingsGateway.EncoderNormalization = tempEncoderNormalization;
         ApplicationSettings.EncoderExeDir = tempEncoderExeDir;
         ApplicationSettings.EncoderAmplifier = tempEncoderAmplifier;
         ApplicationSettings.EncoderQuality = tempEncoderQuality;
         ApplicationSettings.EncodeFileNameFormat = tempEncodeFileNameFormat;
-        ApplicationSettings.PlayerDriver = (BassAudioPlayer.DeviceDriver)tempPlayerDriverIndex;
+        audioSettingsGateway.PlayerDriver = (AudioDriver)tempPlayerDriverIndex;
         if (playerDeviceNames != null)
         {
-            playerDeviceNames = [.. BassAudioPlayer.DeviceList[NormalizePlayerDriver(ApplicationSettings.PlayerDriver)]];
+            playerDeviceNames = [.. audioDeviceCatalog.GetDevices(NormalizePlayerDriver(audioSettingsGateway.PlayerDriver))];
         }
         ApplicationSettings.PlayerDevice = tempPlayerDevice;
         ApplicationSettings.PlayerDeviceName = tempPlayerDeviceName;

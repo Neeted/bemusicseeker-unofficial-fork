@@ -1,7 +1,6 @@
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Ribbit.Media;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
@@ -14,7 +13,7 @@ public sealed class PlayerSettingsGatewayTests
     public void GatewayCapturesAndAppliesNegotiatedAudioSettings()
     {
         Settings settings = Settings.Default;
-        BassAudioPlayer.DeviceDriver originalDriver = settings.PlayerDriver;
+        var originalDriver = settings.PlayerDriver;
         string originalDevice = settings.PlayerDevice;
         string originalDeviceName = settings.PlayerDeviceName;
         SampleRate originalRate = settings.PlayerSampleRate;
@@ -22,7 +21,7 @@ public sealed class PlayerSettingsGatewayTests
         int originalVolume = settings.uBMplayVolume;
         try
         {
-            settings.PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
+            settings.PlayerDriver = Ribbit.Media.BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
             settings.PlayerDevice = "device-before";
             settings.PlayerDeviceName = "Device before";
             settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz;
@@ -32,7 +31,7 @@ public sealed class PlayerSettingsGatewayTests
             var gateway = new SettingsPlayerSettingsGateway(() => settings);
             PlayerSettingsSnapshot snapshot = gateway.CaptureSnapshot();
 
-            Assert.AreEqual(BassAudioPlayer.DeviceDriver.DIRECT_SOUND, snapshot.PlayerDriver);
+            Assert.AreEqual(AudioDriver.DirectSound, snapshot.PlayerDriver);
             Assert.AreEqual("device-before", snapshot.PlayerDevice);
             Assert.AreEqual("Device before", snapshot.PlayerDeviceName);
             Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, snapshot.PlayerSampleRate);
@@ -40,13 +39,13 @@ public sealed class PlayerSettingsGatewayTests
             Assert.AreEqual(37, snapshot.PlayerVolume);
 
             gateway.ApplyNegotiatedAudioSettings(
-                BassAudioPlayer.DeviceDriver.ASIO,
+                AudioDriver.Asio,
                 "device-after",
                 "Device after",
                 SampleRate.SAMPLE_RATE_48000Hz,
                 SampleFormat.SAMPLE_FLOAT_32BIT);
 
-            Assert.AreEqual(BassAudioPlayer.DeviceDriver.ASIO, settings.PlayerDriver);
+            Assert.AreEqual(Ribbit.Media.BassAudioPlayer.DeviceDriver.ASIO, settings.PlayerDriver);
             Assert.AreEqual("device-after", settings.PlayerDevice);
             Assert.AreEqual("Device after", settings.PlayerDeviceName);
             Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, settings.PlayerSampleRate);

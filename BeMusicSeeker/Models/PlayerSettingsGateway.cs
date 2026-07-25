@@ -13,7 +13,7 @@ namespace BeMusicSeeker.Models;
 internal sealed class PlayerSettingsSnapshot
 {
     internal PlayerSettingsSnapshot(
-        BassAudioPlayer.DeviceDriver playerDriver,
+        AudioDriver playerDriver,
         string playerDevice,
         string playerDeviceName,
         SampleRate playerSampleRate,
@@ -38,7 +38,7 @@ internal sealed class PlayerSettingsSnapshot
         LR2bodyWindowPlacement = lr2bodyWindowPlacement;
     }
 
-    internal BassAudioPlayer.DeviceDriver PlayerDriver { get; }
+    internal AudioDriver PlayerDriver { get; }
 
     internal string PlayerDevice { get; }
 
@@ -69,7 +69,7 @@ internal interface IPlayerSettingsGateway
     PlayerSettingsSnapshot CaptureSnapshot();
 
     void ApplyNegotiatedAudioSettings(
-        BassAudioPlayer.DeviceDriver playerDriver,
+        AudioDriver playerDriver,
         string playerDevice,
         string playerDeviceName,
         SampleRate playerSampleRate,
@@ -97,7 +97,7 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
     {
         Settings values = Values;
         return new PlayerSettingsSnapshot(
-            values.PlayerDriver,
+            BassAudioMapping.FromBassDriver(values.PlayerDriver),
             values.PlayerDevice,
             values.PlayerDeviceName,
             values.PlayerSampleRate,
@@ -111,14 +111,14 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
     }
 
     public void ApplyNegotiatedAudioSettings(
-        BassAudioPlayer.DeviceDriver playerDriver,
+        AudioDriver playerDriver,
         string playerDevice,
         string playerDeviceName,
         SampleRate playerSampleRate,
         SampleFormat playerFormat)
     {
         Settings values = Values;
-        values.PlayerDriver = playerDriver;
+        values.PlayerDriver = BassAudioMapping.ToBassDriver(playerDriver);
         values.PlayerDevice = playerDevice;
         values.PlayerDeviceName = playerDeviceName;
         values.PlayerSampleRate = playerSampleRate;

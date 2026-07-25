@@ -274,7 +274,8 @@ public sealed class ApplicationCompositionTests
         bool originalBmi = BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView;
         bool originalLr2 = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
         var expected = new InternalBMSAutoPlayerSoundOnly(
-            new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default));
+            new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default),
+            new BassAudioPlaybackRuntime());
         var composition = new ApplicationComposition(
             defaultBmsPlayerFactory: () => expected,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -493,7 +494,8 @@ public sealed class ApplicationCompositionTests
             mainChartList,
             playlistWorkspace,
             () => new InternalBMSAutoPlayerSoundOnly(
-                new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default)),
+                new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default),
+                new BassAudioPlaybackRuntime()),
                 new ChartFileOperationSynchronizer(),
             _ =>
             {
@@ -639,7 +641,8 @@ public sealed class ApplicationCompositionTests
                 mainChartList,
                 workspace,
                 () => new InternalBMSAutoPlayerSoundOnly(
-                    new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default)),
+                    new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default),
+                    new BassAudioPlaybackRuntime()),
                 new ChartFileOperationSynchronizer(),
                 _ => { },
                 action => action(),
@@ -774,7 +777,8 @@ public sealed class ApplicationCompositionTests
                 mainChartList,
                 workspace,
                 () => new InternalBMSAutoPlayerSoundOnly(
-                    new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default)),
+                    new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default),
+                    new BassAudioPlaybackRuntime()),
                 new ChartFileOperationSynchronizer(),
                 _ => { },
                 action => action(),

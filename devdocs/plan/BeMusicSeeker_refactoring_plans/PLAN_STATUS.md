@@ -75,7 +75,7 @@ Non-goals:
 - observed production checkpoint: `06f36ef9`
 - active execution package: `Native interop and UI-host closure`
 - execution anchor: `MIG-03 package entry`
-- sequence cursor: `MIG-03-B2 Audio SDK boundary`
+- sequence cursor: `MIG-03-B3 External-player native window and host attachment`
 - next outcome: `MIG-04 Build, dependency and output closure` (not started)
 
 目的:
@@ -123,8 +123,8 @@ Non-goals:
 | Batch | Unit | State | Closure family |
 |---|---|---|---|
 | `MIG-03` | `B1` | `completed` | `native file discovery and loader ownership` |
-| `MIG-03` | `B2` | `active` | `audio SDK boundary` |
-| `MIG-03` | `B3` | `pending` | `external-player native window and host attachment` |
+| `MIG-03` | `B2` | `completed` | `audio SDK boundary` |
+| `MIG-03` | `B3` | `active` | `external-player native window and host attachment` |
 | `MIG-03` | `B4` | `pending` | `technology-neutral presentation contracts and MIG-03 closure` |
 
 ## Current code evidence

@@ -41,7 +41,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
-            applicationPathSnapshot: ApplicationPathPolicy.Current);
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
         const string scoreDbPath = "C:\\lr2\\score.db";
         SetPrivateField(settingDialog, "operationModeLR2DB", true);
         SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
@@ -160,7 +163,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
             externalShellGateway: ExternalShellGatewayPolicy.Current,
-            applicationPathSnapshot: ApplicationPathPolicy.Current);
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
         owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
         try
         {
@@ -216,7 +222,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
             externalShellGateway: ExternalShellGatewayPolicy.Current,
-            applicationPathSnapshot: ApplicationPathPolicy.Current);
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
@@ -285,7 +294,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
             externalShellGateway: ExternalShellGatewayPolicy.Current,
-            applicationPathSnapshot: ApplicationPathPolicy.Current);
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
@@ -348,7 +360,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
             externalShellGateway: ExternalShellGatewayPolicy.Current,
-            applicationPathSnapshot: ApplicationPathPolicy.Current);
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 

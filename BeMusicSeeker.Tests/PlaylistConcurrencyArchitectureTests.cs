@@ -790,7 +790,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "ViewModels",
             "ApplicationComposition.cs");
         StringAssert.Contains(compositionSource, "defaultBmsPlayerFactory");
-        StringAssert.Contains(compositionSource, "new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway)");
+        StringAssert.Contains(
+            compositionSource,
+            "new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway, new BassAudioPlaybackRuntime())");
     }
 
     [TestMethod]
@@ -824,6 +826,37 @@ public sealed class PlaylistConcurrencyArchitectureTests
             StringAssert.Contains(source, "IPlayerSettingsGateway");
             Assert.IsFalse(source.Contains("Settings.Default"));
         }
+    }
+
+    [TestMethod]
+    public void AudioFeatureOwnersDoNotReferenceBassAdaptersDirectly()
+    {
+        string settingsDialogSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "SettingsDialogViewModel.cs");
+        string internalPlayerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Models",
+            "InternalBMSAutoPlayerSoundOnly.cs");
+        string conversionSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "SelectedChartAudioConversionWorkflowOwner.cs");
+
+        Assert.IsFalse(settingsDialogSource.Contains("BassAudioMapping"));
+        Assert.IsFalse(settingsDialogSource.Contains("BassAudioPlayer"));
+        Assert.IsFalse(settingsDialogSource.Contains("BassAudioDeviceTestRuntime"));
+        Assert.IsFalse(settingsDialogSource.Contains("new AudioDeviceTestWorkflowOwner("));
+        Assert.IsFalse(internalPlayerSource.Contains("BassAudioPlayer"));
+        int adapterStart = conversionSource.IndexOf(
+            "internal sealed class BassSelectedChartAudioConversionExecutor",
+            StringComparison.Ordinal);
+        Assert.IsTrue(adapterStart > 0);
+        string conversionOwnerSource = conversionSource.Substring(0, adapterStart);
+        Assert.IsFalse(conversionOwnerSource.Contains("BassAudioMapping"));
+        Assert.IsFalse(conversionOwnerSource.Contains("BassAudioPlayer"));
     }
 
     [TestMethod]
