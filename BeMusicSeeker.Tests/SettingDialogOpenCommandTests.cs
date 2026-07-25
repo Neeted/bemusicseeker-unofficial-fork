@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Reflection;
 using System.Windows.Threading;
 using BeMusicSeeker;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -83,9 +84,7 @@ public sealed class SettingDialogOpenCommandTests
     private static MainWindowViewModel CreateViewModel()
     {
         return new ApplicationComposition(
-            firstStartupProvider: () => false,
-            completeFirstStartup: () => { },
-            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog())
             .CreateMainWindowViewModel();
     }
 

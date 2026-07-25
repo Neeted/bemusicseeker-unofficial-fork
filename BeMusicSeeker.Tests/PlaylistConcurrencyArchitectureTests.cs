@@ -547,8 +547,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
-        StringAssert.Contains(source, "applicationComposition.IsFirstStartup");
-        StringAssert.Contains(source, "applicationComposition.CompleteFirstStartup();");
+        StringAssert.Contains(source, "applicationLifetime.IsFirstStartup");
+        StringAssert.Contains(source, "applicationLifetime.CompleteFirstStartup();");
         Assert.IsFalse(source.Contains("firstStartupProvider"));
         Assert.IsFalse(source.Contains("completeFirstStartup"));
         Assert.IsFalse(source.Contains("((App)System.Windows.Application.Current).firstStartup"));
@@ -563,7 +563,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "SettingDialog.cs");
         string viewModelSource = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
-        StringAssert.Contains(viewModelSource, "firstStartupStatePort.IsFirstStartup");
+        StringAssert.Contains(viewModelSource, "applicationLifetime.IsFirstStartup");
+        Assert.IsFalse(viewModelSource.Contains("firstStartupStatePort"));
         StringAssert.Contains(viewModelSource, "Msg_initsetting_completed");
         Assert.IsFalse(viewSource.Contains("firstStartup"));
         Assert.IsFalse(viewSource.Contains("((App)Application.Current).firstStartup"));

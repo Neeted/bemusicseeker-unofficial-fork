@@ -57,4 +57,23 @@ public sealed class MainWindowViewSettingsBoundaryTests
             settings.CustomTableFontSize = originalFontSize;
         }
     }
+
+    [TestMethod]
+    public void ViewSettingsStoreNormalizesAndPersistsInvalidTreeViewWidthOnRead()
+    {
+        Settings settings = Settings.Default;
+        double originalTreeViewWidth = settings.TreeViewWidth;
+        try
+        {
+            settings["TreeViewWidth"] = double.NaN;
+            var store = new SettingsMainWindowViewSettingsStore(() => settings);
+
+            Assert.AreEqual(Settings.DefaultTreeViewWidth, store.TreeViewWidth);
+            Assert.AreEqual(Settings.DefaultTreeViewWidth, (double)settings["TreeViewWidth"]);
+        }
+        finally
+        {
+            settings.TreeViewWidth = originalTreeViewWidth;
+        }
+    }
 }

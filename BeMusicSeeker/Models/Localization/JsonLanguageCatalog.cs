@@ -2,9 +2,11 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization.Json;
 using System.Text;
+using System.Collections.ObjectModel;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.Localization;
@@ -13,11 +15,36 @@ public static class JsonLanguageCatalog
 {
     private static readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, string>> Cache = new(StringComparer.OrdinalIgnoreCase);
 
+    private static readonly object DiscoveryGate = new();
+
+    private static ReadOnlyDictionary<string, string> discoveredLanguages;
+
+    internal static ReadOnlyDictionary<string, string> GetLanguagesSnapshot()
+    {
+        lock (DiscoveryGate)
+        {
+            return discoveredLanguages ??= new ReadOnlyDictionary<string, string>(
+                new Dictionary<string, string>(DiscoverLanguages(), StringComparer.Ordinal));
+        }
+    }
+
+    internal static bool ContainsCulture(string cultureName)
+        => !string.IsNullOrWhiteSpace(cultureName)
+            && GetLanguagesSnapshot().Values.Contains(cultureName, StringComparer.OrdinalIgnoreCase);
+
     public static void Invalidate(string cultureName)
     {
         if (!string.IsNullOrWhiteSpace(cultureName))
         {
             Cache.TryRemove(cultureName, out IReadOnlyDictionary<string, string> _);
+        }
+    }
+
+    internal static void InvalidateLanguages()
+    {
+        lock (DiscoveryGate)
+        {
+            discoveredLanguages = null;
         }
     }
 

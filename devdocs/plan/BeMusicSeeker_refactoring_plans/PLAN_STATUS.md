@@ -14,14 +14,14 @@
 
 ### `MIG-01 Configuration and application-context closure`
 
-状態: in progress
+状態: completed
 
 - active outcome base commit: `15f9b965`
 - observed production checkpoint: `15f9b965`
 - active execution package: `MIG-01 Configuration and application-context closure`
-- execution anchor: `Configuration consumption closure`
-- sequence cursor: `MIG-01-B4 Application context, scheduler and lifetime closure`
-- next outcome: `MIG-02 Path, process and updater closure` (not started)
+- execution anchor: `Configuration consumption closure` (completed)
+- sequence cursor: `MIG-01-B4 Application context, scheduler and lifetime closure` (completed)
+- next outcome: `MIG-02 Path, process and updater closure` (ready)
 
 目的:
 
@@ -50,7 +50,7 @@ Non-goals:
 
 ## Active implementation batch
 
-状態: in progress
+状態: completed
 
 `MIG-01` plannerが作成した有限batchであり、B1から依存順に実装する。batchに`active`または`pending`がある間はplannerを再起動しない。
 
@@ -59,7 +59,7 @@ Non-goals:
 | `MIG-01` | `B1` | `completed` | `library / playlist configuration consumption` |
 | `MIG-01` | `B2` | `completed` | `playback / player settings gateway` |
 | `MIG-01` | `B3` | `completed` | `MainWindow view settings and configuration seam` |
-| `MIG-01` | `B4` | `active` | `application context / scheduler / lifetime` |
+| `MIG-01` | `B4` | `completed` | `application context / scheduler / lifetime` |
 
 ## Current code evidence
 
@@ -68,6 +68,7 @@ Non-goals:
 - rootは`MainChartList`、`PlaylistWorkspace`、`ChartFilters`、`LibraryFolderTree`、`InstallTree`、`MaintenanceTree`、`PlayHistory`、`PlaybackPanel`、`ProgressHub`、`SettingDialog`をchild composition propertyとして公開し、XAMLはこれらをbinding rootとして使用している。
 - MainWindowにはtyped owner query / commandとWPF control mappingへ整理済みのrouteが多い。event数や行数だけで追加owner抽出を行わず、T1でfeature decision / orchestrationの実在を判定する。
 - `Settings.Default`、`Application.Current`、dispatcher、process等の残参照は、UI feature ownership違反でない限り`MIG-01`〜`MIG-04`へ分類する。
+- `MIG-01-B1`〜`B4`でconfiguration snapshot、application lifetime、culture catalog、UI schedulerをproduction compositionから注入し、library / playlist / ViewModel / aggregateのglobal context fallbackを退役させた。設定値・serialized value・UI observable behavior・失敗契約はFull verificationで確認済み。
 - UI-05-T2 の grouped residual closure と T3 の outcome-wide Full verification、Release smoke、fresh outcome review、completion status更新が完了した。Full verificationは成功し、repository Release executableは応答可能で、fresh outcome reviewにMajor / Moderate指摘はない。
 - OWN-01-B1〜B4 の owner-boundary closure、outcome-wide Full verification、repository Release executable smoke、fresh outcome reviewが完了した。外部登録の準備はaggregate ownerのimmutable factsへ移り、URL completionはproduction scheduler routeで検証できる構造になっている。
 
@@ -90,8 +91,8 @@ Non-goals:
 | PL-02 Playlist external-sync and output ownership | completed |
 | UI-05 Shell closure | completed |
 | OWN-01 Residual owner-boundary reconciliation | completed |
-| MIG-01 Configuration and application-context closure | in progress |
-| MIG-02 Path, process and updater closure | not started |
+| MIG-01 Configuration and application-context closure | completed |
+| MIG-02 Path, process and updater closure | ready |
 | MIG-03 Native interop and UI-host closure | not started |
 | MIG-04 Build, dependency and output closure | not started |
 | MIG-05 .NET 10 migration rehearsal and handoff | not started |
@@ -106,11 +107,11 @@ Non-goals:
 | UI ownership | met | T1 finite inventory、T2 grouped closure、Full verification、repository Release executable smoke、fresh outcome reviewが完了した |
 | Library ownership | met | pending estimated-install、library writer / SQL seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Playlist ownership | met | custom-folder output status persistence、external registration preparation、URL completion test seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
-| Configuration ownership | not met | global settings、application / dispatcher contextを`MIG-01`で境界化する |
+| Configuration ownership | met | `MIG-01-B1`〜`B4`でsettings snapshot、application lifetime、culture catalog、UI schedulerをcomposition boundaryへ閉じ、Full verification、Release smoke、fresh outcome reviewを完了した |
 | Platform boundary | not met | path / process / updater、native / UI host、HintPath / output layoutを`MIG-02`〜`MIG-04`で閉じる |
 | Migration readiness | not met | disposable `net10.0-windows` restore / build rehearsalを`MIG-05`で実施する |
 | Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
-| Quality | in progress | UI-05とOWN-01のFull verification、Release smoke、fresh outcome reviewは完了。後続Outcome / Gate evidenceは未完了 |
+| Quality | in progress | UI-05、OWN-01、MIG-01のFull verification、Release smoke、fresh outcome reviewは完了。後続Outcome / Gate evidenceは未完了 |
 
 ## Active external blocker
 

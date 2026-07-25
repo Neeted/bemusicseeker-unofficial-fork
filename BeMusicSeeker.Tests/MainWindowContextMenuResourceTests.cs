@@ -2543,7 +2543,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(playlistMd5UrlGetter.Contains("Settings.Default.PlaylistMd5UrlMappingTsvUri = null"));
         Assert.IsFalse(folderNameFormatGetter.Contains("Settings.Default.FolderNameFormat ="));
         Assert.IsFalse(encodeFileNameFormatGetter.Contains("Settings.Default.EncodeFileNameFormat ="));
-        StringAssert.Contains(languageProperty, "App.AvailableCultures.TryGetValue");
+        StringAssert.Contains(languageProperty, "cultureCatalog.Cultures.TryGetValue");
         Assert.IsFalse(languageProperty.Contains("catch"));
     }
 
@@ -3480,7 +3480,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.IsFalse(appXaml.Contains("StartupUri"));
         Assert.AreEqual(1, CountOccurrences(appCode, "new ApplicationComposition("));
-        StringAssert.Contains(appCode, "uiDispatcherProvider: () => base.Dispatcher");
+        StringAssert.Contains(appCode, "uiScheduler: new WpfUiScheduler(() => base.Dispatcher)");
         Assert.AreEqual(1, CountOccurrences(appCode, "MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();"));
         Assert.AreEqual(1, CountOccurrences(appCode, "Resources[\"vm\"] = viewModel;"));
         Assert.AreEqual(1, CountOccurrences(appCode, "MainWindow mainWindow = new(viewModel);"));
@@ -3749,9 +3749,7 @@ public sealed class MainWindowContextMenuResourceTests
         RunOnStaDispatcherThread(() =>
         {
             var composition = new ApplicationComposition(
-                firstStartupProvider: () => false,
-                completeFirstStartup: () => { },
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
             int navigationCount = 0;
             viewModel.RegularChartList.InstallNavigationPresentationRequested +=
@@ -4059,7 +4057,7 @@ public sealed class MainWindowContextMenuResourceTests
         string fileInitializeBlock = ExtractBetween(
             viewModelCode,
             "startupReadyDataReached = false;",
-            "if (applicationComposition.IsFirstStartup)");
+            "if (applicationLifetime.IsFirstStartup)");
 
         StringAssert.Contains(fileInitializeBlock, "files.InitializeStartup");
         StringAssert.Contains(fileInitializeBlock, "FailStartupProgressOperation(ex.Message);");

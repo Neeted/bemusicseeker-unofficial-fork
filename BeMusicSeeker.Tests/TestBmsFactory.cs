@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -22,7 +23,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Func<LR2Config> getLR2Config = null,
         string _lr2ScoreDB = null,
         string startupRequiredFileScanReason = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, CurrentOptions)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher))
     {
     }
 
@@ -31,7 +32,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Func<LR2Config> getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, CurrentOptions)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher))
     {
     }
 
@@ -41,7 +42,18 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher))
+    {
+    }
+
+    internal TestBmsLibrary(
+        string songDbPath,
+        Func<LR2Config> getLR2Config,
+        string _lr2ScoreDB,
+        IFileMutationService fileMutationService,
+        IBmsLibraryDialogService dialogService,
+        IUiScheduler uiScheduler)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, uiScheduler)
     {
     }
 
@@ -51,7 +63,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB,
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, new TestUiScheduler(() => Dispatcher.CurrentDispatcher))
     {
     }
 }
@@ -67,6 +79,19 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     private static Func<CustomFolderOutputSettingsSnapshot> CurrentCustomFolderOptions =>
         () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default);
 
+    internal new Livet.DispatcherCollection<BMSTable> BMSTables
+    {
+        get => base.BMSTables;
+        set
+        {
+            if (value != null && !ReferenceEquals(value.Dispatcher, TestUiDispatcherHost.Dispatcher))
+            {
+                value.Dispatcher = TestUiDispatcherHost.Dispatcher;
+            }
+            base.BMSTables = value;
+        }
+    }
+
     internal TestBmsPlaylist(
         string songDbPath,
         Func<LR2Config> getLr2Config = null,
@@ -81,7 +106,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             getBeatorajaBmtSongHashResolver,
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
-            CurrentCustomFolderOptions)
+            CurrentCustomFolderOptions,
+            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher))
     {
     }
 
@@ -97,6 +123,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
+            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization)
     {
     }
@@ -114,6 +141,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
+            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization)
     {
     }
@@ -131,6 +159,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
+            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization)
     {
     }
@@ -156,6 +185,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,
             customFolderOutputSettingsProvider,
+            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization,
             playlistUrlCompletionTsvContentFetcher,
             playlistUrlCompletionStellaContentFetcher)

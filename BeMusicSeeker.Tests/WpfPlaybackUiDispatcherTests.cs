@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Windows.Threading;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -13,8 +14,8 @@ public sealed class WpfPlaybackUiDispatcherTests
     public void Dispatch_RunsInlineWhenDispatcherIsUnavailableOrCurrent()
     {
         int callCount = 0;
-        new WpfPlaybackUiDispatcher(() => null!).Dispatch(() => callCount++);
-        new WpfPlaybackUiDispatcher(() => Dispatcher.CurrentDispatcher).Dispatch(() => callCount++);
+        new WpfPlaybackUiDispatcher(new WpfUiScheduler(() => null!)).Dispatch(() => callCount++);
+        new WpfPlaybackUiDispatcher(new WpfUiScheduler(() => Dispatcher.CurrentDispatcher)).Dispatch(() => callCount++);
 
         Assert.AreEqual(2, callCount);
     }
@@ -34,7 +35,7 @@ public sealed class WpfPlaybackUiDispatcherTests
         Assert.IsTrue(thread.Join(TimeSpan.FromSeconds(5)));
         Assert.IsNotNull(shutdownDispatcher);
         int callCount = 0;
-        var dispatcher = new WpfPlaybackUiDispatcher(() => shutdownDispatcher);
+        var dispatcher = new WpfPlaybackUiDispatcher(new WpfUiScheduler(() => shutdownDispatcher));
 
         dispatcher.Dispatch(() => callCount++);
 
@@ -74,7 +75,7 @@ public sealed class WpfPlaybackUiDispatcherTests
         {
             Assert.IsTrue(ready.Wait(TimeSpan.FromSeconds(5)));
             Assert.IsNotNull(dispatcher);
-            var adapter = new WpfPlaybackUiDispatcher(() => dispatcher);
+            var adapter = new WpfPlaybackUiDispatcher(new WpfUiScheduler(() => dispatcher));
 
             adapter.Dispatch(() =>
             {

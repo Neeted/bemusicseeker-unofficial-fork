@@ -23,7 +23,7 @@ public sealed class LibraryFolderTreeViewModelTests
         Assert.ThrowsException<InvalidOperationException>(() => new LibraryFolderTreeViewModel(
             _ => true,
             _ => new ExplorerOpenResult(),
-            () => null));
+            new WpfUiScheduler(() => null!)));
     }
 
     [TestMethod]
@@ -45,7 +45,7 @@ public sealed class LibraryFolderTreeViewModelTests
         var owner = new LibraryFolderTreeViewModel(
             _ => true,
             _ => new ExplorerOpenResult(),
-            () => shutdownDispatcher);
+            new WpfUiScheduler(() => shutdownDispatcher));
         int refreshRequests = 0;
         owner.CacheRefreshRequested += (_, _) => refreshRequests++;
         FieldInfo queuedField = typeof(LibraryFolderTreeViewModel)
@@ -73,7 +73,7 @@ public sealed class LibraryFolderTreeViewModelTests
             owner = new LibraryFolderTreeViewModel(
                 _ => true,
                 _ => new ExplorerOpenResult(),
-                () => dispatcher);
+                new WpfUiScheduler(() => dispatcher));
             dispatcherReady.Set();
             Dispatcher.Run();
         });
@@ -146,7 +146,7 @@ public sealed class LibraryFolderTreeViewModelTests
             var owner = new LibraryFolderTreeViewModel(
                 _ => true,
                 _ => new ExplorerOpenResult(),
-                () => Dispatcher.CurrentDispatcher);
+                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
             int parentFolderPropertyChanges = 0;
             int cacheRefreshRequests = 0;
             owner.PropertyChanged += (_, args) =>
@@ -195,7 +195,7 @@ public sealed class LibraryFolderTreeViewModelTests
         var owner = new LibraryFolderTreeViewModel(
             _ => true,
             _ => new ExplorerOpenResult(),
-            () => Dispatcher.CurrentDispatcher);
+                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
         int refreshRequests = 0;
         owner.CacheRefreshRequested += (_, _) => refreshRequests++;
 
@@ -244,7 +244,7 @@ public sealed class LibraryFolderTreeViewModelTests
             var owner = new LibraryFolderTreeViewModel(
                 _ => true,
                 _ => new ExplorerOpenResult(),
-                () => Dispatcher.CurrentDispatcher);
+                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
 
             owner.AttachLibrary(library);
 
@@ -285,7 +285,7 @@ public sealed class LibraryFolderTreeViewModelTests
                     OpenedPath = path
                 };
             },
-            () => Dispatcher.CurrentDispatcher);
+                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
 
         owner.OpenFolderInExplorer("C:\\Library");
 
@@ -299,7 +299,7 @@ public sealed class LibraryFolderTreeViewModelTests
         var owner = new LibraryFolderTreeViewModel(
             _ => false,
             _ => throw new AssertFailedException("Explorer should not be invoked for a missing folder."),
-            () => Dispatcher.CurrentDispatcher);
+                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
 
         owner.OpenFolderInExplorer("C:\\Missing");
     }
@@ -320,7 +320,7 @@ public sealed class LibraryFolderTreeViewModelTests
                     FailureReason = "shell_failed"
                 };
             },
-            () => Dispatcher.CurrentDispatcher);
+                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
 
         owner.OpenFolderInExplorer("C:\\Library");
 

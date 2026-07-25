@@ -24,11 +24,6 @@ internal interface ISettingsDialogStatePort
     event Action<Lr2PlayHistorySchemaStatusSnapshot> Lr2PlayHistorySchemaStatusChanged;
 }
 
-internal interface ISettingsDialogFirstStartupStatePort
-{
-    bool IsFirstStartup { get; }
-}
-
 internal interface ISettingsDialogWorkspacePort
 {
     bool HasPlaylistTables { get; }

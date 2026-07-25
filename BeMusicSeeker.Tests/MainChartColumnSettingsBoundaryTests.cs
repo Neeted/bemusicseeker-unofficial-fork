@@ -1,4 +1,5 @@
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -23,7 +24,7 @@ public sealed class MainChartColumnSettingsBoundaryTests
             () => new BmsLibraryOptionsSnapshot(),
             mainChartColumnSettingsStore: store,
             playlistWorkspaceDialogService: dialogs,
-            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
         MainChartListColumnSelection selection = viewModel.MainChartList.LoadColumnSetting(

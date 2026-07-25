@@ -61,7 +61,7 @@ public sealed class SettingDialogEditCompletionTests
                 MainWindowViewModel viewModel = new ApplicationComposition(
                         settingsEditSession: settingsSession,
                         defaultBmsPlayerFactory: () => player,
-                        uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
+                        uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog())
                     .CreateMainWindowViewModel();
                 var settingDialog = new SettingDialog
                 {
@@ -137,7 +137,6 @@ public sealed class SettingDialogEditCompletionTests
                         sequence.Add("reload");
                         return Task.CompletedTask;
                     }),
-                new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -146,6 +145,8 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs);
 
             await dialog.RequestRemoveBmsSearchRootAsync(root);
@@ -185,7 +186,6 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
-                new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -194,6 +194,8 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs);
 
             await dialog.RequestRemoveBmsSearchRootAsync(root);
@@ -223,7 +225,6 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
-                new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -232,6 +233,8 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs);
 
             await dialog.RequestRemoveBmsSearchRootAsync(string.Empty);
@@ -260,7 +263,6 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
-                new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -269,6 +271,8 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs);
 
             Exception? exception = null;
@@ -342,7 +346,6 @@ public sealed class SettingDialogEditCompletionTests
                         sequence.Add("reload");
                         return Task.CompletedTask;
                     }),
-                new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -351,6 +354,8 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
@@ -528,7 +533,6 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
-                new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -537,6 +541,8 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs);
 
             Exception? exception = null;
@@ -590,7 +596,6 @@ public sealed class SettingDialogEditCompletionTests
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
-                new TestFirstStartupStatePort(),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -599,6 +604,8 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
                 settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
@@ -893,7 +900,6 @@ public sealed class SettingDialogEditCompletionTests
                 new BlockingAudioDeviceTestRuntime(runtimeStarted, releaseRuntime));
             SettingsDialogViewModel dialog = new(
                 viewModel,
-                new TestFirstStartupStatePort(),
                 viewModel.PlaylistWorkspace,
                 viewModel.PlaylistWorkspace,
                 viewModel.PlayHistory,
@@ -902,6 +908,8 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlaybackRuntimePort(),
                 viewModel.Lr2SongDbSyncWorkflow,
                 settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 audioDeviceTestWorkflow: workflow);
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
@@ -1545,11 +1553,9 @@ public sealed class SettingDialogEditCompletionTests
         ISettingsDialogPlaybackRuntimePort? playbackRuntimePort = null)
     {
         var composition = new ApplicationComposition(
-            firstStartupProvider: () => firstStartup,
-            completeFirstStartup: () => { },
             settingsEditSession: settingsSession,
             reportSettingsApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
-            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         if (initializeOwner != null || reloadScoresOnly != null || reloadFileDiff != null)
         {
@@ -1570,7 +1576,6 @@ public sealed class SettingDialogEditCompletionTests
                     reloadFileDiff: reloadFileDiff == null
                         ? () => Task.CompletedTask
                         : () => reloadFileDiff(viewModel)),
-                new TestFirstStartupStatePort(firstStartup),
                 viewModel.PlaylistWorkspace,
                 viewModel.PlaylistWorkspace,
                 viewModel.PlayHistory,
@@ -1579,6 +1584,8 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlaybackRuntimePort(),
                 viewModel.Lr2SongDbSyncWorkflow,
                 settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }));
             typeof(MainWindowViewModel)
                 .GetProperty("SettingDialog", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
@@ -1608,7 +1615,6 @@ public sealed class SettingDialogEditCompletionTests
                 owner,
                 () => Task.FromResult(true),
                 reloadFileDiff: reloadFileDiff),
-            new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             owner.PlayHistory,
@@ -1616,8 +1622,10 @@ public sealed class SettingDialogEditCompletionTests
             new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(),
             owner.Lr2SongDbSyncWorkflow,
-            settingsSession,
-            schemaDialogs: dialogs);
+                settingsSession,
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                schemaDialogs: dialogs);
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
         config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
         SetPrivateField(dialog, "lr2ConfigValue", config);

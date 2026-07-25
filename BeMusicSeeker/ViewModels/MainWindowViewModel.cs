@@ -219,6 +219,29 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly ApplicationComposition applicationComposition;
 
+    private readonly IUiScheduler uiScheduler;
+
+    private readonly IApplicationLifetimePort applicationLifetime;
+
+    private Dispatcher ResolveUiDispatcher() => uiScheduler.Dispatcher;
+
+    private void DispatchUiAction(Action action, DispatcherPriority priority = DispatcherPriority.Normal)
+    {
+        if (action == null)
+        {
+            return;
+        }
+
+        Dispatcher dispatcher = ResolveUiDispatcher();
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+
+        dispatcher.BeginInvoke(priority, action);
+    }
+
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
@@ -284,15 +307,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void DispatchStartupProgressPresentation(Action action)
     {
-        Dispatcher dispatcher = DispatcherHelper.UIDispatcher;
-        if (dispatcher == null || dispatcher.CheckAccess())
-        {
-            action();
-        }
-        else
-        {
-            dispatcher.BeginInvoke(action);
-        }
+        DispatchUiAction(action);
     }
 
     private bool IsStartupCompletionTokenCurrent(long expectedOperationToken)
@@ -411,14 +426,7 @@ public partial class MainWindowViewModel : ViewModel,
             LogUiSuppression("startup_presentation_flush done elapsedMs=" + stopwatch.ElapsedMilliseconds + " mask=" + mask);
             SchedulePostStartupBestEffortWarmups("startup_presentation_flush_done", expectedOperationToken);
         };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            flush();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(flush);
-        }
+        DispatchUiAction(flush);
         return true;
     }
 
@@ -467,14 +475,7 @@ public partial class MainWindowViewModel : ViewModel,
             ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, "Initial setup completion notification");
             initialSetupCompletionMessagePending = false;
         };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            showMessage();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(showMessage);
-        }
+        DispatchUiAction(showMessage);
     }
 
     private void QueueStartupInitializationCompleteRetryUnsafe(long expectedOperationToken = 0L)
@@ -787,7 +788,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private async Task WaitForPlaylistReloadCleanupDispatcherIdleAsync()
     {
-        Dispatcher dispatcher = DispatcherHelper.UIDispatcher;
+        Dispatcher dispatcher = ResolveUiDispatcher();
         if (dispatcher == null)
         {
             return;
@@ -1436,7 +1437,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
+        Action flush = delegate
         {
             if (!startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(operationToken))
             {
@@ -1454,7 +1455,16 @@ public partial class MainWindowViewModel : ViewModel,
                     dataRefreshRequired: false,
                     rebuildAsync: true);
             }
-        });
+        };
+        Dispatcher dispatcher = ResolveUiDispatcher();
+        if (dispatcher == null)
+        {
+            flush();
+        }
+        else
+        {
+            dispatcher.BeginInvoke(flush);
+        }
     }
 
     private void TryLogStartupReadyData()
@@ -2184,14 +2194,7 @@ public partial class MainWindowViewModel : ViewModel,
                 RaiseBmsonPlaylistReferenceDisplayChanged(row);
             }
         };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            notify();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(notify);
-        }
+        DispatchUiAction(notify);
     }
 
     private static void RaiseBmsonPlaylistReferenceDisplayChanged(LibraryChartRow row)
@@ -2524,7 +2527,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void SchedulePlayHistoryDisplayTargetCatalogRefresh(Action refresh)
     {
-        Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
+        Dispatcher dispatcher = ResolveUiDispatcher();
         if (dispatcher == null)
         {
             Task.Run(refresh).Logging("QueuePlayHistoryDisplayTargetsRefresh");
@@ -2562,6 +2565,8 @@ public partial class MainWindowViewModel : ViewModel,
             throw new ArgumentNullException(nameof(composition));
         }
         applicationComposition = composition;
+        uiScheduler = composition.UiScheduler;
+        applicationLifetime = composition.ApplicationLifetime;
         startupSettingsProvider = composition.StartupSettingsProvider;
         ViewSettings = composition.MainWindowViewSettingsStore;
         startupBackgroundTaskScheduler = new StartupBackgroundTaskSchedulerOwner(
@@ -2619,7 +2624,7 @@ public partial class MainWindowViewModel : ViewModel,
             () => files,
             () => lr2config,
             LogPlaylistSummaryBulkWarning,
-            new DispatcherCollection<BMSTable>(applicationComposition.UiDispatcherProvider()),
+            new DispatcherCollection<BMSTable>(uiScheduler.Dispatcher),
             (reason, work) => startupBackgroundTaskScheduler.Queue("playlist_library_index_prewarm", reason, null, work),
             () => startupReadyOperableReached,
             () => treeViewFilterTypeSelected,
@@ -2641,7 +2646,7 @@ public partial class MainWindowViewModel : ViewModel,
                 work,
                 shutdownReason => PlaylistWorkspace.PlaylistReferenceApplyWorkflow.DiscardForShutdown(shutdownReason)),
             ApplyMainChartListPresentationActionAsync,
-            () => applicationComposition.UiDispatcherProvider().CheckAccess());
+            () => uiScheduler.Dispatcher == null || uiScheduler.CheckAccess());
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
@@ -2662,7 +2667,6 @@ public partial class MainWindowViewModel : ViewModel,
             MainChartList,
             PlaylistWorkspace,
             applicationComposition.CreateDefaultBmsPlayer,
-            applicationComposition.UiDispatcherProvider,
             chartFileOperations,
             LogMainViewBuild,
             DispatchMainChartListAction,
@@ -2818,7 +2822,7 @@ public partial class MainWindowViewModel : ViewModel,
             applicationComposition.SettingsEditSession,
             _semaphore,
             startupProgressWorkflowOwner,
-            App.MarkCoordinatedShutdownStarted,
+            applicationLifetime.MarkCoordinatedShutdownStarted,
             DispatchShellShutdownActionAsync,
             LogShutdown,
             LogShutdownWarning,
@@ -2835,7 +2839,6 @@ public partial class MainWindowViewModel : ViewModel,
             queueRefreshWhenSelectionChanges: false);
         SettingDialog = applicationComposition.CreateSettingDialogViewModel(
             statePort: this,
-            firstStartupStatePort: applicationComposition,
             workspacePort: PlaylistWorkspace,
             customFolderOutputPort: PlaylistWorkspace,
             playHistoryPort: PlayHistory,
@@ -3105,30 +3108,19 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private static void DispatchMainChartListAction(Action action)
+    private void DispatchMainChartListAction(Action action)
     {
-        if (action == null)
-        {
-            return;
-        }
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            action();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(action);
-        }
+        DispatchUiAction(action);
     }
 
-    private static Task DispatchShellShutdownActionAsync(Func<Task> action)
+    private Task DispatchShellShutdownActionAsync(Func<Task> action)
     {
         if (action == null)
         {
             throw new ArgumentNullException(nameof(action));
         }
 
-        Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
+        Dispatcher dispatcher = ResolveUiDispatcher();
         if (dispatcher == null || dispatcher.CheckAccess())
         {
             return action();
@@ -3162,7 +3154,7 @@ public partial class MainWindowViewModel : ViewModel,
             throw new ArgumentNullException(nameof(action));
         }
 
-        Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
+        Dispatcher dispatcher = ResolveUiDispatcher();
         if (dispatcher == null || dispatcher.CheckAccess())
         {
             action();
@@ -3518,7 +3510,7 @@ public partial class MainWindowViewModel : ViewModel,
             LogInitStage("app_schema_preflight_prompt_close", "Initialize");
             if (!approved)
             {
-                System.Windows.Application.Current?.Shutdown();
+                applicationLifetime.RequestShutdown();
                 return false;
             }
             bmsonMigrationApprovedForSession = true;
@@ -3700,7 +3692,7 @@ public partial class MainWindowViewModel : ViewModel,
         if (!SettingDialog.CheckValidation(out string startupValidationErrorMessage))
         {
             NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + (startupValidationErrorMessage ?? string.Empty).Replace(Environment.NewLine, " | "));
-            if (applicationComposition.IsFirstStartup)
+            if (applicationLifetime.IsFirstStartup)
             {
                 _semaphore.Release();
                 startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
@@ -4126,9 +4118,9 @@ public partial class MainWindowViewModel : ViewModel,
             LogInitStage("ui_suppress_end_called", "Initialize");
             startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
         }
-        if (applicationComposition.IsFirstStartup)
+        if (applicationLifetime.IsFirstStartup)
         {
-            applicationComposition.CompleteFirstStartup();
+            applicationLifetime.CompleteFirstStartup();
             initialSetupCompletionMessagePending = true;
         }
         initializationCompleted = true;
@@ -4783,7 +4775,7 @@ public partial class MainWindowViewModel : ViewModel,
             throw new ArgumentNullException(nameof(snapshot));
         }
 
-        Dispatcher dispatcher = applicationComposition.UiDispatcherProvider();
+        Dispatcher dispatcher = ResolveUiDispatcher();
         if (dispatcher == null || dispatcher.CheckAccess())
         {
             lr2PlayHistorySchemaStatusChanged?.Invoke(snapshot);
@@ -5195,14 +5187,7 @@ public partial class MainWindowViewModel : ViewModel,
             }
             RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Maintenance, dependencyReason);
         };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            refresh();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(refresh);
-        }
+        DispatchUiAction(refresh);
     }
 
     private void RefreshNormalLibraryAfterWarningChanged(string reason)
@@ -5317,9 +5302,16 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(string reason)
     {
+        Dispatcher dispatcher = ResolveUiDispatcher();
+        if (dispatcher == null)
+        {
+            PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
+            return;
+        }
+
         try
         {
-            DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
+            dispatcher.BeginInvoke((Action)delegate
             {
                 PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
             }, DispatcherPriority.ApplicationIdle);

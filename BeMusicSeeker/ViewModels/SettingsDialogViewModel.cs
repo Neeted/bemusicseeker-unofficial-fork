@@ -75,8 +75,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsDialogStatePort statePort;
 
-    private readonly ISettingsDialogFirstStartupStatePort firstStartupStatePort;
-
     private readonly ISettingsDialogWorkspacePort workspacePort;
 
     private readonly ISettingsDialogCustomFolderOutputPort customFolderOutputPort;
@@ -110,6 +108,10 @@ public partial class SettingsDialogViewModel : ViewModel
     private readonly ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow;
 
     private readonly AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow;
+
+    private readonly IApplicationLifetimePort applicationLifetime;
+
+    private readonly ICultureCatalog cultureCatalog;
 
     /// <summary>
     /// Gets the command used by views to request the settings dialog.
@@ -309,7 +311,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 await SaveSettingsForInitialInitialize();
                 saveMs = saveStopwatch.ElapsedMilliseconds;
-                if (firstStartupStatePort.IsFirstStartup)
+                if (applicationLifetime.IsFirstStartup)
                 {
                     totalStopwatch.Stop();
                     ShowUiMessage(
@@ -805,7 +807,7 @@ public partial class SettingsDialogViewModel : ViewModel
         try
         {
             SaveOperationModeForRestart(value);
-            ((App)System.Windows.Application.Current).RestartApplication();
+            applicationLifetime.RestartApplication();
         }
         catch (Exception ex)
         {
@@ -814,7 +816,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 BeMusicSeeker.Properties.Resources.Error,
                 MessageBoxImage.Hand,
                 "Restart failure notification");
-            System.Windows.Application.Current.Shutdown();
+            applicationLifetime.RequestShutdown();
         }
     }
 
@@ -3704,7 +3706,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    public List<string> Languages => [.. App.AvailableCultures.Keys];
+    public List<string> Languages => [.. cultureCatalog.Cultures.Keys];
 
     public string Language
     {
@@ -3712,13 +3714,13 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             // 表示名が保存されている場合はそれを優先（同一カルチャ名の重複対策）
             string savedDisplayName = ApplicationSettings.LangDisplayName;
-            if (!string.IsNullOrEmpty(savedDisplayName) && App.AvailableCultures.ContainsKey(savedDisplayName))
+            if (!string.IsNullOrEmpty(savedDisplayName) && cultureCatalog.Cultures.ContainsKey(savedDisplayName))
                 return savedDisplayName;
-            return App.AvailableCultures.FirstOrDefault(kv => kv.Value == ApplicationSettings.Lang).Key;
+            return cultureCatalog.Cultures.FirstOrDefault(kv => kv.Value == ApplicationSettings.Lang).Key;
         }
         set
         {
-            if (!App.AvailableCultures.TryGetValue(value ?? string.Empty, out string text))
+            if (!cultureCatalog.Cultures.TryGetValue(value ?? string.Empty, out string text))
             {
                 return;
             }
@@ -3736,7 +3738,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     internal SettingsDialogViewModel(
         ISettingsDialogStatePort statePort,
-        ISettingsDialogFirstStartupStatePort firstStartupStatePort,
         ISettingsDialogWorkspacePort workspacePort,
         ISettingsDialogCustomFolderOutputPort customFolderOutputPort,
         ISettingsDialogPlayHistoryPort playHistoryPort,
@@ -3749,12 +3750,12 @@ public partial class SettingsDialogViewModel : ViewModel
         Action<Exception> reportApplyFailure = null,
         IUiDialogService schemaDialogs = null,
         ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow = null,
-        AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow = null)
+        AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow = null,
+        IApplicationLifetimePort applicationLifetime = null,
+        ICultureCatalog cultureCatalog = null)
     {
         SettingsDialogViewModel settingDialogViewModel = this;
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
-        this.firstStartupStatePort = firstStartupStatePort
-            ?? throw new ArgumentNullException(nameof(firstStartupStatePort));
         this.workspacePort = workspacePort ?? throw new ArgumentNullException(nameof(workspacePort));
         this.customFolderOutputPort = customFolderOutputPort
             ?? throw new ArgumentNullException(nameof(customFolderOutputPort));
@@ -3764,6 +3765,10 @@ public partial class SettingsDialogViewModel : ViewModel
         this.playbackRuntimePort = playbackRuntimePort ?? throw new ArgumentNullException(nameof(playbackRuntimePort));
         this.lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow ?? throw new ArgumentNullException(nameof(lr2SongDbSyncWorkflow));
         this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
+        this.applicationLifetime = applicationLifetime
+            ?? throw new ArgumentNullException(nameof(applicationLifetime));
+        this.cultureCatalog = cultureCatalog
+            ?? throw new ArgumentNullException(nameof(cultureCatalog));
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
         this.reportApplyFailure = reportApplyFailure

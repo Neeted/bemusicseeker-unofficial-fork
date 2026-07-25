@@ -29,15 +29,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
             () => Task.FromResult(true));
         var settingDialog = new SettingsDialogViewModel(
             statePort,
-            new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             new RecordingPlayHistoryPort(),
             owner.LibraryFolderTree,
-            new ApplicationComposition(uiDispatcherProvider: () => Dispatcher.CurrentDispatcher),
+            new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            settingsEditSession: SettingsEditSession.CreateDefault());
+            settingsEditSession: SettingsEditSession.CreateDefault(),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         const string scoreDbPath = "C:\\lr2\\score.db";
         SetPrivateField(settingDialog, "operationModeLR2DB", true);
         SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
@@ -144,15 +145,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
         var dialogs = new RecordingUiDialogService();
         var settingDialog = new SettingsDialogViewModel(
             owner,
-            new TestFirstStartupStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             owner.PlayHistory,
             owner.LibraryFolderTree,
-            new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
             settingsEditSession: SettingsEditSession.CreateDefault(),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs);
         owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
         try
@@ -197,16 +199,17 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
             statePort,
-            new TestFirstStartupStatePort(),
-            owner.PlaylistWorkspace,
+                owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             playHistory,
             owner.LibraryFolderTree,
-            new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-                settingsEditSession: SettingsEditSession.CreateDefault(),
-                schemaDialogs: dialogs);
+            settingsEditSession: SettingsEditSession.CreateDefault(),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
@@ -263,16 +266,17 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
             statePort,
-            new TestFirstStartupStatePort(),
-            owner.PlaylistWorkspace,
+                owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             playHistory,
             owner.LibraryFolderTree,
-            new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-                settingsEditSession: SettingsEditSession.CreateDefault(),
-                schemaDialogs: dialogs);
+            settingsEditSession: SettingsEditSession.CreateDefault(),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
@@ -323,16 +327,17 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var playHistory = new RecordingPlayHistoryPort();
             var settingDialog = new SettingsDialogViewModel(
             statePort,
-            new TestFirstStartupStatePort(),
-            owner.PlaylistWorkspace,
+                owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             playHistory,
             owner.LibraryFolderTree,
-            new ApplicationComposition(uiDispatcherProvider: () => System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-                settingsEditSession: SettingsEditSession.CreateDefault(),
-                schemaDialogs: dialogs);
+            settingsEditSession: SettingsEditSession.CreateDefault(),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            schemaDialogs: dialogs);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 

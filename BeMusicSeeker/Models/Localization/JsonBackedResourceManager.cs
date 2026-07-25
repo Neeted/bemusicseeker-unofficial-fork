@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Linq;
 using System.Reflection;
 using System.Resources;
 
@@ -17,7 +16,7 @@ public sealed class JsonBackedResourceManager(string baseName, Assembly assembly
         string cultureName = cultureInfo.Name;
 
         // First try to resolve from JSON languages (including user-customized ja-JP.json)
-        if (App.AvailableCultures != null && App.AvailableCultures.Values.Contains(cultureName))
+        if (JsonLanguageCatalog.ContainsCulture(cultureName))
         {
             if (JsonLanguageCatalog.TryGetString(cultureName, name, out string value))
             {

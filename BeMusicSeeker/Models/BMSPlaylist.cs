@@ -178,6 +178,8 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     private readonly ReaderWriterLockSlimWrapper rwlockBMSTables = new();
 
+    private readonly IUiScheduler uiScheduler;
+
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
 
     internal PlaylistBmtOutputOwner BmtOutput => bmtOutput;
@@ -237,7 +239,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// UI バインディングに公開するプレイリスト一覧を保持します。
     /// </summary>
-    private DispatcherCollection<BMSTable> _BMSTables = new(DispatcherHelper.UIDispatcher);
+    private DispatcherCollection<BMSTable> _BMSTables;
 
     /// <summary>
     /// プレイリスト同期処理の実行中状態を保持します。
@@ -448,6 +450,7 @@ public partial class BMSPlaylist : NotificationObject
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
+        IUiScheduler uiScheduler,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null)
@@ -464,9 +467,11 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentException(string.Format(Resources.Error_LR2ScoreDBNotFound, _lr2ScoreDB), "_lr2ScoreDB");
         }
+        this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
+        _BMSTables = new DispatcherCollection<BMSTable>(this.uiScheduler.Dispatcher);
         lr2SongDBPath = _lr2SongDB;
         playlistPersistenceRepository = new PlaylistPersistenceRepository(_lr2SongDB);
-        playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository, rwlockBMSTables);
+        playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository, rwlockBMSTables, this.uiScheduler);
         playlistAggregatePersistenceOwner.SetActiveCollection([], _BMSTables);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         beatorajaBmtSongHashResolverFactory = getBeatorajaBmtSongHashResolver;
@@ -3660,25 +3665,17 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private static System.Windows.Threading.Dispatcher GetBMSTablesDispatcher(DispatcherCollection<BMSTable> tables)
+    private System.Windows.Threading.Dispatcher GetBMSTablesDispatcher(DispatcherCollection<BMSTable> tables)
     {
         if (tables == null)
         {
-            return null;
+            return uiScheduler.Dispatcher;
         }
-        if (Application.Current == null)
+        if (tables.Dispatcher != null && tables.Dispatcher.CheckAccess())
         {
-            // Headless verification has no WPF application dispatcher.  Keep the collection
-            // bound to the current thread so a later continuation cannot enqueue work onto a
-            // dispatcher whose message pump is not running.
-            System.Windows.Threading.Dispatcher currentDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-            if (tables.Dispatcher == null || !tables.Dispatcher.CheckAccess())
-            {
-                tables.Dispatcher = currentDispatcher;
-            }
-            return currentDispatcher;
+            return tables.Dispatcher;
         }
-        return tables.Dispatcher ?? DispatcherHelper.UIDispatcher ?? Application.Current?.Dispatcher;
+        return uiScheduler.Dispatcher;
     }
 
     private T InvokeBMSTablesCollectionMutation<T>(Func<T> mutation)

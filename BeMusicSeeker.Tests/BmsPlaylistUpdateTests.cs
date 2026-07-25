@@ -437,7 +437,7 @@ public sealed class BmsPlaylistUpdateTests
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9001;
             table.DisableExternalSync();
-            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), null!);
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
 
             List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table], reason: "test_explicit_reload");
@@ -489,7 +489,7 @@ public sealed class BmsPlaylistUpdateTests
             var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(firstHeaderPath));
             table.playlist_id = 9002;
-            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), null!);
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
 
             BMSTable result = await playlist.ExternalSyncOwner.ReloadAndApplySingleTableAsync(
                 table,
@@ -619,7 +619,7 @@ public sealed class BmsPlaylistUpdateTests
             table.DisableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(
                 new ObservableCollection<BMSTable>([table]),
-                null!);
+                Dispatcher.CurrentDispatcher);
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
                 setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
@@ -773,7 +773,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table]),
-                    null!)
+                    Dispatcher.CurrentDispatcher)
             };
             var library = new TestBmsLibrary(songDbPath);
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
@@ -1077,6 +1077,7 @@ public sealed class BmsPlaylistUpdateTests
                 new ObservableCollection<BMSTable>([new BMSTable { name = "Replacement" }]),
                 Dispatcher.CurrentDispatcher);
             playlist.BMSTables = replacement;
+            TestUiDispatcherHost.Drain();
 
             Assert.AreSame(replacement, viewModel.PlaylistWorkspace.PlaylistTreeTables);
             CollectionAssert.AreEqual(
@@ -1120,7 +1121,7 @@ public sealed class BmsPlaylistUpdateTests
             table.playlist_id = 9031;
             playlist.BMSTables = new DispatcherCollection<BMSTable>(
                 new ObservableCollection<BMSTable>([table]),
-                null!);
+                Dispatcher.CurrentDispatcher);
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
                 setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
@@ -1183,7 +1184,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table]),
-                    null!)
+                    Dispatcher.CurrentDispatcher)
             };
 
             playlist.RemoveBMSTable(table);
@@ -1449,6 +1450,7 @@ public sealed class BmsPlaylistUpdateTests
                     CompatPrefix = true,
                     OutputDirectory = true
                 });
+            TestUiDispatcherHost.Drain();
 
             Assert.AreEqual("External:Name", table.name);
             viewModel.ChartFilters.RefreshKeywordSearchSuggestions(
@@ -1673,7 +1675,7 @@ public sealed class BmsPlaylistUpdateTests
             var viewModel = new ApplicationComposition(
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default),
                 customFolderOutputSettingsProvider: getOutputSettings,
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -2828,7 +2830,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getOperationSettings,
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -2997,7 +2999,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getOperationSettings,
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -3133,7 +3135,7 @@ public sealed class BmsPlaylistUpdateTests
             var viewModel = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getViewModelSettings,
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             var library = new TestBmsLibrary(songDbPath);
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -3717,7 +3719,7 @@ public sealed class BmsPlaylistUpdateTests
             };
             var viewModel = new ApplicationComposition(
                 playlistWorkspaceDialogService: dialogs,
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -3782,7 +3784,7 @@ public sealed class BmsPlaylistUpdateTests
             Settings.Default.OperationModeLR2DB = true;
             var conflictViewModel = new ApplicationComposition(
                 playlistWorkspaceDialogService: dialogs,
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(conflictViewModel, playlist);
@@ -3941,7 +3943,7 @@ public sealed class BmsPlaylistUpdateTests
             var viewModel = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getViewModelSettings,
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(viewModel, playlist);
@@ -4085,7 +4087,7 @@ public sealed class BmsPlaylistUpdateTests
                     viewModelProviderCallCount++;
                     return startupSettings;
                 },
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(viewModel, playlist);
@@ -7730,7 +7732,7 @@ public sealed class BmsPlaylistUpdateTests
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getOperationSettings,
                 playlistWorkspaceDialogService: dialogs,
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -7842,7 +7844,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => new BmsLibraryOptionsSnapshot(),
                 beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getOperationSettings,
-                uiDispatcherProvider: () => Dispatcher.CurrentDispatcher).CreateMainWindowViewModelForTest();
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);

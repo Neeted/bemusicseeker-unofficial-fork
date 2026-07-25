@@ -1,5 +1,6 @@
 using System;
 using System.Windows.Threading;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
@@ -9,11 +10,11 @@ namespace BeMusicSeeker.Views;
 /// </summary>
 internal sealed class WpfPlaybackUiDispatcher : IPlaybackUiDispatcher
 {
-    private readonly Func<Dispatcher> dispatcherProvider;
+    private readonly IUiScheduler uiScheduler;
 
-    internal WpfPlaybackUiDispatcher(Func<Dispatcher> dispatcherProvider)
+    internal WpfPlaybackUiDispatcher(IUiScheduler uiScheduler)
     {
-        this.dispatcherProvider = dispatcherProvider ?? throw new ArgumentNullException(nameof(dispatcherProvider));
+        this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
     }
 
     public void Dispatch(Action action)
@@ -23,8 +24,8 @@ internal sealed class WpfPlaybackUiDispatcher : IPlaybackUiDispatcher
             throw new ArgumentNullException(nameof(action));
         }
 
-        Dispatcher dispatcher = dispatcherProvider();
-        if (dispatcher == null || dispatcher.CheckAccess())
+        Dispatcher dispatcher = uiScheduler.Dispatcher;
+        if (dispatcher == null || uiScheduler.CheckAccess())
         {
             action();
             return;

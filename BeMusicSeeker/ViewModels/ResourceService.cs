@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Linq;
 using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Properties;
 using Livet;
@@ -14,7 +13,7 @@ public class ResourceService : ViewModel
 
     public void ChangeCulture(string name)
     {
-        if (App.AvailableCultures.Values.Contains(name))
+        if (JsonLanguageCatalog.ContainsCulture(name))
         {
             Ribbit.Logging.NLogWrapper.FileLogger?.Info($"[ResourceService] ChangeCulture: switching to '{name}'");
             JsonLanguageCatalog.Invalidate(name);

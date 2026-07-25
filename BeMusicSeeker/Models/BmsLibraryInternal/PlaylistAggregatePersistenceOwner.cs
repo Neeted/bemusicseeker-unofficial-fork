@@ -151,6 +151,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private readonly ReaderWriterLockSlimWrapper activeCollectionLock;
 
+    private readonly IUiScheduler uiScheduler;
+
     private readonly object synchronization = new();
 
     private readonly HashSet<BMSTable> activeTables = [];
@@ -185,10 +187,12 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     internal PlaylistAggregatePersistenceOwner(
         PlaylistPersistenceRepository repository,
-        ReaderWriterLockSlimWrapper activeCollectionLock)
+        ReaderWriterLockSlimWrapper activeCollectionLock,
+        IUiScheduler uiScheduler)
     {
         this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
         this.activeCollectionLock = activeCollectionLock ?? throw new ArgumentNullException(nameof(activeCollectionLock));
+        this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
     }
 
     internal void AttachEntriesHydrationOwner(PlaylistEntriesHydrationOwner owner)
@@ -848,11 +852,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
 
         Dispatcher dispatcher = GetActiveTableDispatcher(tables);
-        if (dispatcher == null && Application.Current == null && tables.Dispatcher == null)
-        {
-            tables.Dispatcher = Dispatcher.CurrentDispatcher;
-            dispatcher = tables.Dispatcher;
-        }
         if (dispatcher == null || dispatcher.CheckAccess())
         {
             try
@@ -901,22 +900,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
             Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_enqueue_failed");
             return false;
         }
-        if (Application.Current == null)
-        {
-            lock (replacementGate)
-            {
-                replacementAllowed = 0;
-                try
-                {
-                    operation.Abort();
-                }
-                catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
-                {
-                }
-            }
-            replacementCompleted = true;
-            return replaced;
-        }
         try
         {
             operation.Wait(TimeSpan.FromSeconds(5));
@@ -960,22 +943,17 @@ internal sealed class PlaylistAggregatePersistenceOwner
         return replaced;
     }
 
-    private static Dispatcher GetActiveTableDispatcher(DispatcherCollection<BMSTable> tables)
+    private Dispatcher GetActiveTableDispatcher(DispatcherCollection<BMSTable> tables)
     {
         if (tables == null)
         {
-            return null;
+            return uiScheduler.Dispatcher;
         }
-        if (Application.Current == null)
+        if (tables.Dispatcher != null && tables.Dispatcher.CheckAccess())
         {
-            Dispatcher currentDispatcher = Dispatcher.CurrentDispatcher;
-            if (tables.Dispatcher == null || !tables.Dispatcher.CheckAccess())
-            {
-                tables.Dispatcher = currentDispatcher;
-            }
-            return currentDispatcher;
+            return tables.Dispatcher;
         }
-        return tables.Dispatcher ?? DispatcherHelper.UIDispatcher ?? Application.Current?.Dispatcher;
+        return uiScheduler.Dispatcher;
     }
 
     internal static string CreateReloadSourceFingerprint(BMSTable table)

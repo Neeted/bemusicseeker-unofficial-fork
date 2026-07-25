@@ -22,7 +22,7 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>
 /// アプリケーション起動時に ViewModel へ渡す production composition を構築します。
 /// </summary>
-internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort, ISettingsDialogFirstStartupStatePort
+internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 {
     private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
 
@@ -39,10 +39,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     private readonly IMainChartColumnSettingsStore mainChartColumnSettingsStore;
 
     private readonly IMainWindowViewSettingsStore mainWindowViewSettingsStore;
-
-    private readonly Func<bool> firstStartupProvider;
-
-    private readonly Action completeFirstStartup;
 
     private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
 
@@ -62,7 +58,11 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly IUiDialogService playlistWorkspaceDialogService;
 
-    private readonly Func<Dispatcher> uiDispatcherProvider;
+    private readonly IUiScheduler uiScheduler;
+
+    private readonly IApplicationLifetimePort applicationLifetime;
+
+    private readonly ICultureCatalog cultureCatalog;
 
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
@@ -72,8 +72,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider = null,
         IMainChartColumnSettingsStore mainChartColumnSettingsStore = null,
-        Func<bool> firstStartupProvider = null,
-        Action completeFirstStartup = null,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore = null,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         ISettingsEditSession settingsEditSession = null,
@@ -81,16 +79,22 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider = null,
         Action<Exception> reportSettingsApplyFailure = null,
         IUiDialogService playlistWorkspaceDialogService = null,
-        Func<Dispatcher> uiDispatcherProvider = null)
+        IUiScheduler uiScheduler = null,
+        IApplicationLifetimePort applicationLifetime = null,
+        ICultureCatalog cultureCatalog = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
+        this.applicationLifetime = applicationLifetime
+            ?? throw new ArgumentNullException(nameof(applicationLifetime));
+        this.cultureCatalog = cultureCatalog
+            ?? throw new ArgumentNullException(nameof(cultureCatalog));
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
             ?? (() => new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway));
-        this.uiDispatcherProvider = uiDispatcherProvider
-            ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
+        this.uiScheduler = uiScheduler
+            ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
@@ -108,10 +112,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         this.mainChartColumnSettingsStore = mainChartColumnSettingsStore
             ?? new SettingsMainChartColumnSettingsStore(() => this.settingsEditSession.Values);
         mainWindowViewSettingsStore = new SettingsMainWindowViewSettingsStore(() => this.settingsEditSession.Values);
-        this.firstStartupProvider = firstStartupProvider
-            ?? (() => GetApplication().firstStartup);
-        this.completeFirstStartup = completeFirstStartup
-            ?? (() => GetApplication().firstStartup = false);
         this.keywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
             ?? new SettingsKeywordSearchHistorySettingsStore(() => this.settingsEditSession.Values);
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
@@ -136,12 +136,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     internal IMainWindowViewSettingsStore MainWindowViewSettingsStore => mainWindowViewSettingsStore;
 
-    bool ISettingsDialogFirstStartupStatePort.IsFirstStartup => firstStartupProvider();
-
-    internal bool IsFirstStartup => firstStartupProvider();
-
-    internal void CompleteFirstStartup() => completeFirstStartup();
-
     internal IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore => keywordSearchHistorySettingsStore;
 
     internal IPlayHistoryDisplaySettingsStore PlayHistoryDisplaySettingsStore => playHistoryDisplaySettingsStore;
@@ -151,12 +145,12 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     internal ISettingsEditSession SettingsEditSession => settingsEditSession;
 
-    internal Func<Dispatcher> UiDispatcherProvider => uiDispatcherProvider;
+    internal IUiScheduler UiScheduler => uiScheduler;
 
-    private static App GetApplication()
-    {
-        return (App)System.Windows.Application.Current;
-    }
+    internal IApplicationLifetimePort ApplicationLifetime => applicationLifetime;
+
+    internal ICultureCatalog CultureCatalog => cultureCatalog;
+
 
     internal MainChartListViewModel CreateMainChartListViewModel(
         Action<Action> dispatchPresentationAction,
@@ -263,7 +257,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     internal SettingsDialogViewModel CreateSettingDialogViewModel(
         ISettingsDialogStatePort statePort,
-        ISettingsDialogFirstStartupStatePort firstStartupStatePort,
         ISettingsDialogWorkspacePort workspacePort,
         ISettingsDialogCustomFolderOutputPort customFolderOutputPort,
         ISettingsDialogPlayHistoryPort playHistoryPort,
@@ -275,7 +268,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IUiDialogService schemaDialogs = new UiDialogCoordinator();
         return new SettingsDialogViewModel(
             statePort,
-            firstStartupStatePort,
             workspacePort,
             customFolderOutputPort,
             playHistoryPort,
@@ -286,6 +278,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             settingsEditSession,
             playHistoryDisplaySettingsStore,
             reportSettingsApplyFailure,
+            applicationLifetime: applicationLifetime,
+            cultureCatalog: cultureCatalog,
             schemaDialogs: schemaDialogs,
             applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(
                 schemaDialogs,
@@ -299,7 +293,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
         Func<IBMSPlayer> bmsPlayerFactory,
-        Func<Dispatcher> uiDispatcherProvider,
         ChartFileOperationSynchronizer chartFileOperations,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
@@ -351,7 +344,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             mainChartList,
             playlistWorkspace,
             bmsPlayerFactory,
-            uiDispatcherProvider,
+            this.uiScheduler,
             playbackSettingsStore,
             keywordSearchHistorySettingsStore,
             chartFileOperations,
@@ -497,7 +490,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             libraryProfile.Lr2ConfigProvider,
             libraryProfile.Lr2ScoreDbPath,
             libraryProfile.StartupRequiredFileScanReason,
-            bmsLibraryOptionsProvider);
+            bmsLibraryOptionsProvider,
+            uiScheduler);
     }
 
     internal BMSPlaylist CreateBmsPlaylist(
@@ -519,6 +513,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,
             customFolderOutputSettingsProvider,
+            uiScheduler,
             lr2PlaylistFolderSynchronization);
     }
 
@@ -537,7 +532,7 @@ internal sealed class MainWindowChildComposition
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
         Func<IBMSPlayer> bmsPlayerFactory,
-        Func<Dispatcher> uiDispatcherProvider,
+        IUiScheduler uiScheduler,
         IPlaybackSettingsStore playbackSettingsStore,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -600,7 +595,7 @@ internal sealed class MainWindowChildComposition
         }
         PlaybackPanel = new PlaybackPanelViewModel(
             bmsPlayerFactory() ?? throw new InvalidOperationException("Playback player factory returned null."),
-            new WpfPlaybackUiDispatcher(uiDispatcherProvider),
+            new WpfPlaybackUiDispatcher(uiScheduler),
             new MainChartListPlaybackQueue(MainChartList),
             playbackSettingsStore,
             new WpfPlaybackDialogService(new UiDialogCoordinator()),
@@ -610,7 +605,7 @@ internal sealed class MainWindowChildComposition
         LibraryFolderTree = new LibraryFolderTreeViewModel(
             libraryFolderTreeDirectoryExists,
             libraryFolderTreeExplorerOpen,
-            uiDispatcherProvider,
+            uiScheduler,
             libraryFolderTreeLog,
             libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();

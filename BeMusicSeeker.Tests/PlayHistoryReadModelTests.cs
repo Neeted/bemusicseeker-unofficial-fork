@@ -1506,6 +1506,11 @@ public sealed class PlayHistoryReadModelTests
         viewModel.PlayHistory.PresentationState.SetDiagnosticText("diagnostic");
 
         viewModel.PlaylistWorkspace.RequestSummarySelection();
+        TestUiDispatcherHost.Drain();
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => viewModel.PlaylistWorkspace.IsPlaylistSummaryDataBuildIdle,
+            TimeSpan.FromSeconds(5)));
+        TestUiDispatcherHost.Drain();
 
         Assert.AreEqual(0, viewModel.PlayHistory.SummaryCards.Count);
         Assert.AreEqual(string.Empty, viewModel.PlayHistory.SummaryDiagnosticText);

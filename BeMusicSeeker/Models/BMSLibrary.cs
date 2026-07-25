@@ -516,6 +516,8 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly string lr2SongDBPath;
 
+    private readonly IUiScheduler uiScheduler;
+
     private readonly string lr2ScoreDBPath;
 
     private Dictionary<string, BMSScore> beatorajaScoresBySha256 = new(StringComparer.OrdinalIgnoreCase);
@@ -2411,8 +2413,9 @@ public partial class BMSLibrary : NotificationObject
         Func<LR2Config> getLR2Config,
         string _lr2ScoreDB,
         string startupRequiredFileScanReason,
-        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider)
+        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
+        IUiScheduler uiScheduler)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler)
     {
     }
 
@@ -2423,7 +2426,8 @@ public partial class BMSLibrary : NotificationObject
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
         string startupRequiredFileScanReason,
-        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
+        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
+        IUiScheduler uiScheduler)
     {
         if (_lr2SongDB == null)
         {
@@ -2444,6 +2448,7 @@ public partial class BMSLibrary : NotificationObject
         this.startupRequiredFileScanReason = startupRequiredFileScanReason;
         this.optionsSnapshotProvider = optionsSnapshotProvider
             ?? throw new ArgumentNullException(nameof(optionsSnapshotProvider));
+        this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new ScopedOperationDialogService(this);
@@ -2525,7 +2530,9 @@ public partial class BMSLibrary : NotificationObject
             ProcessPendingInstallEstimateBatch,
             HandlePendingEstimateBatchException,
             propertyName => RaisePropertyChanged(propertyName),
-            packages => new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(packages), DispatcherHelper.UIDispatcher),
+            packages => new DispatcherCollection<ChartPackage>(
+                new ObservableCollection<ChartPackage>(packages),
+                this.uiScheduler.Dispatcher),
             () => RaisePropertyChanged(() => ChartPackagesInstalled));
         pendingEstimatedInstallOwner = new(
             packageInstallService,
@@ -4488,7 +4495,7 @@ public partial class BMSLibrary : NotificationObject
 
     private bool TryQueueEverythingFallbackWarningOnDispatcher(string fallbackReason, long epoch)
     {
-        Dispatcher dispatcher = Application.Current?.Dispatcher;
+        Dispatcher dispatcher = uiScheduler.Dispatcher;
         if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
             return false;
@@ -4512,7 +4519,7 @@ public partial class BMSLibrary : NotificationObject
 
     private bool TryQueueFileScanSkippedIncompleteWarningOnDispatcher(string failureReason)
     {
-        Dispatcher dispatcher = Application.Current?.Dispatcher;
+        Dispatcher dispatcher = uiScheduler.Dispatcher;
         if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
             return false;
@@ -4536,7 +4543,7 @@ public partial class BMSLibrary : NotificationObject
 
     private bool TryQueueEmptyScanWithExistingDbWarningOnDispatcher(string failureReason)
     {
-        Dispatcher dispatcher = Application.Current?.Dispatcher;
+        Dispatcher dispatcher = uiScheduler.Dispatcher;
         if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
             return false;
@@ -5393,20 +5400,6 @@ public partial class BMSLibrary : NotificationObject
             + " cancelledWarmup=" + mutationResult.CancelledWarmup
             + " fullMaintained=" + mutationResult.MaintainedFullReverseLookup
             + " requiresWarmup=" + mutationResult.RequiresDeferredWarmup);
-    }
-
-    private static async Task WaitForUiIdleAsync()
-    {
-        if (DispatcherHelper.UIDispatcher == null)
-        {
-            return;
-        }
-        await DispatcherHelper.UIDispatcher.InvokeAsync(delegate
-        {
-        }, DispatcherPriority.ContextIdle).Task.ConfigureAwait(false);
-        await DispatcherHelper.UIDispatcher.InvokeAsync(delegate
-        {
-        }, DispatcherPriority.ApplicationIdle).Task.ConfigureAwait(false);
     }
 
     /// <summary>

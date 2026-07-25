@@ -45,7 +45,20 @@ internal sealed class SettingsMainWindowViewSettingsStore : IMainWindowViewSetti
 
     public event PropertyChangedEventHandler PropertyChanged;
 
-    public double TreeViewWidth => Values.TreeViewWidth;
+    public double TreeViewWidth
+    {
+        get
+        {
+            Settings values = Values;
+            double persistedWidth = (double)values["TreeViewWidth"];
+            double normalizedWidth = Settings.NormalizeTreeViewWidth(persistedWidth);
+            if (!normalizedWidth.Equals(persistedWidth))
+            {
+                values.TreeViewWidth = normalizedWidth;
+            }
+            return normalizedWidth;
+        }
+    }
 
     public bool StartupSelectInstallPending => Values.StartupSelectInstallPending;
 

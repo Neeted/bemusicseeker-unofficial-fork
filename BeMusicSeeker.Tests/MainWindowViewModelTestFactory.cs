@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Threading.Tasks;
 using System.Windows.Threading;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 
@@ -13,7 +14,7 @@ internal static class MainWindowViewModelTestFactory
     internal static MainWindowViewModel Create()
     {
         return new ApplicationComposition(
-            uiDispatcherProvider: () => Dispatcher.CurrentDispatcher)
+            uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog())
             .CreateMainWindowViewModelForTest();
     }
 
@@ -26,16 +27,6 @@ internal static class MainWindowViewModelTestFactory
         return viewModel;
     }
 
-}
-
-internal sealed class TestFirstStartupStatePort : ISettingsDialogFirstStartupStatePort
-{
-    internal TestFirstStartupStatePort(bool isFirstStartup = false)
-    {
-        IsFirstStartup = isFirstStartup;
-    }
-
-    public bool IsFirstStartup { get; }
 }
 
 internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort

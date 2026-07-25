@@ -41,15 +41,14 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     internal LibraryFolderTreeViewModel(
         Func<string, bool> directoryExists,
         Func<string, ExplorerOpenResult> openDirectory,
-        Func<Dispatcher> uiDispatcherProvider,
+        IUiScheduler uiScheduler,
         Action<string> log = null,
         Action<string> logWarning = null)
     {
         this.directoryExists = directoryExists ?? throw new ArgumentNullException(nameof(directoryExists));
         this.openDirectory = openDirectory ?? throw new ArgumentNullException(nameof(openDirectory));
-        Func<Dispatcher> dispatcherProvider = uiDispatcherProvider ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
-        uiDispatcher = dispatcherProvider()
-            ?? throw new InvalidOperationException("A live UI dispatcher is required for the library folder tree.");
+        this.uiDispatcher = (uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler))).Dispatcher
+            ?? throw new InvalidOperationException("A live UI dispatcher is required for the library tree.");
         bmsParentFolderList = new DispatcherCollection<string>(uiDispatcher);
         this.log = log ?? (_ => { });
         this.logWarning = logWarning ?? (_ => { });

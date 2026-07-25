@@ -59,7 +59,7 @@ public partial class App : System.Windows.Application
     /// </summary>
     private static void InitializeAvailableCultures()
     {
-        AvailableCultures = new ReadOnlyDictionary<string, string>(JsonLanguageCatalog.DiscoverLanguages());
+        AvailableCultures = JsonLanguageCatalog.GetLanguagesSnapshot();
     }
 
     public App()
@@ -155,7 +155,9 @@ public partial class App : System.Windows.Application
         try
         {
             ApplicationComposition composition = new ApplicationComposition(
-                uiDispatcherProvider: () => base.Dispatcher);
+                uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
+                applicationLifetime: new AppApplicationLifetime(this),
+                cultureCatalog: new AppCultureCatalog(this));
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
             Resources["vm"] = viewModel;
             MainWindow mainWindow = new(viewModel);
