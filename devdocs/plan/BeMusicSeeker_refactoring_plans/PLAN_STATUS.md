@@ -43,14 +43,14 @@ Non-goals:
 
 ### `MIG-02 Path, process and updater closure`
 
-状態: in progress
+状態: completed
 
 - active outcome base commit: `a87aede7`
 - observed production checkpoint: `a87aede7`
 - active execution package: `Path, process and updater boundary closure`
-- execution anchor: `MIG-02-B4 Updater, application restart and outcome closure`
-- sequence cursor: `MIG-02-B4 Updater, application restart and outcome closure`
-- next outcome: `MIG-03 Native interop and UI-host closure` (not started)
+- execution anchor: `MIG-02-B4 Updater, application restart and outcome closure` (completed)
+- sequence cursor: `MIG-02-B4 Updater, application restart and outcome closure` (completed)
+- next outcome: `MIG-03 Native interop and UI-host closure` (ready)
 
 目的:
 
@@ -91,7 +91,7 @@ Non-goals:
 
 ## Active implementation batch
 
-状態: in progress
+状態: completed
 
 `MIG-02` plannerが作成した有限batchであり、B1から依存順に実装する。activeまたはpendingのunitがある間はplannerを再起動しない。
 
@@ -100,7 +100,7 @@ Non-goals:
 | `MIG-02` | `B1` | `completed` | `application runtime path policy` |
 | `MIG-02` | `B2` | `completed` | `external shell and resource launch` |
 | `MIG-02` | `B3` | `completed` | `external player process session` |
-| `MIG-02` | `B4` | `active` | `updater, application restart and outcome closure` |
+| `MIG-02` | `B4` | `completed` | `updater, application restart and outcome closure` |
 
 ## Current code evidence
 
@@ -112,6 +112,7 @@ Non-goals:
 - `MIG-01-B1`〜`B4`でconfiguration snapshot、application lifetime、culture catalog、UI schedulerをproduction compositionから注入し、library / playlist / ViewModel / aggregateのglobal context fallbackを退役させた。設定値・serialized value・UI observable behavior・失敗契約はFull verificationで確認済み。
 - UI-05-T2 の grouped residual closure と T3 の outcome-wide Full verification、Release smoke、fresh outcome review、completion status更新が完了した。Full verificationは成功し、repository Release executableは応答可能で、fresh outcome reviewにMajor / Moderate指摘はない。
 - OWN-01-B1〜B4 の owner-boundary closure、outcome-wide Full verification、repository Release executable smoke、fresh outcome reviewが完了した。外部登録の準備はaggregate ownerのimmutable factsへ移り、URL completionはproduction scheduler routeで検証できる構造になっている。
+- `MIG-02-B1`〜`B4`でpath、external shell、external player、updater / restartのproduction routeをtyped gatewayへ閉じ、global fallbackをcomposition / adapter境界へ限定した。Full verification、Release executable smoke、fresh outcome reviewが完了している。
 
 ## Outcome states
 
@@ -133,8 +134,8 @@ Non-goals:
 | UI-05 Shell closure | completed |
 | OWN-01 Residual owner-boundary reconciliation | completed |
 | MIG-01 Configuration and application-context closure | completed |
-| MIG-02 Path, process and updater closure | in progress |
-| MIG-03 Native interop and UI-host closure | not started |
+| MIG-02 Path, process and updater closure | completed |
+| MIG-03 Native interop and UI-host closure | ready |
 | MIG-04 Build, dependency and output closure | not started |
 | MIG-05 .NET 10 migration rehearsal and handoff | not started |
 | GATE-01 Refactoring completion audit | not started |
@@ -149,10 +150,10 @@ Non-goals:
 | Library ownership | met | pending estimated-install、library writer / SQL seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Playlist ownership | met | custom-folder output status persistence、external registration preparation、URL completion test seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Configuration ownership | met | `MIG-01-B1`〜`B4`でsettings snapshot、application lifetime、culture catalog、UI schedulerをcomposition boundaryへ閉じ、Full verification、Release smoke、fresh outcome reviewを完了した |
-| Platform boundary | not met | path / process / updater、native / UI host、HintPath / output layoutを`MIG-02`〜`MIG-04`で閉じる |
+| Platform boundary | not met | `MIG-02`でPATH-01 / PROC-01 / UPD-01をboundary met。native / UI host、HintPath / output layoutを`MIG-03`〜`MIG-04`で閉じる |
 | Migration readiness | not met | disposable `net10.0-windows` restore / build rehearsalを`MIG-05`で実施する |
 | Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
-| Quality | in progress | UI-05、OWN-01、MIG-01のFull verification、Release smoke、fresh outcome reviewは完了。後続Outcome / Gate evidenceは未完了 |
+| Quality | in progress | UI-05、OWN-01、MIG-01、MIG-02のFull verification、Release smoke、fresh outcome reviewは完了。後続Outcome / Gate evidenceは未完了 |
 
 ## Active external blocker
 

@@ -1,11 +1,14 @@
 using System;
-using System.Diagnostics;
 
 namespace BeMusicSeeker.Models.Update;
 
+internal sealed class UpdaterLaunchReceipt
+{
+}
+
 internal interface IPreparedUpdaterLaunch
 {
-    Process Start();
+    UpdaterLaunchReceipt Start();
 }
 
 /// <summary>
@@ -13,18 +16,14 @@ internal interface IPreparedUpdaterLaunch
 /// </summary>
 internal sealed class PreparedUpdaterLaunch : IPreparedUpdaterLaunch
 {
-    private readonly Func<Process> start;
+    private readonly Func<UpdaterLaunchReceipt> start;
 
-    internal PreparedUpdaterLaunch(ProcessStartInfo startInfo)
+    internal PreparedUpdaterLaunch(Func<UpdaterLaunchReceipt> start)
     {
-        if (startInfo == null)
-        {
-            throw new ArgumentNullException(nameof(startInfo));
-        }
-        start = () => Process.Start(startInfo);
+        this.start = start ?? throw new ArgumentNullException(nameof(start));
     }
 
-    public Process Start()
+    public UpdaterLaunchReceipt Start()
     {
         return start();
     }

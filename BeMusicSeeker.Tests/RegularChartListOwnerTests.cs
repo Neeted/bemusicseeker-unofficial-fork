@@ -12,6 +12,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -3769,7 +3770,8 @@ public sealed class RegularChartListOwnerTests
               new TestUiDialogService(),
               () => new InstallDestinationWorkflowSettingsSnapshot(
                   showManualInstallConfirmation: false,
-                  deletePendingPackageSourceAfterInstall: false));
+                  deletePendingPackageSourceAfterInstall: false),
+              ExternalShellGatewayPolicy.Current);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceForOwner()

@@ -8,6 +8,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -147,7 +148,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs);
+                schemaDialogs: dialogs,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
 
             await dialog.RequestRemoveBmsSearchRootAsync(root);
 
@@ -196,7 +199,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs);
+                schemaDialogs: dialogs,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
 
             await dialog.RequestRemoveBmsSearchRootAsync(root);
 
@@ -235,7 +240,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs);
+                schemaDialogs: dialogs,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
 
             await dialog.RequestRemoveBmsSearchRootAsync(string.Empty);
             await dialog.RequestRemoveBmsSearchRootAsync(missing);
@@ -273,7 +280,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs);
+                schemaDialogs: dialogs,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
 
             Exception? exception = null;
             try
@@ -356,7 +365,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs);
+                schemaDialogs: dialogs,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
             typeof(SettingsDialogViewModel)
@@ -543,7 +554,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs);
+                schemaDialogs: dialogs,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
 
             Exception? exception = null;
             try
@@ -606,7 +619,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs);
+                schemaDialogs: dialogs,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
             typeof(SettingsDialogViewModel)
@@ -910,7 +925,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                audioDeviceTestWorkflow: workflow);
+                audioDeviceTestWorkflow: workflow,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
 
@@ -1586,7 +1603,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }));
+                reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
             typeof(MainWindowViewModel)
                 .GetProperty("SettingDialog", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
                 .SetValue(viewModel, testDialog);
@@ -1625,7 +1644,9 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs);
+                schemaDialogs: dialogs,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current);
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
         config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
         SetPrivateField(dialog, "lr2ConfigValue", config);

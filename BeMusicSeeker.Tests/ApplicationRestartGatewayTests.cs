@@ -1,0 +1,73 @@
+using System;
+using System.Collections.Generic;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class ApplicationRestartGatewayTests
+{
+    [TestMethod]
+    public void RestartRequestPreservesExecutableArgumentsAndWorkingDirectory()
+    {
+        ApplicationRestartRequest request = ApplicationRestartRequest.Create(
+            @"C:\BeMusicSeeker\BeMusicSeeker.exe",
+            "--log-level info",
+            @"C:\BeMusicSeeker");
+
+        Assert.AreEqual(@"C:\BeMusicSeeker\BeMusicSeeker.exe", request.ExecutablePath);
+        Assert.AreEqual("--log-level info", request.Arguments);
+        Assert.AreEqual(@"C:\BeMusicSeeker", request.WorkingDirectory);
+    }
+
+    [TestMethod]
+    public void AppRestartUsesApplicationPathSnapshotAndRestartGateway()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "App.cs");
+
+        StringAssert.Contains(source, "IApplicationRestartGateway applicationRestartGateway");
+        StringAssert.Contains(source, "ApplicationRestartCoordinator");
+        Assert.IsFalse(source.Contains("Process.Start(new ProcessStartInfo"));
+        Assert.IsFalse(source.Contains("Process.GetCurrentProcess().MainModule"));
+    }
+
+    [TestMethod]
+    public void RestartCoordinatorPreservesRequestAndShutdownOrdering()
+    {
+        var events = new List<string>();
+        var gateway = new RecordingApplicationRestartGateway(events);
+        ApplicationRestartCoordinator coordinator = new(
+            ApplicationPathSnapshot.FromExecutablePath(@"C:\BeMusicSeeker\BeMusicSeeker.exe"),
+            gateway,
+            () => "--log-level info",
+            () => events.Add("release"),
+            () => events.Add("shutdown"));
+
+        coordinator.Restart();
+
+        CollectionAssert.AreEqual(new[] { "release", "restart", "shutdown" }, events);
+        Assert.AreEqual(@"C:\BeMusicSeeker\BeMusicSeeker.exe", gateway.Request.ExecutablePath);
+        Assert.AreEqual("--log-level info", gateway.Request.Arguments);
+        Assert.AreEqual(@"C:\BeMusicSeeker", gateway.Request.WorkingDirectory);
+    }
+
+    private sealed class RecordingApplicationRestartGateway : IApplicationRestartGateway
+    {
+        private readonly IList<string> events;
+
+        internal RecordingApplicationRestartGateway(IList<string> events)
+        {
+            this.events = events;
+        }
+
+        internal ApplicationRestartRequest Request { get; private set; } = null!;
+
+        public void Restart(ApplicationRestartRequest request)
+        {
+            Request = request;
+            events.Add("restart");
+        }
+    }
+}

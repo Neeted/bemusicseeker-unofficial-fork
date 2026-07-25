@@ -1406,10 +1406,10 @@ public sealed class PendingPackageWorkflowOwnerTests
             playback ?? new RecordingPlayback(events),
             dialogs,
             settingsProvider ?? DefaultSettings,
-            store,
             new TestExternalShellGateway(
                 explorerOpener ?? (_ => new ExplorerOpenResult()),
-                fileExplorerOpener ?? (_ => new ExplorerOpenResult())));
+                fileExplorerOpener ?? (_ => new ExplorerOpenResult())),
+            store);
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
         activity.ActivityChanged += presentation.OnActivityChanged;
         return owner;

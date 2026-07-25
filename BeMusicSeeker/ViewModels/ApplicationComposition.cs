@@ -70,6 +70,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     private readonly IExternalPlayerProcessGateway externalPlayerProcessGateway;
 
+    private readonly IUpdaterProcessGateway updaterProcessGateway;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -90,7 +92,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         ICultureCatalog cultureCatalog = null,
         ApplicationPathSnapshot applicationPathSnapshot = null,
         IExternalShellGateway externalShellGateway = null,
-        IExternalPlayerProcessGateway externalPlayerProcessGateway = null)
+        IExternalPlayerProcessGateway externalPlayerProcessGateway = null,
+        IUpdaterProcessGateway updaterProcessGateway = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -101,6 +104,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         this.applicationPathSnapshot = applicationPathSnapshot ?? ApplicationPathPolicy.Current;
         this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
         this.externalPlayerProcessGateway = externalPlayerProcessGateway ?? ExternalPlayerProcessGatewayPolicy.Current;
+        this.updaterProcessGateway = updaterProcessGateway ?? UpdaterProcessGatewayPolicy.Current;
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
@@ -297,6 +301,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             applicationLifetime: applicationLifetime,
             cultureCatalog: cultureCatalog,
             externalShellGateway: externalShellGateway,
+            applicationPathSnapshot: applicationPathSnapshot,
             schemaDialogs: schemaDialogs,
             applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(
                 schemaDialogs,
@@ -411,7 +416,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             libraryFolderTreeLog,
             libraryFolderTreeLogWarning,
             regularChartListTerminalApplyScheduler,
-            externalShellGateway);
+            externalShellGateway,
+            this.applicationPathSnapshot,
+            this.updaterProcessGateway);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -596,7 +603,9 @@ internal sealed class MainWindowChildComposition
         Action<string> libraryFolderTreeLog = null,
         Action<string> libraryFolderTreeLogWarning = null,
         Func<Action, Task> regularChartListTerminalApplyScheduler = null,
-        IExternalShellGateway externalShellGateway = null)
+        IExternalShellGateway externalShellGateway = null,
+        ApplicationPathSnapshot applicationPathSnapshot = null,
+        IUpdaterProcessGateway updaterProcessGateway = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -673,14 +682,16 @@ internal sealed class MainWindowChildComposition
             PackageInstallWorkflow,
             MaintenanceRescanWorkflow,
             FolderAutoRenameWorkflow);
-        UpdateDownloadService updateDownloadService = new();
+        UpdateDownloadService updateDownloadService = new(
+            applicationPathSnapshot ?? throw new ArgumentNullException(nameof(applicationPathSnapshot)),
+            updaterProcessGateway ?? throw new ArgumentNullException(nameof(updaterProcessGateway)));
         UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
         StartupUpdateWorkflow = new StartupUpdateWorkflowOwner(
             () => updateCheckService.CheckAsync(CommandLineSwitches.UpdateManifestUrl),
             updateDownloadService.DownloadAndVerifyAsync,
             updateDownloadService.PrepareUpdaterLaunch,
-            UpdateDownloadService.CleanupPreviousWorkDirectory,
-            packagePath => UpdateDownloadService.TryDeleteDownloadedPackage(
+            updateDownloadService.CleanupPreviousWorkDirectory,
+            packagePath => updateDownloadService.TryDeleteDownloadedPackage(
                 packagePath,
                 exception => NLogWrapper.FileLogger?.Warn(exception, "startup_update package cleanup failed")),
             action => Task.Run(action),

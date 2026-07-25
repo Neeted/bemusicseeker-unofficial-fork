@@ -303,7 +303,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 events.Add("start");
                 startEntered.Set();
                 startRelease.Task.GetAwaiter().GetResult();
-                return new System.Diagnostics.Process();
+                return new UpdaterLaunchReceipt();
             }),
             () => { },
             packagePath => { },
@@ -438,22 +438,22 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
     private sealed class NoOpPreparedUpdaterLaunch : IPreparedUpdaterLaunch
     {
-        public System.Diagnostics.Process Start()
+        public UpdaterLaunchReceipt Start()
         {
-            return new System.Diagnostics.Process();
+            return new UpdaterLaunchReceipt();
         }
     }
 
     private sealed class PreparedUpdaterLaunch : IPreparedUpdaterLaunch
     {
-        private readonly Func<System.Diagnostics.Process> start;
+        private readonly Func<UpdaterLaunchReceipt> start;
 
-        internal PreparedUpdaterLaunch(Func<System.Diagnostics.Process> start)
+        internal PreparedUpdaterLaunch(Func<UpdaterLaunchReceipt> start)
         {
             this.start = start;
         }
 
-        public System.Diagnostics.Process Start()
+        public UpdaterLaunchReceipt Start()
         {
             return start();
         }

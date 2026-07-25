@@ -72,7 +72,8 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         Func<string, string, IEnumerable<string>> relatedDocumentFileEnumerator = null)
     {
         this.fileExists = fileExists ?? throw new ArgumentNullException(nameof(fileExists));
-        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
+        this.externalShellGateway = externalShellGateway
+            ?? throw new ArgumentNullException(nameof(externalShellGateway));
         this.directoryNameResolver = directoryNameResolver ?? DirectoryExt.GetDirectoryNameSimple;
         this.relatedDocumentFileEnumerator = relatedDocumentFileEnumerator
             ?? ((directory, pattern) => LongPathFileSystem.EnumerateFiles(directory, pattern));

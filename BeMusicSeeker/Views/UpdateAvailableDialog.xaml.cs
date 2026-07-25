@@ -15,11 +15,12 @@ public partial class UpdateAvailableDialog : Window
     internal UpdateAvailableDialog(
         UpdateCheckResult updateCheckResult,
         OperationProgressHubViewModel progressHub,
-        IExternalShellGateway externalShellGateway = null)
+        IExternalShellGateway externalShellGateway)
     {
         InitializeComponent();
         viewModel = new UpdateAvailableDialogViewModel(updateCheckResult, progressHub);
-        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
+        this.externalShellGateway = externalShellGateway
+            ?? throw new ArgumentNullException(nameof(externalShellGateway));
         DataContext = viewModel;
         Closed += (_, _) => viewModel.Dispose();
     }

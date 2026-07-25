@@ -215,8 +215,8 @@ internal sealed class PendingPackageWorkflowOwner
         IPendingPackageMutationPlaybackPort playback,
         IUiDialogService dialogs,
         Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
-        IPendingPackageStore store = null,
-        IExternalShellGateway externalShellGateway = null)
+        IExternalShellGateway externalShellGateway,
+        IPendingPackageStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
@@ -225,7 +225,8 @@ internal sealed class PendingPackageWorkflowOwner
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.store = store ?? new BmsLibraryPendingPackageStore();
-        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
+        this.externalShellGateway = externalShellGateway
+            ?? throw new ArgumentNullException(nameof(externalShellGateway));
     }
 
     internal bool CanOpenInstallDestination(

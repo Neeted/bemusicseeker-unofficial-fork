@@ -115,6 +115,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly IExternalShellGateway externalShellGateway;
 
+    private readonly ApplicationPathSnapshot applicationPathSnapshot;
+
     /// <summary>
     /// Gets the command used by views to request the settings dialog.
     /// </summary>
@@ -3757,7 +3759,8 @@ public partial class SettingsDialogViewModel : ViewModel
         AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow = null,
         IApplicationLifetimePort applicationLifetime = null,
         ICultureCatalog cultureCatalog = null,
-        IExternalShellGateway externalShellGateway = null)
+        IExternalShellGateway externalShellGateway = null,
+        ApplicationPathSnapshot applicationPathSnapshot = null)
     {
         SettingsDialogViewModel settingDialogViewModel = this;
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
@@ -3774,7 +3777,10 @@ public partial class SettingsDialogViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(applicationLifetime));
         this.cultureCatalog = cultureCatalog
             ?? throw new ArgumentNullException(nameof(cultureCatalog));
-        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
+        this.externalShellGateway = externalShellGateway
+            ?? throw new ArgumentNullException(nameof(externalShellGateway));
+        this.applicationPathSnapshot = applicationPathSnapshot
+            ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
         this.reportApplyFailure = reportApplyFailure
@@ -3789,7 +3795,7 @@ public partial class SettingsDialogViewModel : ViewModel
         this.audioDeviceTestWorkflow = audioDeviceTestWorkflow
             ?? new AudioDeviceTestWorkflowOwner(
                 playbackRuntimePort,
-                new BassAudioDeviceTestRuntime(ApplicationPathPolicy.Current));
+                new BassAudioDeviceTestRuntime(this.applicationPathSnapshot));
         appearanceThemeOptions =
         [
             new AppearanceThemeOption(AppThemeService.Light),

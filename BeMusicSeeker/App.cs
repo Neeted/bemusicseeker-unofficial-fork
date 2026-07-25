@@ -42,6 +42,8 @@ public partial class App : System.Windows.Application
 
     private ApplicationPathSnapshot applicationPathSnapshot;
 
+    private readonly IApplicationRestartGateway applicationRestartGateway;
+
     private readonly ApplicationSettingsLifecycle applicationSettingsLifecycle = new();
 
     public bool firstStartup { get; set; }
@@ -65,7 +67,14 @@ public partial class App : System.Windows.Application
     }
 
     public App()
+        : this(ApplicationRestartGatewayPolicy.Current)
     {
+    }
+
+    internal App(IApplicationRestartGateway applicationRestartGateway)
+    {
+        this.applicationRestartGateway = applicationRestartGateway
+            ?? throw new ArgumentNullException(nameof(applicationRestartGateway));
         try
         {
             Application_Initialization();
@@ -194,26 +203,17 @@ public partial class App : System.Windows.Application
 
     public void RestartApplication()
     {
-        string executablePath = Assembly.GetEntryAssembly()?.Location;
-        if (string.IsNullOrWhiteSpace(executablePath))
-        {
-            executablePath = Process.GetCurrentProcess().MainModule?.FileName;
-        }
-        if (string.IsNullOrWhiteSpace(executablePath))
+        if (applicationPathSnapshot == null)
         {
             throw new InvalidOperationException("Application executable path is not available.");
         }
 
-        string arguments = BuildCommandLineArguments(Environment.GetCommandLineArgs().Skip(1));
-        ReleaseSingleInstanceMutex();
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = executablePath,
-            Arguments = arguments,
-            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? Environment.CurrentDirectory,
-            UseShellExecute = false
-        });
-        Shutdown();
+        new ApplicationRestartCoordinator(
+            applicationPathSnapshot,
+            applicationRestartGateway,
+            () => BuildCommandLineArguments(Environment.GetCommandLineArgs().Skip(1)),
+            ReleaseSingleInstanceMutex,
+            Shutdown).Restart();
     }
 
     private static void ReleaseSingleInstanceMutex()

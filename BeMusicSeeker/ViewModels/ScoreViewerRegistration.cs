@@ -412,10 +412,11 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
 
     internal WpfScoreViewerRegistrationInteraction(
         Action<Exception, string> warningLog,
-        IExternalShellGateway externalShellGateway = null)
+        IExternalShellGateway externalShellGateway)
     {
         this.warningLog = warningLog ?? throw new ArgumentNullException(nameof(warningLog));
-        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
+        this.externalShellGateway = externalShellGateway
+            ?? throw new ArgumentNullException(nameof(externalShellGateway));
     }
 
     public async Task<bool> ConfirmUploadAsync(

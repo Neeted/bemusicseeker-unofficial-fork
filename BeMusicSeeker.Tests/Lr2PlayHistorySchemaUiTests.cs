@@ -9,6 +9,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -38,7 +39,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
             owner.Lr2SongDbSyncWorkflow,
             settingsEditSession: SettingsEditSession.CreateDefault(),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current);
         const string scoreDbPath = "C:\\lr2\\score.db";
         SetPrivateField(settingDialog, "operationModeLR2DB", true);
         SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
@@ -155,7 +158,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
             settingsEditSession: SettingsEditSession.CreateDefault(),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            schemaDialogs: dialogs);
+            schemaDialogs: dialogs,
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current);
         owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
         try
         {
@@ -209,7 +214,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
             settingsEditSession: SettingsEditSession.CreateDefault(),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            schemaDialogs: dialogs);
+            schemaDialogs: dialogs,
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
@@ -276,7 +283,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
             settingsEditSession: SettingsEditSession.CreateDefault(),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            schemaDialogs: dialogs);
+            schemaDialogs: dialogs,
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
@@ -337,7 +346,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
             settingsEditSession: SettingsEditSession.CreateDefault(),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            schemaDialogs: dialogs);
+            schemaDialogs: dialogs,
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current);
             SetPrivateField(settingDialog, "operationModeLR2DB", true);
             SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 

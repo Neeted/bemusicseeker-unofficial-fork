@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Update;
@@ -75,7 +74,6 @@ public sealed class StartupUpdateWorkflowOwnerTests
     {
         var events = new List<string>();
         var applicationShutdown = new ManualResetEventSlim();
-        Process process = new();
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(CreateAvailableResult()),
             download: asset =>
@@ -89,7 +87,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
                 return new FakePreparedUpdaterLaunch(() =>
                 {
                     events.Add("start");
-                    return process;
+                    return new UpdaterLaunchReceipt();
                 });
             },
             schedule: action => Task.Run(action));
@@ -123,7 +121,6 @@ public sealed class StartupUpdateWorkflowOwnerTests
             events);
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Applied, receipt.Outcome);
         Assert.IsTrue(receipt.ShutdownPrepared);
-        process.Dispose();
     }
 
     [TestMethod]
@@ -212,7 +209,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(CreateAvailableResult()),
             download: asset => Task.FromResult("package.zip"),
-            prepare: packagePath => new FakePreparedUpdaterLaunch(() => new Process()),
+            prepare: packagePath => new FakePreparedUpdaterLaunch(() => new UpdaterLaunchReceipt()),
             schedule: action => Task.Run(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.BindShutdownPreparation(_ => Task.FromException<ShutdownPreparationResult>(new InvalidOperationException("shutdown preparation failed")));
@@ -237,7 +234,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         int shutdownCount = 0;
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(CreateAvailableResult()),
-            prepare: packagePath => new FakePreparedUpdaterLaunch(() => new Process()),
+            prepare: packagePath => new FakePreparedUpdaterLaunch(() => new UpdaterLaunchReceipt()),
             schedule: action => Task.Run(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
@@ -285,7 +282,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         bool shutdownPreparationWasObserved = false;
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(CreateAvailableResult()),
-            prepare: packagePath => new FakePreparedUpdaterLaunch(() => new Process()),
+            prepare: packagePath => new FakePreparedUpdaterLaunch(() => new UpdaterLaunchReceipt()),
             schedule: action => Task.Run(action),
             dispatch: action => _ = Task.Run(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
@@ -369,7 +366,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         return new StartupUpdateWorkflowOwner(
             check,
             download ?? (asset => Task.FromResult("package.zip")),
-            prepare ?? (packagePath => new FakePreparedUpdaterLaunch(() => new Process())),
+            prepare ?? (packagePath => new FakePreparedUpdaterLaunch(() => new UpdaterLaunchReceipt())),
             cleanup ?? (() => { }),
             delete ?? (_ => { }),
             schedule ?? (action => Task.Run(action)),
@@ -397,14 +394,14 @@ public sealed class StartupUpdateWorkflowOwnerTests
 
     private sealed class FakePreparedUpdaterLaunch : IPreparedUpdaterLaunch
     {
-        private readonly Func<Process> start;
+        private readonly Func<UpdaterLaunchReceipt> start;
 
-        internal FakePreparedUpdaterLaunch(Func<Process> start)
+        internal FakePreparedUpdaterLaunch(Func<UpdaterLaunchReceipt> start)
         {
             this.start = start;
         }
 
-        public Process Start()
+        public UpdaterLaunchReceipt Start()
         {
             return start();
         }

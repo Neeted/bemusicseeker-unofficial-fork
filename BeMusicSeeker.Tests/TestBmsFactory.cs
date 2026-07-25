@@ -23,7 +23,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Func<LR2Config> getLR2Config = null,
         string _lr2ScoreDB = null,
         string startupRequiredFileScanReason = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher))
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), ApplicationPathPolicy.Current)
     {
     }
 
@@ -32,7 +32,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Func<LR2Config> getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher))
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), ApplicationPathPolicy.Current)
     {
     }
 
@@ -42,7 +42,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher))
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), ApplicationPathPolicy.Current)
     {
     }
 
@@ -53,7 +53,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
         IUiScheduler uiScheduler)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, uiScheduler)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, uiScheduler, ApplicationPathPolicy.Current)
     {
     }
 
@@ -63,7 +63,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB,
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, new TestUiScheduler(() => Dispatcher.CurrentDispatcher))
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), ApplicationPathPolicy.Current)
     {
     }
 }

@@ -2417,7 +2417,7 @@ public partial class BMSLibrary : NotificationObject
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         IUiScheduler uiScheduler,
-        ApplicationPathSnapshot applicationPathSnapshot = null)
+        ApplicationPathSnapshot applicationPathSnapshot)
         : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot)
     {
     }
@@ -2431,7 +2431,7 @@ public partial class BMSLibrary : NotificationObject
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         IUiScheduler uiScheduler,
-        ApplicationPathSnapshot applicationPathSnapshot = null)
+        ApplicationPathSnapshot applicationPathSnapshot)
     {
         if (_lr2SongDB == null)
         {
@@ -2453,7 +2453,8 @@ public partial class BMSLibrary : NotificationObject
         this.optionsSnapshotProvider = optionsSnapshotProvider
             ?? throw new ArgumentNullException(nameof(optionsSnapshotProvider));
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
-        this.applicationPathSnapshot = applicationPathSnapshot ?? ApplicationPathPolicy.Current;
+        this.applicationPathSnapshot = applicationPathSnapshot
+            ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new ScopedOperationDialogService(this);
