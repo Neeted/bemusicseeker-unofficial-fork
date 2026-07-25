@@ -518,6 +518,8 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly IUiScheduler uiScheduler;
 
+    private readonly ApplicationPathSnapshot applicationPathSnapshot;
+
     private readonly string lr2ScoreDBPath;
 
     private Dictionary<string, BMSScore> beatorajaScoresBySha256 = new(StringComparer.OrdinalIgnoreCase);
@@ -2414,8 +2416,9 @@ public partial class BMSLibrary : NotificationObject
         string _lr2ScoreDB,
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
-        IUiScheduler uiScheduler)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler)
+        IUiScheduler uiScheduler,
+        ApplicationPathSnapshot applicationPathSnapshot = null)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot)
     {
     }
 
@@ -2427,7 +2430,8 @@ public partial class BMSLibrary : NotificationObject
         IBmsLibraryDialogService dialogService,
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
-        IUiScheduler uiScheduler)
+        IUiScheduler uiScheduler,
+        ApplicationPathSnapshot applicationPathSnapshot = null)
     {
         if (_lr2SongDB == null)
         {
@@ -2449,6 +2453,7 @@ public partial class BMSLibrary : NotificationObject
         this.optionsSnapshotProvider = optionsSnapshotProvider
             ?? throw new ArgumentNullException(nameof(optionsSnapshotProvider));
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
+        this.applicationPathSnapshot = applicationPathSnapshot ?? ApplicationPathPolicy.Current;
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new ScopedOperationDialogService(this);
@@ -4110,7 +4115,7 @@ public partial class BMSLibrary : NotificationObject
 
     private void TryImportChartInfoMetadataBundleAtStartup()
     {
-        catalogChartInfoOwner.TryImportMetadataBundle(AppDomain.CurrentDomain.BaseDirectory, dbGateway);
+        catalogChartInfoOwner.TryImportMetadataBundle(applicationPathSnapshot.BaseDirectory, dbGateway);
     }
 
     /// <summary>

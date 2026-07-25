@@ -64,6 +64,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     private readonly ICultureCatalog cultureCatalog;
 
+    private readonly ApplicationPathSnapshot applicationPathSnapshot;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -81,7 +83,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         IUiDialogService playlistWorkspaceDialogService = null,
         IUiScheduler uiScheduler = null,
         IApplicationLifetimePort applicationLifetime = null,
-        ICultureCatalog cultureCatalog = null)
+        ICultureCatalog cultureCatalog = null,
+        ApplicationPathSnapshot applicationPathSnapshot = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -89,6 +92,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             ?? throw new ArgumentNullException(nameof(applicationLifetime));
         this.cultureCatalog = cultureCatalog
             ?? throw new ArgumentNullException(nameof(cultureCatalog));
+        this.applicationPathSnapshot = applicationPathSnapshot ?? ApplicationPathPolicy.Current;
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
@@ -150,6 +154,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
     internal IApplicationLifetimePort ApplicationLifetime => applicationLifetime;
 
     internal ICultureCatalog CultureCatalog => cultureCatalog;
+
+    internal ApplicationPathSnapshot ApplicationPathSnapshot => applicationPathSnapshot;
 
 
     internal MainChartListViewModel CreateMainChartListViewModel(
@@ -286,7 +292,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
                 new Lr2ApplicationDataUninstallStore()),
             audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
                 playbackRuntimePort,
-                new BassAudioDeviceTestRuntime()));
+                new BassAudioDeviceTestRuntime(applicationPathSnapshot)));
     }
 
     internal MainWindowChildComposition CreateMainWindowChildComposition(
@@ -491,7 +497,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             libraryProfile.Lr2ScoreDbPath,
             libraryProfile.StartupRequiredFileScanReason,
             bmsLibraryOptionsProvider,
-            uiScheduler);
+            uiScheduler,
+            applicationPathSnapshot);
     }
 
     internal BMSPlaylist CreateBmsPlaylist(

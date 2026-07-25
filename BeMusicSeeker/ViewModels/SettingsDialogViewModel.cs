@@ -3783,7 +3783,7 @@ public partial class SettingsDialogViewModel : ViewModel
         this.audioDeviceTestWorkflow = audioDeviceTestWorkflow
             ?? new AudioDeviceTestWorkflowOwner(
                 playbackRuntimePort,
-                new BassAudioDeviceTestRuntime());
+                new BassAudioDeviceTestRuntime(ApplicationPathPolicy.Current));
         appearanceThemeOptions =
         [
             new AppearanceThemeOption(AppThemeService.Light),

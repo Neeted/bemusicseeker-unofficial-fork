@@ -1979,11 +1979,13 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string compositionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"));
-        string portablePathCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "PortableSettingsPath.cs"));
         string standaloneDbCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "StandaloneLibraryDatabase.cs"));
 
-        StringAssert.Contains(portablePathCode, "DataDirectoryPath => Path.Combine(AppBaseDirectory, \"data\")");
-        StringAssert.Contains(portablePathCode, "StandaloneSongDbPath => Path.Combine(DataDirectoryPath, \"song.db\")");
+        ApplicationPathSnapshot pathSnapshot = ApplicationPathSnapshot.FromExecutablePath(
+            Path.Combine(root, "BeMusicSeeker.exe"));
+        Assert.AreEqual(
+            Path.Combine(root, "data", "song.db"),
+            pathSnapshot.StandaloneSongDbPath);
         StringAssert.Contains(standaloneDbCode, "FileMode.OpenOrCreate");
         StringAssert.Contains(standaloneDbCode, "PlaylistPersistenceRepository.EnsureSchema(songDbPath)");
         StringAssert.Contains(viewModelCode, "StandaloneLibraryDatabase.EnsurePortableSongDb()");

@@ -1,8 +1,8 @@
 using System;
 using System.IO;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -138,6 +138,13 @@ internal sealed class AudioDeviceTestWorkflowOwner
 
 internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
 {
+    private readonly ApplicationPathSnapshot applicationPathSnapshot;
+
+    internal BassAudioDeviceTestRuntime(ApplicationPathSnapshot applicationPathSnapshot)
+    {
+        this.applicationPathSnapshot = applicationPathSnapshot ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
+    }
+
     public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
     {
         BassAudioPlayer.DeviceDescriptor descriptor = string.IsNullOrWhiteSpace(request.PlayerDevice)
@@ -179,11 +186,9 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
         }
     }
 
-    private static void PlayTestSoundIfAvailable()
+    private void PlayTestSoundIfAvailable()
     {
-        string testSoundPath = Path.Combine(
-            Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty,
-            "test.mp3");
+        string testSoundPath = applicationPathSnapshot.TestSoundPath;
         if (!File.Exists(testSoundPath))
         {
             return;

@@ -26,7 +26,12 @@ internal static class ChartInfoMetadataBundleStartupImporter
             return;
         }
 
-        string rootPath = string.IsNullOrWhiteSpace(baseDirectoryPath) ? AppDomain.CurrentDomain.BaseDirectory : baseDirectoryPath;
+        if (string.IsNullOrWhiteSpace(baseDirectoryPath))
+        {
+            throw new ArgumentException("A metadata bundle base directory is required.", nameof(baseDirectoryPath));
+        }
+
+        string rootPath = baseDirectoryPath;
         string dbPath = Path.Combine(rootPath, MetadataDbFileName);
         if (File.Exists(dbPath))
         {

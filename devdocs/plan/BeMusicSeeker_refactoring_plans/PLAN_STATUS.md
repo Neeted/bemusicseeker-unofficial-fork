@@ -10,7 +10,7 @@
 - Release Freeze: active
 - `git push` / tag / release / publish: Gate前は禁止。Gate後もユーザーの明示指示まで禁止
 
-## Active outcome
+## Completed outcome
 
 ### `MIG-01 Configuration and application-context closure`
 
@@ -39,6 +39,34 @@ Non-goals:
 - path、process、updater、native、WPF / WinForms / COM technology、HintPath / output layoutの最終境界化（`MIG-02`〜`MIG-04`）。
 - `System.Configuration`の.NET 10移行方式、package replacement、production TFM変更（Gate後）。
 
+## Active outcome
+
+### `MIG-02 Path, process and updater closure`
+
+状態: in progress
+
+- active outcome base commit: `a87aede7`
+- observed production checkpoint: `a87aede7`
+- active execution package: `Path, process and updater boundary closure`
+- execution anchor: `MIG-02-B2 External shell and resource launch closure`
+- sequence cursor: `MIG-02-B2 External shell and resource launch closure`
+- next outcome: `MIG-03 Native interop and UI-host closure` (not started)
+
+目的:
+
+application runtime path、external shell、external player process session、updater / restartを用途別ownerとtyped request / receiptへ閉じ、設定・ファイル配置・URL・process lifetime・restart / rollbackの既存契約を維持する。
+
+完了条件:
+
+- B1〜B4のvertical unitでproduction route、behavior test、旧runtime / process / updater route削除、検証、fresh static reviewを完了する。
+- raw runtime path取得はapplication path policyまたは明示したMIG-03 / MIG-04 residualへ分類し、外部process起動はshell、player、application / updater gateway内へ閉じる。
+- `PATH-01`、`PROC-01`、`UPD-01`を`boundary met`へ更新し、outcome-wide Full verification、Release executable smoke、fresh outcome reviewを完了する。
+
+Non-goals:
+
+- native interop、WPF / WinForms / COM technology、HintPath / output layoutの最終境界化（`MIG-03`〜`MIG-04`）。
+- .NET 10 retarget、package replacement、production TFM変更（Gate後）。
+
 ## Stable terminal steps
 
 | Step | State | Exit condition |
@@ -48,7 +76,7 @@ Non-goals:
 | `OWN-01-B3 Library database writer and production seam closure` | completed | facade-owned writer、generic callback、production `ForTest` SQL seamをcatalog gatewayへ移した |
 | `OWN-01-B4 External registration and URL completion closure` | completed | external registration callback hostとURL completion static test seamを退役させ、OWN-01のFull verificationとoutcome reviewを完了した |
 
-## Active implementation batch
+## Completed implementation batch
 
 状態: completed
 
@@ -60,6 +88,19 @@ Non-goals:
 | `MIG-01` | `B2` | `completed` | `playback / player settings gateway` |
 | `MIG-01` | `B3` | `completed` | `MainWindow view settings and configuration seam` |
 | `MIG-01` | `B4` | `completed` | `application context / scheduler / lifetime` |
+
+## Active implementation batch
+
+状態: in progress
+
+`MIG-02` plannerが作成した有限batchであり、B1から依存順に実装する。activeまたはpendingのunitがある間はplannerを再起動しない。
+
+| Batch | Unit | State | Closure family |
+|---|---|---|---|
+| `MIG-02` | `B1` | `completed` | `application runtime path policy` |
+| `MIG-02` | `B2` | `active` | `external shell and resource launch` |
+| `MIG-02` | `B3` | `pending` | `external player process session` |
+| `MIG-02` | `B4` | `pending` | `updater, application restart and outcome closure` |
 
 ## Current code evidence
 
@@ -92,7 +133,7 @@ Non-goals:
 | UI-05 Shell closure | completed |
 | OWN-01 Residual owner-boundary reconciliation | completed |
 | MIG-01 Configuration and application-context closure | completed |
-| MIG-02 Path, process and updater closure | ready |
+| MIG-02 Path, process and updater closure | in progress |
 | MIG-03 Native interop and UI-host closure | not started |
 | MIG-04 Build, dependency and output closure | not started |
 | MIG-05 .NET 10 migration rehearsal and handoff | not started |

@@ -40,6 +40,8 @@ public partial class App : System.Windows.Application
 
     private static string coordinatedShutdownReason;
 
+    private ApplicationPathSnapshot applicationPathSnapshot;
+
     private readonly ApplicationSettingsLifecycle applicationSettingsLifecycle = new();
 
     public bool firstStartup { get; set; }
@@ -76,13 +78,13 @@ public partial class App : System.Windows.Application
 
     private void Application_Initialization()
     {
+        applicationPathSnapshot = ApplicationPathPolicy.Current;
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12;
         ServicePointManager.DefaultConnectionLimit = 16;
         // 起動ログ比較では既定値より MinThreads=200 の方が startup_ready_* 指標が安定して短かったため維持。
         ThreadPool.SetMinThreads(200, 200);
         LogLevel defaultFileLogLevel = ConvertToNLogLevel(CommandLineSwitches.LogLevel);
-        string applicationBaseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? AppDomain.CurrentDomain.BaseDirectory;
-        NLogWrapper.ConfigureApplicationFileLogging(applicationBaseDirectory, defaultFileLogLevel, CommandLineSwitches.IsInfoLoggingEnabled);
+        NLogWrapper.ConfigureApplicationFileLogging(applicationPathSnapshot.BaseDirectory, defaultFileLogLevel, CommandLineSwitches.IsInfoLoggingEnabled);
         NLogWrapper.AddTarget(new NetworkTarget
         {
             Address = "http://www.ribbit.xyz/bms/tools/bemusicseeker/report.cgi"
@@ -157,7 +159,8 @@ public partial class App : System.Windows.Application
             ApplicationComposition composition = new ApplicationComposition(
                 uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
                 applicationLifetime: new AppApplicationLifetime(this),
-                cultureCatalog: new AppCultureCatalog(this));
+                cultureCatalog: new AppCultureCatalog(this),
+                applicationPathSnapshot: applicationPathSnapshot);
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
             Resources["vm"] = viewModel;
             MainWindow mainWindow = new(viewModel);
