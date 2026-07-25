@@ -3,16 +3,14 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using Livet;
-using Ribbit.Windows;
 
 namespace BeMusicSeeker.Models.LR2;
 
-public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
+public class LR2body : NotificationObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 
@@ -26,7 +24,7 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private IExternalPlayerProcessSession LR2bodyProcess;
 
-    private IntPtr LR2bodyHandleShowing = IntPtr.Zero;
+    private ExternalWindowHandle LR2bodyHandleShowing;
 
     private EventHandler onExitEventHandlerRegstered;
 
@@ -46,7 +44,7 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private string _exePath;
 
-    private IntPtr _parentHandle;
+    private IExternalPlayerWindowHost windowHost;
 
     public string ExePath
     {
@@ -63,21 +61,6 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                     throw new FileNotFoundException("実行ファイルが見つからないか、LR2body.exe/LRHbody.exe ではありません。", value);
                 }
                 _exePath = value;
-            }
-        }
-    }
-
-    public IntPtr ParentHandle
-    {
-        private get
-        {
-            return _parentHandle;
-        }
-        set
-        {
-            if (!(_parentHandle == value))
-            {
-                _parentHandle = value;
             }
         }
     }
@@ -137,6 +120,11 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         this.processGateway = processGateway ?? throw new ArgumentNullException(nameof(processGateway));
         onExitEventHandlerDefault = LR2bodyExited;
+    }
+
+    void IExternalWindowPlayer.AttachWindowHost(IExternalPlayerWindowHost windowHost)
+    {
+        this.windowHost = windowHost ?? throw new ArgumentNullException(nameof(windowHost));
     }
 
     public void CloseProcess()
@@ -210,7 +198,7 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 {
                     CloseProcess();
                 }
-                LR2bodyHandleShowing = IntPtr.Zero;
+                LR2bodyHandleShowing = default;
                 LR2bodyProcess = null;
             }
             ExternalPlayerProcessLaunchRequest launchRequest = ExternalPlayerProcessLaunchRequest.Create(
@@ -231,10 +219,10 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             storeConfig();
             PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
             setConfig((int)settings.LR2bodyResolution.X, (int)settings.LR2bodyResolution.Y, isWinMode: true, settings.PlayerVolume);
-            IntPtr foregroundWindow = Win32API.GetForegroundWindow();
+            ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
             LR2bodyProcess.Start();
             DateTime now = DateTime.Now;
-            while (!LR2bodyProcess.HasExited && LR2bodyProcess.MainWindowHandle == IntPtr.Zero)
+            while (!LR2bodyProcess.HasExited && LR2bodyProcess.MainWindowHandle.IsEmpty)
             {
                 if (DateTime.Now - now > new TimeSpan(0, 0, 5))
                 {
@@ -256,7 +244,7 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 LR2bodyHandleShowing = LR2bodyProcess.MainWindowHandle;
                 setWindowStyle();
                 restoreWindowPosition(settings);
-                while (foregroundWindow != IntPtr.Zero && Win32API.IsWindow(foregroundWindow) && !Win32API.SetForegroundWindow(foregroundWindow))
+                while (!foregroundWindow.IsEmpty && RequireWindowHost().IsWindow(foregroundWindow) && !RequireWindowHost().SetForegroundWindow(foregroundWindow))
                 {
                     Thread.Sleep(50);
                 }
@@ -506,40 +494,39 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private void restoreWindowPosition(PlayerSettingsSnapshot settings)
     {
-        if (LR2bodyHandleShowing != IntPtr.Zero && settings.IsSaveLR2bodyWindowPosition)
+        if (!LR2bodyHandleShowing.IsEmpty && settings.IsSaveLR2bodyWindowPosition)
         {
-            Win32API.WINDOWPLACEMENT lpwndpl = settings.LR2bodyWindowPlacement;
-            lpwndpl.Length = Marshal.SizeOf(typeof(Win32API.WINDOWPLACEMENT));
-            lpwndpl.Flags = 0;
-            lpwndpl.ShowCmd = Win32API.ShowWindowCommands.Normal;
-            lpwndpl.NormalPosition.Width = (int)settings.LR2bodyResolution.X;
-            lpwndpl.NormalPosition.Height = (int)settings.LR2bodyResolution.Y;
-            Win32API.SetWindowPlacement(LR2bodyHandleShowing, ref lpwndpl);
+            RequireWindowHost().ApplyWindowPlacement(
+                LR2bodyHandleShowing,
+                settings.LR2bodyWindowPlacement,
+                (int)settings.LR2bodyResolution.X,
+                (int)settings.LR2bodyResolution.Y);
         }
     }
 
     private void storeWindowPosition()
     {
-        if (LR2bodyHandleShowing != IntPtr.Zero)
+        if (!LR2bodyHandleShowing.IsEmpty)
         {
-            Win32API.WINDOWPLACEMENT lpwndpl = default;
-            Win32API.GetWindowPlacement(LR2bodyHandleShowing, ref lpwndpl);
-            playerSettingsGateway.SaveWindowPlacement(lpwndpl);
+            playerSettingsGateway.SaveWindowPlacement(RequireWindowHost().CaptureWindowPlacement(LR2bodyHandleShowing));
         }
     }
 
     private void setWindowStyle()
     {
-        if (LR2bodyHandleShowing != IntPtr.Zero)
+        if (!LR2bodyHandleShowing.IsEmpty)
         {
-            uint num = 2495610880u;
-            while (!LR2bodyProcess.HasExited && Win32API.GetWindowLong(LR2bodyHandleShowing, -16) != num)
+            while (!LR2bodyProcess.HasExited && !RequireWindowHost().IsLr2WindowStyleApplied(LR2bodyHandleShowing))
             {
-                Win32API.SetWindowLong(LR2bodyHandleShowing, -16, num);
+                RequireWindowHost().ApplyLr2WindowStyle(LR2bodyHandleShowing);
                 Thread.Yield();
             }
-            Win32API.SetWindowLong(LR2bodyHandleShowing, -20, 129u);
         }
+    }
+
+    private IExternalPlayerWindowHost RequireWindowHost()
+    {
+        return windowHost ?? throw new InvalidOperationException("LR2の再生ホストが接続されていません。");
     }
 
     public void VolumeChanged()
@@ -550,7 +537,7 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
     {
         lock (lockThis)
         {
-            LR2bodyHandleShowing = IntPtr.Zero;
+            LR2bodyHandleShowing = default;
             LR2bodyProcess = null;
             if (!isPausing)
             {

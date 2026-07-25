@@ -810,7 +810,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(compositionSource, "IPlayerSettingsGateway playerSettingsGateway");
         StringAssert.Contains(compositionSource, "new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values)");
         StringAssert.Contains(gatewaySource, "void ApplyNegotiatedAudioSettings(");
-        StringAssert.Contains(gatewaySource, "void SaveWindowPlacement(Win32API.WINDOWPLACEMENT windowPlacement)");
+        StringAssert.Contains(gatewaySource, "void SaveWindowPlacement(ExternalWindowPlacement windowPlacement)");
 
         string internalPlayerSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "Models", "InternalBMSAutoPlayerSoundOnly.cs");

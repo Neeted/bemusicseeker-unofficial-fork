@@ -11,6 +11,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -207,17 +208,18 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_ReplacementClosesOldPlayerDetachesEventsAndKeepsHostHandle()
+    public void PlaybackPanel_ReplacementClosesOldPlayerDetachesEventsAndKeepsWindowHost()
     {
         var first = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(10) };
         var second = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(20) };
         PlaybackPanelViewModel panel = CreatePanel(first);
-        panel.AttachParentHandle(new IntPtr(42));
+        IExternalPlayerWindowHost host = new Win32ExternalPlayerWindowHost(new IntPtr(42));
+        panel.AttachWindowHost(host);
 
         panel.ReplacePlayer(second);
 
         Assert.AreEqual(1, first.CloseProcessCount);
-        Assert.AreEqual(new IntPtr(42), second.ParentHandle);
+        Assert.AreSame(host, second.WindowHost);
         Assert.AreEqual(second.Duration, panel.CurrentlyPlayingDuration);
 
         first.Duration = TimeSpan.FromSeconds(99);
@@ -234,7 +236,8 @@ public sealed class PlaybackPanelViewModelTests
         var first = new FakeBmsPlayer();
         var replacement = new FakeBmsPlayer();
         PlaybackPanelViewModel panel = CreatePanel(first);
-        panel.AttachParentHandle(new IntPtr(42));
+        IExternalPlayerWindowHost host = new Win32ExternalPlayerWindowHost(new IntPtr(42));
+        panel.AttachWindowHost(host);
         var playingFile = new BMSFile();
         panel.BeginPlayback(playingFile, 0);
 
@@ -242,7 +245,7 @@ public sealed class PlaybackPanelViewModelTests
         settingsRuntime.ApplyPlayerSettings(replacement);
 
         Assert.AreEqual(1, first.CloseProcessCount);
-        Assert.AreEqual(new IntPtr(42), replacement.ParentHandle);
+        Assert.AreSame(host, replacement.WindowHost);
         Assert.IsNull(panel.NowPlayingBmsFile);
         Assert.AreEqual(-1, panel.NowPlayingRowIndex);
 
@@ -1236,13 +1239,18 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
-    private sealed class FakeBmsPlayer : IBMSPlayer
+    private sealed class FakeBmsPlayer : IBMSPlayer, IExternalWindowPlayer
     {
         public event PropertyChangedEventHandler? PropertyChanged;
 
         public string ExePath { get; set; } = string.Empty;
 
-        public IntPtr ParentHandle { get; set; }
+        public IExternalPlayerWindowHost? WindowHost { get; private set; }
+
+        public void AttachWindowHost(IExternalPlayerWindowHost windowHost)
+        {
+            WindowHost = windowHost;
+        }
 
         private TimeSpan duration;
 

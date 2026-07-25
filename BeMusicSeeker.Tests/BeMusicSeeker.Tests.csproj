@@ -46,6 +46,9 @@
     <Reference Include="OggVorbis.NET64">
       <HintPath>..\vendor\native\x64\OggVorbis.NET64.dll</HintPath>
     </Reference>
+    <Reference Include="IniLibrary">
+      <HintPath>..\libs\IniLibrary.dll</HintPath>
+    </Reference>
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />

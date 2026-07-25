@@ -73,7 +73,7 @@ internal interface IExternalPlayerProcessSession
 
     bool HasExited { get; }
 
-    IntPtr MainWindowHandle { get; }
+    ExternalWindowHandle MainWindowHandle { get; }
 
     IReadOnlyList<int> ThreadIds { get; }
 
@@ -159,7 +159,7 @@ internal sealed class WindowsExternalPlayerProcessSession : IExternalPlayerProce
 
     public bool HasExited => process.HasExited;
 
-    public IntPtr MainWindowHandle => process.MainWindowHandle;
+    public ExternalWindowHandle MainWindowHandle => new(process.MainWindowHandle);
 
     public IReadOnlyList<int> ThreadIds => process.Threads.Cast<ProcessThread>().Select(thread => thread.Id).ToArray();
 

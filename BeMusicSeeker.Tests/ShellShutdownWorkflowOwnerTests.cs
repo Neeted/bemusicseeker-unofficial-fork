@@ -471,7 +471,6 @@ public sealed class ShellShutdownWorkflowOwnerTests
         public event PropertyChangedEventHandler? PropertyChanged;
 
         public string ExePath { get; set; } = string.Empty;
-        public IntPtr ParentHandle { private get; set; }
         public TimeSpan Duration { get; set; }
         public TimeSpan CurrentTime { get; set; }
         public TimeSpan StopTime { get; set; }

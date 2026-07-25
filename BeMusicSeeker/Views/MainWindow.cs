@@ -370,7 +370,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            viewModel.PlaybackPanel.AttachParentHandle(playbackPanelView.PlayerHostHandle);
+            viewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playbackPanelView.PlayerHostHandle));
             playbackPanelView.EnsureSelectedSurfaceAvailable();
         };
         if (Dispatcher.CheckAccess())

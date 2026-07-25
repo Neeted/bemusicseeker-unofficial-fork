@@ -2158,7 +2158,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initializationHandler, "!viewModel.IsInitializationCompleted");
         StringAssert.Contains(initializationHandler, "IsShellClosingOrClosed()");
         StringAssert.Contains(initializationHandler, "!ReferenceEquals(subscribedViewModel, viewModel)");
-        StringAssert.Contains(initializationHandler, "viewModel.PlaybackPanel.AttachParentHandle(playbackPanelView.PlayerHostHandle);");
+        StringAssert.Contains(initializationHandler, "viewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playbackPanelView.PlayerHostHandle));");
         StringAssert.Contains(initializationHandler, "playbackPanelView.EnsureSelectedSurfaceAvailable();");
         Assert.IsFalse(viewModelCode.Contains("InitializationSucceeded"));
         Assert.IsFalse(mainWindowCode.Contains("InitializationSucceeded"));

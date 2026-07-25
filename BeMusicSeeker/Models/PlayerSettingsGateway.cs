@@ -1,9 +1,9 @@
 using System;
 using System.Windows;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Ribbit.Windows;
 
 namespace BeMusicSeeker.Models;
 
@@ -23,7 +23,7 @@ internal sealed class PlayerSettingsSnapshot
         int playerVolume,
         Point lr2bodyResolution,
         bool isSaveLr2bodyWindowPosition,
-        Win32API.WINDOWPLACEMENT lr2bodyWindowPlacement)
+        ExternalWindowPlacement lr2bodyWindowPlacement)
     {
         PlayerDriver = playerDriver;
         PlayerDevice = playerDevice;
@@ -58,7 +58,7 @@ internal sealed class PlayerSettingsSnapshot
 
     internal bool IsSaveLR2bodyWindowPosition { get; }
 
-    internal Win32API.WINDOWPLACEMENT LR2bodyWindowPlacement { get; }
+    internal ExternalWindowPlacement LR2bodyWindowPlacement { get; }
 }
 
 /// <summary>
@@ -75,7 +75,7 @@ internal interface IPlayerSettingsGateway
         SampleRate playerSampleRate,
         SampleFormat playerFormat);
 
-    void SaveWindowPlacement(Win32API.WINDOWPLACEMENT windowPlacement);
+    void SaveWindowPlacement(ExternalWindowPlacement windowPlacement);
 }
 
 /// <summary>
@@ -107,7 +107,7 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
             values.uBMplayVolume,
             values.LR2bodyResolution,
             values.IsSaveLR2bodyWindowPosition,
-            values.LR2bodyWindowPlacement);
+            ExternalWindowPlacement.FromNative(values.LR2bodyWindowPlacement));
     }
 
     public void ApplyNegotiatedAudioSettings(
@@ -125,9 +125,10 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
         values.PlayerFormat = playerFormat;
     }
 
-    public void SaveWindowPlacement(Win32API.WINDOWPLACEMENT windowPlacement)
+    public void SaveWindowPlacement(ExternalWindowPlacement windowPlacement)
     {
-        Values.LR2bodyWindowPlacement = windowPlacement;
+        Values.LR2bodyWindowPlacement = windowPlacement?.ToNative()
+            ?? throw new ArgumentNullException(nameof(windowPlacement));
         Values.Save();
     }
 }

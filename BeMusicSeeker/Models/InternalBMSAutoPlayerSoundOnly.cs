@@ -327,13 +327,6 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
         }
     }
 
-    public IntPtr ParentHandle
-    {
-        set
-        {
-        }
-    }
-
     public TimeSpan Duration
     {
         get

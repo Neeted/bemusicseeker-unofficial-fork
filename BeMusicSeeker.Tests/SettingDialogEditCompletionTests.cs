@@ -1916,8 +1916,6 @@ public sealed class SettingDialogEditCompletionTests
 
         public string ExePath { get; set; } = string.Empty;
 
-        public IntPtr ParentHandle { private get; set; }
-
         public TimeSpan Duration => TimeSpan.Zero;
 
         public TimeSpan CurrentTime { get; set; }

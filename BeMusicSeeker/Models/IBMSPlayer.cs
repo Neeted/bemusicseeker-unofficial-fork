@@ -1,13 +1,12 @@
 using System;
 using System.ComponentModel;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models;
 
 internal interface IBMSPlayer : INotifyPropertyChanged
 {
     string ExePath { get; set; }
-
-    IntPtr ParentHandle { set; }
 
     TimeSpan Duration { get; }
 
@@ -70,4 +69,9 @@ internal interface IBMSPlayer : INotifyPropertyChanged
     void DecreaseHighSpeed();
 
     void VolumeChanged();
+}
+
+internal interface IExternalWindowPlayer
+{
+    void AttachWindowHost(IExternalPlayerWindowHost windowHost);
 }

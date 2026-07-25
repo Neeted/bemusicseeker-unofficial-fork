@@ -10,12 +10,10 @@ using System.Threading;
 using BeMusicSeeker.Models.Utils;
 using Livet;
 using Ribbit.Logging;
-using Ribbit.Util.Extensions;
-using Ribbit.Windows;
 
 namespace BeMusicSeeker.Models;
 
-public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
+public class uBMplay : NotificationObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 
@@ -143,17 +141,13 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private IExternalPlayerProcessSession uBMplayProcess;
 
-    private IntPtr uBMplayHandleShowing = IntPtr.Zero;
+    private ExternalWindowHandle uBMplayHandleShowing;
 
-    private IntPtr foregroundWindowHandle = IntPtr.Zero;
-
-    private readonly uint uBMplayHandleWindowStatusOrg = 382337024u;
+    private ExternalWindowHandle foregroundWindowHandle;
 
     private EventHandler onExitEventHandlerRegstered;
 
     private readonly EventHandler onExitEventHandlerDefault;
-
-    private readonly bool IS_WIN8OR10 = Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012);
 
     private readonly object lockThis = new();
 
@@ -161,79 +155,79 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private string _exePath;
 
-    private IntPtr _parentHandle;
+    private IExternalPlayerWindowHost windowHost;
 
-    private IntPtr CurrentFocusForKeyEvent;
+    private ExternalWindowHandle CurrentFocusForKeyEvent;
 
-    private static readonly Dictionary<KeyCode, DirectInputSendKey.KEYEVENTF> KeyEventFlags = new()
+    private static readonly Dictionary<KeyCode, bool> KeyEventFlags = new()
     {
         {
             KeyCode.UP,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_EXTENDEDKEY | DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            true
         },
         {
             KeyCode.DOWN,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_EXTENDEDKEY | DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            true
         },
         {
             KeyCode.SPACE,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.HOME,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_EXTENDEDKEY | DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            true
         },
         {
             KeyCode.END,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_EXTENDEDKEY | DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            true
         },
         {
             KeyCode.KEY0,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.KEY1,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.KEY2,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.KEY3,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.KEY4,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.KEY5,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.KEY6,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.KEY7,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.KEY8,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.KEY9,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.F1,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.F2,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         }
     };
 
@@ -254,21 +248,6 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                     throw new FileNotFoundException("実行ファイルが見つからないか、uBMplay.exe ではありません。", value);
                 }
                 _exePath = value;
-            }
-        }
-    }
-
-    public IntPtr ParentHandle
-    {
-        private get
-        {
-            return _parentHandle;
-        }
-        set
-        {
-            if (!(_parentHandle == value))
-            {
-                _parentHandle = value;
             }
         }
     }
@@ -316,12 +295,9 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     public int LastMeasure { get; }
 
-    private List<IntPtr> uBMplayHandles()
+    private IReadOnlyList<ExternalWindowHandle> uBMplayHandles()
     {
-        return [.. (from threadId in uBMplayProcess.ThreadIds
-                from wh in new ThreadWindowHandles((uint)threadId)
-                where wh != IntPtr.Zero
-                select wh)];
+        return RequireWindowHost().EnumerateThreadWindows(uBMplayProcess.ThreadIds);
     }
 
     internal uBMplay(
@@ -334,6 +310,11 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         this.processGateway = processGateway ?? throw new ArgumentNullException(nameof(processGateway));
         onExitEventHandlerDefault = uBMplayExited;
+    }
+
+    void IExternalWindowPlayer.AttachWindowHost(IExternalPlayerWindowHost windowHost)
+    {
+        this.windowHost = windowHost ?? throw new ArgumentNullException(nameof(windowHost));
     }
 
     public void CloseProcess()
@@ -396,7 +377,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         {
             iniFile = new temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
             bool startedNewProcess = createProcess(bmsFilePath, onExitEventHandler);
-            if (startedNewProcess && (uBMplayProcess == null || uBMplayProcess.HasExited || !Win32API.IsWindow(uBMplayHandleShowing)))
+            if (startedNewProcess && (uBMplayProcess == null || uBMplayProcess.HasExited || !RequireWindowHost().IsWindow(uBMplayHandleShowing)))
             {
                 ThrowStartupFailed();
             }
@@ -413,23 +394,21 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
     private bool createProcess(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
     {
         bool flag = false;
-        foregroundWindowHandle = Win32API.GetForegroundWindow();
+        foregroundWindowHandle = RequireWindowHost().GetForegroundWindow();
         IReadOnlyList<IExternalPlayerProcessSession> existingProcesses = processGateway.FindExisting(
             ExternalPlayerProcessDiscoveryRequest.Create("uBMplay"));
         if (existingProcesses.Count != 0)
         {
-            if (uBMplayHandleShowing == IntPtr.Zero)
+            if (uBMplayHandleShowing.IsEmpty)
             {
                 uBMplayProcess = existingProcesses[0];
                 CloseProcess();
             }
             else
             {
-                if (!IS_WIN8OR10)
+                if (RequireWindowHost().UsesLegacyWindowEmbedding)
                 {
-                    Win32API.SetWindowPos(uBMplayHandleShowing, IntPtr.Zero, -9999, -9999, 587, 256, (Win32API.SetWindowPosFlags)0u);
-                    Win32API.SetParent(uBMplayHandleShowing, IntPtr.Zero);
-                    Win32API.SetWindowLong(uBMplayHandleShowing, -16, uBMplayHandleWindowStatusOrg);
+                    RequireWindowHost().DetachUbmplayWindow(uBMplayHandleShowing);
                 }
                 flag = true;
             }
@@ -437,10 +416,10 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         ExternalPlayerProcessLaunchRequest launchRequest = ExternalPlayerProcessLaunchRequest.Create(
             ExePath,
             "-SP \"" + bmsFilePath + "\"",
-            IS_WIN8OR10
+            !RequireWindowHost().UsesLegacyWindowEmbedding
                 ? System.Diagnostics.ProcessWindowStyle.Normal
                 : System.Diagnostics.ProcessWindowStyle.Minimized);
-        if (uBMplayHandleShowing == IntPtr.Zero)
+        if (uBMplayHandleShowing.IsEmpty)
         {
             uBMplayProcess = processGateway.Prepare(launchRequest);
             uBMplayProcess.Exited += onExitEventHandlerDefault;
@@ -454,32 +433,30 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 onExitEventHandlerRegstered = null;
             }
             uBMplayProcess.Start();
-            var classname = new StringBuilder(4096);
             while (!uBMplayProcess.HasExited)
             {
-                bool flag2 = uBMplayHandles().Any(delegate (IntPtr wh)
+                bool flag2 = uBMplayHandles().Any(delegate (ExternalWindowHandle wh)
                 {
-                    Win32API.GetClassName(wh, classname, classname.Capacity);
-                    if (classname.ToString() == "ThunderRT6FormDC")
+                    if (RequireWindowHost().GetClassName(wh) == "ThunderRT6FormDC")
                     {
                         uBMplayHandleShowing = wh;
-                        if (!IS_WIN8OR10)
+                        if (RequireWindowHost().UsesLegacyWindowEmbedding)
                         {
-                            Win32API.SetWindowPos(uBMplayHandleShowing, IntPtr.Zero, -9999, -9999, 587, 256, (Win32API.SetWindowPosFlags)0u);
+                            RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
                         }
                         return true;
                     }
                     return false;
                 });
-                if (!(uBMplayHandleShowing == IntPtr.Zero))
+                if (!uBMplayHandleShowing.IsEmpty)
                 {
-                    IntPtr foregroundWindow = Win32API.GetForegroundWindow();
+                    ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
                     NLogWrapper.DebuggerLogger?.Trace("1 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
                     if (uBMplayHandles().Contains(foregroundWindow))
                     {
-                        Win32API.SetForegroundWindow((foregroundWindowHandle == IntPtr.Zero) ? ParentHandle : foregroundWindowHandle);
+                        RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
                     }
-                    else if (foregroundWindow != IntPtr.Zero && foregroundWindow != uBMplayHandleShowing)
+                    else if (!foregroundWindow.IsEmpty && foregroundWindow != uBMplayHandleShowing)
                     {
                         foregroundWindowHandle = foregroundWindow;
                     }
@@ -500,9 +477,9 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             process.Start();
             while (!process.HasExited)
             {
-                if (!IS_WIN8OR10)
+                if (RequireWindowHost().UsesLegacyWindowEmbedding)
                 {
-                    Win32API.SetWindowPos(uBMplayHandleShowing, IntPtr.Zero, -9999, -9999, 587, 256, (Win32API.SetWindowPosFlags)0u);
+                    RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
                 }
             }
         }
@@ -520,23 +497,24 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         bool loaded = false;
         while (!uBMplayProcess.HasExited)
         {
-            if (!Win32API.IsWindow(uBMplayHandleShowing))
+            if (!RequireWindowHost().IsWindow(uBMplayHandleShowing))
             {
                 CloseProcess();
                 ThrowStartupFailed();
             }
-            Win32API.GetWindowText(uBMplayHandleShowing, stringBuilder, stringBuilder.Capacity);
-            if (!IS_WIN8OR10)
+            stringBuilder.Clear();
+            stringBuilder.Append(RequireWindowHost().GetWindowText(uBMplayHandleShowing));
+            if (RequireWindowHost().UsesLegacyWindowEmbedding)
             {
-                Win32API.SetWindowPos(uBMplayHandleShowing, IntPtr.Zero, -9999, -9999, 587, 256, (Win32API.SetWindowPosFlags)0u);
+                RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
             }
-            IntPtr foregroundWindow = Win32API.GetForegroundWindow();
+            ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
             NLogWrapper.DebuggerLogger?.Trace("2 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
             if (uBMplayHandles().Contains(foregroundWindow))
             {
-                Win32API.SetForegroundWindow((foregroundWindowHandle == IntPtr.Zero) ? ParentHandle : foregroundWindowHandle);
+                RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
             }
-            else if (foregroundWindow != IntPtr.Zero && foregroundWindow != uBMplayHandleShowing)
+            else if (!foregroundWindow.IsEmpty && foregroundWindow != uBMplayHandleShowing)
             {
                 foregroundWindowHandle = foregroundWindow;
             }
@@ -554,34 +532,34 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         {
             ThrowStartupFailed();
         }
-        if (IS_WIN8OR10)
+        if (!RequireWindowHost().UsesLegacyWindowEmbedding)
         {
-            while (!uBMplayProcess.HasExited && Win32API.GetForegroundWindow() != uBMplayHandleShowing)
+            while (!uBMplayProcess.HasExited && RequireWindowHost().GetForegroundWindow() != uBMplayHandleShowing)
             {
-                Win32API.SetForegroundWindow(uBMplayHandleShowing);
+                RequireWindowHost().SetForegroundWindow(uBMplayHandleShowing);
             }
-            while (!uBMplayProcess.HasExited && Win32API.GetForegroundWindow() != ((foregroundWindowHandle == IntPtr.Zero) ? ParentHandle : foregroundWindowHandle))
+            while (!uBMplayProcess.HasExited && RequireWindowHost().GetForegroundWindow() != ((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle))
             {
-                Win32API.SetForegroundWindow((foregroundWindowHandle == IntPtr.Zero) ? ParentHandle : foregroundWindowHandle);
+                RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
             }
         }
     }
 
     private void setParent()
     {
-        if (!(uBMplayHandleShowing != IntPtr.Zero) || !(ParentHandle != IntPtr.Zero))
+        if (uBMplayHandleShowing.IsEmpty || RequireWindowHost().ParentHandle.IsEmpty)
         {
             return;
         }
         lock (lockThis)
         {
-            IntPtr foregroundWindow = Win32API.GetForegroundWindow();
+            ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
             NLogWrapper.DebuggerLogger?.Trace("3 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
             if (uBMplayHandles().Contains(foregroundWindow))
             {
-                Win32API.SetForegroundWindow((foregroundWindowHandle == IntPtr.Zero) ? ParentHandle : foregroundWindowHandle);
+                RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
             }
-            else if (foregroundWindow != IntPtr.Zero && foregroundWindow != uBMplayHandleShowing)
+            else if (!foregroundWindow.IsEmpty && foregroundWindow != uBMplayHandleShowing)
             {
                 foregroundWindowHandle = foregroundWindow;
             }
@@ -589,27 +567,30 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             {
                 NLogWrapper.DebuggerLogger?.Trace("3 invalid");
             }
-            if (!IS_WIN8OR10)
+            if (RequireWindowHost().UsesLegacyWindowEmbedding)
             {
-                Win32API.SetWindowLong(uBMplayHandleShowing, -16, 1342177280u);
-                Win32API.SetParent(uBMplayHandleShowing, ParentHandle);
-                Win32API.SetWindowPos(uBMplayHandleShowing, IntPtr.Zero, 0, 0, 587, 256, (Win32API.SetWindowPosFlags)0u);
+                RequireWindowHost().AttachUbmplayWindow(uBMplayHandleShowing, legacyWindowStyle: true);
             }
             else
             {
-                Win32API.SetWindowLong(uBMplayHandleShowing, -16, 281018368u);
+                RequireWindowHost().AttachUbmplayWindow(uBMplayHandleShowing, legacyWindowStyle: false);
             }
-            foregroundWindow = Win32API.GetForegroundWindow();
+            foregroundWindow = RequireWindowHost().GetForegroundWindow();
             NLogWrapper.DebuggerLogger?.Trace("3.5 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
             while (foregroundWindowHandle != foregroundWindow)
             {
-                Win32API.SetForegroundWindow((foregroundWindowHandle == IntPtr.Zero) ? ParentHandle : foregroundWindowHandle);
-                foregroundWindow = Win32API.GetForegroundWindow();
+                RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
+                foregroundWindow = RequireWindowHost().GetForegroundWindow();
                 NLogWrapper.DebuggerLogger?.Trace("3.5 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
             }
-            Win32API.SetFocus(foregroundWindowHandle);
+            RequireWindowHost().SetFocus(foregroundWindowHandle);
             NLogWrapper.DebuggerLogger?.Trace("3.5 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
         }
+    }
+
+    private IExternalPlayerWindowHost RequireWindowHost()
+    {
+        return windowHost ?? throw new InvalidOperationException("uBMplayの再生ホストが接続されていません。");
     }
 
     public void RestartPlayingBMSfile()
@@ -680,7 +661,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private void SendPressKeyEvent(KeyCode code)
     {
-        if (!(uBMplayHandleShowing != IntPtr.Zero))
+        if (uBMplayHandleShowing.IsEmpty)
         {
             return;
         }
@@ -689,13 +670,13 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             if (nowPressed == KeyCode.NONE)
             {
                 nowPressed = code;
-                CurrentFocusForKeyEvent = Win32API.GetForegroundWindow();
+                CurrentFocusForKeyEvent = RequireWindowHost().GetForegroundWindow();
                 for (int i = 0; i < 5; i++)
                 {
-                    Win32API.SetForegroundWindow(uBMplayHandleShowing);
+                    RequireWindowHost().SetForegroundWindow(uBMplayHandleShowing);
                     Thread.Sleep(50);
                 }
-                DirectInputSendKey.SendKey((short)code, KeyEventFlags[code] | DirectInputSendKey.KEYEVENTF.KEYEVENTF_KEYDOWN, 0);
+                RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: true);
                 NLogWrapper.DebuggerLogger?.Trace("pushed");
             }
         }
@@ -712,15 +693,15 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             code = nowPressed;
             nowPressed = KeyCode.NONE;
             Thread.Sleep(50);
-            DirectInputSendKey.SendKey((short)code, KeyEventFlags[code] | DirectInputSendKey.KEYEVENTF.KEYEVENTF_KEYUP, 0);
-            if (CurrentFocusForKeyEvent != IntPtr.Zero)
+            RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: false);
+            if (!CurrentFocusForKeyEvent.IsEmpty)
             {
                 for (int i = 0; i < 5; i++)
                 {
-                    Win32API.SetForegroundWindow(CurrentFocusForKeyEvent);
+                    RequireWindowHost().SetForegroundWindow(CurrentFocusForKeyEvent);
                     Thread.Sleep(50);
                 }
-                CurrentFocusForKeyEvent = IntPtr.Zero;
+                CurrentFocusForKeyEvent = default;
             }
             NLogWrapper.DebuggerLogger?.Trace("released");
         }
@@ -730,7 +711,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
     {
         lock (lockThis)
         {
-            uBMplayHandleShowing = IntPtr.Zero;
+            uBMplayHandleShowing = default;
             uBMplayProcess = null;
         }
     }

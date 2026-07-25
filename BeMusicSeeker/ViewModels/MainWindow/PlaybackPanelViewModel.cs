@@ -50,7 +50,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private BMSLibrary library;
 
-    private IntPtr? parentHandle;
+    private IExternalPlayerWindowHost windowHost;
 
     private TimeSpan currentlyPlayingDuration;
 
@@ -570,9 +570,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             bool previousDetached = false;
             try
             {
-                if (parentHandle.HasValue)
+                if (windowHost != null && player is IExternalWindowPlayer externalWindowPlayer)
                 {
-                    player.ParentHandle = parentHandle.Value;
+                    externalWindowPlayer.AttachWindowHost(windowHost);
                 }
                 player.PropertyChanged += BmsPlayerPropertyChanged;
                 replacementSubscribed = true;
@@ -615,12 +615,20 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
-    internal void AttachParentHandle(IntPtr parentHandle)
+    internal void AttachWindowHost(IExternalPlayerWindowHost windowHost)
     {
+        if (windowHost == null)
+        {
+            throw new ArgumentNullException(nameof(windowHost));
+        }
+
         lock (sessionGate)
         {
-            this.parentHandle = parentHandle;
-            RequirePlayer().ParentHandle = parentHandle;
+            this.windowHost = windowHost;
+            if (RequirePlayer() is IExternalWindowPlayer externalWindowPlayer)
+            {
+                externalWindowPlayer.AttachWindowHost(windowHost);
+            }
         }
     }
 

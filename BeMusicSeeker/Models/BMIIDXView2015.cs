@@ -3,18 +3,16 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
 using Livet;
 using Ribbit.Logging;
-using Ribbit.Windows;
 
 namespace BeMusicSeeker.Models;
 
-public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyChanged
+public class BMIIDXView2015 : NotificationObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 
@@ -30,19 +28,11 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
         ENTER = 28
     }
 
-    private const uint WM_USER = 1024u;
-
-    private const uint WM_ANOTHER_CLOSE = 1125u;
-
-    private const uint WM_ANOTHER_PLAY = 1127u;
-
-    private const uint WM_ANOTHER_RESET = 1128u;
-
     private IExternalPlayerProcessSession BMIIDXView2015Process;
 
     private string BMSFilePathPlaying;
 
-    private IntPtr BMIIDXView2015HandleShowing = IntPtr.Zero;
+    private ExternalWindowHandle BMIIDXView2015HandleShowing;
 
     private EventHandler onExitEventHandlerRegstered;
 
@@ -52,29 +42,29 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
 
     private string _exePath;
 
-    private IntPtr _parentHandle;
+    private IExternalPlayerWindowHost windowHost;
 
-    private static readonly Dictionary<KeyCode, DirectInputSendKey.KEYEVENTF> KeyEventFlags = new()
+    private static readonly Dictionary<KeyCode, bool> KeyEventFlags = new()
     {
         {
             KeyCode.UP,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_EXTENDEDKEY | DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            true
         },
         {
             KeyCode.DOWN,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_EXTENDEDKEY | DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            true
         },
         {
             KeyCode.ADD,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.SUBTRACT,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         },
         {
             KeyCode.ENTER,
-            DirectInputSendKey.KEYEVENTF.KEYEVENTF_SCANCODE
+            false
         }
     };
 
@@ -95,21 +85,6 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
                     throw new FileNotFoundException("実行ファイルが見つからないか、BMIIDXView2015(_64).exe ではありません。", value);
                 }
                 _exePath = value;
-            }
-        }
-    }
-
-    public IntPtr ParentHandle
-    {
-        private get
-        {
-            return _parentHandle;
-        }
-        set
-        {
-            if (!(_parentHandle == value))
-            {
-                _parentHandle = value;
             }
         }
     }
@@ -169,6 +144,11 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
         onExitEventHandlerDefault = BMIIDXView2015Exited;
     }
 
+    void IExternalWindowPlayer.AttachWindowHost(IExternalPlayerWindowHost windowHost)
+    {
+        this.windowHost = windowHost ?? throw new ArgumentNullException(nameof(windowHost));
+    }
+
     public void CloseProcess()
     {
         lock (lockThis)
@@ -226,7 +206,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
                 ExternalPlayerProcessDiscoveryRequest.Create("BMIIDXView2015", "BMIIDXView2015_64"));
             if (existingProcesses.Count != 0)
             {
-                if (BMIIDXView2015HandleShowing == IntPtr.Zero)
+                if (BMIIDXView2015HandleShowing.IsEmpty)
                 {
                     foreach (IExternalPlayerProcessSession process in existingProcesses)
                     {
@@ -238,7 +218,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
                 {
                     CloseProcess();
                 }
-                BMIIDXView2015HandleShowing = IntPtr.Zero;
+                BMIIDXView2015HandleShowing = default;
                 BMIIDXView2015Process = null;
             }
             ExternalPlayerProcessLaunchRequest launchRequest = ExternalPlayerProcessLaunchRequest.Create(
@@ -256,15 +236,15 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
             {
                 onExitEventHandlerRegstered = null;
             }
-            IntPtr foregroundWindow = Win32API.GetForegroundWindow();
+            ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
             string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "BMIIDXView2015.ini");
             temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
             BMIIDXView2015Process.Start();
-            while (!BMIIDXView2015Process.HasExited && BMIIDXView2015Process.MainWindowHandle == IntPtr.Zero)
+            while (!BMIIDXView2015Process.HasExited && BMIIDXView2015Process.MainWindowHandle.IsEmpty)
             {
                 Thread.Sleep(50);
             }
-            while (foregroundWindow != IntPtr.Zero && Win32API.IsWindow(foregroundWindow) && !Win32API.SetForegroundWindow(foregroundWindow))
+            while (!foregroundWindow.IsEmpty && RequireWindowHost().IsWindow(foregroundWindow) && !RequireWindowHost().SetForegroundWindow(foregroundWindow))
             {
                 Thread.Sleep(50);
             }
@@ -273,16 +253,14 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
                 throw new InvalidOperationException("BMIIDXView2015の起動に失敗しました。");
             }
             BMIIDXView2015HandleShowing = BMIIDXView2015Process.MainWindowHandle;
-            Win32API.SetWindowLong(BMIIDXView2015HandleShowing, -16, 1342177280u);
-            Win32API.SetParent(BMIIDXView2015HandleShowing, ParentHandle);
-            Win32API.SetWindowPos(BMIIDXView2015HandleShowing, IntPtr.Zero, 0, 0, 587, 256, Win32API.SetWindowPosFlags.DoNotActivate | Win32API.SetWindowPosFlags.ShowWindow);
+            RequireWindowHost().AttachBmiIdxWindow(BMIIDXView2015HandleShowing);
             Thread.Sleep(100);
-            Win32API.PostMessage(new HandleRef(this, BMIIDXView2015HandleShowing), 1127u, IntPtr.Zero, IntPtr.Zero);
-            while (foregroundWindow != IntPtr.Zero && Win32API.IsWindow(foregroundWindow) && !Win32API.SetForegroundWindow(foregroundWindow))
+            RequireWindowHost().NotifyBmiIdxPlaybackStarted(BMIIDXView2015HandleShowing);
+            while (!foregroundWindow.IsEmpty && RequireWindowHost().IsWindow(foregroundWindow) && !RequireWindowHost().SetForegroundWindow(foregroundWindow))
             {
                 Thread.Sleep(50);
             }
-            NLogWrapper.DebuggerLogger?.Trace("7 " + foregroundWindow + " " + Win32API.GetForegroundWindow());
+            NLogWrapper.DebuggerLogger?.Trace("7 " + foregroundWindow + " " + RequireWindowHost().GetForegroundWindow());
             BMSFilePathPlaying = bmsFilePath;
         }
     }
@@ -351,26 +329,31 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
 
     private void SendPressAndReleaseKeyEvent(KeyCode code)
     {
-        if (!(BMIIDXView2015HandleShowing != IntPtr.Zero))
+        if (BMIIDXView2015HandleShowing.IsEmpty)
         {
             return;
         }
         lock (lockThis)
         {
-            IntPtr foregroundWindow = Win32API.GetForegroundWindow();
-            while (Win32API.IsWindow(BMIIDXView2015HandleShowing) && (!Win32API.SetForegroundWindow(BMIIDXView2015HandleShowing) || Win32API.GetForegroundWindow() != BMIIDXView2015HandleShowing))
+            ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
+            while (RequireWindowHost().IsWindow(BMIIDXView2015HandleShowing) && (!RequireWindowHost().SetForegroundWindow(BMIIDXView2015HandleShowing) || RequireWindowHost().GetForegroundWindow() != BMIIDXView2015HandleShowing))
             {
                 Thread.Sleep(10);
             }
-            DirectInputSendKey.SendKey((short)code, DirectInputSendKey.KEYEVENTF.KEYEVENTF_KEYDOWN | KeyEventFlags[code], 0);
+            RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: true);
             NLogWrapper.DebuggerLogger?.Trace("pushed");
             Thread.Sleep(40);
-            DirectInputSendKey.SendKey((short)code, DirectInputSendKey.KEYEVENTF.KEYEVENTF_KEYUP | KeyEventFlags[code], 0);
-            while (Win32API.IsWindow(foregroundWindow) && (!Win32API.SetForegroundWindow(foregroundWindow) || Win32API.GetForegroundWindow() != foregroundWindow))
+            RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: false);
+            while (RequireWindowHost().IsWindow(foregroundWindow) && (!RequireWindowHost().SetForegroundWindow(foregroundWindow) || RequireWindowHost().GetForegroundWindow() != foregroundWindow))
             {
                 Thread.Sleep(10);
             }
         }
+    }
+
+    private IExternalPlayerWindowHost RequireWindowHost()
+    {
+        return windowHost ?? throw new InvalidOperationException("BMIIDXView2015の再生ホストが接続されていません。");
     }
 
     private void BMIIDXView2015Exited(object sender, EventArgs e)
@@ -380,7 +363,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
         }
         lock (lockThis)
         {
-            BMIIDXView2015HandleShowing = IntPtr.Zero;
+            BMIIDXView2015HandleShowing = default;
             BMIIDXView2015Process = null;
             BMSFilePathPlaying = null;
         }
