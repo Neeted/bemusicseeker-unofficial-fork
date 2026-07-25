@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -409,9 +408,14 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
 {
     private readonly Action<Exception, string> warningLog;
 
-    internal WpfScoreViewerRegistrationInteraction(Action<Exception, string> warningLog)
+    private readonly IExternalShellGateway externalShellGateway;
+
+    internal WpfScoreViewerRegistrationInteraction(
+        Action<Exception, string> warningLog,
+        IExternalShellGateway externalShellGateway = null)
     {
         this.warningLog = warningLog ?? throw new ArgumentNullException(nameof(warningLog));
+        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
     }
 
     public async Task<bool> ConfirmUploadAsync(
@@ -505,7 +509,7 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
         {
             if (!string.IsNullOrWhiteSpace(url))
             {
-                Process.Start(url);
+                externalShellGateway.Open(ExternalShellRequest.OpenUrl(url));
             }
         }
         catch (Exception ex)

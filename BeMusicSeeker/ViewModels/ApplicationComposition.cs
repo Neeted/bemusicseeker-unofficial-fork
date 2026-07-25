@@ -66,6 +66,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
+    private readonly IExternalShellGateway externalShellGateway;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -84,7 +86,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         IUiScheduler uiScheduler = null,
         IApplicationLifetimePort applicationLifetime = null,
         ICultureCatalog cultureCatalog = null,
-        ApplicationPathSnapshot applicationPathSnapshot = null)
+        ApplicationPathSnapshot applicationPathSnapshot = null,
+        IExternalShellGateway externalShellGateway = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -93,6 +96,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         this.cultureCatalog = cultureCatalog
             ?? throw new ArgumentNullException(nameof(cultureCatalog));
         this.applicationPathSnapshot = applicationPathSnapshot ?? ApplicationPathPolicy.Current;
+        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
@@ -156,6 +160,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
     internal ICultureCatalog CultureCatalog => cultureCatalog;
 
     internal ApplicationPathSnapshot ApplicationPathSnapshot => applicationPathSnapshot;
+
+    internal IExternalShellGateway ExternalShellGateway => externalShellGateway;
 
 
     internal MainChartListViewModel CreateMainChartListViewModel(
@@ -286,6 +292,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             reportSettingsApplyFailure,
             applicationLifetime: applicationLifetime,
             cultureCatalog: cultureCatalog,
+            externalShellGateway: externalShellGateway,
             schemaDialogs: schemaDialogs,
             applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(
                 schemaDialogs,
@@ -339,13 +346,12 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
         RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null,
         Func<string, bool> selectedChartExternalActionFileExists = null,
-        Func<string, ExplorerOpenResult> selectedChartExternalActionExplorerOpen = null,
-        Action<string> selectedChartExternalActionAssociatedFileLauncher = null,
-        Action<string> selectedChartExternalActionUrlLauncher = null,
         Action<string> libraryFolderTreeLog = null,
         Action<string> libraryFolderTreeLogWarning = null,
-        Func<Action, Task> regularChartListTerminalApplyScheduler = null)
+        Func<Action, Task> regularChartListTerminalApplyScheduler = null,
+        IExternalShellGateway externalShellGateway = null)
     {
+        externalShellGateway ??= this.externalShellGateway;
         return new MainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
@@ -362,7 +368,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             installDestinationDialogService,
             installDestinationSettingsProvider,
             LongPathFileSystem.DirectoryExists,
-            ExplorerOpenService.OpenDirectory,
+            externalShellGateway.OpenDirectory,
             startupProgressWorkflowOwner,
             reportPackageInstallWorkflowNotificationFailure,
             maintenanceRescanExecutor,
@@ -398,12 +404,10 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             lr2SongDbSyncWorkflow,
             rankingCacheDownloadWorkflow,
             selectedChartExternalActionFileExists,
-            selectedChartExternalActionExplorerOpen,
-            selectedChartExternalActionAssociatedFileLauncher,
-            selectedChartExternalActionUrlLauncher,
             libraryFolderTreeLog,
             libraryFolderTreeLogWarning,
-            regularChartListTerminalApplyScheduler);
+            regularChartListTerminalApplyScheduler,
+            externalShellGateway);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -421,7 +425,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         };
         return new ScoreViewerRegistrationWorkflowOwner(
             new AppScoreViewerRegistrationGateway(),
-            new WpfScoreViewerRegistrationInteraction(warningLog),
+            new WpfScoreViewerRegistrationInteraction(warningLog, externalShellGateway),
             () => settingsEditSession.Values.ShowScoreViewerRegisterConfirmMsg,
             warningLog);
     }
@@ -585,15 +589,14 @@ internal sealed class MainWindowChildComposition
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
         RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null,
         Func<string, bool> selectedChartExternalActionFileExists = null,
-        Func<string, ExplorerOpenResult> selectedChartExternalActionExplorerOpen = null,
-        Action<string> selectedChartExternalActionAssociatedFileLauncher = null,
-        Action<string> selectedChartExternalActionUrlLauncher = null,
         Action<string> libraryFolderTreeLog = null,
         Action<string> libraryFolderTreeLogWarning = null,
-        Func<Action, Task> regularChartListTerminalApplyScheduler = null)
+        Func<Action, Task> regularChartListTerminalApplyScheduler = null,
+        IExternalShellGateway externalShellGateway = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
+        externalShellGateway ??= ExternalShellGatewayPolicy.Current;
         ChartMutationActivity = new ChartMutationActivityOwner();
         ProgressHub = new OperationProgressHubViewModel(startupProgressWorkflowOwner);
         if (bmsPlayerFactory == null)
@@ -624,7 +627,8 @@ internal sealed class MainWindowChildComposition
             ChartMutationActivity,
             PlaybackPanel,
             installDestinationDialogService ?? throw new ArgumentNullException(nameof(installDestinationDialogService)),
-            installDestinationSettingsProvider ?? throw new ArgumentNullException(nameof(installDestinationSettingsProvider)));
+            installDestinationSettingsProvider ?? throw new ArgumentNullException(nameof(installDestinationSettingsProvider)),
+            externalShellGateway: externalShellGateway);
         RegularChartListOwner = new RegularChartListOwner(
             MainChartList,
             PlaylistWorkspace,
@@ -702,7 +706,7 @@ internal sealed class MainWindowChildComposition
             duplicateMaintenanceDialogService ?? throw new ArgumentNullException(nameof(duplicateMaintenanceDialogService)),
             showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)),
             LongPathFileSystem.DirectoryExists,
-            ExplorerOpenService.OpenDirectory,
+            externalShellGateway.OpenDirectory,
             MaintenanceTree.CaptureNextDuplicateGroupHeader);
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
@@ -712,9 +716,7 @@ internal sealed class MainWindowChildComposition
             selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)));
         SelectedChartExternalActions = new SelectedChartExternalActionWorkflowOwner(
             selectedChartExternalActionFileExists ?? LongPathFileSystem.FileExists,
-            selectedChartExternalActionExplorerOpen ?? ExplorerOpenService.OpenFileAndSelect,
-            selectedChartExternalActionAssociatedFileLauncher ?? LaunchAssociatedFile,
-            selectedChartExternalActionUrlLauncher ?? LaunchExternalUrl);
+            externalShellGateway);
         SelectedChartResourceHealth = new SelectedChartResourceHealthWorkflowOwner(
             selectedChartResourceHealthLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthLibraryProvider)),
             selectedChartResourceHealthDialogService ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthDialogService)));
@@ -789,22 +791,6 @@ internal sealed class MainWindowChildComposition
     internal Lr2SongDbSyncWorkflowOwner Lr2SongDbSyncWorkflow { get; }
 
     internal RankingCacheDownloadWorkflowOwner RankingCacheDownloadWorkflow { get; }
-
-    private static void LaunchAssociatedFile(string path)
-    {
-        try
-        {
-            System.Diagnostics.Process.Start(path);
-        }
-        catch
-        {
-        }
-    }
-
-    private static void LaunchExternalUrl(string url)
-    {
-        System.Diagnostics.Process.Start(url);
-    }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

@@ -260,7 +260,9 @@ public sealed class ExplorerOpenServiceTests
             "SelectedChartExternalActionWorkflowOwner.cs");
 
         Assert.IsFalse(mainWindow.Contains("Process.Start(\"EXPLORER.EXE\""));
-        StringAssert.Contains(selectedChartExternalActionOwner, "Func<string, ExplorerOpenResult> explorerOpen");
+        StringAssert.Contains(selectedChartExternalActionOwner, "IExternalShellGateway externalShellGateway");
+        Assert.IsFalse(selectedChartExternalActionOwner.Contains("associatedFileLauncher"));
+        Assert.IsFalse(selectedChartExternalActionOwner.Contains("urlLauncher"));
         string libraryFolderHandler = SourceTextTestHelper.ExtractMethodBody(
             mainWindow,
             "private void treeViewLibraryFolderContextMenuItemOpenExplorerClick(");
@@ -268,7 +270,7 @@ public sealed class ExplorerOpenServiceTests
         Assert.IsFalse(libraryFolderHandler.Contains("LongPathFileSystem.DirectoryExists"));
         Assert.IsFalse(libraryFolderHandler.Contains("ExplorerOpenService.OpenDirectory"));
         StringAssert.Contains(applicationComposition, "LongPathFileSystem.DirectoryExists");
-        StringAssert.Contains(applicationComposition, "ExplorerOpenService.OpenDirectory");
+        StringAssert.Contains(applicationComposition, "externalShellGateway.OpenDirectory");
     }
 
     [TestMethod]
@@ -279,7 +281,9 @@ public sealed class ExplorerOpenServiceTests
 
         Assert.IsFalse(source.Contains("SHOpenFolderAndSelectItems(directoryPidl"));
         StringAssert.Contains(source, "SHOpenFolderAndSelectItems(parentPidl");
-        StringAssert.Contains(source, "Process.Start(\"EXPLORER.EXE\", \"\\\"\" + directoryPath + \"\\\"\")");
+        StringAssert.Contains(source, "ExternalShellGatewayPolicy.Current.TryOpenDirectoryWithExplorerProcess");
+        string gateway = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "ExternalShellGateway.cs"));
+        StringAssert.Contains(gateway, "Process.Start(\"EXPLORER.EXE\", \"\\\"\" + directoryPath + \"\\\"\")");
     }
 
     private static void WithTemporaryDirectory(Action<string> action)

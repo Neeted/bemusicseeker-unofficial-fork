@@ -61,27 +61,18 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
     private static readonly Regex Sha256HashRegex = new("^[a-f0-9]{64}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly Func<string, bool> fileExists;
-    private readonly Func<string, ExplorerOpenResult> explorerOpen;
-    private readonly Action<string> associatedFileLauncher;
-    private readonly Action<string> urlLauncher;
-    private readonly Action<string> relatedDocumentLauncher;
+    private readonly IExternalShellGateway externalShellGateway;
     private readonly Func<string, string> directoryNameResolver;
     private readonly Func<string, string, IEnumerable<string>> relatedDocumentFileEnumerator;
 
     internal SelectedChartExternalActionWorkflowOwner(
         Func<string, bool> fileExists,
-        Func<string, ExplorerOpenResult> explorerOpen,
-        Action<string> associatedFileLauncher,
-        Action<string> urlLauncher,
-        Action<string> relatedDocumentLauncher = null,
+        IExternalShellGateway externalShellGateway,
         Func<string, string> directoryNameResolver = null,
         Func<string, string, IEnumerable<string>> relatedDocumentFileEnumerator = null)
     {
         this.fileExists = fileExists ?? throw new ArgumentNullException(nameof(fileExists));
-        this.explorerOpen = explorerOpen ?? throw new ArgumentNullException(nameof(explorerOpen));
-        this.associatedFileLauncher = associatedFileLauncher ?? throw new ArgumentNullException(nameof(associatedFileLauncher));
-        this.urlLauncher = urlLauncher ?? throw new ArgumentNullException(nameof(urlLauncher));
-        this.relatedDocumentLauncher = relatedDocumentLauncher ?? LaunchRelatedDocument;
+        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
         this.directoryNameResolver = directoryNameResolver ?? DirectoryExt.GetDirectoryNameSimple;
         this.relatedDocumentFileEnumerator = relatedDocumentFileEnumerator
             ?? ((directory, pattern) => LongPathFileSystem.EnumerateFiles(directory, pattern));
@@ -148,7 +139,7 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         {
             return;
         }
-        relatedDocumentLauncher(path);
+        externalShellGateway.Open(ExternalShellRequest.OpenAssociatedFile(path));
     }
 
     internal bool CanExecute(ChartOperationTarget target, SelectedChartExternalActionKind action)
@@ -188,7 +179,7 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
             case SelectedChartExternalActionKind.OpenExplorer:
                 if (TryGetExistingPath(target, ChartOperationCapabilities.OpenFolder, out string explorerPath))
                 {
-                    explorerOpen(explorerPath);
+                    externalShellGateway.OpenFileAndSelect(explorerPath);
                 }
                 return;
             case SelectedChartExternalActionKind.OpenFile:
@@ -196,7 +187,7 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
                 {
                     try
                     {
-                        associatedFileLauncher(filePath);
+                        externalShellGateway.Open(ExternalShellRequest.OpenAssociatedFile(filePath));
                     }
                     catch
                     {
@@ -205,7 +196,8 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
                 return;
             case SelectedChartExternalActionKind.OpenLr2Ir:
                 string md5 = target.Chart.Md5?.Trim();
-                urlLauncher("https://bms-ir.org/new/song?songmd5=" + md5 + "&view=both");
+                externalShellGateway.Open(ExternalShellRequest.OpenUrl(
+                    "https://bms-ir.org/new/song?songmd5=" + md5 + "&view=both"));
                 return;
             case SelectedChartExternalActionKind.OpenMocha:
             case SelectedChartExternalActionKind.OpenMinIr:
@@ -214,7 +206,7 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
                 string url = action == SelectedChartExternalActionKind.OpenMocha
                     ? "https://mocha-repository.info/song.php?sha256=" + sha256
                     : "https://www.gaftalk.com/minir/#/viewer/song/" + sha256 + "/0";
-                urlLauncher(url);
+                externalShellGateway.Open(ExternalShellRequest.OpenUrl(url));
                 return;
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action, null);
@@ -238,11 +230,6 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         return target?.Chart != null
             && !string.IsNullOrWhiteSpace(path)
             && fileExists(path);
-    }
-
-    private static void LaunchRelatedDocument(string path)
-    {
-        System.Diagnostics.Process.Start(path);
     }
 
     private static string GetRepositorySha256(ChartOperationTarget target)

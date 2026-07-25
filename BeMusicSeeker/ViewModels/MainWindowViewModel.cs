@@ -223,6 +223,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly IApplicationLifetimePort applicationLifetime;
 
+    internal IExternalShellGateway ExternalShellGateway => applicationComposition.ExternalShellGateway;
+
     private Dispatcher ResolveUiDispatcher() => uiScheduler.Dispatcher;
 
     private void DispatchUiAction(Action action, DispatcherPriority priority = DispatcherPriority.Normal)
@@ -2616,7 +2618,7 @@ public partial class MainWindowViewModel : ViewModel,
                 }
                 PackageInstallWorkflow.Enqueue(paths);
             },
-            uri => Process.Start(uri.ToString()),
+            uri => ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(uri.ToString())),
             LogExternalPlaylistImportWarning,
             LogExternalPlaylistImportInfo,
             LogBeatorajaTableUrlImportWarning,

@@ -1407,11 +1407,40 @@ public sealed class PendingPackageWorkflowOwnerTests
             dialogs,
             settingsProvider ?? DefaultSettings,
             store,
-            explorerOpener,
-            fileExplorerOpener);
+            new TestExternalShellGateway(
+                explorerOpener ?? (_ => new ExplorerOpenResult()),
+                fileExplorerOpener ?? (_ => new ExplorerOpenResult())));
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
         activity.ActivityChanged += presentation.OnActivityChanged;
         return owner;
+    }
+
+    private sealed class TestExternalShellGateway : IExternalShellGateway
+    {
+        private readonly Func<string, ExplorerOpenResult> explorerOpener;
+        private readonly Func<string, ExplorerOpenResult> fileExplorerOpener;
+
+        internal TestExternalShellGateway(
+            Func<string, ExplorerOpenResult> explorerOpener,
+            Func<string, ExplorerOpenResult> fileExplorerOpener)
+        {
+            this.explorerOpener = explorerOpener;
+            this.fileExplorerOpener = fileExplorerOpener;
+        }
+
+        public void Open(ExternalShellRequest request)
+        {
+        }
+
+        public ExplorerOpenResult OpenFileAndSelect(string filePath) => fileExplorerOpener(filePath);
+
+        public ExplorerOpenResult OpenDirectory(string directoryPath) => explorerOpener(directoryPath);
+
+        public bool TryOpenDirectoryWithExplorerProcess(string directoryPath, out string failureReason)
+        {
+            failureReason = string.Empty;
+            return true;
+        }
     }
 
     private static FakeUiDialogService AcceptedDialogs()

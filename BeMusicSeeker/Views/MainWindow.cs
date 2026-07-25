@@ -693,7 +693,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 ?? throw new InvalidOperationException("MainWindowViewModel is required to present the update dialog.");
             UiWindowDialogResult<UpdateAssetInfo> dialogResult = await new UiDialogCoordinator()
                 .ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>(
-                    () => new UpdateAvailableDialog(request.Result, viewModel.ProgressHub),
+                    () => new UpdateAvailableDialog(request.Result, viewModel.ProgressHub, viewModel.ExternalShellGateway),
                     dialog => dialog.SelectedAsset,
                     this));
             ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Update available dialog");
@@ -5933,7 +5933,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
 
-        Process.Start(action.Url);
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        viewModel.ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(action.Url));
         e.Handled = true;
     }
 
@@ -5948,7 +5953,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
 
-        Process.Start(action.Url);
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        viewModel.ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(action.Url));
         e.Handled = true;
     }
 
@@ -5963,7 +5973,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
 
-        Process.Start(action.Url);
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        viewModel.ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(action.Url));
         e.Handled = true;
     }
 
@@ -6003,7 +6018,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
 
-        ExplorerOpenService.OpenFileAndSelect(action.Path);
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        viewModel.ExternalShellGateway.OpenFileAndSelect(action.Path);
         e.Handled = true;
     }
 

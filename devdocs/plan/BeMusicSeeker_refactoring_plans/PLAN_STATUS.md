@@ -48,8 +48,8 @@ Non-goals:
 - active outcome base commit: `a87aede7`
 - observed production checkpoint: `a87aede7`
 - active execution package: `Path, process and updater boundary closure`
-- execution anchor: `MIG-02-B2 External shell and resource launch closure`
-- sequence cursor: `MIG-02-B2 External shell and resource launch closure`
+- execution anchor: `MIG-02-B3 External player process-session closure`
+- sequence cursor: `MIG-02-B3 External player process-session closure`
 - next outcome: `MIG-03 Native interop and UI-host closure` (not started)
 
 目的:
@@ -98,8 +98,8 @@ Non-goals:
 | Batch | Unit | State | Closure family |
 |---|---|---|---|
 | `MIG-02` | `B1` | `completed` | `application runtime path policy` |
-| `MIG-02` | `B2` | `active` | `external shell and resource launch` |
-| `MIG-02` | `B3` | `pending` | `external player process session` |
+| `MIG-02` | `B2` | `completed` | `external shell and resource launch` |
+| `MIG-02` | `B3` | `active` | `external player process session` |
 | `MIG-02` | `B4` | `pending` | `updater, application restart and outcome closure` |
 
 ## Current code evidence

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using Ribbit.Logging;
@@ -346,16 +345,7 @@ internal static class ExplorerOpenService
 
         public bool TryOpenDirectoryWithExplorer(string directoryPath, out string failureReason)
         {
-            failureReason = string.Empty;
-            try
-            {
-                return Process.Start("EXPLORER.EXE", "\"" + directoryPath + "\"") != null;
-            }
-            catch (Exception ex)
-            {
-                failureReason = "exception:" + ex.GetType().Name + ":" + ex.Message;
-                return false;
-            }
+            return ExternalShellGatewayPolicy.Current.TryOpenDirectoryWithExplorerProcess(directoryPath, out failureReason);
         }
     }
 

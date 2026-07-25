@@ -113,6 +113,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ICultureCatalog cultureCatalog;
 
+    private readonly IExternalShellGateway externalShellGateway;
+
     /// <summary>
     /// Gets the command used by views to request the settings dialog.
     /// </summary>
@@ -122,6 +124,8 @@ public partial class SettingsDialogViewModel : ViewModel
     /// Gets the command that restores the saved settings snapshot and closes the dialog.
     /// </summary>
     public ViewModelCommand CancelCommand => cancelCommand ??= new ViewModelCommand(ExecuteCancelCommand);
+
+    internal IExternalShellGateway ExternalShellGateway => externalShellGateway;
 
     /// <summary>
     /// Gets a value indicating whether an apply operation is currently completing.
@@ -3752,7 +3756,8 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow = null,
         AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow = null,
         IApplicationLifetimePort applicationLifetime = null,
-        ICultureCatalog cultureCatalog = null)
+        ICultureCatalog cultureCatalog = null,
+        IExternalShellGateway externalShellGateway = null)
     {
         SettingsDialogViewModel settingDialogViewModel = this;
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
@@ -3769,6 +3774,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(applicationLifetime));
         this.cultureCatalog = cultureCatalog
             ?? throw new ArgumentNullException(nameof(cultureCatalog));
+        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
         this.reportApplyFailure = reportApplyFailure

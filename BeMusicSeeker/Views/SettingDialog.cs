@@ -522,7 +522,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void hyperlinkRequestNavigate(object sender, RequestNavigateEventArgs e)
     {
-        Process.Start(e.Uri.ToString());
+        GetSettingDialogViewModel().ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(e.Uri.ToString()));
         e.Handled = true;
     }
 

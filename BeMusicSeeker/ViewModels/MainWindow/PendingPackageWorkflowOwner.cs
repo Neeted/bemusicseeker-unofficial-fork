@@ -204,8 +204,7 @@ internal sealed class PendingPackageWorkflowOwner
     private readonly IUiDialogService dialogs;
     private readonly IPendingPackageStore store;
     private readonly Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider;
-    private readonly Func<string, ExplorerOpenResult> explorerOpener;
-    private readonly Func<string, ExplorerOpenResult> fileExplorerOpener;
+    private readonly IExternalShellGateway externalShellGateway;
 
     internal event EventHandler<PendingPackageWorkflowChangedEventArgs> WorkflowChanged;
 
@@ -217,8 +216,7 @@ internal sealed class PendingPackageWorkflowOwner
         IUiDialogService dialogs,
         Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
         IPendingPackageStore store = null,
-        Func<string, ExplorerOpenResult> explorerOpener = null,
-        Func<string, ExplorerOpenResult> fileExplorerOpener = null)
+        IExternalShellGateway externalShellGateway = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
@@ -227,8 +225,7 @@ internal sealed class PendingPackageWorkflowOwner
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.store = store ?? new BmsLibraryPendingPackageStore();
-        this.explorerOpener = explorerOpener ?? ExplorerOpenService.OpenDirectory;
-        this.fileExplorerOpener = fileExplorerOpener ?? ExplorerOpenService.OpenFileAndSelect;
+        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
     }
 
     internal bool CanOpenInstallDestination(
@@ -319,14 +316,14 @@ internal sealed class PendingPackageWorkflowOwner
         string packagePath = package.path;
         if (LongPathFileSystem.DirectoryExists(packagePath))
         {
-            _ = explorerOpener(packagePath);
+            _ = externalShellGateway.OpenDirectory(packagePath);
             return;
         }
         if (!LongPathFileSystem.FileExists(packagePath))
         {
             return;
         }
-        _ = fileExplorerOpener(packagePath);
+        _ = externalShellGateway.OpenFileAndSelect(packagePath);
     }
 
     internal Task SearchPackagesAsync(
@@ -1001,7 +998,7 @@ internal sealed class PendingPackageWorkflowOwner
         {
             return;
         }
-        _ = explorerOpener(installDirectory);
+        _ = externalShellGateway.OpenDirectory(installDirectory);
     }
 
     private static async Task<ExceptionDispatchInfo> CaptureOperationFailureAsync(

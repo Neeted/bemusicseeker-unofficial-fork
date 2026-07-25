@@ -354,7 +354,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         int launcherCalls = 0;
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
             fileExists: path => path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase),
-            relatedDocumentLauncher: path => launcherCalls++);
+            associatedFileLauncher: path => launcherCalls++);
 
         owner.OpenRelatedDocument(@"C:\Songs\readme.txt");
         owner.OpenRelatedDocument(@"C:\Songs\missing.html");
@@ -362,7 +362,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(1, launcherCalls);
 
         SelectedChartExternalActionWorkflowOwner failingOwner = CreateOwner(
-            relatedDocumentLauncher: _ => throw new InvalidOperationException("document launcher failed"));
+            associatedFileLauncher: _ => throw new InvalidOperationException("document launcher failed"));
         Assert.ThrowsException<InvalidOperationException>(() =>
             failingOwner.OpenRelatedDocument(@"C:\Songs\readme.txt"));
     }
@@ -372,18 +372,57 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Func<string, ExplorerOpenResult>? explorerOpen = null,
         Action<string>? associatedFileLauncher = null,
         Action<string>? urlLauncher = null,
-        Action<string>? relatedDocumentLauncher = null,
         Func<string, string>? directoryNameResolver = null,
         Func<string, string, IEnumerable<string>>? relatedDocumentFileEnumerator = null)
     {
-        return new SelectedChartExternalActionWorkflowOwner(
-            fileExists ?? (_ => true),
+        var gateway = new TestExternalShellGateway(
             explorerOpen ?? (_ => new ExplorerOpenResult()),
             associatedFileLauncher ?? (_ => { }),
-            urlLauncher ?? (_ => { }),
-            relatedDocumentLauncher,
+            urlLauncher ?? (_ => { }));
+        return new SelectedChartExternalActionWorkflowOwner(
+            fileExists ?? (_ => true),
+            gateway,
             directoryNameResolver,
             relatedDocumentFileEnumerator);
+    }
+
+    private sealed class TestExternalShellGateway : IExternalShellGateway
+    {
+        private readonly Func<string, ExplorerOpenResult> explorerOpen;
+        private readonly Action<string> associatedFileLauncher;
+        private readonly Action<string> urlLauncher;
+
+        internal TestExternalShellGateway(
+            Func<string, ExplorerOpenResult> explorerOpen,
+            Action<string> associatedFileLauncher,
+            Action<string> urlLauncher)
+        {
+            this.explorerOpen = explorerOpen;
+            this.associatedFileLauncher = associatedFileLauncher;
+            this.urlLauncher = urlLauncher;
+        }
+
+        public void Open(ExternalShellRequest request)
+        {
+            if (request.Kind == ExternalShellRequestKind.Url)
+            {
+                urlLauncher(request.Target);
+            }
+            else
+            {
+                associatedFileLauncher(request.Target);
+            }
+        }
+
+        public ExplorerOpenResult OpenFileAndSelect(string filePath) => explorerOpen(filePath);
+
+        public ExplorerOpenResult OpenDirectory(string directoryPath) => new();
+
+        public bool TryOpenDirectoryWithExplorerProcess(string directoryPath, out string failureReason)
+        {
+            failureReason = string.Empty;
+            return true;
+        }
     }
 
     private static ChartOperationTarget CreateTarget(

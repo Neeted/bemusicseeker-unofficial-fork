@@ -2730,13 +2730,26 @@ createTempDirectory);
             }, workerCountOverride: 2);
 
             List<string> logs = [];
+            object logsSync = new();
             ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
                 null,
-                message => logs.Add("INFO " + message),
-                message => logs.Add("WARN " + message));
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("INFO " + message);
+                    }
+                },
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("WARN " + message);
+                    }
+                });
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.ProcessedCount);
@@ -3647,14 +3660,27 @@ createTempDirectory);
             gateway.EnsureChartInfoSchema();
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 2);
             List<string> logs = [];
+            object logsSync = new();
 
             ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
                 null,
-                message => logs.Add("INFO " + message),
-                message => logs.Add("WARN " + message));
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("INFO " + message);
+                    }
+                },
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("WARN " + message);
+                    }
+                });
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.DigestBackfilledCount);
@@ -3709,14 +3735,27 @@ createTempDirectory);
                 return File.ReadAllBytes(path);
             }, workerCountOverride: 1);
             List<string> logs = [];
+            object logsSync = new();
 
             ChartInfoBackfillResult second = BackfillChartInfos(secondService,
                 gateway,
                 [secondFile],
                 [],
                 (current, total, target) => { },
-                message => logs.Add("INFO " + message),
-                message => logs.Add("WARN " + message));
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("INFO " + message);
+                    }
+                },
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("WARN " + message);
+                    }
+                });
 
             Assert.AreEqual(0, second.TargetCount);
             Assert.AreEqual(1, second.FailureSkippedCount);
@@ -3890,14 +3929,27 @@ createTempDirectory);
                 throw new IOException("read boom");
             }, workerCountOverride: 1);
             List<string> logs = [];
+            object logsSync = new();
 
             ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
                 null,
-                message => logs.Add("INFO " + message),
-                message => logs.Add("WARN " + message));
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("INFO " + message);
+                    }
+                },
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("WARN " + message);
+                    }
+                });
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.ReadFailedCount);
@@ -3995,14 +4047,27 @@ createTempDirectory);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 2, commitChunkSizeOverride: 2);
             List<string> logs = [];
+            object logsSync = new();
 
             ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 files,
                 [],
                 null,
-                message => logs.Add("INFO " + message),
-                message => logs.Add("WARN " + message));
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("INFO " + message);
+                    }
+                },
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("WARN " + message);
+                    }
+                });
 
             Assert.AreEqual(5, result.TargetCount);
             Assert.AreEqual(5, result.ProcessedCount);

@@ -1,7 +1,7 @@
 using System;
-using System.Diagnostics;
 using System.Windows;
 using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
@@ -10,10 +10,16 @@ public partial class UpdateAvailableDialog : Window
 {
     private readonly UpdateAvailableDialogViewModel viewModel;
 
-    internal UpdateAvailableDialog(UpdateCheckResult updateCheckResult, OperationProgressHubViewModel progressHub)
+    private readonly IExternalShellGateway externalShellGateway;
+
+    internal UpdateAvailableDialog(
+        UpdateCheckResult updateCheckResult,
+        OperationProgressHubViewModel progressHub,
+        IExternalShellGateway externalShellGateway = null)
     {
         InitializeComponent();
         viewModel = new UpdateAvailableDialogViewModel(updateCheckResult, progressHub);
+        this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
         DataContext = viewModel;
         Closed += (_, _) => viewModel.Dispose();
     }
@@ -42,9 +48,6 @@ public partial class UpdateAvailableDialog : Window
             return;
         }
 
-        Process.Start(new ProcessStartInfo(viewModel.ReleasePageUrl)
-        {
-            UseShellExecute = true
-        });
+        externalShellGateway.Open(ExternalShellRequest.OpenUrl(viewModel.ReleasePageUrl));
     }
 }

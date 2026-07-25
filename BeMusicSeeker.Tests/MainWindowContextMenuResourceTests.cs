@@ -3720,6 +3720,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(openPackageSource.Contains("LongPathFileSystem.FileExists"));
         Assert.IsFalse(openPackageSource.Contains("ExplorerOpenService.OpenDirectory"));
         Assert.IsFalse(openPackageSource.Contains("ExplorerOpenService.OpenFileAndSelect"));
+        StringAssert.Contains(pendingPackageOwnerCode, "IExternalShellGateway externalShellGateway");
+        Assert.IsFalse(pendingPackageOwnerCode.Contains("ExplorerOpenService.OpenDirectory"));
+        Assert.IsFalse(pendingPackageOwnerCode.Contains("ExplorerOpenService.OpenFileAndSelect"));
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
         Assert.AreEqual(2, Regex.Matches(xaml, "Click=\"treeViewInstallPackageContextMenuOpenExplorerClick\"").Count);
     }
