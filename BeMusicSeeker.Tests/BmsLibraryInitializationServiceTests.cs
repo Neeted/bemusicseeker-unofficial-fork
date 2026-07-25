@@ -611,6 +611,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile, deletedFile],
                 new ChartScanExecutionResult
@@ -689,6 +690,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -744,6 +746,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existingFile],
                 new ChartScanExecutionResult
@@ -810,6 +813,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existingFile],
                 new ChartScanExecutionResult
@@ -872,6 +876,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existingFile],
                 new ChartScanExecutionResult
@@ -917,6 +922,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -964,6 +970,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1022,6 +1029,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1071,6 +1079,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1124,6 +1133,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1173,6 +1183,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1229,6 +1240,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1274,6 +1286,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1330,6 +1343,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1465,6 +1479,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, inlineChartInfoBatchSizeOverride: 32, fileDiffCommitChunkSizeOverride: 50);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1553,6 +1568,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 2, inlineChartInfoBatchSizeOverride: 512, fileDiffCommitChunkSizeOverride: 50);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 gateway,
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1616,6 +1632,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var injectedException = new InvalidOperationException("injected streaming writer failure");
             Task<SongTableFileCheckResult> task = Task.Run(() => service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1673,6 +1690,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1724,6 +1742,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -1786,6 +1805,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -1880,6 +1900,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -1967,6 +1988,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2123,6 +2145,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 [lr2RootPath]);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2207,6 +2230,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2285,6 +2309,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2346,6 +2371,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2407,6 +2433,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2522,6 +2549,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2622,6 +2650,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2705,6 +2734,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2792,6 +2822,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -2850,6 +2881,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -2898,6 +2930,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -2952,6 +2985,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -3036,6 +3070,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -3119,6 +3154,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -3278,6 +3314,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -3340,6 +3377,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -3403,6 +3441,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -3469,6 +3508,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -3543,6 +3583,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 2);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -3607,6 +3648,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existing],
                 new ChartScanExecutionResult
@@ -3661,6 +3703,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existing],
                 new ChartScanExecutionResult
@@ -3737,6 +3780,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: 2);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 bmsFiles,
                 new ChartScanExecutionResult
@@ -3806,6 +3850,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -3859,6 +3904,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -3916,6 +3962,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -3969,6 +4016,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 gateway,
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -4033,6 +4081,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 gateway,
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -4218,6 +4267,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -4279,6 +4329,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile],
                 new ChartScanExecutionResult
@@ -4362,6 +4413,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile],
                 new ChartScanExecutionResult
@@ -4427,6 +4479,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [deletedFile],
                 new ChartScanExecutionResult
@@ -4488,6 +4541,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile, deletedFile],
                 new ChartScanExecutionResult
@@ -4674,6 +4728,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -4747,6 +4802,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existingFile],
                 new ChartScanExecutionResult
@@ -4835,6 +4891,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             SongTableFileCheckResult first = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -4894,6 +4951,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             SongTableFileCheckResult second = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -4942,6 +5000,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existingFile],
                 new ChartScanExecutionResult
@@ -5015,6 +5074,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -5093,6 +5153,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existingFile],
                 new ChartScanExecutionResult
@@ -5167,6 +5228,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existingFile],
                 new ChartScanExecutionResult
@@ -5255,6 +5317,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existingFile1, existingFile2],
                 new ChartScanExecutionResult
@@ -5327,6 +5390,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [existingFile],
                 new ChartScanExecutionResult
@@ -5388,6 +5452,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -5451,6 +5516,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -5519,6 +5585,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -5576,6 +5643,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -5645,6 +5713,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -5725,6 +5794,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             SongTableFileCheckResult first = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 scanResult,
@@ -5750,6 +5820,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             SongTableFileCheckResult second = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 scanResult,
@@ -5799,6 +5870,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [currentFile],
                 new ChartScanExecutionResult
@@ -5847,6 +5919,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -5910,6 +5983,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -5957,6 +6031,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [],
                 new ChartScanExecutionResult
@@ -6014,6 +6089,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile],
                 new ChartScanExecutionResult
@@ -6592,6 +6668,7 @@ public sealed class BmsLibraryInitializationServiceTests
             : new BmsLibraryInitializationService();
         return service.ApplyFileScanDiff(
             new BmsLibraryDbGateway(songDbPath),
+            new EverythingNative(ApplicationPathPolicy.Current),
             new BmsLibraryOptionsSnapshot(),
             [],
             new ChartScanExecutionResult
@@ -6612,6 +6689,7 @@ public sealed class BmsLibraryInitializationServiceTests
             : new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
         return service.ApplyFileScanDiff(
             new BmsLibraryDbGateway(songDbPath),
+            new EverythingNative(ApplicationPathPolicy.Current),
             new BmsLibraryOptionsSnapshot(),
             [],
             new ChartScanExecutionResult
@@ -6632,6 +6710,7 @@ public sealed class BmsLibraryInitializationServiceTests
             : new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
         return service.ApplyFileScanDiff(
             new BmsLibraryDbGateway(songDbPath),
+            new EverythingNative(ApplicationPathPolicy.Current),
             new BmsLibraryOptionsSnapshot(),
             [],
             new ChartScanExecutionResult

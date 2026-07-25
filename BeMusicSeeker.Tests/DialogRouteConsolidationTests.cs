@@ -89,14 +89,15 @@ public sealed class DialogRouteConsolidationTests
         string root = FindRepositoryRoot();
         string playlistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
         string ubmplayCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "uBMplay.cs"));
-        string fastDirectoryEnumeratorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "FastDirectoryEnumerator.cs"));
         string taskExCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "TaskEx.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
 
         Assert.IsFalse(playlistCode.Contains("DispatcherMessageBox.Show("), "BMSPlaylist must return operation notifications instead of showing message boxes from the model layer.");
         Assert.IsFalse(ubmplayCode.Contains("DispatcherMessageBox.Show("), "uBMplay must report startup failures to its caller instead of showing message boxes from the model layer.");
-        Assert.IsFalse(fastDirectoryEnumeratorCode.Contains("DispatcherMessageBox.Show("), "FastDirectoryEnumerator must not show message boxes while enumerating utility paths.");
+        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "FastDirectoryEnumerator.cs")), "FastDirectoryEnumerator should be retired in favor of the managed fallback route.");
+        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "FileData.cs")), "FileData should be retired with the old manual Win32 enumeration route.");
+        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "WIN32_FIND_DATA.cs")), "WIN32_FIND_DATA should be retired with the old manual Win32 enumeration route.");
         Assert.IsFalse(taskExCode.Contains("DispatcherMessageBox.Show("), "TaskEx must record task faults without showing message boxes from utility continuations.");
         Assert.IsFalse(playlistCode.Contains("OperationNotificationScope"), "BMSPlaylist must not own the mutable presentation scope.");
         Assert.IsFalse(playlistCode.Contains("QueueOperationNotification"), "BMSPlaylist must not own the notification queue implementation.");

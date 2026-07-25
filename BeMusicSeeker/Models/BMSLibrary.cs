@@ -520,6 +520,8 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
+    private readonly EverythingNative everythingNative;
+
     private readonly string lr2ScoreDBPath;
 
     private Dictionary<string, BMSScore> beatorajaScoresBySha256 = new(StringComparer.OrdinalIgnoreCase);
@@ -2455,6 +2457,7 @@ public partial class BMSLibrary : NotificationObject
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.applicationPathSnapshot = applicationPathSnapshot
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
+        everythingNative = new EverythingNative(this.applicationPathSnapshot);
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new ScopedOperationDialogService(this);
@@ -2530,7 +2533,8 @@ public partial class BMSLibrary : NotificationObject
             ApplyFileScanCatalogReplacement,
             HandleFileScanCatalogReplacementFailure,
             ApplyFileScanCatalogResidual,
-            initializationService);
+            initializationService,
+            everythingNative);
         packageLifecycleOwner = new PackageLifecycleOwner(
             dbGateway,
             ProcessPendingInstallEstimateBatch,

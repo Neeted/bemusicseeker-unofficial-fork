@@ -20,6 +20,14 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
         { RootFileEnumerationService.DirectoriesGroupName, 7u }
     };
 
+    private readonly EverythingNative everythingNative;
+
+    internal EverythingRootFileEnumerator(EverythingNative everythingNative)
+    {
+        this.everythingNative = everythingNative
+            ?? throw new ArgumentNullException(nameof(everythingNative));
+    }
+
     public RootFileEnumerationResult EnumerateFiles(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
     {
         var result = new RootFileEnumerationResult
@@ -57,7 +65,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
                 groupedQueries.Add(new EverythingNative.BridgeGroupedQuery(groupId, query));
             }
 
-            if (!EverythingNative.TryEnumerateGroupedFiles(groupedQueries, out EverythingNative.BridgeGroupedEnumerationResult groupedResult, out string reason))
+            if (!everythingNative.TryEnumerateGroupedFiles(groupedQueries, out EverythingNative.BridgeGroupedEnumerationResult groupedResult, out string reason))
             {
                 result.MarkFailed(reason ?? "bridge_grouped_query_failed");
                 return result;
@@ -114,7 +122,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
         }
     }
 
-    private static bool TryProbeRootVisibility(IReadOnlyCollection<string> roots, out string reason)
+    private bool TryProbeRootVisibility(IReadOnlyCollection<string> roots, out string reason)
     {
         reason = null;
         if (roots == null || roots.Count == 0)
@@ -122,7 +130,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
             return true;
         }
 
-        if (!EverythingNative.TryEnumerateGroupedFiles(
+        if (!everythingNative.TryEnumerateGroupedFiles(
             [new EverythingNative.BridgeGroupedQuery(RootVisibilityProbeGroupId, EverythingNative.BuildDirectoriesQuery([.. roots]))],
             out EverythingNative.BridgeGroupedEnumerationResult result,
             out reason))

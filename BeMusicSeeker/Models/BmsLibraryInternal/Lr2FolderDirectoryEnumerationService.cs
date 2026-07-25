@@ -62,7 +62,8 @@ internal static class Lr2FolderDirectoryEnumerationService
 
     internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateEntriesFromGroupedEnumeration(
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
+        IEnumerable<string> targetDirectories,
+        EverythingNative everythingNative)
     {
         HashSet<string> targetSet = new((targetDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
@@ -74,7 +75,8 @@ internal static class Lr2FolderDirectoryEnumerationService
 
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
             rootDirectories,
-            [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)]);
+            [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)],
+            everythingNative);
         if (!result.Success)
         {
             if (RootFileEnumerationService.IsBridgeContractFailure(result.ErrorReason))

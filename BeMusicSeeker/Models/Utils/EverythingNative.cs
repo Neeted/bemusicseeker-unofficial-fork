@@ -5,12 +5,13 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.Models.Utils;
 
-internal static class EverythingNative
+internal sealed class EverythingNative
 {
     private const string BridgeDllName = "EverythingBridge_x64.dll";
 
@@ -22,71 +23,180 @@ internal static class EverythingNative
 
     private const uint FixedScanContractVersion = 2026060601u;
 
-    private static IntPtr loadedBridgeModule = IntPtr.Zero;
+    private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
-    private static bool bridgeExportsProbed;
+    private readonly object bridgeSync = new();
 
-    private static bool bridgeFixedScanAvailable;
+    private int activeNativeCalls;
 
-    private static bool bridgeFreeResultAvailable;
+    private IntPtr loadedBridgeModule = IntPtr.Zero;
 
-    private static bool bridgeSourceRootScanAvailable;
+    private ScanChartAndResourcesDelegate scanChartAndResources;
 
-    private static bool bridgeFreeSourceRootResultAvailable;
+    private FreeResultDelegate freeResult;
 
-    private static bool bridgeGroupedEnumerationQueryAvailable;
+    private ScanSourceRootsDelegate scanSourceRoots;
 
-    private static bool bridgeFreeGroupedEnumerationResultAvailable;
+    private FreeSourceRootsResultDelegate freeSourceRootsResult;
 
-    internal static string GetExpectedBridgeDllPath()
+    private EnumerateGroupedFilesDelegate enumerateGroupedFiles;
+
+    private FreeGroupedFilesResultDelegate freeGroupedFilesResult;
+
+    private bool bridgeExportsProbed;
+
+    private bool bridgeFixedScanAvailable;
+
+    private bool bridgeFreeResultAvailable;
+
+    private bool bridgeSourceRootScanAvailable;
+
+    private bool bridgeFreeSourceRootResultAvailable;
+
+    private bool bridgeGroupedEnumerationQueryAvailable;
+
+    private bool bridgeFreeGroupedEnumerationResultAvailable;
+
+    private bool disposed;
+
+    internal EverythingNative(ApplicationPathSnapshot applicationPathSnapshot)
     {
-        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "native", BridgeDllName);
+        this.applicationPathSnapshot = applicationPathSnapshot
+            ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
     }
 
-    private static bool EnsureBridgeLoaded(out string reason)
+    internal string GetExpectedBridgeDllPath()
+    {
+        return Path.Combine(applicationPathSnapshot.BaseDirectory, "native", BridgeDllName);
+    }
+
+    internal void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    ~EverythingNative()
+    {
+        Dispose(disposing: false);
+    }
+
+    private void Dispose(bool disposing)
+    {
+        lock (bridgeSync)
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            disposed = true;
+            while (activeNativeCalls > 0)
+            {
+                System.Threading.Monitor.Wait(bridgeSync);
+            }
+            scanChartAndResources = null;
+            freeResult = null;
+            scanSourceRoots = null;
+            freeSourceRootsResult = null;
+            enumerateGroupedFiles = null;
+            freeGroupedFilesResult = null;
+            bridgeExportsProbed = false;
+            if (loadedBridgeModule != IntPtr.Zero)
+            {
+                FreeLibrary(loadedBridgeModule);
+                loadedBridgeModule = IntPtr.Zero;
+            }
+        }
+    }
+
+    private bool EnsureBridgeLoaded(out string reason)
     {
         reason = null;
-        if (IntPtr.Size != 8)
+        lock (bridgeSync)
         {
-            reason = "unsupported_architecture";
-            throw new PlatformNotSupportedException("Everything native bridge requires an x64 process.");
-        }
-        if (loadedBridgeModule == IntPtr.Zero)
-        {
-            string expectedBridgeDllPath = GetExpectedBridgeDllPath();
-            if (!File.Exists(expectedBridgeDllPath))
+            if (IntPtr.Size != 8)
             {
-                reason = "bridge_dll_not_found:" + expectedBridgeDllPath;
-                return false;
+                reason = "unsupported_architecture";
+                throw new PlatformNotSupportedException("Everything native bridge requires an x64 process.");
             }
-            IntPtr module = LoadLibraryW(expectedBridgeDllPath);
-            if (module == IntPtr.Zero)
+            if (loadedBridgeModule == IntPtr.Zero)
             {
-                reason = "bridge_dll_load_failed:" + Marshal.GetLastWin32Error();
-                return false;
+                string expectedBridgeDllPath = GetExpectedBridgeDllPath();
+                if (!File.Exists(expectedBridgeDllPath))
+                {
+                    reason = "bridge_dll_not_found:" + expectedBridgeDllPath;
+                    return false;
+                }
+                IntPtr module = LoadLibraryW(expectedBridgeDllPath);
+                if (module == IntPtr.Zero)
+                {
+                    reason = "bridge_dll_load_failed:" + Marshal.GetLastWin32Error();
+                    return false;
+                }
+                loadedBridgeModule = module;
             }
-            loadedBridgeModule = module;
+            if (!bridgeExportsProbed)
+            {
+                ProbeBridgeExports();
+            }
+            return true;
         }
-        ProbeBridgeExports();
-        return true;
     }
 
-    private static void ProbeBridgeExports()
+    private IDisposable EnterNativeCall()
     {
-        if (bridgeExportsProbed)
+        lock (bridgeSync)
         {
-            return;
+            if (disposed)
+            {
+                throw new ObjectDisposedException(nameof(EverythingNative));
+            }
+
+            activeNativeCalls++;
+            return new NativeCallLease(this);
         }
-        bridgeFixedScanAvailable = GetProcAddress(loadedBridgeModule, "EBridge_ScanChartAndResources") != IntPtr.Zero;
-        bridgeFreeResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeResult") != IntPtr.Zero;
-        bridgeSourceRootScanAvailable = GetProcAddress(loadedBridgeModule, "EBridge_ScanSourceRoots") != IntPtr.Zero;
-        bridgeFreeSourceRootResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeSourceRootsResult") != IntPtr.Zero;
-        bridgeGroupedEnumerationQueryAvailable = GetProcAddress(loadedBridgeModule, "EBridge_EnumerateGroupedFiles") != IntPtr.Zero;
-        bridgeFreeGroupedEnumerationResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeGroupedFilesResult") != IntPtr.Zero;
+    }
+
+    private void ExitNativeCall()
+    {
+        lock (bridgeSync)
+        {
+            activeNativeCalls--;
+            if (activeNativeCalls == 0)
+            {
+                System.Threading.Monitor.PulseAll(bridgeSync);
+            }
+        }
+    }
+
+    private void ProbeBridgeExports()
+    {
+        scanChartAndResources = GetDelegate<ScanChartAndResourcesDelegate>("EBridge_ScanChartAndResources");
+        freeResult = GetDelegate<FreeResultDelegate>("EBridge_FreeResult");
+        scanSourceRoots = GetDelegate<ScanSourceRootsDelegate>("EBridge_ScanSourceRoots");
+        freeSourceRootsResult = GetDelegate<FreeSourceRootsResultDelegate>("EBridge_FreeSourceRootsResult");
+        enumerateGroupedFiles = GetDelegate<EnumerateGroupedFilesDelegate>("EBridge_EnumerateGroupedFiles");
+        freeGroupedFilesResult = GetDelegate<FreeGroupedFilesResultDelegate>("EBridge_FreeGroupedFilesResult");
+        bridgeFixedScanAvailable = scanChartAndResources != null;
+        bridgeFreeResultAvailable = freeResult != null;
+        bridgeSourceRootScanAvailable = scanSourceRoots != null;
+        bridgeFreeSourceRootResultAvailable = freeSourceRootsResult != null;
+        bridgeGroupedEnumerationQueryAvailable = enumerateGroupedFiles != null;
+        bridgeFreeGroupedEnumerationResultAvailable = freeGroupedFilesResult != null;
         bridgeExportsProbed = true;
     }
 
-    private static bool EnsureFixedScanAvailable(out string reason)
+    private T GetDelegate<T>(string exportName)
+        where T : class
+    {
+        IntPtr export = GetProcAddress(loadedBridgeModule, exportName);
+        return export == IntPtr.Zero
+            ? null
+            : Marshal.GetDelegateForFunctionPointer(export, typeof(T)) as T;
+    }
+
+    private bool EnsureFixedScanAvailable(out string reason)
     {
         if (!EnsureBridgeLoaded(out reason))
         {
@@ -101,7 +211,7 @@ internal static class EverythingNative
         return true;
     }
 
-    private static bool EnsureSourceRootScanAvailable(out string reason)
+    private bool EnsureSourceRootScanAvailable(out string reason)
     {
         if (!EnsureBridgeLoaded(out reason))
         {
@@ -116,7 +226,7 @@ internal static class EverythingNative
         return true;
     }
 
-    private static bool EnsureGroupedEnumerationAvailable(out string reason)
+    private bool EnsureGroupedEnumerationAvailable(out string reason)
     {
         if (!EnsureBridgeLoaded(out reason))
         {
@@ -177,7 +287,7 @@ internal static class EverythingNative
             : " !" + "<" + string.Join("|", exclusions) + ">";
     }
 
-    internal static bool TryScanSourceRoots(IReadOnlyList<string> rootDirectories, out BridgeSourceRootScanResult result, out string reason)
+    internal bool TryScanSourceRoots(IReadOnlyList<string> rootDirectories, out BridgeSourceRootScanResult result, out string reason)
     {
         result = null;
         reason = null;
@@ -191,6 +301,7 @@ internal static class EverythingNative
             result = new BridgeSourceRootScanResult();
             return true;
         }
+        using IDisposable nativeCallLease = EnterNativeCall();
         if (!EnsureSourceRootScanAvailable(out reason))
         {
             return false;
@@ -222,7 +333,7 @@ internal static class EverythingNative
             string movieQuery = BuildFilesQuery(roots, ChartDirectoryScanBuilder.MovieExtensions);
 
             var nativeBridgeStopwatch = System.Diagnostics.Stopwatch.StartNew();
-            int status = EBridge_ScanSourceRoots(nativeRoots, (uint)normalizedRoots.Count, chartQuery, audioQuery, imageQuery, movieQuery, out resultPtr);
+            int status = scanSourceRoots(nativeRoots, (uint)normalizedRoots.Count, chartQuery, audioQuery, imageQuery, movieQuery, out resultPtr);
             nativeBridgeStopwatch.Stop();
             long nativeBridgeMs = nativeBridgeStopwatch.ElapsedMilliseconds;
             if (status != 0)
@@ -268,7 +379,7 @@ internal static class EverythingNative
             {
                 try
                 {
-                    EBridge_FreeSourceRootsResult(resultPtr);
+                    freeSourceRootsResult(resultPtr);
                 }
                 catch
                 {
@@ -288,7 +399,7 @@ internal static class EverythingNative
         }
     }
 
-    internal static bool TryEnumerateGroupedFiles(IReadOnlyList<BridgeGroupedQuery> queries, out BridgeGroupedEnumerationResult result, out string reason)
+    internal bool TryEnumerateGroupedFiles(IReadOnlyList<BridgeGroupedQuery> queries, out BridgeGroupedEnumerationResult result, out string reason)
     {
         result = null;
         reason = null;
@@ -297,6 +408,7 @@ internal static class EverythingNative
             result = new BridgeGroupedEnumerationResult();
             return true;
         }
+        using IDisposable nativeCallLease = EnterNativeCall();
         if (!EnsureGroupedEnumerationAvailable(out reason))
         {
             return false;
@@ -320,7 +432,7 @@ internal static class EverythingNative
                 Marshal.StructureToPtr(nativeQuery, IntPtr.Add(nativeQueries, i * Marshal.SizeOf<EBridgeGroupedQueryNative>()), false);
             }
 
-            int status = EBridge_EnumerateGroupedFiles(nativeQueries, (uint)queries.Count, out resultPtr);
+            int status = enumerateGroupedFiles(nativeQueries, (uint)queries.Count, out resultPtr);
             if (status != 0)
             {
                 reason = "bridge_grouped_query_failed:" + status;
@@ -354,7 +466,7 @@ internal static class EverythingNative
             {
                 try
                 {
-                    EBridge_FreeGroupedFilesResult(resultPtr);
+                    freeGroupedFilesResult(resultPtr);
                 }
                 catch
                 {
@@ -374,7 +486,7 @@ internal static class EverythingNative
         }
     }
 
-    internal static ChartScanExecutionResult ExecuteScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, string textQuery = null)
+    internal ChartScanExecutionResult ExecuteScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, string textQuery = null)
     {
         if (!TryExecuteBridgeScan(chartQuery, audioQuery, imageQuery, movieQuery, textQuery, out ChartScanExecutionResult result, out string reason, out long elapsedMs))
         {
@@ -387,12 +499,13 @@ internal static class EverythingNative
         return result;
     }
 
-    private static bool TryExecuteBridgeScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, string textQuery, out ChartScanExecutionResult result, out string reason, out long elapsedMs)
+    private bool TryExecuteBridgeScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, string textQuery, out ChartScanExecutionResult result, out string reason, out long elapsedMs)
     {
         result = null;
         reason = null;
         IntPtr resultPtr = IntPtr.Zero;
         var stopwatch = Stopwatch.StartNew();
+        using IDisposable nativeCallLease = EnterNativeCall();
         try
         {
             if (!EnsureFixedScanAvailable(out reason))
@@ -401,7 +514,7 @@ internal static class EverythingNative
             }
 
             var nativeBridgeStopwatch = Stopwatch.StartNew();
-            int status = EBridge_ScanChartAndResources(chartQuery, audioQuery, imageQuery, movieQuery, textQuery ?? string.Empty, out resultPtr);
+            int status = scanChartAndResources(chartQuery, audioQuery, imageQuery, movieQuery, textQuery ?? string.Empty, out resultPtr);
             nativeBridgeStopwatch.Stop();
             long nativeBridgeMs = nativeBridgeStopwatch.ElapsedMilliseconds;
             if (status != 0)
@@ -458,7 +571,7 @@ internal static class EverythingNative
             {
                 try
                 {
-                    EBridge_FreeResult(resultPtr);
+                    freeResult(resultPtr);
                 }
                 catch
                 {
@@ -1045,23 +1158,56 @@ internal static class EverythingNative
     [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
     private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
-    [DllImport(BridgeDllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_ScanChartAndResources")]
-    private static extern int EBridge_ScanChartAndResources(string chartQuery, string audioQuery, string imageQuery, string movieQuery, string textQuery, out IntPtr outResult);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FreeLibrary(IntPtr hModule);
 
-    [DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeResult")]
-    private static extern void EBridge_FreeResult(IntPtr result);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    private delegate int ScanChartAndResourcesDelegate(
+        [MarshalAs(UnmanagedType.LPWStr)] string chartQuery,
+        [MarshalAs(UnmanagedType.LPWStr)] string audioQuery,
+        [MarshalAs(UnmanagedType.LPWStr)] string imageQuery,
+        [MarshalAs(UnmanagedType.LPWStr)] string movieQuery,
+        [MarshalAs(UnmanagedType.LPWStr)] string textQuery,
+        out IntPtr outResult);
 
-    [DllImport(BridgeDllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_ScanSourceRoots")]
-    private static extern int EBridge_ScanSourceRoots(IntPtr roots, uint rootCount, string chartQuery, string audioQuery, string imageQuery, string movieQuery, out IntPtr outResult);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void FreeResultDelegate(IntPtr result);
 
-    [DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeSourceRootsResult")]
-    private static extern void EBridge_FreeSourceRootsResult(IntPtr result);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    private delegate int ScanSourceRootsDelegate(
+        IntPtr roots,
+        uint rootCount,
+        [MarshalAs(UnmanagedType.LPWStr)] string chartQuery,
+        [MarshalAs(UnmanagedType.LPWStr)] string audioQuery,
+        [MarshalAs(UnmanagedType.LPWStr)] string imageQuery,
+        [MarshalAs(UnmanagedType.LPWStr)] string movieQuery,
+        out IntPtr outResult);
 
-    [DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_EnumerateGroupedFiles")]
-    private static extern int EBridge_EnumerateGroupedFiles(IntPtr queries, uint queryCount, out IntPtr outResult);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void FreeSourceRootsResultDelegate(IntPtr result);
 
-    [DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeGroupedFilesResult")]
-    private static extern void EBridge_FreeGroupedFilesResult(IntPtr result);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int EnumerateGroupedFilesDelegate(IntPtr queries, uint queryCount, out IntPtr outResult);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void FreeGroupedFilesResultDelegate(IntPtr result);
+
+    private sealed class NativeCallLease : IDisposable
+    {
+        private EverythingNative owner;
+
+        internal NativeCallLease(EverythingNative owner)
+        {
+            this.owner = owner;
+        }
+
+        public void Dispose()
+        {
+            EverythingNative currentOwner = Interlocked.Exchange(ref owner, null);
+            currentOwner?.ExitNativeCall();
+        }
+    }
 
     internal readonly struct BridgeGroupedQuery
     {

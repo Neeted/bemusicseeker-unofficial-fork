@@ -17,13 +17,6 @@ internal sealed class RootFileEnumerationEntry(string path, DateTime? lastWriteT
 
     public int? LastWriteTimeUnixSeconds => LastWriteTimeUtc.HasValue ? ToUnixSeconds(LastWriteTimeUtc.Value) : null;
 
-    internal static RootFileEnumerationEntry FromFileData(FileData file)
-    {
-        return file == null
-            ? null
-            : new RootFileEnumerationEntry(file.Path, file.LastWriteTimeUtc, file.Size);
-    }
-
     internal static RootFileEnumerationEntry FromDirectoryInfo(string path)
     {
         try
@@ -326,6 +319,7 @@ internal static class RootFileEnumerationService
     internal static RootFileEnumerationResult EnumerateFilesWithFallback(
         IEnumerable<string> rootDirectories,
         IEnumerable<RootFileEnumerationGroup> groups,
+        EverythingNative everythingNative,
         bool verboseLog = false,
         bool retryEmptyEverythingResultWithFastEnumerator = false)
     {
@@ -339,7 +333,7 @@ internal static class RootFileEnumerationService
             };
         }
 
-        RootFileEnumerationResult result = new EverythingRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog);
+        RootFileEnumerationResult result = new EverythingRootFileEnumerator(everythingNative).EnumerateFiles(rootDirectories, groupList, verboseLog);
         return SelectFallbackResult(
             result,
             () => new FastRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog),

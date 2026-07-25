@@ -60,6 +60,7 @@ internal static class Lr2FolderFileDiscoveryService
         string lr2RootPath,
         Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
         Action<string> logScan,
+        EverythingNative everythingNative,
         IEnumerable<string> excludedDirectories = null)
     {
         List<string> roots = [.. (rootDirectories ?? [])
@@ -82,6 +83,7 @@ internal static class Lr2FolderFileDiscoveryService
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
             roots,
             groups,
+            everythingNative,
             retryEmptyEverythingResultWithFastEnumerator: true);
         if (!result.Success)
         {

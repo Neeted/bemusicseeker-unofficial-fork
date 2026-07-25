@@ -12,6 +12,14 @@ public class EverythingFileScanner : IChartFileScanner
 {
     private static readonly Logger logger = NLogWrapper.GetLogger("InstallPerformance.EverythingScanner");
 
+    private readonly EverythingNative everythingNative;
+
+    internal EverythingFileScanner(EverythingNative everythingNative)
+    {
+        this.everythingNative = everythingNative
+            ?? throw new ArgumentNullException(nameof(everythingNative));
+    }
+
     public ChartScanExecutionResult Scan(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> chartExtensions,
@@ -70,7 +78,7 @@ public class EverythingFileScanner : IChartFileScanner
         }
 
         var stopwatch = Stopwatch.StartNew();
-        ChartScanExecutionResult result = EverythingNative.ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery, textQuery);
+        ChartScanExecutionResult result = everythingNative.ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery, textQuery);
         if (!result.Success)
         {
             stopwatch.Stop();
@@ -212,7 +220,7 @@ public class EverythingFileScanner : IChartFileScanner
         return result;
     }
 
-    private static bool AttachDirectorySurface(
+    private bool AttachDirectorySurface(
         ChartScanExecutionResult result,
         IReadOnlyList<string> roots,
         bool verboseLog,
@@ -222,6 +230,7 @@ public class EverythingFileScanner : IChartFileScanner
         RootFileEnumerationResult directoryResult = RootFileEnumerationService.EnumerateFilesWithFallback(
             roots,
             [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)],
+            everythingNative,
             verboseLog);
         if (!RootFileEnumerationService.IsAuthoritativeComplete(directoryResult))
         {

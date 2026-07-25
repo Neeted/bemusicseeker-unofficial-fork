@@ -10,11 +10,13 @@ internal static class Lr2SongDbSyncInputSurfaceHelper
 {
     internal static Lr2TextMetadataCandidateSnapshot CreateLr2SongDbSyncTextMetadataCandidates(
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
+        IEnumerable<string> targetDirectories,
+        EverythingNative everythingNative)
     {
         return Lr2FolderInfoCandidateEnumerationService.CreateTextMetadataSnapshot(
             rootDirectories,
-            targetDirectories);
+            targetDirectories,
+            everythingNative);
     }
 
     internal static IReadOnlyList<string> NormalizeLr2DirectoryMetadataTargets(IEnumerable<string> targetDirectories)
@@ -52,7 +54,8 @@ internal static class Lr2SongDbSyncInputSurfaceHelper
     internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
         IReadOnlyDictionary<string, RootFileEnumerationEntry> sourceEntries,
         IEnumerable<string> groupedSourceDirectories,
-        IEnumerable<string> targetDirectories)
+        IEnumerable<string> targetDirectories,
+        EverythingNative everythingNative)
     {
         IReadOnlyCollection<string> targets = NormalizeLr2DirectoryMetadataTargets(targetDirectories);
         IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
@@ -74,7 +77,7 @@ internal static class Lr2SongDbSyncInputSurfaceHelper
             return entries;
         }
         IReadOnlyDictionary<string, RootFileEnumerationEntry> missingEntries =
-            CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(groupedEntriesSourceDirectories, missingTargets);
+            CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(groupedEntriesSourceDirectories, missingTargets, everythingNative);
         return MergeLr2DirectoryEntrySurfaces(entries, missingEntries);
     }
 
@@ -103,9 +106,10 @@ internal static class Lr2SongDbSyncInputSurfaceHelper
 
     internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
+        IEnumerable<string> targetDirectories,
+        EverythingNative everythingNative)
     {
-        return Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(rootDirectories, targetDirectories);
+        return Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(rootDirectories, targetDirectories, everythingNative);
     }
 
     internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> OverlayLr2DirectoryEntrySurface(

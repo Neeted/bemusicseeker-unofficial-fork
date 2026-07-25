@@ -10,7 +10,7 @@
 - Release Freeze: active
 - `git push` / tag / release / publish: Gate前は禁止。Gate後もユーザーの明示指示まで禁止
 
-## Completed outcome
+## Completed outcomes
 
 ### `MIG-01 Configuration and application-context closure`
 
@@ -39,14 +39,12 @@ Non-goals:
 - path、process、updater、native、WPF / WinForms / COM technology、HintPath / output layoutの最終境界化（`MIG-02`〜`MIG-04`）。
 - `System.Configuration`の.NET 10移行方式、package replacement、production TFM変更（Gate後）。
 
-## Active outcome
-
 ### `MIG-02 Path, process and updater closure`
 
 状態: completed
 
 - active outcome base commit: `a87aede7`
-- observed production checkpoint: `a87aede7`
+- observed production checkpoint: `06f36ef9`
 - active execution package: `Path, process and updater boundary closure`
 - execution anchor: `MIG-02-B4 Updater, application restart and outcome closure` (completed)
 - sequence cursor: `MIG-02-B4 Updater, application restart and outcome closure` (completed)
@@ -66,6 +64,33 @@ Non-goals:
 
 - native interop、WPF / WinForms / COM technology、HintPath / output layoutの最終境界化（`MIG-03`〜`MIG-04`）。
 - .NET 10 retarget、package replacement、production TFM変更（Gate後）。
+
+## Active outcome
+
+### `MIG-03 Native interop and UI-host closure`
+
+状態: in progress
+
+- active outcome base commit: `06f36ef9`
+- observed production checkpoint: `06f36ef9`
+- active execution package: `Native interop and UI-host closure`
+- execution anchor: `MIG-03 package entry`
+- sequence cursor: `MIG-03-B2 Audio SDK boundary`
+- next outcome: `MIG-04 Build, dependency and output closure` (not started)
+
+目的:
+
+native interop、manual load、CAS residual、WPF / WinForms / WebBrowser / COM technology boundaryを用途別platform adapterとview-hostへ閉じ、application / domain workflowへnative handle、loader policy、UI technology型を漏らさない。
+
+完了条件:
+
+- native call、manual load、legacy security、WPF / WinForms / COM routeをproduction callerからadapter / view-host、behavior test、旧route削除まで閉じる。
+- `NAT-01`、`INT-01`、`UIH-01`のowner境界を更新し、outcome-wide Full verification、該当UI smoke、fresh outcome reviewを完了する。
+
+Non-goals:
+
+- HintPath / output layout、project dependency、package replacementの最終境界化（`MIG-04`）。
+- .NET 10 retarget、production TFM変更（Gate後）。
 
 ## Stable terminal steps
 
@@ -91,16 +116,16 @@ Non-goals:
 
 ## Active implementation batch
 
-状態: completed
+状態: in progress
 
-`MIG-02` plannerが作成した有限batchであり、B1から依存順に実装する。activeまたはpendingのunitがある間はplannerを再起動しない。
+`MIG-03` plannerが作成した有限batchであり、B1から依存順に実装する。activeまたはpendingのunitがある間はplannerを再起動しない。
 
 | Batch | Unit | State | Closure family |
 |---|---|---|---|
-| `MIG-02` | `B1` | `completed` | `application runtime path policy` |
-| `MIG-02` | `B2` | `completed` | `external shell and resource launch` |
-| `MIG-02` | `B3` | `completed` | `external player process session` |
-| `MIG-02` | `B4` | `completed` | `updater, application restart and outcome closure` |
+| `MIG-03` | `B1` | `completed` | `native file discovery and loader ownership` |
+| `MIG-03` | `B2` | `active` | `audio SDK boundary` |
+| `MIG-03` | `B3` | `pending` | `external-player native window and host attachment` |
+| `MIG-03` | `B4` | `pending` | `technology-neutral presentation contracts and MIG-03 closure` |
 
 ## Current code evidence
 
@@ -135,7 +160,7 @@ Non-goals:
 | OWN-01 Residual owner-boundary reconciliation | completed |
 | MIG-01 Configuration and application-context closure | completed |
 | MIG-02 Path, process and updater closure | completed |
-| MIG-03 Native interop and UI-host closure | ready |
+| MIG-03 Native interop and UI-host closure | in progress |
 | MIG-04 Build, dependency and output closure | not started |
 | MIG-05 .NET 10 migration rehearsal and handoff | not started |
 | GATE-01 Refactoring completion audit | not started |

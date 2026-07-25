@@ -107,6 +107,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
+            ApplicationPathPolicy.Current,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher))
     {
     }
@@ -123,6 +124,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
+            ApplicationPathPolicy.Current,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization)
     {
@@ -141,6 +143,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
+            ApplicationPathPolicy.Current,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization)
     {
@@ -159,6 +162,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
+            ApplicationPathPolicy.Current,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization)
     {
@@ -185,6 +189,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,
             customFolderOutputSettingsProvider,
+            ApplicationPathPolicy.Current,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization,
             playlistUrlCompletionTsvContentFetcher,

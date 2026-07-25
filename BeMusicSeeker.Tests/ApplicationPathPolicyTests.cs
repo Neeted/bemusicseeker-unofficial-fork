@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -31,4 +32,20 @@ public sealed class ApplicationPathPolicyTests
     {
         Assert.ThrowsException<ArgumentException>(() => ApplicationPathSnapshot.FromExecutablePath(null));
     }
+
+    [TestMethod]
+    public void EverythingNativeUsesInjectedApplicationBaseDirectoryForBridgePath()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(ApplicationPathPolicyTests), Guid.NewGuid().ToString("N"));
+        ApplicationPathSnapshot snapshot = ApplicationPathSnapshot.FromExecutablePath(
+            Path.Combine(root, "bin", "BeMusicSeeker.exe"));
+
+        var native = new EverythingNative(snapshot);
+
+        Assert.AreEqual(
+            Path.Combine(snapshot.BaseDirectory, "native", "EverythingBridge_x64.dll"),
+            native.GetExpectedBridgeDllPath());
+        native.Dispose();
+    }
+
 }

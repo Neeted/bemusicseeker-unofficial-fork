@@ -535,6 +535,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,
             customFolderOutputSettingsProvider,
+            applicationPathSnapshot,
             uiScheduler,
             lr2PlaylistFolderSynchronization);
     }

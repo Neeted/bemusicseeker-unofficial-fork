@@ -6339,6 +6339,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanDirectoryEntries = CreateDirectoryEntryMap(bmsRoot, outputBase, tableDirectory),
                 Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(bmsRoot, outputBase, tableDirectory),
+                Lr2ScanLr2FolderDiscoveryDirectories = [bmsRoot, outputBase],
                 Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                 Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
                 {
@@ -7124,7 +7125,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
         Lr2FolderInfoCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateSnapshot(
             [rootDirectory],
-            [chartDirectory]);
+            [chartDirectory],
+            new EverythingNative(ApplicationPathPolicy.Current));
 
         CollectionAssert.AreEqual(new[] { folderInfoPath }, snapshot.Paths.ToArray());
         Assert.IsTrue(snapshot.DiscoveryComplete);
@@ -7152,7 +7154,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
         Lr2TextMetadataCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateTextMetadataSnapshot(
             [rootDirectory],
-            [chartDirectory]);
+            [chartDirectory],
+            new EverythingNative(ApplicationPathPolicy.Current));
 
         CollectionAssert.AreEqual(new[] { folderInfoPath }, snapshot.FolderInfoCandidates.Paths.ToArray());
         CollectionAssert.AreEqual(new[] { chartDirectory }, snapshot.TextFileDirectories.ToArray());
@@ -7388,7 +7391,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             _ => { },
             exception => exception?.Message ?? string.Empty,
             _ => { },
-            library.Lr2Synchronization);
+            library.Lr2Synchronization,
+            new EverythingNative(ApplicationPathPolicy.Current));
         owner.Apply(options, rootDirectories, result, reason);
     }
 

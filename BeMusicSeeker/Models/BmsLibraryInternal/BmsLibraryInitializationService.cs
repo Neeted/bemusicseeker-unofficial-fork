@@ -456,6 +456,7 @@ internal sealed class BmsLibraryInitializationService
 
     public SongTableFileCheckResult ApplyFileScanDiff(
         BmsLibraryDbGateway dbGateway,
+        EverythingNative everythingNative,
         BmsLibraryOptionsSnapshot options,
         IEnumerable<BMSFile> currentFiles,
         ChartScanExecutionResult prefetchedScanResult,
@@ -528,7 +529,8 @@ internal sealed class BmsLibraryInitializationService
                 lr2FolderDiscoveryRootDirectories,
                 lr2BuiltinCustomFolderSettings,
                 lr2FolderExcludedDirectories,
-                logEverythingScan);
+                logEverythingScan,
+                everythingNative);
         }
         stopwatchScan.Stop();
         scanCompleted?.Invoke();
@@ -834,7 +836,8 @@ internal sealed class BmsLibraryInitializationService
         IEnumerable<string> rootDirectories,
         Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
         IEnumerable<string> excludedDirectories,
-        Action<string> logEverythingScan)
+        Action<string> logEverythingScan,
+        EverythingNative everythingNative)
     {
         if (result == null
             || options?.OperationModeLR2DB != true)
@@ -852,6 +855,7 @@ internal sealed class BmsLibraryInitializationService
             options.LR2RootPath,
             builtinCustomFolderSettings ?? new Lr2BuiltinCustomFolderSettings(0, 24, false),
             logEverythingScan,
+            everythingNative,
             excludedDirectories);
 
         result.Lr2ScanLr2FolderDiscoveryDirectories = lr2FolderDiscoveryDirectories;

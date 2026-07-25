@@ -154,6 +154,8 @@ public partial class BMSPlaylist : NotificationObject
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
+    private readonly EverythingNative everythingNative;
+
     private readonly Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher;
 
     private readonly Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher;
@@ -450,6 +452,7 @@ public partial class BMSPlaylist : NotificationObject
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
+        ApplicationPathSnapshot applicationPathSnapshot,
         IUiScheduler uiScheduler,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
@@ -481,6 +484,7 @@ public partial class BMSPlaylist : NotificationObject
             ?? throw new ArgumentNullException(nameof(beatorajaBmtOptionsProvider));
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
             ?? throw new ArgumentNullException(nameof(customFolderOutputSettingsProvider));
+        everythingNative = new EverythingNative(applicationPathSnapshot);
         this.playlistUrlCompletionTsvContentFetcher = playlistUrlCompletionTsvContentFetcher;
         this.playlistUrlCompletionStellaContentFetcher = playlistUrlCompletionStellaContentFetcher;
         this.lr2PlaylistFolderSynchronization = lr2PlaylistFolderSynchronization;
@@ -2787,7 +2791,7 @@ public partial class BMSPlaylist : NotificationObject
         return enumeratedSurface ?? CustomFolderOutputPhysicalSurface.Empty;
     }
 
-    private static CustomFolderOutputPhysicalSurface CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration(
+    private CustomFolderOutputPhysicalSurface CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration(
         IEnumerable<CustomFolderOutputProjection> projections,
         string reason)
     {
@@ -2796,7 +2800,7 @@ public partial class BMSPlaylist : NotificationObject
             reason);
     }
 
-    private static CustomFolderOutputPhysicalSurface CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration(
+    private CustomFolderOutputPhysicalSurface CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration(
         IEnumerable<string> outputDirectories,
         string reason)
     {
@@ -2811,7 +2815,8 @@ public partial class BMSPlaylist : NotificationObject
         var stopwatch = Stopwatch.StartNew();
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
             roots,
-            [new RootFileEnumerationGroup(CustomFolderOutputLr2FolderEnumerationGroupName, [".lr2folder"])]);
+            [new RootFileEnumerationGroup(CustomFolderOutputLr2FolderEnumerationGroupName, [".lr2folder"])],
+            everythingNative);
         stopwatch.Stop();
         LogPlaylistPerformance("playlist_custom_folder_output_repair physical_surface_grouped_enumeration"
             + " reason=" + (reason ?? "unknown")
@@ -3465,7 +3470,7 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private static Lr2FolderDirectoryMetadataSnapshot CreateCustomFolderParentDirectoryMetadataSnapshot(
+    private Lr2FolderDirectoryMetadataSnapshot CreateCustomFolderParentDirectoryMetadataSnapshot(
         IReadOnlyCollection<Lr2FolderFileSyncItem> items,
         IReadOnlyCollection<string> directoryRowGenerationScopeDirectories,
         IReadOnlyCollection<string> metadataSourceDirectories,
@@ -3487,7 +3492,7 @@ public partial class BMSPlaylist : NotificationObject
                 .Where(directory => !string.IsNullOrWhiteSpace(directory))
                 .Distinct(StringComparer.OrdinalIgnoreCase)];
             IReadOnlyDictionary<string, RootFileEnumerationEntry> groupedDirectoryEntries =
-                Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(groupedSourceDirectories, missingTargets);
+                Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(groupedSourceDirectories, missingTargets, everythingNative);
             AddDirectoryEntries(directoryEntries, groupedDirectoryEntries, targetSet);
         }
 

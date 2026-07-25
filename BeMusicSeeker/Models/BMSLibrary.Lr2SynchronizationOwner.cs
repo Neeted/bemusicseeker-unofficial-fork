@@ -400,7 +400,7 @@ public partial class BMSLibrary
             return Lr2FolderFileDiscoveryService.CreateBuiltinCustomFolderPruneDirectories();
         }
 
-        private static Lr2FolderFileCandidateSnapshot CreateLr2SongDbSyncLr2FolderFileCandidates(
+        private Lr2FolderFileCandidateSnapshot CreateLr2SongDbSyncLr2FolderFileCandidates(
             IEnumerable<string> rootDirectories,
             string lr2RootPath,
             Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
@@ -411,6 +411,7 @@ public partial class BMSLibrary
                 lr2RootPath,
                 builtinCustomFolderSettings,
                 BMSLibrary.LogEverythingScan,
+                library.everythingNative,
                 excludedDirectories);
         }
 
@@ -432,7 +433,7 @@ public partial class BMSLibrary
             return elapsedMs;
         }
 
-        private static void PrepareLr2FolderParentDirectoryEntrySurface(Lr2SongDbSyncRequest request)
+        private void PrepareLr2FolderParentDirectoryEntrySurface(Lr2SongDbSyncRequest request)
         {
             if (request == null)
             {
@@ -458,7 +459,8 @@ public partial class BMSLibrary
             IReadOnlyDictionary<string, RootFileEnumerationEntry> parentDirectoryEntries = CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
                 request.DirectoryEntries,
                 request.Lr2FolderDiscoveryDirectories,
-                parentDirectoryTargets);
+                parentDirectoryTargets,
+                library.everythingNative);
             long entryMs = RestartElapsed(stopwatchStage);
             request.DirectoryEntries = MergeMissingLr2DirectoryEntrySurface(
                 request.DirectoryEntries,
@@ -473,7 +475,7 @@ public partial class BMSLibrary
                 + " totalMs=" + stopwatch.ElapsedMilliseconds);
         }
 
-        private static Lr2TextMetadataCandidateSnapshot CreateLr2PreparedTextMetadataCandidates(
+        private Lr2TextMetadataCandidateSnapshot CreateLr2PreparedTextMetadataCandidates(
             IEnumerable<string> rootDirectories,
             IEnumerable<string> targetDirectories)
         {
@@ -485,7 +487,7 @@ public partial class BMSLibrary
                     []);
             }
 
-            return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories);
+            return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories, library.everythingNative);
         }
 
         private static void ApplyLr2TextMetadataCandidatesToRequest(
@@ -1631,7 +1633,8 @@ public partial class BMSLibrary
                 CreateLr2SongDbSyncPreparedSurfaceSelection(scanSurfaceSelection.Surface);
             var inputBuilder = new Lr2SongDbSyncInputBuilder(
                 BMSLibrary.LogEverythingScan,
-                BMSLibrary.LogInstallPerformance);
+                BMSLibrary.LogInstallPerformance,
+                library.everythingNative);
 
             var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
             Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();

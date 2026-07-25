@@ -33,14 +33,16 @@ internal static class Lr2FolderInfoCandidateEnumerationService
 {
     internal static Lr2FolderInfoCandidateSnapshot CreateSnapshot(
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
+        IEnumerable<string> targetDirectories,
+        EverythingNative everythingNative)
     {
-        return CreateTextMetadataSnapshot(rootDirectories, targetDirectories).FolderInfoCandidates;
+        return CreateTextMetadataSnapshot(rootDirectories, targetDirectories, everythingNative).FolderInfoCandidates;
     }
 
     internal static Lr2TextMetadataCandidateSnapshot CreateTextMetadataSnapshot(
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
+        IEnumerable<string> targetDirectories,
+        EverythingNative everythingNative)
     {
         HashSet<string> targetSet = new((targetDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
@@ -60,7 +62,7 @@ internal static class Lr2FolderInfoCandidateEnumerationService
         }
 
         RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions)];
-        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups);
+        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups, everythingNative);
         if (!result.Success)
         {
             throw new InvalidOperationException("folderinfo grouped enumeration failed: " + (result.ErrorReason ?? "unknown"));

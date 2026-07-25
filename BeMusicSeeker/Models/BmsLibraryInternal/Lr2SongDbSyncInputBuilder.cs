@@ -8,8 +8,11 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class Lr2SongDbSyncInputBuilder(
     Action<string> logLr2FolderScan,
-    Action<string> logInstallPerformance)
+    Action<string> logInstallPerformance,
+    EverythingNative everythingNative)
 {
+    private readonly EverythingNative native = everythingNative
+        ?? throw new ArgumentNullException(nameof(everythingNative));
     public Lr2SongDbSyncInput Create(
         Lr2SongDbSyncInputRowSnapshot rowSnapshot,
         Lr2SongDbSyncInputRootSnapshot rootSnapshot,
@@ -53,7 +56,8 @@ internal sealed class Lr2SongDbSyncInputBuilder(
                 scanSurface,
                 rootSnapshot.Lr2FolderDiscoveryDirectories,
                 directoryEntryTargets,
-                preparedSurfaceSelection);
+                preparedSurfaceSelection,
+                native);
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates = folderInfoCandidateSelection.Candidates;
         Lr2TextMetadataCandidateSnapshot textMetadataCandidates = folderInfoCandidateSelection.TextMetadataCandidates;
         folderInfoCandidatesStopwatch.Stop();
@@ -63,7 +67,8 @@ internal sealed class Lr2SongDbSyncInputBuilder(
                 scanSurface,
                 rootSnapshot.Lr2FolderDiscoveryDirectories,
                 directoryEntryTargets,
-                preparedSurfaceSelection);
+                preparedSurfaceSelection,
+                native);
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = directoryEntrySelection.Entries;
         directoryEntriesStopwatch.Stop();
         var textFileDirsStopwatch = Stopwatch.StartNew();
@@ -194,6 +199,7 @@ internal sealed class Lr2SongDbSyncInputBuilder(
                     rootSnapshot.Lr2RootPath,
                     settingsSnapshot.Lr2BuiltinCustomFolderSettings,
                     logLr2FolderScan,
+                    native,
                     appManagedOutputScope.Directories);
                 candidates =
                     Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
@@ -283,7 +289,8 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
         IEnumerable<string> lr2FolderDiscoveryDirectories,
         IReadOnlyCollection<string> directoryEntryTargets,
-        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
+        EverythingNative everythingNative)
     {
         Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
         bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
@@ -298,7 +305,7 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         }
         else
         {
-            textMetadataCandidates = CreateLr2SongDbSyncTextMetadataCandidates(lr2FolderDiscoveryDirectories, directoryEntryTargets);
+            textMetadataCandidates = CreateLr2SongDbSyncTextMetadataCandidates(lr2FolderDiscoveryDirectories, directoryEntryTargets, everythingNative);
             folderInfoCandidates = textMetadataCandidates.FolderInfoCandidates;
         }
         if (hasPreparedSurface && preparedSurface.FolderInfoFilePaths.Count > 0)
@@ -325,7 +332,8 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
         IEnumerable<string> lr2FolderDiscoveryDirectories,
         IReadOnlyCollection<string> directoryEntryTargets,
-        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
+        EverythingNative everythingNative)
     {
         Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
@@ -334,11 +342,13 @@ internal sealed class Lr2SongDbSyncInputBuilder(
                     MergeMissingLr2DirectoryEntrySurface(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
                     preparedSurface.DirectoryEntries),
                 lr2FolderDiscoveryDirectories,
-                directoryEntryTargets)
+                directoryEntryTargets,
+                everythingNative)
             : OverlayLr2DirectoryEntrySurface(
                 CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(
                     lr2FolderDiscoveryDirectories,
-                    directoryEntryTargets),
+                    directoryEntryTargets,
+                    everythingNative),
                 preparedSurface.DirectoryEntries);
 
         return new Lr2SongDbSyncDirectoryEntrySelection(

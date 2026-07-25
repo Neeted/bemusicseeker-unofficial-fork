@@ -25,18 +25,22 @@ internal sealed class Lr2FolderFileDiffOwner
 
     private readonly BMSLibrary.Lr2SynchronizationOwner lr2Synchronization;
 
+    private readonly EverythingNative everythingNative;
+
     internal Lr2FolderFileDiffOwner(
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         Func<Exception, string> getDisplayedExceptionMessage,
         Action<string> logEverythingScan,
-        BMSLibrary.Lr2SynchronizationOwner lr2Synchronization)
+        BMSLibrary.Lr2SynchronizationOwner lr2Synchronization,
+        EverythingNative everythingNative)
     {
         this.logInstallPerformance = logInstallPerformance ?? throw new ArgumentNullException(nameof(logInstallPerformance));
         this.logInstallPerformanceWarn = logInstallPerformanceWarn ?? throw new ArgumentNullException(nameof(logInstallPerformanceWarn));
         this.getDisplayedExceptionMessage = getDisplayedExceptionMessage ?? throw new ArgumentNullException(nameof(getDisplayedExceptionMessage));
         this.logEverythingScan = logEverythingScan ?? throw new ArgumentNullException(nameof(logEverythingScan));
         this.lr2Synchronization = lr2Synchronization ?? throw new ArgumentNullException(nameof(lr2Synchronization));
+        this.everythingNative = everythingNative ?? throw new ArgumentNullException(nameof(everythingNative));
     }
 
     internal bool CanPrepare(
@@ -190,6 +194,7 @@ internal sealed class Lr2FolderFileDiffOwner
                     currentSettings.LR2RootPath,
                     lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
                     logEverythingScan,
+                    everythingNative,
                     appManagedOutputScope.Directories);
             }
             else
@@ -300,7 +305,8 @@ internal sealed class Lr2FolderFileDiffOwner
         IReadOnlyDictionary<string, RootFileEnumerationEntry> parentDirectoryEntries = CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
             request.DirectoryEntries,
             request.Lr2FolderDiscoveryDirectories,
-            parentDirectoryTargets);
+            parentDirectoryTargets,
+            everythingNative);
         long entryMs = RestartElapsed(stopwatchStage);
         request.DirectoryEntries = MergeMissingLr2DirectoryEntrySurface(
             request.DirectoryEntries,
@@ -315,7 +321,7 @@ internal sealed class Lr2FolderFileDiffOwner
             + " totalMs=" + stopwatch.ElapsedMilliseconds);
     }
 
-    private static Lr2TextMetadataCandidateSnapshot CreateLr2PreparedTextMetadataCandidates(
+    private Lr2TextMetadataCandidateSnapshot CreateLr2PreparedTextMetadataCandidates(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories)
     {
@@ -327,7 +333,7 @@ internal sealed class Lr2FolderFileDiffOwner
                 []);
         }
 
-        return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories);
+        return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories, everythingNative);
     }
 
     private static void ApplyLr2SyncRequestSurfaceToFileCheckResult(

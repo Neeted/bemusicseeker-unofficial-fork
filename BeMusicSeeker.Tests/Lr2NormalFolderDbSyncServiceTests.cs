@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -557,7 +558,8 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
 
             IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(
                 [rootDirectory],
-                [rootDirectory, packDirectory, outsideDirectory]);
+                [rootDirectory, packDirectory, outsideDirectory],
+                new EverythingNative(ApplicationPathPolicy.Current));
 
             Assert.AreEqual(2, entries.Count);
             Assert.IsTrue(entries.TryGetValue(Normalize(rootDirectory), out RootFileEnumerationEntry rootEntry));
@@ -597,7 +599,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             }
 
             IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
-                Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration([rootDirectory], targets);
+                Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(
+                    [rootDirectory],
+                    targets,
+                    new EverythingNative(ApplicationPathPolicy.Current));
 
             Assert.AreEqual(1, entries.Count);
             Assert.IsTrue(entries.TryGetValue(Normalize(existingDirectory), out RootFileEnumerationEntry entry));

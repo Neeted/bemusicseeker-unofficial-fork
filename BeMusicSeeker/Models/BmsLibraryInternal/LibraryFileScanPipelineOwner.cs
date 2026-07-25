@@ -87,6 +87,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly BmsLibraryInitializationService initializationService;
 
+    private readonly EverythingNative everythingNative;
+
     private readonly object fileScanGate = new();
 
     private ActiveFileScan activeFileScan;
@@ -116,7 +118,8 @@ internal sealed class LibraryFileScanPipelineOwner
         Action<FileScanCatalogReplacementEvent> publishCatalogReplacement,
         Action<FileScanCatalogReplacementFailureEvent> publishCatalogReplacementFailure,
         Action<FileScanCatalogResidualEvent> publishCatalogResidual,
-        BmsLibraryInitializationService initializationService)
+        BmsLibraryInitializationService initializationService,
+        EverythingNative everythingNative)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.catalogStorageRowsOwner = catalogStorageRowsOwner ?? throw new ArgumentNullException(nameof(catalogStorageRowsOwner));
@@ -145,8 +148,10 @@ internal sealed class LibraryFileScanPipelineOwner
             logInstallPerformanceWarn,
             getDisplayedExceptionMessage,
             logEverythingScan,
-            lr2Synchronization);
+            lr2Synchronization,
+            everythingNative);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
+        this.everythingNative = everythingNative ?? throw new ArgumentNullException(nameof(everythingNative));
     }
 
     internal long BeginFileScanRequest(
@@ -404,7 +409,7 @@ internal sealed class LibraryFileScanPipelineOwner
         Func<bool> isActive,
         Action<string> queueFallbackWarning)
     {
-        IChartFileScanner scanner = new EverythingFileScanner();
+        IChartFileScanner scanner = new EverythingFileScanner(everythingNative);
         void ReportScanner(string label)
         {
             if (isActive())
@@ -606,6 +611,7 @@ internal sealed class LibraryFileScanPipelineOwner
         CatalogStorageRowsSnapshot storageRowsSnapshot = catalogStorageRowsOwner.CaptureSnapshot();
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
             dbGateway,
+            everythingNative,
             options,
             storageRowsSnapshot.BmsRows,
             resolvedChartScanPrefetchInfo.ScanResult,

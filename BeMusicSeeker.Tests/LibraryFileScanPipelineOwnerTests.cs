@@ -612,7 +612,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
             callbacks.PublishCatalogReplacement,
             callbacks.PublishCatalogReplacementFailure,
             callbacks.PublishCatalogResidual,
-            new BmsLibraryInitializationService());
+            new BmsLibraryInitializationService(),
+            new EverythingNative(ApplicationPathPolicy.Current));
     }
 
     private sealed class RecordingLibraryFileScanPipelineCallbacks
