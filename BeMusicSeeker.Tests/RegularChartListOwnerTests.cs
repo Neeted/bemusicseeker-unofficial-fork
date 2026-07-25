@@ -375,6 +375,242 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void StopAsync_DrainsInFlightFolderRename()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string libraryRoot = Path.GetDirectoryName(songDbPath)!;
+            string sourceDirectory = Path.Combine(libraryRoot, "rename-source");
+            string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+            Directory.CreateDirectory(sourceDirectory);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE shutdown\r\n");
+            var file = CreateTestableBmsFile(chartPath);
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [file]
+            };
+            ChartFile chart = ChartFileProjection.FromBmsFile(file);
+            var target = new ChartOperationTarget(
+                chart,
+                playlistEntry: null,
+                ChartOperationSourceScope.Library,
+                isOwned: true,
+                isPending: false,
+                isPlaylistMissing: false,
+                ChartOperationCapabilities.MoveInLibrary);
+            Assert.IsTrue(RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request));
+
+            int dispatchCount = 0;
+            using RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(),
+                CreateWorkspaceForOwner(),
+                action =>
+                {
+                    Interlocked.Increment(ref dispatchCount);
+                    action();
+                });
+            owner.AttachNormalLibraryRefreshSource(library);
+            Volatile.Write(ref dispatchCount, 0);
+            using var suppressionEntered = new ManualResetEventSlim();
+            using var releaseSuppression = new ManualResetEventSlim();
+            owner.RefreshSuppressionChanged += (_, args) =>
+            {
+                if (!args.IsSuppressed)
+                {
+                    suppressionEntered.Set();
+                    releaseSuppression.Wait(TimeSpan.FromSeconds(10));
+                }
+            };
+
+            owner.RenameChartFolderAsync(request, "rename-destination");
+            Assert.IsTrue(suppressionEntered.Wait(TimeSpan.FromSeconds(10)));
+
+            using var stopStarted = new ManualResetEventSlim();
+            Task stopTask = Task.Run(async delegate
+            {
+                stopStarted.Set();
+                await owner.StopAsync();
+            });
+            Assert.IsTrue(stopStarted.Wait(TimeSpan.FromSeconds(10)));
+            Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
+
+            releaseSuppression.Set();
+            stopTask.GetAwaiter().GetResult();
+            Assert.IsFalse(Directory.Exists(sourceDirectory));
+            Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "rename-destination")));
+            Assert.AreEqual(1, Volatile.Read(ref dispatchCount), "The mutation notification must dispatch once after the gate is released.");
+        });
+    }
+
+    [TestMethod]
+    public void FolderRenames_SerializeTerminalApplyBeforeNextMutation()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string libraryRoot = Path.GetDirectoryName(songDbPath)!;
+            string firstSourceDirectory = Path.Combine(libraryRoot, "first-source");
+            string secondSourceDirectory = Path.Combine(libraryRoot, "second-source");
+            Directory.CreateDirectory(firstSourceDirectory);
+            Directory.CreateDirectory(secondSourceDirectory);
+            string firstChartPath = Path.Combine(firstSourceDirectory, "first.bms");
+            string secondChartPath = Path.Combine(secondSourceDirectory, "second.bms");
+            File.WriteAllText(firstChartPath, "#PLAYER 1\r\n#TITLE first\r\n");
+            File.WriteAllText(secondChartPath, "#PLAYER 1\r\n#TITLE second\r\n");
+            var firstFile = CreateTestableBmsFile(firstChartPath);
+            var secondFile = CreateTestableBmsFile(secondChartPath);
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [firstFile, secondFile]
+            };
+            RenameChartFolderRequest firstRequest = CreateRenameRequest(firstFile);
+            RenameChartFolderRequest secondRequest = CreateRenameRequest(secondFile);
+            var pendingActions = new Queue<Action>();
+            using var firstApplyQueued = new ManualResetEventSlim();
+            using var secondApplyQueued = new ManualResetEventSlim();
+            int schedulerCalls = 0;
+            Func<Action, Task> terminalApplyScheduler = action =>
+            {
+                int call = Interlocked.Increment(ref schedulerCalls);
+                if (call == 1)
+                {
+                    action();
+                    return Task.CompletedTask;
+                }
+
+                var completion = new TaskCompletionSource<object>();
+                lock (pendingActions)
+                {
+                    pendingActions.Enqueue(() =>
+                    {
+                        try
+                        {
+                            action();
+                            completion.SetResult(new object());
+                        }
+                        catch (Exception exception)
+                        {
+                            completion.SetException(exception);
+                        }
+                    });
+                    if (call == 2)
+                    {
+                        firstApplyQueued.Set();
+                    }
+                    else
+                    {
+                        secondApplyQueued.Set();
+                    }
+                }
+                return completion.Task;
+            };
+            using RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(),
+                CreateWorkspaceForOwner(),
+                action => action(),
+                terminalApplyScheduler);
+            owner.AttachNormalLibraryRefreshSource(library);
+
+            owner.RenameChartFolderAsync(firstRequest, "first-destination");
+            Assert.IsTrue(firstApplyQueued.Wait(TimeSpan.FromSeconds(10)));
+            owner.RenameChartFolderAsync(secondRequest, "second-destination");
+
+            Thread.Sleep(250);
+            Assert.IsTrue(Directory.Exists(secondSourceDirectory));
+            Assert.IsFalse(Directory.Exists(Path.Combine(libraryRoot, "second-destination")));
+
+            Action firstApply;
+            lock (pendingActions)
+            {
+                Assert.AreEqual(1, pendingActions.Count);
+                firstApply = pendingActions.Dequeue();
+            }
+            firstApply();
+            Assert.IsTrue(secondApplyQueued.Wait(TimeSpan.FromSeconds(10)));
+            Action secondApply;
+            lock (pendingActions)
+            {
+                Assert.AreEqual(1, pendingActions.Count);
+                secondApply = pendingActions.Dequeue();
+            }
+            secondApply();
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => Directory.Exists(Path.Combine(libraryRoot, "second-destination")),
+                10000));
+            owner.StopAsync().GetAwaiter().GetResult();
+        });
+    }
+
+    [TestMethod]
+    public void FolderRename_WaitsForAsynchronousTerminalApply()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string libraryRoot = Path.GetDirectoryName(songDbPath)!;
+            string sourceDirectory = Path.Combine(libraryRoot, "queued-source");
+            string chartPath = Path.Combine(sourceDirectory, "queued.bms");
+            Directory.CreateDirectory(sourceDirectory);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE queued\r\n");
+            var file = CreateTestableBmsFile(chartPath);
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [file]
+            };
+            RenameChartFolderRequest request = CreateRenameRequest(file);
+            var pendingActions = new Queue<Action>();
+            using var terminalApplyQueued = new ManualResetEventSlim();
+            int schedulerCalls = 0;
+            Func<Action, Task> terminalApplyScheduler = action =>
+            {
+                if (Interlocked.Increment(ref schedulerCalls) == 1)
+                {
+                    action();
+                    return Task.CompletedTask;
+                }
+
+                var completion = new TaskCompletionSource<object>();
+                lock (pendingActions)
+                {
+                    pendingActions.Enqueue(() =>
+                    {
+                        try
+                        {
+                            action();
+                            completion.SetResult(new object());
+                        }
+                        catch (Exception exception)
+                        {
+                            completion.SetException(exception);
+                        }
+                    });
+                }
+                terminalApplyQueued.Set();
+                return completion.Task;
+            };
+            using RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(),
+                CreateWorkspaceForOwner(),
+                action => action(),
+                terminalApplyScheduler);
+            owner.AttachNormalLibraryRefreshSource(library);
+
+            owner.RenameChartFolderAsync(request, "queued-destination");
+            Assert.IsTrue(terminalApplyQueued.Wait(TimeSpan.FromSeconds(10)));
+            Task stopTask = owner.StopAsync();
+            Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
+
+            Action pendingAction;
+            lock (pendingActions)
+            {
+                Assert.AreEqual(1, pendingActions.Count);
+                pendingAction = pendingActions.Dequeue();
+            }
+            pendingAction();
+            stopTask.GetAwaiter().GetResult();
+            Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "queued-destination")));
+        });
+    }
+
+    [TestMethod]
     public void AttachedNormalLibraryRefreshSource_InvalidatesMaintenanceDependency()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -540,7 +776,11 @@ public sealed class RegularChartListOwnerTests
             logs.Add,
             action => action(),
             logs.Add,
-            CreatePendingPackageWorkflowOwner());
+            CreatePendingPackageWorkflowOwner(),
+            new ChartFileOperationSynchronizer(),
+            new ChartMutationActivityOwner(),
+            new NoOpFolderAutoRenamePlaybackPort(),
+            action => Task.CompletedTask);
         int? sourceClearVersionAtRowsNotification = null;
         bool? detailActiveAtRowsNotification = null;
         bool? asyncBindingAtRowsNotification = null;
@@ -2319,7 +2559,11 @@ public sealed class RegularChartListOwnerTests
                 uiActionQueued.Set();
             },
             _ => { },
-            CreatePendingPackageWorkflowOwner());
+            CreatePendingPackageWorkflowOwner(),
+            new ChartFileOperationSynchronizer(),
+            new ChartMutationActivityOwner(),
+            new NoOpFolderAutoRenamePlaybackPort(),
+            action => Task.CompletedTask);
         RegularChartListRequestLease lease = owner.BeginRequest();
         var rows = new List<object> { new(), new() };
         Assert.IsTrue(owner.TryCommitVirtual(lease, CreateVirtualTerminalInput(rows)).WasCommitted);
@@ -2387,7 +2631,11 @@ public sealed class RegularChartListOwnerTests
                 uiActionQueued.Set();
             },
             _ => { },
-            CreatePendingPackageWorkflowOwner());
+            CreatePendingPackageWorkflowOwner(),
+            new ChartFileOperationSynchronizer(),
+            new ChartMutationActivityOwner(),
+            new NoOpFolderAutoRenamePlaybackPort(),
+            action => Task.CompletedTask);
         RegularChartListRequestLease staleLease = owner.BeginRequest();
         var staleRows = new List<object> { new(), new() };
         Assert.IsTrue(owner.TryCommitVirtual(staleLease, CreateVirtualTerminalInput(staleRows)).WasCommitted);
@@ -3485,7 +3733,8 @@ public sealed class RegularChartListOwnerTests
     private static RegularChartListOwner CreateOwner(
         MainChartListViewModel table,
         PlaylistWorkspaceViewModel workspace,
-        Action<Action> dispatchToUi)
+        Action<Action> dispatchToUi,
+        Func<Action, Task>? terminalApplyToUiAsync = null)
     {
         return new RegularChartListOwner(
             table,
@@ -3493,7 +3742,15 @@ public sealed class RegularChartListOwnerTests
             _ => { },
             dispatchToUi,
             _ => { },
-            CreatePendingPackageWorkflowOwner());
+            CreatePendingPackageWorkflowOwner(),
+            new ChartFileOperationSynchronizer(),
+            new ChartMutationActivityOwner(),
+            new NoOpFolderAutoRenamePlaybackPort(),
+            terminalApplyToUiAsync ?? (action =>
+            {
+                dispatchToUi(action);
+                return Task.CompletedTask;
+            }));
     }
 
     private static PendingPackageWorkflowOwner CreatePendingPackageWorkflowOwner()
@@ -3557,6 +3814,21 @@ public sealed class RegularChartListOwnerTests
         return file;
     }
 
+    private static RenameChartFolderRequest CreateRenameRequest(BMSFile file)
+    {
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        var target = new ChartOperationTarget(
+            chart,
+            playlistEntry: null,
+            ChartOperationSourceScope.Library,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            ChartOperationCapabilities.MoveInLibrary);
+        Assert.IsTrue(RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request));
+        return request;
+    }
+
     private static void WithTemporarySongDb(Action<string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RegularOwner_" + Guid.NewGuid().ToString("N"));
@@ -3579,6 +3851,17 @@ public sealed class RegularChartListOwnerTests
             {
                 Directory.Delete(tempRootPath, recursive: true);
             }
+        }
+    }
+
+    private sealed class NoOpFolderAutoRenamePlaybackPort : IFolderAutoRenamePlaybackPort
+    {
+        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
+        {
+        }
+
+        public void StopPlaybackForFolderMutation()
+        {
         }
     }
 

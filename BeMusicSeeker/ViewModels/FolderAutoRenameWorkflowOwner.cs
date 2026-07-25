@@ -375,11 +375,15 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 try
                 {
                     hasTargets = false;
-                    ExecuteMutation(
-                        run.Library,
+                    if (!ExecuteMutation(
+                        run,
                         stopPlayback: null,
                         mutation: () => hasTargets = mutationPort.HasTargets(run.Library, run.ParentDirectory),
-                        refreshSuppression: false);
+                        refreshSuppression: false))
+                    {
+                        CompleteStale(run);
+                        return;
+                    }
                 }
                 catch (Exception exception)
                 {
@@ -410,20 +414,28 @@ internal sealed class FolderAutoRenameWorkflowOwner
             if (run.AllFolders)
             {
                 bool changed = false;
-                ExecuteMutation(
-                    run.Library,
+                if (!ExecuteMutation(
+                    run,
                     playback.StopPlaybackForFolderMutation,
                     () => changed = mutationPort.RenameAll(run.Library, run.ParentDirectory, progressReporter),
-                    refreshSuppression: true);
+                    refreshSuppression: true))
+                {
+                    CompleteStale(run);
+                    return;
+                }
                 result = new FolderAutoRenameExecutionResult { RefreshRequired = changed };
             }
             else
             {
-                ExecuteMutation(
-                    run.Library,
+                if (!ExecuteMutation(
+                    run,
                     () => playback.StopPlaybackForCharts(run.SelectedRequest.Charts),
                     () => result = mutationPort.RenameSelected(run.Library, run.SelectedRequest, progressReporter),
-                    refreshSuppression: true);
+                    refreshSuppression: true))
+                {
+                    CompleteStale(run);
+                    return;
+                }
             }
             if (result == null)
             {
@@ -439,29 +451,38 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
     }
 
-    private void ExecuteMutation(
-        BMSLibrary library,
+    private bool ExecuteMutation(
+        RunContext run,
         Action stopPlayback,
         Action mutation,
         bool refreshSuppression)
     {
+        BMSLibrary library = run.Library;
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         IDisposable operationGate = null;
         bool suppressionStarted = false;
+        bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
             dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
             operationGate = chartFileOperations.Enter();
-            stopPlayback?.Invoke();
-            suppressionStarted = refreshSuppression;
-            if (suppressionStarted)
+            if (!IsCurrentGeneration(run))
             {
-                PublishRefreshSuppressionChanged(isSuppressed: true);
+                mutationAllowed = false;
             }
-            mutation();
+            else
+            {
+                stopPlayback?.Invoke();
+                suppressionStarted = refreshSuppression;
+                if (suppressionStarted)
+                {
+                    PublishRefreshSuppressionChanged(isSuppressed: true);
+                }
+                mutation();
+            }
         }
         catch (Exception exception)
         {
@@ -490,10 +511,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
         switch (failures.Count)
         {
             case 0:
-                return;
+                return mutationAllowed;
             case 1:
                 failures[0].Throw();
-                return;
+                return false;
             default:
                 throw new AggregateException(failures.Select(failure => failure.SourceException));
         }

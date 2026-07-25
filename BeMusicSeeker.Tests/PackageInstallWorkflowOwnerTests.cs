@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -12,6 +13,25 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PackageInstallWorkflowOwnerTests
 {
+    [TestMethod]
+    public void EnqueueBeforeLibraryAttach_ReportsDiagnosticFailure()
+    {
+        int diagnosticReports = 0;
+        var owner = CreateOwner(
+            (library, paths, token, onPath, onArchive) => throw new InvalidOperationException("library was not attached"),
+            action =>
+            {
+                action();
+                return true;
+            },
+            _ => Interlocked.Increment(ref diagnosticReports));
+
+        owner.Enqueue(["before-attach.zip"]);
+
+        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+        Assert.AreEqual(1, diagnosticReports);
+    }
+
     [TestMethod]
     public void Enqueue_PublishesCompletionAfterLiveInstallReturnsAndContinuesAfterFailure()
     {
@@ -47,7 +67,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                     secondFinished.Set();
                     return [new ChartPackage()];
                 },
-                action => action());
+                action =>
+                {
+                    action();
+                    return true;
+                });
             owner.StatusChanged += snapshot =>
             {
                 if (!snapshot.IsActive)
@@ -125,7 +149,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                     release.Wait(5000);
                     return [new ChartPackage()];
                 },
-                action => action());
+                action =>
+                {
+                    action();
+                    return true;
+                });
             owner.CompletionPublished += _ => completion.Set();
             owner.AttachLibrary(first);
             owner.Enqueue([Path.Combine(root, "first.zip")]);
@@ -135,6 +163,296 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000), "The stale workflow did not drain.");
             Assert.IsFalse(completion.IsSet, "A replaced library generation must not publish a receipt.");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void AttachLibrary_RechecksGenerationBeforeMutationAfterGateWait()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string firstDirectory = Path.Combine(root, "first");
+        string secondDirectory = Path.Combine(root, "second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        string firstDb = Path.Combine(firstDirectory, "song.db");
+        string secondDb = Path.Combine(secondDirectory, "song.db");
+        File.WriteAllBytes(firstDb, []);
+        File.WriteAllBytes(secondDb, []);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
+            {
+            }
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(secondDb))
+            {
+            }
+            var first = new BMSLibrary(firstDb, null, null, string.Empty);
+            var second = new BMSLibrary(secondDb, null, null, string.Empty);
+            var chartFileOperations = new ChartFileOperationSynchronizer();
+            var chartMutationActivity = new ChartMutationActivityOwner();
+            int mutationCalls = 0;
+            int staleFailureReports = 0;
+            int throwOnInactive = 0;
+            chartMutationActivity.ActivityChanged += (_, _) =>
+            {
+                if (Volatile.Read(ref throwOnInactive) != 0 && !chartMutationActivity.IsActive)
+                {
+                    throw new InvalidOperationException("stale cleanup failed");
+                }
+            };
+            var owner = new PackageInstallWorkflowOwner(
+                chartFileOperations,
+                chartMutationActivity,
+                new DelegatePackageInstallMutationPort(
+                    (library, paths, token, onPath, onArchive) =>
+                    {
+                        Interlocked.Increment(ref mutationCalls);
+                        return [new ChartPackage()];
+                    }),
+                action =>
+                {
+                    Task.Run(action);
+                    return true;
+                },
+                _ => Interlocked.Increment(ref staleFailureReports));
+            owner.AttachLibrary(first);
+
+            using (chartFileOperations.Enter())
+            {
+                owner.Enqueue([Path.Combine(root, "first-generation.zip")]);
+                Assert.IsTrue(SpinWait.SpinUntil(() => chartMutationActivity.IsActive, 5000));
+                Volatile.Write(ref throwOnInactive, 1);
+                owner.AttachLibrary(second);
+            }
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            Assert.AreEqual(0, mutationCalls);
+            Assert.AreEqual(1, staleFailureReports);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void DelayedFailurePublication_ReportsDiagnosticsAfterGenerationChanges()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string firstDirectory = Path.Combine(root, "first");
+        string secondDirectory = Path.Combine(root, "second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        string firstDb = Path.Combine(firstDirectory, "song.db");
+        string secondDb = Path.Combine(secondDirectory, "song.db");
+        File.WriteAllBytes(firstDb, []);
+        File.WriteAllBytes(secondDb, []);
+        var notifications = new Queue<Action>();
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
+            {
+            }
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(secondDb))
+            {
+            }
+            var first = new BMSLibrary(firstDb, null, null, string.Empty);
+            var second = new BMSLibrary(secondDb, null, null, string.Empty);
+            int failurePublished = 0;
+            int diagnosticReports = 0;
+            var owner = new PackageInstallWorkflowOwner(
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort(
+                    (library, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed")),
+                action =>
+                {
+                    lock (notifications)
+                    {
+                        notifications.Enqueue(action);
+                    }
+                    return true;
+                },
+                _ => Interlocked.Increment(ref diagnosticReports));
+            owner.FailurePublished += _ => Interlocked.Increment(ref failurePublished);
+            owner.AttachLibrary(first);
+            owner.Enqueue([Path.Combine(root, "failed-generation.zip")]);
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            Assert.IsTrue(SpinWait.SpinUntil(() =>
+            {
+                lock (notifications)
+                {
+                    return notifications.Count > 0;
+                }
+            }, 5000));
+            owner.AttachLibrary(second);
+            DrainNotifications(notifications);
+
+            Assert.AreEqual(0, failurePublished);
+            Assert.AreEqual(1, diagnosticReports);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void DispatcherRejection_ReportsOriginalInstallFailure()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var diagnosticReports = new List<Exception>();
+            var owner = new PackageInstallWorkflowOwner(
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort(
+                    (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed")),
+                _ => false,
+                exception =>
+                {
+                    lock (diagnosticReports)
+                    {
+                        diagnosticReports.Add(exception);
+                    }
+                });
+            owner.AttachLibrary(library);
+            owner.Enqueue([Path.Combine(root, "dispatcher-rejected.zip")]);
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            lock (diagnosticReports)
+            {
+                Assert.IsTrue(
+                    diagnosticReports.Any(exception => exception?.Message == "install failed"),
+                    "The original install exception must be reported when UI dispatch is rejected.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void DispatcherException_ReportsOriginalInstallFailure()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var diagnosticReports = new List<Exception>();
+            var owner = new PackageInstallWorkflowOwner(
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort(
+                    (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed")),
+                _ => throw new InvalidOperationException("dispatcher failed"),
+                exception =>
+                {
+                    lock (diagnosticReports)
+                    {
+                        diagnosticReports.Add(exception);
+                    }
+                });
+            owner.AttachLibrary(library);
+            owner.Enqueue([Path.Combine(root, "dispatcher-threw.zip")]);
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            lock (diagnosticReports)
+            {
+                Assert.IsTrue(
+                    diagnosticReports.Any(exception => exception?.Message == "install failed"),
+                    "The original install exception must be reported when UI dispatch throws.");
+                Assert.IsTrue(
+                    diagnosticReports.Any(exception => exception?.Message == "dispatcher failed"),
+                    "The dispatcher exception must remain observable alongside the install failure.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void FailureNotificationException_ReportsInstallAndNotificationFailures()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new BMSLibrary(songDbPath, null, null, string.Empty);
+            var diagnosticReports = new List<Exception>();
+            var owner = CreateOwner(
+                (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed"),
+                action =>
+                {
+                    action();
+                    return true;
+                },
+                exception =>
+                {
+                    lock (diagnosticReports)
+                    {
+                        diagnosticReports.Add(exception);
+                    }
+                });
+            owner.FailurePublished += _ => throw new InvalidOperationException("failure notification failed");
+            owner.AttachLibrary(library);
+            owner.Enqueue([Path.Combine(root, "notification-failed.zip")]);
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            lock (diagnosticReports)
+            {
+                Assert.IsTrue(diagnosticReports.Any(exception => exception?.Message == "install failed"));
+                Assert.IsTrue(diagnosticReports.Any(exception => exception?.Message == "failure notification failed"));
+            }
         }
         finally
         {
@@ -170,7 +488,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                     Assert.IsTrue(token.IsCancellationRequested, "The test must cancel while live apply is in progress.");
                     return [new ChartPackage()];
                 },
-                action => action());
+                action =>
+                {
+                    action();
+                    return true;
+                });
             owner.CompletionPublished += receipt =>
             {
                 Assert.AreEqual(1, receipt.Packages.Count);
@@ -240,7 +562,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                     secondCompleted.Set();
                     return [new ChartPackage()];
                 },
-                action => action());
+                action =>
+                {
+                    action();
+                    return true;
+                });
             owner.CompletionPublished += _ => Interlocked.Increment(ref completions);
             owner.AttachLibrary(first);
             owner.Enqueue([Path.Combine(root, "first-generation.zip")]);
@@ -288,7 +614,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                     Interlocked.Increment(ref mutationCalls);
                     return [new ChartPackage()];
                 },
-                action => action());
+                action =>
+                {
+                    action();
+                    return true;
+                });
             owner.AttachLibrary(library);
             owner.RequestShutdown();
             owner.Enqueue([Path.Combine(root, "after-shutdown.zip")]);
@@ -331,7 +661,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                     }
                     return [new ChartPackage()];
                 },
-                action => action());
+                action =>
+                {
+                    action();
+                    return true;
+                });
             owner.AttachLibrary(library);
             owner.StatusChanged += _ => throw new InvalidOperationException("status publication failed");
             owner.CompletionPublished += _ => throw new InvalidOperationException("completion publication failed");
@@ -353,7 +687,7 @@ public sealed class PackageInstallWorkflowOwnerTests
 
     private static PackageInstallWorkflowOwner CreateOwner(
         Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installBatch,
-        Action<Action> dispatchToUi,
+        Func<Action, bool> dispatchToUi,
         Action<Exception>? reportNotificationFailure = null)
     {
         return new PackageInstallWorkflowOwner(
@@ -362,6 +696,23 @@ public sealed class PackageInstallWorkflowOwnerTests
             new DelegatePackageInstallMutationPort(installBatch),
             dispatchToUi,
             reportNotificationFailure);
+    }
+
+    private static void DrainNotifications(Queue<Action> notifications)
+    {
+        while (true)
+        {
+            Action notification;
+            lock (notifications)
+            {
+                if (notifications.Count == 0)
+                {
+                    return;
+                }
+                notification = notifications.Dequeue();
+            }
+            notification();
+        }
     }
 }
 

@@ -504,7 +504,11 @@ public sealed class ApplicationCompositionTests
             _ =>
             {
             },
-            action => action(),
+            action =>
+            {
+                action();
+                return true;
+            },
             () => null!,
             new TestUiDialogService(),
             duplicateMaintenanceDialogService: new TestUiDialogService(),
@@ -520,7 +524,12 @@ public sealed class ApplicationCompositionTests
              chartInfoParseFailureRemovalLibraryProvider: () => null!,
              lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
              rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner(),
-             startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());
+             startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create(),
+             regularChartListTerminalApplyScheduler: action =>
+             {
+                 action();
+                 return Task.CompletedTask;
+             });
 
         try
         {
@@ -637,7 +646,11 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 action => action(),
                 _ => { },
-                action => action(),
+                action =>
+                {
+                    action();
+                    return true;
+                },
                 () => null!,
                 new TestUiDialogService(),
                 duplicateMaintenanceDialogService: new TestUiDialogService(),
@@ -653,7 +666,12 @@ public sealed class ApplicationCompositionTests
              chartInfoParseFailureRemovalLibraryProvider: () => null!,
                  lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
                  rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner(),
-                 startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());
+                 startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create(),
+                 regularChartListTerminalApplyScheduler: action =>
+                 {
+                     action();
+                     return Task.CompletedTask;
+                 });
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -763,7 +781,11 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 action => action(),
                 _ => { },
-                action => action(),
+                action =>
+                {
+                    action();
+                    return true;
+                },
                 () => null!,
                 new TestUiDialogService(),
                 duplicateMaintenanceDialogService: new TestUiDialogService(),
@@ -779,7 +801,12 @@ public sealed class ApplicationCompositionTests
              chartInfoParseFailureRemovalLibraryProvider: () => null!,
                  lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
                  rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner(),
-                 startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());
+                 startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create(),
+                 regularChartListTerminalApplyScheduler: action =>
+                 {
+                     action();
+                     return Task.CompletedTask;
+                 });
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

@@ -556,10 +556,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private PlayHistoryWorkflowOwner playHistoryWorkflowOwner => PlayHistory;
 
-    private PlayHistoryPresentationState playHistoryPresentationState => playHistoryWorkflowOwner.PresentationState;
-
-
-    private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
+    private readonly object playHistoryViewRequestLock = new();
 
     private readonly RegularChartListOwner regularChartListOwner;
 
@@ -2499,16 +2496,18 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
+        bool isPlayHistorySelected;
         lock (playHistoryViewRequestLock)
         {
-            if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
-            {
-                playHistoryWorkflowOwner.UpdateKeywordIdentity(
-                    NormalizePlaylistKeywordFilter(filters.KeywordFilter),
-                    advanceRevision: true);
-            }
+            isPlayHistorySelected = treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected;
         }
-        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
+        if (isPlayHistorySelected)
+        {
+            playHistoryWorkflowOwner.UpdateKeywordIdentity(
+                NormalizePlaylistKeywordFilter(filters.KeywordFilter),
+                advanceRevision: true);
+        }
+        if (isPlayHistorySelected)
         {
             playHistoryWorkflowOwner.QueueKeywordFilterRefresh(
                 NormalizePlaylistKeywordFilter(filters.KeywordFilter),
@@ -2664,7 +2663,7 @@ public partial class MainWindowViewModel : ViewModel,
             LogMainViewBuild,
             DispatchMainChartListAction,
              LogMainViewBuildWarning,
-             DispatchPackageInstallUi,
+             TryDispatchPackageInstallUi,
              () => files,
              new UiDialogCoordinator(),
             startupProgressWorkflowOwner,
@@ -2703,7 +2702,8 @@ public partial class MainWindowViewModel : ViewModel,
                 chartFileOperations,
                 new UiDialogCoordinator()),
             libraryFolderTreeLog: LogUiSuppression,
-            libraryFolderTreeLogWarning: LogUiSuppressionWarning);
+            libraryFolderTreeLogWarning: LogUiSuppressionWarning,
+            regularChartListTerminalApplyScheduler: ApplyMainChartListPresentationActionAsync);
         ProgressHub = childComposition.ProgressHub;
         ChartMutationActivity = childComposition.ChartMutationActivity;
         ChartMutationActivity.ActivityChanged += ChartMutationActivityChanged;
@@ -3744,8 +3744,8 @@ public partial class MainWindowViewModel : ViewModel,
                 PackageInstallWorkflow.AttachLibrary(files);
                 MaintenanceRescanWorkflow.AttachLibrary(files);
                 FolderAutoRenameWorkflow.AttachLibrary(files);
+                regularChartListOwner.AttachNormalLibraryRefreshSource(files);
             }
-            regularChartListOwner.AttachNormalLibraryRefreshSource(files);
             PlaybackPanel.AttachLibrary(files);
             tables = applicationComposition.CreateBmsPlaylist(
                 libraryProfile,
@@ -4394,9 +4394,15 @@ public partial class MainWindowViewModel : ViewModel,
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         MainViewUpdateMode requestedMode = mode;
         MainViewOperationSection previousOperationSection = MainChartList.CurrentOperationContext.OperationSection;
+        MainViewUpdateMode activeTreeViewFilterMode = MainViewUpdateMode.TreeViewFilterNotChanged;
+        object activeTreeViewFilterParameter = null;
+        bool hasActiveTreeViewFilterSnapshot = false;
         if (mode == MainViewUpdateMode.TreeViewFilterNotChanged)
         {
-            GetTreeViewFilterSelection(out mode, out parameter);
+            GetTreeViewFilterSelection(out activeTreeViewFilterMode, out activeTreeViewFilterParameter);
+            mode = activeTreeViewFilterMode;
+            parameter = activeTreeViewFilterParameter;
+            hasActiveTreeViewFilterSnapshot = true;
         }
         else if (mode == MainViewUpdateMode.PlayHistorySelected)
         {
@@ -4448,13 +4454,24 @@ public partial class MainWindowViewModel : ViewModel,
                 parameter = NormalizeDuplicateViewParameter(parameter);
             }
             SetTreeViewFilterSelection(mode, parameter);
+            activeTreeViewFilterMode = mode;
+            activeTreeViewFilterParameter = IsPlaylistViewMode(mode) ? null : parameter;
+            hasActiveTreeViewFilterSnapshot = true;
             UpdateChartKeywordSearchContext();
         }
         if (previousOperationSection != MainChartList.CurrentOperationContext.OperationSection)
         {
             SyncMainChartListSortPresentation();
         }
-        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(mode, requestedMode, treeViewFilterTypeSelected, files != null);
+        if (!hasActiveTreeViewFilterSnapshot)
+        {
+            GetTreeViewFilterSelection(out activeTreeViewFilterMode, out activeTreeViewFilterParameter);
+        }
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
+            mode,
+            requestedMode,
+            activeTreeViewFilterMode,
+            files != null);
         if (route.Kind == ChartListRefreshRouteKind.MissingFiles)
         {
             return;
@@ -4491,7 +4508,7 @@ public partial class MainWindowViewModel : ViewModel,
             PlaylistWorkspace.RequestDetailRefresh(
                 route.Mode,
                 route.RequestedMode,
-                treeViewFilterTypeSelected,
+                activeTreeViewFilterMode,
                 ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode),
                 CapturePlaylistOpenReadinessSnapshot());
             return;
@@ -4500,7 +4517,7 @@ public partial class MainWindowViewModel : ViewModel,
             route,
             files,
             parameter,
-            treeViewFilterParameterSelected,
+            activeTreeViewFilterParameter,
             PlaylistWorkspace.IsPlaylistSummaryMode,
             viewBuildStopwatch,
             filters);
@@ -4863,8 +4880,11 @@ public partial class MainWindowViewModel : ViewModel,
         }
         playHistoryWorkflowOwner.Deactivate(() =>
         {
-            treeViewFilterTypeSelected = mode;
-            treeViewFilterParameterSelected = IsPlaylistViewMode(mode) ? null : parameter;
+            lock (playHistoryViewRequestLock)
+            {
+                treeViewFilterTypeSelected = mode;
+                treeViewFilterParameterSelected = IsPlaylistViewMode(mode) ? null : parameter;
+            }
             MainChartList.SetOperationContext(mode);
         });
         playHistoryWorkflowOwner.ClearSummaryFilters();
@@ -4963,11 +4983,7 @@ public partial class MainWindowViewModel : ViewModel,
         long requestId,
         long elapsedMs)
     {
-        long currentRequestId;
-        lock (playHistoryViewRequestLock)
-        {
-            currentRequestId = playHistoryWorkflowOwner.CurrentRequestId;
-        }
+        long currentRequestId = playHistoryWorkflowOwner.CurrentRequestId;
         LogPlayHistoryEvent(
             "play_history_view_stale_skipped",
             "mode=" + mode
@@ -5232,9 +5248,9 @@ public partial class MainWindowViewModel : ViewModel,
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.InstallDestination, reason);
     }
 
-    private void DispatchPackageInstallUi(Action action)
+    private bool TryDispatchPackageInstallUi(Action action)
     {
-        InvokeMainChartListPresentationAction(action);
+        return InvokeMainChartListPresentationAction(action);
     }
 
     private void PackageInstallWorkflowCompletionPublished(PackageInstallCompletionReceipt receipt)

@@ -58,6 +58,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly Action<string> log;
     private readonly Action<string> logWarning;
     private readonly Action<Action> dispatchToUi;
+    private readonly Func<Action, Task> terminalApplyToUiAsync;
     private readonly PendingPackageWorkflowOwner pendingPackageWorkflow;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
     private readonly ChartMutationActivityOwner chartMutationActivity;
@@ -67,6 +68,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualSubsetOrderCache = [];
     private readonly Dictionary<MainViewSummaryCacheKey, int> virtualSummaryCache = [];
     private readonly Dictionary<MainViewSummaryCacheKey, VirtualSummaryWork> virtualSummaryRunning = [];
+    private readonly HashSet<Task> folderRenameTasks = [];
     private readonly NormalLibraryRowCache rowCache = new();
     private CancellationTokenSource currentCancellation;
     private long currentRequestId;
@@ -99,11 +101,14 @@ internal sealed class RegularChartListOwner : IDisposable
     private PropertyChangedEventListener normalLibraryRefreshListener;
     private BMSLibrary normalLibraryRefreshSource;
     private int normalLibraryRefreshHandledNotificationVersion;
+    private bool normalLibraryRefreshApplySuppressed;
     private bool duplicateChartGroupsRefreshRunning;
     private int virtualSummaryCacheVersion;
     private int virtualSummaryRunId;
     private CancellationTokenSource virtualOrderPrewarmCancellation;
     private Task virtualOrderPrewarmCompletion = Task.CompletedTask;
+    private Task shutdownCompletion = Task.CompletedTask;
+    private Task folderRenameTail = Task.CompletedTask;
     private int virtualOrderPrewarmRunId;
     private bool disposed;
 
@@ -114,9 +119,10 @@ internal sealed class RegularChartListOwner : IDisposable
         Action<Action> dispatchToUi,
         Action<string> logWarning,
         PendingPackageWorkflowOwner pendingPackageWorkflow,
-        ChartFileOperationSynchronizer chartFileOperations = null,
-        ChartMutationActivityOwner chartMutationActivity = null,
-        IFolderAutoRenamePlaybackPort playback = null)
+        ChartFileOperationSynchronizer chartFileOperations,
+        ChartMutationActivityOwner chartMutationActivity,
+        IFolderAutoRenamePlaybackPort playback,
+        Func<Action, Task> terminalApplyToUiAsync)
     {
         this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -124,71 +130,97 @@ internal sealed class RegularChartListOwner : IDisposable
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logWarning = logWarning ?? log;
         this.pendingPackageWorkflow = pendingPackageWorkflow ?? throw new ArgumentNullException(nameof(pendingPackageWorkflow));
-        this.chartFileOperations = chartFileOperations ?? new ChartFileOperationSynchronizer();
-        this.chartMutationActivity = chartMutationActivity ?? new ChartMutationActivityOwner();
-        this.playback = playback;
+        this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
+        this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
+        this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
+        this.terminalApplyToUiAsync = terminalApplyToUiAsync
+            ?? throw new ArgumentNullException(nameof(terminalApplyToUiAsync));
         this.mainChartList.AppliedColumnModeCommitted += MainChartListAppliedColumnModeCommitted;
     }
 
     internal void AttachNormalLibraryRefreshSource(BMSLibrary library)
     {
         PropertyChangedEventListener previousListener = null;
-        lock (normalLibraryRefreshApplyLock)
+        using (chartFileOperations.Enter())
         {
-            PropertyChangedEventListener nextListener = null;
-            lock (syncRoot)
+            lock (normalLibraryRefreshApplyLock)
             {
-                if (ReferenceEquals(normalLibraryRefreshSource, library))
+                PropertyChangedEventListener nextListener = null;
+                lock (syncRoot)
                 {
-                    return;
-                }
-
-                previousListener = normalLibraryRefreshListener;
-                normalLibraryRefreshListener = null;
-                normalLibraryRefreshSource = library;
-                normalLibraryRefreshHandledNotificationVersion = 0;
-                if (!disposed && library != null)
-                {
-                    nextListener = new PropertyChangedEventListener(library);
-                    normalLibraryRefreshListener = nextListener;
-                }
-            }
-
-            if (nextListener != null)
-            {
-                BMSLibrary attachedLibrary = library;
-                nextListener.RegisterHandler(
-                    () => attachedLibrary.NormalLibraryRefreshNotificationVersion,
-                    delegate
+                    if (ReferenceEquals(normalLibraryRefreshSource, library))
                     {
-                        ApplyLatestNormalLibraryRefreshNotification("normal_library_refresh");
-                    });
-                ApplyLatestNormalLibraryRefreshNotification("normal_library_refresh");
+                        return;
+                    }
+
+                    previousListener = normalLibraryRefreshListener;
+                    normalLibraryRefreshListener = null;
+                    normalLibraryRefreshSource = library;
+                    normalLibraryRefreshHandledNotificationVersion = 0;
+                    if (!disposed && library != null)
+                    {
+                        nextListener = new PropertyChangedEventListener(library);
+                        normalLibraryRefreshListener = nextListener;
+                    }
+                }
+
+                if (nextListener != null)
+                {
+                    BMSLibrary attachedLibrary = library;
+                    nextListener.RegisterHandler(
+                        () => attachedLibrary.NormalLibraryRefreshNotificationVersion,
+                        delegate
+                        {
+                            ApplyLatestNormalLibraryRefreshNotification("normal_library_refresh");
+                        });
+                    ApplyLatestNormalLibraryRefreshNotification("normal_library_refresh");
+                }
             }
         }
         previousListener?.Dispose();
     }
 
-    internal bool ApplyLatestNormalLibraryRefreshNotification(string reason)
+    internal bool ApplyLatestNormalLibraryRefreshNotification(
+        string reason,
+        BMSLibrary expectedLibrary = null)
     {
+        lock (syncRoot)
+        {
+            if (normalLibraryRefreshApplySuppressed
+                && (expectedLibrary == null || ReferenceEquals(normalLibraryRefreshSource, expectedLibrary)))
+            {
+                return false;
+            }
+        }
         bool appliedSynchronously = false;
         bool installDestinationStateChanged = false;
-        dispatchToUi(() =>
+        Task applyTask = terminalApplyToUiAsync(() =>
         {
-            installDestinationStateChanged = ApplyLatestNormalLibraryRefreshNotificationOnExecutionLane(reason);
+            installDestinationStateChanged = ApplyLatestNormalLibraryRefreshNotificationOnExecutionLane(
+                reason,
+                expectedLibrary);
             appliedSynchronously = true;
         });
+        applyTask?.GetAwaiter().GetResult();
         return appliedSynchronously && installDestinationStateChanged;
     }
 
-    private bool ApplyLatestNormalLibraryRefreshNotificationOnExecutionLane(string reason)
+    private bool ApplyLatestNormalLibraryRefreshNotificationOnExecutionLane(
+        string reason,
+        BMSLibrary expectedLibrary = null)
     {
         lock (normalLibraryRefreshApplyLock)
         {
             BMSLibrary library;
             lock (syncRoot)
             {
-                if (disposed)
+                if (normalLibraryRefreshApplySuppressed
+                    && (expectedLibrary == null || ReferenceEquals(normalLibraryRefreshSource, expectedLibrary)))
+                {
+                    return false;
+                }
+                if (disposed
+                    || (expectedLibrary != null && !ReferenceEquals(normalLibraryRefreshSource, expectedLibrary)))
                 {
                     return false;
                 }
@@ -661,41 +693,90 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             return;
         }
-        Task.Run(() => ExecuteFolderRename(request, newFolder))
-            .Logging("regularChartListFolderEditRequested");
-    }
-
-    private void ExecuteFolderRename(RenameChartFolderRequest request, string newFolder)
-    {
         BMSLibrary library;
+        Task renameTask;
         lock (syncRoot)
         {
+            if (disposed)
+            {
+                return;
+            }
             library = normalLibraryRefreshSource;
+            if (library == null)
+            {
+                return;
+            }
+            Task previousRename = folderRenameTail;
+            var completion = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+            renameTask = Task.Run(() =>
+            {
+                previousRename.GetAwaiter().GetResult();
+                try
+                {
+                    ExecuteFolderRename(library, request, newFolder);
+                }
+                finally
+                {
+                    completion.TrySetResult(new object());
+                }
+            })
+                .Logging("regularChartListFolderEditRequested");
+            folderRenameTail = completion.Task;
+            folderRenameTasks.Add(renameTask);
         }
-        if (library == null)
-        {
-            return;
-        }
+        _ = renameTask.ContinueWith(
+            task =>
+            {
+                lock (syncRoot)
+                {
+                    folderRenameTasks.Remove(task);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private void ExecuteFolderRename(BMSLibrary library, RenameChartFolderRequest request, string newFolder)
+    {
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         IDisposable operationGate = null;
         bool suppressionStarted = false;
+        bool normalRefreshApplySuppressed = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
-            dialogScope = library.BeginOperationDialogScope();
-            activityLease = chartMutationActivity.Enter();
             operationGate = chartFileOperations.Enter();
-            playback?.StopPlaybackForCharts([request.Chart]);
-            suppressionStarted = true;
-            PublishRefreshSuppressionChanged(isSuppressed: true);
-            string directoryName = DirectoryExt.GetDirectoryNameSimple(request.Chart.Path);
-            if (!string.IsNullOrWhiteSpace(directoryName)
-                && LongPathFileSystem.DirectoryExists(directoryName))
+            if (IsCurrentLibrary(library))
             {
-                library.RenameChartFolder(directoryName, newFolder, false);
-                ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
-                InvalidatePathMutationCaches(library);
+                dialogScope = library.BeginOperationDialogScope();
+                activityLease = chartMutationActivity.Enter();
+                playback?.StopPlaybackForCharts([request.Chart]);
+                suppressionStarted = true;
+                PublishRefreshSuppressionChanged(isSuppressed: true);
+                string directoryName = DirectoryExt.GetDirectoryNameSimple(request.Chart.Path);
+                if (!string.IsNullOrWhiteSpace(directoryName)
+                    && LongPathFileSystem.DirectoryExists(directoryName))
+                {
+                    lock (syncRoot)
+                    {
+                        normalLibraryRefreshApplySuppressed = true;
+                        normalRefreshApplySuppressed = true;
+                    }
+                    library.RenameChartFolder(directoryName, newFolder, false);
+                    lock (syncRoot)
+                    {
+                        normalLibraryRefreshApplySuppressed = false;
+                        normalRefreshApplySuppressed = false;
+                    }
+                    CaptureCleanupFailure(operationGate.Dispose, failures);
+                    operationGate = null;
+                    ApplyLatestNormalLibraryRefreshNotification(
+                        "library_charts_changed",
+                        expectedLibrary: library);
+                    InvalidatePathMutationCaches(library);
+                }
             }
         }
         catch (Exception exception)
@@ -704,13 +785,16 @@ internal sealed class RegularChartListOwner : IDisposable
         }
         finally
         {
+            if (normalRefreshApplySuppressed)
+            {
+                lock (syncRoot)
+                {
+                    normalLibraryRefreshApplySuppressed = false;
+                }
+            }
             if (suppressionStarted)
             {
                 CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
-            }
-            if (operationGate != null)
-            {
-                CaptureCleanupFailure(operationGate.Dispose, failures);
             }
             if (activityLease != null)
             {
@@ -720,6 +804,10 @@ internal sealed class RegularChartListOwner : IDisposable
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
                 CaptureCleanupFailure(dialogScope.Flush, failures);
+            }
+            if (operationGate != null)
+            {
+                CaptureCleanupFailure(operationGate.Dispose, failures);
             }
             CaptureCleanupFailure(mainChartList.RequestDisplayRefresh, failures);
         }
@@ -756,12 +844,30 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private void InvalidatePathMutationCaches(BMSLibrary library)
     {
-        BmsonLibraryRowCacheSyncResult bmsonSync = SyncBmsonRows(library);
-        if (bmsonSync.SortKeyChanged)
+        lock (normalLibraryRefreshApplyLock)
         {
-            InvalidateNormalLibrarySortKeysForBmsonSync(bmsonSync, "bmson_path_changed");
+            lock (syncRoot)
+            {
+                if (disposed || !ReferenceEquals(normalLibraryRefreshSource, library))
+                {
+                    return;
+                }
+            }
+            BmsonLibraryRowCacheSyncResult bmsonSync = SyncBmsonRows(library);
+            if (bmsonSync.SortKeyChanged)
+            {
+                InvalidateNormalLibrarySortKeysForBmsonSync(bmsonSync, "bmson_path_changed");
+            }
+            InvalidateIdentitySortKeys(clearSourceRows: true);
         }
-        InvalidateIdentitySortKeys(clearSourceRows: true);
+    }
+
+    private bool IsCurrentLibrary(BMSLibrary library)
+    {
+        lock (syncRoot)
+        {
+            return !disposed && ReferenceEquals(normalLibraryRefreshSource, library);
+        }
     }
 
     private static bool IsInstallDestinationEditSection(MainViewOperationSection section)
@@ -3425,6 +3531,7 @@ internal sealed class RegularChartListOwner : IDisposable
         CancellationTokenSource requestCancellation;
         CancellationTokenSource prewarmCancellation;
         Task prewarmCompletion;
+        Task[] folderRenameTasksToDrain;
         PropertyChangedEventListener normalLibraryRefreshListenerToDispose;
         lock (normalLibraryRefreshApplyLock)
         {
@@ -3432,7 +3539,7 @@ internal sealed class RegularChartListOwner : IDisposable
             {
                 if (disposed)
                 {
-                    return virtualOrderPrewarmCompletion;
+                    return shutdownCompletion;
                 }
                 disposed = true;
                 requestCancellation = currentCancellation;
@@ -3445,13 +3552,18 @@ internal sealed class RegularChartListOwner : IDisposable
                 normalLibraryRefreshHandledNotificationVersion = 0;
                 prewarmCancellation = virtualOrderPrewarmCancellation;
                 prewarmCompletion = virtualOrderPrewarmCompletion;
+                folderRenameTasksToDrain = [.. folderRenameTasks];
+                shutdownCompletion = DrainShutdownAsync(
+                    prewarmCompletion,
+                    prewarmCancellation,
+                    folderRenameTasksToDrain);
             }
         }
         mainChartList.AppliedColumnModeCommitted -= MainChartListAppliedColumnModeCommitted;
         normalLibraryRefreshListenerToDispose?.Dispose();
         CancelAndDispose(requestCancellation);
         Cancel(prewarmCancellation);
-        return DrainPrewarmAsync(prewarmCompletion, prewarmCancellation);
+        return shutdownCompletion;
     }
 
     public void Dispose()
@@ -3806,15 +3918,19 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
-    private static async Task DrainPrewarmAsync(Task completion, CancellationTokenSource cancellation)
+    private static async Task DrainShutdownAsync(
+        Task prewarmCompletion,
+        CancellationTokenSource prewarmCancellation,
+        IReadOnlyList<Task> folderRenameTasks)
     {
         try
         {
-            await (completion ?? Task.CompletedTask).ConfigureAwait(false);
+            await (prewarmCompletion ?? Task.CompletedTask).ConfigureAwait(false);
+            await Task.WhenAll(folderRenameTasks ?? []).ConfigureAwait(false);
         }
         finally
         {
-            cancellation?.Dispose();
+            prewarmCancellation?.Dispose();
         }
     }
 

@@ -14,12 +14,13 @@
 
 ### `UI-05 Shell closure`
 
-状態: in progress
+状態: completed
 
 - active outcome base commit: `6d170cb9`
 - observed production checkpoint: `464040f6`
 - active execution package: `UI05-T Terminal shell closure`
-- execution anchor: `UI05-T3 Outcome closure`
+- execution anchor: `UI05-T3 Outcome closure` (completed)
+- next outcome: `OWN-01 Residual owner-boundary reconciliation` (ready)
 
 目的:
 
@@ -47,7 +48,7 @@ Non-goals:
 |---|---|---|
 | `UI05-T1 Closure inventory and classification` | completed | 現行root / View / XAML / presentation / test surfaceを有限分類し、T2 batchをmaterializeした |
 | `UI05-T2 Grouped residual closure` | completed | `BLOCKING`を最大3 owner-family unitで閉じる |
-| `UI05-T3 Outcome closure` | active | Full verification、UI smoke、fresh outcome review、修正、UI-05 completionと次Outcomeのready化 |
+| `UI05-T3 Outcome closure` | completed | Full verification、UI smoke、fresh outcome review、UI-05 completion、OWN-01 ready化、Gate evidence更新 |
 
 ## Active implementation batch
 
@@ -68,7 +69,7 @@ Non-goals:
 - rootは`MainChartList`、`PlaylistWorkspace`、`ChartFilters`、`LibraryFolderTree`、`InstallTree`、`MaintenanceTree`、`PlayHistory`、`PlaybackPanel`、`ProgressHub`、`SettingDialog`をchild composition propertyとして公開し、XAMLはこれらをbinding rootとして使用している。
 - MainWindowにはtyped owner query / commandとWPF control mappingへ整理済みのrouteが多い。event数や行数だけで追加owner抽出を行わず、T1でfeature decision / orchestrationの実在を判定する。
 - `Settings.Default`、`Application.Current`、dispatcher、process等の残参照は、UI feature ownership違反でない限り`MIG-01`〜`MIG-04`へ分類する。
-- UI-05-T2 の grouped residual closure は完了した。T3 の outcome-wide Full verification、Release smoke、fresh outcome review、completion status更新が残る。
+- UI-05-T2 の grouped residual closure と T3 の outcome-wide Full verification、Release smoke、fresh outcome review、completion status更新が完了した。Full verificationは成功し、repository Release executableは応答可能で、fresh outcome reviewにMajor / Moderate指摘はない。
 
 ## Outcome states
 
@@ -87,8 +88,8 @@ Non-goals:
 | LIB-06 Library facade and scan integration closure | completed |
 | PL-01 Playlist persistence and reload ownership | completed |
 | PL-02 Playlist external-sync and output ownership | completed |
-| UI-05 Shell closure | in progress |
-| OWN-01 Residual owner-boundary reconciliation | not started |
+| UI-05 Shell closure | completed |
+| OWN-01 Residual owner-boundary reconciliation | ready |
 | MIG-01 Configuration and application-context closure | not started |
 | MIG-02 Path, process and updater closure | not started |
 | MIG-03 Native interop and UI-host closure | not started |
@@ -102,14 +103,14 @@ Non-goals:
 
 | Gate area | State | Current evidence / owner |
 |---|---|---|
-| UI ownership | in progress | child binding rootsと非event `async void`除去は確認できる。T1 finite inventory、必要なgrouped closure、Full / smoke / outcome reviewが残る |
+| UI ownership | met | T1 finite inventory、T2 grouped closure、Full verification、repository Release executable smoke、fresh outcome reviewが完了した |
 | Library ownership | not met | pending estimated-install broad host等を`OWN-01`で閉じる |
 | Playlist ownership | not met | custom-folder output status persistence等を`OWN-01` / `MIG-01`で閉じる |
 | Configuration ownership | not met | global settings、application / dispatcher contextを`MIG-01`で境界化する |
 | Platform boundary | not met | path / process / updater、native / UI host、HintPath / output layoutを`MIG-02`〜`MIG-04`で閉じる |
 | Migration readiness | not met | disposable `net10.0-windows` restore / build rehearsalを`MIG-05`で実施する |
 | Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
-| Quality | in progress | UI-05 outcome-wide Full verification、Release smoke、fresh outcome reviewと後続Outcome / Gate evidenceが未完了 |
+| Quality | in progress | UI-05のFull verification、Release smoke、fresh outcome reviewは完了。後続Outcome / Gate evidenceは未完了 |
 
 ## Active external blocker
 

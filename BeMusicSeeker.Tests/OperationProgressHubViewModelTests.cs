@@ -478,7 +478,11 @@ public sealed class OperationProgressHubViewModelTests
                     fixture.packageRelease.Wait(TimeSpan.FromSeconds(10));
                     return [];
                 }),
-                action => action());
+                action =>
+                {
+                    action();
+                    return true;
+                });
             var maintenance = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) =>
                 {

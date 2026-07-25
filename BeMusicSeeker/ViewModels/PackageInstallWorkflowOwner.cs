@@ -87,7 +87,7 @@ internal sealed class PackageInstallWorkflowOwner
 
     private readonly IPackageInstallMutationPort mutationPort;
 
-    private readonly Action<Action> dispatchToUi;
+    private readonly Func<Action, bool> tryDispatchToUi;
 
     private readonly Action<Exception> reportNotificationFailure;
 
@@ -103,13 +103,13 @@ internal sealed class PackageInstallWorkflowOwner
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
         IPackageInstallMutationPort mutationPort,
-        Action<Action> dispatchToUi,
+        Func<Action, bool> tryDispatchToUi,
         Action<Exception> reportNotificationFailure = null)
     {
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.mutationPort = mutationPort ?? throw new ArgumentNullException(nameof(mutationPort));
-        this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
+        this.tryDispatchToUi = tryDispatchToUi ?? throw new ArgumentNullException(nameof(tryDispatchToUi));
         this.reportNotificationFailure = reportNotificationFailure;
         lock (syncRoot)
         {
@@ -256,6 +256,7 @@ internal sealed class PackageInstallWorkflowOwner
 
         int completedPathCount = 0;
         IReadOnlyList<ChartPackage> packages = ExecuteInstallBatch(
+            currentGeneration,
             currentLibrary,
             request.Paths,
             token,
@@ -284,6 +285,7 @@ internal sealed class PackageInstallWorkflowOwner
     }
 
     private IReadOnlyList<ChartPackage> ExecuteInstallBatch(
+        long expectedGeneration,
         BMSLibrary library,
         IEnumerable<string> installPaths,
         CancellationToken token,
@@ -301,6 +303,7 @@ internal sealed class PackageInstallWorkflowOwner
         IDisposable activityLease = null;
         IDisposable operationGate = null;
         bool suppressionStarted = false;
+        bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
         IReadOnlyList<ChartPackage> packages = [];
         try
@@ -308,14 +311,21 @@ internal sealed class PackageInstallWorkflowOwner
             dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
             operationGate = chartFileOperations.Enter();
-            suppressionStarted = true;
-            PublishRefreshSuppressionChanged(isSuppressed: true);
-            packages = mutationPort.Install(
-                library,
-                normalizedInstallPaths,
-                token,
-                onEachPathProcessed,
-                onEachArchiveExtractStarted) ?? [];
+            if (!IsCurrentGeneration(expectedGeneration, library))
+            {
+                mutationAllowed = false;
+            }
+            else
+            {
+                suppressionStarted = true;
+                PublishRefreshSuppressionChanged(isSuppressed: true);
+                packages = mutationPort.Install(
+                    library,
+                    normalizedInstallPaths,
+                    token,
+                    onEachPathProcessed,
+                    onEachArchiveExtractStarted) ?? [];
+            }
         }
         catch (Exception exception)
         {
@@ -345,7 +355,7 @@ internal sealed class PackageInstallWorkflowOwner
         switch (failures.Count)
         {
             case 0:
-                return packages;
+                return mutationAllowed ? packages : [];
             case 1:
                 failures[0].Throw();
                 break;
@@ -392,8 +402,18 @@ internal sealed class PackageInstallWorkflowOwner
 
     private void PublishBatchFailure(QueueProcessorContext context, Exception exception)
     {
-        if (context.Library == null || exception == null || !IsCurrentGeneration(context.Generation, context.Library))
+        if (exception == null)
         {
+            return;
+        }
+        if (context.Library == null)
+        {
+            ReportNotificationFailure(exception);
+            return;
+        }
+        if (!IsCurrentGeneration(context.Generation, context.Library))
+        {
+            ReportNotificationFailure(exception);
             return;
         }
         var failure = new PackageInstallFailure(context.Generation, context.ActiveBatch?.Paths, exception);
@@ -403,10 +423,14 @@ internal sealed class PackageInstallWorkflowOwner
             {
                 FailurePublished?.Invoke(failure);
             }
-        });
+            else
+            {
+                ReportNotificationFailure(exception);
+            }
+        }, exception);
     }
 
-    private void DispatchNotification(Action notification)
+    private void DispatchNotification(Action notification, Exception dispatchFailure = null)
     {
         if (notification == null)
         {
@@ -414,7 +438,7 @@ internal sealed class PackageInstallWorkflowOwner
         }
         try
         {
-            dispatchToUi(() =>
+            bool dispatched = tryDispatchToUi(() =>
             {
                 try
                 {
@@ -422,13 +446,26 @@ internal sealed class PackageInstallWorkflowOwner
                 }
                 catch (Exception exception)
                 {
-                    ReportNotificationFailure(exception);
+                    ReportNotificationFailure(dispatchFailure ?? exception);
+                    if (dispatchFailure != null && !ReferenceEquals(dispatchFailure, exception))
+                    {
+                        ReportNotificationFailure(exception);
+                    }
                 }
             });
+            if (!dispatched)
+            {
+                ReportNotificationFailure(dispatchFailure
+                    ?? new InvalidOperationException("The UI dispatcher is shutting down."));
+            }
         }
         catch (Exception exception)
         {
-            ReportNotificationFailure(exception);
+            ReportNotificationFailure(dispatchFailure ?? exception);
+            if (dispatchFailure != null && !ReferenceEquals(dispatchFailure, exception))
+            {
+                ReportNotificationFailure(exception);
+            }
         }
     }
 

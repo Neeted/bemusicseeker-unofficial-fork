@@ -101,13 +101,11 @@ public sealed class BmsLibraryMutationBoundaryTests
             "BeMusicSeeker", "ViewModels", "PackageInstallWorkflowOwner.cs");
         string folderAutoRenameSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "FolderAutoRenameWorkflowOwner.cs");
-        string regularChartSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
         string installDestinationSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PendingPackageWorkflowOwner.cs");
         string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string installBatchMethod = ExtractMethodBody(packageInstallSource, "private IReadOnlyList<ChartPackage> ExecuteInstallBatch(");
-        string folderMutationMethod = ExtractMethodBody(folderAutoRenameSource, "private void ExecuteMutation(");
+        string folderMutationMethod = ExtractMethodBody(folderAutoRenameSource, "private bool ExecuteMutation(");
         string forceInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task<PendingPackageMutationResult> InstallResolvedPackagesAsync(");
         string executeInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task<PendingPackageMutationResult> ExecuteInstallAsync(");
         string installDestinationBoundary = ExtractMethodBody(installDestinationSource, "private bool Execute(");
@@ -143,8 +141,6 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(folderMutationMethod, "chartMutationActivity.Enter()");
         StringAssert.Contains(folderMutationMethod, "operationGate = chartFileOperations.Enter()");
         StringAssert.Contains(folderMutationMethod, "mutation()");
-        StringAssert.Contains(regularChartSource, "RenameChartFolderAsync(renameRequest, request.Text)");
-        StringAssert.Contains(regularChartSource, "library.RenameChartFolder(directoryName, newFolder, false)");
         StringAssert.Contains(forceInstallMethod, "store.ForceInstallPackages");
         StringAssert.Contains(forceInstallMethod, "ExecuteInstallAsync(");
         StringAssert.Contains(executeInstallMethod, "PendingPackageRefreshScope.PackageMutation");

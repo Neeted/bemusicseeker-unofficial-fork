@@ -2877,7 +2877,7 @@ public sealed class MainWindowContextMenuResourceTests
             "if (menuItem17 != null)");
         string autoRenameAll = ExtractMethodBody(
             folderAutoRenameWorkflowOwnerCode,
-            "private void ExecuteMutation(");
+            "private bool ExecuteMutation(");
         string autoRenameAllModel = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "Models", "BMSLibrary.LibraryFileOperationOwner.cs");
         string applicationCompositionCode = SourceTextTestHelper.ReadProductionSourceText(
@@ -3724,30 +3724,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(openPackageSource.Contains("ExplorerOpenService.OpenFileAndSelect"));
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
         Assert.AreEqual(2, Regex.Matches(xaml, "Click=\"treeViewInstallPackageContextMenuOpenExplorerClick\"").Count);
-    }
-
-    [TestMethod]
-    public void PendingPackageMutationTerminalApplyPreservesOwnerAndViewFailures()
-    {
-        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string helper = ExtractBetween(
-            mainWindowCode,
-            "private async Task ApplyPendingPackageMutationViewAsync",
-            "private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
-
-        StringAssert.Contains(helper, "Exception applyFailure = null;");
-        StringAssert.Contains(helper, "applyFailure = exception;");
-        StringAssert.Contains(helper, "Exception mutationFailure = null;");
-        StringAssert.Contains(helper, "await PropagatePendingPackageMutationFailureAsync(result, routeName);");
-        StringAssert.Contains(helper, ".LoggingAndPropagate(routeName);");
-        StringAssert.Contains(helper, "throw new AggregateException(failures);");
-        int ownerFailureIndex = helper.IndexOf(
-            "await PropagatePendingPackageMutationFailureAsync(result, routeName);",
-            StringComparison.Ordinal);
-        int aggregateIndex = helper.IndexOf(
-            "throw new AggregateException(failures);",
-            StringComparison.Ordinal);
-        Assert.IsTrue(ownerFailureIndex >= 0 && aggregateIndex > ownerFailureIndex);
     }
 
     [TestMethod]

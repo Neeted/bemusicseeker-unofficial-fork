@@ -456,6 +456,56 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
+    public void AttachLibrary_RechecksGenerationBeforeMutationAfterGateWait()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = CreateRoot();
+        string firstRoot = Path.Combine(root, "first");
+        string secondRoot = Path.Combine(root, "second");
+        Directory.CreateDirectory(firstRoot);
+        Directory.CreateDirectory(secondRoot);
+        try
+        {
+            BMSLibrary first = CreateLibrary(firstRoot, "song.db");
+            BMSLibrary second = CreateLibrary(secondRoot, "song.db");
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
+            var chartFileOperations = new ChartFileOperationSynchronizer();
+            var chartMutationActivity = new ChartMutationActivityOwner();
+            int mutationCalls = 0;
+            var owner = new FolderAutoRenameWorkflowOwner(
+                chartFileOperations,
+                chartMutationActivity,
+                new DelegateFolderAutoRenameMutationPort(
+                    (current, selectedRequest, progress) =>
+                    {
+                        Interlocked.Increment(ref mutationCalls);
+                        return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+                    },
+                    (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
+                    (current, parentDirectory) => false),
+                new NoopFolderAutoRenamePlaybackPort(),
+                action => Task.Run(action),
+                action => action(),
+                new AcceptedFolderDialogService());
+            owner.AttachLibrary(first);
+
+            using (chartFileOperations.Enter())
+            {
+                Assert.IsTrue(owner.RequestStartSelected(targets));
+                Assert.IsTrue(SpinWait.SpinUntil(() => chartMutationActivity.IsActive, TimeSpan.FromSeconds(5)));
+                owner.AttachLibrary(second);
+            }
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(0, mutationCalls);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
     public void AttachLibraryResetSurvivesStaleRunCompletion()
     {
         TestResourceInitializer.EnsureJapaneseResources();

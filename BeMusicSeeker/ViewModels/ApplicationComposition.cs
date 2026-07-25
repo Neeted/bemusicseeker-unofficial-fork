@@ -296,7 +296,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
-        Action<Action> dispatchPackageInstallUi,
+        Func<Action, bool> dispatchPackageInstallUi,
         Func<BMSLibrary> installDestinationLibraryProvider,
         IUiDialogService installDestinationDialogService,
         StartupProgressWorkflowOwner startupProgressWorkflowOwner,
@@ -336,7 +336,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<string> selectedChartExternalActionAssociatedFileLauncher = null,
         Action<string> selectedChartExternalActionUrlLauncher = null,
         Action<string> libraryFolderTreeLog = null,
-        Action<string> libraryFolderTreeLogWarning = null)
+        Action<string> libraryFolderTreeLogWarning = null,
+        Func<Action, Task> regularChartListTerminalApplyScheduler = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -394,7 +395,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             selectedChartExternalActionAssociatedFileLauncher,
             selectedChartExternalActionUrlLauncher,
             libraryFolderTreeLog,
-            libraryFolderTreeLogWarning);
+            libraryFolderTreeLogWarning,
+            regularChartListTerminalApplyScheduler);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -535,7 +537,7 @@ internal sealed class MainWindowChildComposition
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
-        Action<Action> dispatchPackageInstallUi,
+        Func<Action, bool> dispatchPackageInstallUi,
         Func<BMSLibrary> installDestinationLibraryProvider,
         IUiDialogService installDestinationDialogService,
         Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider,
@@ -578,7 +580,8 @@ internal sealed class MainWindowChildComposition
         Action<string> selectedChartExternalActionAssociatedFileLauncher = null,
         Action<string> selectedChartExternalActionUrlLauncher = null,
         Action<string> libraryFolderTreeLog = null,
-        Action<string> libraryFolderTreeLogWarning = null)
+        Action<string> libraryFolderTreeLogWarning = null,
+        Func<Action, Task> regularChartListTerminalApplyScheduler = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -622,7 +625,8 @@ internal sealed class MainWindowChildComposition
             PendingPackageWorkflow,
             chartFileOperations,
             ChartMutationActivity,
-            (IFolderAutoRenamePlaybackPort)PlaybackPanel);
+            (IFolderAutoRenamePlaybackPort)PlaybackPanel,
+            regularChartListTerminalApplyScheduler);
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
             chartFileOperations,
             ChartMutationActivity,
