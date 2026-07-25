@@ -5261,55 +5261,6 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void EstimatedInstallPostProcessing_IsBatchedAndUsesResourceHealthDelta()
-    {
-        string root = FindRepositoryRoot();
-        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
-        string resourceHealthCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "ResourceHealthWarningProjection.cs"));
-        string installEstimationDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "install-estimation-current-logic.md"));
-
-        StringAssert.Contains(libraryCode, "internal sealed class EstimatedInstallBatchApplyContext");
-        StringAssert.Contains(libraryCode, "bool canUseResourceHealthIndexDelta = resourceHealthOwner.IsCurrent();");
-        StringAssert.Contains(libraryCode, "using (canUseResourceHealthIndexDelta ? resourceHealthOwner.SuppressInvalidation() : null)");
-        StringAssert.Contains(libraryCode, "host.ApplyEstimatedInstallBatchLibraryState(batchApplyContext)");
-        StringAssert.Contains(libraryCode, "ApplyEstimatedInstallBatchLibraryState(context)");
-        string batchContext = ExtractBetween(libraryCode, "internal sealed class EstimatedInstallBatchApplyContext", "internal sealed class PendingEstimatedInstallCollectionApplyResult");
-        StringAssert.Contains(batchContext, "public List<ChartFile> AddedCharts { get; } = [];");
-        StringAssert.Contains(batchContext, "public List<BMSFile> AddedBmsFiles { get; } = [];");
-        Assert.IsFalse(batchContext.Contains("AddedBmsonSongs"));
-        StringAssert.Contains(batchContext, "AddInstalledTargets(ChartStorageTargetSet addedTargets");
-        StringAssert.Contains(libraryCode, "static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)");
-        Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetSet(installResult?.AddedCharts)"));
-        Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetSet(IEnumerable<BMSFile> bmsFiles"));
-        Assert.IsFalse(libraryCode.Contains("CreateBmsResourceMaintenanceTargetCharts"));
-        string estimatedBatchApplyMethod = ExtractMethodBody(libraryCode, "private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallBatchLibraryState");
-        StringAssert.Contains(estimatedBatchApplyMethod, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
-        Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
-        Assert.IsFalse(libraryCode.Contains("CreateAddedBmsonChartProjectionsFromInstalledPackages"));
-        string estimatedInstallCoordinator = ExtractMethodBody(libraryCode, "internal static void InstallPendingPackagesToEstimatedDestinations");
-        string estimatedInstallMaintenanceBridge = ExtractMethodBody(libraryCode, "int IPendingEstimatedInstallHost.ApplyEstimatedInstallMaintenance");
-        Assert.IsFalse(estimatedInstallCoordinator.Contains("foreach (LR2SongDBExtended.bmson_song song in BmsonSongs"));
-        StringAssert.Contains(estimatedInstallCoordinator, "batchApplyContext.AddedCharts");
-        StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjections(addedCharts)");
-        StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(deferredMaintenanceCharts)");
-        Assert.IsFalse(estimatedInstallMaintenanceBridge.Contains("ResourceHealthIndexUpdateMode.FullOnUpdates"));
-        StringAssert.Contains(estimatedInstallMaintenanceBridge, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates");
-        StringAssert.Contains(estimatedBatchApplyMethod, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
-        StringAssert.Contains(libraryCode, "resource_health_index_delta reason=");
-        StringAssert.Contains(libraryCode, "if (estimatedInstallMaintenanceTargets.Count > 0)");
-        StringAssert.Contains(libraryCode, "ApplyCatalogMaintenance(");
-        StringAssert.Contains(libraryCode, "estimatedInstallMaintenanceTargets,");
-        StringAssert.Contains(libraryCode, "resourceHealthMutationReason: \"install_package_estimated\"");
-        StringAssert.Contains(resourceHealthCode, "internal ResourceHealthIndexSnapshot ApplyDelta(");
-        StringAssert.Contains(resourceHealthCode, "HashSet<ResourceHealthChartKey> targetKeys");
-
-        StringAssert.Contains(installEstimationDoc, "推定先への移動");
-        StringAssert.Contains(installEstimationDoc, "group は逐次");
-        StringAssert.Contains(installEstimationDoc, "library/cache/index は batch 末尾");
-        StringAssert.Contains(installEstimationDoc, "resource health index は delta");
-    }
-
-    [TestMethod]
     public void DuplicateMergeMaintenanceDefersResourceHealthIndexRebuildAndLogsDuplicateSearchStages()
     {
         string root = FindRepositoryRoot();

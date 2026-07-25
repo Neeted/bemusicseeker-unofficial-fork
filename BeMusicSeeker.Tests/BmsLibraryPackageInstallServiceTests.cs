@@ -188,6 +188,35 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void InstallPendingPackagesToEstimatedDestinations_LeavesPackageUnchangedWhenItIsNotPending()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string pendingDirectoryPath = Path.Combine(tempRootPath, "pending-not-selected");
+            Directory.CreateDirectory(pendingDirectoryPath);
+            string chartPath = Path.Combine(pendingDirectoryPath, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE pending");
+            ChartPackage requestedPackage = ChartPackageTestExtensions.CreatePackage(
+                [CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath)]);
+            requestedPackage.path = pendingDirectoryPath;
+            requestedPackage.delete_parent = false;
+
+            var library = new BMSLibrary(songDbPath)
+            {
+                ChartPackagesPending = CreatePackageCollection([])
+            };
+
+            library.InstallPendingPackagesToEstimatedDestinations([requestedPackage]);
+
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.IsTrue(File.Exists(chartPath));
+            Assert.AreEqual(pendingDirectoryPath, requestedPackage.path);
+            Assert.AreEqual(string.Empty, requestedPackage.ChartEntries.Single().Chart.InstallDestination);
+        });
+    }
+
+    [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_NullStillThrowsWhenLr2SyncIsRunning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -205,6 +234,38 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 library.Lr2Synchronization.Running = false;
             }
         });
+    }
+
+    [TestMethod]
+    public void PendingEstimatedInstallMutationLease_ReleasesEveryGuardOnAcquireAndDisposeFailure()
+    {
+        var acquiredBeforeFailure = new TrackingDisposable();
+
+        Assert.ThrowsException<InvalidOperationException>(() => PendingEstimatedInstallMutationLease.Acquire(
+            () => acquiredBeforeFailure,
+            () => throw new InvalidOperationException("acquire-failed")));
+        Assert.AreEqual(1, acquiredBeforeFailure.DisposeCount);
+
+        var throwingCleanupGuard = new TrackingDisposable(throwOnDispose: true);
+        AggregateException acquisitionAndCleanupFailure = Assert.ThrowsException<AggregateException>(
+            () => PendingEstimatedInstallMutationLease.Acquire(
+                () => throwingCleanupGuard,
+                () => throw new InvalidOperationException("acquire-failed-with-cleanup-error")));
+        Assert.IsTrue(acquisitionAndCleanupFailure.Flatten().InnerExceptions.Any(
+            exception => exception.Message == "acquire-failed-with-cleanup-error"));
+        Assert.IsTrue(acquisitionAndCleanupFailure.Flatten().InnerExceptions.Any(
+            exception => exception.Message == "dispose-failed"));
+        Assert.AreEqual(1, throwingCleanupGuard.DisposeCount);
+
+        var throwingGuard = new TrackingDisposable(throwOnDispose: true);
+        var releasedGuard = new TrackingDisposable();
+        PendingEstimatedInstallMutationLease lease = PendingEstimatedInstallMutationLease.Acquire(
+            () => throwingGuard,
+            () => releasedGuard);
+
+        Assert.ThrowsException<AggregateException>(() => lease.Dispose());
+        Assert.AreEqual(1, throwingGuard.DisposeCount);
+        Assert.AreEqual(1, releasedGuard.DisposeCount);
     }
 
     [TestMethod]
@@ -3613,6 +3674,20 @@ public sealed class BmsLibraryPackageInstallServiceTests
         {
             Messages.Add(messageBoxText);
             return defaultResult;
+        }
+    }
+
+    private sealed class TrackingDisposable(bool throwOnDispose = false) : IDisposable
+    {
+        public int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            DisposeCount++;
+            if (throwOnDispose)
+            {
+                throw new InvalidOperationException("dispose-failed");
+            }
         }
     }
 

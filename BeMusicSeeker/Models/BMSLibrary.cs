@@ -2262,6 +2262,8 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryPackageInstallService packageInstallService = new();
 
+    private readonly PendingEstimatedInstallOwner pendingEstimatedInstallOwner;
+
     private readonly BmsLibraryLibraryFileOperationsService libraryFileOperationsService = new();
 
     private readonly LibraryFileOperationOwner libraryFileOperationOwner;
@@ -2556,6 +2558,14 @@ public partial class BMSLibrary : NotificationObject
             propertyName => RaisePropertyChanged(propertyName),
             packages => new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(packages), DispatcherHelper.UIDispatcher),
             () => RaisePropertyChanged(() => ChartPackagesInstalled));
+        pendingEstimatedInstallOwner = new(
+            packageInstallService,
+            CreatePendingEstimatedInstallPreparationCapability(),
+            CreatePendingEstimatedInstallCatalogCapability(),
+            packageLifecycleOwner,
+            CreatePendingEstimatedInstallMaintenanceCapability(),
+            CreatePendingEstimatedInstallNotificationCapability(),
+            resourceHealthOwner);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         using (LR2SongDBExtended lR2SongDBExtended = dbGateway.OpenSongDb())
         {

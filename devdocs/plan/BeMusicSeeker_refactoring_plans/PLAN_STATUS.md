@@ -12,55 +12,55 @@
 
 ## Active outcome
 
-### `UI-05 Shell closure`
+### `OWN-01 Residual owner-boundary reconciliation`
 
-状態: completed
+状態: in progress
 
-- active outcome base commit: `6d170cb9`
-- observed production checkpoint: `464040f6`
-- active execution package: `UI05-T Terminal shell closure`
-- execution anchor: `UI05-T3 Outcome closure` (completed)
-- next outcome: `OWN-01 Residual owner-boundary reconciliation` (ready)
+- active outcome base commit: `3088771c`
+- observed production checkpoint: `3088771c`
+- active execution package: `OWN-01 Residual owner-boundary reconciliation`
+- execution anchor: `Owner-boundary closure`
 
 目的:
 
-root binding relay、feature workflow、code-behind orchestration、非event `async void`の残件を有限inventoryとして閉じる。正当なWPF view-host処理や後続migration boundaryをroute単位で再抽出せず、UI-05をoutcome verificationまで到達させる。
+pending estimated-install、playlist custom-folder status persistence、library facade-owned writer、cross-owner lock callback host、test-only production seamを、既存ownerまたは用途限定portへ閉じる。完了済みUI / library / playlist ownerを再抽出せず、production route、durable/live順序、旧surface削除、behavior verificationを一つのcorridorとして進める。
 
 Acceptance criteria:
 
-- feature View / UserControlがchild ownerをbinding rootとし、rootはchild ViewModelのcomposition propertyを除いてleaf property / command / `PropertyChanged`を再公開しない。
-- `MainWindowViewModel`に非event `async void`、feature-local mutable state、feature workflow、broad callback hostが残らない。
-- `MainWindow.cs`のevent handlerは、一つのfeature command / queryへのrequest変換と、dialog / focus / selection / scroll / hit-test / drag visual / WPF property mappingなどのview-host applyで説明できる。
-- typed immutable presentation eventのterminal applyをbroad callback hostと誤認しない。
+- pending estimated-install workflowがpackage、catalog、maintenance、resource-health ownerを直接接続し、`IPendingEstimatedInstallHost`とfacade lock / private-operation bridgeを退役させる。
+- custom-folder output statusのread / batch write / delete / repair-row queryがrepositoryまたはoutput ownerへ移り、`BMSPlaylist`のraw connection / SQL / transactionを退役させる。
+- library database writerとSQL boundaryがcatalog maintenance / mutation ownerまたはgatewayに収まり、generic facade callback writer、production `ForTest` seam、未使用writerを退役させる。
+- playlist external registrationとURL completionが登録owner / URL ownerのproduction routeへ接続され、root lock / mutable collection callback hostとstatic test seamを退役させる。
 - UI observable behavior、失敗契約、setting key / serialized value、DB schema / data、外部ファイル形式、external syncのcancellation / progressを維持する。
-- Full verification、Release executable UI smoke、fresh outcome reviewを完了する。
-- structural size triggerを完了条件にせず、triggerを超えるscopeが許可boundaryまたは明示ownerでcohesiveに説明できることをreviewする。
+- 各unitでproduction route、behavior tests、旧route / relay / seam削除、targeted verification、fresh static reviewを完了する。
+- outcome-wide Full verification、該当UI smoke、fresh outcome reviewを完了し、Gate scorecardを更新する。
 
 Non-goals:
 
-- pending estimated-install broad hostとplaylist custom-folder status persistenceの解消（`OWN-01`）。
-- global settings、application / dispatcher、path、process、native / UI technologyの最終境界化（`MIG-01`〜`MIG-04`）。
-- WPF固有のselection、focus、scroll、hit-test、virtualization、drag visual、ContextMenu mappingを行数のためだけにView外へ移すこと。
+- `Settings.Default`、application lifetime、dispatcher / global scheduler、path、process、native / UI technologyの最終境界化（`MIG-01`〜`MIG-04`）。
+- 既にcohesiveなcatalog、package、maintenance、resource-health、playlist persistence / output ownerの再分割。
 
 ## Stable terminal steps
 
 | Step | State | Exit condition |
 |---|---|---|
-| `UI05-T1 Closure inventory and classification` | completed | 現行root / View / XAML / presentation / test surfaceを有限分類し、T2 batchをmaterializeした |
-| `UI05-T2 Grouped residual closure` | completed | `BLOCKING`を最大3 owner-family unitで閉じる |
-| `UI05-T3 Outcome closure` | completed | Full verification、UI smoke、fresh outcome review、UI-05 completion、OWN-01 ready化、Gate evidence更新 |
+| `OWN-01-B1 Pending estimated-install ownership` | completed | pending estimated-installをworkflow ownerと用途別mutation capabilityへ接続し、旧hostを退役させた |
+| `OWN-01-B2 Custom-folder status repository ownership` | active | custom-folder statusのraw connection / SQL / transactionをrepository / output ownerへ移す |
+| `OWN-01-B3 Library database writer and production seam closure` | pending | facade-owned writer、generic callback、production `ForTest` SQL seamをcatalog gatewayへ移す |
+| `OWN-01-B4 External registration and URL completion closure` | pending | external registration callback hostとURL completion static test seamを退役させ、OWN-01をcompletion auditへ進める |
 
 ## Active implementation batch
 
-状態: completed
+状態: in progress
 
-`UI05-T2`はT1 plannerが作成した有限batchであり、B1から依存順に実装する。batchに`active`または`pending`がある間はplannerを再起動しない。
+`OWN-01` plannerが作成した有限batchであり、B1から依存順に実装する。batchに`active`または`pending`がある間はplannerを再起動しない。
 
 | Batch | Unit | State | Closure family |
 |---|---|---|---|
-| `UI05-T2` | `B1` | `completed` | `root shell / lifecycle / composition` |
-| `UI05-T2` | `B2` | `completed` | `view-host / binding / typed presentation` |
-| `UI05-T2` | `B3` | `completed` | `production-route legacy seam / test surface` |
+| `OWN-01` | `B1` | `completed` | `pending estimated-install` |
+| `OWN-01` | `B2` | `active` | `playlist custom-folder persistence` |
+| `OWN-01` | `B3` | `pending` | `library DB writer / SQL seam` |
+| `OWN-01` | `B4` | `pending` | `playlist external registration / URL completion` |
 
 ## Current code evidence
 
@@ -89,7 +89,7 @@ Non-goals:
 | PL-01 Playlist persistence and reload ownership | completed |
 | PL-02 Playlist external-sync and output ownership | completed |
 | UI-05 Shell closure | completed |
-| OWN-01 Residual owner-boundary reconciliation | ready |
+| OWN-01 Residual owner-boundary reconciliation | in progress |
 | MIG-01 Configuration and application-context closure | not started |
 | MIG-02 Path, process and updater closure | not started |
 | MIG-03 Native interop and UI-host closure | not started |
@@ -104,8 +104,8 @@ Non-goals:
 | Gate area | State | Current evidence / owner |
 |---|---|---|
 | UI ownership | met | T1 finite inventory、T2 grouped closure、Full verification、repository Release executable smoke、fresh outcome reviewが完了した |
-| Library ownership | not met | pending estimated-install broad host等を`OWN-01`で閉じる |
-| Playlist ownership | not met | custom-folder output status persistence等を`OWN-01` / `MIG-01`で閉じる |
+| Library ownership | in progress | pending estimated-install broad hostとlibrary facade-owned writerを`OWN-01`で閉じる |
+| Playlist ownership | in progress | custom-folder output status persistenceとexternal registration hostを`OWN-01`で閉じる |
 | Configuration ownership | not met | global settings、application / dispatcher contextを`MIG-01`で境界化する |
 | Platform boundary | not met | path / process / updater、native / UI host、HintPath / output layoutを`MIG-02`〜`MIG-04`で閉じる |
 | Migration readiness | not met | disposable `net10.0-windows` restore / build rehearsalを`MIG-05`で実施する |

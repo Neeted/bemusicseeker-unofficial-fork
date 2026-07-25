@@ -1294,11 +1294,7 @@ public partial class BMSLibrary
         {
             throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
         }
-        PendingEstimatedInstallCoordinator.InstallPendingPackagesToEstimatedDestinations(
-            packageInstallService,
-            this,
-            resourceHealthOwner,
-            packages);
+        pendingEstimatedInstallOwner.InstallPendingPackagesToEstimatedDestinations(packages);
     }
 
     /// <summary>
