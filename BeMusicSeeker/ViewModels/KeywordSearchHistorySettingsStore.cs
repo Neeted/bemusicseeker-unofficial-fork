@@ -20,9 +20,10 @@ internal sealed class SettingsKeywordSearchHistorySettingsStore : IKeywordSearch
 {
     private readonly Func<Settings> settingsProvider;
 
-    internal SettingsKeywordSearchHistorySettingsStore(Func<Settings> settingsProvider = null)
+    internal SettingsKeywordSearchHistorySettingsStore(Func<Settings> settingsProvider)
     {
-        this.settingsProvider = settingsProvider ?? (() => Settings.Default);
+        this.settingsProvider = settingsProvider
+            ?? throw new ArgumentNullException(nameof(settingsProvider));
     }
 
     public string KeywordSearchHistory

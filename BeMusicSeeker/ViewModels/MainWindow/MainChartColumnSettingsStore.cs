@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
@@ -18,9 +19,10 @@ internal sealed class SettingsMainChartColumnSettingsStore : IMainChartColumnSet
 {
     private readonly Func<Settings> settingsProvider;
 
-    internal SettingsMainChartColumnSettingsStore(Func<Settings> settingsProvider = null)
+    internal SettingsMainChartColumnSettingsStore(Func<Settings> settingsProvider)
     {
-        this.settingsProvider = settingsProvider ?? (() => Settings.Default);
+        this.settingsProvider = settingsProvider
+            ?? throw new ArgumentNullException(nameof(settingsProvider));
     }
 
     public CustomTableColumnSettings GetMain(CustomTableColumnSettings.ViewKind viewKind, bool reset)
@@ -121,5 +123,52 @@ internal sealed class SettingsMainChartColumnSettingsStore : IMainChartColumnSet
                 settings.PlayHistoryCustomTableColumnSettings = columns;
                 break;
         }
+    }
+}
+
+/// <summary>
+/// Non-persisted column settings used by the parameterless test construction route.
+/// Production composition always supplies <see cref="SettingsMainChartColumnSettingsStore"/>.
+/// </summary>
+internal sealed class InMemoryMainChartColumnSettingsStore : IMainChartColumnSettingsStore
+{
+    private readonly Dictionary<CustomTableColumnSettings.ViewKind, CustomTableColumnSettings> mainColumns = new();
+
+    private PlaylistSummaryColumnSettings playlistSummaryColumns;
+
+    public CustomTableColumnSettings GetMain(CustomTableColumnSettings.ViewKind viewKind, bool reset)
+    {
+        if (reset || !mainColumns.TryGetValue(viewKind, out CustomTableColumnSettings columns))
+        {
+            columns = new CustomTableColumnSettings(viewKind);
+            mainColumns[viewKind] = columns;
+        }
+        if (viewKind == CustomTableColumnSettings.ViewKind.PLAY_HISTORY)
+        {
+            columns.EnsurePlayHistoryColumnDefaults();
+        }
+        return columns;
+    }
+
+    public bool IsMainReady(CustomTableColumnSettings.ViewKind viewKind)
+    {
+        return mainColumns.ContainsKey(viewKind);
+    }
+
+    public PlaylistSummaryColumnSettings GetPlaylistSummary(bool ensureCompatibility)
+    {
+        playlistSummaryColumns ??= new PlaylistSummaryColumnSettings();
+        if (ensureCompatibility)
+        {
+            playlistSummaryColumns.EnsureCompatibility();
+        }
+        return playlistSummaryColumns;
+    }
+
+    public PlaylistSummaryColumnSettings ResetPlaylistSummary()
+    {
+        playlistSummaryColumns = new PlaylistSummaryColumnSettings();
+        playlistSummaryColumns.EnsureCompatibility();
+        return playlistSummaryColumns;
     }
 }

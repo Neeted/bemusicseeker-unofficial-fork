@@ -169,7 +169,7 @@ internal static class PlaylistWorkspaceTestPorts
     internal static Action<string> BeatorajaTableUrlImportInfoLog => _ => { };
 
     internal static IMainChartColumnSettingsStore PlaylistSummaryColumnSettingsStore =>
-        new SettingsMainChartColumnSettingsStore();
+        new SettingsMainChartColumnSettingsStore(() => BeMusicSeeker.Properties.Settings.Default);
 
     internal static PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSortCoordinator =>
         new PlaylistSummaryBmtSortCoordinator(() => null, () => []);

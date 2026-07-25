@@ -56,7 +56,7 @@ public sealed class MainChartListViewModel : ViewModel
     private MainChartListOperationContext operationContext = MainChartListOperationContext.Library;
 
     internal MainChartListViewModel()
-        : this(action => action(), _ => { }, new SettingsMainChartColumnSettingsStore())
+        : this(action => action(), _ => { }, new InMemoryMainChartColumnSettingsStore())
     {
     }
 
@@ -69,7 +69,7 @@ public sealed class MainChartListViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(dispatchPresentationAction));
         this.log = log ?? (_ => { });
         this.columnSettingsStore = columnSettingsStore
-            ?? new SettingsMainChartColumnSettingsStore();
+            ?? new InMemoryMainChartColumnSettingsStore();
     }
 
     internal MainChartListCompletion LastCompletion

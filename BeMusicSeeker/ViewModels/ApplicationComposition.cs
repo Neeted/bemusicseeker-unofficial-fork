@@ -38,6 +38,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly IMainChartColumnSettingsStore mainChartColumnSettingsStore;
 
+    private readonly IMainWindowViewSettingsStore mainWindowViewSettingsStore;
+
     private readonly Func<bool> firstStartupProvider;
 
     private readonly Action completeFirstStartup;
@@ -105,6 +107,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? (() => CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.mainChartColumnSettingsStore = mainChartColumnSettingsStore
             ?? new SettingsMainChartColumnSettingsStore(() => this.settingsEditSession.Values);
+        mainWindowViewSettingsStore = new SettingsMainWindowViewSettingsStore(() => this.settingsEditSession.Values);
         this.firstStartupProvider = firstStartupProvider
             ?? (() => GetApplication().firstStartup);
         this.completeFirstStartup = completeFirstStartup
@@ -130,6 +133,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     internal Func<CustomFolderOutputSettingsSnapshot> CustomFolderOutputSettingsProvider => customFolderOutputSettingsProvider;
 
     internal IMainChartColumnSettingsStore MainChartColumnSettingsStore => mainChartColumnSettingsStore;
+
+    internal IMainWindowViewSettingsStore MainWindowViewSettingsStore => mainWindowViewSettingsStore;
 
     bool ISettingsDialogFirstStartupStatePort.IsFirstStartup => firstStartupProvider();
 

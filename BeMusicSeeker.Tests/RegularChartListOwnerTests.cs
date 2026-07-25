@@ -3522,7 +3522,10 @@ public sealed class RegularChartListOwnerTests
         PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
         try
         {
-            var table = new MainChartListViewModel();
+            var table = new MainChartListViewModel(
+                action => action(),
+                _ => { },
+                new SettingsMainChartColumnSettingsStore(() => Settings.Default));
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
                 new MainChartListViewModel(action => action()),
@@ -3596,7 +3599,10 @@ public sealed class RegularChartListOwnerTests
         {
             Settings.Default.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
             Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
-            var table = new MainChartListViewModel(action => action());
+            var table = new MainChartListViewModel(
+                action => action(),
+                _ => { },
+                new SettingsMainChartColumnSettingsStore(() => Settings.Default));
             var workspace = CreateWorkspaceForOwner();
             var owner = CreateOwner(table, workspace);
             var notifications = new List<string>();

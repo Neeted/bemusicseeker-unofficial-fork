@@ -4588,10 +4588,10 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SidebarTreeViewWidthSavePolicy_UsesMeasuredColumnWhenValid()
     {
-        Assert.AreEqual(240d, MainWindow.ResolveTreeViewWidthForSave(240d, 250d, 300d));
-        Assert.AreEqual(260d, MainWindow.ResolveTreeViewWidthForSave(double.NaN, 260d, 300d));
-        Assert.AreEqual(320d, MainWindow.ResolveTreeViewWidthForSave(0d, double.NaN, 320d));
-        Assert.AreEqual(Settings.DefaultTreeViewWidth, MainWindow.ResolveTreeViewWidthForSave(0d, double.NaN, 0d));
+        Assert.AreEqual(240d, MainWindowViewSettingsPolicy.ResolveTreeViewWidthForSave(240d, 250d, 300d));
+        Assert.AreEqual(260d, MainWindowViewSettingsPolicy.ResolveTreeViewWidthForSave(double.NaN, 260d, 300d));
+        Assert.AreEqual(320d, MainWindowViewSettingsPolicy.ResolveTreeViewWidthForSave(0d, double.NaN, 320d));
+        Assert.AreEqual(Settings.DefaultTreeViewWidth, MainWindowViewSettingsPolicy.ResolveTreeViewWidthForSave(0d, double.NaN, 0d));
     }
 
     [TestMethod]

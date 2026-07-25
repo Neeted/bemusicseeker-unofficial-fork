@@ -826,6 +826,39 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void MainWindowViewSettingsUseTheViewHostStoreBoundary()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Views",
+            "MainWindow.cs");
+        string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Views",
+            "MainWindow.xaml");
+        string viewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+        string settingsStoreSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainWindowViewSettingsStore.cs");
+
+        StringAssert.Contains(viewModelSource, "public IMainWindowViewSettingsStore ViewSettings");
+        StringAssert.Contains(mainWindowXaml, "{Binding ViewSettings.TreeViewWidth, Mode=OneWay}");
+        StringAssert.Contains(mainWindowXaml, "DataContext.ViewSettings.CustomTableRowHeight");
+        StringAssert.Contains(mainWindowXaml, "ViewSettings.StartupSelectInstallPending");
+        StringAssert.Contains(settingsStoreSource, "SettingsMainWindowViewSettingsStore");
+        StringAssert.Contains(settingsStoreSource, "CaptureTreeViewWidth(");
+        StringAssert.Contains(settingsStoreSource, "CaptureWindowPlacement(");
+        Assert.IsFalse(mainWindowSource.Contains("Settings.Default"));
+        Assert.IsFalse(mainWindowXaml.Contains("prop:Settings.Default"));
+        Assert.IsFalse(settingsStoreSource.Contains("settingsProvider = null"));
+    }
+
+    [TestMethod]
     public void MainWindowChildOwners_AreConstructedByApplicationComposition()
     {
         string source = SourceTextTestHelper.ReadProductionSourceText(

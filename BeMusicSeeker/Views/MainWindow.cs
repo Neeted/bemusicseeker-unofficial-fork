@@ -32,7 +32,6 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using NLog;
@@ -823,27 +822,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void ApplySavedTreeViewWidth()
     {
-        double normalizedWidth = Settings.NormalizeTreeViewWidth(Settings.Default.TreeViewWidth);
-        Settings.Default.TreeViewWidth = normalizedWidth;
-        gridColumn0.Width = new GridLength(normalizedWidth);
-    }
-
-    internal static double ResolveTreeViewWidthForSave(double actualColumnWidth, double assignedColumnWidth, double currentSettingWidth)
-    {
-        if (IsUsableTreeViewWidth(actualColumnWidth))
+        if (DataContext is MainWindowViewModel viewModel)
         {
-            return actualColumnWidth;
+            gridColumn0.Width = new GridLength(viewModel.ViewSettings.TreeViewWidth);
         }
-        if (IsUsableTreeViewWidth(assignedColumnWidth))
-        {
-            return assignedColumnWidth;
-        }
-        return Settings.NormalizeTreeViewWidth(currentSettingWidth);
-    }
-
-    private static bool IsUsableTreeViewWidth(double width)
-    {
-        return !double.IsNaN(width) && !double.IsInfinity(width) && width >= Settings.MinTreeViewWidth;
     }
 
     /// <summary>
@@ -857,7 +839,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         startupInitialSelectionApplied = true;
-        if (!Settings.Default.StartupSelectInstallPending)
+        if (DataContext is not MainWindowViewModel viewModel
+            || !viewModel.ViewSettings.StartupSelectInstallPending)
         {
             return;
         }
@@ -865,8 +848,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel viewModel
-            && viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked)
+        if (viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked)
         {
             QueueStartupInitialSelectionUntilOperable(viewModel.ProgressHub.StartupProgress);
             return;
@@ -1051,7 +1033,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         playbackPanelView.ConfigureBrowserHost();
         try
         {
-            Win32API.WINDOWPLACEMENT lpwndpl = Settings.Default.WindowPlacement;
+            if (DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            Win32API.WINDOWPLACEMENT lpwndpl = viewModel.ViewSettings.WindowPlacement;
             lpwndpl.Length = Marshal.SizeOf(typeof(Win32API.WINDOWPLACEMENT));
             lpwndpl.Flags = 0;
             lpwndpl.ShowCmd = ((lpwndpl.ShowCmd == Win32API.ShowWindowCommands.ShowMinimized) ? Win32API.ShowWindowCommands.Normal : lpwndpl.ShowCmd);
@@ -1094,7 +1080,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <summary>
     /// ウィンドウが閉じられる直前に呼び出されます。
     /// 現在のUI状態（TreeViewの幅、ウィンドウの配置や最大化状態など）を
-    /// ユーザー設定 (Settings.Default) に反映します。
+    /// MainWindow の view settings store に反映します。
     /// </summary>
     /// <param name="e">キャンセル可能なイベントデータ。</param>
     protected override void OnClosing(CancelEventArgs e)
@@ -1137,12 +1123,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         windowStateCapturedForClosing = true;
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
         try
         {
-            Settings.Default.TreeViewWidth = ResolveTreeViewWidthForSave(
+            viewModel.ViewSettings.CaptureTreeViewWidth(
                 gridColumn0.ActualWidth,
-                gridColumn0.Width.IsAbsolute ? gridColumn0.Width.Value : double.NaN,
-                Settings.Default.TreeViewWidth);
+                gridColumn0.Width.IsAbsolute ? gridColumn0.Width.Value : double.NaN);
         }
         catch (Exception ex)
         {
@@ -1152,7 +1141,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             Win32API.WINDOWPLACEMENT lpwndpl = default;
             Win32API.GetWindowPlacement(new WindowInteropHelper(this).Handle, ref lpwndpl);
-            Settings.Default.WindowPlacement = lpwndpl;
+            viewModel.ViewSettings.CaptureWindowPlacement(lpwndpl);
         }
         catch (Exception ex)
         {

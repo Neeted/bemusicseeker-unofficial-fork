@@ -20,9 +20,10 @@ internal sealed class SettingsPlayHistoryDisplaySettingsStore : IPlayHistoryDisp
 {
     private readonly Func<Settings> settingsProvider;
 
-    internal SettingsPlayHistoryDisplaySettingsStore(Func<Settings> settingsProvider = null)
+    internal SettingsPlayHistoryDisplaySettingsStore(Func<Settings> settingsProvider)
     {
-        this.settingsProvider = settingsProvider ?? (() => Settings.Default);
+        this.settingsProvider = settingsProvider
+            ?? throw new ArgumentNullException(nameof(settingsProvider));
     }
 
     public string SelectedDisplayTargetIdentity

@@ -117,6 +117,11 @@ public partial class MainWindowViewModel : ViewModel,
     public MainChartListViewModel MainChartList { get; }
 
     /// <summary>
+    /// Gets settings owned by the MainWindow view-host boundary.
+    /// </summary>
+    public IMainWindowViewSettingsStore ViewSettings { get; }
+
+    /// <summary>
     /// Gets playlist detail/summary presentation state while shell workflows remain in the root ViewModel.
     /// </summary>
     public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
@@ -2558,6 +2563,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         applicationComposition = composition;
         startupSettingsProvider = composition.StartupSettingsProvider;
+        ViewSettings = composition.MainWindowViewSettingsStore;
         startupBackgroundTaskScheduler = new StartupBackgroundTaskSchedulerOwner(
             () => ShellShutdownWorkflow?.IsShutdownRequested == true,
             LogUiSuppression,

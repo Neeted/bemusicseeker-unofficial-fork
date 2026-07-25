@@ -3911,14 +3911,6 @@ public partial class SettingsDialogViewModel : ViewModel
             && Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(value);
     }
 
-    public static IReadOnlyList<string> GetStandaloneBmsRootPathsFromSettings()
-    {
-        Settings settings = SettingsEditSession.CreateDefault().Values;
-        return StandaloneBmsRootPathSettings.Deserialize(
-            settings.StandaloneBmsRootPaths,
-            settings.BMSRootPath);
-    }
-
     private IReadOnlyList<string> GetStandaloneBmsRootPathsForCurrentSession()
     {
         return StandaloneBmsRootPathSettings.Deserialize(

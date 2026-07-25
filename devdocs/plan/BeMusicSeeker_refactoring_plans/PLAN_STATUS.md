@@ -20,7 +20,7 @@
 - observed production checkpoint: `15f9b965`
 - active execution package: `MIG-01 Configuration and application-context closure`
 - execution anchor: `Configuration consumption closure`
-- sequence cursor: `MIG-01-B3 Main-window view settings and configuration seam retirement`
+- sequence cursor: `MIG-01-B4 Application context, scheduler and lifetime closure`
 - next outcome: `MIG-02 Path, process and updater closure` (not started)
 
 目的:
@@ -58,8 +58,8 @@ Non-goals:
 |---|---|---|---|
 | `MIG-01` | `B1` | `completed` | `library / playlist configuration consumption` |
 | `MIG-01` | `B2` | `completed` | `playback / player settings gateway` |
-| `MIG-01` | `B3` | `active` | `MainWindow view settings and configuration seam` |
-| `MIG-01` | `B4` | `pending` | `application context / scheduler / lifetime` |
+| `MIG-01` | `B3` | `completed` | `MainWindow view settings and configuration seam` |
+| `MIG-01` | `B4` | `active` | `application context / scheduler / lifetime` |
 
 ## Current code evidence
 
