@@ -1,6 +1,9 @@
 using System;
 using System.Threading.Tasks;
 using System.Windows;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Views.Dialogs;
 

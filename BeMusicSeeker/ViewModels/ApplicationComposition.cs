@@ -289,6 +289,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow)
     {
         IUiDialogService schemaDialogs = new UiDialogCoordinator();
+        ILr2PlayHistorySchemaUninstallDialogPort schemaWindowDialogs = new Lr2PlayHistorySchemaUninstallDialogPort(schemaDialogs);
         return new SettingsDialogViewModel(
             statePort,
             workspacePort,
@@ -306,6 +307,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             externalShellGateway: externalShellGateway,
             applicationPathSnapshot: applicationPathSnapshot,
             schemaDialogs: schemaDialogs,
+            schemaWindowDialogs: schemaWindowDialogs,
             applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(
                 schemaDialogs,
                 new Lr2ApplicationDataUninstallStore()),
@@ -403,6 +405,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             showDuplicateFileCheckConfirmProvider,
             duplicateMaintenanceLibraryProvider,
             selectedChartMutationDialogService,
+            selectedChartMutationDialogService == null
+                ? null
+                : new PendingDeleteConfirmationDialogPort(selectedChartMutationDialogService),
             selectedChartMutationLibraryProvider,
             selectedChartResourceHealthDialogService,
             selectedChartResourceHealthLibraryProvider,
@@ -593,6 +598,7 @@ internal sealed class MainWindowChildComposition
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
         Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
         IUiDialogService selectedChartMutationDialogService = null,
+        IPendingDeleteConfirmationDialogPort selectedChartMutationPendingDeleteDialogPort = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
         IUiDialogService selectedChartResourceHealthDialogService = null,
         Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
@@ -734,7 +740,8 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             ChartMutationActivity,
             PlaybackPanel,
-            selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)));
+            selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)),
+            selectedChartMutationPendingDeleteDialogPort ?? throw new ArgumentNullException(nameof(selectedChartMutationPendingDeleteDialogPort)));
         SelectedChartExternalActions = new SelectedChartExternalActionWorkflowOwner(
             selectedChartExternalActionFileExists ?? LongPathFileSystem.FileExists,
             externalShellGateway);

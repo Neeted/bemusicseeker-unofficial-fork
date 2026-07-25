@@ -3,10 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Windows;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;

@@ -7,6 +7,9 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -259,9 +262,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
         UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
             BeMusicSeeker.Properties.Resources.Msg_rename_folders,
             BeMusicSeeker.Properties.Resources.Confirm,
-            System.Windows.MessageBoxButton.OKCancel,
-            System.Windows.MessageBoxImage.Question,
-            System.Windows.MessageBoxResult.Cancel));
+            UiDialogButton.OKCancel,
+            UiDialogIcon.Question,
+            UiDialogDefaultResult.Cancel));
         UiDialogRoute.ThrowIfNotShown(confirmation, "folderAutoRenameAllConfirmation");
         if (!confirmation.IsAccepted)
         {

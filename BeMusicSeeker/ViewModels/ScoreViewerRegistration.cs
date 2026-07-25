@@ -7,6 +7,9 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Codeplex.Data;
 using Ribbit.Net;
 
@@ -466,7 +469,7 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
         {
             UiDialogStatus.Accepted => true,
             UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
+            UiDialogStatus.ClosedByUser => result.IsPositive,
             UiDialogStatus.Failed => throw new InvalidOperationException(
                 "Score Viewer registration confirmation dialog failed: "
                 + (result.Exception?.Message ?? result.Status.ToString()),

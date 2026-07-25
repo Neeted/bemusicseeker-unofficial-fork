@@ -1,8 +1,46 @@
 using System;
 using System.Windows;
+using BeMusicSeeker.Models;
 using Parago.Windows;
 
 namespace BeMusicSeeker.Views.Dialogs;
+
+internal static class UiDialogPresentationAdapter
+{
+    internal static MessageBoxButton ToWpf(UiDialogButton button)
+        => button switch
+        {
+            UiDialogButton.OK => MessageBoxButton.OK,
+            UiDialogButton.OKCancel => MessageBoxButton.OKCancel,
+            UiDialogButton.YesNo => MessageBoxButton.YesNo,
+            UiDialogButton.YesNoCancel => MessageBoxButton.YesNoCancel,
+            _ => throw new ArgumentOutOfRangeException(nameof(button), button, null),
+        };
+
+    internal static MessageBoxImage ToWpf(UiDialogIcon icon)
+        => icon switch
+        {
+            UiDialogIcon.None => MessageBoxImage.None,
+            UiDialogIcon.Hand => MessageBoxImage.Hand,
+            UiDialogIcon.Question => MessageBoxImage.Question,
+            UiDialogIcon.Exclamation => MessageBoxImage.Exclamation,
+            UiDialogIcon.Asterisk => MessageBoxImage.Asterisk,
+            UiDialogIcon.Information => MessageBoxImage.Information,
+            UiDialogIcon.Warning => MessageBoxImage.Warning,
+            _ => throw new ArgumentOutOfRangeException(nameof(icon), icon, null),
+        };
+
+    internal static MessageBoxResult ToWpf(UiDialogDefaultResult result)
+        => result switch
+        {
+            UiDialogDefaultResult.None => MessageBoxResult.None,
+            UiDialogDefaultResult.OK => MessageBoxResult.OK,
+            UiDialogDefaultResult.Cancel => MessageBoxResult.Cancel,
+            UiDialogDefaultResult.Yes => MessageBoxResult.Yes,
+            UiDialogDefaultResult.No => MessageBoxResult.No,
+            _ => throw new ArgumentOutOfRangeException(nameof(result), result, null),
+        };
+}
 
 /// <summary>
 /// message box 表示要求を表します。owner と表示内容を同じ request に持たせ、call site ごとの owner 解決をなくすために使います。
@@ -83,6 +121,25 @@ internal class UiMessageRequest
         Options = options;
         Owner = owner;
         WarningMessageBoxText = warningMessageBoxText;
+    }
+
+    internal UiMessageRequest(
+        string messageBoxText,
+        string caption,
+        UiDialogButton button,
+        UiDialogIcon icon,
+        UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None,
+        Window owner = null,
+        string warningMessageBoxText = null)
+        : this(
+            messageBoxText,
+            caption,
+            UiDialogPresentationAdapter.ToWpf(button),
+            UiDialogPresentationAdapter.ToWpf(icon),
+            UiDialogPresentationAdapter.ToWpf(defaultResult),
+            owner: owner,
+            warningMessageBoxText: warningMessageBoxText)
+    {
     }
 
     /// <summary>
@@ -184,6 +241,18 @@ internal sealed class UiConfirmationRequest : UiMessageRequest
         Window owner = null,
         string warningMessageBoxText = null)
         : base(messageBoxText, caption, button, icon, defaultResult, options, owner, warningMessageBoxText)
+    {
+    }
+
+    internal UiConfirmationRequest(
+        string messageBoxText,
+        string caption,
+        UiDialogButton button,
+        UiDialogIcon icon,
+        UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None,
+        Window owner = null,
+        string warningMessageBoxText = null)
+        : base(messageBoxText, caption, button, icon, defaultResult, owner, warningMessageBoxText)
     {
     }
 }

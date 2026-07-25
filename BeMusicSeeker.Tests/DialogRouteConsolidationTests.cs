@@ -274,10 +274,11 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(closingHandler, "CompleteCloseAfterShellRequestAsync(closeRequest)");
         Assert.IsFalse(closingHandler.Contains("ElevatedProcessWarningWorkflow.NotifyClosing()"));
         Assert.IsFalse(closingHandler.Contains("StartupUpdateWorkflow.NotifyClosing()"));
-        StringAssert.Contains(selectedChartMutationOwnerCode, "ShowWindowAsync(");
-        StringAssert.Contains(selectedChartMutationOwnerCode, "UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>");
-        StringAssert.Contains(settingDialogViewModelCode, "ShowWindowAsync(");
-        StringAssert.Contains(settingDialogViewModelCode, "UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>");
+        StringAssert.Contains(selectedChartMutationOwnerCode, "pendingDeleteDialog.ShowAsync()");
+        Assert.IsFalse(selectedChartMutationOwnerCode.Contains("UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>"));
+        StringAssert.Contains(settingDialogViewModelCode, "schemaWindowDialogs.ShowAsync(");
+        StringAssert.Contains(settingDialogViewModelCode, "UiInteractionResult<Lr2PlayHistorySchemaUninstallMode>");
+        Assert.IsFalse(settingDialogViewModelCode.Contains("UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>"));
         Assert.IsFalse(settingDialogCode.Contains("ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>"));
         StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>");
         StringAssert.Contains(requestsCode, "internal sealed class UiWindowDialogRequest<TWindow, TResult>");

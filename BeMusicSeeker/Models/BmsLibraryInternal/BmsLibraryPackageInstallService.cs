@@ -5,9 +5,13 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Microsoft.VisualBasic.FileIO;
 using Ribbit.Util.Extensions;
 

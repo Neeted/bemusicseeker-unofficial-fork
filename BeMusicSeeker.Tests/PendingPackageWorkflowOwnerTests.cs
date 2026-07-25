@@ -1920,19 +1920,19 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal Exception? Failure { get; set; }
 
-        public MessageBoxResult Show(
+        public UiDialogDefaultResult Show(
             string messageBoxText,
             string caption,
-            MessageBoxButton button,
-            MessageBoxImage icon,
-            MessageBoxResult defaultResult = MessageBoxResult.None)
+            UiDialogButton button,
+            UiDialogIcon icon,
+            UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
         {
             CallCount++;
             if (Failure != null)
             {
                 throw Failure;
             }
-            return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
+            return defaultResult == UiDialogDefaultResult.None ? UiDialogDefaultResult.OK : defaultResult;
         }
     }
 }

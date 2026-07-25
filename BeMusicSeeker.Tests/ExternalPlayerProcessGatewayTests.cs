@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -301,9 +300,9 @@ public sealed class ExternalPlayerProcessGatewayTests
     [TestMethod]
     public void SavedWindowPlacementRestoreNormalizesFlagsAndSize()
     {
-        var placement = new ExternalWindowPlacement(7, (int)Win32API.ShowWindowCommands.ShowMaximized, 1, 2, 3, 4, 10, 20, 810, 620);
+        var placement = new WindowPlacement(7, (int)Win32API.ShowWindowCommands.ShowMaximized, 1, 2, 3, 4, 10, 20, 810, 620);
 
-        Win32API.WINDOWPLACEMENT native = placement.ToNativeForRestore(800, 600);
+        Win32API.WINDOWPLACEMENT native = Win32WindowPlacementAdapter.ToNativeForRestore(placement, 800, 600);
 
         Assert.AreEqual(0, native.Flags);
         Assert.AreEqual(Win32API.ShowWindowCommands.Normal, native.ShowCmd);
@@ -343,9 +342,9 @@ public sealed class ExternalPlayerProcessGatewayTests
             0,
             false,
             100,
-            new Point(800, 600),
+            new PlayerResolution(800, 600),
             true,
-            new ExternalWindowPlacement(0, 1, 0, 0, 0, 0, 0, 0, 800, 600));
+            new WindowPlacement(0, 1, 0, 0, 0, 0, 0, 0, 800, 600));
 
         internal bool SaveCalled { get; private set; }
 
@@ -360,7 +359,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         {
         }
 
-        public void SaveWindowPlacement(ExternalWindowPlacement windowPlacement)
+        public void SaveWindowPlacement(WindowPlacement windowPlacement)
         {
             SaveCalled = true;
         }
@@ -448,9 +447,9 @@ public sealed class ExternalPlayerProcessGatewayTests
 
         internal bool Lr2WindowStyleApplied { get; set; }
 
-        internal ExternalWindowPlacement? CapturedPlacement { get; private set; }
+        internal WindowPlacement? CapturedPlacement { get; private set; }
 
-        internal ExternalWindowPlacement? AppliedPlacement { get; private set; }
+        internal WindowPlacement? AppliedPlacement { get; private set; }
 
         public ExternalWindowHandle ParentHandle { get; }
 
@@ -523,14 +522,14 @@ public sealed class ExternalPlayerProcessGatewayTests
             Operations.Add("NotifyBmiIdxPlaybackStarted");
         }
 
-        public ExternalWindowPlacement CaptureWindowPlacement(ExternalWindowHandle childWindow)
+        public WindowPlacement CaptureWindowPlacement(ExternalWindowHandle childWindow)
         {
             Operations.Add("CaptureWindowPlacement");
-            CapturedPlacement = new ExternalWindowPlacement(7, 2, 0, 0, 0, 0, 10, 20, 810, 620);
+            CapturedPlacement = new WindowPlacement(7, 2, 0, 0, 0, 0, 10, 20, 810, 620);
             return CapturedPlacement;
         }
 
-        public void ApplyWindowPlacement(ExternalWindowHandle childWindow, ExternalWindowPlacement placement, int width, int height)
+        public void ApplyWindowPlacement(ExternalWindowHandle childWindow, WindowPlacement placement, int width, int height)
         {
             Operations.Add("ApplyWindowPlacement");
             AppliedPlacement = placement;

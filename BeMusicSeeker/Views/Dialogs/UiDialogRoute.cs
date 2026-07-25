@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.Views.Dialogs;
 
@@ -9,6 +10,30 @@ namespace BeMusicSeeker.Views.Dialogs;
 /// </summary>
 internal static class UiDialogRoute
 {
+    /// <summary>
+    /// technology-neutral dialog contractを同期 event routeへ変換します。呼び出し側はWPFのenumを参照しません。
+    /// </summary>
+    internal static UiDialogDefaultResult ShowMessageBox(
+        string messageBoxText,
+        string caption,
+        UiDialogButton button,
+        UiDialogIcon icon,
+        UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None,
+        string warningMessageBoxText = null)
+    {
+        UiDialogResult result = button == UiDialogButton.OK
+            ? new UiDialogCoordinator()
+                .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, button, icon, defaultResult, warningMessageBoxText: warningMessageBoxText))
+                .GetAwaiter()
+                .GetResult()
+            : new UiDialogCoordinator()
+                .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon, defaultResult, warningMessageBoxText: warningMessageBoxText))
+                .GetAwaiter()
+                .GetResult();
+        ThrowIfNotShown(result, caption);
+        return result.DefaultResult;
+    }
+
     /// <summary>
     /// coordinator-backed message box を owner 自動解決で同期表示します。同期 event handler から同じ route を使うための互換入口です。
     /// </summary>

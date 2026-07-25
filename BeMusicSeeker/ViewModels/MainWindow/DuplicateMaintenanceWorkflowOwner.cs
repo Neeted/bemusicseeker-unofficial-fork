@@ -10,6 +10,9 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -474,7 +477,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 UiDialogStatus.Accepted => ConfirmationDecision.AcceptedResult,
                 UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => ConfirmationDecision.Rejected,
-                UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes
+                UiDialogStatus.ClosedByUser => result.IsPositive
                     ? ConfirmationDecision.AcceptedResult
                     : ConfirmationDecision.Rejected,
                 _ => ConfirmationDecision.Failed(

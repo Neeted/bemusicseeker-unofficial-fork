@@ -1,14 +1,13 @@
 using System;
-using System.Windows;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryDialogService : IBmsLibraryDialogService
 {
-    public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+    public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon, UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
     {
-        UiDialogResult result = button == MessageBoxButton.OK
+        UiDialogResult result = button == UiDialogButton.OK
             ? new UiDialogCoordinator()
                 .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, button, icon, defaultResult))
                 .GetAwaiter()
@@ -20,7 +19,7 @@ internal sealed class BmsLibraryDialogService : IBmsLibraryDialogService
         return ToMessageBoxResult(result, caption);
     }
 
-    private static MessageBoxResult ToMessageBoxResult(UiDialogResult result, string routeName)
+    private static UiDialogDefaultResult ToMessageBoxResult(UiDialogResult result, string routeName)
     {
         if (result == null)
         {
@@ -28,7 +27,7 @@ internal sealed class BmsLibraryDialogService : IBmsLibraryDialogService
         }
         if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
         {
-            return result.MessageBoxResult;
+            return result.DefaultResult;
         }
         if (result.Status == UiDialogStatus.Failed)
         {

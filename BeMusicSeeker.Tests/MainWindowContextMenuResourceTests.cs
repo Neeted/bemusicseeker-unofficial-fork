@@ -2063,7 +2063,7 @@ public sealed class MainWindowContextMenuResourceTests
         string lr2RootPathProperty = ExtractBetween(
             viewModelCode,
             "public string LR2RootPath",
-            "public Dictionary<string, Point> LR2bodyResolutions");
+            "public Dictionary<string, PlayerResolution> LR2bodyResolutions");
         string lr2RootPathGetter = ExtractBetween(
             lr2RootPathProperty,
             "get",

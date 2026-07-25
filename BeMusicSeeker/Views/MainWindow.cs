@@ -1037,7 +1037,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            Win32API.WINDOWPLACEMENT lpwndpl = viewModel.ViewSettings.WindowPlacement;
+            Win32API.WINDOWPLACEMENT lpwndpl = Win32WindowPlacementAdapter.ToNative(viewModel.ViewSettings.WindowPlacement);
             lpwndpl.Length = Marshal.SizeOf(typeof(Win32API.WINDOWPLACEMENT));
             lpwndpl.Flags = 0;
             lpwndpl.ShowCmd = ((lpwndpl.ShowCmd == Win32API.ShowWindowCommands.ShowMinimized) ? Win32API.ShowWindowCommands.Normal : lpwndpl.ShowCmd);
@@ -1141,7 +1141,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             Win32API.WINDOWPLACEMENT lpwndpl = default;
             Win32API.GetWindowPlacement(new WindowInteropHelper(this).Handle, ref lpwndpl);
-            viewModel.ViewSettings.CaptureWindowPlacement(lpwndpl);
+            viewModel.ViewSettings.CaptureWindowPlacement(Win32WindowPlacementAdapter.FromNative(lpwndpl));
         }
         catch (Exception ex)
         {

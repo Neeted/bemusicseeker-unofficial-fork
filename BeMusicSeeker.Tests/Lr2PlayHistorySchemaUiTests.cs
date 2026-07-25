@@ -162,6 +162,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
+            schemaWindowDialogs: dialogs,
             externalShellGateway: ExternalShellGatewayPolicy.Current,
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
@@ -221,6 +222,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
+            schemaWindowDialogs: dialogs,
             externalShellGateway: ExternalShellGatewayPolicy.Current,
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
@@ -293,6 +295,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
+            schemaWindowDialogs: dialogs,
             externalShellGateway: ExternalShellGatewayPolicy.Current,
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
@@ -359,6 +362,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
+            schemaWindowDialogs: dialogs,
             externalShellGateway: ExternalShellGatewayPolicy.Current,
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
@@ -489,7 +493,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             viewModel,
             "internal async Task UninstallLr2PlayHistorySchemaAsync()",
             "private async Task RefreshLr2PlayHistorySchemaStatusAsync");
-        StringAssert.Contains(uninstallOwnerCommand, "ShowWindowAsync");
+        StringAssert.Contains(uninstallOwnerCommand, "schemaWindowDialogs.ShowAsync");
         StringAssert.Contains(uninstallOwnerCommand, "UninstallLr2PlayHistorySchemaCore(scoreDbPath, isLr2LinkedProfile, uninstallMode)");
         StringAssert.Contains(uninstallOwnerCommand, "playHistoryPort.InvalidateReadCache(\"lr2_play_history_schema_uninstall\")");
         Assert.IsTrue(
@@ -582,7 +586,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         return count;
     }
 
-    private sealed class RecordingUiDialogService : IUiDialogService
+    private sealed class RecordingUiDialogService : IUiDialogService, ILr2PlayHistorySchemaUninstallDialogPort
     {
         internal int MessageCount { get; private set; }
 
@@ -621,6 +625,21 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 UiDialogStatus.Accepted,
                 (TResult)(object)SelectedUninstallMode,
                 dialogResult: true));
+        }
+
+        public Task<UiInteractionResult<Lr2PlayHistorySchemaUninstallMode>> ShowAsync(
+            string scoreDbPath,
+            CancellationToken cancellationToken = default)
+        {
+            WindowCount++;
+            if (!AcceptUninstall)
+            {
+                return Task.FromResult(new UiInteractionResult<Lr2PlayHistorySchemaUninstallMode>(UiInteractionStatus.CancelledByUser));
+            }
+            return Task.FromResult(new UiInteractionResult<Lr2PlayHistorySchemaUninstallMode>(
+                UiInteractionStatus.Accepted,
+                SelectedUninstallMode,
+                error: null));
         }
 
         public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default)

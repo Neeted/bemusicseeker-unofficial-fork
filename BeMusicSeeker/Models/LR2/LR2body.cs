@@ -218,7 +218,7 @@ public class LR2body : NotificationObject, IBMSPlayer, IExternalWindowPlayer, IN
             }
             storeConfig();
             PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
-            setConfig((int)settings.LR2bodyResolution.X, (int)settings.LR2bodyResolution.Y, isWinMode: true, settings.PlayerVolume);
+            setConfig((int)settings.LR2bodyResolution.Width, (int)settings.LR2bodyResolution.Height, isWinMode: true, settings.PlayerVolume);
             ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
             LR2bodyProcess.Start();
             DateTime now = DateTime.Now;
@@ -499,8 +499,8 @@ public class LR2body : NotificationObject, IBMSPlayer, IExternalWindowPlayer, IN
             RequireWindowHost().ApplyWindowPlacement(
                 LR2bodyHandleShowing,
                 settings.LR2bodyWindowPlacement,
-                (int)settings.LR2bodyResolution.X,
-                (int)settings.LR2bodyResolution.Y);
+                (int)settings.LR2bodyResolution.Width,
+                (int)settings.LR2bodyResolution.Height);
         }
     }
 

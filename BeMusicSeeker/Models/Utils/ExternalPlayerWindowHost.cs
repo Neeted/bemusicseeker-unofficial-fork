@@ -42,9 +42,9 @@ internal readonly struct ExternalWindowHandle : IEquatable<ExternalWindowHandle>
         => !left.Equals(right);
 }
 
-internal sealed class ExternalWindowPlacement
+public sealed class WindowPlacement
 {
-    internal ExternalWindowPlacement(
+    internal WindowPlacement(
         int flags,
         int showCommand,
         int minX,
@@ -68,20 +68,24 @@ internal sealed class ExternalWindowPlacement
         Bottom = bottom;
     }
 
-    internal int Flags { get; }
-    internal int ShowCommand { get; }
-    internal int MinX { get; }
-    internal int MinY { get; }
-    internal int MaxX { get; }
-    internal int MaxY { get; }
-    internal int Left { get; }
-    internal int Top { get; }
-    internal int Right { get; }
-    internal int Bottom { get; }
+    public int Flags { get; }
+    public int ShowCommand { get; }
+    public int MinX { get; }
+    public int MinY { get; }
+    public int MaxX { get; }
+    public int MaxY { get; }
+    public int Left { get; }
+    public int Top { get; }
+    public int Right { get; }
+    public int Bottom { get; }
 
-    internal static ExternalWindowPlacement FromNative(Win32API.WINDOWPLACEMENT placement)
+}
+
+internal static class Win32WindowPlacementAdapter
+{
+    internal static WindowPlacement FromNative(Win32API.WINDOWPLACEMENT placement)
     {
-        return new ExternalWindowPlacement(
+        return new WindowPlacement(
             placement.Flags,
             (int)placement.ShowCmd,
             placement.MinPosition.X,
@@ -94,27 +98,31 @@ internal sealed class ExternalWindowPlacement
             placement.NormalPosition.Bottom);
     }
 
-    internal Win32API.WINDOWPLACEMENT ToNative()
+    internal static Win32API.WINDOWPLACEMENT ToNative(WindowPlacement placement)
     {
+        if (placement == null)
+        {
+            throw new ArgumentNullException(nameof(placement));
+        }
         return new Win32API.WINDOWPLACEMENT
         {
             Length = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Win32API.WINDOWPLACEMENT)),
-            Flags = Flags,
-            ShowCmd = (Win32API.ShowWindowCommands)ShowCommand,
-            MinPosition = new Win32API.POINT(MinX, MinY),
-            MaxPosition = new Win32API.POINT(MaxX, MaxY),
-            NormalPosition = new Win32API.RECT(Left, Top, Right, Bottom)
+            Flags = placement.Flags,
+            ShowCmd = (Win32API.ShowWindowCommands)placement.ShowCommand,
+            MinPosition = new Win32API.POINT(placement.MinX, placement.MinY),
+            MaxPosition = new Win32API.POINT(placement.MaxX, placement.MaxY),
+            NormalPosition = new Win32API.RECT(placement.Left, placement.Top, placement.Right, placement.Bottom)
         };
     }
 
-    internal Win32API.WINDOWPLACEMENT ToNativeForRestore(int width, int height)
+    internal static Win32API.WINDOWPLACEMENT ToNativeForRestore(WindowPlacement placement, int width, int height)
     {
-        Win32API.WINDOWPLACEMENT placement = ToNative();
-        placement.Flags = 0;
-        placement.ShowCmd = Win32API.ShowWindowCommands.Normal;
-        placement.NormalPosition.Width = width;
-        placement.NormalPosition.Height = height;
-        return placement;
+        Win32API.WINDOWPLACEMENT nativePlacement = ToNative(placement);
+        nativePlacement.Flags = 0;
+        nativePlacement.ShowCmd = Win32API.ShowWindowCommands.Normal;
+        nativePlacement.NormalPosition.Width = width;
+        nativePlacement.NormalPosition.Height = height;
+        return nativePlacement;
     }
 }
 
@@ -154,9 +162,9 @@ internal interface IExternalPlayerWindowHost
 
     void NotifyBmiIdxPlaybackStarted(ExternalWindowHandle childWindow);
 
-    ExternalWindowPlacement CaptureWindowPlacement(ExternalWindowHandle childWindow);
+    WindowPlacement CaptureWindowPlacement(ExternalWindowHandle childWindow);
 
-    void ApplyWindowPlacement(ExternalWindowHandle childWindow, ExternalWindowPlacement placement, int width, int height);
+    void ApplyWindowPlacement(ExternalWindowHandle childWindow, WindowPlacement placement, int width, int height);
 }
 
 internal sealed class Win32ExternalPlayerWindowHost : IExternalPlayerWindowHost
@@ -284,26 +292,16 @@ internal sealed class Win32ExternalPlayerWindowHost : IExternalPlayerWindowHost
         Win32API.PostMessage(new HandleRef(this, childWindow.NativeValue), 1127u, IntPtr.Zero, IntPtr.Zero);
     }
 
-    public ExternalWindowPlacement CaptureWindowPlacement(ExternalWindowHandle childWindow)
+    public WindowPlacement CaptureWindowPlacement(ExternalWindowHandle childWindow)
     {
         Win32API.WINDOWPLACEMENT placement = default;
         Win32API.GetWindowPlacement(childWindow.NativeValue, ref placement);
-        return new ExternalWindowPlacement(
-            placement.Flags,
-            (int)placement.ShowCmd,
-            placement.MinPosition.X,
-            placement.MinPosition.Y,
-            placement.MaxPosition.X,
-            placement.MaxPosition.Y,
-            placement.NormalPosition.Left,
-            placement.NormalPosition.Top,
-            placement.NormalPosition.Right,
-            placement.NormalPosition.Bottom);
+        return Win32WindowPlacementAdapter.FromNative(placement);
     }
 
-    public void ApplyWindowPlacement(ExternalWindowHandle childWindow, ExternalWindowPlacement placement, int width, int height)
+    public void ApplyWindowPlacement(ExternalWindowHandle childWindow, WindowPlacement placement, int width, int height)
     {
-        Win32API.WINDOWPLACEMENT nativePlacement = placement.ToNativeForRestore(width, height);
+        Win32API.WINDOWPLACEMENT nativePlacement = Win32WindowPlacementAdapter.ToNativeForRestore(placement, width, height);
         Win32API.SetWindowPlacement(childWindow.NativeValue, ref nativePlacement);
     }
 }

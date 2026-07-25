@@ -8,6 +8,9 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Parago.Windows;
 using Ribbit.Logging;
 using Ribbit.Media;
@@ -357,9 +360,9 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                 + Environment.NewLine
                 + BeMusicSeeker.Properties.Resources.Failure + ": " + (result.UnprocessedCount + result.FailedCount),
             BeMusicSeeker.Properties.Resources.Confirm,
-            System.Windows.MessageBoxButton.OK,
-            cancelled ? System.Windows.MessageBoxImage.Exclamation : System.Windows.MessageBoxImage.Asterisk,
-            System.Windows.MessageBoxResult.OK));
+            MessageBoxButton.OK,
+            cancelled ? MessageBoxImage.Exclamation : MessageBoxImage.Asterisk,
+            MessageBoxResult.OK));
         UiDialogRoute.ThrowIfNotShown(completionResult, "Audio conversion completion notification");
         return result;
     }

@@ -4,11 +4,12 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -59,6 +60,11 @@ internal interface ISelectedChartMutationPlaybackPort
     void StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts);
 
     void StopPlaybackForChartDirectories(IReadOnlyList<string> directories);
+}
+
+internal interface IPendingDeleteConfirmationDialogPort
+{
+    Task<UiInteractionResult<bool>> ShowAsync();
 }
 
 internal interface ISelectedChartMutationStore
@@ -196,6 +202,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
     private readonly ChartMutationActivityOwner chartMutationActivity;
     private readonly ISelectedChartMutationPlaybackPort playback;
     private readonly IUiDialogService dialogs;
+    private readonly IPendingDeleteConfirmationDialogPort pendingDeleteDialog;
     private readonly ISelectedChartMutationStore store;
 
     internal SelectedChartMutationWorkflowOwner(
@@ -204,6 +211,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         ChartMutationActivityOwner chartMutationActivity,
         ISelectedChartMutationPlaybackPort playback,
         IUiDialogService dialogs,
+        IPendingDeleteConfirmationDialogPort pendingDeleteDialog,
         ISelectedChartMutationStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
@@ -211,6 +219,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        this.pendingDeleteDialog = pendingDeleteDialog ?? throw new ArgumentNullException(nameof(pendingDeleteDialog));
         this.store = store ?? new BmsLibrarySelectedChartMutationStore();
     }
 
@@ -236,10 +245,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
             bool deleteContainingPackageFoldersWhenNoBms = false;
             if (resolution.Route == ChartDeleteRoute.Pending)
             {
-                UiWindowDialogResult<bool> dialogResult = await dialogs.ShowWindowAsync(
-                    new UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>(
-                        () => new PendingDeleteConfirmDialog(),
-                        dialog => dialog.DeleteFolderWhenNoBmsChecked));
+                UiInteractionResult<bool> dialogResult = await pendingDeleteDialog.ShowAsync();
                 if (dialogResult == null)
                 {
                     return SelectedChartMutationResult.Failed(
@@ -247,7 +253,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 }
                 if (!dialogResult.IsAccepted)
                 {
-                    return dialogResult.Status is UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser
+                    return dialogResult.Status is UiInteractionStatus.CancelledByUser or UiInteractionStatus.ClosedByUser
                         ? SelectedChartMutationResult.Completed
                         : SelectedChartMutationResult.Failed(
                             dialogResult.Error ?? new InvalidOperationException(
@@ -581,7 +587,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         {
             UiDialogStatus.Accepted => true,
             UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
+            UiDialogStatus.ClosedByUser => result.IsPositive,
             _ => throw result.Exception ?? new InvalidOperationException(
                 routeName + " could not be displayed (" + result.Status + ").")
         };
@@ -609,7 +615,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         {
             UiDialogStatus.Accepted => true,
             UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
+            UiDialogStatus.ClosedByUser => result.IsPositive,
             _ => throw result.Exception ?? new InvalidOperationException(
                 routeName + " could not be displayed (" + result.Status + ").")
         };

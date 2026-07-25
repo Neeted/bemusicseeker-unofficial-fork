@@ -1,6 +1,8 @@
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Windows;
 
 namespace BeMusicSeeker.Tests;
 
@@ -74,6 +76,42 @@ public sealed class MainWindowViewSettingsBoundaryTests
         finally
         {
             settings.TreeViewWidth = originalTreeViewWidth;
+        }
+    }
+
+    [TestMethod]
+    public void ViewSettingsStoreUsesTechnologyNeutralWindowPlacement()
+    {
+        Settings settings = Settings.Default;
+        Win32API.WINDOWPLACEMENT originalPlacement = settings.WindowPlacement;
+        try
+        {
+            settings.WindowPlacement = new Win32API.WINDOWPLACEMENT
+            {
+                Flags = 3,
+                ShowCmd = Win32API.ShowWindowCommands.ShowMaximized,
+                MinPosition = new Win32API.POINT(1, 2),
+                MaxPosition = new Win32API.POINT(3, 4),
+                NormalPosition = new Win32API.RECT(10, 20, 810, 620)
+            };
+
+            var store = new SettingsMainWindowViewSettingsStore(() => settings);
+            WindowPlacement captured = store.WindowPlacement;
+
+            Assert.AreEqual(3, captured.Flags);
+            Assert.AreEqual((int)Win32API.ShowWindowCommands.ShowMaximized, captured.ShowCommand);
+            Assert.AreEqual(10, captured.Left);
+            Assert.AreEqual(620, captured.Bottom);
+
+            var replacement = new WindowPlacement(0, (int)Win32API.ShowWindowCommands.Normal, 0, 0, 0, 0, 30, 40, 930, 740);
+            store.CaptureWindowPlacement(replacement);
+
+            Assert.AreEqual(30, settings.WindowPlacement.NormalPosition.Left);
+            Assert.AreEqual(740, settings.WindowPlacement.NormalPosition.Bottom);
+        }
+        finally
+        {
+            settings.WindowPlacement = originalPlacement;
         }
     }
 }

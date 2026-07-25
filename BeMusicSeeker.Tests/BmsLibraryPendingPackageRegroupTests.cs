@@ -2058,9 +2058,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService
     {
-        public System.Windows.MessageBoxResult Show(string messageBoxText, string caption, System.Windows.MessageBoxButton button, System.Windows.MessageBoxImage icon, System.Windows.MessageBoxResult defaultResult = System.Windows.MessageBoxResult.None)
+        public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon, UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
         {
-            return System.Windows.MessageBoxResult.OK;
+            return UiDialogDefaultResult.OK;
         }
     }
 

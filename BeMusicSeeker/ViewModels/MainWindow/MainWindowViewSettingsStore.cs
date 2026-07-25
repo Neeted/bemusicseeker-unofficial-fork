@@ -1,7 +1,7 @@
 using System;
 using System.ComponentModel;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Ribbit.Windows;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -20,11 +20,11 @@ public interface IMainWindowViewSettingsStore : INotifyPropertyChanged
 
     double CustomTableFontSize { get; }
 
-    Win32API.WINDOWPLACEMENT WindowPlacement { get; }
+    WindowPlacement WindowPlacement { get; }
 
     void CaptureTreeViewWidth(double actualColumnWidth, double assignedColumnWidth);
 
-    void CaptureWindowPlacement(Win32API.WINDOWPLACEMENT windowPlacement);
+    void CaptureWindowPlacement(WindowPlacement windowPlacement);
 }
 
 /// <summary>
@@ -68,7 +68,7 @@ internal sealed class SettingsMainWindowViewSettingsStore : IMainWindowViewSetti
 
     public double CustomTableFontSize => Values.CustomTableFontSize;
 
-    public Win32API.WINDOWPLACEMENT WindowPlacement => Values.WindowPlacement;
+    public WindowPlacement WindowPlacement => Win32WindowPlacementAdapter.FromNative(Values.WindowPlacement);
 
     public void CaptureTreeViewWidth(double actualColumnWidth, double assignedColumnWidth)
     {
@@ -79,9 +79,9 @@ internal sealed class SettingsMainWindowViewSettingsStore : IMainWindowViewSetti
             values.TreeViewWidth);
     }
 
-    public void CaptureWindowPlacement(Win32API.WINDOWPLACEMENT windowPlacement)
+    public void CaptureWindowPlacement(WindowPlacement windowPlacement)
     {
-        Values.WindowPlacement = windowPlacement;
+        Values.WindowPlacement = Win32WindowPlacementAdapter.ToNative(windowPlacement);
     }
 
     private void ValuesPropertyChanged(object sender, PropertyChangedEventArgs e)

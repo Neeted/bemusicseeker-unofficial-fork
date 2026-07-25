@@ -24,7 +24,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var presentation = new RecordingPresentation();
         var dialogs = new FakeUiDialogService
         {
-            PendingDeleteResult = new UiWindowDialogResult<bool>(UiDialogStatus.CancelledByUser)
+            PendingDeleteResult = new UiInteractionResult<bool>(UiInteractionStatus.CancelledByUser)
         };
         var owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
@@ -43,8 +43,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var store = new RecordingStore();
         var dialogs = new FakeUiDialogService
         {
-            PendingDeleteResult = new UiWindowDialogResult<bool>(
-                UiDialogStatus.Failed,
+            PendingDeleteResult = new UiInteractionResult<bool>(
+                UiInteractionStatus.Failed,
                 error: new IOException("pending dialog failed"))
         };
         var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
@@ -96,7 +96,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var presentation = new RecordingPresentation();
         var dialogs = new FakeUiDialogService
         {
-            PendingDeleteResult = new UiWindowDialogResult<bool>(UiDialogStatus.Accepted, true, true)
+            PendingDeleteResult = new UiInteractionResult<bool>(UiInteractionStatus.Accepted, true)
         };
         var owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
@@ -491,6 +491,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             activity,
             presentation,
             dialogs,
+            dialogs,
             store);
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
         activity.ActivityChanged += presentation.OnActivityChanged;
@@ -717,11 +718,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         }
     }
 
-    private sealed class FakeUiDialogService : IUiDialogService
+    private sealed class FakeUiDialogService : IUiDialogService, IPendingDeleteConfirmationDialogPort
     {
         internal Queue<UiDialogResult> ConfirmationResults { get; set; } = new();
 
-        internal UiWindowDialogResult<bool> PendingDeleteResult { get; set; } = null!;
+        internal UiInteractionResult<bool> PendingDeleteResult { get; set; } = null!;
 
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
@@ -737,7 +738,12 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default)
             where TWindow : Window
         {
-            return Task.FromResult((UiWindowDialogResult<TResult>)(object)PendingDeleteResult);
+            throw new NotSupportedException();
+        }
+
+        public Task<UiInteractionResult<bool>> ShowAsync()
+        {
+            return Task.FromResult(PendingDeleteResult);
         }
 
         public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();

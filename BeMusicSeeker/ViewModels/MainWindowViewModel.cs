@@ -25,6 +25,9 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Codeplex.Data;
 using Livet;
 using Livet.Commands;
@@ -5366,7 +5369,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             UiDialogStatus.Accepted => true,
             UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
+            UiDialogStatus.ClosedByUser => result.IsPositive,
             UiDialogStatus.Failed => throw CreateUiDialogDisplayException(routeName, result),
             _ => throw CreateUiDialogDisplayException(routeName, result),
         };

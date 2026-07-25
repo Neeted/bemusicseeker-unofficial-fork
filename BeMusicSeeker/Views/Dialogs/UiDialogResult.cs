@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.Views.Dialogs;
 
@@ -24,6 +25,18 @@ internal sealed class UiDialogResult
     /// message box 表示部品から返された元の結果です。表示されなかった場合は <see cref="System.Windows.MessageBoxResult.None"/> です。
     /// </summary>
     internal MessageBoxResult MessageBoxResult { get; }
+
+    /// <summary>
+    /// view technology に依存しない message dialog の結果です。
+    /// </summary>
+    internal UiDialogDefaultResult DefaultResult => MessageBoxResult switch
+    {
+        MessageBoxResult.OK => UiDialogDefaultResult.OK,
+        MessageBoxResult.Cancel => UiDialogDefaultResult.Cancel,
+        MessageBoxResult.Yes => UiDialogDefaultResult.Yes,
+        MessageBoxResult.No => UiDialogDefaultResult.No,
+        _ => UiDialogDefaultResult.None,
+    };
 
     /// <summary>
     /// 表示失敗の原因例外です。ユーザー操作による終了では設定されません。

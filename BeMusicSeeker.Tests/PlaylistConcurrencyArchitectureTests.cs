@@ -810,7 +810,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(compositionSource, "IPlayerSettingsGateway playerSettingsGateway");
         StringAssert.Contains(compositionSource, "new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values)");
         StringAssert.Contains(gatewaySource, "void ApplyNegotiatedAudioSettings(");
-        StringAssert.Contains(gatewaySource, "void SaveWindowPlacement(ExternalWindowPlacement windowPlacement)");
+        StringAssert.Contains(gatewaySource, "void SaveWindowPlacement(WindowPlacement windowPlacement)");
 
         string internalPlayerSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "Models", "InternalBMSAutoPlayerSoundOnly.cs");
@@ -860,6 +860,69 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void SettingsDialogUsesTechnologyNeutralResolutionAndDialogContracts()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "SettingsDialogViewModel.cs");
+
+        Assert.IsFalse(source.Contains("using System.Windows;"));
+        Assert.IsFalse(source.Contains("using System.Windows.Forms;"));
+        Assert.IsFalse(source.Contains("using System.Windows.Threading;"));
+        StringAssert.Contains(source, "Dictionary<string, PlayerResolution> LR2bodyResolutions");
+        StringAssert.Contains(source, "PlayerResolutionSettingsAdapter.FromSettings");
+        StringAssert.Contains(source, "using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;");
+        StringAssert.Contains(source, "using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;");
+        StringAssert.Contains(source, "using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;");
+        StringAssert.Contains(source, "ILr2PlayHistorySchemaUninstallDialogPort");
+        Assert.IsFalse(source.Contains("UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog"));
+        Assert.IsFalse(source.Contains("schemaDialogs.ShowWindowAsync"));
+    }
+
+    [TestMethod]
+    public void LibraryDialogContractsDoNotExposeWpfMessageBoxEnums()
+    {
+        string interfaceSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Models",
+            "BmsLibraryInternal",
+            "IBmsLibraryDialogService.cs");
+        string operationDialogSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Models",
+            "BMSLibrary.OperationDialogs.cs");
+        string syncWorkflowSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "Lr2SongDbSyncWorkflowOwner.cs");
+
+        foreach (string source in new[] { interfaceSource, operationDialogSource, syncWorkflowSource })
+        {
+            Assert.IsFalse(source.Contains("System.Windows.MessageBox"));
+            StringAssert.Contains(source, "UiDialogButton");
+            StringAssert.Contains(source, "UiDialogIcon");
+            StringAssert.Contains(source, "UiDialogDefaultResult");
+        }
+    }
+
+    [TestMethod]
+    public void SelectedChartMutationUsesTechnologyNeutralPendingDeletePort()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "SelectedChartMutationWorkflowOwner.cs");
+
+        StringAssert.Contains(source, "IPendingDeleteConfirmationDialogPort");
+        StringAssert.Contains(source, "pendingDeleteDialog.ShowAsync()");
+        Assert.IsFalse(source.Contains("UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>"));
+        Assert.IsFalse(source.Contains("using System.Windows;"));
+    }
+
+    [TestMethod]
     public void MainWindowViewSettingsUseTheViewHostStoreBoundary()
     {
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText(
@@ -887,6 +950,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(settingsStoreSource, "SettingsMainWindowViewSettingsStore");
         StringAssert.Contains(settingsStoreSource, "CaptureTreeViewWidth(");
         StringAssert.Contains(settingsStoreSource, "CaptureWindowPlacement(");
+        Assert.IsFalse(settingsStoreSource.Contains("Ribbit.Windows"));
+        Assert.IsFalse(settingsStoreSource.Contains("Win32API.WINDOWPLACEMENT"));
         Assert.IsFalse(mainWindowSource.Contains("Settings.Default"));
         Assert.IsFalse(mainWindowXaml.Contains("prop:Settings.Default"));
         Assert.IsFalse(settingsStoreSource.Contains("settingsProvider = null"));

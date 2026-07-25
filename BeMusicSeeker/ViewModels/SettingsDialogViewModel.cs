@@ -14,9 +14,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Forms;
-using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -36,6 +33,9 @@ using Ribbit.Media.Audio;
 using Ribbit.Net;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -102,6 +102,8 @@ public partial class SettingsDialogViewModel : ViewModel
     private readonly Action<Exception> reportApplyFailure;
 
     private readonly IUiDialogService schemaDialogs;
+
+    private readonly ILr2PlayHistorySchemaUninstallDialogPort schemaWindowDialogs;
 
     private readonly ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow;
 
@@ -478,59 +480,59 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private string tempLR2RootPath;
 
-    private readonly Dictionary<string, Point> lr2bodyResolutions = new()
+    private readonly Dictionary<string, PlayerResolution> lr2bodyResolutions = new()
         {
             {
                 "  320x180 (16:9)",
-                new Point(320.0, 180.0)
+                new PlayerResolution(320.0, 180.0)
             },
             {
                 "  480x270 (16:9)",
-                new Point(480.0, 270.0)
+                new PlayerResolution(480.0, 270.0)
             },
             {
                 "  640x360 (16:9)",
-                new Point(640.0, 360.0)
+                new PlayerResolution(640.0, 360.0)
             },
             {
                 "  960x540 (16:9)",
-                new Point(960.0, 540.0)
+                new PlayerResolution(960.0, 540.0)
             },
             {
                 " 1280x720 (16:9)",
-                new Point(1280.0, 720.0)
+                new PlayerResolution(1280.0, 720.0)
             },
             {
                 "1920x1080 (16:9)",
-                new Point(1920.0, 1080.0)
+                new PlayerResolution(1920.0, 1080.0)
             },
             {
                 "  320x240 (4:3)",
-                new Point(320.0, 240.0)
+                new PlayerResolution(320.0, 240.0)
             },
             {
                 "  480x360 (4:3)",
-                new Point(480.0, 360.0)
+                new PlayerResolution(480.0, 360.0)
             },
             {
                 "  640x480 (4:3)",
-                new Point(640.0, 480.0)
+                new PlayerResolution(640.0, 480.0)
             },
             {
                 "  960x720 (4:3)",
-                new Point(960.0, 720.0)
+                new PlayerResolution(960.0, 720.0)
             },
             {
                 " 1280x960 (4:3)",
-                new Point(1280.0, 960.0)
+                new PlayerResolution(1280.0, 960.0)
             },
             {
                 "1600x1200 (4:3)",
-                new Point(1600.0, 1200.0)
+                new PlayerResolution(1600.0, 1200.0)
             }
         };
 
-    private Point tempLR2bodyResolution;
+    private PlayerResolution tempLR2bodyResolution;
 
     private string tempBMSRootPath;
 
@@ -898,17 +900,17 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    public Dictionary<string, Point> LR2bodyResolutions => lr2bodyResolutions;
+    public Dictionary<string, PlayerResolution> LR2bodyResolutions => lr2bodyResolutions;
 
-    public Point LR2bodyResolution
+    public PlayerResolution LR2bodyResolution
     {
         get
         {
-            return ApplicationSettings.LR2bodyResolution;
+            return PlayerResolutionSettingsAdapter.FromSettings(ApplicationSettings);
         }
         set
         {
-            ApplicationSettings.LR2bodyResolution = value;
+            PlayerResolutionSettingsAdapter.SaveToSettings(ApplicationSettings, value);
         }
     }
 
@@ -1229,10 +1231,12 @@ public partial class SettingsDialogViewModel : ViewModel
 
         string scoreDbPath = Lr2PlayHistoryScoreDbPath;
         bool isLr2LinkedProfile = OperationModeLR2DB;
-        UiWindowDialogResult<Lr2PlayHistorySchemaUninstallMode> dialogResult = await schemaDialogs.ShowWindowAsync(
-            new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>(
-                () => new Lr2PlayHistorySchemaUninstallDialog(scoreDbPath),
-                dialog => dialog.SelectedMode));
+        if (schemaWindowDialogs == null)
+        {
+            throw new InvalidOperationException("LR2 play history schema dialog port is not configured.");
+        }
+
+        UiInteractionResult<Lr2PlayHistorySchemaUninstallMode> dialogResult = await schemaWindowDialogs.ShowAsync(scoreDbPath);
         ThrowIfWindowDialogNotShown(dialogResult, "LR2 play history schema uninstall dialog");
         if (!dialogResult.IsAccepted)
         {
@@ -1424,13 +1428,13 @@ public partial class SettingsDialogViewModel : ViewModel
             || (uninstallMode == Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers && status == Lr2PlayHistorySchemaStatus.NotInstalled);
     }
 
-    private static void ThrowIfWindowDialogNotShown<TResult>(UiWindowDialogResult<TResult> result, string routeName)
+    private static void ThrowIfWindowDialogNotShown<TResult>(UiInteractionResult<TResult> result, string routeName)
     {
         if (result == null)
         {
             throw new InvalidOperationException(routeName + " failed: no result");
         }
-        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        if (result.Status is UiInteractionStatus.Accepted or UiInteractionStatus.CancelledByUser or UiInteractionStatus.ClosedByUser)
         {
             return;
         }
@@ -3757,6 +3761,7 @@ public partial class SettingsDialogViewModel : ViewModel
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         Action<Exception> reportApplyFailure = null,
         IUiDialogService schemaDialogs = null,
+        ILr2PlayHistorySchemaUninstallDialogPort schemaWindowDialogs = null,
         ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow = null,
         AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow = null,
         IApplicationLifetimePort applicationLifetime = null,
@@ -3798,6 +3803,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 MessageBoxImage.Hand,
                 "Settings apply failure notification"));
         this.schemaDialogs = schemaDialogs ?? new UiDialogCoordinator();
+        this.schemaWindowDialogs = schemaWindowDialogs;
         this.applicationDataUninstallWorkflow = applicationDataUninstallWorkflow
             ?? new ApplicationDataUninstallWorkflowOwner(this.schemaDialogs, new Lr2ApplicationDataUninstallStore());
         this.audioDeviceTestWorkflow = audioDeviceTestWorkflow
@@ -5803,7 +5809,7 @@ public partial class SettingsDialogViewModel : ViewModel
         tempUsePlayeruBMplay = ApplicationSettings.UsePlayeruBMplay;
         tempUsePlayerLR2body = ApplicationSettings.UsePlayerLR2body;
         tempUsePlayerBMIIDXView = ApplicationSettings.UsePlayerBMIIDXView;
-        tempLR2bodyResolution = ApplicationSettings.LR2bodyResolution;
+        tempLR2bodyResolution = LR2bodyResolution;
         tempIsSaveLR2bodyWindowPosition = ApplicationSettings.IsSaveLR2bodyWindowPosition;
         tempLR2CustomFolderOutputDir = ApplicationSettings.LR2CustomFolderOutputBaseDir;
         tempLR2CustomFolderAdditionalOutputBaseDirs = ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs;
@@ -5930,7 +5936,7 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempUsePlayeruBMplay != ApplicationSettings.UsePlayeruBMplay
             || tempUsePlayerLR2body != ApplicationSettings.UsePlayerLR2body
             || tempUsePlayerBMIIDXView != ApplicationSettings.UsePlayerBMIIDXView
-            || tempLR2bodyResolution != ApplicationSettings.LR2bodyResolution
+            || tempLR2bodyResolution != LR2bodyResolution
             || tempIsSaveLR2bodyWindowPosition != ApplicationSettings.IsSaveLR2bodyWindowPosition
             || HasCustomFolderOutputBaseSettingsChanged()
             || tempPlaylistDefaultIgnoreFolderOutput != ApplicationSettings.PlaylistDefaultIgnoreFolderOutput
@@ -6530,7 +6536,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, FormatResource(BeMusicSeeker.Properties.Resources.Error_LR2ExecutableNotFoundFormat, LR2bodyPath)) + Environment.NewLine;
                 result = false;
             }
-            if ((int)LR2bodyResolution.X <= 0 || (int)LR2bodyResolution.Y <= 0)
+            if ((int)LR2bodyResolution.Width <= 0 || (int)LR2bodyResolution.Height <= 0)
             {
                 errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2WindowSize) + Environment.NewLine;
                 result = false;
@@ -6680,7 +6686,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, FormatResource(BeMusicSeeker.Properties.Resources.Error_LR2ExecutableNotFoundFormat, LR2bodyPath)) + Environment.NewLine;
                 result = false;
             }
-            if ((int)LR2bodyResolution.X <= 0 || (int)LR2bodyResolution.Y <= 0)
+            if ((int)LR2bodyResolution.Width <= 0 || (int)LR2bodyResolution.Height <= 0)
             {
                 errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2WindowSize) + Environment.NewLine;
                 result = false;
@@ -6968,7 +6974,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.EnableStellaFullPlaylistUrlCompletion = tempEnableStellaFullPlaylistUrlCompletion;
         ApplicationSettings.PlaylistMd5UrlMappingTsvUri = tempPlaylistMd5UrlMappingTsvUri;
         playHistoryDisplaySettingsStore.DisplayTargetSetsJson = tempPlayHistoryDisplayTargetSetsJson;
-        ApplicationSettings.LR2bodyResolution = tempLR2bodyResolution;
+        PlayerResolutionSettingsAdapter.SaveToSettings(ApplicationSettings, tempLR2bodyResolution);
         ApplicationSettings.IsSaveLR2bodyWindowPosition = tempIsSaveLR2bodyWindowPosition;
         ApplicationSettings.IsLR2BackupEnabled = tempIsLR2BackupEnabled;
         ApplicationSettings.LR2BackupPath = tempLR2BackupPath;
@@ -7240,7 +7246,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             UiDialogStatus.Accepted => true,
             UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
+            UiDialogStatus.ClosedByUser => result.IsPositive,
             UiDialogStatus.Failed => throw CreateUiDialogDisplayException(routeName, result),
             _ => throw CreateUiDialogDisplayException(routeName, result),
         };

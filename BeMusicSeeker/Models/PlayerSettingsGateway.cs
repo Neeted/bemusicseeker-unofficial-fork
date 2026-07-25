@@ -1,11 +1,55 @@
 using System;
-using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Models;
+
+public readonly struct PlayerResolution(double width, double height) : IEquatable<PlayerResolution>
+{
+    public double Width { get; } = width;
+
+    public double Height { get; } = height;
+
+    public bool Equals(PlayerResolution other)
+        => Width.Equals(other.Width) && Height.Equals(other.Height);
+
+    public override bool Equals(object obj)
+        => obj is PlayerResolution other && Equals(other);
+
+    public override int GetHashCode()
+        => unchecked((Width.GetHashCode() * 397) ^ Height.GetHashCode());
+
+    public static bool operator ==(PlayerResolution left, PlayerResolution right)
+        => left.Equals(right);
+
+    public static bool operator !=(PlayerResolution left, PlayerResolution right)
+        => !left.Equals(right);
+}
+
+internal static class PlayerResolutionSettingsAdapter
+{
+    internal static PlayerResolution FromSettings(Settings settings)
+    {
+        if (settings == null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+
+        return new PlayerResolution(settings.LR2bodyResolution.X, settings.LR2bodyResolution.Y);
+    }
+
+    internal static void SaveToSettings(Settings settings, PlayerResolution resolution)
+    {
+        if (settings == null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+
+        settings.LR2bodyResolution = new System.Windows.Point(resolution.Width, resolution.Height);
+    }
+}
 
 /// <summary>
 /// Immutable player configuration captured for one playback operation.
@@ -21,9 +65,9 @@ internal sealed class PlayerSettingsSnapshot
         float playerBufferSize,
         bool playerWasapiParam,
         int playerVolume,
-        Point lr2bodyResolution,
+        PlayerResolution lr2bodyResolution,
         bool isSaveLr2bodyWindowPosition,
-        ExternalWindowPlacement lr2bodyWindowPlacement)
+        WindowPlacement lr2bodyWindowPlacement)
     {
         PlayerDriver = playerDriver;
         PlayerDevice = playerDevice;
@@ -54,11 +98,11 @@ internal sealed class PlayerSettingsSnapshot
 
     internal int PlayerVolume { get; }
 
-    internal Point LR2bodyResolution { get; }
+    internal PlayerResolution LR2bodyResolution { get; }
 
     internal bool IsSaveLR2bodyWindowPosition { get; }
 
-    internal ExternalWindowPlacement LR2bodyWindowPlacement { get; }
+    internal WindowPlacement LR2bodyWindowPlacement { get; }
 }
 
 /// <summary>
@@ -75,7 +119,7 @@ internal interface IPlayerSettingsGateway
         SampleRate playerSampleRate,
         SampleFormat playerFormat);
 
-    void SaveWindowPlacement(ExternalWindowPlacement windowPlacement);
+    void SaveWindowPlacement(WindowPlacement windowPlacement);
 }
 
 /// <summary>
@@ -105,9 +149,9 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
             values.PlayerBufferSize,
             values.PlayerWASAPIParam,
             values.uBMplayVolume,
-            values.LR2bodyResolution,
+            PlayerResolutionSettingsAdapter.FromSettings(values),
             values.IsSaveLR2bodyWindowPosition,
-            ExternalWindowPlacement.FromNative(values.LR2bodyWindowPlacement));
+            Win32WindowPlacementAdapter.FromNative(values.LR2bodyWindowPlacement));
     }
 
     public void ApplyNegotiatedAudioSettings(
@@ -125,10 +169,9 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
         values.PlayerFormat = playerFormat;
     }
 
-    public void SaveWindowPlacement(ExternalWindowPlacement windowPlacement)
+    public void SaveWindowPlacement(WindowPlacement windowPlacement)
     {
-        Values.LR2bodyWindowPlacement = windowPlacement?.ToNative()
-            ?? throw new ArgumentNullException(nameof(windowPlacement));
+        Values.LR2bodyWindowPlacement = Win32WindowPlacementAdapter.ToNative(windowPlacement);
         Values.Save();
     }
 }
