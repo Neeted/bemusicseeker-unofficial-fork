@@ -9,7 +9,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using Livet;
 using Ribbit.Logging;
 using Ribbit.Windows;
@@ -18,6 +17,8 @@ namespace BeMusicSeeker.Models;
 
 public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 {
+    private readonly IPlayerSettingsGateway playerSettingsGateway;
+
     private enum KeyCode
     {
         NONE = 0,
@@ -155,9 +156,11 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
 
     public int LastMeasure { get; }
 
-    public BMIIDXView2015(string exePath)
+    internal BMIIDXView2015(string exePath, IPlayerSettingsGateway playerSettingsGateway)
     {
         ExePath = exePath;
+        this.playerSettingsGateway = playerSettingsGateway
+            ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         onExitEventHandlerDefault = BMIIDXView2015Exited;
     }
 
@@ -257,7 +260,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
             }
             IntPtr foregroundWindow = Win32API.GetForegroundWindow();
             string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "BMIIDXView2015.ini");
-            temporarilyRewriteSettings(iniFilePath);
+            temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
             BMIIDXView2015Process.Start();
             while (!BMIIDXView2015Process.HasExited && BMIIDXView2015Process.MainWindowHandle == IntPtr.Zero)
             {
@@ -385,7 +388,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
         }
     }
 
-    private void temporarilyRewriteSettings(string iniFilePath)
+    private void temporarilyRewriteSettings(string iniFilePath, int playerVolume)
     {
         var encoding = Encoding.GetEncoding("shift_jis");
         string input;
@@ -397,7 +400,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
         {
             return;
         }
-        input = iniVolume.Replace(input, "BMSVOLUME=" + Math.Min(100, Math.Max(0, Settings.Default.uBMplayVolume)));
+        input = iniVolume.Replace(input, "BMSVOLUME=" + Math.Min(100, Math.Max(0, playerVolume)));
         try
         {
             File.WriteAllText(iniFilePath, input, encoding);

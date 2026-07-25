@@ -100,7 +100,7 @@ internal interface ISettingsDialogPlayerFactoryPort
 {
     IBMSPlayer CreateDefaultBmsPlayer();
 
-    IBMSPlayer CreateBmsPlayerForSettings(Properties.Settings settings);
+    IBMSPlayer CreateBmsPlayerForSettings(StartupSettingsSnapshot settings);
 }
 
 internal interface ISettingsDialogPlaybackRuntimePort : IAudioDeviceTestPlaybackPort

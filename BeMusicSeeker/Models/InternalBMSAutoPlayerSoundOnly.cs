@@ -5,7 +5,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using Livet;
 using Ribbit.BMS;
 using Ribbit.Logging;
@@ -15,6 +14,8 @@ namespace BeMusicSeeker.Models;
 
 public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 {
+    private readonly IPlayerSettingsGateway playerSettingsGateway;
+
     private readonly Stopwatch _timer = Stopwatch.StartNew();
 
     private Task _infloopTask;
@@ -62,6 +63,12 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
     private int _LastMeasure;
 
     private TimeSpan _duration = TimeSpan.MinValue;
+
+    internal InternalBMSAutoPlayerSoundOnly(IPlayerSettingsGateway playerSettingsGateway)
+    {
+        this.playerSettingsGateway = playerSettingsGateway
+            ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
+    }
 
     public TimeSpan StopTime
     {
@@ -530,21 +537,24 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
         }
         lock (_sharedObjectLock)
         {
-            BassAudioPlayer.DeviceDescriptor desc = (string.IsNullOrWhiteSpace(Settings.Default.PlayerDevice) ? default : new BassAudioPlayer.DeviceDescriptor(Settings.Default.PlayerDeviceName, Settings.Default.PlayerDevice));
-            BassAudioPlayer.Frequency = Settings.Default.PlayerSampleRate;
-            BassAudioPlayer.Format = Settings.Default.PlayerFormat;
-            BassAudioPlayer.DeviceVolume = (float)Math.Min(100, Math.Max(0, Settings.Default.uBMplayVolume)) / 100f;
-            desc = BassAudioPlayer.Initialize(Settings.Default.PlayerDriver, desc, Settings.Default.PlayerBufferSize, Settings.Default.PlayerWASAPIParam);
-            Settings.Default.PlayerDriver = BassAudioPlayer.DriverType;
+            PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
+            BassAudioPlayer.DeviceDescriptor desc = (string.IsNullOrWhiteSpace(settings.PlayerDevice) ? default : new BassAudioPlayer.DeviceDescriptor(settings.PlayerDeviceName, settings.PlayerDevice));
+            BassAudioPlayer.Frequency = settings.PlayerSampleRate;
+            BassAudioPlayer.Format = settings.PlayerFormat;
+            BassAudioPlayer.DeviceVolume = (float)Math.Min(100, Math.Max(0, settings.PlayerVolume)) / 100f;
+            desc = BassAudioPlayer.Initialize(settings.PlayerDriver, desc, settings.PlayerBufferSize, settings.PlayerWASAPIParam);
+            BassAudioPlayer.DeviceDriver driver = BassAudioPlayer.DriverType;
             if (BassAudioPlayer.DriverType < BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
             {
-                Settings.Default.PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
+                driver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
                 NLogWrapper.TraceLogger.Warn("Sound device not found?");
             }
-            Settings.Default.PlayerDevice = desc.Driver;
-            Settings.Default.PlayerDeviceName = desc.Name;
-            Settings.Default.PlayerSampleRate = BassAudioPlayer.Frequency;
-            Settings.Default.PlayerFormat = BassAudioPlayer.Format;
+            playerSettingsGateway.ApplyNegotiatedAudioSettings(
+                driver,
+                desc.Driver,
+                desc.Name,
+                BassAudioPlayer.Frequency,
+                BassAudioPlayer.Format);
             _fastForwarding = false;
             _fastBackwarding = false;
             Duration = TimeSpan.MinValue;
@@ -614,6 +624,7 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
 
     public void VolumeChanged()
     {
-        BassAudioPlayer.DeviceVolume = (float)Math.Min(100, Math.Max(0, Settings.Default.uBMplayVolume)) / 100f;
+        PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
+        BassAudioPlayer.DeviceVolume = (float)Math.Min(100, Math.Max(0, settings.PlayerVolume)) / 100f;
     }
 }

@@ -789,7 +789,40 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "ViewModels",
             "ApplicationComposition.cs");
         StringAssert.Contains(compositionSource, "defaultBmsPlayerFactory");
-        StringAssert.Contains(compositionSource, "new InternalBMSAutoPlayerSoundOnly()");
+        StringAssert.Contains(compositionSource, "new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway)");
+    }
+
+    [TestMethod]
+    public void PlaybackPlayersUseThePlayerSettingsGatewayBoundary()
+    {
+        string compositionSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "ApplicationComposition.cs");
+        string gatewaySource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Models",
+            "PlayerSettingsGateway.cs");
+
+        StringAssert.Contains(compositionSource, "IPlayerSettingsGateway playerSettingsGateway");
+        StringAssert.Contains(compositionSource, "new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values)");
+        StringAssert.Contains(gatewaySource, "void ApplyNegotiatedAudioSettings(");
+        StringAssert.Contains(gatewaySource, "void SaveWindowPlacement(Win32API.WINDOWPLACEMENT windowPlacement)");
+
+        string internalPlayerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "Models", "InternalBMSAutoPlayerSoundOnly.cs");
+        string bmiIdxSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "Models", "BMIIDXView2015.cs");
+        string ubmplaySource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "Models", "uBMplay.cs");
+        string lr2Source = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "Models", "LR2", "LR2body.cs");
+
+        foreach (string source in new[] { internalPlayerSource, bmiIdxSource, ubmplaySource, lr2Source })
+        {
+            StringAssert.Contains(source, "IPlayerSettingsGateway");
+            Assert.IsFalse(source.Contains("Settings.Default"));
+        }
     }
 
     [TestMethod]

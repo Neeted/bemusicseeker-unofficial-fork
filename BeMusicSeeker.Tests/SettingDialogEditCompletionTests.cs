@@ -1989,7 +1989,7 @@ public sealed class SettingDialogEditCompletionTests
             return new RecordingPlaybackPlayer();
         }
 
-        public IBMSPlayer CreateBmsPlayerForSettings(Settings settings)
+        public IBMSPlayer CreateBmsPlayerForSettings(StartupSettingsSnapshot settings)
         {
             sequence?.Add("factory-configured");
             if (ConfiguredFactoryFailure != null)

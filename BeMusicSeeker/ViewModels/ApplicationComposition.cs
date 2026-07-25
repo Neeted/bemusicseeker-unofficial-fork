@@ -50,6 +50,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly IPlaybackSettingsStore playbackSettingsStore;
 
+    private readonly IPlayerSettingsGateway playerSettingsGateway;
+
     private readonly Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider;
 
     private readonly Func<IBMSPlayer> defaultBmsPlayerFactory;
@@ -82,8 +84,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
+        playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
-            ?? (() => new InternalBMSAutoPlayerSoundOnly());
+            ?? (() => new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway));
         this.uiDispatcherProvider = uiDispatcherProvider
             ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
@@ -429,11 +432,11 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         }
         if (startupSettings.UsePlayeruBMplay)
         {
-            return new uBMplay(startupSettings.uBMplayPath);
+            return new uBMplay(startupSettings.uBMplayPath, playerSettingsGateway);
         }
         if (startupSettings.UsePlayerBMIIDXView)
         {
-            return new BMIIDXView2015(startupSettings.BMIIDXViewPath);
+            return new BMIIDXView2015(startupSettings.BMIIDXViewPath, playerSettingsGateway);
         }
         if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))
         {
@@ -441,7 +444,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             {
                 throw new ArgumentNullException(nameof(createLr2PlayerConfig));
             }
-            return new LR2body(startupSettings.LR2bodyPath, createLr2PlayerConfig());
+            return new LR2body(startupSettings.LR2bodyPath, createLr2PlayerConfig(), playerSettingsGateway);
         }
         return null;
     }
@@ -452,13 +455,12 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? throw new InvalidOperationException("Default playback player factory returned null.");
     }
 
-    internal IBMSPlayer CreateBmsPlayerForSettings(BeMusicSeeker.Properties.Settings settingsValues)
+    internal IBMSPlayer CreateBmsPlayerForSettings(StartupSettingsSnapshot settings)
     {
-        if (settingsValues == null)
+        if (settings == null)
         {
-            throw new ArgumentNullException(nameof(settingsValues));
+            throw new ArgumentNullException(nameof(settings));
         }
-        StartupSettingsSnapshot settings = StartupSettingsSnapshot.CreateCurrent(settingsValues);
         IBMSPlayer player = CreateBmsPlayer(
             settings,
             () => new LR2Config(settings.LR2ConfigXmlPath));
@@ -476,8 +478,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     IBMSPlayer ISettingsDialogPlayerFactoryPort.CreateDefaultBmsPlayer()
         => CreateDefaultBmsPlayer();
 
-    IBMSPlayer ISettingsDialogPlayerFactoryPort.CreateBmsPlayerForSettings(BeMusicSeeker.Properties.Settings settingsValues)
-        => CreateBmsPlayerForSettings(settingsValues);
+    IBMSPlayer ISettingsDialogPlayerFactoryPort.CreateBmsPlayerForSettings(StartupSettingsSnapshot settings)
+        => CreateBmsPlayerForSettings(settings);
 
     internal BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
     {

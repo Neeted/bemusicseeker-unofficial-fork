@@ -6,7 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
-using BeMusicSeeker.Properties;
+using BeMusicSeeker.Models;
 using Livet;
 using Ribbit.Windows;
 
@@ -14,6 +14,8 @@ namespace BeMusicSeeker.Models.LR2;
 
 public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 {
+    private readonly IPlayerSettingsGateway playerSettingsGateway;
+
     private readonly LR2Config lr2Config;
 
     private string BMSFilePathPlaying;
@@ -121,10 +123,12 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     public int LastMeasure { get; }
 
-    public LR2body(string exePath, LR2Config config)
+    internal LR2body(string exePath, LR2Config config, IPlayerSettingsGateway playerSettingsGateway)
     {
         ExePath = exePath ?? throw new ArgumentNullException("exePath", "引数をnullに出来ません");
         lr2Config = config ?? throw new ArgumentNullException("config", "引数をnullに出来ません");
+        this.playerSettingsGateway = playerSettingsGateway
+            ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         onExitEventHandlerDefault = LR2bodyExited;
     }
 
@@ -224,7 +228,8 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 onExitEventHandlerRegstered = null;
             }
             storeConfig();
-            setConfig((int)Settings.Default.LR2bodyResolution.X, (int)Settings.Default.LR2bodyResolution.Y, isWinMode: true, Settings.Default.uBMplayVolume);
+            PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
+            setConfig((int)settings.LR2bodyResolution.X, (int)settings.LR2bodyResolution.Y, isWinMode: true, settings.PlayerVolume);
             IntPtr foregroundWindow = Win32API.GetForegroundWindow();
             LR2bodyProcess.Start();
             DateTime now = DateTime.Now;
@@ -249,7 +254,7 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             {
                 LR2bodyHandleShowing = LR2bodyProcess.MainWindowHandle;
                 setWindowStyle();
-                restoreWindowPosition();
+                restoreWindowPosition(settings);
                 while (foregroundWindow != IntPtr.Zero && Win32API.IsWindow(foregroundWindow) && !Win32API.SetForegroundWindow(foregroundWindow))
                 {
                     Thread.Sleep(50);
@@ -498,16 +503,16 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         lr2Config.Save();
     }
 
-    private void restoreWindowPosition()
+    private void restoreWindowPosition(PlayerSettingsSnapshot settings)
     {
-        if (LR2bodyHandleShowing != IntPtr.Zero && Settings.Default.IsSaveLR2bodyWindowPosition)
+        if (LR2bodyHandleShowing != IntPtr.Zero && settings.IsSaveLR2bodyWindowPosition)
         {
-            Win32API.WINDOWPLACEMENT lpwndpl = Settings.Default.LR2bodyWindowPlacement;
+            Win32API.WINDOWPLACEMENT lpwndpl = settings.LR2bodyWindowPlacement;
             lpwndpl.Length = Marshal.SizeOf(typeof(Win32API.WINDOWPLACEMENT));
             lpwndpl.Flags = 0;
             lpwndpl.ShowCmd = Win32API.ShowWindowCommands.Normal;
-            lpwndpl.NormalPosition.Width = (int)Settings.Default.LR2bodyResolution.X;
-            lpwndpl.NormalPosition.Height = (int)Settings.Default.LR2bodyResolution.Y;
+            lpwndpl.NormalPosition.Width = (int)settings.LR2bodyResolution.X;
+            lpwndpl.NormalPosition.Height = (int)settings.LR2bodyResolution.Y;
             Win32API.SetWindowPlacement(LR2bodyHandleShowing, ref lpwndpl);
         }
     }
@@ -518,8 +523,7 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         {
             Win32API.WINDOWPLACEMENT lpwndpl = default;
             Win32API.GetWindowPlacement(LR2bodyHandleShowing, ref lpwndpl);
-            Settings.Default.LR2bodyWindowPlacement = lpwndpl;
-            Settings.Default.Save();
+            playerSettingsGateway.SaveWindowPlacement(lpwndpl);
         }
     }
 

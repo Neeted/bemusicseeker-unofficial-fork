@@ -273,7 +273,8 @@ public sealed class ApplicationCompositionTests
         bool originalUbMplay = BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay;
         bool originalBmi = BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView;
         bool originalLr2 = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
-        var expected = new InternalBMSAutoPlayerSoundOnly();
+        var expected = new InternalBMSAutoPlayerSoundOnly(
+            new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default));
         var composition = new ApplicationComposition(
             defaultBmsPlayerFactory: () => expected,
             uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
@@ -283,7 +284,10 @@ public sealed class ApplicationCompositionTests
             BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView = false;
             BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = false;
 
-            Assert.AreSame(expected, composition.CreateBmsPlayerForSettings(BeMusicSeeker.Properties.Settings.Default));
+            Assert.AreSame(
+                expected,
+                composition.CreateBmsPlayerForSettings(
+                    StartupSettingsSnapshot.CreateCurrent(BeMusicSeeker.Properties.Settings.Default)));
         }
         finally
         {
@@ -313,7 +317,8 @@ public sealed class ApplicationCompositionTests
                 uiDispatcherProvider: () => Dispatcher.CurrentDispatcher);
 
             InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-                () => composition.CreateBmsPlayerForSettings(BeMusicSeeker.Properties.Settings.Default));
+                () => composition.CreateBmsPlayerForSettings(
+                    StartupSettingsSnapshot.CreateCurrent(BeMusicSeeker.Properties.Settings.Default)));
 
             Assert.AreEqual("Configured LR2 playback player could not be created.", exception.Message);
         }
@@ -494,7 +499,8 @@ public sealed class ApplicationCompositionTests
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
-            () => new InternalBMSAutoPlayerSoundOnly(),
+            () => new InternalBMSAutoPlayerSoundOnly(
+                new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default)),
             () => Dispatcher.CurrentDispatcher,
             new ChartFileOperationSynchronizer(),
             _ =>
@@ -640,7 +646,8 @@ public sealed class ApplicationCompositionTests
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
-                () => new InternalBMSAutoPlayerSoundOnly(),
+                () => new InternalBMSAutoPlayerSoundOnly(
+                    new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default)),
                 () => Dispatcher.CurrentDispatcher,
                 new ChartFileOperationSynchronizer(),
                 _ => { },
@@ -775,7 +782,8 @@ public sealed class ApplicationCompositionTests
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
-                () => new InternalBMSAutoPlayerSoundOnly(),
+                () => new InternalBMSAutoPlayerSoundOnly(
+                    new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default)),
                 () => Dispatcher.CurrentDispatcher,
                 new ChartFileOperationSynchronizer(),
                 _ => { },

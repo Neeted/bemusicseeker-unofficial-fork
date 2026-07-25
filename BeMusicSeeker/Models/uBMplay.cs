@@ -9,7 +9,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using Livet;
 using Ribbit.Logging;
 using Ribbit.Util.Extensions;
@@ -19,6 +18,8 @@ namespace BeMusicSeeker.Models;
 
 public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 {
+    private readonly IPlayerSettingsGateway playerSettingsGateway;
+
     private enum KeyCode
     {
         NONE = 0,
@@ -83,7 +84,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             }
         }
 
-        public temporarilyRewriteSettings(string iniFilePath)
+        public temporarilyRewriteSettings(string iniFilePath, int playerVolume)
         {
             this.iniFilePath = iniFilePath;
             try
@@ -105,7 +106,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                     SyntaxDefinition = syntax
                 };
             }
-            if ((1u & (setSectionParameterValue("Main", "AlwaysOnTop", "False") ? 1u : 0u) & (setSectionParameterValue("Main", "VSYNC", "False") ? 1u : 0u) & (setSectionParameterValue("Option", "BGA", "3") ? 1u : 0u) & (setSectionParameterValue("Option", "AutoSeparate", "True") ? 1u : 0u) & (setSectionParameterValue("Option", "SkinType", "0") ? 1u : 0u) & (setSectionParameterValue("Option", "Volume", Math.Min(100, Math.Max(0, Settings.Default.uBMplayVolume)).ToString()) ? 1u : 0u)) == 0)
+            if ((1u & (setSectionParameterValue("Main", "AlwaysOnTop", "False") ? 1u : 0u) & (setSectionParameterValue("Main", "VSYNC", "False") ? 1u : 0u) & (setSectionParameterValue("Option", "BGA", "3") ? 1u : 0u) & (setSectionParameterValue("Option", "AutoSeparate", "True") ? 1u : 0u) & (setSectionParameterValue("Option", "SkinType", "0") ? 1u : 0u) & (setSectionParameterValue("Option", "Volume", Math.Min(100, Math.Max(0, playerVolume)).ToString()) ? 1u : 0u)) == 0)
             {
                 backup = null;
             }
@@ -322,9 +323,11 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 select wh)];
     }
 
-    public uBMplay(string exePath)
+    internal uBMplay(string exePath, IPlayerSettingsGateway playerSettingsGateway)
     {
         ExePath = exePath;
+        this.playerSettingsGateway = playerSettingsGateway
+            ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         onExitEventHandlerDefault = uBMplayExited;
     }
 
@@ -386,7 +389,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "ubm.ini");
         lock (lockThis)
         {
-            iniFile = new temporarilyRewriteSettings(iniFilePath);
+            iniFile = new temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
             bool startedNewProcess = createProcess(bmsFilePath, onExitEventHandler);
             if (startedNewProcess && (uBMplayProcess == null || uBMplayProcess.HasExited || !Win32API.IsWindow(uBMplayHandleShowing)))
             {
