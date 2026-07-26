@@ -13,7 +13,7 @@ internal sealed class CatalogWriteFailureFact(
     string runId,
     string stage,
     string logReason,
-    Exception exception)
+    Exception exception) : EventArgs
 {
     public string RunId { get; } = string.IsNullOrWhiteSpace(runId) ? "song_db_write" : runId;
 

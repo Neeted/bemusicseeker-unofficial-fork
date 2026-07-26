@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -24,9 +25,17 @@ public partial class BMSLibrary
     /// Owns the LR2 synchronization request lifecycle and its cross-route state.
     /// The facade exposes only the application-facing observable projection.
     /// </summary>
-    internal sealed class Lr2SynchronizationOwner : ILr2ChartInfoTrustPort, ILr2PlaylistFolderSynchronizationPort
+    internal sealed class Lr2SynchronizationOwner :
+        ILr2ChartInfoTrustPort,
+        ILr2PlaylistFolderSynchronizationPort,
+        ICatalogWriteFailureSink,
+        INotifyPropertyChanged
     {
-        private readonly BMSLibrary library;
+        private readonly ILr2SynchronizationDataPort data;
+
+        private readonly ILr2SynchronizationRuntimePort runtime;
+
+        private readonly ILr2SynchronizationProjectionPort projection;
 
         private readonly object chartInfoTrustGate = new();
 
@@ -34,9 +43,16 @@ public partial class BMSLibrary
 
         private ChartInfoCompletedLr2SongDbSyncTrustSnapshot chartInfoTrustSnapshot;
 
-        internal Lr2SynchronizationOwner(BMSLibrary library)
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        internal Lr2SynchronizationOwner(
+            ILr2SynchronizationDataPort data,
+            ILr2SynchronizationRuntimePort runtime,
+            ILr2SynchronizationProjectionPort projection)
         {
-            this.library = library ?? throw new ArgumentNullException(nameof(library));
+            this.data = data ?? throw new ArgumentNullException(nameof(data));
+            this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+            this.projection = projection ?? throw new ArgumentNullException(nameof(projection));
         }
 
         internal object RequestGate { get; } = new();
@@ -110,7 +126,7 @@ public partial class BMSLibrary
         internal int ObservableStatusVersion { get; set; }
 
         internal BmsLibraryOptionsSnapshot CurrentOptionsSnapshot =>
-            library.CurrentOptionsSnapshot;
+            data.CurrentOptionsSnapshot;
 
         CustomFolderOutputPhysicalSurface ILr2PlaylistFolderSynchronizationPort.GetCurrentAppManagedCustomFolderOutputPhysicalSurface() =>
             GetCurrentAppManagedCustomFolderOutputPhysicalSurface();
@@ -122,43 +138,14 @@ public partial class BMSLibrary
 
         internal Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope()
         {
-            var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            bool isComplete = true;
-            try
+            Lr2SongDbSyncAppManagedOutputScope scope =
+                data.CaptureLr2SongDbSyncAppManagedOutputScope(data.CurrentOptionsSnapshot);
+            if (!scope.IsComplete)
             {
-                using LR2SongDBExtended songDb = library.dbGateway.OpenSongDbReadOnly();
-                string playlistTableName = SQLiteTable<LR2SongDBExtended.playlist>.GetTableName();
-                long playlistTableExists = songDb.ExecuteScalar<long>(
-                    "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?;",
-                    playlistTableName);
-                if (playlistTableExists == 0)
-                {
-                    return new Lr2SongDbSyncAppManagedOutputScope([], [], [], isComplete: true);
-                }
-
-                BmsLibraryOptionsSnapshot options = library.CurrentOptionsSnapshot;
-                foreach (BMSTable table in songDb.Table<BMSTable>())
-                {
-                    string outputDirectory = ResolveManagedPlaylistOutputDirectory(table, options);
-                    if (!string.IsNullOrWhiteSpace(outputDirectory))
-                    {
-                        directories.Add(outputDirectory);
-                    }
-                }
+                BMSLibrary.LogInstallPerformanceWarn(
+                    "lr2folder_app_managed_output_scope failed");
             }
-            catch (Exception ex)
-            {
-                isComplete = false;
-                BMSLibrary.LogInstallPerformanceWarn("lr2folder_app_managed_output_scope failed"
-                    + " exception=" + ex.GetType().Name
-                    + " message=" + BMSLibrary.GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
-            }
-
-            return new Lr2SongDbSyncAppManagedOutputScope(
-                [.. directories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
-                [],
-                [],
-                isComplete);
+            return scope;
         }
 
         internal Lr2SongDbSyncPreparedDataSurface SyncLr2BuiltinCustomFolderRows(string reason)
@@ -231,7 +218,8 @@ public partial class BMSLibrary
                 if (!queuePreparedSync)
                 {
                     var stopwatch = Stopwatch.StartNew();
-                    List<string> roots = library.getBMSDirectories();
+                    Lr2SearchRootSnapshot rootSnapshot = data.CaptureBmsDirectories();
+                    List<string> roots = [.. rootSnapshot.Roots];
                     List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
                     List<string> discoveryDirectories = NormalizeDistinctDirectories(CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots, options));
                     Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
@@ -318,59 +306,20 @@ public partial class BMSLibrary
             }
         }
 
-        private static string ResolveManagedPlaylistOutputDirectory(BMSTable table, BmsLibraryOptionsSnapshot options)
-        {
-            if (table == null)
-            {
-                return null;
-            }
-
-            string outputDir;
-            try
-            {
-                outputDir = table.Output_dir;
-            }
-            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NullReferenceException)
-            {
-                return null;
-            }
-
-            if (string.IsNullOrWhiteSpace(outputDir))
-            {
-                return null;
-            }
-
-            try
-            {
-                return BMSLibrary.SafeFullPathOrOriginal(BMSPlaylist.GetCustomFolderOutputDirectory(
-                    table,
-                    options.LR2CustomFolderOutputBaseDir,
-                    options.LR2CustomFolderOutputBaseDirRootType,
-                    CustomFolderOutputBaseRegistry.SerializeBaseDirectories(options.LR2CustomFolderAdditionalOutputBaseDirs)));
-            }
-            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-            {
-                return null;
-            }
-        }
-
         internal Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
         {
-            LR2Config config = library.CreateCurrentLr2ConfigOrNull();
-            using (library.rwlockBMSFilesInitializedAll.GetReaderGuard())
-            {
-                return Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
-                    config,
-                    (library._BMSFiles ?? [])
-                        .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                        .Select(file => file.adddate),
-                    nowUtc);
-            }
+            LR2Config config = data.CreateCurrentLr2ConfigOrNull();
+            return Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
+                config,
+                data.CaptureBmsFilesSnapshot()
+                    .Where(file => !string.IsNullOrWhiteSpace(file.path))
+                    .Select(file => file.adddate),
+                nowUtc);
         }
 
         internal List<string> CreateLr2SongDbSyncBuiltinFolderSourceDirectories(BmsLibraryOptionsSnapshot options = null)
         {
-            options ??= library.CurrentOptionsSnapshot;
+            options ??= data.CurrentOptionsSnapshot;
             return Lr2FolderFileDiscoveryService.CreateBuiltinFolderSourceDirectories(options.LR2RootPath);
         }
 
@@ -380,7 +329,7 @@ public partial class BMSLibrary
             bool includeAppManagedOutputDirectories = true,
             BmsLibraryOptionsSnapshot options = null)
         {
-            options ??= library.CurrentOptionsSnapshot;
+            options ??= data.CurrentOptionsSnapshot;
             return Lr2FolderFileDiscoveryService.CreatePruneDirectories(
                 rootDirectories,
                 CreateNormalCustomFolderOutputBaseDirectories(options),
@@ -414,7 +363,7 @@ public partial class BMSLibrary
                 lr2RootPath,
                 builtinCustomFolderSettings,
                 BMSLibrary.LogEverythingScan,
-                library.everythingNative,
+                data.EverythingNative,
                 excludedDirectories);
         }
 
@@ -463,7 +412,7 @@ public partial class BMSLibrary
                 request.DirectoryEntries,
                 request.Lr2FolderDiscoveryDirectories,
                 parentDirectoryTargets,
-                library.everythingNative);
+                data.EverythingNative);
             long entryMs = RestartElapsed(stopwatchStage);
             request.DirectoryEntries = MergeMissingLr2DirectoryEntrySurface(
                 request.DirectoryEntries,
@@ -490,7 +439,7 @@ public partial class BMSLibrary
                     []);
             }
 
-            return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories, library.everythingNative);
+            return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories, data.EverythingNative);
         }
 
         private static void ApplyLr2TextMetadataCandidatesToRequest(
@@ -541,15 +490,14 @@ public partial class BMSLibrary
             try
             {
                 PrepareLr2FolderParentDirectoryEntrySurface(request);
-                using LR2SongDBExtended songDb = library.dbGateway.OpenSongDb();
-                IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath =
-                    Lr2SongDbSyncService.CreateExistingLr2FolderRowMap(songDb, request);
+                Lr2FolderExistingRowsSnapshot existingRows =
+                    data.CaptureLr2FolderExistingRows(request);
                 Lr2SongDbSyncService.Lr2FolderFileSyncItemsResult syncItems =
                     Lr2SongDbSyncService.CreateLr2FolderFileSyncItems(
                         request.Lr2FolderFilePaths,
                         request,
                         request.Lr2FolderFileEntries,
-                        path => existingRowsByPath.TryGetValue(path, out LR2SongDB.folder row) ? row : null);
+                        path => existingRows.RowsByPath.TryGetValue(path, out LR2SongDB.folder row) ? row : null);
                 IReadOnlyCollection<Lr2FolderFileSyncItem> parentDirectorySyncItems = updateParentDirectoryRowsForPreservedItems
                     ? syncItems.Items
                     : [.. syncItems.Items.Where(item => item != null && !item.PreserveExistingRowOnly)];
@@ -558,11 +506,8 @@ public partial class BMSLibrary
                 bool effectiveAllowPrune = allowPrune
                     && request.Lr2FolderFileDiscoveryComplete
                     && !syncItems.HasReadFailures;
-                string savepoint = songDb.SaveTransactionPoint();
-                Lr2FolderFileDbSyncResult syncResult;
-                try
-                {
-                    syncResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+                Lr2FolderFileDbSyncResult syncResult = data.ApplyLr2FolderFileSync(
+                    new Lr2FolderFileDbSyncRequest
                     {
                         Items = syncItems.Items,
                         ScopeDirectories = request.Lr2FolderPruneDirectories,
@@ -576,32 +521,7 @@ public partial class BMSLibrary
                         AllowPrune = effectiveAllowPrune,
                         ScopeReadLr2FolderRowsOnly = scopeReadLr2FolderRowsOnly,
                         UpdateParentDirectoryRowsForPreservedItems = updateParentDirectoryRowsForPreservedItems
-                    },
-                    commitTransaction: false);
-                    songDb.Commit();
-                }
-                catch
-                {
-                    try
-                    {
-                        songDb.RollbackTo(savepoint);
-                    }
-                    catch (Exception rollbackException)
-                    {
-                        try
-                        {
-                            BMSLibrary.LogInstallPerformanceWarn(
-                                logName + " rollback_failed"
-                                + " exception=" + rollbackException.GetType().Name
-                                + " message=" + BMSLibrary.GetDisplayedExceptionMessage(rollbackException).Replace(Environment.NewLine, " | "));
-                        }
-                        catch
-                        {
-                            // Rollback diagnostics must never replace the original LR2 folder exception.
-                        }
-                    }
-                    throw;
-                }
+                    });
 
                 stopwatch.Stop();
                 BMSLibrary.LogInstallPerformance(logName + " done"
@@ -652,9 +572,7 @@ public partial class BMSLibrary
             }
 
             string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
-            using LR2SongDBExtended songDb = library.dbGateway.OpenSongDb();
-            Lr2SongDbSyncStatusSnapshot status = Lr2SongDbSyncStatusService.Evaluate(
-                songDb,
+            Lr2SongDbSyncStatusSnapshot status = data.EvaluateLr2SongDbSyncStatus(
                 enabled: true,
                 signature,
                 DateTime.UtcNow);
@@ -717,7 +635,7 @@ public partial class BMSLibrary
                 string displayedMessage = BMSLibrary.GetDisplayedExceptionMessage(exception)
                     .Replace(Environment.NewLine, " | ");
                 MarkLr2SongDbSyncIncomplete(
-                    library.CurrentOptionsSnapshot,
+                    data.CurrentOptionsSnapshot,
                     runId: "playlist_lr2folder_sync",
                     stage: "lr2_playlist_lr2folder_sync_failed",
                     detail: "lr2_playlist_lr2folder_sync_failed: " + displayedMessage,
@@ -754,16 +672,16 @@ public partial class BMSLibrary
             try
             {
                 string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
-                using LR2SongDBExtended songDb = library.dbGateway.OpenSongDb();
-                Lr2SongDbSyncStatusSnapshot status = Lr2SongDbSyncStatusService.MarkIncomplete(
-                    songDb,
-                    signature,
-                    runId: string.IsNullOrWhiteSpace(runId) ? "runtime_write" : runId,
-                    processedCursor: null,
-                    totalCount: null,
-                    stage,
-                    detail,
-                    nowUtc: DateTime.UtcNow);
+                Lr2SongDbSyncStatusSnapshot status = data.ApplyLr2SongDbSyncStatusMutation(
+                    new Lr2SongDbSyncStatusMutationRequest(
+                        Lr2SongDbSyncStatusMutationKind.MarkIncomplete,
+                        signature,
+                        string.IsNullOrWhiteSpace(runId) ? "runtime_write" : runId,
+                        processedCursor: null,
+                        totalCount: null,
+                        stage,
+                        detail,
+                        DateTime.UtcNow));
                 PublishStatus(status);
             }
             catch (Exception ex)
@@ -775,7 +693,7 @@ public partial class BMSLibrary
             }
         }
 
-        internal void PublishCatalogWriteFailureFact(CatalogWriteFailureFact failureFact)
+        void ICatalogWriteFailureSink.PublishCatalogWriteFailureFact(CatalogWriteFailureFact failureFact)
         {
             if (failureFact == null)
             {
@@ -799,7 +717,7 @@ public partial class BMSLibrary
             try
             {
                 MarkLr2SongDbSyncIncomplete(
-                    library.CurrentOptionsSnapshot,
+                    data.CurrentOptionsSnapshot,
                     failureFact.RunId,
                     failureFact.Stage,
                     failureFact.Detail,
@@ -845,42 +763,7 @@ public partial class BMSLibrary
 
             try
             {
-                using (library.catalogMutationOwner.EnterMaintenanceWriteGuard())
-                using (LR2SongDBExtended songDb = library.dbGateway.OpenSongDb())
-                {
-                    string savepoint = songDb.SaveTransactionPoint();
-                    try
-                    {
-                        Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(
-                            songDb,
-                            request,
-                            commitTransaction: false);
-                        songDb.Commit();
-                        return result;
-                    }
-                    catch
-                    {
-                        try
-                        {
-                            songDb.RollbackTo(savepoint);
-                        }
-                        catch (Exception rollbackException)
-                        {
-                            try
-                            {
-                                BMSLibrary.LogInstallPerformanceWarn(
-                                    resolvedOperation + " rollback_failed"
-                                    + " exception=" + rollbackException.GetType().Name
-                                    + " message=" + BMSLibrary.GetDisplayedExceptionMessage(rollbackException).Replace(Environment.NewLine, " | "));
-                            }
-                            catch
-                            {
-                                // Rollback diagnostics must never replace the original playlist exception.
-                            }
-                        }
-                        throw;
-                    }
-                }
+                return data.ApplyLr2FolderFileSync(request);
             }
             catch (Exception ex)
             {
@@ -909,7 +792,7 @@ public partial class BMSLibrary
                 return;
             }
 
-            BmsLibraryOptionsSnapshot options = library.CurrentOptionsSnapshot;
+            BmsLibraryOptionsSnapshot options = data.CurrentOptionsSnapshot;
             if (options?.OperationModeLR2DB != true)
             {
                 return;
@@ -934,7 +817,7 @@ public partial class BMSLibrary
                         throw new InvalidOperationException("LR2 normal-folder catalog snapshot is unavailable.");
                     }
 
-                    roots = library.getBMSDirectories();
+                    roots = [.. data.CaptureBmsDirectories().Roots];
                     if (roots.Count > 0)
                     {
                         syncInput = Lr2NormalFolderSyncScopeBuilder.CreateForCatalogMutation(roots, receipt);
@@ -946,68 +829,35 @@ public partial class BMSLibrary
                                 Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths);
                             Lr2OwnedMutationDirectoryMetadataSurface metadataSurface =
                                 CreateLr2OwnedMutationDirectoryMetadataSurface(directoryMetadataTargets);
-                            using (library.catalogMutationOwner.EnterMaintenanceWriteGuard())
-                            using (LR2SongDBExtended songDb = library.dbGateway.OpenSongDb())
-                            {
-                                string savepoint = songDb.SaveTransactionPoint();
-                                try
+                            Lr2NormalFolderDbSyncResult syncResult = data.ApplyLr2NormalFolderSync(
+                                new Lr2NormalFolderDbSyncRequest
                                 {
-                                    Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(
-                                        songDb,
-                                        new Lr2NormalFolderDbSyncRequest
-                                        {
-                                            RootDirectories = roots,
-                                            ChartPaths = syncInput.ChartPaths,
-                                            DirectoryPaths = directoryMetadataTargets,
-                                            FolderInfoFilePaths = metadataSurface.FolderInfoCandidates.Paths,
-                                            FolderInfoFileEntries = metadataSurface.FolderInfoCandidates.EntriesByPath,
-                                            DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(metadataSurface.DirectoryEntries),
-                                            PruneScopeDirectories = syncInput.PruneScopeDirectories,
-                                            PruneExactDirectories = syncInput.PruneExactDirectories,
-                                            GeneratedAtUtc = DateTime.UtcNow,
-                                            AllowPrune = syncInput.PruneScopeDirectories.Count > 0
-                                                || syncInput.PruneExactDirectories.Count > 0,
-                                            UseScopedExistingRows = true
-                                        },
-                                        commitTransaction: false);
-                                    songDb.Commit();
-                                    stopwatch.Stop();
-                                    BMSLibrary.LogInstallPerformance("lr2_normal_folder_catalog_sync done"
-                                        + " reason=" + (reason ?? "unknown")
-                                        + " ownedVersion=" + receipt.OwnedCollectionVersion
-                                        + " paths=" + syncInput.ChartPaths.Count
-                                        + " directoryPaths=" + directoryMetadataTargets.Count
-                                        + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
-                                        + " exactPrunes=" + syncInput.PruneExactDirectories.Count
-                                        + " roots=" + roots.Count
-                                        + " generated=" + syncResult.GeneratedCount
-                                        + " upserted=" + syncResult.UpsertedCount
-                                        + " deleted=" + syncResult.DeletedCount
-                                        + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                                }
-                                catch
-                                {
-                                    try
-                                    {
-                                        songDb.RollbackTo(savepoint);
-                                    }
-                                    catch (Exception rollbackException)
-                                    {
-                                        try
-                                        {
-                                            BMSLibrary.LogInstallPerformanceWarn(
-                                                "lr2_normal_folder_catalog_sync rollback_failed"
-                                                + " exception=" + rollbackException.GetType().Name
-                                                + " message=" + BMSLibrary.GetDisplayedExceptionMessage(rollbackException).Replace(Environment.NewLine, " | "));
-                                        }
-                                        catch
-                                        {
-                                            // Rollback diagnostics must never replace the original folder write exception.
-                                        }
-                                    }
-                                    throw;
-                                }
-                            }
+                                    RootDirectories = roots,
+                                    ChartPaths = syncInput.ChartPaths,
+                                    DirectoryPaths = directoryMetadataTargets,
+                                    FolderInfoFilePaths = metadataSurface.FolderInfoCandidates.Paths,
+                                    FolderInfoFileEntries = metadataSurface.FolderInfoCandidates.EntriesByPath,
+                                    DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(metadataSurface.DirectoryEntries),
+                                    PruneScopeDirectories = syncInput.PruneScopeDirectories,
+                                    PruneExactDirectories = syncInput.PruneExactDirectories,
+                                    GeneratedAtUtc = DateTime.UtcNow,
+                                    AllowPrune = syncInput.PruneScopeDirectories.Count > 0
+                                        || syncInput.PruneExactDirectories.Count > 0,
+                                    UseScopedExistingRows = true
+                                });
+                            stopwatch.Stop();
+                            BMSLibrary.LogInstallPerformance("lr2_normal_folder_catalog_sync done"
+                                + " reason=" + (reason ?? "unknown")
+                                + " ownedVersion=" + receipt.OwnedCollectionVersion
+                                + " paths=" + syncInput.ChartPaths.Count
+                                + " directoryPaths=" + directoryMetadataTargets.Count
+                                + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
+                                + " exactPrunes=" + syncInput.PruneExactDirectories.Count
+                                + " roots=" + roots.Count
+                                + " generated=" + syncResult.GeneratedCount
+                                + " upserted=" + syncResult.UpsertedCount
+                                + " deleted=" + syncResult.DeletedCount
+                                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                         }
                     }
                 }
@@ -1147,7 +997,7 @@ public partial class BMSLibrary
             {
                 snapshot = chartInfoTrustSnapshot;
             }
-            ChartInfoOwnerVersionSnapshot currentVersion = library.catalogChartInfoOwner.CaptureOwnerVersionSnapshot();
+            ChartInfoOwnerVersionSnapshot currentVersion = data.CaptureChartInfoOwnerVersionSnapshot();
             return snapshot?.IsCurrent(currentVersion) == true ? snapshot : null;
         }
 
@@ -1164,7 +1014,7 @@ public partial class BMSLibrary
                 ClearChartInfoTrust("file_diff_changed_" + (reason ?? "unknown"));
                 return;
             }
-            ChartInfoOwnerVersionSnapshot version = library.catalogChartInfoOwner.CaptureOwnerVersionSnapshot();
+            ChartInfoOwnerVersionSnapshot version = data.CaptureChartInfoOwnerVersionSnapshot();
             var snapshot = new ChartInfoCompletedLr2SongDbSyncTrustSnapshot
             {
                 OwnedCollectionVersion = version.OwnedCollectionVersion,
@@ -1217,7 +1067,7 @@ public partial class BMSLibrary
                 return;
             }
 
-            ChartInfoOwnerVersionSnapshot version = library.catalogChartInfoOwner.CaptureOwnerVersionSnapshot();
+            ChartInfoOwnerVersionSnapshot version = data.CaptureChartInfoOwnerVersionSnapshot();
             Lr2SongDbSyncScanSurfaceSnapshot scanSurface;
             lock (ScanSurfaceGate)
             {
@@ -1434,6 +1284,7 @@ public partial class BMSLibrary
             }
 
             Lr2SongDbSyncScanSurfaceSnapshot snapshot;
+            StorageRowsVersionSnapshot currentStorageRowsVersion = data.CaptureStorageRowsVersionSnapshot();
             lock (ScanSurfaceGate)
             {
                 int generation = ScanSurfaceGeneration == int.MaxValue
@@ -1453,9 +1304,9 @@ public partial class BMSLibrary
                     lr2FolderFilePaths,
                     lr2FolderFileEntries,
                     lr2FolderFileDiscoveryComplete,
-                    library.OwnedChartCollectionVersion,
-                    library.catalogStorageRowsOwner.BmsRowsVersion,
-                    library.catalogStorageRowsOwner.BmsonRowsVersion);
+                    data.OwnedChartCollectionVersion,
+                    currentStorageRowsVersion.BmsRowsVersion,
+                    currentStorageRowsVersion.BmsonRowsVersion);
                 ScanSurfaceSnapshot = snapshot;
                 AppManagedCustomFolderOutputPhysicalSurface = new CustomFolderOutputPhysicalSurface(
                     fileCheckResult.Lr2ScanAppManagedCustomFolderOutputFileEntries,
@@ -1487,10 +1338,10 @@ public partial class BMSLibrary
                 + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
         }
 
-        internal bool IsShutdownRequested => library.IsShutdownRequested;
+        internal bool IsShutdownRequested => runtime.IsShutdownRequested;
 
         internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler =>
-            library.StartupBackgroundTaskScheduler;
+            runtime.StartupBackgroundTaskScheduler;
 
         internal int GetLr2SongDbSyncMutationInProgress()
         {
@@ -1537,10 +1388,21 @@ public partial class BMSLibrary
             return GetStatusSnapshot();
         }
 
-        internal LR2SongDBExtended OpenSongDb() => library.dbGateway.OpenSongDb();
+        internal Lr2SearchRootSnapshot CaptureBmsDirectories() =>
+            data.CaptureBmsDirectories();
 
-        internal IDisposable EnterLr2SongDbSyncCatalogMutationLease() =>
-            library.catalogMutationOwner.EnterMaintenanceWriteGuard();
+        internal Lr2SongDbSyncStatusSnapshot EvaluateLr2SongDbSyncStatus(
+            bool enabled,
+            string signature,
+            DateTime nowUtc) =>
+            data.EvaluateLr2SongDbSyncStatus(enabled, signature, nowUtc);
+
+        internal Lr2StartupScanBlockerCleanupReceipt ApplyLr2StartupScanBlockerCleanup(
+            Lr2StartupScanBlockerCleanupRequest request) =>
+            data.ApplyLr2StartupScanBlockerCleanup(request);
+
+        internal Lr2SongDbSyncResult ApplyLr2SongDbSync(Lr2SongDbSyncRequest request) =>
+            data.ApplyLr2SongDbSync(request);
 
         internal void PublishLr2SongDbSyncStatus(Lr2SongDbSyncStatusSnapshot status)
         {
@@ -1548,7 +1410,7 @@ public partial class BMSLibrary
         }
 
         internal bool TrySkipForShutdown(string operation, string reason) =>
-            library.TrySkipForShutdown(operation, reason);
+            runtime.TrySkipForShutdown(operation, reason);
 
         internal void ClearLr2SongDbSyncPreparedDataSurface(string reason) =>
             ClearPreparedDataSurface(reason);
@@ -1637,7 +1499,7 @@ public partial class BMSLibrary
             var inputBuilder = new Lr2SongDbSyncInputBuilder(
                 BMSLibrary.LogEverythingScan,
                 BMSLibrary.LogInstallPerformance,
-                library.everythingNative);
+                data.EverythingNative);
 
             var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
             Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
@@ -1672,42 +1534,13 @@ public partial class BMSLibrary
 
         private Lr2SongDbSyncInputRowSnapshot CreateLr2SongDbSyncInputRowSnapshot()
         {
-            List<string> chartPaths;
-            List<BMSFile> songRows;
-            int ownedCollectionVersion;
-            StorageRowsVersionSnapshot storageRowsVersion;
-            using (library.rwlockBMSFilesInitializedAll.GetReaderGuard())
-            {
-                var chartPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                chartPaths = [];
-                songRows = [];
-                foreach (BMSFile file in library._BMSFiles ?? [])
-                {
-                    if (file == null || string.IsNullOrWhiteSpace(file.path))
-                    {
-                        continue;
-                    }
-                    songRows.Add(file);
-                    if (chartPathSet.Add(file.path))
-                    {
-                        chartPaths.Add(file.path);
-                    }
-                }
-                ownedCollectionVersion = library.OwnedChartCollectionVersion;
-                storageRowsVersion = library.CreateCurrentStorageRowsVersionSnapshotUnsafe();
-            }
-            return new Lr2SongDbSyncInputRowSnapshot(
-                chartPaths,
-                songRows,
-                ownedCollectionVersion,
-                storageRowsVersion.BmsRowsVersion,
-                storageRowsVersion.BmsonRowsVersion);
+            return data.CaptureLr2SynchronizationInputRowSnapshot();
         }
 
         private Lr2SongDbSyncInputRootSnapshot CreateLr2SongDbSyncInputRootSnapshot()
         {
             DateTime capturedAtUtc = DateTime.UtcNow;
-            List<string> rootDirectories = library.getBMSDirectories();
+            List<string> rootDirectories = [.. data.CaptureBmsDirectories().Roots];
             BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
             return new Lr2SongDbSyncInputRootSnapshot(
                 capturedAtUtc,
@@ -1725,7 +1558,7 @@ public partial class BMSLibrary
             List<string> lr2BuiltinFolderSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
             return new Lr2SongDbSyncInputSettingsSnapshot(
                 Lr2BuiltinCustomFolderSettings.Create(
-                    library.CreateCurrentLr2ConfigOrNull(),
+                    data.CreateCurrentLr2ConfigOrNull(),
                     songRows,
                     nowUtc),
                 lr2BuiltinFolderSourceDirectories,
@@ -1754,7 +1587,7 @@ public partial class BMSLibrary
         }
 
         internal TimeSpan CurrentChartInfoParseTimeout =>
-            library.chartInfoBuildService.CurrentParseTimeout;
+            data.CurrentChartInfoParseTimeout;
 
         internal void ReportStartupBackgroundTask(
             string name,
@@ -1762,33 +1595,41 @@ public partial class BMSLibrary
             long elapsedMs,
             bool failed,
             string detail) =>
-            library.ReportStartupBackgroundTask(name, status, elapsedMs, failed, detail);
+            runtime.ReportStartupBackgroundTask(name, status, elapsedMs, failed, detail);
 
-        internal void PublishLr2SongDbSyncPreflightStage(string stage, string reason, string runId) =>
-            library.PublishLr2SongDbSyncPreflightStage(stage, reason, runId);
+        internal void PublishLr2SongDbSyncPreflightStage(string stage, string reason, string runId)
+        {
+            UpdateProgress(new Lr2SongDbSyncProgress
+            {
+                Stage = stage ?? string.Empty,
+                StageProcessedCount = 0,
+                StageTotalCount = 0
+            });
+        }
 
-        internal void LogLr2SongDbSyncPreflightStageDone(string stage, string reason, string runId, long elapsedMs) =>
-            library.LogLr2SongDbSyncPreflightStageDone(stage, reason, runId, elapsedMs);
+        internal void LogLr2SongDbSyncPreflightStageDone(string stage, string reason, string runId, long elapsedMs)
+        {
+            BMSLibrary.LogInstallPerformance("lr2_song_db_sync preflight_stage_done"
+                + " stage=" + (stage ?? string.Empty)
+                + " reason=" + (reason ?? string.Empty)
+                + " runId=" + (runId ?? string.Empty)
+                + " elapsedMs=" + elapsedMs);
+        }
 
         internal void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) =>
-            library.EnsureLr2SongDbSyncChartInfoIndexHydrated(reason);
+            projection.EnsureLr2SongDbSyncChartInfoIndexHydrated(reason);
 
         internal Dictionary<string, BMSFile> CreateLr2SongDbSyncCompatibilityProjectionIndex() =>
-            library.CreateLr2SongDbSyncCompatibilityProjectionIndex();
+            projection.CreateLr2SongDbSyncCompatibilityProjectionIndex();
 
         internal Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
-            library.CreateLr2SongDbSyncChartInfoResolverSnapshot();
+            projection.CreateLr2SongDbSyncChartInfoResolverSnapshot();
 
         internal HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason) =>
-            library.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(reason);
+            projection.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(reason);
 
         internal void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows) =>
-            library.UpsertChartInfoIndexRows(rows, "lr2_song_db_sync_inline_chart_info", dispatchPresentation: false);
-
-        internal CatalogChartInfoWriteReceipt ApplyLr2SongDbSyncChartInfoWrite(
-            LR2SongDBExtended songDb,
-            CatalogChartInfoWriteRequest request) =>
-            library.catalogMutationOwner.ApplyChartInfoWriteInTransaction(songDb, request);
+            projection.UpsertLr2SongDbSyncChartInfoIndexRows(rows);
 
         internal void UpdateLr2SongDbSyncProgress(Lr2SongDbSyncProgress progress) =>
             UpdateProgress(progress);
@@ -1799,7 +1640,7 @@ public partial class BMSLibrary
             IReadOnlyDictionary<string, BMSFile> bmsByPath,
             bool logSummary,
             bool dispatchPresentation) =>
-            library.ApplyLr2SongDbSyncCompatibilityProjection(
+            projection.ApplyLr2SongDbSyncCompatibilityProjection(
                 maintenanceInfos,
                 reason,
                 bmsByPath,
@@ -1807,20 +1648,20 @@ public partial class BMSLibrary
                 dispatchPresentation);
 
         internal void DispatchWarningPresentationChanged(string reason) =>
-            library.DispatchWarningPresentationChanged(reason);
+            projection.DispatchWarningPresentationChanged(reason);
 
         internal void MarkLr2SongDbSyncFailedStatus(string signature, string runId, Exception ex)
         {
-            using LR2SongDBExtended songDb = library.dbGateway.OpenSongDb();
-            Lr2SongDbSyncStatusService.MarkFailed(
-                songDb,
-                signature,
-                runId,
-                processedCursor: null,
-                totalCount: null,
-                stage: "failed",
-                error: ex.Message,
-                nowUtc: DateTime.UtcNow);
+            data.ApplyLr2SongDbSyncStatusMutation(
+                new Lr2SongDbSyncStatusMutationRequest(
+                    Lr2SongDbSyncStatusMutationKind.MarkFailed,
+                    signature,
+                    runId,
+                    processedCursor: null,
+                    totalCount: null,
+                    stage: "failed",
+                    detail: ex?.Message,
+                    DateTime.UtcNow));
         }
 
         internal void LogInstallPerformance(string message) =>
@@ -1833,15 +1674,16 @@ public partial class BMSLibrary
         {
             try
             {
-                using LR2SongDBExtended songDb = library.dbGateway.OpenSongDb();
-                Lr2SongDbSyncStatusService.MarkCancelled(
-                    songDb,
-                    signature,
-                    runId,
-                    processedCursor: 0,
-                    totalCount: 0,
-                    stage,
-                    DateTime.UtcNow);
+                data.ApplyLr2SongDbSyncStatusMutation(
+                    new Lr2SongDbSyncStatusMutationRequest(
+                        Lr2SongDbSyncStatusMutationKind.MarkCancelled,
+                        signature,
+                        runId,
+                        processedCursor: 0,
+                        totalCount: 0,
+                        stage,
+                        detail: null,
+                        DateTime.UtcNow));
             }
             catch
             {
@@ -1872,12 +1714,17 @@ public partial class BMSLibrary
             SetObservableStatusVersion(ObservableStatusVersion + 1);
         }
 
+        private void OnPropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
         private void SetObservableRunning(bool value)
         {
             if (ObservableRunning != value)
             {
                 ObservableRunning = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncRunning);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncRunning));
             }
         }
 
@@ -1886,7 +1733,7 @@ public partial class BMSLibrary
             if (ObservableRequestedVersion != value)
             {
                 ObservableRequestedVersion = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncRequestedVersion);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncRequestedVersion));
             }
         }
 
@@ -1895,7 +1742,7 @@ public partial class BMSLibrary
             if (ObservableCompletedVersion != value)
             {
                 ObservableCompletedVersion = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncCompletedVersion);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncCompletedVersion));
             }
         }
 
@@ -1904,7 +1751,7 @@ public partial class BMSLibrary
             if (ObservableFailedVersion != value)
             {
                 ObservableFailedVersion = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncFailedVersion);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncFailedVersion));
             }
         }
 
@@ -1913,7 +1760,7 @@ public partial class BMSLibrary
             if (ObservableTotalCount != value)
             {
                 ObservableTotalCount = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncTotalCount);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncTotalCount));
             }
         }
 
@@ -1922,7 +1769,7 @@ public partial class BMSLibrary
             if (ObservableProcessedCount != value)
             {
                 ObservableProcessedCount = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncProcessedCount);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncProcessedCount));
             }
         }
 
@@ -1932,7 +1779,7 @@ public partial class BMSLibrary
             if (!string.Equals(ObservableStage, value, StringComparison.Ordinal))
             {
                 ObservableStage = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncStage);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncStage));
             }
         }
 
@@ -1941,7 +1788,7 @@ public partial class BMSLibrary
             if (ObservableStageProcessedCount != value)
             {
                 ObservableStageProcessedCount = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncStageProcessedCount);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncStageProcessedCount));
             }
         }
 
@@ -1950,7 +1797,7 @@ public partial class BMSLibrary
             if (ObservableStageTotalCount != value)
             {
                 ObservableStageTotalCount = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncStageTotalCount);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncStageTotalCount));
             }
         }
 
@@ -1960,7 +1807,7 @@ public partial class BMSLibrary
             if (!string.Equals(ObservableFailureMessage, value, StringComparison.Ordinal))
             {
                 ObservableFailureMessage = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncFailureMessage);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncFailureMessage));
             }
         }
 
@@ -1969,7 +1816,7 @@ public partial class BMSLibrary
             if (ObservableStatusVersion != value)
             {
                 ObservableStatusVersion = value;
-                library.RaisePropertyChanged(() => library.Lr2SongDbSyncStatusVersion);
+                OnPropertyChanged(nameof(BMSLibrary.Lr2SongDbSyncStatusVersion));
             }
         }
 
@@ -2012,7 +1859,7 @@ public partial class BMSLibrary
             long textFileDirsMs = 0;
             string mergeResult = "unknown";
             preparedSurface ??= Lr2SongDbSyncPreparedDataSurface.Empty;
-            BmsLibraryOptionsSnapshot currentSettings = library.CurrentOptionsSnapshot;
+            BmsLibraryOptionsSnapshot currentSettings = data.CurrentOptionsSnapshot;
             Lr2SongDbSyncScanSurfaceSnapshot snapshot = null;
             lock (ScanSurfaceGate)
             {
@@ -2229,7 +2076,7 @@ public partial class BMSLibrary
             IEnumerable<string> rootDirectories,
             BmsLibraryOptionsSnapshot options = null)
         {
-            options ??= library.CurrentOptionsSnapshot;
+            options ??= data.CurrentOptionsSnapshot;
             return Lr2FolderFileDiscoveryService.CreateDiscoveryDirectories(
                 rootDirectories,
                 CreateNormalCustomFolderOutputBaseDirectories(options),
@@ -2239,15 +2086,16 @@ public partial class BMSLibrary
 
         internal bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)
         {
+            StorageRowsVersionSnapshot currentStorageRowsVersion = data.CaptureStorageRowsVersionSnapshot();
             if (input == null
-                || library.OwnedChartCollectionVersion != input.OwnedChartCollectionVersion
-                || library.catalogStorageRowsOwner.BmsRowsVersion != input.BmsRowsVersion
-                || library.catalogStorageRowsOwner.BmsonRowsVersion != input.BmsonRowsVersion)
+                || data.OwnedChartCollectionVersion != input.OwnedChartCollectionVersion
+                || currentStorageRowsVersion.BmsRowsVersion != input.BmsRowsVersion
+                || currentStorageRowsVersion.BmsonRowsVersion != input.BmsonRowsVersion)
             {
                 return false;
             }
 
-            List<string> roots = library.getBMSDirectories();
+            List<string> roots = [.. data.CaptureBmsDirectories().Roots];
             if (!BMSLibrary.ArePathSetsEqual(input.RootDirectories, roots))
             {
                 return false;
@@ -2257,7 +2105,7 @@ public partial class BMSLibrary
                 return false;
             }
 
-            BmsLibraryOptionsSnapshot options = library.CurrentOptionsSnapshot;
+            BmsLibraryOptionsSnapshot options = data.CurrentOptionsSnapshot;
             List<string> lr2FolderDiscoveryDirectories = CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots, options);
             if (!BMSLibrary.ArePathSetsEqual(input.Lr2FolderDiscoveryDirectories, lr2FolderDiscoveryDirectories))
             {
@@ -2270,7 +2118,7 @@ public partial class BMSLibrary
                 return false;
             }
             Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = Lr2BuiltinCustomFolderSettings.Create(
-                library.CreateCurrentLr2ConfigOrNull(),
+                data.CreateCurrentLr2ConfigOrNull(),
                 [],
                 DateTime.UtcNow);
             if (!BMSLibrary.AreLr2BuiltinCustomFolderConfigurationEqual(input.Lr2BuiltinCustomFolderSettings, builtinCustomFolderSettings))
@@ -2319,7 +2167,6 @@ public partial class BMSLibrary
         }
 
         internal Lr2SongDbSyncSongRowsSkipVerificationResult VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(
-            LR2SongDBExtended songDb,
             IReadOnlyList<BMSFile> songRows,
             Lr2SongDbSyncInput input,
             string reason)
@@ -2328,10 +2175,6 @@ public partial class BMSLibrary
             if (!IsAutomaticLr2SongDbSyncFileDiffFollowupReason(reason))
             {
                 return CreateLr2SongDbSyncSongRowsSkipResult(false, "not_automatic_file_diff_followup", targetRows);
-            }
-            if (songDb == null)
-            {
-                return CreateLr2SongDbSyncSongRowsSkipResult(false, "song_db_unavailable", targetRows);
             }
             if (!IsLr2SongDbSyncInputCurrent(input))
             {
@@ -2605,7 +2448,7 @@ public partial class BMSLibrary
                 + " total=" + total);
             if (showMessage)
             {
-                library.ShowOperationDialog(
+                runtime.ShowOperationDialog(
                     Resources.Warn_Lr2SongDbSyncRunning,
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
@@ -2647,7 +2490,7 @@ public partial class BMSLibrary
                 + " preparing=" + preparing.ToString().ToLowerInvariant());
             if (showMessage)
             {
-                library.ShowOperationDialog(
+                runtime.ShowOperationDialog(
                     Resources.Warn_Lr2SongDbSyncRunning,
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
@@ -2675,7 +2518,7 @@ public partial class BMSLibrary
                         || StatusPublicationInProgress
                         || (PreparationInProgress && !preparationScopeOwned))
                     {
-                        if (library.IsShutdownRequested)
+                        if (runtime.IsShutdownRequested)
                         {
                             throw new InvalidOperationException("LR2 synchronization is unavailable during shutdown.");
                         }
@@ -2705,7 +2548,7 @@ public partial class BMSLibrary
                     || PreparationInProgress
                     || MutationInProgress > 0)
                 {
-                    if (library.IsShutdownRequested)
+                    if (runtime.IsShutdownRequested)
                     {
                         throw new InvalidOperationException("LR2 synchronization is unavailable during shutdown.");
                     }

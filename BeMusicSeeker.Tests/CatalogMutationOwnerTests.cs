@@ -35,7 +35,7 @@ public sealed class CatalogMutationOwnerTests
                 NewPath = newPath
             });
 
-            var owner = new CatalogMutationOwner(new CatalogStorageRowsOwner(), new CatalogOwnedCollectionOwner());
+            var owner = new CatalogMutationOwner(new CatalogStorageRowsOwner(), new CatalogOwnedCollectionOwner(), null);
             CatalogRelocationRequest request = owner.CreateRelocationRequest(delta);
 
             delta.ChartPathChanges[0].NewPath = laterPath;
@@ -579,7 +579,7 @@ public sealed class CatalogMutationOwnerTests
             OwnedChartCollectionState.FromStorageRows([oldBms], [oldBmson]),
             initialRows.BmsRowsVersion,
             initialRows.BmsonRowsVersion);
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
 
         CatalogFileScanStorageReplacementRequest request = owner.CreateFileScanStorageReplacementRequest(
             hasDbDiff: true,
@@ -615,7 +615,7 @@ public sealed class CatalogMutationOwnerTests
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
 
         CatalogFileScanStorageReplacementRequest request = owner.CreateFileScanStorageReplacementRequest(
             hasDbDiff: false,
@@ -652,7 +652,8 @@ public sealed class CatalogMutationOwnerTests
             OwnedChartCollectionState.FromStorageRows([oldBms], [oldBmson]),
             initialRows.BmsRowsVersion,
             initialRows.BmsonRowsVersion));
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        int initialOwnedCollectionVersion = ownedCollectionOwner.CollectionVersion;
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
 
         CatalogStorageRowsReplacementRequest request = owner.CreateStorageRowsReplacementRequest(
             [newBms],
@@ -667,6 +668,8 @@ public sealed class CatalogMutationOwnerTests
         Assert.IsTrue(receipt.BmsonRowsChanged);
         Assert.IsTrue(receipt.OwnedCollectionInvalidated);
         Assert.IsFalse(ownedCollectionOwner.IsInitialized);
+        Assert.AreEqual(initialOwnedCollectionVersion + 1, receipt.OwnedCollectionVersion);
+        Assert.AreEqual(receipt.OwnedCollectionVersion, ownedCollectionOwner.CollectionVersion);
         Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
         Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
         Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
@@ -684,7 +687,7 @@ public sealed class CatalogMutationOwnerTests
         var newBmson = CreateBmson("new.bmson", "dddddddddddddddddddddddddddddddd");
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([oldBms], [oldBmson]);
-        var owner = new CatalogMutationOwner(storageRowsOwner, new CatalogOwnedCollectionOwner());
+        var owner = new CatalogMutationOwner(storageRowsOwner, new CatalogOwnedCollectionOwner(), null);
 
         CatalogStorageRowsReplacementReceipt receipt = owner.ApplyStorageRowsReplacement(
             owner.CreateStorageRowsReplacementRequest(
@@ -768,7 +771,7 @@ public sealed class CatalogMutationOwnerTests
         var storageRowsOwner = new CatalogStorageRowsOwner();
         storageRowsOwner.ReplaceRowsAndCaptureSnapshot([original], []);
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
 
         CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([replacement], []);
         var concurrent = CreateBms("concurrent.bms", "cccccccccccccccccccccccccccccccc");
@@ -820,7 +823,7 @@ public sealed class CatalogMutationOwnerTests
     {
         var storageRowsOwner = new CatalogStorageRowsOwner();
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
 
         CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([], []);
         CatalogInstalledTargetUpsertReceipt receipt = owner.ApplyInstalledTargetUpsert(request);
@@ -847,7 +850,7 @@ public sealed class CatalogMutationOwnerTests
             initialRows.BmsRowsVersion,
             initialRows.BmsonRowsVersion));
         ownedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot();
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
         string newMd5 = "cccccccccccccccccccccccccccccccc";
         string newSha256 = new string('d', 64);
         var change = new LibraryChartDigestChange(
@@ -877,7 +880,7 @@ public sealed class CatalogMutationOwnerTests
     {
         var storageRowsOwner = new CatalogStorageRowsOwner();
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
         var ignored = new LibraryChartDigestChange(
             LibraryChartKind.Bms,
             Path.Combine("C:\\Library", "unchanged.bms"),
@@ -910,7 +913,7 @@ public sealed class CatalogMutationOwnerTests
             initialRows.BmsRowsVersion,
             initialRows.BmsonRowsVersion));
         ownedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot();
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
         var change = new LibraryChartDigestChange(
             LibraryChartKind.Bms,
             bms.path,
@@ -1023,8 +1026,8 @@ public sealed class CatalogMutationOwnerTests
             var owner = new CatalogMutationOwner(
                 new CatalogStorageRowsOwner(),
                 new CatalogOwnedCollectionOwner(),
-                new BmsLibraryDbGateway(songDbPath),
-                failureFacts.Add);
+                new BmsLibraryDbGateway(songDbPath));
+            owner.CatalogWriteFailurePublished += (sender, fact) => failureFacts.Add(fact);
             owner.ApplyModeChangeSongRows([song]);
             using (var setup = new LR2SongDBExtended(songDbPath))
             {

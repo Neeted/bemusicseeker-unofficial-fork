@@ -10,9 +10,27 @@ namespace BeMusicSeeker.Models;
 
 public partial class BMSLibrary
 {
+    private sealed class EmptyDialogService : IBmsLibraryDialogService
+    {
+        internal static readonly EmptyDialogService Instance = new();
+
+        public MessageBoxResult Show(
+            string messageBoxText,
+            string caption,
+            MessageBoxButton button,
+            MessageBoxImage icon,
+            MessageBoxResult defaultResult = MessageBoxResult.None) =>
+            defaultResult;
+    }
+
     internal sealed class OperationDialogMessage
     {
-        internal OperationDialogMessage(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult)
+        internal OperationDialogMessage(
+            string messageBoxText,
+            string caption,
+            MessageBoxButton button,
+            MessageBoxImage icon,
+            MessageBoxResult defaultResult)
         {
             MessageBoxText = messageBoxText;
             Caption = caption;
@@ -34,133 +52,55 @@ public partial class BMSLibrary
 
     internal sealed class OperationDialogScope : IDisposable
     {
-        private readonly BMSLibrary owner;
-        private readonly List<OperationDialogMessage> messages = [];
-        private bool disposed;
+        private readonly ScopedOperationDialogCoordinator.Scope coordinatorScope;
 
-        internal OperationDialogScope(BMSLibrary owner)
+        internal OperationDialogScope(ScopedOperationDialogCoordinator.Scope coordinatorScope)
         {
-            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            this.coordinatorScope = coordinatorScope
+                ?? throw new ArgumentNullException(nameof(coordinatorScope));
         }
 
-        internal IReadOnlyList<OperationDialogMessage> Messages => messages;
+        internal IReadOnlyList<OperationDialogMessage> Messages => [.. coordinatorScope.Messages.Select(message =>
+            new OperationDialogMessage(
+                message.MessageBoxText,
+                message.Caption,
+                message.Button,
+                message.Icon,
+                message.DefaultResult))];
 
         internal void Enqueue(OperationDialogMessage message)
         {
-            if (message != null)
-            {
-                if (messages.Any(existing =>
-                    string.Equals(existing.MessageBoxText, message.MessageBoxText, StringComparison.Ordinal)
-                    && string.Equals(existing.Caption, message.Caption, StringComparison.Ordinal)
-                    && existing.Button == message.Button
-                    && existing.Icon == message.Icon
-                    && existing.DefaultResult == message.DefaultResult))
-                {
-                    return;
-                }
-                messages.Add(message);
-            }
-        }
-
-        internal void Flush()
-        {
-            List<OperationDialogMessage> pendingMessages = [.. messages];
-            messages.Clear();
-            foreach (OperationDialogMessage message in pendingMessages)
-            {
-                owner.ShowOperationDialogImmediate(message);
-            }
-        }
-
-        public void Dispose()
-        {
-            if (disposed)
+            if (message == null)
             {
                 return;
             }
-            disposed = true;
-            owner.EndOperationDialogScope(this);
+            coordinatorScope.Enqueue(new ScopedOperationDialogCoordinator.DialogMessage(
+                message.MessageBoxText,
+                message.Caption,
+                message.Button,
+                message.Icon,
+                message.DefaultResult));
         }
+
+        internal void Flush() => coordinatorScope.Flush();
+
+        public void Dispose() => coordinatorScope.Dispose();
     }
 
-    private sealed class ScopedOperationDialogService : IBmsLibraryDialogService
+    internal OperationDialogScope BeginOperationDialogScope() =>
+        new(GetScopedOperationDialogService().BeginScope());
+
+    private MessageBoxResult ShowOperationDialog(
+        string messageBoxText,
+        string caption,
+        MessageBoxButton button,
+        MessageBoxImage icon,
+        MessageBoxResult defaultResult = MessageBoxResult.None) =>
+        GetScopedOperationDialogService().Show(messageBoxText, caption, button, icon, defaultResult);
+
+    private ScopedOperationDialogCoordinator GetScopedOperationDialogService()
     {
-        private readonly BMSLibrary owner;
-
-        internal ScopedOperationDialogService(BMSLibrary owner)
-        {
-            this.owner = owner;
-        }
-
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
-        {
-            return owner.ShowOperationDialog(messageBoxText, caption, button, icon, defaultResult);
-        }
-    }
-
-    [ThreadStatic]
-    private static Stack<OperationDialogScope> threadOperationDialogScopes;
-
-    internal OperationDialogScope BeginOperationDialogScope()
-    {
-        OperationDialogScope scope = new(this);
-        threadOperationDialogScopes ??= new Stack<OperationDialogScope>();
-        threadOperationDialogScopes.Push(scope);
-        return scope;
-    }
-
-    private void EndOperationDialogScope(OperationDialogScope scope)
-    {
-        Stack<OperationDialogScope> scopes = threadOperationDialogScopes;
-        if (scopes == null || scopes.Count == 0)
-        {
-            return;
-        }
-        if (ReferenceEquals(scopes.Peek(), scope))
-        {
-            scopes.Pop();
-            return;
-        }
-
-        OperationDialogScope[] remainingScopes = [.. scopes.Where(currentScope => !ReferenceEquals(currentScope, scope)).Reverse()];
-        scopes.Clear();
-        foreach (OperationDialogScope remainingScope in remainingScopes)
-        {
-            scopes.Push(remainingScope);
-        }
-    }
-
-    private OperationDialogScope GetCurrentOperationDialogScope()
-    {
-        Stack<OperationDialogScope> scopes = threadOperationDialogScopes;
-        if (scopes == null)
-        {
-            return null;
-        }
-        return scopes.FirstOrDefault();
-    }
-
-    private MessageBoxResult ShowOperationDialog(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
-    {
-        OperationDialogScope scope = GetCurrentOperationDialogScope();
-        if (scope != null && button == MessageBoxButton.OK)
-        {
-            scope.Enqueue(new OperationDialogMessage(messageBoxText, caption, button, icon, defaultResult));
-            return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
-        }
-        if (scope != null)
-        {
-            throw new InvalidOperationException("Interactive BMS library prompts must be resolved before entering a chart/package mutation boundary.");
-        }
-        return dialogService.Show(messageBoxText, caption, button, icon, defaultResult);
-    }
-
-    private void ShowOperationDialogImmediate(OperationDialogMessage message)
-    {
-        if (message == null)
-        {
-            return;
-        }
-        dialogService.Show(message.MessageBoxText, message.Caption, message.Button, message.Icon, message.DefaultResult);
+        return scopedOperationDialogService ??= new(
+            dialogService ?? EmptyDialogService.Instance);
     }
 }

@@ -21,35 +21,35 @@ internal sealed class CatalogMutationOwner
 
     private readonly BmsLibraryDbGateway dbGateway;
 
-    private readonly Action<CatalogWriteFailureFact> publishCatalogWriteFailureFact;
+    private readonly Lr2ManagedPlaylistOutputScopeOwner managedPlaylistOutputScopeOwner;
 
     private readonly ReaderWriterLockSlimWrapper maintenanceWriteGate = new();
 
     internal CatalogMutationOwner(
         CatalogStorageRowsOwner storageRowsOwner,
-        CatalogOwnedCollectionOwner ownedCollectionOwner)
-        : this(storageRowsOwner, ownedCollectionOwner, null)
-    {
-    }
-
-    internal CatalogMutationOwner(
-        CatalogStorageRowsOwner storageRowsOwner,
         CatalogOwnedCollectionOwner ownedCollectionOwner,
         BmsLibraryDbGateway dbGateway)
-        : this(storageRowsOwner, ownedCollectionOwner, dbGateway, null)
-    {
-    }
-
-    internal CatalogMutationOwner(
-        CatalogStorageRowsOwner storageRowsOwner,
-        CatalogOwnedCollectionOwner ownedCollectionOwner,
-        BmsLibraryDbGateway dbGateway,
-        Action<CatalogWriteFailureFact> publishCatalogWriteFailureFact)
     {
         this.storageRowsOwner = storageRowsOwner ?? throw new ArgumentNullException(nameof(storageRowsOwner));
         this.ownedCollectionOwner = ownedCollectionOwner ?? throw new ArgumentNullException(nameof(ownedCollectionOwner));
         this.dbGateway = dbGateway;
-        this.publishCatalogWriteFailureFact = publishCatalogWriteFailureFact;
+        managedPlaylistOutputScopeOwner = dbGateway == null
+            ? null
+            : new Lr2ManagedPlaylistOutputScopeOwner(dbGateway);
+    }
+
+    internal event EventHandler<CatalogWriteFailureFact> CatalogWriteFailurePublished;
+
+    internal Lr2SongDbSyncAppManagedOutputScope CaptureLr2SongDbSyncAppManagedOutputScope(
+        BmsLibraryOptionsSnapshot options)
+    {
+        if (options == null)
+        {
+            throw new InvalidOperationException("BMS library options snapshot provider returned null.");
+        }
+
+        return managedPlaylistOutputScopeOwner?.Capture(options)
+            ?? new Lr2SongDbSyncAppManagedOutputScope([], [], [], isComplete: false);
     }
 
     /// <summary>
@@ -212,31 +212,6 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>
-    /// Applies chart-info facts inside an already-open song database transaction.
-    /// LR2 synchronization uses this narrow callback so song rows and chart-info
-    /// rows retain one atomic transaction without creating a second writer route.
-    /// </summary>
-    internal CatalogChartInfoWriteReceipt ApplyChartInfoWriteInTransaction(
-        LR2SongDBExtended songDb,
-        CatalogChartInfoWriteRequest request)
-    {
-        if (request == null || !request.HasChanges)
-        {
-            return CatalogChartInfoWriteReceipt.NotApplied;
-        }
-        if (songDb == null)
-        {
-            throw new ArgumentNullException(nameof(songDb));
-        }
-
-        using (maintenanceWriteGate.GetWriterGuard())
-        {
-            ApplyChartInfoWriteToTransaction(songDb, request);
-        }
-        return CreateChartInfoWriteReceipt(request);
-    }
-
-    /// <summary>
     /// Commits package-inline storage rows and chart-info facts as one catalog command.
     /// The caller supplies a snapshot request; no facade-owned database writer is needed.
     /// </summary>
@@ -295,6 +270,23 @@ internal sealed class CatalogMutationOwner
             request.ParseFailureDeleteMd5s);
     }
 
+    private static CatalogChartInfoWriteReceipt ApplyChartInfoWriteInTransactionUnderGuard(
+        LR2SongDBExtended songDb,
+        CatalogChartInfoWriteRequest request)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogChartInfoWriteReceipt.NotApplied;
+        }
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        ApplyChartInfoWriteToTransaction(songDb, request);
+        return CreateChartInfoWriteReceipt(request);
+    }
+
     private static CatalogChartInfoWriteReceipt CreateChartInfoWriteReceipt(
         CatalogChartInfoWriteRequest request)
     {
@@ -314,6 +306,251 @@ internal sealed class CatalogMutationOwner
     internal IDisposable EnterStorageRowsWriteGuard()
     {
         return storageRowsOwner.WriteGate.GetWriterGuard();
+    }
+
+    internal Lr2FolderFileDbSyncResult ApplyLr2FolderFileSync(Lr2FolderFileDbSyncRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        using (maintenanceWriteGate.GetWriterGuard())
+        using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
+        {
+            string savepoint = songDb.SaveTransactionPoint();
+            try
+            {
+                Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(
+                    songDb,
+                    request,
+                    commitTransaction: false);
+                songDb.Commit();
+                return result;
+            }
+            catch
+            {
+                RollbackToSavepointBestEffort(songDb, savepoint);
+                throw;
+            }
+        }
+    }
+
+    internal Lr2NormalFolderDbSyncResult ApplyLr2NormalFolderSync(Lr2NormalFolderDbSyncRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        using (maintenanceWriteGate.GetWriterGuard())
+        using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
+        {
+            string savepoint = songDb.SaveTransactionPoint();
+            try
+            {
+                Lr2NormalFolderDbSyncResult result = Lr2NormalFolderDbSyncService.Sync(
+                    songDb,
+                    request,
+                    commitTransaction: false);
+                songDb.Commit();
+                return result;
+            }
+            catch
+            {
+                RollbackToSavepointBestEffort(songDb, savepoint);
+                throw;
+            }
+        }
+    }
+
+    internal Lr2SongDbSyncResult ApplyLr2SongDbSync(Lr2SongDbSyncRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        using (maintenanceWriteGate.GetWriterGuard())
+        using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
+        {
+            return Lr2SongDbSyncService.Run(
+                songDb,
+                request,
+                writeRequest => ApplyChartInfoWriteInTransactionUnderGuard(songDb, writeRequest));
+        }
+    }
+
+    internal Lr2FolderExistingRowsSnapshot CaptureLr2FolderExistingRows(
+        Lr2SongDbSyncRequest request)
+    {
+        using (maintenanceWriteGate.GetWriterGuard())
+        using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
+        {
+            IReadOnlyDictionary<string, LR2SongDB.folder> rowsByPath =
+                Lr2SongDbSyncService.CreateExistingLr2FolderRowMap(songDb, request);
+            return new Lr2FolderExistingRowsSnapshot(rowsByPath);
+        }
+    }
+
+    internal Lr2SongDbSyncStatusSnapshot EvaluateLr2SongDbSyncStatus(
+        bool enabled,
+        string signature,
+        DateTime nowUtc)
+    {
+        using (maintenanceWriteGate.GetWriterGuard())
+        using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
+        {
+            return Lr2SongDbSyncStatusService.Evaluate(songDb, enabled, signature, nowUtc);
+        }
+    }
+
+    internal Lr2SongDbSyncStatusSnapshot ApplyLr2SongDbSyncStatusMutation(
+        Lr2SongDbSyncStatusMutationRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        using (maintenanceWriteGate.GetWriterGuard())
+        using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
+        {
+            return request.Kind switch
+            {
+                Lr2SongDbSyncStatusMutationKind.MarkIncomplete => Lr2SongDbSyncStatusService.MarkIncomplete(
+                    songDb,
+                    request.Signature,
+                    request.RunId,
+                    request.ProcessedCursor,
+                    request.TotalCount,
+                    request.Stage,
+                    request.Detail,
+                    request.NowUtc),
+                Lr2SongDbSyncStatusMutationKind.MarkFailed => Lr2SongDbSyncStatusService.MarkFailed(
+                    songDb,
+                    request.Signature,
+                    request.RunId,
+                    request.ProcessedCursor,
+                    request.TotalCount,
+                    request.Stage,
+                    request.Detail,
+                    request.NowUtc),
+                Lr2SongDbSyncStatusMutationKind.MarkCancelled => Lr2SongDbSyncStatusService.MarkCancelled(
+                    songDb,
+                    request.Signature,
+                    request.RunId,
+                    request.ProcessedCursor,
+                    request.TotalCount,
+                    request.Stage,
+                    request.NowUtc),
+                _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, "Unknown LR2 song DB status mutation.")
+            };
+        }
+    }
+
+    internal Lr2StartupScanBlockerCleanupReceipt ApplyLr2StartupScanBlockerCleanup(
+        Lr2StartupScanBlockerCleanupRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        using (maintenanceWriteGate.GetWriterGuard())
+        using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
+        {
+            Lr2SongDbSyncInput input = request.Input;
+            Lr2StartupScanBlockerCleanupResult result =
+                Lr2SongDbSyncService.CleanupStartupScanBlockerFolderRows(
+                    songDb,
+                    input.RootDirectories,
+                    input.Lr2FolderDiscoveryDirectories,
+                    input.SongRows,
+                    input.Lr2RootPath);
+            Lr2SongDbSyncStatusSnapshot status = Lr2SongDbSyncStatusService.Evaluate(
+                songDb,
+                request.Enabled,
+                request.Signature,
+                request.NowUtc);
+            return new Lr2StartupScanBlockerCleanupReceipt(result, status);
+        }
+    }
+
+    private static void RollbackToSavepointBestEffort(LR2SongDBExtended songDb, string savepoint)
+    {
+        try
+        {
+            songDb.RollbackTo(savepoint);
+        }
+        catch (Exception rollbackException)
+        {
+            try
+            {
+                Debug.WriteLine(
+                    "catalog_lr2_sync_rollback_failed"
+                    + " exception=" + rollbackException.GetType().Name
+                    + " message=" + rollbackException.Message);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    /// <summary>
+    /// Captures LR2 input rows and all freshness versions under the canonical
+    /// storage-to-maintenance lock order. The returned object is immutable and
+    /// can be used without retaining either catalog owner.
+    /// </summary>
+    internal Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot()
+    {
+        using (storageRowsOwner.WriteGate.GetReaderGuard())
+        using (maintenanceWriteGate.GetReaderGuard())
+        {
+            CatalogStorageRowsSnapshot storageSnapshot = storageRowsOwner.CaptureSnapshot();
+            var chartPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var chartPaths = new List<string>();
+            var songRows = new List<BMSFile>();
+            foreach (BMSFile file in storageSnapshot.BmsRows ?? [])
+            {
+                if (file == null || string.IsNullOrWhiteSpace(file.path))
+                {
+                    continue;
+                }
+                songRows.Add(file);
+                if (chartPathSet.Add(file.path))
+                {
+                    chartPaths.Add(file.path);
+                }
+            }
+
+            return new Lr2SongDbSyncInputRowSnapshot(
+                chartPaths,
+                songRows,
+                ownedCollectionOwner.CollectionVersion,
+                storageSnapshot.BmsRowsVersion,
+                storageSnapshot.BmsonRowsVersion);
+        }
+    }
+
+    internal IReadOnlyList<BMSFile> CaptureLr2SynchronizationBmsFilesSnapshot() =>
+        CaptureLr2SynchronizationInputRowSnapshot().SongRows;
+
+    internal StorageRowsVersionSnapshot CaptureLr2SynchronizationStorageRowsVersionSnapshot()
+    {
+        // CaptureVersionSnapshot is serialized by the storage owner's version
+        // gate.  Do not acquire either owner lock here: LR2 sync invokes this
+        // freshness probe while holding the maintenance writer, and another
+        // maintenance route acquires storage before maintenance.
+        return storageRowsOwner.CaptureVersionSnapshot();
     }
 
     /// <summary>
@@ -756,6 +993,9 @@ internal sealed class CatalogMutationOwner
             {
                 ownedCollectionOwner.Invalidate();
             }
+            int ownedCollectionVersion = applied
+                ? ownedCollectionOwner.IncrementVersion()
+                : ownedCollectionOwner.CollectionVersion;
             StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
             return new CatalogStorageRowsReplacementReceipt(
                 applied,
@@ -766,7 +1006,8 @@ internal sealed class CatalogMutationOwner
                     previousVersions.BmsRowsVersion,
                     previousVersions.BmsonRowsVersion,
                     currentVersions.BmsRowsVersion,
-                    currentVersions.BmsonRowsVersion));
+                    currentVersions.BmsonRowsVersion),
+                ownedCollectionVersion);
         }
     }
 
@@ -935,16 +1176,29 @@ internal sealed class CatalogMutationOwner
         }
     }
 
-    private void PublishCatalogWriteFailureFactBestEffort(CatalogWriteFailureFact failureFact)
+    internal void PublishCatalogWriteFailureFactBestEffort(CatalogWriteFailureFact failureFact)
     {
-        if (failureFact == null || publishCatalogWriteFailureFact == null)
+        if (failureFact == null)
+        {
+            return;
+        }
+
+        InvokeFailureFactPublisher(this, CatalogWriteFailurePublished, failureFact);
+    }
+
+    private static void InvokeFailureFactPublisher(
+        object sender,
+        EventHandler<CatalogWriteFailureFact> publisher,
+        CatalogWriteFailureFact failureFact)
+    {
+        if (publisher == null)
         {
             return;
         }
 
         try
         {
-            publishCatalogWriteFailureFact(failureFact);
+            publisher(sender, failureFact);
         }
         catch (Exception exception)
         {
@@ -1202,14 +1456,16 @@ internal sealed class CatalogStorageRowsReplacementReceipt
             bmsRowsChanged: false,
             bmsonRowsChanged: false,
             ownedCollectionInvalidated: false,
-            default);
+            default,
+            ownedCollectionVersion: 0);
 
     internal CatalogStorageRowsReplacementReceipt(
         bool applied,
         bool bmsRowsChanged,
         bool bmsonRowsChanged,
         bool ownedCollectionInvalidated,
-        StorageRowsVersionSnapshot storageRowsVersion)
+        StorageRowsVersionSnapshot storageRowsVersion,
+        int ownedCollectionVersion)
     {
         Applied = applied;
         Kind = applied
@@ -1219,6 +1475,7 @@ internal sealed class CatalogStorageRowsReplacementReceipt
         BmsonRowsChanged = bmsonRowsChanged;
         OwnedCollectionInvalidated = ownedCollectionInvalidated;
         StorageRowsVersion = storageRowsVersion;
+        OwnedCollectionVersion = ownedCollectionVersion;
     }
 
     internal bool Applied { get; }
@@ -1232,6 +1489,8 @@ internal sealed class CatalogStorageRowsReplacementReceipt
     internal bool OwnedCollectionInvalidated { get; }
 
     internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+
+    internal int OwnedCollectionVersion { get; }
 }
 
 /// <summary>

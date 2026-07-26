@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -14,7 +15,7 @@ internal static class Lr2FolderPath
 
         try
         {
-            return TrimTrailingSeparators(Path.GetFullPath(path));
+            return TrimTrailingSeparators(LongPathFileSystem.NormalizePathForStorage(path));
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -193,9 +194,31 @@ public partial class BMSLibrary : ObservableObject
         internal IReadOnlyList<string> DuplicatePaths { get; }
     }
 
-    internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
+    private Lr2SynchronizationRuntimeState lr2SynchronizationRuntimeState;
 
-    internal Action<string, string, long, bool, string> StartupBackgroundTaskReporter { get; set; }
+    internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler
+    {
+        get => lr2SynchronizationRuntimeState?.StartupBackgroundTaskScheduler;
+        set
+        {
+            if (lr2SynchronizationRuntimeState != null)
+            {
+                lr2SynchronizationRuntimeState.StartupBackgroundTaskScheduler = value;
+            }
+        }
+    }
+
+    internal Action<string, string, long, bool, string> StartupBackgroundTaskReporter
+    {
+        get => lr2SynchronizationRuntimeState?.StartupBackgroundTaskReporter;
+        set
+        {
+            if (lr2SynchronizationRuntimeState != null)
+            {
+                lr2SynchronizationRuntimeState.StartupBackgroundTaskReporter = value;
+            }
+        }
+    }
 
     private int shutdownRequested;
 
@@ -399,20 +422,15 @@ public partial class BMSLibrary : ObservableObject
 
     private void ReportStartupBackgroundTask(string name, string status, long elapsedMs, bool failed, string detail = null)
     {
-        try
-        {
-            StartupBackgroundTaskReporter?.Invoke(name ?? "unknown", status ?? string.Empty, elapsedMs, failed, detail ?? string.Empty);
-        }
-        catch
-        {
-        }
+        GetLr2SynchronizationRuntimeState().ReportStartupBackgroundTask(name, status, elapsedMs, failed, detail);
     }
 
-    internal bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
+    internal bool IsShutdownRequested => GetLr2SynchronizationRuntimeState().IsShutdownRequested;
 
     internal void RequestShutdown(string reason)
     {
         Interlocked.Exchange(ref shutdownRequested, 1);
+        GetLr2SynchronizationRuntimeState().RequestShutdown();
         string shutdownReason = "shutdown:" + (reason ?? "unknown");
         try
         {
@@ -463,12 +481,12 @@ public partial class BMSLibrary : ObservableObject
 
     private bool TrySkipForShutdown(string operation, string reason)
     {
-        if (!IsShutdownRequested)
-        {
-            return false;
-        }
-        LogInstallPerformance((operation ?? "background_work") + " skipped reason=shutdown_requested requestReason=" + (reason ?? "unknown"));
-        return true;
+        return GetLr2SynchronizationRuntimeState().TrySkipForShutdown(operation, reason);
+    }
+
+    private Lr2SynchronizationRuntimeState GetLr2SynchronizationRuntimeState()
+    {
+        return lr2SynchronizationRuntimeState ??= new(_ => { });
     }
 
     /// <summary>
@@ -600,6 +618,7 @@ public partial class BMSLibrary : ObservableObject
     private readonly CatalogMaintenanceOwner catalogMaintenanceOwner;
 
     private readonly CatalogChartInfoOwner catalogChartInfoOwner;
+    private readonly CatalogWriteFailureSubscription catalogWriteFailureSubscription;
 
     private ReaderWriterLockSlimWrapper rwlockBMSFiles => catalogStorageRowsOwner.WriteGate;
 
@@ -1030,7 +1049,8 @@ public partial class BMSLibrary : ObservableObject
             {
                 MarkDuplicateWarningFullClearPending();
             }
-            int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
+            int ownedCollectionVersion = NotifyOwnedChartCollectionChanged(
+                replacementReceipt.OwnedCollectionVersion);
             catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
             InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
             if ((notifyBmsRows && bmsRowsChanged) || (notifyBmsonRows && bmsonRowsChanged))
@@ -2243,13 +2263,25 @@ public partial class BMSLibrary : ObservableObject
 
     private bool UseLR2 => CurrentOptionsSnapshot.OperationModeLR2DB;
 
-    public List<string> SearchTargets { get; set; } = [];
+    private readonly Lr2SearchRootSnapshotOwner lr2SearchRootSnapshotOwner;
+
+    public List<string> SearchTargets
+    {
+        get => lr2SearchRootSnapshotOwner?.SearchTargets ?? [];
+        set
+        {
+            if (lr2SearchRootSnapshotOwner != null)
+            {
+                lr2SearchRootSnapshotOwner.SearchTargets = value ?? [];
+            }
+        }
+    }
 
     private readonly IFileMutationService fileMutationService;
 
     private readonly IBmsLibraryDialogService dialogService;
 
-    private readonly IBmsLibraryDialogService scopedOperationDialogService;
+    private ScopedOperationDialogCoordinator scopedOperationDialogService;
 
     private readonly object everythingFallbackWarningGate = new();
 
@@ -2448,7 +2480,8 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new ArgumentException(string.Format(Resources.Error_LR2ScoreDBNotFound, _lr2ScoreDB), "_lr2ScoreDB");
         }
-        lr2SynchronizationOwner = new(this);
+        lr2SynchronizationRuntimeState = new(LogInstallPerformance);
+        lr2config = getLR2Config ?? (() => null);
         playlistReferenceOwner = new(playlistReferenceApplyChunkSize);
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
@@ -2461,7 +2494,7 @@ public partial class BMSLibrary : ObservableObject
         everythingNative = new EverythingNative(this.applicationPathSnapshot);
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
-        scopedOperationDialogService = new ScopedOperationDialogService(this);
+        scopedOperationDialogService = new(this.dialogService);
         libraryFileOperationOwner = new(this);
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
         catalogChartInfoOwner = new(
@@ -2470,11 +2503,41 @@ public partial class BMSLibrary : ObservableObject
             TrySkipForShutdown,
             () => StartupBackgroundTaskScheduler,
             LogInstallPerformance);
+        Lr2ChartInfoCapability lr2ChartInfoCapability = new(catalogChartInfoOwner);
         catalogMutationOwner = new(
             catalogStorageRowsOwner,
             catalogOwnedCollectionOwner,
+            dbGateway);
+        Lr2ConfigSnapshotProvider lr2ConfigSnapshotProvider = new(lr2config);
+        lr2SearchRootSnapshotOwner = new(
+            lr2ConfigSnapshotProvider,
+            () => CurrentOptionsSnapshot);
+        Lr2SynchronizationDataPort lr2SynchronizationDataPort = new(
             dbGateway,
-            lr2SynchronizationOwner.PublishCatalogWriteFailureFact);
+            catalogMutationOwner,
+            lr2ChartInfoCapability,
+            catalogOwnedCollectionOwner,
+            everythingNative,
+            () => CurrentOptionsSnapshot,
+            lr2SearchRootSnapshotOwner,
+            lr2ConfigSnapshotProvider);
+        Lr2SynchronizationRuntimePort lr2SynchronizationRuntimePort = new(
+            lr2SynchronizationRuntimeState,
+            scopedOperationDialogService);
+        Lr2SynchronizationProjectionPort lr2SynchronizationProjectionPort = new(
+            catalogStorageRowsOwner,
+            lr2ChartInfoCapability,
+            dbGateway,
+            LogInstallPerformance);
+        lr2SynchronizationOwner = new(
+            lr2SynchronizationDataPort,
+            lr2SynchronizationRuntimePort,
+            lr2SynchronizationProjectionPort);
+        PropertyChangedEventManager.AddHandler(
+            lr2SynchronizationOwner,
+            HandleLr2SynchronizationPropertyChanged,
+            string.Empty);
+        catalogWriteFailureSubscription = new(catalogMutationOwner, lr2SynchronizationOwner);
         catalogChartInfoOwner.ConfigureWorkflow(
             dbGateway,
             catalogMutationOwner,
@@ -2509,7 +2572,6 @@ public partial class BMSLibrary : ObservableObject
             GetDisplayedExceptionMessage,
             PublishMaintenanceHydrationReceipt,
             LogInstallPerformance,
-            lr2SynchronizationOwner.PublishCatalogWriteFailureFact,
             NotifyMaintenanceHydrationStateChanged);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             dbGateway,
@@ -2552,7 +2614,6 @@ public partial class BMSLibrary : ObservableObject
             CreatePendingEstimatedInstallMaintenanceCapability(),
             CreatePendingEstimatedInstallNotificationCapability(),
             resourceHealthOwner);
-        lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         dbGateway.EnsureLibraryStartupSchema();
         listenerForRwlockBMSFilesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedMin);
@@ -2587,6 +2648,11 @@ public partial class BMSLibrary : ObservableObject
         {
             RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFiles);
         });
+    }
+
+    private void HandleLr2SynchronizationPropertyChanged(object sender, PropertyChangedEventArgs eventArgs)
+    {
+        RaisePropertyChanged(eventArgs?.PropertyName);
     }
 
     /// <summary>
@@ -4740,31 +4806,6 @@ public partial class BMSLibrary : ObservableObject
         };
     }
 
-    private void PublishLr2SongDbSyncPreflightStage(string stage, string reason, string runId)
-    {
-        lr2SynchronizationOwner.UpdateProgress(new Lr2SongDbSyncProgress
-        {
-            Stage = stage ?? string.Empty,
-            ProcessedCursor = 0,
-            TotalCount = 0,
-            StageProcessedCount = 0,
-            StageTotalCount = 0
-        });
-        LogInstallPerformance("lr2_song_db_sync preflight_stage_start"
-            + " stage=" + (stage ?? string.Empty)
-            + " reason=" + (reason ?? "unknown")
-            + " runId=" + (runId ?? string.Empty));
-    }
-
-    private void LogLr2SongDbSyncPreflightStageDone(string stage, string reason, string runId, long elapsedMs)
-    {
-        LogInstallPerformance("lr2_song_db_sync preflight_stage_done"
-            + " stage=" + (stage ?? string.Empty)
-            + " reason=" + (reason ?? "unknown")
-            + " runId=" + (runId ?? string.Empty)
-            + " elapsedMs=" + elapsedMs);
-    }
-
     internal bool CancelLr2SongDbSync(string reason)
     {
         return lr2SynchronizationOwner.Cancel(reason);
@@ -4788,116 +4829,6 @@ public partial class BMSLibrary : ObservableObject
     private void RunLr2SongDbSync(string reason, string signature, int requestVersion)
     {
         Lr2SongDbSyncRequestCoordinator.Run(lr2SynchronizationOwner, reason, signature, requestVersion);
-    }
-
-    private int ApplyLr2SongDbSyncCompatibilityProjection(
-        IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
-        string reason,
-        IReadOnlyDictionary<string, BMSFile> bmsByPath = null,
-        bool logSummary = true,
-        bool dispatchPresentation = true)
-    {
-        List<BMSFileMaintenanceInfo> infoList = [.. (maintenanceInfos ?? [])
-            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))];
-        if (infoList.Count == 0)
-        {
-            if (logSummary)
-            {
-                LogInstallPerformance("lr2_song_db_sync_compatibility_projection skipped"
-                    + " reason=" + (reason ?? "unknown")
-                    + " input=0 applied=0");
-            }
-            return 0;
-        }
-
-        int applied = 0;
-        using (rwlockBMSFiles.GetWriterGuard())
-        {
-            bmsByPath ??= (_BMSFiles ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-            foreach (BMSFileMaintenanceInfo sourceInfo in infoList)
-            {
-                if (!bmsByPath.TryGetValue(sourceInfo.path, out BMSFile file)
-                    || file == null
-                    || (!string.IsNullOrWhiteSpace(sourceInfo.hash)
-                        && !string.Equals(sourceInfo.hash, file.hash, StringComparison.OrdinalIgnoreCase)))
-                {
-                    continue;
-                }
-
-                BMSFileMaintenanceInfo targetInfo = file.TryGetMaintenanceInfoWithoutCreating();
-                if (targetInfo == null || !file.HasMaintenanceInfoHash(file.hash))
-                {
-                    targetInfo = new BMSFileMaintenanceInfo(file);
-                }
-                if (targetInfo.HasSameLr2CompatibilityFacts(sourceInfo))
-                {
-                    continue;
-                }
-                targetInfo.ApplyLr2CompatibilityFactsFrom(sourceInfo);
-                file.SetMaintenanceInfo(targetInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.Calculated);
-                applied++;
-            }
-        }
-
-        if (logSummary)
-        {
-            LogInstallPerformance("lr2_song_db_sync_compatibility_projection applied"
-                + " reason=" + (reason ?? "unknown")
-                + " input=" + infoList.Count
-                + " applied=" + applied);
-        }
-        if (dispatchPresentation && applied > 0)
-        {
-            DispatchWarningPresentationChanged("lr2_song_db_sync_compatibility_projection");
-        }
-        return applied;
-    }
-
-    private Dictionary<string, BMSFile> CreateLr2SongDbSyncCompatibilityProjectionIndex()
-    {
-        using (rwlockBMSFiles.GetReaderGuard())
-        {
-            return (_BMSFiles ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        }
-    }
-
-    private void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason)
-    {
-        catalogChartInfoOwner.EnsureHydratedForLr2(reason);
-    }
-
-    private HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        try
-        {
-            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> failures =
-                catalogChartInfoOwner.LoadCurrentParseFailureMap(dbGateway, chartInfoBuildService.CurrentParseTimeout);
-            stopwatch.Stop();
-            var result = new HashSet<string>(
-                (failures?.Keys ?? Enumerable.Empty<string>()).Where(md5 => !string.IsNullOrWhiteSpace(md5)),
-                StringComparer.OrdinalIgnoreCase);
-            LogInstallPerformance("lr2_song_db_sync_chart_info_parse_failure_snapshot"
-                + " reason=" + (reason ?? "unknown")
-                + " count=" + result.Count
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-            return result;
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            LogInstallPerformance("lr2_song_db_sync_chart_info_parse_failure_snapshot_failed"
-                + " reason=" + (reason ?? "unknown")
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                + " message=" + ex.Message);
-            return [];
-        }
     }
 
     private static bool ArePathSetsEqual(IEnumerable<string> first, IEnumerable<string> second)
@@ -4930,39 +4861,6 @@ public partial class BMSLibrary : ObservableObject
         {
             return path;
         }
-    }
-
-    private Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
-    {
-        LR2Config config = CreateCurrentLr2ConfigOrNull();
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            return Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
-                config,
-                (_BMSFiles ?? [])
-                    .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                    .Select(file => file.adddate),
-                nowUtc);
-        }
-    }
-
-    private Lr2BuiltinCustomFolderSettings CreateLr2BuiltinCustomFolderSettings(IEnumerable<BMSFile> songRows, DateTime nowUtc)
-    {
-        return Lr2BuiltinCustomFolderSettings.Create(CreateCurrentLr2ConfigOrNull(), songRows, nowUtc);
-    }
-
-    private LR2Config CreateCurrentLr2ConfigOrNull()
-    {
-        LR2Config config = null;
-        try
-        {
-            config = lr2config?.Invoke();
-        }
-        catch
-        {
-            config = null;
-        }
-        return config;
     }
 
     private sealed class Lr2NormalFolderCurrentBmsSnapshot(
@@ -5159,11 +5057,6 @@ public partial class BMSLibrary : ObservableObject
         catalogChartInfoOwner.EnsureDisplayIndexLoadedForLazyResolve(reason);
     }
 
-    private Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2SongDbSyncChartInfoResolverSnapshot()
-    {
-        return catalogChartInfoOwner.CreateLr2ResolverSnapshot();
-    }
-
     private static bool IsCurrentChartInfoRow(LR2SongDBExtended.chart_info row)
     {
         return row != null && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
@@ -5248,11 +5141,6 @@ public partial class BMSLibrary : ObservableObject
     private ChartInfoIndexUpdateResult ReplaceChartInfoIndex(IEnumerable<LR2SongDBExtended.chart_info> rows, bool hydrated)
     {
         return catalogChartInfoOwner.ReplaceIndex(rows, hydrated);
-    }
-
-    private ChartInfoIndexUpdateResult UpsertChartInfoIndexRows(IEnumerable<LR2SongDBExtended.chart_info> rows, string reason, bool dispatchPresentation = true)
-    {
-        return catalogChartInfoOwner.UpsertIndex(rows, reason, dispatchPresentation);
     }
 
     private static bool TryGetChartInfoSha256(LR2SongDBExtended.chart_info row, out string sha256)
@@ -6007,35 +5895,16 @@ public partial class BMSLibrary : ObservableObject
 
     private List<string> getBMSDirectories(out BmsSearchRootNormalizationSnapshot normalizationSnapshot)
     {
-        if (UseLR2 && lr2config != null)
-        {
-            try
-            {
-                LR2Config config = lr2config();
-                if (config != null)
-                {
-                    SearchTargets = config.GetBMSSearchDirectories();
-                }
-            }
-            catch
-            {
-                SearchTargets = [];
-            }
-        }
-        HashSet<string> excludedCustomOutputSearchRoots = BuildExcludedCustomOutputSearchRootDirectories();
-        List<string> requestedRoots = [.. (SearchTargets ?? Enumerable.Empty<string>())];
-        List<string> existingRoots = [.. requestedRoots.Where(d => !string.IsNullOrWhiteSpace(d) && LongPathFileSystem.DirectoryExists(d))];
-        List<string> roots = [.. existingRoots
-            .Where(d => !IsExcludedCustomOutputSearchRoot(d, excludedCustomOutputSearchRoots))];
+        Lr2SearchRootSnapshot snapshot = lr2SynchronizationOwner.CaptureBmsDirectories();
         normalizationSnapshot = new BmsSearchRootNormalizationSnapshot
         {
-            RequestedRootCount = requestedRoots.Count,
-            ExistingRootCount = existingRoots.Count,
-            ExcludedCustomOutputRootCount = existingRoots.Count - roots.Count,
-            RootCount = roots.Count,
-            ConfiguredCustomOutputRootCount = excludedCustomOutputSearchRoots.Count
+            RequestedRootCount = snapshot.RequestedRootCount,
+            ExistingRootCount = snapshot.ExistingRootCount,
+            ExcludedCustomOutputRootCount = snapshot.ExcludedCustomOutputRootCount,
+            RootCount = snapshot.Roots.Count,
+            ConfiguredCustomOutputRootCount = snapshot.ConfiguredCustomOutputRootCount
         };
-        return roots;
+        return [.. snapshot.Roots];
     }
 
     private void LogBmsSearchRootNormalization(
@@ -6072,55 +5941,6 @@ public partial class BMSLibrary : ObservableObject
         public int ConfiguredCustomOutputRootCount { get; set; }
 
         public int ExcludedCustomOutputRootCount { get; set; }
-    }
-
-    private HashSet<string> BuildExcludedCustomOutputSearchRootDirectories()
-    {
-        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        if (!options.OperationModeLR2DB)
-        {
-            return excluded;
-        }
-        foreach (string additionalOutputBase in options.LR2CustomFolderAdditionalOutputBaseDirs)
-        {
-            AddNormalizedDirectory(excluded, additionalOutputBase);
-        }
-        AddNormalizedDirectory(excluded, options.LR2CustomFolderOutputBaseDirRootType);
-        return excluded;
-    }
-
-    private static void AddNormalizedDirectory(HashSet<string> directories, string path)
-    {
-        if (directories == null || string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
-        try
-        {
-            directories.Add(LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(path)));
-        }
-        catch
-        {
-        }
-    }
-
-    private static bool IsExcludedCustomOutputSearchRoot(string directory, HashSet<string> excludedCustomOutputSearchRoots)
-    {
-        if (string.IsNullOrWhiteSpace(directory) || excludedCustomOutputSearchRoots == null || excludedCustomOutputSearchRoots.Count == 0)
-        {
-            return false;
-        }
-        string normalized;
-        try
-        {
-            normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
-        }
-        catch
-        {
-            return false;
-        }
-        return excludedCustomOutputSearchRoots.Any(excluded => Lr2FolderPath.IsSameOrDescendant(normalized, excluded));
     }
 
     private bool IsPendingPackageContainingOnlyInstalledCharts(ChartPackage package)

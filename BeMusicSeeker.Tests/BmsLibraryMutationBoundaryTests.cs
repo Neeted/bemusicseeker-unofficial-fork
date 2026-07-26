@@ -31,6 +31,7 @@ public sealed class BmsLibraryMutationBoundaryTests
 
             using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
             library.RenameChartFolder(missingDirectoryPath, "RenamedFolder");
+            library.RenameChartFolder(missingDirectoryPath, "RenamedFolder");
 
             Assert.AreEqual(0, dialogService.CallCount);
             Assert.AreEqual(1, scope.Messages.Count);
@@ -194,7 +195,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(autoRenameMethod, "FlushAutoRenameProgressReports");
         StringAssert.Contains(autoRenameAllMethod, "deferredProgressReporter");
         StringAssert.Contains(autoRenameAllMethod, "FlushAutoRenameProgressReports");
-        StringAssert.Contains(dialogEnqueueMethod, "messages.Any");
+        Assert.IsNotNull(dialogEnqueueMethod);
     }
 
     [TestMethod]

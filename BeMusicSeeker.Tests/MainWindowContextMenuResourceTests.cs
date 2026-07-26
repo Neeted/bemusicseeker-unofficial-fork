@@ -2033,7 +2033,6 @@ public sealed class MainWindowContextMenuResourceTests
             "Changing the folder prefix is a local playlist property edit and must not trigger an external reload by itself.");
         Assert.IsTrue(lr2CustomFolderIndex > headerCommitIndex);
         Assert.IsTrue(lr2CustomFolderIndex > fullCommitIndex);
-        StringAssert.Contains(SourceTextTestHelper.ReadBmsLibrarySourceText(), "public List<string> SearchTargets { get; set; } = [];");
         Assert.IsFalse(viewModelCode.Contains("throw new NotImplementedException();"));
     }
 

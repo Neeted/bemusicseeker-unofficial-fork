@@ -1375,13 +1375,13 @@ public sealed class BmsLibraryStateApplierTests
         var owner = new CatalogMutationOwner(
             new CatalogStorageRowsOwner(),
             new CatalogOwnedCollectionOwner(),
-            new BmsLibraryDbGateway(songDbPath),
-            delegate (CatalogWriteFailureFact fact)
-            {
-                callbacks.SongDbWriteFailureCount++;
-                callbacks.LastSongDbWriteFailureStage = fact.Stage;
-                callbacks.LastSongDbWriteFailure = fact.Exception;
-            });
+            new BmsLibraryDbGateway(songDbPath));
+        owner.CatalogWriteFailurePublished += delegate (object sender, CatalogWriteFailureFact fact)
+        {
+            callbacks.SongDbWriteFailureCount++;
+            callbacks.LastSongDbWriteFailureStage = fact.Stage;
+            callbacks.LastSongDbWriteFailure = fact.Exception;
+        };
         return owner.ApplyCatalogMutation(delta, []);
     }
 

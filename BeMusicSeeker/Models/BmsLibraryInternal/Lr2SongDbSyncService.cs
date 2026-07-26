@@ -61,40 +61,40 @@ internal sealed class Lr2SongDbSyncRequest
 
     public IReadOnlyCollection<string> TextFileDirectories { get; set; } = [];
 
-    public Func<BMSFile, LR2SongDBExtended.chart_info> ChartInfoResolver { get; set; }
+    public Func<BMSFile, LR2SongDBExtended.chart_info> ChartInfoResolver { get; init; }
 
-    public bool ChartInfoResolverIsThreadSafe { get; set; }
+    public bool ChartInfoResolverIsThreadSafe { get; init; }
 
     public TimeSpan? ChartInfoParseTimeout { get; set; }
 
     public ISet<string> CurrentChartInfoParseFailureMd5s { get; set; }
 
-    public Action<IReadOnlyList<LR2SongDBExtended.chart_info>> ChartInfoRowsCommitted { get; set; }
+    public Action<IReadOnlyList<LR2SongDBExtended.chart_info>> ChartInfoRowsCommitted { get; init; }
 
     /// <summary>
     /// Applies chart-info facts inside the synchronizer's existing song database
-    /// transaction. The composed BMS library supplies the catalog mutation owner;
-    /// direct service tests fall back to the shared transaction operation.
+    /// transaction. The catalog mutation owner installs this callback for the
+    /// production route; direct service tests provide an equivalent scoped writer.
     /// </summary>
-    public Func<LR2SongDBExtended, CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> ChartInfoChunkWriter { get; set; }
+    public Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> ChartInfoChunkWriter { get; init; }
 
-    public Action<int, int> ChartInfoParseFailuresCommitted { get; set; }
+    public Action<int, int> ChartInfoParseFailuresCommitted { get; init; }
 
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
 
     public CancellationToken CancellationToken { get; set; }
 
-    public Func<bool> IsSourceCurrent { get; set; }
+    public Func<bool> IsSourceCurrent { get; init; }
 
-    public Action<Lr2SongDbSyncProgress> ProgressReporter { get; set; }
+    public Action<Lr2SongDbSyncProgress> ProgressReporter { get; init; }
 
-    public Action<IReadOnlyList<BMSFileMaintenanceInfo>> Lr2CompatibilityFactsCommitted { get; set; }
+    public Action<IReadOnlyList<BMSFileMaintenanceInfo>> Lr2CompatibilityFactsCommitted { get; init; }
 
     public ISet<string> TransientSongRowsSkipPaths { get; set; }
 
-    public Func<LR2SongDBExtended, IReadOnlyList<BMSFile>, Lr2SongDbSyncSongRowsSkipVerificationResult> SongRowsSkipVerifier { get; set; }
+    public Func<IReadOnlyList<BMSFile>, Lr2SongDbSyncSongRowsSkipVerificationResult> SongRowsSkipVerifier { get; init; }
 
-    public Action<string> LogInstallPerformance { get; set; }
+    public Action<string> LogInstallPerformance { get; init; }
 }
 
 internal sealed class Lr2SongDbSyncProgress
@@ -319,7 +319,8 @@ internal static class Lr2SongDbSyncService
 
     internal static Lr2SongDbSyncResult Run(
         LR2SongDBExtended songDb,
-        Lr2SongDbSyncRequest request)
+        Lr2SongDbSyncRequest request,
+        Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> chartInfoChunkWriter = null)
     {
         if (songDb == null)
         {
@@ -535,7 +536,7 @@ internal static class Lr2SongDbSyncService
         }
 
         Lr2SongDbSyncSongRowsSkipVerificationResult songRowsSkipVerification =
-            TryVerifySongRowsSkip(songDb, request, songRows, resumeCursor, lr2FolderEndCursor, songRowsEndCursor);
+            TryVerifySongRowsSkip(request, songRows, resumeCursor, lr2FolderEndCursor, songRowsEndCursor);
         bool skipSongRows = songRowsSkipVerification?.CanSkip == true;
         if (songRowsSkipVerification != null)
         {
@@ -594,7 +595,8 @@ internal static class Lr2SongDbSyncService
                 totalCount,
                 request.Signature,
                 request.RunId,
-                request);
+                request,
+                chartInfoChunkWriter);
         }
         int processedCount = resumeCursor >= songRowsEndCursor || skipSongRows
             ? songRowsEndCursor
@@ -828,7 +830,6 @@ internal static class Lr2SongDbSyncService
     }
 
     private static Lr2SongDbSyncSongRowsSkipVerificationResult TryVerifySongRowsSkip(
-        LR2SongDBExtended songDb,
         Lr2SongDbSyncRequest request,
         IReadOnlyList<BMSFile> songRows,
         int resumeCursor,
@@ -851,7 +852,7 @@ internal static class Lr2SongDbSyncService
 
         try
         {
-            return request.SongRowsSkipVerifier(songDb, songRows ?? [])
+            return request.SongRowsSkipVerifier(songRows ?? [])
                 ?? new Lr2SongDbSyncSongRowsSkipVerificationResult
                 {
                     CanSkip = false,
@@ -2205,7 +2206,8 @@ internal static class Lr2SongDbSyncService
         int totalCount,
         string signature,
         string runId,
-        Lr2SongDbSyncRequest request)
+        Lr2SongDbSyncRequest request,
+        Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> chartInfoChunkWriter)
     {
         if (songRows == null || songRows.Count == 0)
         {
@@ -2455,13 +2457,15 @@ internal static class Lr2SongDbSyncService
                     parseFailureRows: chunkChartInfoParseFailures,
                     parseFailureDeleteMd5s: chunkChartInfoParseFailureDeleteMd5s);
                 CatalogChartInfoWriteReceipt chartInfoWriteReceipt = CatalogChartInfoWriteReceipt.NotApplied;
+                Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> effectiveChartInfoChunkWriter =
+                    chartInfoChunkWriter ?? request.ChartInfoChunkWriter;
                 if (chartInfoWriteRequest.HasChanges)
                 {
-                    if (request.ChartInfoChunkWriter == null)
+                    if (effectiveChartInfoChunkWriter == null)
                     {
                         throw new InvalidOperationException("LR2 chart-info synchronization requires a catalog mutation writer.");
                     }
-                    chartInfoWriteReceipt = request.ChartInfoChunkWriter(songDb, chartInfoWriteRequest);
+                    chartInfoWriteReceipt = effectiveChartInfoChunkWriter(chartInfoWriteRequest);
                 }
                 if (chartInfoWriteRequest.HasChanges && !chartInfoWriteReceipt.Applied)
                 {

@@ -52,8 +52,6 @@ internal sealed class CatalogMaintenanceOwner
 
     private readonly Action<string> logPerformance;
 
-    private readonly Action<CatalogWriteFailureFact> publishCatalogWriteFailureFact;
-
     private readonly Action hydrationStateChanged;
 
     private readonly object hydrationStateLock = new();
@@ -83,7 +81,6 @@ internal sealed class CatalogMaintenanceOwner
         Func<Exception, string> displayedExceptionMessageProvider,
         Func<CatalogMaintenanceHydrationReceipt, long> publishHydration,
         Action<string> logPerformance,
-        Action<CatalogWriteFailureFact> publishCatalogWriteFailureFact,
         Action hydrationStateChanged)
     {
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
@@ -104,7 +101,6 @@ internal sealed class CatalogMaintenanceOwner
         this.displayedExceptionMessageProvider = displayedExceptionMessageProvider ?? (ex => ex?.Message ?? string.Empty);
         this.publishHydration = publishHydration ?? throw new ArgumentNullException(nameof(publishHydration));
         this.logPerformance = logPerformance ?? throw new ArgumentNullException(nameof(logPerformance));
-        this.publishCatalogWriteFailureFact = publishCatalogWriteFailureFact;
         this.hydrationStateChanged = hydrationStateChanged;
     }
 
@@ -394,29 +390,7 @@ internal sealed class CatalogMaintenanceOwner
 
     private void PublishCatalogWriteFailureFactBestEffort(CatalogWriteFailureFact failureFact)
     {
-        if (failureFact == null || publishCatalogWriteFailureFact == null)
-        {
-            return;
-        }
-
-        try
-        {
-            publishCatalogWriteFailureFact(failureFact);
-        }
-        catch (Exception exception)
-        {
-            try
-            {
-                Debug.WriteLine(
-                    "catalog_write_failure_fact_publish_failed"
-                    + " exception=" + exception.GetType().Name
-                    + " message=" + exception.Message);
-            }
-            catch
-            {
-                // Failure publication must never replace the original catalog exception.
-            }
-        }
+        catalogMutationOwner.PublishCatalogWriteFailureFactBestEffort(failureFact);
     }
 
     private static CatalogWriteFailureFact CreateMaintenanceWriteFailureFact(Exception exception, string reason)
