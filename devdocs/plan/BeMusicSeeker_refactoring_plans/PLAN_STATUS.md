@@ -65,7 +65,7 @@ Non-goals:
 - native interop、WPF / WinForms / COM technology、HintPath / output layoutの最終境界化（`MIG-03`〜`MIG-04`）。
 - .NET 10 retarget、package replacement、production TFM変更（Gate後）。
 
-## Active outcome
+## Completed outcome
 
 ### `MIG-04 Build, dependency and output closure`
 
@@ -91,6 +91,34 @@ Non-goals:
 
 - package version、replacement、production TFM変更、deps.json / apphost / RID / publish layoutへの移行（`MIG-05`以降のmigration plan）。
 - release package作成、tag、push、publish（Refactoring Completion Gate後かつ明示指示後）。
+
+## Active outcome
+
+### `MIG-05 .NET 10 migration rehearsal and handoff`
+
+状態: in progress
+
+- active outcome base commit: `861f569f`
+- observed production checkpoint: `861f569f`
+- active execution package: `.NET 10 migration rehearsal and handoff`
+- execution anchor: `MIG-05 rehearsal and blocker classification` (active)
+- sequence cursor: `MIG-05 rehearsal and blocker classification` (active; batch not materialized)
+- next outcome: `GATE-01 Refactoring completion audit` (not started)
+
+目的:
+
+clean production checkpointからtemporary worktreeまたはrepository外copyを作り、production branchを変更せず最小TFM変更で`net10.0-windows` restore / build rehearsalを行う。残失敗をpackage、API、TFM、runtime layout、deployment、data migration、unresolved ownershipへ分類し、Gate後のmigration planへ引き渡す。
+
+完了条件:
+
+- production branchを変更せずdisposable probeを実行し、restore / buildの結果と残失敗を`PROBE-01`および既存blocker IDへ分類する。
+- owner / MVVM redesign不足が残っていないこと、または最も近い未達Outcomeへ戻す必要がある具体的evidenceを確定する。
+- probe差分、artifact、full logをproduction worktreeへ持ち込まず、MIG-05のverification、fresh review、status更新をaudit/status commitで閉じる。
+
+Non-goals:
+
+- production TFM、package、runtime layout、deployment、settings migration、release作業の変更。
+- probeのtemporary source / project差分、artifact、full logのcommit。
 
 ## Stable terminal steps
 
@@ -120,16 +148,11 @@ Non-goals:
 
 ## Active implementation batch
 
-状態: completed
+状態: not materialized
 
-`MIG-04` plannerが作成した有限batchであり、B1から依存順に実装する。activeまたはpendingのunitがある間はplannerを再起動しない。
+`MIG-05` plannerがexecution anchor全体をinventoryして有限batchを作成する。planner結果を受領するまでactiveまたはpendingのunitはない。
 
-| Batch | Unit | State | Closure family |
-|---|---|---|---|
-| `MIG-04` | `B1` | `completed` | `technology-neutral observable model contract` |
-| `MIG-04` | `B2` | `completed` | `owner-held observable collections` |
-| `MIG-04` | `B3` | `completed` | `managed dependency graph and output policy` |
-| `MIG-04` | `B4` | `completed` | `updater dependency, deployment boundary and MIG-04 closure` |
+plannerはMIG-05のtemporary probe、分類、handoffを同じverification scopeのcohesiveなunitへまとめ、status-only progress commitを作らない。
 
 ## Current code evidence
 
@@ -169,7 +192,7 @@ Non-goals:
 | MIG-02 Path, process and updater closure | completed |
 | MIG-03 Native interop and UI-host closure | completed |
 | MIG-04 Build, dependency and output closure | completed |
-| MIG-05 .NET 10 migration rehearsal and handoff | ready |
+| MIG-05 .NET 10 migration rehearsal and handoff | in progress |
 | GATE-01 Refactoring completion audit | not started |
 
 許可する状態は`not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。internal complexity、行数trigger超過、複数caller、broad routeは`blocked`理由にしない。
@@ -183,7 +206,7 @@ Non-goals:
 | Playlist ownership | met | custom-folder output status persistence、external registration preparation、URL completion test seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Configuration ownership | met | `MIG-01-B1`〜`B4`でsettings snapshot、application lifetime、culture catalog、UI schedulerをcomposition boundaryへ閉じ、Full verification、Release smoke、fresh outcome reviewを完了した |
 | Platform boundary | met | `MIG-02`でPATH-01 / PROC-01 / UPD-01、`MIG-03`でNAT-01 / INT-01 / UIH-01、`MIG-04-B3`でLAYOUT-01 / DEP-01、`MIG-04-B4`でDEPLOY-01のproduction / project boundaryを閉じた。migration rehearsalは`MIG-05`で実施する |
-| Migration readiness | not met | disposable `net10.0-windows` restore / build rehearsalを`MIG-05`で実施する |
+| Migration readiness | in progress | disposable `net10.0-windows` restore / build rehearsalと`PROBE-01`分類を`MIG-05`で実施する |
 | Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
 | Quality | in progress | UI-05、OWN-01、MIG-01、MIG-02、MIG-03、MIG-04のFull verification、Release smoke、fresh outcome reviewは完了。MIG-05 / Gate evidenceは未完了 |
 

@@ -12,7 +12,7 @@
 - config: `app.config`、`System.Configuration`、custom portable settings provider
 - dependencies: NuGet と `libs/*.dll` HintPath の混在を、application projectのresolved reference graphで出力する
 - native: `native/*.dll`、`vendor/native/x64/*.dll`、project-owned output policy
-- migration rehearsal: 未実施
+- migration rehearsal: 実施中（production branchは未変更）
 
 ## Blockers
 
