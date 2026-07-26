@@ -1,209 +1,104 @@
 # Codex 共通実行ルール
 
-[リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md)に基づき、Codexが実装・検証・静的レビュー・commitを連続して進めるための運用正本である。計画消化や行数削減ではなく、MVVM ownership、dependency direction、testability、`.NET 10` migration boundaryを優先する。
+[現在地](./PLAN_STATUS.md) / [terminal refactoring](./BeMusicSeekerリファクタリング計画.md) / [.NET 10 migration](./BeMusicSeeker_NET10移行計画.md)
 
-## 権限と作業境界
+## 1. Start / resume
 
-- active outcome内のcode unitは、検証とfresh read-only review後に自発的にcommitしてよい。
-- planning / operation docsとagent設定だけの変更は、構文、参照、whitespace、`git diff --check`を確認して独立commitにしてよい。production / test / build / resource / verification scriptに差分がなければbuild、test、analyzer、code reviewは行わない。
-- unrelatedな既存差分を変更、stage、commitしない。
-- Gate前は`git push`、tag、release、publish、version更新を行わない。Gate後もユーザーの明示指示なしには行わない。
-- DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約、supported external contractの意味を変える必要がある場合だけ、実装前にユーザーへ確認する。
-- 意味の変わるfallbackを追加せず、既存の失敗契約を維持する。
+1. worktree、HEAD、untrackedを確認する。unrelatedな既存差分へ触れない。
+2. `PLAN_STATUS.md`のactive outcome、execution anchor、active implementation batchを読む。
+3. batchに`active`／`pending`があればplannerを起動せず、最初の未完unitを実装する。
+4. batchが空のときだけunit-plannerをsingle-flightで一度起動する。
+5. planner結果を`PLAN_STATUS.md`へmaterializeし、status-only commitにせず最初のcode unitへ含める。
 
-## 実行ロールとsingle-flight
+commit、review完了、context切替、unit先頭はplanner再起動理由ではない。具体的なproduction evidenceがbatch前提を無効にした場合だけ、その差異に限定して再計画する。
 
-- **planner**: `unit-planner`。read-onlyでexecution anchor全体のclosure inventoryとactive implementation batchを作る。
-- **implementation root**: 唯一のwriter / stager / committer。plannerのinventoryを独立にやり直さず、batchを順に実装する。
-- **reviewer**: fresh `repo-static-review`。frozen snapshotをread-onlyで評価する。
+## 2. Single-flight
 
-指定model / roleを利用できない場合は別modelへ黙って置き換えず、利用不能な外部状態として明示する。
+planner／reviewer起動から結果受領まで、rootはrepositoryの読み取り、Git、検索、編集、build、test、format、analyzer、stage、commitを凍結する。rootによる独立再調査、第2planner、同scope consensusを行わない。
 
-activeにできるサブエージェントは常に1つだけとする。plannerまたはreviewerを起動してから結果を受領するまで、rootはrepositoryに対する`git` / `rg` / file read、追加調査、編集、build、test、format、analyzer、stage、commitを凍結する。第2planner、consensus取得、同scopeの「独立調査」を行わない。
+planner後に許されるのは、指定symbol／route／testのbounded feasibility checkと実装だけである。
 
-planner結果後、rootはplannerが挙げたroute / symbol / testの存在と最初のunitのfeasibilityだけをbounded checkする。前提不一致があれば差異だけをplannerへ返すか、active batch内で局所修正し、package全体のarchitecture surveyを再開しない。
+## 3. Implementation unit
 
-## Execution anchor と active batch
+unitはproduction route、behavior evidence、旧surface削除を一緒に閉じる。
 
-`PLAN_STATUS.md`はper-unit cursorではなく、次を持つ。
+- 同じowner、user-visible workflow、persisted data、failure contract、test fixtureを共有するrouteをまとめる。
+- method、callback、property、binding、package、DLL一件だけをunitにしない。
+- interface／adapter／DTO追加、rename、file move、行数削減だけで完了にしない。
+- temporary compatibility seamは同じunitまたは明示された直後unitで退役し、owner不明のまま残さない。
+- facadeを保持してprivate operationをforwardするport／hostを、別名または多数の小interfaceへ移しただけにしない。
 
-- **active execution package**: Outcome内の安定した残存境界。
-- **execution anchor**: package内の現在phase。package entry、grouped implementation、outcome closureなどの粗い再開点。
-- **active implementation batch**: plannerがanchor全体をinventoryして作った原則2〜4個の有限なunit列。
+`NO_SAFE_UNIT`は無効。内部複雑性はprepare、durable write、live apply、receipt publish、consumer apply、legacy retirementのcorridorで分解する。
 
-execution anchorはimplementation unitごとには更新しない。phaseが変わるときだけ更新する。plannerが作った長いunit IDや「planner required」をcursorとして永続化しない。
+## 4. Compatibility
 
-### Plannerを起動する条件
+次を変更するunitは、before／after evidenceとrollbackまたはmigrationを持つ。
 
-plannerは次のいずれかの場合だけsingle-flightで一度起動する。
+- setting key、type、default、serialized value、save timing
+- DB schema、existing rows、DateTime／enum／null mapping、transaction／lock ordering
+- chart、playlist、package、LR2、external document format
+- UI observable behavior、selection／focus、failure／cancel timing
+- updater manifest、folder layout、restart／rollback
+- supported external player、Everything、native ABI、CLI／IPC／COM contract
 
-1. 新しいexecution anchorへ入り、active batchがまだmaterializeされていない。
-2. active batchの全unitが`completed` / `skipped`だが、anchorのexit conditionが未達である。
-3. 現行production evidenceがbatchの具体的な前提を無効にし、残unitをそのまま実装できない。
+public修飾子だけをexternal contractとみなさない。out-of-repository consumerを具体化できない内部APIは、同じunitで全consumerを更新する。
 
-active batchに`active`または`pending`のunitがある間はplannerを再起動しない。commit、context reset、review完了、次unit開始はplanner再起動条件ではない。
+## 5. .NET 10 migration rules
 
-### Batch materialization
+- app、tests、updater、2 toolsを対象から漏らさない。
+- dependency replacementは[依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md)のcorridor単位で行い、複数の未知なmajor upgradeを混ぜない。
+- HintPath削除と置換route／test／publish assetを同じunitで閉じる。
+- native DLLはversion、source、license、architecture、copy owner、runtime load testを持つ。
+- `RuntimeIdentifier`だけでSelf-containedと判断せず、publish profileまたはcommandで明示する。
+- main appは初期Gateまで`PublishTrimmed=false`、`PublishSingleFile=false`、`PublishReadyToRun=false`とする。
+- build outputを配布候補や最終smoke対象にしない。Self-contained publish folderから起動する。
+- legacy `app.config` probingやcurrent directoryの偶然に依存してmanaged／native DLLを解決しない。
+- clean-machine、existing-data、old-to-new updater acceptanceを最終Gateから省略しない。
 
-planner結果受領後、rootは次を行う。
+## 6. Verification
 
-1. `PLAN_STATUS.md`の`Active implementation batch`へ、batch ID、unit、state、closure familyを直ちに記入する。
-2. このstatus差分を単独commitせず、最初のcode unitと同じworktreeで保持する。contextが変わっても未コミット差分からbatchを再開できる。
-3. 最初のcode unit commitでは、実装済み行を`completed`、次行を`active`へ更新して同じcommitに含める。
-4. 後続unitも対応するbatch stateだけを同じcode commitで更新する。status-only progress commitを作らない。
-5. batch完了時にexecution anchorを次phaseへ進める。anchor transitionがoutcome closure auditだけを開始する場合は、最後のcode unitまたは最終audit/status commitに含める。
+### Planning / agent docs only
 
-active batchの履歴は残さない。batchが完了してanchorを進めるときは、完了batchを削除し、次anchor用の未materialize状態または新batchへ置き換える。履歴はGitに残す。
+- UTF-8、LF、末尾改行、TOML／Markdown構文、相対link、table、whitespace、`git diff --check`
+- production／test／build／resource差分がなければbuild、test、code reviewは不要
 
-## Planner contract
+### Terminal refactoring
 
-plannerの有効な出力は`CLOSURE_INVENTORY` + `IMPLEMENTATION_BATCH`、または具体的な`EXTERNAL_BLOCKER`だけである。`NO_SAFE_UNIT`は無効である。
+- unit中はrepository標準Quick verification
+- shared owner、concurrency、playback contract、outcome closureはFull verification
+- Release executableによる変更範囲のUI smoke
+- frozen snapshotのfresh read-only review
 
-plannerはanchor対象surfaceを一度だけinventoryし、各残件を`BLOCKING`、`ALLOWED_BOUNDARY`、`DEFERRED_OWNER`へ分類する。最初に見つかった未完routeだけを返さず、anchorを閉じる有限集合を示す。
+### .NET 10 migration
 
-batchは原則2〜4unitとする。1unitだけを返してよいのは、anchor / outcomeの最終closure、または同じowner familyのcohesiveな残件が一つしかない場合だけである。各unitは同じowner、同じuser-visible behavior、同じtest / verification scopeの隣接routeをまとめる。
+- affected projectのrestore／Release build／targeted test
+- dependency corridorのbehavior／golden test
+- app、tests、updater、2 toolsのoutcome-level build
+- publish／layout変更時はwin-x64 Self-contained publish folderからruntime smoke
+- final Gateはclean checkout、existing-data、clean-machine、update／rollback acceptance
 
-内部複雑性、複数caller、broad host、lock ordering、DB / live atomicity、package / LR2 / resource-health residual、変更量、追加調査はblockerではない。prepare / durable write / canonical live apply / receipt publish / consumer residual / host retirementのresponsibility corridorへ分解する。
+失敗test、timeout、全体実行時だけのfailureをbaseline／flakyとして放置しない。tool不足でmanual gateだけ実行不能な場合、automated scopeを先に完了し、具体的な`EXTERNAL_BLOCKER`として記録する。
 
-plannerが無効な`NO_SAFE_UNIT`やmethod一件だけのmicro-unitを返した場合、rootは停止せず、本ルールのbatch granularityを引用して一度repair requestを出す。再び無効なら、正本のexecution anchorに定義されたstable phaseをrootが開始し、同じ問いを再調査しない。
+## 7. Review
 
-## Implementation unit の条件
+reviewerはfrozen snapshotをread-onlyで確認する。重大指摘修正後は新しいsnapshotとしてfresh reviewする。review findingを細かいroute IDへ増殖させず、active unit内で修正する。
 
-unitは一つのowner family、user-visible workflow、dependency corridor、またはbroad routeのcohesiveなresponsibility corridorを、production routeからbehavior testまで閉じる。
+line count、event count、interface method countだけをfindingにしない。構造的なowner違反、facade forwarding、observability欠如、data／runtime compatibility欠如をevidenceで判定する。
 
-必須条件:
+## 8. Commit / status
 
-- active outcomeのacceptance criteriaを実質的に前進させる。
-- productionの通常経路へ新owner / contractを接続する。
-- 同じunitで担当corridorの旧writer、旧callback、旧binding、旧relay、旧test seamのいずれかを削除し、surfaceを減らす。
-- build可能で、private配置ではなくbehaviorを検証できる。
-- cross-owner handoffをimmutable request / snapshot / receipt / event facts /用途限定leaseにする。
-- durable / live stateを扱う場合は、prepare → durable commit → canonical live apply → guard release → receipt publishの順序とfailure atomicityを固定する。
+- rootだけがwrite、stage、commitする。
+- unit commitにoutcome IDを含める。
+- active batchの該当行を`completed`、次行を`active`へ更新し、同じcode commitへ含める。
+- `PLAN_STATUS.md`に過去のcommit、unit、review log、長いverification logを追記しない。
+- outcome未完ならunit commitをユーザー応答境界にしない。
 
-次を独立unitにしない。
+## 9. External blocker / Release Freeze
 
-- method、callback、event、property、binding relay、source-text testの一件だけ。
-- DTO、helper、rename、interface、adapter、host、diagnostics API、partial splitの追加だけ。
-- 行数、file数、type数の削減だけ。
-- planner再調査、inventory文書、status更新、checkpoint作成だけ。
+停止できるのは次だけである。
 
-同じowner、同じbehavior、同じtest fixture、同じverification scopeの隣接routeは一つのunitへまとめる。unitが大きくてもcohesiveなら分割しない。WPF view-host、transaction / failure boundary、algorithmを数値のためだけに分断しない。
+- persisted data、supported external contract、UI／failure semanticsの相互排他的な選択が必要
+- credential、署名鍵、external asset、clean Windows machine、利用不能な必須toolが必要
+- 正本に未決で後戻り困難なdeployment／architecture選択が必要
 
-broad host全体を毎unitで消す必要はないが、正本のretirement unitまでsurfaceを増やさず、各unitで担当categoryを減らす。新しいforwarding seamでbuild可能な中間状態を作らない。
-
-## UI-05 terminal closure の実行
-
-UI-05では[総合計画のUI-05 terminal execution package](./BeMusicSeekerリファクタリング計画.md#ui-05-terminal-execution-package)を正本とする。
-
-- `UI05-T1`でplannerを一度だけ起動し、root ViewModel、MainWindow、XAML binding、typed presentation subscription、test seamを有限inventoryにする。
-- `BLOCKING`だけを`UI05-T2`の最大3 owner-family unitへまとめる。callback / route単位のA〜AG系列を作らない。
-- typed immutable presentation requestをMainWindowがdialog、focus、selection、scroll、hit-test、drag visual、ContextMenuのWPF propertyへapplyする処理は、feature decisionを持たなければ許可view-host boundaryである。
-- WPF event handlerの`async void`は許可する。非event `async void`、feature state、multi-service orchestration、durable write、retry / fallbackだけをblockingとする。
-- `Settings.Default`、`Application.Current`、dispatcher、path、process、native / UI technologyは、UI feature workflowをrootへ戻していなければ`MIG-01`〜`MIG-04`へ分類する。
-- `UI05-T3`ではplannerを再起動せず、Full verification、UI smoke、outcome review、修正、completionまでを一つのclosure cycleで閉じる。
-
-## 実装・レビュー・commit ループ
-
-1. `PLAN_STATUS.md`のactive batchで最初の`active` unitを実装する。`active`がなく`pending`がある場合は先頭を`active`として扱う。
-2. behavior testsと、code変更に必要な正本更新を同じ差分へ含める。
-3. `scripts/verify-refactor.ps1 -Mode Quick`または必要なFull verification、format / analyzer / `git diff --check`を実行する。
-4. outcome closure候補なら、Full verification、該当UI smoke、completion候補のstatus更新までsnapshotへ含める。
-5. single-flightでfresh reviewerへunitまたはoutcome scopeを渡す。review中はsnapshotを凍結する。
-6. 重大指摘を修正した場合は影響範囲を再検証し、新しいsnapshotをfresh reviewerへ渡す。
-7. 重大指摘がなくなったら、active batchのunit stateと次unit stateを同じsnapshotで更新し、outcome IDを含むmessageでcommitする。
-8. **commitは内部checkpointである。** active batchに未完unitがあればplannerを呼ばず直ちに次unitへ進む。
-9. batch完了後はanchor exit conditionを確認する。満たせば次anchorへ進む。満たさなければ具体的な未達evidenceを入力にplannerを一度起動する。
-10. outcomeが完了したら次Outcomeを`ready` / `in progress`へ進める。ユーザーへの応答は`EXTERNAL_BLOCKER`または依頼された作業範囲の完了時だけとする。
-
-## Outcome / Gate closure
-
-通常Outcomeは、最後のcode unitにFull verification、該当UI smoke、completion state、次Outcome、Gate evidenceを含め、`active outcome base commit..HEAD + frozen worktree`のfresh outcome reviewで一度に閉じる。
-
-`UI05-T1`の有限inventoryで`BLOCKING`が0件となり、T3のFull verification、UI smoke、fresh outcome reviewが無修正で通った場合は、`UI05-T3`に限りcompletion / next-outcome stateだけのaudit/status commitを許可する。完了監査のための無意味なproduction変更を行わない。
-
-同様に、完了条件がcode変更なしで満たされる`MIG-05`、`GATE-01`、承認済みplan rebaseline auditはaudit/status commitを許可する。
-
-`MIG-05`はclean HEADからtemporary worktreeまたはrepository外のcopyを作り、最小TFM変更で`net10.0-windows` restore / buildを試す。probe差分、artifact、full logはproduction worktreeへ戻さずcommitしない。failureはblocker IDごとにpackage / API / TFM / runtime layout / deployment / data migration / unresolved ownershipへ分類する。
-
-`GATE-01`だけは完了時に`gate met`とし、active outcomeを`none`にする。Release Freezeはユーザーの明示release指示まで継続する。
-
-## Outcome state 遷移
-
-- `not started` → `ready`: prerequisiteと依存条件が満たされた。
-- `ready` → `in progress`: active outcomeとして開始し、clean commitを`active outcome base commit`に記録した。
-- `ready` / `in progress` → `blocked`: ユーザー入力または外部状態変更なしには解消できない具体的な`EXTERNAL_BLOCKER`がある場合だけ。
-- `in progress` → `completed`: acceptance criteria、Full verification、該当UI smoke、fresh outcome reviewが完了した。
-- `completed` → `in progress`: 後続auditで、そのOutcome固有のacceptance criteriaに直接regressionが見つかり、後続reconciliation Outcomeでは扱えない場合だけ。
-- `GATE-01 in progress` → `gate met`: 全Gate criteriaとquality evidenceが完了した。
-
-内部調査、複数caller、broad route、変更量、structural size trigger超過は`blocked`理由にしない。
-
-## 標準検証
-
-PowerShell 7を使用する。
-
-```powershell
-pwsh -File .\scripts\verify-refactor.ps1 -Mode Quick
-pwsh -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter '<関連 test filter>'
-pwsh -File .\scripts\verify-refactor.ps1 -Mode Full
-```
-
-`Quick`はbuild、tests、whitespace、diff check、`Full`はrestore、tool restore、Roslynatorを加える。共有model、root ViewModel、DB、file system、settings、dispatcher、lock / concurrencyに触れた場合とOutcome完了時は`Full`を使う。
-
-build / format / analyzerは完了まで待つ。testは標準入口から起動し、300秒以内に終了しなければprocess treeを停止して失敗とする。timeoutまたはtest failureはcommand outputと利用可能なartifactを確認して修正し、同scopeを再実行する。「baseline」「flaky」として放置しない。全体実行だけ失敗するtestは共有状態、順序、非同期完了、dispatcher、時刻、file / DB isolationを修正して全体実行を再確認する。
-
-scriptが環境要因で使えない場合だけ個別commandを使い、未実施項目を明示する。
-
-```powershell
-dotnet build .\BeMusicSeeker.sln /p:Configuration=Release /p:Platform=x64
-dotnet test .\BeMusicSeeker.sln /p:Configuration=Release /p:Platform=x64
-dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal
-$msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -version "[17.0,18.0)" -products * -requires Microsoft.Component.MSBuild -find "MSBuild\Current\Bin"
-dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path $msbuildPath --properties Configuration=Release --severity-level warning --verbosity minimal
-git diff --check
-```
-
-planning / operation docs-onlyはTOML構文、Markdown参照、相互整合、UTF-8 / whitespace、`git diff --check`だけを確認する。
-
-### UI smoke
-
-UI observable behaviorに触れるOutcomeの完了時は、repositoryのRelease buildだけを使う。
-
-```text
-<repo-root>\bin\x64\Release\net472\BeMusicSeeker.exe
-```
-
-executable pathが上記resolved pathと完全一致するprocessだけを操作する。インストール版や同名windowへ切り替えない。startup / shutdown、主要表示切替、sort / filter / selection / context action / drag-drop、settings、playback、progress / cancel / failure presentationのうち変更範囲を確認する。外部assetや資格情報が必要な項目だけmanual evidenceを依頼する。
-
-## Review scope
-
-- **unit review**: unit開始時のclean commitをbaseとし、`base..HEAD + frozen worktree`を評価する。
-- **outcome review**: `active outcome base commit..HEAD + frozen worktree`と現行production codeを評価する。
-- **gate review**: `code baseline commit..HEAD + frozen worktree`、現行code、Outcome state、Gate criteria、blocker registerを評価する。
-
-reviewerは`git status --short`、tracked / staged diff、untracked filesを自ら列挙する。重大度順にfile / line付きで返し、問題がなければ「重大な指摘なし」と返す。structural triggerやevent数だけをfindingにせず、owner、dependency direction、testability、behavior contractで判定する。
-
-## 計画資料の更新
-
-activeな計画資料は次の4ファイルに限定する。
-
-- `BeMusicSeekerリファクタリング計画.md`
-- `00_Codex共通実行ルール.md`
-- `PLAN_STATUS.md`
-- `DOTNET10_MIGRATION_BLOCKERS.md`
-
-`PLAN_STATUS.md`はbaseline、active outcome、execution package、execution anchor、active batch、Outcome states、current Gate evidence、external blockerだけを持つ。過去anchor、完了batch、テスト件数、行数推移、調査logを追記しない。
-
-active batchのmaterializationとstate更新はcode unitの同じcommitへ含める。status-only progress commit、cursor-only commit、planner結果だけのcommitを作らない。
-
-## 自走と escalation
-
-Codexはactive outcomeの範囲でplanning、実装、test、review、commitを連続して行う。planner batch、unit commit、review完了はユーザーへの応答理由にしない。
-
-ユーザーへ確認するのは次の場合だけである。
-
-- UI observable behavior、失敗契約、persisted data、supported external contractの意味を変える必要がある。
-- target architectureまたはordered backlogを実質的に変える、相互排他的で後戻り困難な選択が必要である。
-- credential、外部asset、手動環境、利用不能な必須tool / modelなど、Codexだけでは取得できない外部状態が必要である。
-
-難しい、変更量が大きい、plannerの候補が広い、broad hostやlockがある、追加調査が必要、size triggerを超えることは停止理由にしない。
+それ以外は現行batchを継続する。`git push`、tag、release、public publish、version／release notes変更、署名、配布物公開はユーザーの明示指示まで行わない。
