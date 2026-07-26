@@ -1690,7 +1690,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         {
                         }
                         _sampleBuffer = new byte[num + 44];
-                        stream.Read(_sampleBuffer, 44, _sampleBuffer.Length);
+                        stream.ReadExactly(_sampleBuffer.AsSpan(44));
                         using var targetStream = new MemoryStream(_sampleBuffer, 0, 44);
                         WavFile.WriteHeader(targetStream, _sampleBuffer.Length - 44, channelCount, sampleRate);
                     }

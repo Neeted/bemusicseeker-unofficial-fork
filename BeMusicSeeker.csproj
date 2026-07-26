@@ -1,11 +1,11 @@
-<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AssemblyName>BeMusicSeeker</AssemblyName>
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
     <OutputType>WinExe</OutputType>
     <UseWPF>True</UseWPF>
     <UseWindowsForms>True</UseWindowsForms>
-    <TargetFramework>net472</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
@@ -38,9 +38,13 @@
     <None Include="native\EverythingBridge_x64.dll" Condition="Exists('native\\EverythingBridge_x64.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="vendor\native\x64\*.dll" Exclude="vendor\native\x64\OggVorbis.NET64.dll">
+    <None Include="vendor\native\x64\*.dll" Exclude="vendor\native\x64\OggVorbis.NET64.dll;vendor\native\x64\sqlite3.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>libs\x64\%(Filename)%(Extension)</TargetPath>
+    </None>
+    <None Include="vendor\native\x64\sqlite3.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>x64\sqlite3.dll</TargetPath>
     </None>
     <None Update="lang\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -83,8 +87,6 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <Reference Include="WindowsBase" />
-    <Reference Include="PresentationCore" />
     <Reference Include="Livet">
       <HintPath>libs\Livet.dll</HintPath>
     </Reference>
@@ -109,14 +111,9 @@
     <Reference Include="Microsoft.Expression.Effects">
       <HintPath>libs\Microsoft.Expression.Effects.dll</HintPath>
     </Reference>
-    <Reference Include="WindowsFormsIntegration" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.Numerics" />
     <Reference Include="Livet.Extensions">
       <HintPath>libs\Livet.Extensions.dll</HintPath>
     </Reference>
-    <Reference Include="System.Xml.Linq" />
     <Reference Include="IniLibrary">
       <HintPath>libs\IniLibrary.dll</HintPath>
     </Reference>
@@ -134,16 +131,12 @@
     <Reference Include="QuickConverter">
       <HintPath>libs\QuickConverter.dll</HintPath>
     </Reference>
-    <Reference Include="System.Xml" />
-    <Reference Include="System.Net.Http" />
     <Reference Include="Microsoft.WindowsAPICodePack.Shell">
       <HintPath>libs\Microsoft.WindowsAPICodePack.Shell.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.WindowsAPICodePack">
       <HintPath>libs\Microsoft.WindowsAPICodePack.dll</HintPath>
     </Reference>
-    <Reference Include="Microsoft.VisualBasic" />
-    <Reference Include="Microsoft.CSharp" />
     <Reference Include="DynamicJson">
       <HintPath>libs\DynamicJson.dll</HintPath>
     </Reference>
@@ -157,38 +150,13 @@
       <HintPath>vendor\native\x64\OggVorbis.NET64.dll</HintPath>
     </Reference>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="NLog" Version="4.4.3" />
-    <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
+    <PackageReference Include="NLog" Version="5.4.0" />
+    <PackageReference Include="NLog.Database" Version="5.4.0" />
+    <PackageReference Include="NLog.WindowsEventLog" Version="5.4.0" />
   </ItemGroup>
 
-  <!--
-    The portable application probes managed dependencies from libs. Keep that
-    layout as an MSBuild output policy instead of copying every reference to
-    the root and relocating it after the build. ReferenceCopyLocalPaths is the
-    resolved managed dependency graph, so package and HintPath references use
-    the same destination without a second copy/delete phase.
-  -->
-  <Target Name="ApplyManagedDependencyOutputPolicy"
-          AfterTargets="ResolveAssemblyReferences"
-          BeforeTargets="_CopyFilesMarkedCopyLocal">
-    <ItemGroup>
-      <ReferenceCopyLocalPaths Update="@(ReferenceCopyLocalPaths)"
-                               Condition="'%(Extension)' == '.dll'">
-        <DestinationSubDirectory>libs\</DestinationSubDirectory>
-      </ReferenceCopyLocalPaths>
-    </ItemGroup>
-  </Target>
-
-  <Target Name="RemoveLegacyManagedDependencyRootOutput" AfterTargets="CopyFilesToOutputDirectory">
-    <ItemGroup>
-      <_ManagedDependencyRootOutput Include="@(ReferenceCopyLocalPaths->'$(OutDir)%(Filename)%(Extension)')"
-                                    Condition="'%(Extension)' == '.dll'" />
-    </ItemGroup>
-    <Delete Files="@(_ManagedDependencyRootOutput)" />
-  </Target>
-
   <Target Name="RemoveLegacyNativeOutputArtifacts" AfterTargets="CopyFilesToOutputDirectory">
-    <RemoveDir Directories="$(OutDir)x86;$(OutDir)x64;$(OutDir)libs\x86" />
+    <RemoveDir Directories="$(OutDir)x86;$(OutDir)libs\x86" />
     <Delete Files="$(OutDir)libs\x64\OggVorbis.NET64.dll" />
   </Target>
 
@@ -197,6 +165,7 @@
       <_UpdaterProjectDirectory>$(MSBuildProjectDirectory)\BeMusicSeeker.Updater\</_UpdaterProjectDirectory>
       <_UpdaterOutputPath Condition="$([System.IO.Path]::IsPathRooted('$(OutDir)'))">$([System.IO.Path]::GetFullPath('$(OutDir)BeMusicSeeker.Updater.exe'))</_UpdaterOutputPath>
       <_UpdaterOutputPath Condition="!$([System.IO.Path]::IsPathRooted('$(OutDir)'))">$([System.IO.Path]::GetFullPath('$(_UpdaterProjectDirectory)$(OutDir)BeMusicSeeker.Updater.exe'))</_UpdaterOutputPath>
+      <_UpdaterOutputPath Condition="!Exists('$(_UpdaterOutputPath)')">$([System.IO.Path]::GetFullPath('$(_UpdaterProjectDirectory)bin\x64\Release\net472\BeMusicSeeker.Updater.exe'))</_UpdaterOutputPath>
     </PropertyGroup>
 
     <Error Condition="!Exists('$(_UpdaterOutputPath)')"

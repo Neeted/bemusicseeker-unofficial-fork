@@ -10,68 +10,55 @@ namespace BeMusicSeeker.Tests;
 public sealed class ManagedDependencyOutputPolicyTests
 {
     [TestMethod]
-    public void ApplicationProjectUsesLibsAsTheManagedDependencyOutputBoundary()
+    public void ApplicationProjectUsesHostManagedDependencyLayout()
     {
         string repositoryRoot = FindRepositoryRoot();
         XDocument project = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
         XElement projectRoot = project.Root ?? throw new AssertFailedException("Application project XML has no root element.");
 
-        XElement policy = projectRoot
-            .Elements("Target")
-            .SingleOrDefault(target => string.Equals(
-                (string)target.Attribute("Name"),
-                "ApplyManagedDependencyOutputPolicy",
-                StringComparison.Ordinal))
-            ?? throw new AssertFailedException("Managed dependency output policy target is missing.");
-
-        StringAssert.Contains(
-            (string)policy.Attribute("BeforeTargets"),
-            "_CopyFilesMarkedCopyLocal");
-        StringAssert.Contains(
-            (string)policy.Attribute("AfterTargets"),
-            "ResolveAssemblyReferences");
-        Assert.IsNotNull(
-            policy.Descendants("ReferenceCopyLocalPaths")
-                .SingleOrDefault(),
-            "The output policy must apply to the resolved managed dependency graph.");
         Assert.AreEqual(
-            "libs\\",
-            (string)policy.Descendants("DestinationSubDirectory").Single(),
-            "Managed dependencies must be copied under the portable libs directory.");
+            "net10.0-windows",
+            (string)projectRoot.Elements("PropertyGroup").Elements("TargetFramework").Single(),
+            "The application must target the Windows .NET 10 runtime.");
         Assert.IsFalse(
             projectRoot.Elements("Target").Any(target => string.Equals(
                 (string)target.Attribute("Name"),
-                "RelocateManagedDependenciesToLibs",
+                "ApplyManagedDependencyOutputPolicy",
                 StringComparison.Ordinal)),
-            "The old copy-then-relocate target must not remain in the project boundary.");
+            "The legacy libs relocation target must not remain in the project boundary.");
+        Assert.IsFalse(
+            projectRoot.Elements("Target").Any(target => string.Equals(
+                (string)target.Attribute("Name"),
+                "RemoveLegacyManagedDependencyRootOutput",
+                StringComparison.Ordinal)),
+            "The legacy managed DLL deletion target must not remain in the project boundary.");
 
         XDocument config = XDocument.Load(Path.Combine(repositoryRoot, "app.config"));
-        XElement probing = config
-            .Descendants(XName.Get("probing", "urn:schemas-microsoft-com:asm.v1"))
-            .SingleOrDefault()
-            ?? throw new AssertFailedException("Application probing policy is missing.");
-        Assert.AreEqual("libs", (string)probing.Attribute("privatePath"));
+        Assert.IsFalse(
+            config.Descendants(XName.Get("probing", "urn:schemas-microsoft-com:asm.v1")).Any(),
+            "The runtime must not depend on Framework private probing.");
 
         string releaseOutputDirectory = ResolveReleaseOutputDirectory();
         Assert.IsTrue(
             File.Exists(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.exe")),
             "The Release application output must exist before this layout behavior test runs.");
-        Assert.AreEqual(
-            0,
-            Directory.GetFiles(releaseOutputDirectory, "*.dll", SearchOption.TopDirectoryOnly).Length,
-            "Managed assemblies must not remain in the application output root.");
-        string managedDependencyDirectory = Path.Combine(releaseOutputDirectory, "libs");
+        Assert.IsTrue(
+            File.Exists(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.deps.json")),
+            "The host dependency graph must be emitted beside the application.");
+        Assert.IsTrue(
+            File.Exists(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.runtimeconfig.json")),
+            "The host runtime configuration must be emitted beside the application.");
+
         foreach (string dependencyName in new[]
         {
             "Livet.dll",
             "Newtonsoft.Json.dll",
-            "SevenZipExtractor.dll",
-            "OggVorbis.NET64.dll"
+            "SevenZipExtractor.dll"
         })
         {
             Assert.IsTrue(
-                File.Exists(Path.Combine(managedDependencyDirectory, dependencyName)),
-                $"The Release output must place {dependencyName} under libs.");
+                File.Exists(Path.Combine(releaseOutputDirectory, dependencyName)),
+                $"The host layout must place {dependencyName} beside the application.");
         }
     }
 

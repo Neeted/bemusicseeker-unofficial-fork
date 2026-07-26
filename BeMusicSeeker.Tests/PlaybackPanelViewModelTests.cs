@@ -1380,7 +1380,6 @@ public sealed class PlaybackPanelViewModelTests
             QuickConverter.EquationTokenizer.AddNamespace(typeof(object));
             QuickConverter.EquationTokenizer.AddNamespace(typeof(Visibility));
             QuickConverter.EquationTokenizer.AddNamespace(typeof(TimeSpan));
-            Application.ResourceAssembly ??= typeof(PlaybackPanelView).Assembly;
             var player = new FakeBmsPlayer();
             PlaybackPanelViewModel panel = CreatePanel(player);
             var replacementPlayer = new FakeBmsPlayer();

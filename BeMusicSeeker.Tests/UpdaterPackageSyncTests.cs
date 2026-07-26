@@ -235,7 +235,9 @@ public sealed class UpdaterPackageSyncTests
         string[] candidates =
         [
             Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", platform, configuration, targetFramework, "BeMusicSeeker.Updater.exe"),
-            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", configuration, targetFramework, "BeMusicSeeker.Updater.exe")
+            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", configuration, targetFramework, "BeMusicSeeker.Updater.exe"),
+            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", platform, configuration, "net472", "BeMusicSeeker.Updater.exe"),
+            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", configuration, "net472", "BeMusicSeeker.Updater.exe")
         ];
         foreach (string candidate in candidates)
         {

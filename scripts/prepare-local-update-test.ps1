@@ -169,7 +169,7 @@ Write-Host "manifest URL:"
 Write-Host "  $baseUrl/update.json"
 Write-Host ""
 Write-Host "app 起動例:"
-Write-Host "  .\bin\x64\Release\net472\BeMusicSeeker.exe --update-manifest-url=$baseUrl/update.json"
+Write-Host "  .\bin\x64\Release\net10.0-windows\BeMusicSeeker.exe --update-manifest-url=$baseUrl/update.json"
 
 if ($StartServer) {
     Stop-ExistingServer $pidPath

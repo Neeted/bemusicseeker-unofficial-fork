@@ -1426,7 +1426,7 @@ public class BMSFile
             throw new InvalidDataException(filePath + " is empty file.");
         }
         byte[] array = new byte[fileStream.Length];
-        fileStream.Read(array, 0, array.Length);
+        fileStream.ReadExactly(array);
         byte[] array2 = MD5.Create().ComputeHash(array);
         var stringBuilder = new StringBuilder();
         byte[] array3 = array2;

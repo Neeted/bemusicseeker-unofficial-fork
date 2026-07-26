@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net472</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
     <LangVersion>14.0</LangVersion>
@@ -49,12 +49,6 @@
     <Reference Include="IniLibrary">
       <HintPath>..\libs\IniLibrary.dll</HintPath>
     </Reference>
-    <Reference Include="Microsoft.VisualBasic" />
-    <Reference Include="PresentationCore" />
-    <Reference Include="PresentationFramework" />
-    <Reference Include="System.IO.Compression" />
-    <Reference Include="System.IO.Compression.FileSystem" />
-    <Reference Include="WindowsBase" />
   </ItemGroup>
 
   <ItemGroup>

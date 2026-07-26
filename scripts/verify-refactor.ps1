@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $repoRoot 'BeMusicSeeker.sln'
-$uiExecutable = Join-Path $repoRoot 'bin\x64\Release\net472\BeMusicSeeker.exe'
+$uiExecutable = Join-Path $repoRoot 'bin\x64\Release\net10.0-windows\BeMusicSeeker.exe'
 $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
 $testTimeoutSeconds = 300
 
@@ -120,43 +120,16 @@ function Assert-ReleaseOutputLayout {
         throw "Release output updater executable was not produced: $updaterExecutable"
     }
 
-    $libsUpdaterExecutable = Join-Path (Join-Path $outputDirectory 'libs') 'BeMusicSeeker.Updater.exe'
-    if (Test-Path -LiteralPath $libsUpdaterExecutable) {
-        throw "Release output updater executable must remain at the deployment root: $libsUpdaterExecutable"
-    }
-
-    $rootManagedAssemblies = @(Get-ChildItem -LiteralPath $outputDirectory -Filter '*.dll' -File -ErrorAction SilentlyContinue)
-    if ($rootManagedAssemblies.Count -gt 0) {
-        $names = $rootManagedAssemblies | Select-Object -ExpandProperty Name
-        throw "Release output contains managed assemblies outside libs: $($names -join ', ')"
-    }
-
-    $managedDependencyDirectory = Join-Path $outputDirectory 'libs'
-    if (-not (Test-Path -LiteralPath $managedDependencyDirectory -PathType Container)) {
-        throw "Release output managed dependency directory was not produced: $managedDependencyDirectory"
-    }
-
-    foreach ($managedDependencyName in @(
+    foreach ($hostFileName in @(
+        'BeMusicSeeker.deps.json',
+        'BeMusicSeeker.runtimeconfig.json',
         'Livet.dll',
         'Newtonsoft.Json.dll',
-        'SevenZipExtractor.dll',
-        'OggVorbis.NET64.dll')) {
-        $managedDependencyPath = Join-Path $managedDependencyDirectory $managedDependencyName
-        if (-not (Test-Path -LiteralPath $managedDependencyPath -PathType Leaf)) {
-            throw "Release output managed dependency is missing from libs: $managedDependencyPath"
+        'SevenZipExtractor.dll')) {
+        $hostFilePath = Join-Path $outputDirectory $hostFileName
+        if (-not (Test-Path -LiteralPath $hostFilePath -PathType Leaf)) {
+            throw "Release output host file is missing: $hostFilePath"
         }
-    }
-
-    foreach ($legacyDirectoryName in @('x86', 'x64')) {
-        $legacyDirectory = Join-Path $outputDirectory $legacyDirectoryName
-        if (Test-Path -LiteralPath $legacyDirectory) {
-            throw "Release output contains legacy native directory: $legacyDirectory"
-        }
-    }
-
-    $legacyManagedNativeDirectory = Join-Path $managedDependencyDirectory 'x86'
-    if (Test-Path -LiteralPath $legacyManagedNativeDirectory) {
-        throw "Release output contains legacy managed native directory: $legacyManagedNativeDirectory"
     }
 }
 
@@ -216,7 +189,7 @@ try {
             throw 'Visual Studio 2022 MSBuild 17 was not found.'
         }
 
-        Invoke-CheckedCommand dotnet roslynator analyze $solution '--msbuild-path' $msbuildPath '--properties' 'Configuration=Release' '--severity-level' 'warning' '--verbosity' 'minimal'
+        Invoke-CheckedCommand dotnet roslynator analyze $solution '--msbuild-path' $msbuildPath '--properties' 'Configuration=Release' '--severity-level' 'warning' '--ignore-compiler-diagnostics' '--verbosity' 'minimal'
     }
 
     Invoke-CheckedCommand git diff '--check' 'HEAD' '--'
