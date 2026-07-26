@@ -16,7 +16,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
-using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -228,23 +227,20 @@ public partial class MainWindowViewModel : ViewModel,
 
     internal IExternalShellGateway ExternalShellGateway => applicationComposition.ExternalShellGateway;
 
-    private Dispatcher ResolveUiDispatcher() => uiScheduler.Dispatcher;
-
-    private void DispatchUiAction(Action action, DispatcherPriority priority = DispatcherPriority.Normal)
+    private void DispatchUiAction(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
     {
         if (action == null)
         {
             return;
         }
 
-        Dispatcher dispatcher = ResolveUiDispatcher();
-        if (dispatcher == null || dispatcher.CheckAccess())
+        if (uiScheduler.CanExecuteInline)
         {
             action();
             return;
         }
 
-        dispatcher.BeginInvoke(priority, action);
+        uiScheduler.Schedule(action, priority);
     }
 
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
@@ -793,17 +789,16 @@ public partial class MainWindowViewModel : ViewModel,
 
     private async Task WaitForPlaylistReloadCleanupDispatcherIdleAsync()
     {
-        Dispatcher dispatcher = ResolveUiDispatcher();
-        if (dispatcher == null)
+        if (!uiScheduler.IsAvailable)
         {
             return;
         }
-        await dispatcher.InvokeAsync(delegate
+        await uiScheduler.InvokeAsync(delegate
         {
-        }, DispatcherPriority.ContextIdle).Task.ConfigureAwait(false);
-        await dispatcher.InvokeAsync(delegate
+        }, UiSchedulePriority.ContextIdle).ConfigureAwait(false);
+        await uiScheduler.InvokeAsync(delegate
         {
-        }, DispatcherPriority.ApplicationIdle).Task.ConfigureAwait(false);
+        }, UiSchedulePriority.ApplicationIdle).ConfigureAwait(false);
     }
 
     private static void CollectPlaylistReloadCleanupGarbage()
@@ -1461,14 +1456,13 @@ public partial class MainWindowViewModel : ViewModel,
                     rebuildAsync: true);
             }
         };
-        Dispatcher dispatcher = ResolveUiDispatcher();
-        if (dispatcher == null)
+        if (!uiScheduler.IsAvailable && uiScheduler.CanExecuteInline)
         {
             flush();
         }
         else
         {
-            dispatcher.BeginInvoke(flush);
+            uiScheduler.Schedule(flush);
         }
     }
 
@@ -2532,13 +2526,37 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void SchedulePlayHistoryDisplayTargetCatalogRefresh(Action refresh)
     {
-        Dispatcher dispatcher = ResolveUiDispatcher();
-        if (dispatcher == null)
+        if (!uiScheduler.IsAvailable)
         {
-            Task.Run(refresh).Logging("QueuePlayHistoryDisplayTargetsRefresh");
+            if (uiScheduler.CanExecuteInline)
+            {
+                Task.Run(refresh).Logging("QueuePlayHistoryDisplayTargetsRefresh");
+            }
+            else
+            {
+                PlayHistory.RejectDisplayTargetCatalogRefreshScheduling();
+            }
             return;
         }
-        dispatcher.BeginInvoke(refresh, DispatcherPriority.Background);
+        IUiScheduledOperation operation = uiScheduler.Schedule(refresh, UiSchedulePriority.Background);
+        if (!operation.IsAccepted)
+        {
+            PlayHistory.RejectDisplayTargetCatalogRefreshScheduling();
+            throw new InvalidOperationException("The UI scheduler rejected the play-history display-target refresh.");
+        }
+        _ = operation.Completion.ContinueWith(
+            completedOperation =>
+            {
+                if (completedOperation.IsFaulted)
+                {
+                    _ = completedOperation.Exception;
+                }
+                if (operation.IsAborted)
+                {
+                    PlayHistory.RejectDisplayTargetCatalogRefreshScheduling();
+                }
+            },
+            TaskScheduler.Default);
     }
 
     private GridKeywordSearchContext GetCurrentChartKeywordSearchContext()
@@ -2651,7 +2669,7 @@ public partial class MainWindowViewModel : ViewModel,
                 work,
                 shutdownReason => PlaylistWorkspace.PlaylistReferenceApplyWorkflow.DiscardForShutdown(shutdownReason)),
             ApplyMainChartListPresentationActionAsync,
-            () => uiScheduler.Dispatcher == null || uiScheduler.CheckAccess());
+            () => uiScheduler.CanExecuteInline);
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
@@ -3125,16 +3143,15 @@ public partial class MainWindowViewModel : ViewModel,
             throw new ArgumentNullException(nameof(action));
         }
 
-        Dispatcher dispatcher = ResolveUiDispatcher();
-        if (dispatcher == null || dispatcher.CheckAccess())
+        if (uiScheduler.CanExecuteInline)
         {
             return action();
         }
-        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        if (!uiScheduler.IsAvailable)
         {
             return Task.FromException(new InvalidOperationException("The UI dispatcher is shutting down."));
         }
-        return dispatcher.InvokeAsync(action, DispatcherPriority.Normal).Task.Unwrap();
+        return uiScheduler.InvokeAsync(action, UiSchedulePriority.Normal);
     }
 
     private void DispatchMainChartListPresentationAction(Action action)
@@ -3159,27 +3176,26 @@ public partial class MainWindowViewModel : ViewModel,
             throw new ArgumentNullException(nameof(action));
         }
 
-        Dispatcher dispatcher = ResolveUiDispatcher();
-        if (dispatcher == null || dispatcher.CheckAccess())
+        if (uiScheduler.CanExecuteInline)
         {
             action();
             return true;
         }
-        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        if (!uiScheduler.IsAvailable)
         {
             return false;
         }
 
         try
         {
-            dispatcher.Invoke(DispatcherPriority.Normal, action);
+            uiScheduler.Invoke(action, UiSchedulePriority.Normal);
             return true;
         }
-        catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        catch (InvalidOperationException) when (!uiScheduler.IsAvailable)
         {
             return false;
         }
-        catch (OperationCanceledException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        catch (OperationCanceledException) when (!uiScheduler.IsAvailable)
         {
             return false;
         }
@@ -4780,19 +4796,18 @@ public partial class MainWindowViewModel : ViewModel,
             throw new ArgumentNullException(nameof(snapshot));
         }
 
-        Dispatcher dispatcher = ResolveUiDispatcher();
-        if (dispatcher == null || dispatcher.CheckAccess())
+        if (uiScheduler.CanExecuteInline)
         {
             lr2PlayHistorySchemaStatusChanged?.Invoke(snapshot);
             return;
         }
-        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        if (!uiScheduler.IsAvailable)
         {
             return;
         }
-        dispatcher.BeginInvoke(
-            DispatcherPriority.Background,
-            (Action)(() => lr2PlayHistorySchemaStatusChanged?.Invoke(snapshot)));
+        uiScheduler.Schedule(
+            () => lr2PlayHistorySchemaStatusChanged?.Invoke(snapshot),
+            UiSchedulePriority.Background);
     }
 
     private void PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary()
@@ -5307,8 +5322,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(string reason)
     {
-        Dispatcher dispatcher = ResolveUiDispatcher();
-        if (dispatcher == null)
+        if (!uiScheduler.IsAvailable && uiScheduler.CanExecuteInline)
         {
             PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
             return;
@@ -5316,10 +5330,14 @@ public partial class MainWindowViewModel : ViewModel,
 
         try
         {
-            dispatcher.BeginInvoke((Action)delegate
+            IUiScheduledOperation operation = uiScheduler.Schedule(delegate
             {
                 PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
-            }, DispatcherPriority.ApplicationIdle);
+            }, UiSchedulePriority.ApplicationIdle);
+            if (!operation.IsAccepted)
+            {
+                PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
+            }
         }
         catch
         {

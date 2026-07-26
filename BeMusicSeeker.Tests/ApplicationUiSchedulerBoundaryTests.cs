@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -15,8 +16,7 @@ public sealed class ApplicationUiSchedulerBoundaryTests
     [TestMethod]
     public void SchedulerCapturesCompositionDispatcherInsteadOfReResolvingOnWorker()
     {
-        Dispatcher? uiDispatcher = null;
-        RunOnStaDispatcherThread(() => uiDispatcher = Dispatcher.CurrentDispatcher);
+        Dispatcher uiDispatcher = TestUiDispatcherHost.Dispatcher;
         int providerCalls = 0;
         var scheduler = new WpfUiScheduler(
             () =>
@@ -25,6 +25,7 @@ public sealed class ApplicationUiSchedulerBoundaryTests
                 return uiDispatcher!;
             });
 
+        bool uiHasAccess = uiDispatcher.Invoke(() => scheduler.CheckAccess());
         Dispatcher? workerDispatcher = null;
         bool workerHasUiAccess = true;
         var worker = new Thread(() =>
@@ -35,10 +36,52 @@ public sealed class ApplicationUiSchedulerBoundaryTests
         worker.Start();
         worker.Join();
 
-        Assert.AreSame(uiDispatcher, scheduler.Dispatcher);
         Assert.AreEqual(1, providerCalls);
+        Assert.IsTrue(uiHasAccess);
         Assert.AreNotSame(uiDispatcher, workerDispatcher);
         Assert.IsFalse(workerHasUiAccess);
+    }
+
+    [TestMethod]
+    public void SchedulerProvidesNeutralPostInvokeAndAsyncCompletion()
+    {
+        Dispatcher uiDispatcher = TestUiDispatcherHost.Dispatcher;
+        var scheduler = new WpfUiScheduler(() => uiDispatcher);
+        bool queuedActionRan = false;
+        IUiScheduledOperation queuedOperation = null!;
+        uiDispatcher.Invoke(() =>
+        {
+            queuedOperation = scheduler.Schedule(
+                () => queuedActionRan = true,
+                UiSchedulePriority.Background);
+            Assert.IsFalse(queuedActionRan);
+        });
+        queuedOperation.Completion.GetAwaiter().GetResult();
+        Assert.IsTrue(queuedActionRan);
+
+        int postThreadId = -1;
+        IUiScheduledOperation operation = Task.Run(() => scheduler.Schedule(
+            () => postThreadId = Thread.CurrentThread.ManagedThreadId,
+            UiSchedulePriority.Background)).GetAwaiter().GetResult();
+
+        Assert.IsTrue(operation.IsAccepted);
+        operation.Completion.GetAwaiter().GetResult();
+        Assert.AreEqual(uiDispatcher.Thread.ManagedThreadId, postThreadId);
+
+        int invokedValue = Task.Run(() => scheduler.Invoke(
+            () => 42,
+            UiSchedulePriority.ContextIdle)).GetAwaiter().GetResult();
+        Assert.AreEqual(42, invokedValue);
+
+        int asyncThreadId = -1;
+        Task.Run(() => scheduler.InvokeAsync(
+            async () =>
+            {
+                await Task.Yield();
+                asyncThreadId = Thread.CurrentThread.ManagedThreadId;
+            },
+            UiSchedulePriority.ApplicationIdle)).GetAwaiter().GetResult();
+        Assert.AreEqual(uiDispatcher.Thread.ManagedThreadId, asyncThreadId);
     }
 
     [TestMethod]
@@ -73,29 +116,6 @@ public sealed class ApplicationUiSchedulerBoundaryTests
 
         Assert.AreEqual("ja-JP", catalog.Cultures["日本語"]);
         Assert.AreEqual("English", catalog.Cultures.First(pair => pair.Value == "en-US").Key);
-    }
-
-    private static void RunOnStaDispatcherThread(Action action)
-    {
-        Exception? exception = null;
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (exception != null)
-        {
-            throw new AssertFailedException(exception.ToString());
-        }
     }
 
     private sealed class TestApplicationLifetimeWithActions : IApplicationLifetimePort

@@ -3729,12 +3729,7 @@ public partial class BMSPlaylist : ObservableObject
         {
             throw new ArgumentNullException(nameof(mutation));
         }
-        System.Windows.Threading.Dispatcher dispatcher = uiScheduler.Dispatcher;
-        if (dispatcher == null || dispatcher.CheckAccess())
-        {
-            return mutation();
-        }
-        return (T)dispatcher.Invoke(mutation, System.Windows.Threading.DispatcherPriority.Normal);
+        return uiScheduler.Invoke(mutation);
     }
 
     private void InvokeBMSTablesCollectionMutation(Action mutation)

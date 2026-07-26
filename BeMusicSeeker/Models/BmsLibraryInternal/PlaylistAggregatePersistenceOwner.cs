@@ -7,7 +7,6 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Windows;
-using System.Windows.Threading;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
@@ -897,21 +896,23 @@ internal sealed class PlaylistAggregatePersistenceOwner
             }
         }
 
-        Dispatcher dispatcher = GetActiveTableDispatcher(tables);
-        if (dispatcher == null || dispatcher.CheckAccess())
+        if (uiScheduler.CanExecuteInline)
         {
             try
             {
-                lock (replacementGate)
+                uiScheduler.Invoke(() =>
                 {
-                    if (replacementAllowed != 0)
+                    lock (replacementGate)
                     {
-                        using (activeCollectionLock.GetWriterGuard())
+                        if (replacementAllowed != 0)
                         {
-                            ReplaceCore();
+                            using (activeCollectionLock.GetWriterGuard())
+                            {
+                                ReplaceCore();
+                            }
                         }
                     }
-                }
+                });
                 replacementCompleted = true;
                 return replaced;
             }
@@ -923,10 +924,10 @@ internal sealed class PlaylistAggregatePersistenceOwner
             }
         }
 
-        System.Windows.Threading.DispatcherOperation operation;
+        IUiScheduledOperation operation;
         try
         {
-            operation = dispatcher.BeginInvoke((Action)delegate
+            operation = uiScheduler.Schedule(delegate
             {
                 lock (replacementGate)
                 {
@@ -940,16 +941,30 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 }
             });
         }
-        catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
+        catch (Exception ex)
         {
             replacementCompleted = true;
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_enqueue_failed");
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_failed");
             return false;
         }
+        if (!operation.IsAccepted)
+        {
+            replacementCompleted = true;
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
+                "playlist_table_replace_dispatch_enqueue_rejected reason="
+                + (operation.RejectionReason ?? string.Empty));
+            return false;
+        }
+        if (operation.IsCompleted)
+        {
+            replacementCompleted = true;
+            return replaced;
+        }
+
         try
         {
-            operation.Wait(TimeSpan.FromSeconds(5));
-            if (operation.Status == DispatcherOperationStatus.Completed)
+            bool completed = operation.Completion.Wait(TimeSpan.FromSeconds(5));
+            if (completed && operation.IsCompleted && !operation.IsAborted)
             {
                 replacementCompleted = true;
                 return replaced;
@@ -967,10 +982,15 @@ internal sealed class PlaylistAggregatePersistenceOwner
             }
             if (!replaced)
             {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn("playlist_table_replace_dispatch_wait_incomplete status=" + operation.Status);
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
+                    "playlist_table_replace_dispatch_wait_incomplete aborted=" + operation.IsAborted);
             }
         }
-        catch (Exception ex) when (ex is InvalidOperationException || ex is ThreadInterruptedException)
+        catch (Exception ex) when (
+            ex is InvalidOperationException
+            || ex is ObjectDisposedException
+            || ex is ThreadInterruptedException
+            || ex is AggregateException)
         {
             lock (replacementGate)
             {
@@ -987,15 +1007,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
         replacementCompleted = true;
         return replaced;
-    }
-
-    private Dispatcher GetActiveTableDispatcher(ObservableCollection<BMSTable> tables)
-    {
-        if (tables == null)
-        {
-            return uiScheduler.Dispatcher;
-        }
-        return uiScheduler.Dispatcher;
     }
 
     internal static string CreateReloadSourceFingerprint(BMSTable table)

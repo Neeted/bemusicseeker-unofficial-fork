@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 
@@ -12,16 +13,33 @@ namespace BeMusicSeeker.Tests;
 /// </summary>
 internal sealed class TestUiScheduler : IUiScheduler
 {
-    private readonly Dispatcher dispatcher;
+    private readonly WpfUiScheduler scheduler;
 
     internal TestUiScheduler(Func<Dispatcher> dispatcherProvider)
     {
-        dispatcher = (dispatcherProvider ?? throw new ArgumentNullException(nameof(dispatcherProvider)))();
+        scheduler = new WpfUiScheduler(dispatcherProvider ?? throw new ArgumentNullException(nameof(dispatcherProvider)));
     }
 
-    public Dispatcher Dispatcher => dispatcher;
+    public bool IsAvailable => scheduler.IsAvailable;
 
-    public bool CheckAccess() => Dispatcher?.CheckAccess() == true;
+    public bool CanExecuteInline => scheduler.CanExecuteInline;
+
+    public bool CheckAccess() => scheduler.CheckAccess();
+
+    public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        => scheduler.Schedule(action, priority);
+
+    public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        => scheduler.Invoke(action, priority);
+
+    public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        => scheduler.Invoke(action, priority);
+
+    public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        => scheduler.InvokeAsync(action, priority);
+
+    public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        => scheduler.InvokeAsync(action, priority);
 }
 
 internal static class TestUiDispatcherHost

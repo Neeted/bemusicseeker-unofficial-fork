@@ -1,5 +1,4 @@
 using System;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 
@@ -24,18 +23,17 @@ internal sealed class WpfPlaybackUiDispatcher : IPlaybackUiDispatcher
             throw new ArgumentNullException(nameof(action));
         }
 
-        Dispatcher dispatcher = uiScheduler.Dispatcher;
-        if (dispatcher == null || uiScheduler.CheckAccess())
+        if (uiScheduler.CanExecuteInline)
         {
             action();
             return;
         }
 
-        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        if (!uiScheduler.IsAvailable)
         {
             return;
         }
 
-        dispatcher.BeginInvoke(DispatcherPriority.DataBind, action);
+        uiScheduler.Schedule(action, UiSchedulePriority.DataBind);
     }
 }

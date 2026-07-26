@@ -135,6 +135,16 @@ public sealed partial class PlayHistoryWorkflowOwner
             ref displayTargetCatalogRefreshRequestedRevision,
             Interlocked.Read(ref displayTargetCatalogRefreshCompletedRevision));
         Interlocked.Exchange(ref displayTargetCatalogRefreshSelectionQueued, 0);
+        Interlocked.Exchange(ref displayTargetCatalogRefreshScheduled, 0L);
+    }
+
+    internal void RejectDisplayTargetCatalogRefreshScheduling()
+    {
+        Interlocked.Exchange(
+            ref displayTargetCatalogRefreshCompletedRevision,
+            Interlocked.Read(ref displayTargetCatalogRefreshRequestedRevision));
+        Interlocked.Exchange(ref displayTargetCatalogRefreshScheduled, 0L);
+        Interlocked.Exchange(ref displayTargetCatalogRefreshSelectionQueued, 0);
     }
 
     internal bool IsDisplayTargetCatalogRefreshIdle =>

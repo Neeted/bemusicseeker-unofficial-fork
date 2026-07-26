@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -397,13 +396,7 @@ internal sealed partial class PackageLifecycleOwner
             {
                 return;
             }
-            Dispatcher dispatcher = uiScheduler.Dispatcher;
-            if (dispatcher == null || uiScheduler.CheckAccess())
-            {
-                mutation();
-                return;
-            }
-            dispatcher.Invoke(mutation);
+            uiScheduler.Invoke(mutation);
         }
 
         private static bool IsMatchedRemovedFile(PackageChartEntry entry, HashSet<string> removedIdentityKeys, HashSet<string> pathCleanupPaths)

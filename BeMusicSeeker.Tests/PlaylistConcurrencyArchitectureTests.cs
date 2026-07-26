@@ -193,8 +193,45 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
 
         StringAssert.Contains(source, "InvokeBMSTablesCollectionMutation");
-        StringAssert.Contains(source, "uiScheduler.Dispatcher");
+        StringAssert.Contains(source, "uiScheduler.Invoke");
+        Assert.IsFalse(source.Contains("uiScheduler.Dispatcher"));
         Assert.IsTrue(source.IndexOf("GetBMSTablesDispatcher", StringComparison.Ordinal) < 0);
+    }
+
+    [TestMethod]
+    public void UiSchedulerContractKeepsWpfThreadingTypesAtTerminalAdapter()
+    {
+        string portsSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "ApplicationContextPorts.cs"));
+        int contractStart = portsSource.IndexOf("internal interface IUiScheduler", StringComparison.Ordinal);
+        int adapterStart = portsSource.IndexOf("internal sealed class WpfUiScheduler", StringComparison.Ordinal);
+        Assert.IsTrue(contractStart >= 0 && adapterStart > contractStart);
+        string contract = portsSource.Substring(contractStart, adapterStart - contractStart);
+        Assert.IsFalse(contract.Contains("Dispatcher"));
+        StringAssert.Contains(contract, "IUiScheduledOperation");
+
+        foreach (string relativePath in new[]
+        {
+            Path.Combine("BeMusicSeeker", "Models", "BMSLibrary.cs"),
+            Path.Combine("BeMusicSeeker", "Models", "BMSPlaylist.cs"),
+            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryStateApplier.cs"),
+            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "PackageLifecycleOwner.cs"),
+            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistAggregatePersistenceOwner.cs"),
+            Path.Combine("BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"),
+            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"),
+            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindow", "LibraryFolderTreeViewModel.cs"),
+            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistPropertyDialogViewModel.cs")
+        })
+        {
+            string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), relativePath));
+            Assert.IsFalse(source.Contains("System.Windows.Threading"), relativePath);
+        }
+
+        string terminalAdapter = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "Views",
+            "WpfPlaybackUiDispatcher.cs"));
+        StringAssert.Contains(terminalAdapter, "UiSchedulePriority.DataBind");
     }
 
     [TestMethod]

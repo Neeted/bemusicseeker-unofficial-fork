@@ -18,7 +18,6 @@ using System.Windows;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using System.Windows.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
 using BeMusicSeeker.Models.LR2;
@@ -4594,19 +4593,18 @@ public partial class BMSLibrary : ObservableObject
 
     private bool TryQueueEverythingFallbackWarningOnDispatcher(string fallbackReason, long epoch)
     {
-        Dispatcher dispatcher = uiScheduler.Dispatcher;
-        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-        {
-            return false;
-        }
-
         try
         {
             LogEverythingScan("everything fallback warning queued target=ui_dispatcher fallbackReason=" + (fallbackReason ?? string.Empty));
-            dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
+            IUiScheduledOperation operation = uiScheduler.Schedule(delegate
             {
                 ShowEverythingFallbackWarningSafely(fallbackReason, epoch);
             });
+            if (!operation.IsAccepted)
+            {
+                LogEverythingScan("everything fallback warning queue_failed target=ui_dispatcher fallbackReason=" + (fallbackReason ?? string.Empty));
+                return false;
+            }
         }
         catch (Exception ex)
         {
@@ -4618,19 +4616,18 @@ public partial class BMSLibrary : ObservableObject
 
     private bool TryQueueFileScanSkippedIncompleteWarningOnDispatcher(string failureReason)
     {
-        Dispatcher dispatcher = uiScheduler.Dispatcher;
-        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-        {
-            return false;
-        }
-
         try
         {
             LogEverythingScan("file scan incomplete warning queued target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
-            dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
+            IUiScheduledOperation operation = uiScheduler.Schedule(delegate
             {
                 ShowFileScanSkippedIncompleteWarningSafely(failureReason);
             });
+            if (!operation.IsAccepted)
+            {
+                LogEverythingScan("file scan incomplete warning queue_failed target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
+                return false;
+            }
         }
         catch (Exception ex)
         {
@@ -4642,19 +4639,18 @@ public partial class BMSLibrary : ObservableObject
 
     private bool TryQueueEmptyScanWithExistingDbWarningOnDispatcher(string failureReason)
     {
-        Dispatcher dispatcher = uiScheduler.Dispatcher;
-        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-        {
-            return false;
-        }
-
         try
         {
             LogEverythingScan("empty scan with existing db warning queued target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
-            dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
+            IUiScheduledOperation operation = uiScheduler.Schedule(delegate
             {
                 ShowEmptyScanWithExistingDbWarningSafely(failureReason);
             });
+            if (!operation.IsAccepted)
+            {
+                LogEverythingScan("empty scan with existing db warning queue_failed target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
+                return false;
+            }
         }
         catch (Exception ex)
         {

@@ -122,15 +122,17 @@ Non-goals:
 
 ## Active outcome
 
-### `GATE-01 Refactoring completion audit`
+active outcome: none
 
-状態: in progress
+### Last outcome: `GATE-01 Refactoring completion audit`
+
+状態: gate met
 
 - active outcome base commit: `2bfa67ca`
 - observed production checkpoint: `bdfe5d83`
-- active execution package: `GATE-01 ownership repair and completion audit`
-- execution anchor: `Gate ownership repair` (active)
-- sequence cursor: `GATE-01 B3 technology-neutral UI scheduling and terminal adapter` (active)
+- active execution package: `GATE-01 ownership repair and completion audit` (completed)
+- execution anchor: `Gate ownership repair` (completed)
+- sequence cursor: `GATE-01 B3 technology-neutral UI scheduling and terminal adapter` (completed)
 - next outcome: none
 
 目的:
@@ -175,7 +177,7 @@ Non-goals:
 
 ## Active implementation batch
 
-状態: in progress
+状態: completed
 
 GATE-01 reviewで検出した所有権残件を、B1から依存順に同じverification scopeで閉じる。activeまたはpendingのunitがある間はplannerを再起動しない。
 
@@ -183,7 +185,7 @@ GATE-01 reviewで検出した所有権残件を、B1から依存順に同じveri
 |---|---|---|---|
 | `GATE-01` | `B1` | `completed` | `LR2 synchronization owner corridor repair` |
 | `GATE-01` | `B2` | `completed` | `library file-mutation corridor` |
-| `GATE-01` | `B3` | `active` | `technology-neutral UI scheduling and terminal adapter` |
+| `GATE-01` | `B3` | `completed` | `technology-neutral UI scheduling and terminal adapter` |
 
 ## Current code evidence
 
@@ -200,7 +202,7 @@ GATE-01 reviewで検出した所有権残件を、B1から依存順に同じveri
 - `MIG-04-B3`でresolved managed reference graphをproject-owned MSBuild output policyへ接続し、managed DLLを`libs`へ直接出力する旧copy-then-relocate targetを退役させた。Release verificationはroot managed DLL、legacy native directory、`libs/x86`を拒否し、`app.config`の`libs` probingとoutput layoutをbehavior / project testsで確認する。
 - `MIG-04-B4`で未使用の`System.Deployment`参照を削除し、updater projectをbuild-only dependencyとして維持しながら`BeMusicSeeker.Updater.exe`をアプリ出力ルートへ配置するdeployment boundaryをproject / behavior test / Release verificationで確認した。updaterはmanaged dependencyの`libs`へ混在させず、missing outputはbuild failureとする。併せて初期化時のinstall table復元をcatalog writer / failure cleanup境界へ戻し、通常のpackage mutationとの競合を防ぐbehavior / source-order testを追加した。
 - `MIG-05`でproduction branch外の一時コピーに3 projectだけ`net10.0-windows`を適用し、solution restore / Release buildを成功させた。残診断は`DEP-01`、`INT-01`、`UIH-01`のpackage / assembly、interop / UI technology、SDK / TFM移行課題として分類し、production worktreeとnet472契約は変更していない。
-- GATE-01 B1でLR2 synchronizationのDB、status、検索root、storage-version routeをCatalogMutationOwnerとtyped request / receiptへ閉じ、options snapshotの失敗契約、long-path除外、immutable callback / transaction handoff、failure sinkを同じcorridorで検証した。B2ではfile-operation workflowをBMSLibraryのネストownerからcomposition portへ移し、raw lock・live package state・concrete owner/service exposureをpurpose-specific scope / ChartFile projection / canonical mutation deltaへ閉じた。Full verification、Release executable smoke、fresh static reviewを完了し、technology-neutral UI schedulingはB3で閉じる。
+- GATE-01 B1でLR2 synchronizationのDB、status、検索root、storage-version routeをCatalogMutationOwnerとtyped request / receiptへ閉じ、options snapshotの失敗契約、long-path除外、immutable callback / transaction handoff、failure sinkを同じcorridorで検証した。B2ではfile-operation workflowをBMSLibraryのネストownerからcomposition portへ移し、raw lock・live package state・concrete owner/service exposureをpurpose-specific scope / ChartFile projection / canonical mutation deltaへ閉じた。B3ではIUiSchedulerをtechnology-neutralなschedule / invoke contractへ変更し、WPF Dispatcherはterminal adapterへ限定した。B1〜B3を通じてFull verification（3,357 passed / 13 skipped / 0 failed）、Release executable smoke、fresh static reviewを完了した。
 
 ## Outcome states
 
@@ -226,7 +228,7 @@ GATE-01 reviewで検出した所有権残件を、B1から依存順に同じveri
 | MIG-03 Native interop and UI-host closure | completed |
 | MIG-04 Build, dependency and output closure | completed |
 | MIG-05 .NET 10 migration rehearsal and handoff | completed |
-| GATE-01 Refactoring completion audit | in progress |
+| GATE-01 Refactoring completion audit | gate met |
 
 許可する状態は`not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。internal complexity、行数trigger超過、複数caller、broad routeは`blocked`理由にしない。
 
@@ -238,10 +240,10 @@ GATE-01 reviewで検出した所有権残件を、B1から依存順に同じveri
 | Library ownership | met | `GATE-01` B1 / B2でLR2 synchronizationとfile-operation ownerをcanonical owner、purpose-specific scope、ChartFile projection、canonical mutation deltaへ閉じ、Full verificationとfresh reviewを完了した |
 | Playlist ownership | met | custom-folder output status persistence、external registration preparation、URL completion test seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Configuration ownership | met | `MIG-01-B1`〜`B4`でsettings snapshot、application lifetime、culture catalog、UI schedulerをcomposition boundaryへ閉じ、Full verification、Release smoke、fresh outcome reviewを完了した |
-| Platform boundary | in progress | `MIG-02`〜`MIG-04`と`MIG-05`の証跡は成立しているが、GATE-01 reviewでUIH-01のModel scheduler WPF leakを検出し、B3でtechnology-neutral contractへ閉じる |
-| Migration readiness | in progress | `PROBE-01`はverifiedだが、Gate条件上のUIH-01 residualをB3で解消してからreadinessを確定する |
-| Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
-| Quality | in progress | UI-05、OWN-01、MIG-01、MIG-02、MIG-03、MIG-04、MIG-05、GATE-01 B1 / B2のverification、Release smoke、fresh reviewは完了。GATE-01 B3とoutcome-wide gate evidenceは未完了 |
+| Platform boundary | met | `GATE-01` B3でIUiSchedulerをtechnology-neutralなschedule / invoke contractへ閉じ、WPF Dispatcherは`WpfUiScheduler` / `WpfPlaybackUiDispatcher`のterminal adapterに限定した |
+| Migration readiness | met | `PROBE-01`はverified、UIH-01を含むblocker registerはGate classification ruleに従って分類済み |
+| Structural cohesion / size | met | 行数triggerはfailure条件にせず、残るView / view-host責務をdependency direction、owner、testabilityの観点でレビュー済み。行数削減だけのunitは作成していない |
+| Quality | met | UI-05、OWN-01、MIG-01〜MIG-05、GATE-01 B1〜B3のverification、Release smoke、fresh reviewを完了。Full verificationは3,357 passed / 13 skipped / 0 failed |
 
 ## Active external blocker
 

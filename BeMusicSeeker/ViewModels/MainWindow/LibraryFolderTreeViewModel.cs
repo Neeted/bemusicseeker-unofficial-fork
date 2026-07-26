@@ -5,7 +5,6 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using Livet;
@@ -19,7 +18,7 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
 {
     private readonly ObservableCollection<string> bmsParentFolderList;
 
-    private readonly Dispatcher uiDispatcher;
+    private readonly IUiScheduler uiScheduler;
 
     private readonly object refreshLock = new();
 
@@ -48,8 +47,11 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     {
         this.directoryExists = directoryExists ?? throw new ArgumentNullException(nameof(directoryExists));
         this.openDirectory = openDirectory ?? throw new ArgumentNullException(nameof(openDirectory));
-        this.uiDispatcher = (uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler))).Dispatcher
-            ?? throw new InvalidOperationException("A live UI dispatcher is required for the library tree.");
+        this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
+        if (!this.uiScheduler.IsAvailable && this.uiScheduler.CanExecuteInline)
+        {
+            throw new InvalidOperationException("A live UI dispatcher is required for the library tree.");
+        }
         bmsParentFolderList = new ObservableCollection<string>();
         this.log = log ?? (_ => { });
         this.logWarning = logWarning ?? (_ => { });
@@ -221,8 +223,7 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                 logWarning("ui_stall_library_folder_tree_prepare_failed message=" + ex.Message);
             }
 
-            Dispatcher dispatcher = uiDispatcher;
-            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            if (!uiScheduler.IsAvailable)
             {
                 lock (refreshLock)
                 {
@@ -231,10 +232,10 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                 return;
             }
 
-            DispatcherOperation operation;
+            IUiScheduledOperation operation;
             try
             {
-                operation = dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
+                operation = uiScheduler.Schedule((Action)delegate
             {
                 var stopwatch = Stopwatch.StartNew();
                 bool shouldReschedule = false;
@@ -279,7 +280,7 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                             || !ReferenceEquals(library, refreshLibrary);
                         deferredRefreshQueued = false;
                     }
-                    bool dispatcherShuttingDown = dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished;
+                    bool dispatcherShuttingDown = !uiScheduler.IsAvailable;
                     if (requestAnotherRefresh && !dispatcherShuttingDown)
                     {
                         CacheRefreshRequested?.Invoke(this, EventArgs.Empty);
@@ -291,14 +292,20 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                             new LibraryFolderTreeRefreshCompletedEventArgs(operationToken));
                     }
                 }
-            });
-                operation.Aborted += (_, _) => ClearDeferredRefreshQueue();
-                if (operation.Status == DispatcherOperationStatus.Aborted)
+            }, UiSchedulePriority.Background);
+                operation.Completion.ContinueWith(_ =>
+                {
+                    if (operation.IsAborted)
+                    {
+                        ClearDeferredRefreshQueue();
+                    }
+                }, TaskScheduler.Default);
+                if (!operation.IsAccepted || operation.IsAborted)
                 {
                     ClearDeferredRefreshQueue();
                 }
             }
-            catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            catch (Exception) when (!uiScheduler.IsAvailable)
             {
                 ClearDeferredRefreshQueue();
             }
