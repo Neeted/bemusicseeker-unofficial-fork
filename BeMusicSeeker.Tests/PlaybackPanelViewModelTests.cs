@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -97,7 +98,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(TimeSpan.FromSeconds(15), player.CurrentTime);
 
         long playbackGeneration = panel.BeginPlayback(new BMSFile(), 0);
-        Assert.IsTrue(panel.TryPlayStart(playbackGeneration, "chart.bms", null));
+        Assert.IsTrue(panel.TryPlayStart(playbackGeneration, "chart.bms", null).GetAwaiter().GetResult());
         panel.TogglePause();
         panel.RestartPlayingBmsFile();
         panel.FastForwardStart();
@@ -295,7 +296,7 @@ public sealed class PlaybackPanelViewModelTests
         panel.PlaybackStarted += (_, _) => startedCount++;
 
         long firstGeneration = panel.BeginPlayback(first, 3);
-        Assert.IsTrue(panel.TryPlayStart(firstGeneration, "first.bms", (_, _) => exitCount++));
+        Assert.IsTrue(panel.TryPlayStart(firstGeneration, "first.bms", (_, _) => exitCount++).GetAwaiter().GetResult());
         Action<object, EventArgs> firstExit = player.ExitHandler!;
         panel.NotifyPlaybackStarted(firstGeneration);
 
@@ -306,7 +307,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(1, startedCount);
 
         long secondGeneration = panel.BeginPlayback(second, 4);
-        Assert.IsTrue(panel.TryPlayStart(secondGeneration, "second.bms", (_, _) => exitCount++));
+        Assert.IsTrue(panel.TryPlayStart(secondGeneration, "second.bms", (_, _) => exitCount++).GetAwaiter().GetResult());
         Action<object, EventArgs> secondExit = player.ExitHandler!;
         firstExit(player, EventArgs.Empty);
         Assert.AreEqual(0, exitCount);
@@ -332,7 +333,7 @@ public sealed class PlaybackPanelViewModelTests
         var changed = new List<string>();
         panel.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? string.Empty);
         long generation = panel.BeginPlayback(file, 0);
-        Assert.IsTrue(panel.TryPlayStart(generation, "chart.bms", null));
+        Assert.IsTrue(panel.TryPlayStart(generation, "chart.bms", null).GetAwaiter().GetResult());
 
         Assert.IsTrue(panel.IsPlaying);
         Assert.IsFalse(panel.IsPaused);
@@ -425,17 +426,17 @@ public sealed class PlaybackPanelViewModelTests
 
         long stoppedGeneration = panel.BeginPlayback(new BMSFile(), 1);
         panel.StopPlayback();
-        Assert.IsFalse(panel.TryPlayStart(stoppedGeneration, "stopped.bms", null));
+        Assert.IsFalse(panel.TryPlayStart(stoppedGeneration, "stopped.bms", null).GetAwaiter().GetResult());
         Assert.IsFalse(firstPlayer.Commands.Any(command => command == "PlayStart:stopped.bms"));
 
         long replacedGeneration = panel.BeginPlayback(new BMSFile(), 2);
         panel.ReplacePlayer(replacementPlayer);
-        Assert.IsFalse(panel.TryPlayStart(replacedGeneration, "replaced.bms", null));
+        Assert.IsFalse(panel.TryPlayStart(replacedGeneration, "replaced.bms", null).GetAwaiter().GetResult());
         Assert.IsFalse(replacementPlayer.Commands.Any(command => command == "PlayStart:replaced.bms"));
 
         long runningGeneration = panel.BeginPlayback(new BMSFile(), 3);
         int exitCount = 0;
-        Assert.IsTrue(panel.TryPlayStart(runningGeneration, "running.bms", (_, _) => exitCount++));
+        Assert.IsTrue(panel.TryPlayStart(runningGeneration, "running.bms", (_, _) => exitCount++).GetAwaiter().GetResult());
         Action<object, EventArgs> exit = replacementPlayer.ExitHandler!;
         panel.CloseProcess();
         exit(replacementPlayer, EventArgs.Empty);
@@ -539,8 +540,8 @@ public sealed class PlaybackPanelViewModelTests
             new ChartFileOperationSynchronizer());
         dialogs.BeforePlaybackFailureNotification = () =>
         {
-            Assert.IsNotNull(panel.NowPlayingBmsFile);
-            Assert.AreEqual(0, panel.NowPlayingRowIndex);
+            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
         };
         try
         {
@@ -550,6 +551,271 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
             Assert.IsNull(panel.NowPlayingBmsFile);
             Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+        }
+        finally
+        {
+            File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_ObservesAsynchronousPlayerStartFailure()
+    {
+        string chartPath = Path.GetTempFileName();
+        var failure = new IOException("async player start failed");
+        var completion = new TaskCompletionSource<object>();
+        var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
+        var dialogs = new FakePlaybackDialogService();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(chartPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            _ => { },
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            panel.Start();
+
+            Assert.IsNotNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+
+            completion.SetException(failure);
+
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => dialogs.PlaybackFailureNotificationCount == 1 && panel.NowPlayingBmsFile == null,
+                3000));
+            Assert.AreSame(failure, dialogs.LastPlaybackFailure);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+            Assert.AreEqual(1, player.CloseProcessCount);
+        }
+        finally
+        {
+            File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_DefersExitUntilAsynchronousStartSucceeds()
+    {
+        var completion = new TaskCompletionSource<object>();
+        var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
+        PlaybackPanelViewModel panel = CreatePanel(player);
+        var file = new BMSFile();
+        int exitCount = 0;
+        long generation = panel.BeginPlayback(file, 0);
+        Task<bool> playStartTask = panel.TryPlayStart(generation, "chart.bms", (_, _) => exitCount++);
+
+        Action<object, EventArgs> exitHandler = player.ExitHandler!;
+        exitHandler(player, EventArgs.Empty);
+
+        Assert.AreEqual(0, exitCount);
+        Assert.AreSame(file, panel.NowPlayingBmsFile);
+
+        completion.SetResult(new object());
+
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => exitCount == 1 && playStartTask.IsCompleted,
+            3000));
+        Assert.AreSame(file, panel.NowPlayingBmsFile);
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_DropsExitAfterAsynchronousStartFailure()
+    {
+        var completion = new TaskCompletionSource<object>();
+        var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
+        var failure = new IOException("async player start failed before exit");
+        PlaybackPanelViewModel panel = CreatePanel(player);
+        var file = new BMSFile();
+        int exitCount = 0;
+        long generation = panel.BeginPlayback(file, 0);
+        Task<bool> playStartTask = panel.TryPlayStart(generation, "chart.bms", (_, _) => exitCount++);
+
+        completion.SetException(failure);
+
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => panel.NowPlayingBmsFile == null && playStartTask.IsCompleted,
+            3000));
+        player.ExitHandler!(player, EventArgs.Empty);
+
+        Assert.AreEqual(0, exitCount);
+        Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_StopsCurrentPlaybackWhenAsyncPlayerStartIsCanceled()
+    {
+        string chartPath = Path.GetTempFileName();
+        var completion = new TaskCompletionSource<object>();
+        var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
+        var dialogs = new FakePlaybackDialogService();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(chartPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            _ => { },
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            panel.Start();
+            completion.SetCanceled();
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => panel.NowPlayingBmsFile == null, 3000));
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+        }
+        finally
+        {
+            File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_TreatsAlreadyCanceledPlayerStartAsStoppedWithoutFailureDialog()
+    {
+        string chartPath = Path.GetTempFileName();
+        var player = new FakeBmsPlayer
+        {
+            PlayStartTask = Task.FromCanceled<object>(new CancellationToken(canceled: true))
+        };
+        var dialogs = new FakePlaybackDialogService();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(chartPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            _ => { },
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            panel.Start();
+
+            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        }
+        finally
+        {
+            File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_IgnoresLateStartFailureAfterNewGenerationBegins()
+    {
+        var firstCompletion = new TaskCompletionSource<object>();
+        var secondCompletion = new TaskCompletionSource<object>();
+        var player = new FakeBmsPlayer { PlayStartTask = firstCompletion.Task };
+        var dialogs = new FakePlaybackDialogService();
+        PlaybackPanelViewModel panel = CreatePanel(player, dialogs);
+        var firstFile = new BMSFile();
+        var secondFile = new BMSFile();
+
+        long firstGeneration = panel.BeginPlayback(firstFile, 0);
+        Task<bool> firstObservationTask = panel.TryPlayStart(firstGeneration, "first.bms", null);
+
+        panel.StopPlayback();
+        long secondGeneration = panel.BeginPlayback(secondFile, 1);
+        player.PlayStartTask = secondCompletion.Task;
+        Task<bool> secondObservationTask = panel.TryPlayStart(secondGeneration, "second.bms", null);
+
+        firstCompletion.SetException(new IOException("stale player start failed"));
+
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => firstObservationTask.IsCompleted
+                && ReferenceEquals(panel.NowPlayingBmsFile, secondFile)
+                && dialogs.PlaybackFailureNotificationCount == 0,
+            3000));
+        secondCompletion.SetCanceled();
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => secondObservationTask.IsCompleted && panel.NowPlayingBmsFile == null,
+            3000));
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_IgnoresLateStartFailureAfterStopAndReplacement()
+    {
+        var firstCompletion = new TaskCompletionSource<object>();
+        var secondCompletion = new TaskCompletionSource<object>();
+        var firstPlayer = new FakeBmsPlayer { PlayStartTask = firstCompletion.Task };
+        var replacementPlayer = new FakeBmsPlayer { PlayStartTask = secondCompletion.Task };
+        var dialogs = new FakePlaybackDialogService();
+        PlaybackPanelViewModel panel = CreatePanel(firstPlayer, dialogs);
+        var firstFile = new BMSFile();
+        long firstGeneration = panel.BeginPlayback(firstFile, 0);
+        Task<bool> firstStart = panel.TryPlayStart(firstGeneration, "first.bms", null);
+
+        panel.StopPlayback();
+        firstCompletion.SetException(new IOException("stale after stop"));
+        Assert.IsTrue(SpinWait.SpinUntil(() => firstStart.IsCompleted, 3000));
+        Assert.IsNull(panel.NowPlayingBmsFile);
+        Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+
+        var secondFile = new BMSFile();
+        long secondGeneration = panel.BeginPlayback(secondFile, 1);
+        firstPlayer.PlayStartTask = secondCompletion.Task;
+        Task<bool> secondStart = panel.TryPlayStart(secondGeneration, "second.bms", null);
+        panel.ReplacePlayer(replacementPlayer);
+        secondCompletion.SetException(new IOException("stale after replacement"));
+
+        Assert.IsTrue(SpinWait.SpinUntil(() => secondStart.IsCompleted, 3000));
+        Assert.AreSame(secondFile, panel.NowPlayingBmsFile);
+        Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        panel.StopPlayback();
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_RecoversAfterAsynchronousPlayerStartFailure()
+    {
+        string chartPath = Path.GetTempFileName();
+        var completion = new TaskCompletionSource<object>();
+        var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
+        var dialogs = new FakePlaybackDialogService();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(chartPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            _ => { },
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            panel.Start();
+            completion.SetException(new IOException("recoverable player start failed"));
+            Assert.IsTrue(SpinWait.SpinUntil(() => panel.NowPlayingBmsFile == null, 3000));
+
+            player.PlayStartTask = Task.CompletedTask;
+            panel.Start();
+
+            Assert.IsNotNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(2, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+            Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
         }
         finally
         {
@@ -582,12 +848,180 @@ public sealed class PlaybackPanelViewModelTests
         {
             Assert.AreSame(notificationFailure, Assert.ThrowsException<InvalidOperationException>(() => panel.Start()));
             Assert.AreSame(playerFailure, dialogs.LastPlaybackFailure);
-            Assert.IsNotNull(panel.NowPlayingBmsFile);
-            Assert.AreEqual(0, panel.NowPlayingRowIndex);
+            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+            Assert.AreEqual(1, player.CloseProcessCount);
         }
         finally
         {
             File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_ContainsAsynchronousNotificationFailure()
+    {
+        string chartPath = Path.GetTempFileName();
+        var playerFailure = new IOException("async player start failed");
+        var notificationFailure = new InvalidOperationException("async notification failed");
+        var completion = new TaskCompletionSource<object>();
+        var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
+        var dialogs = new FakePlaybackDialogService { PlaybackFailureException = notificationFailure };
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(chartPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            _ => { },
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            panel.Start();
+            completion.SetException(playerFailure);
+
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => panel.NowPlayingBmsFile == null
+                    && dialogs.PlaybackFailureNotificationCount == 1,
+                3000));
+            Assert.AreSame(playerFailure, dialogs.LastPlaybackFailure);
+        }
+        finally
+        {
+            File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_DoesNotStopReplacementAfterSynchronousStartFailure()
+    {
+        string chartPath = Path.GetTempFileName();
+        var failure = new IOException("synchronous player start failed");
+        var player = new FakeBmsPlayer { PlayStartTask = Task.FromException<object>(failure) };
+        var replacement = new FakeBmsPlayer();
+        var dialogs = new FakePlaybackDialogService();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(chartPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            _ => { },
+            new ChartFileOperationSynchronizer());
+        player.BeforePlayStart = () => panel.ReplacePlayer(replacement);
+        try
+        {
+            panel.Start();
+
+            Assert.IsNotNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(0, replacement.CloseProcessCount);
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        }
+        finally
+        {
+            File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_DoesNotStopReplacementAfterSynchronousStartCancellation()
+    {
+        string chartPath = Path.GetTempFileName();
+        var player = new FakeBmsPlayer
+        {
+            PlayStartTask = Task.FromCanceled<object>(new CancellationToken(canceled: true))
+        };
+        var replacement = new FakeBmsPlayer();
+        var dialogs = new FakePlaybackDialogService();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(chartPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            _ => { },
+            new ChartFileOperationSynchronizer());
+        player.BeforePlayStart = () => panel.ReplacePlayer(replacement);
+        try
+        {
+            panel.Start();
+
+            Assert.IsNotNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(0, replacement.CloseProcessCount);
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        }
+        finally
+        {
+            File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_TemporaryInstallAsyncStartFailureAndCancellationTearDown()
+    {
+        bool originalLr2Body = Settings.Default.UsePlayerLR2body;
+        bool originalLr2Database = Settings.Default.OperationModeLR2DB;
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackAsyncFailure_" + Guid.NewGuid().ToString("N"));
+        string sourceDirectory = Path.Combine(root, "Source");
+        string installDirectory = Path.Combine(root, "Install");
+        string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+        string songDbPath = Path.Combine(root, "song.db");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(installDirectory);
+        File.WriteAllText(chartPath, "#TITLE test");
+        File.WriteAllBytes(songDbPath, []);
+        var firstCompletion = new TaskCompletionSource<object>();
+        var secondCompletion = new TaskCompletionSource<object>();
+        var player = new FakeBmsPlayer { PlayStartTask = firstCompletion.Task };
+        var dialogs = new FakePlaybackDialogService();
+        try
+        {
+            Settings.Default.UsePlayerLR2body = true;
+            Settings.Default.OperationModeLR2DB = true;
+            PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(
+                chartPath,
+                installDirectory,
+                songDbPath,
+                player,
+                dialogs);
+
+            panel.Start();
+            firstCompletion.SetException(new IOException("temporary install start failed"));
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => panel.NowPlayingBmsFile == null
+                    && dialogs.PlaybackFailureNotificationCount == 1,
+                3000));
+
+            player.PlayStartTask = secondCompletion.Task;
+            panel.Start();
+            secondCompletion.SetCanceled();
+            Assert.IsTrue(SpinWait.SpinUntil(() => panel.NowPlayingBmsFile == null, 3000));
+            Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
+            Assert.AreEqual(2, player.CloseProcessCount);
+        }
+        finally
+        {
+            Settings.Default.UsePlayerLR2body = originalLr2Body;
+            Settings.Default.OperationModeLR2DB = originalLr2Database;
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 
@@ -1141,12 +1575,19 @@ public sealed class PlaybackPanelViewModelTests
 
     private static PlaybackPanelViewModel CreatePanel(IBMSPlayer player)
     {
+        return CreatePanel(player, new FakePlaybackDialogService());
+    }
+
+    private static PlaybackPanelViewModel CreatePanel(
+        IBMSPlayer player,
+        FakePlaybackDialogService dialogs)
+    {
         return new PlaybackPanelViewModel(
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(new MainChartListViewModel()),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
-            new FakePlaybackDialogService(),
+            dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
     }
@@ -1305,6 +1746,10 @@ public sealed class PlaybackPanelViewModelTests
 
         public Exception? PlayStartException { get; set; }
 
+        public Task? PlayStartTask { get; set; }
+
+        public Action? BeforePlayStart { get; set; }
+
         public Action<object, EventArgs>? ExitHandler { get; private set; }
 
         public ConcurrentQueue<string> Commands { get; } = new();
@@ -1320,14 +1765,16 @@ public sealed class PlaybackPanelViewModelTests
             Commands.Enqueue("Close");
         }
 
-        public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
+        public Task PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
         {
             Commands.Enqueue("PlayStart:" + bmsFilePath);
             ExitHandler = onExitEventHandler;
+            BeforePlayStart?.Invoke();
             if (PlayStartException != null)
             {
                 throw PlayStartException;
             }
+            return PlayStartTask ?? Task.CompletedTask;
         }
 
         public void RestartPlayingBMSfile() => Commands.Enqueue("Restart");

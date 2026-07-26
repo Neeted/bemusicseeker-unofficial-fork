@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 
@@ -192,12 +193,12 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
         }
     }
 
-    public void PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
+    public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
     {
-        PlayStart(bmsFilePath, (onExitEventHandler != null) ? new EventHandler(onExitEventHandler.Invoke) : null);
+        return PlayStart(bmsFilePath, (onExitEventHandler != null) ? new EventHandler(onExitEventHandler.Invoke) : null);
     }
 
-    public void PlayStart(string bmsFilePath, EventHandler onExitEventHandler = null)
+    public Task PlayStart(string bmsFilePath, EventHandler onExitEventHandler = null)
     {
         lock (lockThis)
         {
@@ -261,6 +262,7 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
             }
             NLogWrapper.DebuggerLogger?.Trace("7 " + foregroundWindow + " " + RequireWindowHost().GetForegroundWindow());
             BMSFilePathPlaying = bmsFilePath;
+            return Task.CompletedTask;
         }
     }
 

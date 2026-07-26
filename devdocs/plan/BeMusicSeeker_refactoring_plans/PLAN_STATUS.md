@@ -2,11 +2,11 @@
 
 [terminal refactoring](./BeMusicSeekerリファクタリング計画.md) / [.NET 10 migration](./BeMusicSeeker_NET10移行計画.md) / [共通実行ルール](./00_Codex共通実行ルール.md)
 
-最終レビュー日: 2026-07-26
+最終レビュー日: 2026-07-27
 
 ## Current checkpoint
 
-- observed committed HEAD: `5658b4f386e0f66f9b90ed15ee3810caf3d78179`
+- active outcome base commit: `a78cbaea`
 - observed worktree: clean
 - Release Freeze: active
 - `git push`／tag／release／public publish: ユーザーの明示指示まで禁止
@@ -14,26 +14,26 @@
 ## Completion decision
 
 - MVVM／owner整理: **substantially complete**
-- strict Refactoring Completion Gate: **not yet met**
-- reason: `RFR-02` の observable playback-start residual
+- strict Refactoring Completion Gate: **met**
+- reason: B1/B2のproduction route、behavior tests、Full verification、Release UI smoke、fresh outcome reviewを完了した
 - .NET 10 migration readiness: architecture is sufficient to start after terminal closure; dependency／runtime／deployment migration remains
 
-最新のB1候補でFull verificationは`3357 passed / 13 skipped / 0 failed`、Roslynatorは`0 diagnostics`。B1のfresh reviewとcommit後にB2へ進む。
+Full verificationは`3370 passed / 13 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Release buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`を生成し、同じ実行ファイルでUI smokeを完了した。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
 
 ## Active outcome
 
-- active outcome: `RFR-01 Refactoring closure`
-- active execution package: `Terminal architecture residual closure`
-- execution anchor: `RFR-B2 Observable playback-start contract`
-- planner state: active batch already materialized; plannerを起動しない
+- active outcome: `NET10-01 Retarget and complete project baseline`
+- active execution package: `.NET 10 Self-contained migration`
+- execution anchor: `NET10-01 project retarget baseline`
+- planner state: planner required once
 
 ## Active implementation batch
 
 | Unit | State | Closure family | Exit |
 |---|---|---|---|
 | `B1` | completed | library file-operation composition | `BMSLibrary`保持broad port／nested adapter退役、全file mutation routeとtests維持 |
-| `B2` | active | observable playback start | non-event `async void PlayStart`退役、Task／typed resultとfailure tests |
-| `CLOSE` | pending | Refactoring Completion Gate | Full verify、Release UI smoke、fresh outcome review、Gate met、`NET10-01` active |
+| `B2` | completed | observable playback start | non-event `async void PlayStart`退役、Task contract、start failure behavior tests |
+| `CLOSE` | completed | Refactoring Completion Gate | Full verify、Release UI smoke、fresh outcome review、Gate met、`NET10-01` active |
 
 active／pending unitがある間はunit-plannerを再起動しない。各unitのstatus更新はproduction code commitへ含める。
 
@@ -48,7 +48,7 @@ active／pending unitがある間はunit-plannerを再起動しない。各unit�
 
 ### Blocking residuals
 
-1. `BeMusicSeeker/Models/InternalBMSAutoPlayerSoundOnly.cs`の`PlayStart`は非event `async void`で、`PlaybackPanelViewModel`が非同期failureを観測できない。
+- なし。Refactoring Completion Gateを満たした。
 
 ### Migration baseline
 
@@ -59,8 +59,6 @@ active／pending unitがある間はunit-plannerを再起動しない。各unit�
 - target distributionはwin-x64 Self-contained folder publish。main appはuntrimmed／non-single-file。
 
 ## Next outcome
-
-`CLOSE`完了時に次へ更新する。
 
 - active outcome: `NET10-01 Retarget and complete project baseline`
 - active execution package: `.NET 10 Self-contained migration`

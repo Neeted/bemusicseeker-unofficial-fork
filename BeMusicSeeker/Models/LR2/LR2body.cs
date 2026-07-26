@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 namespace BeMusicSeeker.Models.LR2;
@@ -170,12 +171,12 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
     }
 
-    public void PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
+    public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
     {
-        PlayStart(bmsFilePath, (onExitEventHandler != null) ? new EventHandler(onExitEventHandler.Invoke) : null);
+        return PlayStart(bmsFilePath, (onExitEventHandler != null) ? new EventHandler(onExitEventHandler.Invoke) : null);
     }
 
-    public void PlayStart(string bmsFilePath, EventHandler onExitEventHandler = null)
+    public Task PlayStart(string bmsFilePath, EventHandler onExitEventHandler = null)
     {
         lock (lockThis)
         {
@@ -248,7 +249,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 }
                 BMSFilePathPlaying = bmsFilePath;
                 restoreConfig(isTempClear: false);
-                return;
+                return Task.CompletedTask;
             }
             onExitEventHandlerDefault?.Invoke(null, null);
             throw new TimeoutException("LR2の起動がタイムアウトしました。");

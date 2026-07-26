@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -110,6 +111,41 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private ViewModelCommand changePlaysideCommand;
     private ViewModelCommand increaseHighSpeedCommand;
     private ViewModelCommand decreaseHighSpeedCommand;
+
+    private sealed class PlaybackStartObservation
+    {
+        internal PlaybackStartObservation(
+            long generation,
+            IBMSPlayer player,
+            BMSFile file,
+            Action<object, EventArgs> onExit)
+        {
+            Generation = generation;
+            Player = player;
+            File = file;
+            OnExit = onExit;
+        }
+
+        internal long Generation { get; }
+
+        internal IBMSPlayer Player { get; }
+
+        internal BMSFile File { get; }
+
+        internal Action<object, EventArgs> OnExit { get; }
+
+        internal bool StartCompleted { get; set; }
+
+        internal bool StartSucceeded { get; set; }
+
+        internal bool ExitRequested { get; set; }
+
+        internal object ExitSender { get; set; }
+
+        internal EventArgs ExitArgs { get; set; }
+
+        internal bool ExitClaimed { get; set; }
+    }
 
     internal PlaybackPanelViewModel(
         IBMSPlayer player,
@@ -654,7 +690,21 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
-    internal bool TryPlayStart(long expectedGeneration, string bmsFilePath, Action<object, EventArgs> onExitEventHandler)
+    internal Task<bool> TryPlayStart(long expectedGeneration, string bmsFilePath, Action<object, EventArgs> onExitEventHandler)
+    {
+        Task<bool> playStartTask = TryPlayStart(
+            expectedGeneration,
+            bmsFilePath,
+            onExitEventHandler,
+            out PlaybackStartObservation observation);
+        return playStartTask;
+    }
+
+    private Task<bool> TryPlayStart(
+        long expectedGeneration,
+        string bmsFilePath,
+        Action<object, EventArgs> onExitEventHandler,
+        out PlaybackStartObservation observation)
     {
         lock (sessionGate)
         {
@@ -662,32 +712,30 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             BMSFile file = NowPlayingBmsFile;
             if (file == null || expectedGeneration != playbackGeneration)
             {
-                return false;
+                observation = null;
+                return Task.FromResult(false);
             }
 
             file.status |= BMSFile.BMSFileStatus.LOADING;
             RaisePlaybackStatusPropertiesChanged();
 
-            player.PlayStart(bmsFilePath, (sender, e) =>
-            {
-                bool advanceClaimed;
-                lock (sessionGate)
-                {
-                    advanceClaimed = expectedGeneration == playbackGeneration
-                        && ReferenceEquals(player, bmsPlayer)
-                        && ReferenceEquals(file, NowPlayingBmsFile);
-                    if (advanceClaimed)
-                    {
-                        playbackGeneration++;
-                    }
-                }
-                if (advanceClaimed)
-                {
-                    onExitEventHandler?.Invoke(sender, e);
-                }
-            });
+            PlaybackStartObservation currentObservation = new PlaybackStartObservation(
+                expectedGeneration,
+                player,
+                file,
+                onExitEventHandler);
+            observation = currentObservation;
+            Task playStartTask = player.PlayStart(
+                bmsFilePath,
+                (sender, e) => HandlePlaybackExit(currentObservation, sender, e));
 
-            if (expectedGeneration == playbackGeneration
+            if (playStartTask == null)
+            {
+                throw new InvalidOperationException("The playback player returned no start task.");
+            }
+
+            if (!playStartTask.IsFaulted && !playStartTask.IsCanceled
+                && expectedGeneration == playbackGeneration
                 && ReferenceEquals(player, bmsPlayer)
                 && ReferenceEquals(file, NowPlayingBmsFile))
             {
@@ -695,7 +743,210 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 file.status |= BMSFile.BMSFileStatus.PLAY;
                 RaisePlaybackStatusPropertiesChanged();
             }
+
+            if (playStartTask.IsCompleted)
+            {
+                if (!playStartTask.IsFaulted && !playStartTask.IsCanceled)
+                {
+                    CompletePlaybackStartObservation(currentObservation, succeeded: true, failure: null);
+                }
+                return AwaitPlaybackCompletionAsync(playStartTask);
+            }
+
+            Task<bool> observedTask = ObservePlaybackStartAsync(playStartTask, currentObservation);
+            TrackPlaybackStart(observedTask);
+            return observedTask;
+        }
+    }
+
+    private static async Task<bool> AwaitPlaybackCompletionAsync(Task playStartTask)
+    {
+        await playStartTask;
+        return true;
+    }
+
+    private async Task<bool> ObservePlaybackStartAsync(
+        Task playStartTask,
+        PlaybackStartObservation observation)
+    {
+        try
+        {
+            await playStartTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            CompletePlaybackStartObservation(observation, succeeded: false, failure: null);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            CompletePlaybackStartObservation(observation, succeeded: false, failure: exception);
+            throw;
+        }
+        CompletePlaybackStartObservation(observation, succeeded: true, failure: null);
+        return true;
+    }
+
+    private static void TrackPlaybackStart(Task<bool> playStartTask)
+    {
+        ((Task)playStartTask).Logging("PlaybackPanel.PlaybackStartObservation");
+    }
+
+    private void CompletePlaybackStartObservation(
+        PlaybackStartObservation observation,
+        bool succeeded,
+        Exception failure)
+    {
+        Action<object, EventArgs> exitCallback = null;
+        object exitSender = null;
+        EventArgs exitArgs = null;
+        bool stoppedCurrentPlayback = false;
+        lock (sessionGate)
+        {
+            observation.StartCompleted = true;
+            observation.StartSucceeded = succeeded;
+            if (IsCurrentPlaybackObservation(observation))
+            {
+                if (!succeeded)
+                {
+                    StopPlayback(closeProcess: true);
+                    stoppedCurrentPlayback = true;
+                }
+                else if (observation.ExitRequested && !observation.ExitClaimed)
+                {
+                    observation.ExitClaimed = true;
+                    playbackGeneration++;
+                    exitCallback = observation.OnExit;
+                    exitSender = observation.ExitSender;
+                    exitArgs = observation.ExitArgs;
+                }
+            }
+        }
+        if (stoppedCurrentPlayback && failure != null)
+        {
+            NotifyPlaybackFailureSafely(failure);
+        }
+        if (exitCallback != null)
+        {
+            InvokePlaybackExitCallback(exitCallback, exitSender, exitArgs);
+        }
+    }
+
+    private void HandlePlaybackExit(PlaybackStartObservation observation, object sender, EventArgs e)
+    {
+        Action<object, EventArgs> exitCallback = null;
+        lock (sessionGate)
+        {
+            if (!IsCurrentPlaybackObservation(observation))
+            {
+                return;
+            }
+
+            if (!observation.StartCompleted)
+            {
+                observation.ExitRequested = true;
+                observation.ExitSender = sender;
+                observation.ExitArgs = e;
+                return;
+            }
+
+            if (!observation.StartSucceeded || observation.ExitClaimed)
+            {
+                return;
+            }
+
+            observation.ExitClaimed = true;
+            playbackGeneration++;
+            exitCallback = observation.OnExit;
+        }
+        if (exitCallback != null)
+        {
+            InvokePlaybackExitCallback(exitCallback, sender, e);
+        }
+    }
+
+    private bool IsCurrentPlaybackObservation(PlaybackStartObservation observation)
+    {
+        return observation != null
+            && observation.Generation == playbackGeneration
+            && ReferenceEquals(observation.Player, bmsPlayer)
+            && ReferenceEquals(observation.File, NowPlayingBmsFile);
+    }
+
+    private void InvokePlaybackExitCallback(
+        Action<object, EventArgs> exitCallback,
+        object sender,
+        EventArgs e)
+    {
+        try
+        {
+            exitCallback(sender, e);
+        }
+        catch (Exception exception)
+        {
+            Task.FromException(exception).Logging("PlaybackPanel.PlaybackExit");
+        }
+    }
+
+    private void StopAfterPlaybackStartFailure(
+        PlaybackStartObservation observation,
+        Exception failure,
+        bool propagateNotificationFailure)
+    {
+        if (!TryStopPlaybackForStartObservation(observation))
+        {
+            return;
+        }
+        NotifyPlaybackFailureSafely(failure, propagateNotificationFailure);
+    }
+
+    private bool TryStopPlaybackForStartObservation(PlaybackStartObservation observation)
+    {
+        lock (sessionGate)
+        {
+            if (observation != null && !IsCurrentPlaybackObservation(observation))
+            {
+                return false;
+            }
+            StopPlayback(closeProcess: true);
             return true;
+        }
+    }
+
+    private bool TryStopPlaybackForGeneration(long generation, BMSFile file)
+    {
+        lock (sessionGate)
+        {
+            if (generation != playbackGeneration || !ReferenceEquals(file, NowPlayingBmsFile))
+            {
+                return false;
+            }
+            StopPlayback(closeProcess: true);
+            return true;
+        }
+    }
+
+    private void NotifyPlaybackFailureSafely(Exception failure, bool propagateNotificationFailure = false)
+    {
+        try
+        {
+            playbackDialogs.NotifyPlaybackFailure(failure);
+        }
+        catch (Exception notificationFailure)
+        {
+            Task.FromException(notificationFailure).Logging("PlaybackPanel.PlaybackFailureNotification");
+            if (propagateNotificationFailure)
+            {
+                throw;
+            }
+        }
+    }
+
+    private bool IsPlaybackStartObservationCompleted(PlaybackStartObservation observation)
+    {
+        lock (sessionGate)
+        {
+            return observation?.StartCompleted == true;
         }
     }
 
@@ -939,37 +1190,56 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             catch
             {
-                StopPlayback(closeProcess: true);
+                TryStopPlaybackForGeneration(generation, bmsFile);
                 throw;
             }
             return;
         }
 
+        PlaybackStartObservation observation = null;
         try
         {
-            if (!TryPlayStart(generation, bmsFile.path, Next))
+            Task<bool> playStartTask = TryPlayStart(
+                generation,
+                bmsFile.path,
+                Next,
+                out observation);
+            if (playStartTask.IsCompleted && !playStartTask.GetAwaiter().GetResult())
             {
                 return;
             }
         }
+        catch (OperationCanceledException)
+        {
+            if (!IsPlaybackStartObservationCompleted(observation))
+            {
+                TryStopPlaybackForStartObservation(observation);
+            }
+            return;
+        }
         catch (InvalidDataException value)
         {
+            if (IsPlaybackStartObservationCompleted(observation)
+                || (observation != null && !IsCurrentPlaybackObservation(observation)))
+            {
+                return;
+            }
             warnInvalidChart(value);
             if (playbackSettings.RepeatPlay && (playbackSettings.SinglePlay || index == 0))
             {
-                StopPlayback();
+                TryStopPlaybackForStartObservation(observation);
                 return;
             }
             remainingCandidates--;
             if (remainingCandidates <= 0)
             {
-                StopPlayback();
+                TryStopPlaybackForStartObservation(observation);
                 return;
             }
             int nextIndex = FindNextPlaybackIndex();
             if (nextIndex < 0 || nextIndex >= playbackQueue.Count)
             {
-                StopPlayback();
+                TryStopPlaybackForStartObservation(observation);
                 return;
             }
             index = nextIndex;
@@ -977,8 +1247,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         catch (Exception ex)
         {
-            playbackDialogs.NotifyPlaybackFailure(ex);
-            StopPlayback();
+            if (IsPlaybackStartObservationCompleted(observation))
+            {
+                return;
+            }
+            StopAfterPlaybackStartFailure(
+                observation,
+                ex,
+                propagateNotificationFailure: true);
             return;
         }
         NotifyPlaybackStarted(generation);
@@ -1003,7 +1279,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 && playbackSettings.UsesLr2Database
                 && !playbackDialogs.ConfirmTemporaryInstallPlayback())
             {
-                StopPlayback(closeProcess: true);
+                TryStopPlaybackForGeneration(generation, bmsFile);
                 return;
             }
             chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
@@ -1011,7 +1287,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
 
         string originalPath = bmsFile.path;
-        bool playbackStartAccepted = true;
+        Task<bool> playbackStartTask = null;
+        PlaybackStartObservation playbackStartObservation = null;
         try
         {
             while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))))
@@ -1048,12 +1325,34 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     string playbackPath = Path.Combine(installDestination, Path.GetFileName(bmsFile.path));
                     try
                     {
-                        playbackStartAccepted = TryPlayStart(generation, playbackPath, Next);
+                        playbackStartTask = TryPlayStart(
+                            generation,
+                            playbackPath,
+                            Next,
+                            out playbackStartObservation);
+                        if (playbackStartTask.IsCompleted
+                            && !playbackStartTask.GetAwaiter().GetResult())
+                        {
+                            return;
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        if (!IsPlaybackStartObservationCompleted(playbackStartObservation))
+                        {
+                            TryStopPlaybackForStartObservation(playbackStartObservation);
+                        }
+                        return;
                     }
                     catch (Exception ex)
                     {
-                        playbackDialogs.NotifyPlaybackFailure(ex);
-                        StopPlayback();
+                        if (!IsPlaybackStartObservationCompleted(playbackStartObservation))
+                        {
+                            StopAfterPlaybackStartFailure(
+                                playbackStartObservation,
+                                ex,
+                                propagateNotificationFailure: true);
+                        }
                         return;
                     }
                 }
@@ -1070,7 +1369,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 bmsFile.path = originalPath;
             }
         }
-        if (playbackStartAccepted)
+        if (playbackStartTask != null)
         {
             NotifyPlaybackStarted(generation);
         }

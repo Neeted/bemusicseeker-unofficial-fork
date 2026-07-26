@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models;
@@ -44,7 +45,7 @@ internal interface IBMSPlayer : INotifyPropertyChanged
 
     void CloseProcess();
 
-    void PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null);
+    Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null);
 
     void RestartPlayingBMSfile();
 

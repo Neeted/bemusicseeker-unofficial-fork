@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 
@@ -361,7 +362,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
     }
 
-    public void PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
+    public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
     {
         if (!File.Exists(bmsFilePath))
         {
@@ -383,6 +384,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             waitForLoading(bmsFilePath);
             setParent();
         }
+        return Task.CompletedTask;
     }
 
     private static void ThrowStartupFailed()

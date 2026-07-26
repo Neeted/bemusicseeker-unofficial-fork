@@ -496,7 +496,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             onClose?.Invoke();
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurrentTime)));
         }
-        public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null) { }
+        public Task PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null) => Task.CompletedTask;
         public void RestartPlayingBMSfile() { }
         public void PausePlayingBMSfileToggle() { }
         public void FastForwardPlayingBMSfileStart() { }

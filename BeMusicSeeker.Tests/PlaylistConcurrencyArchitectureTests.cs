@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -939,6 +940,14 @@ public sealed class PlaylistConcurrencyArchitectureTests
             StringAssert.Contains(source, "IPlayerSettingsGateway");
             Assert.IsFalse(source.Contains("Settings.Default"));
         }
+    }
+
+    [TestMethod]
+    public void PlaybackStartContractReturnsAnObservableTask()
+    {
+        Assert.AreEqual(
+            typeof(Task),
+            typeof(IBMSPlayer).GetMethod(nameof(IBMSPlayer.PlayStart))!.ReturnType);
     }
 
     [TestMethod]

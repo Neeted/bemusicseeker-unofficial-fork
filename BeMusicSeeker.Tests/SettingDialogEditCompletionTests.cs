@@ -1960,8 +1960,9 @@ public sealed class SettingDialogEditCompletionTests
         {
         }
 
-        public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
+        public Task PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
         {
+            return Task.CompletedTask;
         }
 
         public void RestartPlayingBMSfile()

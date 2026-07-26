@@ -4031,9 +4031,10 @@ public sealed class ChartListVirtualViewTests
         {
         }
 
-        public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
+        public Task PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
         {
             LastPlayedPath = bmsFilePath;
+            return Task.CompletedTask;
         }
 
         public void RestartPlayingBMSfile()

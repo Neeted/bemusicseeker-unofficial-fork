@@ -440,8 +440,18 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
 
     public void CloseProcess()
     {
+        CloseProcessCore(expectedPlayer: null);
+    }
+
+    private void CloseProcessCore(BMSAutoPlayer expectedPlayer)
+    {
         lock (_sharedObjectLock)
         {
+            if (expectedPlayer != null && !ReferenceEquals(_player, expectedPlayer))
+            {
+                return;
+            }
+
             Duration = TimeSpan.MinValue;
             CurrentTime = TimeSpan.MinValue;
             StopTime = _player?.StopTime ?? TimeSpan.Zero;
@@ -462,8 +472,8 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             _player = null;
             _fastForwarding = false;
             _fastBackwarding = false;
+            audioPlaybackRuntime.Free();
         }
-        audioPlaybackRuntime.Free();
     }
 
     public void DecreaseHighSpeed()
@@ -526,12 +536,13 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         }
     }
 
-    public async void PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
+    public async Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
     {
         if (!LongPathFileSystem.FileExists(bmsFilePath))
         {
             throw new FileNotFoundException("BMS ファイルが見つかりません。", bmsFilePath);
         }
+        BMSAutoPlayer bMSAutoPlayer;
         lock (_sharedObjectLock)
         {
             PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
@@ -549,7 +560,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             MusicDuration = TimeSpan.MinValue;
             BmsDuration = TimeSpan.MinValue;
             _player?.Stop();
-            var bMSAutoPlayer = new BMSAutoPlayer(new Ribbit.BMS.BMSFile(bmsFilePath));
+            bMSAutoPlayer = new BMSAutoPlayer(new Ribbit.BMS.BMSFile(bmsFilePath));
             bMSAutoPlayer.LoadResources();
             _player?.Dispose();
             _player = bMSAutoPlayer;
@@ -583,10 +594,17 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         }
         try
         {
-            await (_player?.Start());
+            await bMSAutoPlayer.Start();
         }
         catch (OperationCanceledException)
         {
+            CloseProcessCore(bMSAutoPlayer);
+            throw;
+        }
+        catch
+        {
+            CloseProcessCore(bMSAutoPlayer);
+            throw;
         }
     }
 
