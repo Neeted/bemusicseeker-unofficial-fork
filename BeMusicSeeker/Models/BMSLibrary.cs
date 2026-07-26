@@ -2305,6 +2305,8 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly BmsLibraryLibraryFileOperationsService libraryFileOperationsService = new();
 
+    private readonly LibraryFileOperationSynchronization libraryFileOperationSynchronization;
+
     private readonly LibraryFileOperationOwner libraryFileOperationOwner;
 
     private readonly BmsLibraryIrService irService = new();
@@ -2495,7 +2497,14 @@ public partial class BMSLibrary : ObservableObject
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new(this.dialogService);
-        libraryFileOperationOwner = new(this);
+        libraryFileOperationSynchronization = new(
+            new LibraryFileOperationMutationBoundary(this),
+            rwlockBMSFilesInitializedAll,
+            rwlockBMSFilesInitializedMin,
+            rwlockPendingInstallCharts,
+            rwlockBMSFiles,
+            rwlockSongDBInstall);
+        libraryFileOperationOwner = new(new LibraryFileOperationPort(this));
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
         catalogChartInfoOwner = new(
             RaisePropertyChanged,
@@ -10246,21 +10255,20 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
+
         List<Tuple<int, int, string>> deferredProgressReports = [];
         Action<int, int, string> deferredProgressReporter = progressReporter == null
             ? null
             : (total, processed, currentPath) => deferredProgressReports.Add(Tuple.Create(total, processed, currentPath));
         try
         {
-            libraryFileOperationOwner.RunWithFolderMoveWriteLocks(() =>
-            {
-                List<ChartFile> selectedCharts = [.. chartFiles.Where(chart => chart != null)];
-                List<FolderAutoRenamePlan> plans = libraryFileOperationOwner.BuildAutoRenamePlans(
-                    selectedCharts,
-                    getBMSDirectories(),
-                    renameRootFolder);
-                libraryFileOperationOwner.ApplyAutoRenamePlans(plans, deferredProgressReporter);
-            });
+            libraryFileOperationOwner.RunWithFolderMoveWriteLocks(
+                () => libraryFileOperationOwner.ApplyAutoRenamePlans(
+                    libraryFileOperationOwner.BuildAutoRenamePlans(
+                        chartFiles.Where(chart => chart != null),
+                        getBMSDirectories(),
+                        renameRootFolder),
+                    deferredProgressReporter));
         }
         finally
         {

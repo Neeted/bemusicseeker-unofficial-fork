@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal static class LibraryFolderMoveCoordinator
 {
     internal static void RenameChartFolder(
-        BMSLibrary.LibraryFileOperationOwner host,
+        LibraryFileOperationOwner host,
         string srcDir,
         string newName,
         bool? unregister,
@@ -55,7 +55,7 @@ internal static class LibraryFolderMoveCoordinator
     }
 
     internal static void MoveLibraryChartFolder(
-        BMSLibrary.LibraryFileOperationOwner host,
+        LibraryFileOperationOwner host,
         string srcDir,
         string dstDir,
         bool? unregister,
@@ -78,7 +78,7 @@ internal static class LibraryFolderMoveCoordinator
     }
 
     internal static void MoveLibraryRootFolder(
-        BMSLibrary.LibraryFileOperationOwner host,
+        LibraryFileOperationOwner host,
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
         bool? unregister)
@@ -98,9 +98,12 @@ internal static class LibraryFolderMoveCoordinator
                 host.ShowMoveDestinationRootNotFound(dstDir);
                 return;
             }
-            List<LibraryChartRef> chartList = host.CreateNonNullChartRefList(charts);
-            List<FolderAutoRenamePlan> plans = host.BuildRootFolderMovePlans(chartList, dstDir);
-            if (ContainsDriveRootSource(chartList))
+            List<LibraryChartRef> chartRefs = host.CreateNonNullChartRefList(charts);
+            List<ChartFile> chartSnapshots = [.. chartRefs
+                .Select(chart => chart?.ToChartFile())
+                .Where(chart => chart != null)];
+            List<FolderAutoRenamePlan> plans = host.BuildRootFolderMovePlans(chartSnapshots, dstDir);
+            if (ContainsDriveRootSource(chartRefs))
             {
                 host.ShowDriveRootCannotChangeRoot();
             }
@@ -124,7 +127,7 @@ internal static class LibraryFolderMoveCoordinator
             .Any(f => !string.IsNullOrWhiteSpace(f) && Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool TryMoveLibraryChartFolder(BMSLibrary.LibraryFileOperationOwner host, string srcDir, string dstDir)
+    private static bool TryMoveLibraryChartFolder(LibraryFileOperationOwner host, string srcDir, string dstDir)
     {
         if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {

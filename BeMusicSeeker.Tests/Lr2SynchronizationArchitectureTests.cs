@@ -26,6 +26,54 @@ public sealed class Lr2SynchronizationArchitectureTests
     }
 
     [TestMethod]
+    public void LibraryFileOperationOwnerUsesExplicitCompositionPort()
+    {
+        Type ownerType = typeof(LibraryFileOperationOwner);
+        Assert.IsNull(typeof(BMSLibrary).GetNestedType(
+            nameof(LibraryFileOperationOwner),
+            BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
+        Assert.IsNotNull(ownerType.GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            [typeof(ILibraryFileOperationPort)],
+            modifiers: null));
+        Assert.IsFalse(ownerType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Any(field => field.FieldType == typeof(BMSLibrary)));
+
+        string ownerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Models",
+            "BMSLibrary.LibraryFileOperationOwner.cs");
+        Assert.IsFalse(ownerSource.Contains("private readonly BMSLibrary owner"));
+        StringAssert.Contains(ownerSource, "ILibraryFileOperationPort");
+
+        Type portType = typeof(ILibraryFileOperationPort);
+        Assert.IsFalse(portType.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Any(property => property.PropertyType == typeof(BmsLibraryLibraryFileOperationsService)
+                || property.PropertyType == typeof(BmsLibraryPackageInstallService)
+                || property.PropertyType == typeof(PackageLifecycleOwner)
+                || property.PropertyType == typeof(InstallDestinationStateOwner)
+                || property.PropertyType == typeof(DirectoryResourceLookupCache)));
+        Assert.IsFalse(portType.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Any(property => property.Name.IndexOf("Lock", StringComparison.OrdinalIgnoreCase) >= 0));
+        foreach (MethodInfo method in portType.GetMethods())
+        {
+            Assert.IsFalse(ContainsType(method.ReturnType, typeof(ChartPackage)), method.Name);
+            Assert.IsFalse(ContainsType(method.ReturnType, typeof(BMSFile)), method.Name);
+            Assert.IsFalse(
+                method.GetParameters().Any(parameter => ContainsType(parameter.ParameterType, typeof(ChartPackage))
+                    || ContainsType(parameter.ParameterType, typeof(BMSFile))),
+                method.Name);
+        }
+
+        string portSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Models",
+            "BMSLibrary.LibraryFileOperationPort.cs");
+        Assert.IsFalse(portSource.Contains("CreateLibraryFileOperationPortForDiagnostics"));
+    }
+
+    [TestMethod]
     public void SynchronizationPortsHaveNoFacadeDependency()
     {
         foreach (MethodInfo method in typeof(ILr2SynchronizationDataPort).GetMethods())

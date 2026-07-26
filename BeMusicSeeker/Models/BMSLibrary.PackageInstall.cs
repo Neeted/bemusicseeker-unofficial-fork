@@ -194,21 +194,6 @@ public partial class BMSLibrary
         }
     }
 
-    private static string GetDisplayedExceptionMessage(Exception exception)
-    {
-        if (exception is AggregateException aggregateException)
-        {
-            return string.Join(Environment.NewLine, aggregateException.Flatten().InnerExceptions.Select(GetDisplayedExceptionMessage));
-        }
-
-        if (exception is FileMutationException fileMutationException)
-        {
-            return fileMutationException.InnerException?.Message ?? fileMutationException.Message;
-        }
-
-        return exception?.Message ?? string.Empty;
-    }
-
     private static bool HasRemainingDirectoryEntries(string directoryPath)
     {
         try

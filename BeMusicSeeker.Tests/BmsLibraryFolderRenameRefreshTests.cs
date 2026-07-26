@@ -285,7 +285,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             string firstDirectoryPath = Path.Combine(libraryRootPath, "FirstSource");
             string firstExistingDestinationPath = Path.Combine(libraryRootPath, "FirstExisting");
             string secondDirectoryPath = Path.Combine(libraryRootPath, "SecondSource");
-            string secondDestinationPath = Path.Combine(libraryRootPath, "SecondRenamed");
+            string secondDestinationPath = Path.Combine(libraryRootPath, "[Second Artist] Second Renamed");
             string firstChartPath = Path.Combine(firstDirectoryPath, "first.bms");
             string secondChartPath = Path.Combine(secondDirectoryPath, "second.bms");
             Directory.CreateDirectory(firstDirectoryPath);
@@ -295,7 +295,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(secondChartPath, "#PLAYER 1");
             try
             {
-                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                var fileMutationService = new TestFileMutationService
+                {
+                    MoveDirectoryFailureSourcePath = firstDirectoryPath
+                };
+                var library = new TestBmsLibrary(songDbPath, null, null, fileMutationService, new RecordingDialogService())
                 {
                     SearchTargets = [libraryRootPath]
                 };
@@ -304,11 +308,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     path = firstChartPath
                 };
                 firstFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                firstFile.SetTitle("First Existing");
+                firstFile.SetArtist("First Artist");
                 var secondFile = new TestableBmsFile
                 {
                     path = secondChartPath
                 };
                 secondFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+                secondFile.SetTitle("Second Renamed");
+                secondFile.SetArtist("Second Artist");
                 SetLibraryFilesWithoutNotification(library, [firstFile, secondFile]);
                 int refreshCount = 0;
                 library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -320,22 +328,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
-                bool result = InvokeApplyAutoRenamePlans(library,
-                [
-                    new FolderAutoRenamePlan
-                    {
-                        SourceDirectory = firstDirectoryPath,
-                        DestinationDirectory = firstExistingDestinationPath
-                    },
-                    new FolderAutoRenamePlan
-                    {
-                        SourceDirectory = secondDirectoryPath,
-                        DestinationDirectory = secondDestinationPath
-                    }
+                library.AutoRenameChartFolders([
+                    ChartFileProjection.FromBmsFile(firstFile),
+                    ChartFileProjection.FromBmsFile(secondFile)
                 ]);
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
-                Assert.IsTrue(result);
                 Assert.AreEqual(1, Volatile.Read(ref refreshCount));
                 Assert.IsFalse(batch.NotifiesStorageRows);
                 Assert.AreEqual(firstChartPath, firstFile.path);
@@ -1867,12 +1865,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         library.ApplyLibraryMutationDelta(delta);
     }
 
-    private static bool InvokeApplyAutoRenamePlans(BMSLibrary library, IEnumerable<FolderAutoRenamePlan> plans)
-    {
-        var coordinator = new AutoRenameBatchCoordinator(new BMSLibrary.LibraryFileOperationOwner(library));
-        return coordinator.Apply(plans);
-    }
-
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets)
     {
         library.ApplyInstalledChartStorageTargets(targets, "install_package");
@@ -2006,6 +1998,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
     private sealed class TestFileMutationService : IFileMutationService
     {
+        public string? MoveDirectoryFailureSourcePath { get; set; }
+
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -2030,6 +2024,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
+            if (!string.IsNullOrWhiteSpace(MoveDirectoryFailureSourcePath)
+                && string.Equals(sourcePath, MoveDirectoryFailureSourcePath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("Synthetic directory move failure for batch behavior test.");
+            }
             if (overwrite && Directory.Exists(destinationPath))
             {
                 Directory.Delete(destinationPath, recursive: true);

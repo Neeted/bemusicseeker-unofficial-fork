@@ -122,7 +122,6 @@ public sealed class BmsLibraryMutationBoundaryTests
         string pendingZeroNoteRenameMethod = ExtractMethodBody(librarySource, "internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(");
         string pendingSourceDeleteMethod = ExtractMethodBody(librarySource, "public void DeletePendingPackageSources(");
         string autoRenameMethod = ExtractMethodBody(librarySource, "internal void AutoRenameChartFolders(");
-        string autoRenameAllMethod = ExtractMethodBody(librarySource, "internal bool AutoRenameAllChartFolders(");
         string dialogEnqueueMethod = ExtractMethodBody(librarySource, "internal void Enqueue(OperationDialogMessage message)");
 
         StringAssert.Contains(source, "internal ChartMutationActivityOwner ChartMutationActivity");
@@ -191,10 +190,12 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(pendingZeroNoteRenameMethod, "deferredProcessedCount");
         StringAssert.Contains(pendingSourceDeleteMethod, "DeletePendingPackageSources");
         StringAssert.Contains(pendingSourceDeleteMethod, "deferredProcessedCount");
+        StringAssert.Contains(autoRenameMethod, "ApplyAutoRenamePlans(");
         StringAssert.Contains(autoRenameMethod, "deferredProgressReporter");
         StringAssert.Contains(autoRenameMethod, "FlushAutoRenameProgressReports");
-        StringAssert.Contains(autoRenameAllMethod, "deferredProgressReporter");
-        StringAssert.Contains(autoRenameAllMethod, "FlushAutoRenameProgressReports");
+        StringAssert.Contains(librarySource, "internal bool AutoRenameAllChartFolders(");
+        StringAssert.Contains(librarySource, "deferredProgressReporter");
+        StringAssert.Contains(librarySource, "FlushAutoRenameProgressReports");
         Assert.IsNotNull(dialogEnqueueMethod);
     }
 
