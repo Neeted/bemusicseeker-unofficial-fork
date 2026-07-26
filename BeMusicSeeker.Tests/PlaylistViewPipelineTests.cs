@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -340,7 +341,7 @@ public sealed class PlaylistViewPipelineTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -398,7 +399,7 @@ public sealed class PlaylistViewPipelineTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -452,7 +453,7 @@ public sealed class PlaylistViewPipelineTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -526,7 +527,7 @@ public sealed class PlaylistViewPipelineTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -2725,7 +2726,7 @@ public sealed class PlaylistViewPipelineTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -2793,7 +2794,7 @@ public sealed class PlaylistViewPipelineTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,

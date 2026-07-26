@@ -1,20 +1,20 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading;
 using BeMusicSeeker.Models;
-using Livet;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private readonly DispatcherCollection<BMSTable> emptyPlaylistTreeTables;
+    private readonly ObservableCollection<BMSTable> emptyPlaylistTreeTables;
 
-    private DispatcherCollection<BMSTable> playlistTreeTables;
+    private ObservableCollection<BMSTable> playlistTreeTables;
 
     private BMSPlaylist playlistTreeStore;
 
-    private DispatcherCollection<BMSTable> observedPlaylistTreeTables;
+    private ObservableCollection<BMSTable> observedPlaylistTreeTables;
 
     private long playlistTreeNotificationGeneration;
 
@@ -52,7 +52,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>
     /// プレイリストツリーが表示するテーブル source です。起動前は注入された空のコレクションを返し、起動後は <see cref="BMSPlaylist.BMSTables" /> と同じコレクション identity、順序、階層を保持します。
     /// </summary>
-    public DispatcherCollection<BMSTable> PlaylistTreeTables => playlistTreeTables;
+    public ObservableCollection<BMSTable> PlaylistTreeTables => playlistTreeTables;
 
     /// <summary>
     /// Captures the playlist tree source while holding the playlist reader lock.
@@ -147,7 +147,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     private PlaylistHydrationCompletionReceipt AttachObservedPlaylistTreeTables(
-        DispatcherCollection<BMSTable> nextTables)
+        ObservableCollection<BMSTable> nextTables)
     {
         if (ReferenceEquals(observedPlaylistTreeTables, nextTables))
         {
@@ -182,7 +182,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void ApplyPlaylistTreeTablesSource(bool raiseWhenUnchanged = false)
     {
-        DispatcherCollection<BMSTable> nextTables;
+        ObservableCollection<BMSTable> nextTables;
         bool changed;
         PlaylistHydrationCompletionReceipt receiptToInvalidate;
         lock (playlistTreeStoreSyncRoot)

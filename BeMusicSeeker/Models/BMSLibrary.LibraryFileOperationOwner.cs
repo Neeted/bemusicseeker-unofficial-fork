@@ -62,6 +62,7 @@ public partial class BMSLibrary
             {
                 return;
             }
+            using IDisposable collectionMutationScope = owner.packageLifecycleOwner.BeginCollectionMutationScope();
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             using (owner.rwlockPendingInstallCharts.GetWriterGuard())
             using (owner.rwlockBMSFiles.GetWriterGuard())
@@ -89,6 +90,7 @@ public partial class BMSLibrary
             {
                 return;
             }
+            using IDisposable collectionMutationScope = owner.packageLifecycleOwner.BeginCollectionMutationScope();
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             using (owner.rwlockBMSFiles.GetWriterGuard())
             {
@@ -98,6 +100,7 @@ public partial class BMSLibrary
 
         internal void RunWithPendingInvalidExtensionRenameWriteLocks(Action action)
         {
+            using IDisposable collectionMutationScope = owner.packageLifecycleOwner.BeginCollectionMutationScope();
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             using (owner.rwlockPendingInstallCharts.GetWriterGuard())
             using (owner.rwlockSongDBInstall.GetWriterGuard())
@@ -116,6 +119,7 @@ public partial class BMSLibrary
             {
                 return;
             }
+            using IDisposable collectionMutationScope = owner.packageLifecycleOwner.BeginCollectionMutationScope();
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             using (owner.rwlockPendingInstallCharts.GetWriterGuard())
             using (owner.rwlockBMSFiles.GetWriterGuard())
@@ -461,6 +465,7 @@ public partial class BMSLibrary
             {
                 throw new ArgumentNullException(nameof(charts));
             }
+            using IDisposable collectionMutationScope = owner.packageLifecycleOwner.BeginCollectionMutationScope();
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             using (owner.rwlockPendingInstallCharts.GetWriterGuard())
             using (owner.rwlockSongDBInstall.GetWriterGuard())
@@ -517,6 +522,7 @@ public partial class BMSLibrary
             {
                 return;
             }
+            using IDisposable collectionMutationScope = owner.packageLifecycleOwner.BeginCollectionMutationScope();
             using (owner.rwlockBMSFilesInitializedAll.GetReaderGuard())
             using (owner.rwlockPendingInstallCharts.GetWriterGuard())
             using (owner.rwlockBMSFiles.GetWriterGuard())

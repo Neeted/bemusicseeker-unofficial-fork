@@ -54,9 +54,7 @@ public sealed class ApplicationCompositionTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new TestBmsPlaylist(songDbPath)
             {
-                BMSTables = new DispatcherCollection<BMSTable>(
-                    new ObservableCollection<BMSTable>(),
-                    Dispatcher.CurrentDispatcher)
+                BMSTables = new ObservableCollection<BMSTable>()
             };
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
@@ -79,7 +77,7 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 () => null!,
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                new ObservableCollection<BMSTable>(),
                 (_, _) => false,
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,
@@ -110,7 +108,7 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 () => null!,
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                new ObservableCollection<BMSTable>(),
                 (_, _) => false,
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,
@@ -406,8 +404,7 @@ public sealed class ApplicationCompositionTests
             _ =>
             {
             });
-        var emptyPlaylistTreeSource = new Livet.DispatcherCollection<BMSTable>(
-            System.Windows.Threading.Dispatcher.CurrentDispatcher);
+        var emptyPlaylistTreeSource = new ObservableCollection<BMSTable>();
 
         PlaylistWorkspaceViewModel playlistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
             action => action(),
@@ -480,7 +477,7 @@ public sealed class ApplicationCompositionTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -600,9 +597,7 @@ public sealed class ApplicationCompositionTests
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
             var playlist = new TestBmsPlaylist(songDbPath)
             {
-                BMSTables = new DispatcherCollection<BMSTable>(
-                    new ObservableCollection<BMSTable>([first, second]),
-                    Dispatcher.CurrentDispatcher)
+                BMSTables = new ObservableCollection<BMSTable>([first, second])
             };
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
@@ -625,7 +620,7 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 () => null!,
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                new ObservableCollection<BMSTable>(),
                 (_, _) => false,
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,
@@ -735,9 +730,7 @@ public sealed class ApplicationCompositionTests
             var third = new BMSTable { playlist_id = 3, name = "Third", symbol = "T", bmt_sort = 3 };
             var playlist = new TestBmsPlaylist(songDbPath)
             {
-                BMSTables = new DispatcherCollection<BMSTable>(
-                    new ObservableCollection<BMSTable>([first, second, third]),
-                    Dispatcher.CurrentDispatcher)
+                BMSTables = new ObservableCollection<BMSTable>([first, second, third])
             };
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
@@ -761,7 +754,7 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 () => null!,
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                new ObservableCollection<BMSTable>(),
                 (_, _) => false,
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,
@@ -946,9 +939,7 @@ public sealed class ApplicationCompositionTests
                 },
                 () => new CustomFolderOutputSettingsSnapshot())
             {
-                BMSTables = new DispatcherCollection<BMSTable>(
-                    new ObservableCollection<BMSTable>([first, second, third]),
-                    Dispatcher.CurrentDispatcher)
+                BMSTables = new ObservableCollection<BMSTable>([first, second, third])
             };
             playlist.CommitBMSTableHeadersToDB([first, second, third]);
             var workspace = new PlaylistWorkspaceViewModel(
@@ -977,7 +968,7 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 () => null!,
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                new ObservableCollection<BMSTable>(),
                 (_, _) => false,
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,

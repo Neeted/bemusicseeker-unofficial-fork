@@ -1,6 +1,7 @@
 #nullable disable
 
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -79,17 +80,10 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     private static Func<CustomFolderOutputSettingsSnapshot> CurrentCustomFolderOptions =>
         () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default);
 
-    internal new Livet.DispatcherCollection<BMSTable> BMSTables
+    internal new ObservableCollection<BMSTable> BMSTables
     {
         get => base.BMSTables;
-        set
-        {
-            if (value != null && !ReferenceEquals(value.Dispatcher, TestUiDispatcherHost.Dispatcher))
-            {
-                value.Dispatcher = TestUiDispatcherHost.Dispatcher;
-            }
-            base.BMSTables = value;
-        }
+        set => base.BMSTables = value;
     }
 
     internal TestBmsPlaylist(

@@ -321,6 +321,7 @@ public partial class BMSLibrary
             {
                 return;
             }
+            using IDisposable collectionMutationScope = owner.packageLifecycleOwner.BeginCollectionMutationScope();
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             {
                 BMSLibrary.LogInstallPerformance("duplicate_merge_model initialized_lock_acquired op=" + operationId + " waitMs=" + initializedLockWaitStopwatch.ElapsedMilliseconds);

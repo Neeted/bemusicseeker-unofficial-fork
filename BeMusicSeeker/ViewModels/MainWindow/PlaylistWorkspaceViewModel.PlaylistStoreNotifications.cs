@@ -1,10 +1,10 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using Livet;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -21,7 +21,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     private void PlaylistTreeStorePropertyChangedCore(object sender, PropertyChangedEventArgs e)
     {
         BMSPlaylist sourceStore;
-        DispatcherCollection<BMSTable> sourceTables;
+        ObservableCollection<BMSTable> sourceTables;
         long generation;
         int hydrationVersion;
         PlaylistHydrationCompletionReceipt hydrationReceipt = null;
@@ -142,7 +142,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private PlaylistEntriesHydrationVersionChangedEventArgs CompletePlaylistHydrationRequestPublication(
         BMSPlaylist sourceStore,
-        DispatcherCollection<BMSTable> sourceTables,
+        ObservableCollection<BMSTable> sourceTables,
         long generation,
         PlaylistHydrationCompletionReceipt requestReceipt)
     {
@@ -185,7 +185,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     private void PlaylistTreeTablesCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
     {
         BMSPlaylist sourceStore;
-        DispatcherCollection<BMSTable> sourceTables;
+        ObservableCollection<BMSTable> sourceTables;
         long generation;
         lock (playlistTreeStoreSyncRoot)
         {
@@ -234,7 +234,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private bool IsCurrentPlaylistTreeNotification(
         BMSPlaylist sourceStore,
-        DispatcherCollection<BMSTable> sourceTables,
+        ObservableCollection<BMSTable> sourceTables,
         long generation)
     {
         lock (playlistTreeStoreSyncRoot)
@@ -247,7 +247,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal bool IsCurrentPlaylistTreeNotificationSnapshot(
         BMSPlaylist sourceStore,
-        DispatcherCollection<BMSTable> sourceTables,
+        ObservableCollection<BMSTable> sourceTables,
         long generation)
     {
         return IsCurrentPlaylistTreeNotification(sourceStore, sourceTables, generation);
@@ -255,7 +255,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal bool TryBeginPlaylistHydrationNotification(
         BMSPlaylist sourceStore,
-        DispatcherCollection<BMSTable> sourceTables,
+        ObservableCollection<BMSTable> sourceTables,
         long generation,
         PlaylistHydrationCompletionReceipt receipt)
     {
@@ -275,7 +275,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal bool ExecuteCurrentPlaylistHydrationNotification(
         BMSPlaylist sourceStore,
-        DispatcherCollection<BMSTable> sourceTables,
+        ObservableCollection<BMSTable> sourceTables,
         long generation,
         PlaylistHydrationCompletionReceipt receipt,
         Action action)
@@ -343,7 +343,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     private void RequestPlaylistEntriesHydrationCompleted(
         int version,
         BMSPlaylist sourceStore,
-        DispatcherCollection<BMSTable> sourceTables,
+        ObservableCollection<BMSTable> sourceTables,
         long generation,
         PlaylistHydrationCompletionReceipt receipt)
     {
@@ -363,7 +363,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal bool PublishPlaylistEntriesHydrationCompleted(
         int version,
         BMSPlaylist sourceStore = null,
-        DispatcherCollection<BMSTable> sourceTables = null,
+        ObservableCollection<BMSTable> sourceTables = null,
         long generation = 0L,
         PlaylistHydrationCompletionReceipt receipt = null)
     {
@@ -395,7 +395,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         int version,
         bool deferred,
         BMSPlaylist sourceStore = null,
-        DispatcherCollection<BMSTable> sourceTables = null,
+        ObservableCollection<BMSTable> sourceTables = null,
         long generation = 0L,
         PlaylistHydrationCompletionReceipt receipt = null)
     {
@@ -441,7 +441,7 @@ internal sealed class PlaylistEntriesHydrationVersionChangedEventArgs : EventArg
     internal PlaylistEntriesHydrationVersionChangedEventArgs(
         int version,
         BMSPlaylist sourceStore = null,
-        DispatcherCollection<BMSTable> sourceTables = null,
+        ObservableCollection<BMSTable> sourceTables = null,
         long generation = 0L,
         PlaylistHydrationCompletionReceipt receipt = null)
     {
@@ -456,7 +456,7 @@ internal sealed class PlaylistEntriesHydrationVersionChangedEventArgs : EventArg
 
     internal BMSPlaylist SourceStore { get; }
 
-    internal DispatcherCollection<BMSTable> SourceTables { get; }
+    internal ObservableCollection<BMSTable> SourceTables { get; }
 
     internal long Generation { get; }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.Linq;
@@ -9,14 +10,13 @@ using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using Livet;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
 /// プレイリスト aggregate の active membership と persistence ordering を所有します。
 /// <para>
-/// <see cref="BMSPlaylist"/> は dispatcher collection の presentation を保持しますが、
+/// <see cref="BMSPlaylist"/> は observable collection の presentation を保持しますが、
 /// durable write、reload reservation、detached table の保存可否はこの owner に集約します。
 /// </para>
 /// </summary>
@@ -171,7 +171,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private IEnumerable<BMSTable> observedActiveCollection;
 
-    private DispatcherCollection<BMSTable> activeTableCollection;
+    private ObservableCollection<BMSTable> activeTableCollection;
 
     private PlaylistEntriesHydrationOwner entriesHydrationOwner;
 
@@ -182,6 +182,10 @@ internal sealed class PlaylistAggregatePersistenceOwner
     private bool reloadActive;
 
     private long activeCollectionGeneration;
+
+    private long persistenceGeneration;
+
+    private bool reloadCollectionApplyActive;
 
     private bool hydrationPublishActive;
 
@@ -219,6 +223,45 @@ internal sealed class PlaylistAggregatePersistenceOwner
             {
                 return activeCollectionGeneration;
             }
+        }
+    }
+
+    internal long PersistenceGeneration
+    {
+        get
+        {
+            lock (synchronization)
+            {
+                return persistenceGeneration;
+            }
+        }
+    }
+
+    internal IDisposable TryBeginReloadCollectionApply(
+        long expectedCollectionGeneration,
+        long expectedPersistenceGeneration,
+        IReadOnlyList<BMSTable> expectedTables)
+    {
+        lock (synchronization)
+        {
+            if (!reloadActive
+                || reloadCollectionApplyActive
+                || activeCollectionGeneration != expectedCollectionGeneration
+                || persistenceGeneration != expectedPersistenceGeneration
+                || !activeTableOrder.SequenceEqual(expectedTables ?? []))
+            {
+                return null;
+            }
+            reloadCollectionApplyActive = true;
+            return new ReloadCollectionApplyLease(this);
+        }
+    }
+
+    private void EndReloadCollectionApply()
+    {
+        lock (synchronization)
+        {
+            reloadCollectionApplyActive = false;
         }
     }
 
@@ -331,7 +374,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
     {
         lock (synchronization)
         {
-            if (registrationActive || reloadActive || hydrationPublishActive)
+            if (registrationActive || reloadActive || hydrationPublishActive || reloadCollectionApplyActive)
             {
                 return false;
             }
@@ -363,7 +406,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             if (!sameCollection)
             {
                 observedActiveCollection = currentTables;
-                activeTableCollection = currentTables as DispatcherCollection<BMSTable>;
+                activeTableCollection = currentTables as ObservableCollection<BMSTable>;
                 observedActiveCollectionNotifications = currentTables as INotifyCollectionChanged;
                 if (observedActiveCollectionNotifications != null)
                 {
@@ -554,6 +597,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             {
                 RefreshActiveIdentityUnsafe(table);
             }
+            persistenceGeneration++;
         }
         catch
         {
@@ -583,6 +627,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 {
                     RefreshActiveIdentityUnsafe(table);
                 }
+                persistenceGeneration++;
             }
             catch
             {
@@ -653,6 +698,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 throw;
             }
             RefreshActiveIdentityUnsafe(newTable);
+            persistenceGeneration++;
             return true;
         }
     }
@@ -781,7 +827,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         bool deleteNewTable = false;
         using (activeCollectionLock.GetReaderGuard())
         {
-            DispatcherCollection<BMSTable> tables = activeTableCollection;
+            ObservableCollection<BMSTable> tables = activeTableCollection;
             bool oldTableIsActive = tables?.Contains(oldTable) == true;
             BMSTable replacementTable = !oldTableIsActive && newTable?.playlist_id.HasValue == true
                 ? tables?.FirstOrDefault(table => table?.playlist_id == newTable.playlist_id.Value)
@@ -808,7 +854,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             using (activeCollectionLock.GetReaderGuard())
             {
-                DispatcherCollection<BMSTable> tables = activeTableCollection;
+                ObservableCollection<BMSTable> tables = activeTableCollection;
                 bool replacementIsActive = newTable?.playlist_id.HasValue == true
                     && tables?.Any(table => table?.playlist_id == newTable.playlist_id.Value) == true;
                 if (!replacementIsActive)
@@ -822,7 +868,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
     private bool ReplaceActiveTableInCollection(BMSTable oldTable, BMSTable newTable, out bool replacementCompleted)
     {
         replacementCompleted = false;
-        DispatcherCollection<BMSTable> tables = activeTableCollection;
+        ObservableCollection<BMSTable> tables = activeTableCollection;
         if (tables == null)
         {
             return false;
@@ -943,15 +989,11 @@ internal sealed class PlaylistAggregatePersistenceOwner
         return replaced;
     }
 
-    private Dispatcher GetActiveTableDispatcher(DispatcherCollection<BMSTable> tables)
+    private Dispatcher GetActiveTableDispatcher(ObservableCollection<BMSTable> tables)
     {
         if (tables == null)
         {
             return uiScheduler.Dispatcher;
-        }
-        if (tables.Dispatcher != null && tables.Dispatcher.CheckAccess())
-        {
-            return tables.Dispatcher;
         }
         return uiScheduler.Dispatcher;
     }
@@ -1051,6 +1093,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                     : null;
                 RefreshActiveIdentityUnsafe(table);
             }
+            persistenceGeneration++;
         }
     }
 
@@ -1059,6 +1102,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         lock (synchronization)
         {
             repository.LoadPlaylistDump(sql);
+            persistenceGeneration++;
         }
     }
 
@@ -1077,6 +1121,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             {
                 MarkRemovedUnsafe(table);
             }
+            persistenceGeneration++;
             activeCollectionGeneration++;
         }
     }
@@ -1147,6 +1192,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                                 persistedEntry.NormalizeForPlaylistPersistence();
                                 owningTable.last_update = BMSTable.GetNextLastUpdate(owningTable.last_update);
                                 repository.ReplaceEntry(persistedEntry, owningTable);
+                                persistenceGeneration++;
                                 persisted = true;
                             }
                         }
@@ -1171,6 +1217,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                         entry.MaterializeEffectiveUrlsIntoPersistedValues();
                         entry.NormalizeForPlaylistPersistence();
                         repository.ReplaceEntry(entry, null);
+                        persistenceGeneration++;
                         persisted = true;
                     }
                 }
@@ -1198,6 +1245,12 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 {
                     Monitor.Wait(synchronization, 50);
                     continue;
+                }
+                if (reloadActive || reloadCollectionApplyActive)
+                {
+                    targetWasActiveAtReservation = false;
+                    alreadyReserved = false;
+                    return false;
                 }
                 targetWasActiveAtReservation = !requireCurrentTarget || activeTables.Contains(oldTable);
                 alreadyReserved = false;
@@ -1393,6 +1446,26 @@ internal sealed class PlaylistAggregatePersistenceOwner
             Monitor.PulseAll(synchronization);
         }
         collectionPublicationGuard?.Dispose();
+    }
+
+    private sealed class ReloadCollectionApplyLease : IDisposable
+    {
+        private readonly PlaylistAggregatePersistenceOwner owner;
+
+        private int disposed;
+
+        internal ReloadCollectionApplyLease(PlaylistAggregatePersistenceOwner owner)
+        {
+            this.owner = owner;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                owner.EndReloadCollectionApply();
+            }
+        }
     }
 
     private sealed class HydrationPublishLease : IDisposable

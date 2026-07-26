@@ -117,7 +117,7 @@ try {
 
     # Build, format, and analyzer commands run to completion. Only dotnet test
     # has the simple 300-second command-response timeout described above.
-    Invoke-CheckedCommand dotnet build $solution '/p:Configuration=Release' '--no-restore'
+    Invoke-CheckedCommand dotnet build $solution '/p:Configuration=Release' '/p:Platform=x64' '--no-restore'
 
     if (-not (Test-Path -LiteralPath $uiExecutable -PathType Leaf)) {
         throw "Release UI smoke executable was not produced: $uiExecutable"
@@ -134,6 +134,7 @@ try {
         'test',
         $solution,
         '/p:Configuration=Release',
+        '/p:Platform=x64',
         '--no-build',
         '--no-restore',
         '--results-directory',

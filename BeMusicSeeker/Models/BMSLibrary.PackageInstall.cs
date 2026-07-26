@@ -71,6 +71,7 @@ public partial class BMSLibrary
             CleanupManagedInstallSources(expandedInstallPaths, "auto_install_canceled_after_expand");
             return registeredPackages;
         }
+        using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -1107,6 +1108,7 @@ public partial class BMSLibrary
         {
             throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
         }
+        using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         using (rwlockPendingInstallCharts.GetWriterGuard())
         using (rwlockBMSFiles.GetWriterGuard())
@@ -1297,7 +1299,10 @@ public partial class BMSLibrary
         {
             throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
         }
-        pendingEstimatedInstallOwner.InstallPendingPackagesToEstimatedDestinations(packages);
+        using (packageLifecycleOwner.BeginCollectionMutationScope())
+        {
+            pendingEstimatedInstallOwner.InstallPendingPackagesToEstimatedDestinations(packages);
+        }
     }
 
     /// <summary>
@@ -1305,13 +1310,16 @@ public partial class BMSLibrary
     /// </summary>
     public void RemoveInstalledPackageRecords(IEnumerable<ChartPackage> packages)
     {
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        using (packageLifecycleOwner.BeginCollectionMutationScope())
         {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
+            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             {
-                using (rwlockSongDBInstall.GetWriterGuard())
+                using (rwlockPendingInstallCharts.GetWriterGuard())
                 {
-                    packageLifecycleOwner.RemoveInstalledPackages(packages);
+                    using (rwlockSongDBInstall.GetWriterGuard())
+                    {
+                        packageLifecycleOwner.RemoveInstalledPackages(packages);
+                    }
                 }
             }
         }
@@ -1333,14 +1341,17 @@ public partial class BMSLibrary
     public void RemovePendingPackages(IEnumerable<ChartPackage> packages)
     {
         List<ChartPackage> managedPackagesToCleanup = [];
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        using (packageLifecycleOwner.BeginCollectionMutationScope())
         {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
+            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             {
-                using (rwlockSongDBInstall.GetWriterGuard())
+                using (rwlockPendingInstallCharts.GetWriterGuard())
                 {
-                    managedPackagesToCleanup = ResolveManagedPendingPackagesForCleanup(packages);
-                    RemovePendingPackagesFromPendingListAndInstallRows(packages);
+                    using (rwlockSongDBInstall.GetWriterGuard())
+                    {
+                        managedPackagesToCleanup = ResolveManagedPendingPackagesForCleanup(packages);
+                        RemovePendingPackagesFromPendingListAndInstallRows(packages);
+                    }
                 }
             }
         }
@@ -1352,13 +1363,16 @@ public partial class BMSLibrary
     /// </summary>
     public void RemoveInstalledPackageRecordsAll()
     {
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        using (packageLifecycleOwner.BeginCollectionMutationScope())
         {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
+            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             {
-                using (rwlockSongDBInstall.GetWriterGuard())
+                using (rwlockPendingInstallCharts.GetWriterGuard())
                 {
-                    packageLifecycleOwner.ClearInstalledPackages();
+                    using (rwlockSongDBInstall.GetWriterGuard())
+                    {
+                        packageLifecycleOwner.ClearInstalledPackages();
+                    }
                 }
             }
         }
@@ -1370,14 +1384,17 @@ public partial class BMSLibrary
     public void RemovePendingPackagesAll()
     {
         List<ChartPackage> managedPackagesToCleanup = [];
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        using (packageLifecycleOwner.BeginCollectionMutationScope())
         {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
+            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             {
-                using (rwlockSongDBInstall.GetWriterGuard())
+                using (rwlockPendingInstallCharts.GetWriterGuard())
                 {
-                    managedPackagesToCleanup = ResolveManagedPendingPackagesForCleanup(ChartPackagesPending);
-                    packageLifecycleOwner.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(clearAll: true));
+                    using (rwlockSongDBInstall.GetWriterGuard())
+                    {
+                        managedPackagesToCleanup = ResolveManagedPendingPackagesForCleanup(ChartPackagesPending);
+                        packageLifecycleOwner.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(clearAll: true));
+                    }
                 }
             }
         }
@@ -1675,6 +1692,7 @@ public partial class BMSLibrary
         Action<string> logInfo = info => NLogWrapper.FileLogger?.Info(info);
         try
         {
+            using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
             using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             using (rwlockPendingInstallCharts.GetWriterGuard())
             using (rwlockBMSFiles.GetWriterGuard())
@@ -1774,6 +1792,7 @@ public partial class BMSLibrary
         Action<string> logInfo = info => NLogWrapper.FileLogger?.Info(info);
         try
         {
+            using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
             using (rwlockBMSFilesInitializedMin.GetReaderGuard())
             using (rwlockPendingInstallCharts.GetWriterGuard())
             using (rwlockSongDBInstall.GetWriterGuard())
@@ -1826,6 +1845,7 @@ public partial class BMSLibrary
         Action<string> logInfo = info => NLogWrapper.FileLogger?.Info(info);
         try
         {
+            using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
             using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             using (rwlockPendingInstallCharts.GetWriterGuard())
             using (rwlockSongDBInstall.GetWriterGuard())

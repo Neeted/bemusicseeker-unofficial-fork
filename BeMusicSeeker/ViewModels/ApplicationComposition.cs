@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Threading;
@@ -202,7 +203,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         Func<BMSLibrary> libraryProvider,
         Func<LR2Config> lr2ConfigProvider,
         Action<string> summaryBulkWarningLog,
-        DispatcherCollection<BMSTable> emptyPlaylistTreeSource,
+        ObservableCollection<BMSTable> emptyPlaylistTreeSource,
         Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler,
         Func<bool> playlistReloadCleanupStartupOperableProvider,
         Func<MainViewUpdateMode> playlistReloadCleanupCurrentTreeModeProvider,

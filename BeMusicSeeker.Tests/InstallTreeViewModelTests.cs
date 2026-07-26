@@ -46,8 +46,8 @@ public sealed class InstallTreeViewModelTests
             owner.AttachLibrary(library);
             sections.Clear();
 
-            DispatcherCollection<ChartPackage> installed = library.ChartPackagesInstalled;
-            DispatcherCollection<ChartPackage> pending = library.ChartPackagesPending;
+            ObservableCollection<ChartPackage> installed = library.ChartPackagesInstalled;
+            ObservableCollection<ChartPackage> pending = library.ChartPackagesPending;
             installed.Add(new ChartPackage { path = "installed" });
             Assert.AreEqual(InstallTreePresentationSection.Installed, sections.Single());
 
@@ -56,7 +56,7 @@ public sealed class InstallTreeViewModelTests
             Assert.AreEqual(InstallTreePresentationSection.Pending, sections.Single());
 
             sections.Clear();
-            DispatcherCollection<ChartPackage> replacement = CreatePackageCollection([]);
+            ObservableCollection<ChartPackage> replacement = CreatePackageCollection([]);
             library.ChartPackagesInstalled = replacement;
             Assert.AreEqual(InstallTreePresentationSection.Installed, sections.Single());
             sections.Clear();
@@ -105,8 +105,8 @@ public sealed class InstallTreeViewModelTests
             var sections = new List<InstallTreePresentationSection>();
             owner.PresentationChanged += (_, args) => sections.Add(args.Sections);
             owner.AttachLibrary(library);
-            DispatcherCollection<ChartPackage> oldInstalled = library.ChartPackagesInstalled;
-            DispatcherCollection<ChartPackage> oldPending = library.ChartPackagesPending;
+            ObservableCollection<ChartPackage> oldInstalled = library.ChartPackagesInstalled;
+            ObservableCollection<ChartPackage> oldPending = library.ChartPackagesPending;
             sections.Clear();
 
             owner.DetachLibrary();
@@ -121,11 +121,9 @@ public sealed class InstallTreeViewModelTests
         });
     }
 
-    private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
+    private static ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
-        return new DispatcherCollection<ChartPackage>(
-            new ObservableCollection<ChartPackage>(packages ?? []),
-            Dispatcher.CurrentDispatcher);
+        return new ObservableCollection<ChartPackage>(packages ?? []);
     }
 
     private static void WithLibrary(Action<BMSLibrary> action)

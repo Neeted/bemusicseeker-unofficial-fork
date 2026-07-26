@@ -155,8 +155,8 @@ build / format / analyzerは完了まで待つ。testは標準入口から起動
 scriptが環境要因で使えない場合だけ個別commandを使い、未実施項目を明示する。
 
 ```powershell
-dotnet build .\BeMusicSeeker.sln /p:Configuration=Release
-dotnet test .\BeMusicSeeker.sln /p:Configuration=Release
+dotnet build .\BeMusicSeeker.sln /p:Configuration=Release /p:Platform=x64
+dotnet test .\BeMusicSeeker.sln /p:Configuration=Release /p:Platform=x64
 dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal
 $msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -version "[17.0,18.0)" -products * -requires Microsoft.Component.MSBuild -find "MSBuild\Current\Bin"
 dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path $msbuildPath --properties Configuration=Release --severity-level warning --verbosity minimal

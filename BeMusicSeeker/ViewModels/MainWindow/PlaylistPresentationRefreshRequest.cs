@@ -1,7 +1,7 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Threading;
 using BeMusicSeeker.Models;
-using Livet;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -21,7 +21,7 @@ internal sealed class PlaylistPresentationRefreshRequestedEventArgs : EventArgs
         bool rebuildAsync = true,
         int hydrationVersion = 0,
         BMSPlaylist hydrationSourceStore = null,
-        DispatcherCollection<BMSTable> hydrationSourceTables = null,
+        ObservableCollection<BMSTable> hydrationSourceTables = null,
         long hydrationNotificationGeneration = 0L,
         PlaylistHydrationCompletionReceipt hydrationCompletionReceipt = null)
     {
@@ -45,7 +45,7 @@ internal sealed class PlaylistPresentationRefreshRequestedEventArgs : EventArgs
 
     internal BMSPlaylist HydrationSourceStore { get; }
 
-    internal DispatcherCollection<BMSTable> HydrationSourceTables { get; }
+    internal ObservableCollection<BMSTable> HydrationSourceTables { get; }
 
     internal long HydrationNotificationGeneration { get; }
 

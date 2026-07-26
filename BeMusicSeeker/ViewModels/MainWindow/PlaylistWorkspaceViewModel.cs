@@ -133,7 +133,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         Func<BMSLibrary> playlistLibraryProvider,
         Func<LR2Config> lr2ConfigProvider,
         Action<string> summaryBulkWarningLog,
-        DispatcherCollection<BMSTable> emptyPlaylistTreeSource,
+        ObservableCollection<BMSTable> emptyPlaylistTreeSource,
         Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler,
         Func<bool> playlistReloadCleanupStartupOperableProvider,
         Func<MainViewUpdateMode> playlistReloadCleanupCurrentTreeModeProvider,

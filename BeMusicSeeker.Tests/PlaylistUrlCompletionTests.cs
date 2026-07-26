@@ -234,7 +234,7 @@ public sealed class PlaylistUrlCompletionTests
             BMSTableEntry tsvEntry = CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "TsvSong");
             BMSTableEntry stellaEntry = CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "StellaSong");
             table.entries = [tsvEntry, stellaEntry];
-            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+            playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
 
             await ScheduleUrlCompletionRefreshAsync(playlist, "first");
             await ScheduleUrlCompletionRefreshAsync(playlist, "reload");
@@ -300,7 +300,7 @@ public sealed class PlaylistUrlCompletionTests
             BMSTable table = CreateTable(5002, "StellaToggleTable");
             BMSTableEntry stellaEntry = CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "StellaSong");
             table.entries = [stellaEntry];
-            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+            playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
 
             await ScheduleUrlCompletionRefreshAsync(playlist, "disabled");
 
@@ -366,7 +366,7 @@ public sealed class PlaylistUrlCompletionTests
             BMSTable table = CreateTable(5003, "InjectedOptionsTable");
             BMSTableEntry entry = CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "InjectedOptionsSong");
             table.entries = [entry];
-            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+            playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
 
             await ScheduleUrlCompletionRefreshAsync(playlist, "disabled");
 

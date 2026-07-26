@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -574,7 +575,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -741,7 +742,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -790,7 +791,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -834,7 +835,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,

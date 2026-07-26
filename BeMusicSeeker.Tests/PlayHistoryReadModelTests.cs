@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -3596,7 +3597,7 @@ public sealed class PlayHistoryReadModelTests
                 () => null!,
                 () => null!,
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                new ObservableCollection<BMSTable>(),
                 (_, _) => false,
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,

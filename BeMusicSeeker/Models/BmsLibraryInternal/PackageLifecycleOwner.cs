@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
+using System.Windows.Threading;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using Livet;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -21,25 +23,31 @@ internal sealed partial class PackageLifecycleOwner
 
     private readonly object estimationProgressLock = new();
 
+    private readonly object packageCollectionStateLock = new();
+
     private readonly SemaphoreSlim estimationExecutionGate = new(1, 1);
 
     private readonly PendingInstallEstimateQueueProcessor pendingEstimateQueueProcessor;
 
     private readonly BmsLibraryDbGateway dbGateway;
 
+    private readonly IUiScheduler uiScheduler;
+
     private readonly PackageStateMutationApplier stateMutationApplier;
 
     private readonly StartupInstallReadinessState startupReadiness = new();
 
-    private readonly Func<IEnumerable<ChartPackage>, DispatcherCollection<ChartPackage>> packageCollectionFactory;
+    private readonly Func<IEnumerable<ChartPackage>, ObservableCollection<ChartPackage>> packageCollectionFactory;
 
     private readonly Action<string> raisePropertyChanged;
 
-    private DispatcherCollection<ChartPackage> pendingPackages;
+    private ObservableCollection<ChartPackage> pendingPackages;
 
-    private DispatcherCollection<ChartPackage> installedPackages;
+    private ObservableCollection<ChartPackage> installedPackages;
 
     private PendingInstallEstimateQueueStatusSnapshot pendingEstimateQueueStatus = new();
+
+    private readonly AsyncLocal<CollectionMutationDeferral> collectionMutationDeferral = new();
 
     private InstallEstimationProgressSnapshot installEstimationProgress = new();
 
@@ -59,13 +67,15 @@ internal sealed partial class PackageLifecycleOwner
 
     internal PackageLifecycleOwner(
         BmsLibraryDbGateway dbGateway,
+        IUiScheduler uiScheduler,
         Action<PendingInstallEstimateBatchRequest, CancellationToken> processPendingEstimateBatch,
         Action<Exception> pendingEstimateBatchFailed,
         Action<string> raisePropertyChanged,
-        Func<IEnumerable<ChartPackage>, DispatcherCollection<ChartPackage>> packageCollectionFactory,
+        Func<IEnumerable<ChartPackage>, ObservableCollection<ChartPackage>> packageCollectionFactory,
         Action raiseInstalledPackagesChanged)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
+        this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.raisePropertyChanged = raisePropertyChanged ?? throw new ArgumentNullException(nameof(raisePropertyChanged));
         this.packageCollectionFactory = packageCollectionFactory ?? throw new ArgumentNullException(nameof(packageCollectionFactory));
         pendingPackages = this.packageCollectionFactory([]);
@@ -81,16 +91,31 @@ internal sealed partial class PackageLifecycleOwner
             () => installedPackages,
             SetInstalledPackages,
             raiseInstalledPackagesChanged ?? throw new ArgumentNullException(nameof(raiseInstalledPackagesChanged)),
-            packageCollectionFactory);
+            packageCollectionFactory,
+            this.uiScheduler,
+            TryDeferCollectionMutation,
+            RunPackageCollectionStateMutation);
         pendingEstimateQueueProcessor = new PendingInstallEstimateQueueProcessor(
             processPendingEstimateBatch ?? throw new ArgumentNullException(nameof(processPendingEstimateBatch)),
             UpdatePendingEstimateQueueStatus,
             pendingEstimateBatchFailed);
     }
 
-    internal DispatcherCollection<ChartPackage> PendingPackages => pendingPackages;
+    internal ObservableCollection<ChartPackage> PendingPackages => pendingPackages;
 
-    internal DispatcherCollection<ChartPackage> InstalledPackages => installedPackages;
+    internal ObservableCollection<ChartPackage> InstalledPackages => installedPackages;
+
+    internal IDisposable BeginCollectionMutationScope()
+    {
+        CollectionMutationDeferral previous = collectionMutationDeferral.Value;
+        if (previous?.IsCompleted == true)
+        {
+            previous = null;
+        }
+        CollectionMutationDeferral current = new();
+        collectionMutationDeferral.Value = current;
+        return new CollectionMutationScopeLease(this, current, previous);
+    }
 
     internal StartupInstallReadinessState StartupReadiness => startupReadiness;
 
@@ -191,12 +216,15 @@ internal sealed partial class PackageLifecycleOwner
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        foreach (ChartPackage package in packages)
+        List<ChartPackage> packageList = [.. packages.Where(package => package != null)];
+        bool changed;
+        lock (packageCollectionStateLock)
         {
-            if (package != null)
-            {
-                pendingPackages.Add(package);
-            }
+            changed = ReplacePendingPackagesCore(CreatePackageCollection(pendingPackages.Concat(packageList)));
+        }
+        if (changed)
+        {
+            RaisePendingPackagesChanged();
         }
     }
 
@@ -206,12 +234,15 @@ internal sealed partial class PackageLifecycleOwner
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        foreach (ChartPackage package in packages)
+        List<ChartPackage> packageList = [.. packages.Where(package => package != null)];
+        bool changed;
+        lock (packageCollectionStateLock)
         {
-            if (package != null)
-            {
-                installedPackages.Add(package);
-            }
+            changed = ReplaceInstalledPackagesCore(CreatePackageCollection(installedPackages.Concat(packageList)));
+        }
+        if (changed)
+        {
+            RaiseInstalledPackagesChangedProperty();
         }
     }
 
@@ -221,12 +252,29 @@ internal sealed partial class PackageLifecycleOwner
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        installedPackages.Remove(packages);
+        List<ChartPackage> packageList = [.. packages.Where(package => package != null)];
+        bool changed;
+        lock (packageCollectionStateLock)
+        {
+            changed = ReplaceInstalledPackagesCore(CreatePackageCollection(installedPackages.Where(package => !packageList.Contains(package))));
+        }
+        if (changed)
+        {
+            RaiseInstalledPackagesChangedProperty();
+        }
     }
 
     internal void ClearInstalledPackages()
     {
-        installedPackages.Clear();
+        bool changed;
+        lock (packageCollectionStateLock)
+        {
+            changed = ReplaceInstalledPackagesCore(CreatePackageCollection([]));
+        }
+        if (changed)
+        {
+            RaiseInstalledPackagesChangedProperty();
+        }
     }
 
     internal void ReplacePendingPackages(IEnumerable<ChartPackage> packages)
@@ -261,40 +309,44 @@ internal sealed partial class PackageLifecycleOwner
         }
         List<ChartPackage> replacedPendingPackages = [.. currentPendingPackages.Where(package => !sourcePackageList.Contains(package))];
         replacedPendingPackages.Insert(insertIndex, regroupedPackage);
-        DispatcherCollection<ChartPackage> nextPendingPackages = CreatePackageCollection(replacedPendingPackages);
+        ObservableCollection<ChartPackage> nextPendingPackages = CreatePackageCollection(replacedPendingPackages);
 
         dbGateway.ReplaceInstallRows(sourcePackageList.Select(package => package.path), regroupedPackage);
         SetPendingPackages(nextPendingPackages);
     }
 
-    internal void SetPendingPackages(DispatcherCollection<ChartPackage> value)
+    internal void SetPendingPackages(ObservableCollection<ChartPackage> value)
     {
         if (value == null)
         {
             throw new ArgumentNullException(nameof(value));
         }
-        if (ReferenceEquals(pendingPackages, value))
+        bool changed;
+        lock (packageCollectionStateLock)
         {
-            return;
+            changed = ReplacePendingPackagesCore(value);
         }
-
-        pendingPackages = value;
-        raisePropertyChanged("ChartPackagesPending");
+        if (changed)
+        {
+            RaisePendingPackagesChanged();
+        }
     }
 
-    internal void SetInstalledPackages(DispatcherCollection<ChartPackage> value)
+    internal void SetInstalledPackages(ObservableCollection<ChartPackage> value)
     {
         if (value == null)
         {
             throw new ArgumentNullException(nameof(value));
         }
-        if (ReferenceEquals(installedPackages, value))
+        bool changed;
+        lock (packageCollectionStateLock)
         {
-            return;
+            changed = ReplaceInstalledPackagesCore(value);
         }
-
-        installedPackages = value;
-        raisePropertyChanged("ChartPackagesInstalled");
+        if (changed)
+        {
+            RaiseInstalledPackagesChangedProperty();
+        }
     }
 
     internal InstallTableLoadResult ReloadInstallTable(
@@ -316,19 +368,191 @@ internal sealed partial class PackageLifecycleOwner
         {
             dbGateway.DeleteInstallRows(result.StaleInstallPaths);
         }
-        pendingPackages.Clear();
-        installedPackages.Clear();
+        SetPendingPackages(CreatePackageCollection([]));
+        SetInstalledPackages(CreatePackageCollection([]));
         AddPendingPackages(result.PendingPackages);
         return result;
     }
 
-    private DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
+    private void InvokeOnUi(Action mutation)
+    {
+        if (mutation == null)
+        {
+            throw new ArgumentNullException(nameof(mutation));
+        }
+        if (TryDeferCollectionMutation(mutation))
+        {
+            return;
+        }
+        Dispatcher dispatcher = uiScheduler.Dispatcher;
+        if (dispatcher == null || uiScheduler.CheckAccess())
+        {
+            mutation();
+            return;
+        }
+        dispatcher.Invoke(mutation);
+    }
+
+    private bool ReplacePendingPackagesCore(ObservableCollection<ChartPackage> value)
+    {
+        if (ReferenceEquals(pendingPackages, value))
+        {
+            return false;
+        }
+        pendingPackages = value;
+        return true;
+    }
+
+    private bool ReplaceInstalledPackagesCore(ObservableCollection<ChartPackage> value)
+    {
+        if (ReferenceEquals(installedPackages, value))
+        {
+            return false;
+        }
+        installedPackages = value;
+        return true;
+    }
+
+    private void RaisePendingPackagesChanged()
+    {
+        InvokeOnUi(() => raisePropertyChanged("ChartPackagesPending"));
+    }
+
+    private void RaiseInstalledPackagesChangedProperty()
+    {
+        InvokeOnUi(() => raisePropertyChanged("ChartPackagesInstalled"));
+    }
+
+    private void RunPackageCollectionStateMutation(Action mutation)
+    {
+        if (mutation == null)
+        {
+            throw new ArgumentNullException(nameof(mutation));
+        }
+        lock (packageCollectionStateLock)
+        {
+            mutation();
+        }
+    }
+
+    private bool TryDeferCollectionMutation(Action mutation)
+    {
+        CollectionMutationDeferral current = collectionMutationDeferral.Value;
+        if (current == null)
+        {
+            return false;
+        }
+        return current.TryEnqueue(mutation);
+    }
+
+    private void CompleteCollectionMutationScope(
+        CollectionMutationDeferral current,
+        CollectionMutationDeferral previous)
+    {
+        if (!ReferenceEquals(collectionMutationDeferral.Value, current))
+        {
+            throw new InvalidOperationException("Package collection mutation scopes must complete in LIFO order.");
+        }
+        List<Action> mutations = current.Complete();
+        collectionMutationDeferral.Value = previous;
+        if (previous != null)
+        {
+            foreach (Action mutation in mutations)
+            {
+                if (!previous.TryEnqueue(mutation))
+                {
+                    InvokeOnUi(mutation);
+                }
+            }
+            return;
+        }
+        foreach (Action mutation in mutations)
+        {
+            InvokeOnUi(mutation);
+        }
+    }
+
+    private sealed class CollectionMutationDeferral
+    {
+        private readonly object syncRoot = new();
+
+        private List<Action> mutations = [];
+
+        private bool completed;
+
+        internal bool IsCompleted
+        {
+            get
+            {
+                lock (syncRoot)
+                {
+                    return completed;
+                }
+            }
+        }
+
+        internal bool TryEnqueue(Action mutation)
+        {
+            if (mutation == null)
+            {
+                throw new ArgumentNullException(nameof(mutation));
+            }
+            lock (syncRoot)
+            {
+                if (completed)
+                {
+                    return false;
+                }
+                mutations.Add(mutation);
+                return true;
+            }
+        }
+
+        internal List<Action> Complete()
+        {
+            lock (syncRoot)
+            {
+                completed = true;
+                List<Action> completedMutations = mutations;
+                mutations = [];
+                return completedMutations;
+            }
+        }
+    }
+
+    private sealed class CollectionMutationScopeLease : IDisposable
+    {
+        private readonly PackageLifecycleOwner owner;
+        private readonly CollectionMutationDeferral current;
+        private readonly CollectionMutationDeferral previous;
+        private int disposed;
+
+        internal CollectionMutationScopeLease(
+            PackageLifecycleOwner owner,
+            CollectionMutationDeferral current,
+            CollectionMutationDeferral previous)
+        {
+            this.owner = owner;
+            this.current = current;
+            this.previous = previous;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                owner.CompleteCollectionMutationScope(current, previous);
+            }
+        }
+    }
+
+    private ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
         if (packages == null)
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        DispatcherCollection<ChartPackage> collection = packageCollectionFactory(packages);
+        ObservableCollection<ChartPackage> collection = packageCollectionFactory(packages);
         if (collection == null)
         {
             throw new InvalidOperationException("Package collection factory returned null.");

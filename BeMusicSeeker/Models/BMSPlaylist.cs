@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -15,7 +16,6 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Codeplex.Data;
-using Livet;
 using Newtonsoft.Json.Linq;
 using NLog;
 using Ribbit.Logging;
@@ -240,7 +240,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>
     /// UI バインディングに公開するプレイリスト一覧を保持します。
     /// </summary>
-    private DispatcherCollection<BMSTable> _BMSTables;
+    private ObservableCollection<BMSTable> _BMSTables;
 
     /// <summary>
     /// プレイリスト同期処理の実行中状態を保持します。
@@ -302,21 +302,25 @@ public partial class BMSPlaylist : ObservableObject
     /// UI に公開するプレイリスト一覧です。
     /// </summary>
     /// <returns>現在のプレイリスト一覧コレクション。</returns>
-    public DispatcherCollection<BMSTable> BMSTables
+    public ObservableCollection<BMSTable> BMSTables
     {
         get
         {
             return _BMSTables;
         }
-        set
+        internal set
         {
-            if (_BMSTables != value)
+            InvokeBMSTablesCollectionMutation(() =>
             {
+                if (_BMSTables == value)
+                {
+                    return;
+                }
                 List<BMSTable> previousTables = [.. (_BMSTables ?? Enumerable.Empty<BMSTable>()).Where(table => table != null)];
                 _BMSTables = value;
                 playlistAggregatePersistenceOwner.SetActiveCollection(previousTables, value);
                 RaisePropertyChanged("BMSTables");
-            }
+            });
         }
     }
 
@@ -470,7 +474,7 @@ public partial class BMSPlaylist : ObservableObject
             throw new ArgumentException(string.Format(Resources.Error_LR2ScoreDBNotFound, _lr2ScoreDB), "_lr2ScoreDB");
         }
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
-        _BMSTables = new DispatcherCollection<BMSTable>(this.uiScheduler.Dispatcher);
+        _BMSTables = new ObservableCollection<BMSTable>();
         lr2SongDBPath = _lr2SongDB;
         playlistPersistenceRepository = new PlaylistPersistenceRepository(_lr2SongDB);
         playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository, rwlockBMSTables, this.uiScheduler);
@@ -680,25 +684,55 @@ public partial class BMSPlaylist : ObservableObject
             {
                 initSemaphore = semaphore;
             }
+            List<BMSTable> list = null;
+            long expectedGeneration = 0L;
+            long expectedPersistenceGeneration;
+            bool shouldLoadHeaders;
             using (rwlockBMSTablesInitializeAll.GetWriterGuard())
             {
                 using (rwlockBMSTablesInitializeMin.GetWriterGuard())
                 {
                     using (rwlockBMSTables.GetWriterGuard())
                     {
+                        shouldLoadHeaders = BMSTables.Count == 0;
+                        expectedGeneration = playlistAggregatePersistenceOwner.ActiveCollectionGeneration;
+                        expectedPersistenceGeneration = playlistAggregatePersistenceOwner.PersistenceGeneration;
+                    }
+                }
+            }
+            if (shouldLoadHeaders)
+            {
+                list = playlistEntriesHydrationOwner.LoadPlaylistHeaders(out long loadTablesMs);
+                LogPlaylistPerformance("playlist_init_header loadTablesMs=" + loadTablesMs
+                    + " tableCount=" + list.Count
+                    + " readOnly=true"
+                    + " dbLockWaitMs=0"
+                    + " entriesDeferred=true");
+                InvokeBMSTablesCollectionMutation(() =>
+                {
+                    using (rwlockBMSTablesInitializeAll.GetWriterGuard())
+                    using (rwlockBMSTablesInitializeMin.GetWriterGuard())
+                    using (rwlockBMSTables.GetWriterGuard())
+                    {
+                        using IDisposable reloadApplyLease = playlistAggregatePersistenceOwner.TryBeginReloadCollectionApply(
+                            expectedGeneration,
+                            expectedPersistenceGeneration,
+                            []);
+                        if (reloadApplyLease == null)
+                        {
+                            throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
+                                "Playlist collection changed while the initial snapshot was being loaded.");
+                        }
                         if (BMSTables.Count == 0)
                         {
-                            List<BMSTable> list = playlistEntriesHydrationOwner.LoadPlaylistHeaders(out long loadTablesMs);
-                            LogPlaylistPerformance("playlist_init_header loadTablesMs=" + loadTablesMs
-                                + " tableCount=" + list.Count
-                                + " readOnly=true"
-                                + " dbLockWaitMs=0"
-                                + " entriesDeferred=true");
                             BMSTables.AddRange(list);
                             playlistAggregatePersistenceOwner.MarkActiveTables(list);
                         }
                     }
-                }
+                });
+            }
+            using (rwlockBMSTablesInitializeAll.GetWriterGuard())
+            {
                 initSemaphore?.Release();
                 updateTablesMs = 0L;
                 var stopwatchLr2configSync = Stopwatch.StartNew();
@@ -738,38 +772,58 @@ public partial class BMSPlaylist : ObservableObject
         }
         try
         {
+            List<BMSTable> previousTables;
+            long expectedGeneration;
+            long expectedPersistenceGeneration;
             using (rwlockBMSTablesInitializeAll.GetWriterGuard())
             {
-                List<BMSTable> list;
-                List<BMSTable> previousTables;
-                long loadTablesMs;
                 using (rwlockBMSTablesInitializeMin.GetWriterGuard())
                 {
                     using (rwlockBMSTables.GetWriterGuard())
                     {
                         previousTables = [.. BMSTables.Where(table => table != null)];
-                        list = playlistEntriesHydrationOwner.LoadPlaylistHeaders(out loadTablesMs);
-                        BMSTables.Clear();
-                        BMSTables.AddRange(list);
-                        playlistAggregatePersistenceOwner.SetActiveCollection(previousTables, BMSTables);
+                        expectedGeneration = playlistAggregatePersistenceOwner.ActiveCollectionGeneration;
+                        expectedPersistenceGeneration = playlistAggregatePersistenceOwner.PersistenceGeneration;
                     }
                 }
-                LogPlaylistPerformance("playlist_reload_tables_header loadTablesMs=" + loadTablesMs
-                    + " tableCount=" + list.Count
-                    + " readOnly=true"
-                    + " dbLockWaitMs=0"
-                    + " entriesDeferred=true");
-                var stopwatchLr2configSync = Stopwatch.StartNew();
-                bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
-                stopwatchLr2configSync.Stop();
-                lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
-                QueueDeferredPlaylistEntriesHydration(
-                    "ReloadTables",
-                    runExternalSyncAfterHydration: false,
-                    queueBeatorajaBmtExportAfterHydration: queueBeatorajaBmtExportAfterHydration,
-                    runCustomFolderOutputRepairAfterHydration: true,
-                    verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged);
             }
+            List<BMSTable> list = playlistEntriesHydrationOwner.LoadPlaylistHeaders(out long loadTablesMs);
+            InvokeBMSTablesCollectionMutation(() =>
+            {
+                using (rwlockBMSTablesInitializeAll.GetWriterGuard())
+                using (rwlockBMSTablesInitializeMin.GetWriterGuard())
+                using (rwlockBMSTables.GetWriterGuard())
+                {
+                    List<BMSTable> currentTables = [.. BMSTables.Where(table => table != null)];
+                    using IDisposable reloadApplyLease = playlistAggregatePersistenceOwner.TryBeginReloadCollectionApply(
+                        expectedGeneration,
+                        expectedPersistenceGeneration,
+                        previousTables);
+                    if (reloadApplyLease == null || !currentTables.SequenceEqual(previousTables))
+                    {
+                        throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
+                            "Playlist collection changed while the reload snapshot was being loaded.");
+                    }
+                    BMSTables.Clear();
+                    BMSTables.AddRange(list);
+                    playlistAggregatePersistenceOwner.SetActiveCollection(previousTables, BMSTables);
+                }
+            });
+            LogPlaylistPerformance("playlist_reload_tables_header loadTablesMs=" + loadTablesMs
+                + " tableCount=" + list.Count
+                + " readOnly=true"
+                + " dbLockWaitMs=0"
+                + " entriesDeferred=true");
+            var stopwatchLr2configSync = Stopwatch.StartNew();
+            bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
+            stopwatchLr2configSync.Stop();
+            lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
+            QueueDeferredPlaylistEntriesHydration(
+                "ReloadTables",
+                runExternalSyncAfterHydration: false,
+                queueBeatorajaBmtExportAfterHydration: queueBeatorajaBmtExportAfterHydration,
+                runCustomFolderOutputRepairAfterHydration: true,
+                verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged);
             stopwatchReloadTables.Stop();
             LogPlaylistPerformance("playlist_reload_tables lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchReloadTables.ElapsedMilliseconds);
             SchedulePlaylistUrlCompletionRefresh("ReloadTables");
@@ -3669,26 +3723,13 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
-    private System.Windows.Threading.Dispatcher GetBMSTablesDispatcher(DispatcherCollection<BMSTable> tables)
-    {
-        if (tables == null)
-        {
-            return uiScheduler.Dispatcher;
-        }
-        if (tables.Dispatcher != null && tables.Dispatcher.CheckAccess())
-        {
-            return tables.Dispatcher;
-        }
-        return uiScheduler.Dispatcher;
-    }
-
     private T InvokeBMSTablesCollectionMutation<T>(Func<T> mutation)
     {
         if (mutation == null)
         {
             throw new ArgumentNullException(nameof(mutation));
         }
-        System.Windows.Threading.Dispatcher dispatcher = GetBMSTablesDispatcher(BMSTables);
+        System.Windows.Threading.Dispatcher dispatcher = uiScheduler.Dispatcher;
         if (dispatcher == null || dispatcher.CheckAccess())
         {
             return mutation();

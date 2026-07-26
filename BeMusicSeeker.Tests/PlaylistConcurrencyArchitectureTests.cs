@@ -98,7 +98,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(method, "await CommitAndAddBMSTableAsync(bmsTable).ConfigureAwait(false)");
         Assert.IsFalse(
             method.Contains("BMSTables.Add(bMSTable);"),
-            "External registration must not call DispatcherCollection.Add while the registration writer lock is held.");
+            "External registration must not call ObservableCollection.Add while the registration writer lock is held.");
         Assert.IsFalse(
             commitAndAddMethod.Contains("ReaderWriterLock.GetWriterGuard()"),
             "External registration owner must keep collection mutation in the composed visible-collection port.");
@@ -193,7 +193,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
 
         StringAssert.Contains(source, "InvokeBMSTablesCollectionMutation");
-        StringAssert.Contains(source, "GetBMSTablesDispatcher");
+        StringAssert.Contains(source, "uiScheduler.Dispatcher");
+        Assert.IsTrue(source.IndexOf("GetBMSTablesDispatcher", StringComparison.Ordinal) < 0);
     }
 
     [TestMethod]

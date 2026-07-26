@@ -192,9 +192,9 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(source, "ShouldBlockChartPackageMutationInteraction(\"tree_duplicate_merge_into\")");
     }
 
-    private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
+    private static ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
-        return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>([.. (packages ?? [])]), Dispatcher.CurrentDispatcher);
+        return new ObservableCollection<ChartPackage>([.. (packages ?? [])]);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

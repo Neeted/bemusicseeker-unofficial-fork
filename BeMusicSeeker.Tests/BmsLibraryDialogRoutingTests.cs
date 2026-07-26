@@ -200,9 +200,9 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
-    private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
+    private static ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
-        return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>([.. (packages ?? [])]), Dispatcher.CurrentDispatcher);
+        return new ObservableCollection<ChartPackage>([.. (packages ?? [])]);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

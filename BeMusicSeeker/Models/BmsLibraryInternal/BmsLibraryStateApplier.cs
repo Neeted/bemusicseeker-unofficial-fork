@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Windows.Threading;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using Livet;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -17,26 +19,35 @@ internal sealed partial class PackageLifecycleOwner
 {
     internal sealed class PackageStateMutationApplier(
         BmsLibraryDbGateway dbGateway,
-        Func<DispatcherCollection<ChartPackage>> getPendingPackages,
-        Action<DispatcherCollection<ChartPackage>> setPendingPackages,
-        Func<DispatcherCollection<ChartPackage>> getInstalledPackages,
-        Action<DispatcherCollection<ChartPackage>> setInstalledPackages,
+        Func<ObservableCollection<ChartPackage>> getPendingPackages,
+        Action<ObservableCollection<ChartPackage>> setPendingPackages,
+        Func<ObservableCollection<ChartPackage>> getInstalledPackages,
+        Action<ObservableCollection<ChartPackage>> setInstalledPackages,
         Action raiseInstalledPackagesChanged,
-        Func<IEnumerable<ChartPackage>, DispatcherCollection<ChartPackage>> packageCollectionFactory)
+        Func<IEnumerable<ChartPackage>, ObservableCollection<ChartPackage>> packageCollectionFactory,
+        IUiScheduler uiScheduler,
+        Func<Action, bool> tryDeferCollectionMutation,
+        Action<Action> runPackageCollectionStateMutation)
     {
         private readonly BmsLibraryDbGateway dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
 
-        private readonly Func<DispatcherCollection<ChartPackage>> getPendingPackages = getPendingPackages ?? throw new ArgumentNullException(nameof(getPendingPackages));
+        private readonly Func<ObservableCollection<ChartPackage>> getPendingPackages = getPendingPackages ?? throw new ArgumentNullException(nameof(getPendingPackages));
 
-        private readonly Action<DispatcherCollection<ChartPackage>> setPendingPackages = setPendingPackages ?? throw new ArgumentNullException(nameof(setPendingPackages));
+        private readonly Action<ObservableCollection<ChartPackage>> setPendingPackages = setPendingPackages ?? throw new ArgumentNullException(nameof(setPendingPackages));
 
-        private readonly Func<DispatcherCollection<ChartPackage>> getInstalledPackages = getInstalledPackages ?? throw new ArgumentNullException(nameof(getInstalledPackages));
+        private readonly Func<ObservableCollection<ChartPackage>> getInstalledPackages = getInstalledPackages ?? throw new ArgumentNullException(nameof(getInstalledPackages));
 
-        private readonly Action<DispatcherCollection<ChartPackage>> setInstalledPackages = setInstalledPackages ?? throw new ArgumentNullException(nameof(setInstalledPackages));
+        private readonly Action<ObservableCollection<ChartPackage>> setInstalledPackages = setInstalledPackages ?? throw new ArgumentNullException(nameof(setInstalledPackages));
 
         private readonly Action raiseInstalledPackagesChanged = raiseInstalledPackagesChanged ?? throw new ArgumentNullException(nameof(raiseInstalledPackagesChanged));
 
-        private readonly Func<IEnumerable<ChartPackage>, DispatcherCollection<ChartPackage>> packageCollectionFactory = packageCollectionFactory ?? throw new ArgumentNullException(nameof(packageCollectionFactory));
+        private readonly Func<IEnumerable<ChartPackage>, ObservableCollection<ChartPackage>> packageCollectionFactory = packageCollectionFactory ?? throw new ArgumentNullException(nameof(packageCollectionFactory));
+
+        private readonly IUiScheduler uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
+
+        private readonly Func<Action, bool> tryDeferCollectionMutation = tryDeferCollectionMutation ?? throw new ArgumentNullException(nameof(tryDeferCollectionMutation));
+
+        private readonly Action<Action> runPackageCollectionStateMutation = runPackageCollectionStateMutation ?? throw new ArgumentNullException(nameof(runPackageCollectionStateMutation));
 
         public void ApplyPendingPackageMutationDelta(
             PendingPackageMutationDelta delta,
@@ -67,7 +78,7 @@ internal sealed partial class PackageLifecycleOwner
             List<ChartPackage> nextPendingPackages = [.. (pendingPackages ?? [])
             .Where(package => package != null)];
             nextPendingPackages.AddRange(packagesToAddList);
-            DispatcherCollection<ChartPackage> remainingPackages = packageCollectionFactory(nextPendingPackages);
+            ObservableCollection<ChartPackage> remainingPackages = packageCollectionFactory(nextPendingPackages);
             if (remainingPackages == null)
             {
                 throw new InvalidOperationException("Package collection factory returned null.");
@@ -125,7 +136,7 @@ internal sealed partial class PackageLifecycleOwner
 
             if (delta.RaiseInstalledPackagesChanged)
             {
-                raiseInstalledPackagesChanged();
+                InvokeOnUi(raiseInstalledPackagesChanged);
             }
             return result;
         }
@@ -298,34 +309,33 @@ internal sealed partial class PackageLifecycleOwner
             var pathCleanupSet = new HashSet<string>(
                 pathCleanupList.Select(OwnedChartCollectionState.CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
                 StringComparer.OrdinalIgnoreCase);
-            DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
             bool installedPackagesChanged = false;
-            List<ChartPackage> emptyInstalledPackages = [];
-
-            foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
+            runPackageCollectionStateMutation(() =>
             {
-                if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedFile(entry, removedIdentityKeySet, pathCleanupSet)))
+                ObservableCollection<ChartPackage> installedPackages = getInstalledPackages();
+                List<ChartPackage> emptyInstalledPackages = [];
+                foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
                 {
-                    installedPackagesChanged = true;
-                    if (installedPackage.ChartEntries.Count == 0)
+                    if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedFile(entry, removedIdentityKeySet, pathCleanupSet)))
                     {
-                        emptyInstalledPackages.Add(installedPackage);
+                        installedPackagesChanged = true;
+                        if (installedPackage.ChartEntries.Count == 0)
+                        {
+                            emptyInstalledPackages.Add(installedPackage);
+                        }
                     }
                 }
-            }
-
-            if (emptyInstalledPackages.Count > 0)
-            {
-                foreach (ChartPackage emptyInstalledPackage in emptyInstalledPackages)
+                if (emptyInstalledPackages.Count > 0)
                 {
-                    installedPackages.Remove(emptyInstalledPackage);
+                    HashSet<ChartPackage> emptyPackageSet = [.. emptyInstalledPackages];
+                    setInstalledPackages(packageCollectionFactory(
+                        installedPackages.Where(package => !emptyPackageSet.Contains(package))));
                 }
-                setInstalledPackages(installedPackages);
-            }
+            });
 
             if (installedPackagesChanged)
             {
-                raiseInstalledPackagesChanged();
+                InvokeOnUi(raiseInstalledPackagesChanged);
             }
         }
 
@@ -348,32 +358,52 @@ internal sealed partial class PackageLifecycleOwner
             var pathCleanupSet = new HashSet<string>(
                 pathCleanupList.Select(OwnedChartCollectionState.CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
                 StringComparer.OrdinalIgnoreCase);
-            DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
             bool installedPackagesChanged = false;
-            List<ChartPackage> emptyInstalledPackages = [];
-            foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
+            runPackageCollectionStateMutation(() =>
             {
-                if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedBmsonFile(entry, removedIdentityKeySet, pathCleanupSet)))
+                ObservableCollection<ChartPackage> installedPackages = getInstalledPackages();
+                List<ChartPackage> emptyInstalledPackages = [];
+                foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
                 {
-                    installedPackagesChanged = true;
-                    if (installedPackage.ChartEntries.Count == 0)
+                    if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedBmsonFile(entry, removedIdentityKeySet, pathCleanupSet)))
                     {
-                        emptyInstalledPackages.Add(installedPackage);
+                        installedPackagesChanged = true;
+                        if (installedPackage.ChartEntries.Count == 0)
+                        {
+                            emptyInstalledPackages.Add(installedPackage);
+                        }
                     }
                 }
-            }
-            if (emptyInstalledPackages.Count > 0)
-            {
-                foreach (ChartPackage emptyInstalledPackage in emptyInstalledPackages)
+                if (emptyInstalledPackages.Count > 0)
                 {
-                    installedPackages.Remove(emptyInstalledPackage);
+                    HashSet<ChartPackage> emptyPackageSet = [.. emptyInstalledPackages];
+                    setInstalledPackages(packageCollectionFactory(
+                        installedPackages.Where(package => !emptyPackageSet.Contains(package))));
                 }
-                setInstalledPackages(installedPackages);
-            }
+            });
             if (installedPackagesChanged)
             {
-                raiseInstalledPackagesChanged();
+                InvokeOnUi(raiseInstalledPackagesChanged);
             }
+        }
+
+        private void InvokeOnUi(Action mutation)
+        {
+            if (mutation == null)
+            {
+                throw new ArgumentNullException(nameof(mutation));
+            }
+            if (tryDeferCollectionMutation(mutation))
+            {
+                return;
+            }
+            Dispatcher dispatcher = uiScheduler.Dispatcher;
+            if (dispatcher == null || uiScheduler.CheckAccess())
+            {
+                mutation();
+                return;
+            }
+            dispatcher.Invoke(mutation);
         }
 
         private static bool IsMatchedRemovedFile(PackageChartEntry entry, HashSet<string> removedIdentityKeys, HashSet<string> pathCleanupPaths)

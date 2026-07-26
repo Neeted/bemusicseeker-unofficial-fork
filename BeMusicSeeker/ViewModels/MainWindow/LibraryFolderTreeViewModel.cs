@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
@@ -16,7 +17,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearchRootRuntimePort
 {
-    private readonly DispatcherCollection<string> bmsParentFolderList;
+    private readonly ObservableCollection<string> bmsParentFolderList;
 
     private readonly Dispatcher uiDispatcher;
 
@@ -49,7 +50,7 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
         this.openDirectory = openDirectory ?? throw new ArgumentNullException(nameof(openDirectory));
         this.uiDispatcher = (uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler))).Dispatcher
             ?? throw new InvalidOperationException("A live UI dispatcher is required for the library tree.");
-        bmsParentFolderList = new DispatcherCollection<string>(uiDispatcher);
+        bmsParentFolderList = new ObservableCollection<string>();
         this.log = log ?? (_ => { });
         this.logWarning = logWarning ?? (_ => { });
     }
@@ -82,7 +83,7 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     /// <summary>
     /// Gets the sorted parent-folder presentation shared by the library tree and move menu.
     /// </summary>
-    public DispatcherCollection<string> BMSParentFolderList
+    public ObservableCollection<string> BMSParentFolderList
     {
         get
         {

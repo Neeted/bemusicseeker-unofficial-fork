@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -138,8 +139,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelSource.Contains("RebindChartPackagesInstalledCollectionListener"));
         Assert.IsFalse(rootViewModelSource.Contains("RebindChartPackagesPendingCollectionListener"));
         Assert.IsFalse(rootViewModelSource.Contains("public bool IsWriteLockHeldPendingInstallCharts"));
-        Assert.IsFalse(rootViewModelSource.Contains("public DispatcherCollection<ChartPackage> ChartPackagesInstalled"));
-        Assert.IsFalse(rootViewModelSource.Contains("public DispatcherCollection<ChartPackage> ChartPackagesPending"));
+        Assert.IsFalse(rootViewModelSource.Contains("public ObservableCollection<ChartPackage> ChartPackagesInstalled"));
+        Assert.IsFalse(rootViewModelSource.Contains("public ObservableCollection<ChartPackage> ChartPackagesPending"));
     }
 
     [TestMethod]
@@ -5122,7 +5123,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initializeTail = ExtractBetween(
             libraryCode,
             "if (updateIrScore && activeScoreSource != ActiveScoreSource.None)",
-            "if (installTblCheck)");
+            "stopwatchInitialize.Stop();");
         string deferredRun = ExtractBetween(
             libraryCode,
             "private RankingRefreshRunResult RunDeferredRankingRefresh(int requestVersion)",

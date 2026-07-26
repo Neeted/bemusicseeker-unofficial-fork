@@ -74,8 +74,8 @@ Non-goals:
 - active outcome base commit: `89134990`
 - observed production checkpoint: `89134990`
 - active execution package: `Build, dependency and output closure`
-- execution anchor: `MIG-04-B1 Technology-neutral observable model contract` (active)
-- sequence cursor: `MIG-04-B1 Technology-neutral observable model contract` (active)
+- execution anchor: `MIG-04-B3 Managed dependency graph and output policy` (active)
+- sequence cursor: `MIG-04-B3 Managed dependency graph and output policy` (active)
 - next outcome: `MIG-05 .NET 10 migration rehearsal and handoff` (ready)
 
 目的:
@@ -126,9 +126,9 @@ Non-goals:
 
 | Batch | Unit | State | Closure family |
 |---|---|---|---|
-| `MIG-04` | `B1` | `active` | `technology-neutral observable model contract` |
-| `MIG-04` | `B2` | `pending` | `owner-held observable collections` |
-| `MIG-04` | `B3` | `pending` | `managed dependency graph and output policy` |
+| `MIG-04` | `B1` | `completed` | `technology-neutral observable model contract` |
+| `MIG-04` | `B2` | `completed` | `owner-held observable collections` |
+| `MIG-04` | `B3` | `active` | `managed dependency graph and output policy` |
 | `MIG-04` | `B4` | `pending` | `updater dependency, deployment boundary and MIG-04 closure` |
 
 ## Current code evidence

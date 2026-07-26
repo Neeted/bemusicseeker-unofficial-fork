@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
@@ -1728,9 +1729,7 @@ public sealed class SettingDialogEditCompletionTests
         File.WriteAllBytes(databasePath, []);
         var tables = new TestBmsPlaylist(databasePath)
         {
-            BMSTables = new Livet.DispatcherCollection<BMSTable>(
-                new System.Collections.ObjectModel.ObservableCollection<BMSTable>(),
-                Dispatcher.CurrentDispatcher)
+            BMSTables = new ObservableCollection<BMSTable>(new System.Collections.ObjectModel.ObservableCollection<BMSTable>())
         };
         tables.StartupBackgroundTaskScheduler = (operation, reason, _, _) =>
         {

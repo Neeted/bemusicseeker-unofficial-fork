@@ -31,9 +31,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new TestBmsPlaylist(songDbPath)
             {
-                BMSTables = new DispatcherCollection<BMSTable>(
-                    new ObservableCollection<BMSTable>(),
-                    Dispatcher.CurrentDispatcher)
+                BMSTables = new ObservableCollection<BMSTable>()
             };
 
             BMSTable table = playlist.CreateBMSTable();
@@ -536,9 +534,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new TestBmsPlaylist(songDbPath)
             {
-                BMSTables = new DispatcherCollection<BMSTable>(
-                    new ObservableCollection<BMSTable>(new[] { new BMSTable { name = "DuplicateImport" } }),
-                    Dispatcher.CurrentDispatcher)
+                BMSTables = new ObservableCollection<BMSTable>(new[] { new BMSTable { name = "DuplicateImport" } })
             };
 
             PlaylistAlreadyExistsException ex = await Assert.ThrowsExceptionAsync<PlaylistAlreadyExistsException>(async delegate

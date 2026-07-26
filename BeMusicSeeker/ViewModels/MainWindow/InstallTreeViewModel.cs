@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Collections.ObjectModel;
 using BeMusicSeeker.Models;
 using Livet;
 using Livet.EventListeners;
@@ -24,13 +25,13 @@ public sealed class InstallTreeViewModel : ViewModel
     /// <summary>
     /// Gets the installed package collection exposed to the tree view.
     /// </summary>
-    public DispatcherCollection<ChartPackage> ChartPackagesInstalled
+    public ObservableCollection<ChartPackage> ChartPackagesInstalled
         => library?.ChartPackagesInstalled;
 
     /// <summary>
     /// Gets the pending package collection exposed to the tree view.
     /// </summary>
-    public DispatcherCollection<ChartPackage> ChartPackagesPending
+    public ObservableCollection<ChartPackage> ChartPackagesPending
         => library?.ChartPackagesPending;
 
     /// <summary>

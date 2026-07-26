@@ -1346,9 +1346,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     {
         var playlist = new TestBmsPlaylist(songDbPath)
         {
-            BMSTables = new DispatcherCollection<BMSTable>(
-                new ObservableCollection<BMSTable>(tables),
-                Dispatcher.CurrentDispatcher)
+            BMSTables = new ObservableCollection<BMSTable>(tables)
         };
         SetViewModelField(viewModel, "tables", playlist);
         viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);

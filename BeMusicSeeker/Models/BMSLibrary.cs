@@ -24,7 +24,6 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Codeplex.Data;
-using Livet;
 using Microsoft.VisualBasic.FileIO;
 using NLog;
 using Ribbit.Logging;
@@ -1168,19 +1167,19 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>
     /// インストール待ち（Pending状態）の chart package のコレクションです。UIスレッドへのディスパッチに対応しています。
     /// </summary>
-    public DispatcherCollection<ChartPackage> ChartPackagesPending
+    public ObservableCollection<ChartPackage> ChartPackagesPending
     {
         get => packageLifecycleOwner.PendingPackages;
-        set => packageLifecycleOwner.SetPendingPackages(value);
+        internal set => packageLifecycleOwner.SetPendingPackages(value);
     }
 
     /// <summary>
     /// インストール済みの chart package のコレクションです。UIスレッドへのディスパッチに対応しています。
     /// </summary>
-    public DispatcherCollection<ChartPackage> ChartPackagesInstalled
+    public ObservableCollection<ChartPackage> ChartPackagesInstalled
     {
         get => packageLifecycleOwner.InstalledPackages;
-        set => packageLifecycleOwner.SetInstalledPackages(value);
+        internal set => packageLifecycleOwner.SetInstalledPackages(value);
     }
 
     /// <summary>
@@ -2539,12 +2538,11 @@ public partial class BMSLibrary : ObservableObject
             everythingNative);
         packageLifecycleOwner = new PackageLifecycleOwner(
             dbGateway,
+            uiScheduler,
             ProcessPendingInstallEstimateBatch,
             HandlePendingEstimateBatchException,
             propertyName => RaisePropertyChanged(propertyName),
-            packages => new DispatcherCollection<ChartPackage>(
-                new ObservableCollection<ChartPackage>(packages),
-                this.uiScheduler.Dispatcher),
+            packages => new ObservableCollection<ChartPackage>(packages),
             () => RaisePropertyChanged(() => ChartPackagesInstalled));
         pendingEstimatedInstallOwner = new(
             packageInstallService,
@@ -2764,6 +2762,7 @@ public partial class BMSLibrary : ObservableObject
                 ProcessPendingInstallEstimateEvaluationPipeline(request, source, token, evaluationContext, evaluationRequests, executionPolicy, ref completed, ref lowConfidenceCount);
                 if (!token.IsCancellationRequested && request.RegroupEligibleSourceDirectories.Length > 0)
                 {
+                    using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
                     using (rwlockBMSFilesInitializedAll.GetReaderGuard())
                     {
                         using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -3956,11 +3955,13 @@ public partial class BMSLibrary : ObservableObject
                     },
                     delegate
                     {
-                        _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, flag);
-                        if (flag)
-                        {
-                            packageLifecycleOwner.StartupReadiness.MarkPendingPackagesRestored();
-                        }
+                        _initialize(
+                            songTblLoad: false,
+                            scoreTblrLoad: false,
+                            songTblFileCheck: false,
+                            setMainteInfo: false,
+                            updateIrScore: false,
+                            installTblCheck: false);
                     });
                 scheduleDeferredInstallableMaintenance = setMaintenanceInfo;
                 TimeSpan timeSpan = DateTime.Now - now;
@@ -3975,6 +3976,23 @@ public partial class BMSLibrary : ObservableObject
             }
             ResetEverythingFallbackWarningQueue();
             throw;
+        }
+        if (flag)
+        {
+            using (packageLifecycleOwner.BeginCollectionMutationScope())
+            {
+                using (rwlockPendingInstallCharts.GetWriterGuard())
+                {
+                    using (rwlockBMSFiles.GetReaderGuard())
+                    {
+                        _ = packageLifecycleOwner.ReloadInstallTable(
+                            initializationService,
+                            dbGateway,
+                            ContainsInstalledChartUnsafe);
+                    }
+                }
+            }
+            packageLifecycleOwner.StartupReadiness.MarkPendingPackagesRestored();
         }
         if (flag)
         {
@@ -4318,20 +4336,6 @@ public partial class BMSLibrary : ObservableObject
             && (options.EnableDownloadLr2IrScoreAndDetectUnsent || options.UpdateLr2IrRankingCacheOnStartup))
         {
             QueueDeferredRankingRefresh("initialize_update_ir_score");
-        }
-        if (installTblCheck)
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    InstallTableLoadResult installTableLoadResult = packageLifecycleOwner.ReloadInstallTable(
-                        initializationService,
-                        dbGateway,
-                        ContainsInstalledChartUnsafe);
-                    installTblCheckMs = installTableLoadResult.TotalMs;
-                }
-            }
         }
         stopwatchInitialize.Stop();
         LogInstallPerformance("init_library_internal song_tbl_load_ms=" + songTblLoadMs + " score_tbl_load_ms=" + scoreTblLoadMs + " song_tbl_file_check_ms=" + songTblFileCheckMs + " set_maintenance_ms=" + setMaintenanceMs + " set_mode_ms=" + setModeMs + " set_health_ms=" + setHealthMs + " set_zero_note_ms=" + setZeroNoteMs + " install_tbl_check_ms=" + installTblCheckMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);

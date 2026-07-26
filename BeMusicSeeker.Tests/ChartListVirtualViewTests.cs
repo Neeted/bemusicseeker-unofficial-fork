@@ -876,7 +876,7 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -955,7 +955,7 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -1028,7 +1028,7 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -1099,7 +1099,7 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -1511,7 +1511,7 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -1648,7 +1648,7 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
@@ -2408,9 +2408,7 @@ public sealed class ChartListVirtualViewTests
         try
         {
             var library = new TestBmsLibrary(songDbPath);
-            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
-                new ObservableCollection<ChartPackage>([package]),
-                Dispatcher.CurrentDispatcher);
+            library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var selectedChart = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
@@ -2460,9 +2458,7 @@ public sealed class ChartListVirtualViewTests
         try
         {
             var library = new TestBmsLibrary(songDbPath);
-            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
-                new ObservableCollection<ChartPackage>([package]),
-                Dispatcher.CurrentDispatcher);
+            library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
@@ -2512,9 +2508,7 @@ public sealed class ChartListVirtualViewTests
         try
         {
             var library = new TestBmsLibrary(songDbPath);
-            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
-                new ObservableCollection<ChartPackage>([package]),
-                Dispatcher.CurrentDispatcher);
+            library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var packageTarget = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
@@ -2591,9 +2585,7 @@ public sealed class ChartListVirtualViewTests
         try
         {
             var library = new TestBmsLibrary(songDbPath);
-            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
-                new ObservableCollection<ChartPackage>([package]),
-                Dispatcher.CurrentDispatcher);
+            library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
@@ -2634,9 +2626,7 @@ public sealed class ChartListVirtualViewTests
         try
         {
             var library = new TestBmsLibrary(songDbPath);
-            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
-                new ObservableCollection<ChartPackage>([package]),
-                Dispatcher.CurrentDispatcher);
+            library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             var target = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
                 null,
@@ -2690,9 +2680,7 @@ public sealed class ChartListVirtualViewTests
         try
         {
             var library = new TestBmsLibrary(songDbPath);
-            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
-                new ObservableCollection<ChartPackage>([package]),
-                Dispatcher.CurrentDispatcher);
+            library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
                 staleEntry.Chart,
@@ -4155,7 +4143,7 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             () => null!,
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            new ObservableCollection<BMSTable>(),
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,

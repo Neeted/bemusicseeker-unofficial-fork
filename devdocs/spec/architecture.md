@@ -56,9 +56,9 @@ startup は次を分けて扱う。
 
 ## UI / Model Concurrency Boundary
 
-WPF UI に binding される `DispatcherCollection` は UI read model として扱う。domain model の writer lock を保持したまま、別 thread から `DispatcherCollection` の `Add` / `Remove` / `Replace` / `Clear` を呼ばない。
+WPF UI に binding される `ObservableCollection` は UI read model として扱い、所有者の UI scheduler / collection applier 境界を通して更新する。domain model の writer lock を保持したまま、別 thread から `ObservableCollection` の `Add` / `Remove` / `Replace` / `Clear` を直接呼ばない。
 
-理由は、`DispatcherCollection` が collection / property change 通知を UI dispatcher へ同期転送するためである。background thread が model writer lock を保持したまま UI dispatcher を待ち、UI thread が同じ model の reader lock を待つと deadlock になる。
+理由は、collection / property change 通知を UI dispatcher 上で適用する必要があるためである。background thread が model writer lock を保持したまま UI dispatcher を待ち、UI thread が同じ model の reader lock を待つと deadlock になる。
 
 playlist / library などの長い操作は次の順に分ける。
 
