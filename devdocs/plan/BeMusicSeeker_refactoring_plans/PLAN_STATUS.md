@@ -92,18 +92,18 @@ Non-goals:
 - package version、replacement、production TFM変更、deps.json / apphost / RID / publish layoutへの移行（`MIG-05`以降のmigration plan）。
 - release package作成、tag、push、publish（Refactoring Completion Gate後かつ明示指示後）。
 
-## Active outcome
+## Completed outcome
 
 ### `MIG-05 .NET 10 migration rehearsal and handoff`
 
-状態: in progress
+状態: completed
 
 - active outcome base commit: `861f569f`
 - observed production checkpoint: `861f569f`
 - active execution package: `.NET 10 migration rehearsal and handoff`
-- execution anchor: `MIG-05 rehearsal and blocker classification` (active)
-- sequence cursor: `MIG-05 rehearsal and blocker classification` (active; batch not materialized)
-- next outcome: `GATE-01 Refactoring completion audit` (not started)
+- execution anchor: `MIG-05 rehearsal and blocker classification` (completed)
+- sequence cursor: `MIG-05 rehearsal and blocker classification` (completed)
+- next outcome: `GATE-01 Refactoring completion audit` (ready)
 
 目的:
 
@@ -111,8 +111,8 @@ clean production checkpointからtemporary worktreeまたはrepository外copyを
 
 完了条件:
 
-- production branchを変更せずdisposable probeを実行し、restore / buildの結果と残失敗を`PROBE-01`および既存blocker IDへ分類する。
-- owner / MVVM redesign不足が残っていないこと、または最も近い未達Outcomeへ戻す必要がある具体的evidenceを確定する。
+- production branchを変更せずdisposable probeを実行し、restore / buildの結果と残診断を`PROBE-01`および既存blocker IDへ分類した。
+- restore / buildは3 projectとも成功し、owner / MVVM redesign不足を示す失敗はなく、残診断はpackage / assembly、SDK / TFM、interop / UI technology移行へ分類した。
 - probe差分、artifact、full logをproduction worktreeへ持ち込まず、MIG-05のverification、fresh review、status更新をaudit/status commitで閉じる。
 
 Non-goals:
@@ -146,14 +146,6 @@ Non-goals:
 | `MIG-03` | `B3` | `completed` | `external-player native window and host attachment` |
 | `MIG-03` | `B4` | `completed` | `technology-neutral presentation contracts and MIG-03 closure` |
 
-## Active implementation batch
-
-状態: not materialized
-
-`MIG-05` plannerがexecution anchor全体をinventoryして有限batchを作成する。planner結果を受領するまでactiveまたはpendingのunitはない。
-
-plannerはMIG-05のtemporary probe、分類、handoffを同じverification scopeのcohesiveなunitへまとめ、status-only progress commitを作らない。
-
 ## Current code evidence
 
 - `MainWindowViewModel.cs`: 5,616行。非eventを含め`async void`宣言は検出されない。
@@ -168,6 +160,7 @@ plannerはMIG-05のtemporary probe、分類、handoffを同じverification scope
 - `MIG-03-B1`〜`B4`でnative file discovery、audio SDK、external-player window host、window placement / player-resolution、settings-dialog presentation contractを用途別adapterとtechnology-neutral contractへ閉じた。SettingsDialogViewModelのLR2 schema windowは専用の中立portへ接続し、WPF request factoryはview adapterへ限定した。Full verification、Release executable smoke、fresh outcome reviewが完了している。
 - `MIG-04-B3`でresolved managed reference graphをproject-owned MSBuild output policyへ接続し、managed DLLを`libs`へ直接出力する旧copy-then-relocate targetを退役させた。Release verificationはroot managed DLL、legacy native directory、`libs/x86`を拒否し、`app.config`の`libs` probingとoutput layoutをbehavior / project testsで確認する。
 - `MIG-04-B4`で未使用の`System.Deployment`参照を削除し、updater projectをbuild-only dependencyとして維持しながら`BeMusicSeeker.Updater.exe`をアプリ出力ルートへ配置するdeployment boundaryをproject / behavior test / Release verificationで確認した。updaterはmanaged dependencyの`libs`へ混在させず、missing outputはbuild failureとする。併せて初期化時のinstall table復元をcatalog writer / failure cleanup境界へ戻し、通常のpackage mutationとの競合を防ぐbehavior / source-order testを追加した。
+- `MIG-05`でproduction branch外の一時コピーに3 projectだけ`net10.0-windows`を適用し、solution restore / Release buildを成功させた。残診断は`DEP-01`、`INT-01`、`UIH-01`のpackage / assembly、interop / UI technology、SDK / TFM移行課題として分類し、production worktreeとnet472契約は変更していない。
 
 ## Outcome states
 
@@ -192,8 +185,8 @@ plannerはMIG-05のtemporary probe、分類、handoffを同じverification scope
 | MIG-02 Path, process and updater closure | completed |
 | MIG-03 Native interop and UI-host closure | completed |
 | MIG-04 Build, dependency and output closure | completed |
-| MIG-05 .NET 10 migration rehearsal and handoff | in progress |
-| GATE-01 Refactoring completion audit | not started |
+| MIG-05 .NET 10 migration rehearsal and handoff | completed |
+| GATE-01 Refactoring completion audit | ready |
 
 許可する状態は`not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。internal complexity、行数trigger超過、複数caller、broad routeは`blocked`理由にしない。
 
@@ -205,10 +198,10 @@ plannerはMIG-05のtemporary probe、分類、handoffを同じverification scope
 | Library ownership | met | pending estimated-install、library writer / SQL seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Playlist ownership | met | custom-folder output status persistence、external registration preparation、URL completion test seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Configuration ownership | met | `MIG-01-B1`〜`B4`でsettings snapshot、application lifetime、culture catalog、UI schedulerをcomposition boundaryへ閉じ、Full verification、Release smoke、fresh outcome reviewを完了した |
-| Platform boundary | met | `MIG-02`でPATH-01 / PROC-01 / UPD-01、`MIG-03`でNAT-01 / INT-01 / UIH-01、`MIG-04-B3`でLAYOUT-01 / DEP-01、`MIG-04-B4`でDEPLOY-01のproduction / project boundaryを閉じた。migration rehearsalは`MIG-05`で実施する |
-| Migration readiness | in progress | disposable `net10.0-windows` restore / build rehearsalと`PROBE-01`分類を`MIG-05`で実施する |
+| Platform boundary | met | `MIG-02`でPATH-01 / PROC-01 / UPD-01、`MIG-03`でNAT-01 / INT-01 / UIH-01、`MIG-04-B3`でLAYOUT-01 / DEP-01、`MIG-04-B4`でDEPLOY-01のproduction / project boundaryを閉じ、`MIG-05`でmigration probeの残診断を分類した |
+| Migration readiness | met | disposable `net10.0-windows` restore / build rehearsalをproduction branch外で実施し、`PROBE-01`を既存blocker IDへ分類した |
 | Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
-| Quality | in progress | UI-05、OWN-01、MIG-01、MIG-02、MIG-03、MIG-04のFull verification、Release smoke、fresh outcome reviewは完了。MIG-05 / Gate evidenceは未完了 |
+| Quality | in progress | UI-05、OWN-01、MIG-01、MIG-02、MIG-03、MIG-04、MIG-05のverification、Release smoke、fresh outcome reviewは完了。GATE-01 evidenceは未完了 |
 
 ## Active external blocker
 

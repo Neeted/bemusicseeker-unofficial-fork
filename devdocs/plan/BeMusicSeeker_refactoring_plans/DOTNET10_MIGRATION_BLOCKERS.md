@@ -12,7 +12,7 @@
 - config: `app.config`、`System.Configuration`、custom portable settings provider
 - dependencies: NuGet と `libs/*.dll` HintPath の混在を、application projectのresolved reference graphで出力する
 - native: `native/*.dll`、`vendor/native/x64/*.dll`、project-owned output policy
-- migration rehearsal: 実施中（production branchは未変更）
+- migration rehearsal: 実施済み（production branchは未変更）
 
 ## Blockers
 
@@ -31,7 +31,7 @@
 | LAYOUT-01 | `app.config` probing / managed output | application projectのresolved managed reference graphを`libs`へ直接出力し、rootのlegacy DLLとlegacy native directoryをverificationで拒否する | output policy、probing、copy / removalをproject / loader boundaryへ閉じ、business workflowへ漏らさない | `MIG-04` | deps.json / apphost / publish layoutへ置換 | boundary met |
 | DEP-01 | HintPath managed DLL | Livet、MetroRadiance、Expression、sqlite.net、Bass.Net等はapplication projectのHintPath / PackageReference graphに限定し、runtime load policyは`libs` probingへ集約する | DLL固有型をapplication / domain contractから排除し、各依存のusage / load policyをproject境界で説明できる | `MIG-04` | NuGet / replacement / retentionを依存ごとに決定 | boundary met |
 | DEPLOY-01 | `System.Deployment` / updater project | `System.Deployment`のsource usageはなく参照を削除し、updaterはapplication projectのbuild-only project referenceからroot deployment artifactへ明示的にcopyする | updater projectのbuild dependency、root配置、missing-output failureをproject / verification / behavior testで確認し、managed dependencyの`libs`境界へ混在させない | `MIG-04` | updater protocol / process behaviorと.NET対応deploymentを再検証 | boundary met |
-| PROBE-01 | `.NET 10` migration rehearsal | `net10.0-windows` restore / buildで表面化するerror分類が未確認 | disposable worktree / copyで最小TFM probeを実行し、残失敗が既存blockerのpackage / API / runtime / layout / deployment / data migrationへ分類され、owner / MVVM再設計が残っていない | `MIG-05` | 分類済みerrorを入力にproduction migrationを実装 | open |
+| PROBE-01 | `.NET 10` migration rehearsal | disposable copyの3 projectで`net10.0-windows` restore / Release buildが成功。残診断はpackage / assembly compatibility（`DEP-01`）、interop / UI technology（`INT-01` / `UIH-01`）、SDK / TFM cleanup（`UIH-01`）へ分類済み | disposable worktree / copyで最小TFM probeを実行し、残失敗が既存blockerのpackage / API / runtime / layout / deployment / data migrationへ分類され、owner / MVVM再設計が残っていない | `MIG-05` | 分類済みerrorを入力にproduction migrationを実装 | verified |
 
 ## Gate classification rule
 
