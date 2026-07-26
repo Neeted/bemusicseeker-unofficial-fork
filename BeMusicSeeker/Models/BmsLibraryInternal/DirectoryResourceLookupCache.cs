@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
@@ -453,6 +454,35 @@ internal sealed class DirectoryResourceLookupCache
             return ReverseLookupMutationResult.Empty;
         }
         return SetEntry(directoryPath, CreateEntry(scanResult, directoryPath));
+    }
+
+    internal ReverseLookupMutationResult RemoveUnderSourceDirectory(string sourceDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(sourceDirectory))
+        {
+            return ReverseLookupMutationResult.Empty;
+        }
+
+        ReverseLookupMutationResult mutation = ReverseLookupMutationResult.Empty;
+        List<string> removedDirectories = [.. Keys
+            .Where(path => (path + Path.DirectorySeparatorChar).StartsWith(
+                sourceDirectory + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))];
+        foreach (string directory in removedDirectories)
+        {
+            mutation = mutation.Combine(RemoveDirWithResult(directory));
+        }
+        return mutation;
+    }
+
+    internal ReverseLookupMutationResult AddScanDirectories(ChartScanResult scan)
+    {
+        ReverseLookupMutationResult mutation = ReverseLookupMutationResult.Empty;
+        foreach (string chartDirectory in scan?.ChartDirectories ?? [])
+        {
+            mutation = mutation.Combine(AddDir(chartDirectory, scan));
+        }
+        return mutation;
     }
 
     public bool RemoveDir(string directoryPath)

@@ -6,7 +6,6 @@
 
 | ID | State | Blocking condition | Owner | Exit evidence |
 |---|---|---|---|---|
-| `RFR-01` | open | file-operation ownerが`BMSLibrary`保持broad portを経由する | terminal refactoring `B1` | facade adapter／broad port退役、route tests、Full verify、fresh review |
 | `RFR-02` | open | non-event `async void PlayStart`で完了／失敗が観測不能 | terminal refactoring `B2` | Task／typed result contract、playback tests、Full verify |
 | `TFM-01` | queued | 5 projectsが`net472` | `NET10-01` | 全projectのtarget matrix、Release build／test |
 | `CFG-01` | queued | Framework configuration referenceとlegacy app.config semantics | `NET10-01/02` | ConfigurationManager package、settings golden test、probing非依存 |

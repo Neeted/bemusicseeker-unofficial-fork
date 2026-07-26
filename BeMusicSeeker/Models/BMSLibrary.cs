@@ -2496,14 +2496,6 @@ public partial class BMSLibrary : ObservableObject
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new(this.dialogService);
-        libraryFileOperationSynchronization = new(
-            new LibraryFileOperationMutationBoundary(this),
-            rwlockBMSFilesInitializedAll,
-            rwlockBMSFilesInitializedMin,
-            rwlockPendingInstallCharts,
-            rwlockBMSFiles,
-            rwlockSongDBInstall);
-        libraryFileOperationOwner = new(new LibraryFileOperationPort(this));
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
         catalogChartInfoOwner = new(
             RaisePropertyChanged,
@@ -2622,6 +2614,44 @@ public partial class BMSLibrary : ObservableObject
             CreatePendingEstimatedInstallMaintenanceCapability(),
             CreatePendingEstimatedInstallNotificationCapability(),
             resourceHealthOwner);
+        libraryFileOperationSynchronization = new(
+            new LibraryFileOperationMutationBoundary(lr2SynchronizationOwner, packageLifecycleOwner),
+            rwlockBMSFilesInitializedAll,
+            rwlockBMSFilesInitializedMin,
+            rwlockPendingInstallCharts,
+            rwlockBMSFiles,
+            rwlockSongDBInstall);
+        libraryFileOperationOwner = new(
+            libraryFileOperationSynchronization,
+            libraryFileOperationsService,
+            packageInstallService,
+            packageLifecycleOwner,
+            directoryResourceLookupCache,
+            this.fileMutationService,
+            installDestinationStateOwner,
+            scopedOperationDialogService,
+            lr2SynchronizationOwner,
+            catalogOwnedCollectionOwner,
+            catalogStorageRowsOwner,
+            CreateInstalledChartKeySnapshotExcludingChartsUnsafe,
+            CreateChartFolderPathFromCharts,
+            GetDuplicateInstallRepairPaths,
+            ApplyLibraryMutationDeltaCore,
+            (charts, forceUpdate, resourceHealthIndexUpdateMode, resourceHealthMutationReason)
+                => _ = ApplyCatalogMaintenance(
+                    charts,
+                    forceUpdate,
+                    resourceHealthIndexUpdateMode: resourceHealthIndexUpdateMode,
+                    resourceHealthMutationReason: resourceHealthMutationReason),
+            InvalidateDuplicateChartGroupsCache,
+            InvalidateInstalledDirectoryIndex,
+            LogReverseLookupMutationAndQueueWarmupIfNeeded,
+            LogInstallPerformance,
+            LogInstallPerformanceWarn,
+            info => NLogWrapper.FileLogger?.Info(info),
+            (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message),
+            targetOnlyFileMutationOptions,
+            recursiveDirectoryTreeFileMutationOptions);
         dbGateway.EnsureLibraryStartupSchema();
         listenerForRwlockBMSFilesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedMin);

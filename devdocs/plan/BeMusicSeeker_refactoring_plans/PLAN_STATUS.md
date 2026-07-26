@@ -15,24 +15,24 @@
 
 - MVVM／owner整理: **substantially complete**
 - strict Refactoring Completion Gate: **not yet met**
-- reason: localized `RFR-01`／`RFR-02` residuals
+- reason: `RFR-02` の observable playback-start residual
 - .NET 10 migration readiness: architecture is sufficient to start after terminal closure; dependency／runtime／deployment migration remains
 
-過去のGATE-01で報告されたFull verificationは`3357 passed / 13 skipped / 0 failed`。本レビュー環境では`dotnet`／PowerShellがなく再実行していないため、terminal changes後に必ず再検証する。
+最新のB1候補でFull verificationは`3357 passed / 13 skipped / 0 failed`、Roslynatorは`0 diagnostics`。B1のfresh reviewとcommit後にB2へ進む。
 
 ## Active outcome
 
 - active outcome: `RFR-01 Refactoring closure`
 - active execution package: `Terminal architecture residual closure`
-- execution anchor: `RFR-B1 Library file-operation composition boundary`
+- execution anchor: `RFR-B2 Observable playback-start contract`
 - planner state: active batch already materialized; plannerを起動しない
 
 ## Active implementation batch
 
 | Unit | State | Closure family | Exit |
 |---|---|---|---|
-| `B1` | active | library file-operation composition | `BMSLibrary`保持broad port／nested adapter退役、全file mutation routeとtests維持 |
-| `B2` | pending | observable playback start | non-event `async void PlayStart`退役、Task／typed resultとfailure tests |
+| `B1` | completed | library file-operation composition | `BMSLibrary`保持broad port／nested adapter退役、全file mutation routeとtests維持 |
+| `B2` | active | observable playback start | non-event `async void PlayStart`退役、Task／typed resultとfailure tests |
 | `CLOSE` | pending | Refactoring Completion Gate | Full verify、Release UI smoke、fresh outcome review、Gate met、`NET10-01` active |
 
 active／pending unitがある間はunit-plannerを再起動しない。各unitのstatus更新はproduction code commitへ含める。
@@ -48,9 +48,7 @@ active／pending unitがある間はunit-plannerを再起動しない。各unit�
 
 ### Blocking residuals
 
-1. `BeMusicSeeker/Models/BmsLibraryInternal/ILibraryFileOperationPort.cs`は45 methodsを持ち、7 mutation scope、filesystem、catalog、package、maintenance／resource-health、cache、dialog／loggingを一つのcontractで中継する。
-2. `BeMusicSeeker/Models/BMSLibrary.LibraryFileOperationPort.cs`のnested adapterは`BMSLibrary`を保持し、そのprivate owner／service／stateへforwardする。
-3. `BeMusicSeeker/Models/InternalBMSAutoPlayerSoundOnly.cs`の`PlayStart`は非event `async void`で、`PlaybackPanelViewModel`が非同期failureを観測できない。
+1. `BeMusicSeeker/Models/InternalBMSAutoPlayerSoundOnly.cs`の`PlayStart`は非event `async void`で、`PlaybackPanelViewModel`が非同期failureを観測できない。
 
 ### Migration baseline
 

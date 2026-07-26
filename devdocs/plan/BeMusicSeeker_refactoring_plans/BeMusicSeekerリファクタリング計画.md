@@ -6,16 +6,15 @@
 
 目的は文書上のOutcomeを消化することではなく、WPFアプリをMVVMとして整理し、.NET 10へ安全に移行できるowner、dependency direction、test boundaryを成立させることである。
 
-現行HEAD `5658b4f3`の静的レビューでは、shell、feature ViewModel、library／playlist owner、configuration／process／native adapterの大枠は成立している。全面的な再リファクタリングは不要であり、MVVM整理は**実用上ほぼ完了**と判断する。
+現行のterminal closure候補では、shell、feature ViewModel、library／playlist owner、configuration／process／native adapterの大枠は成立している。全面的な再リファクタリングは不要であり、MVVM整理は**実用上ほぼ完了**と判断する。
 
-ただし、計画自身の厳格なGateに対して次の2残件があるため、現時点を「完全完了」とはしない。
+ただし、計画自身の厳格なGateに対して次の残件があるため、現時点を「完全完了」とはしない。
 
 | ID | 残件 | Gateとの関係 |
 |---|---|---|
-| `RFR-01` | `ILibraryFileOperationPort`と`BMSLibrary.LibraryFileOperationPort`がfacadeを保持し、file mutation、lock、catalog、package、maintenance、cache、dialog／logの多数のprivate operationを中継する | facade private state／operationを列挙するbroad hostを残さない条件に抵触する |
 | `RFR-02` | `InternalBMSAutoPlayerSoundOnly.PlayStart`が非event `async void`で、callerが非同期完了／失敗を観測できない | non-event `async void`と観測不能なfire-and-forgetを残さない条件に抵触する |
 
-この2件をterminal packageで閉じた後、リファクタリングGateを完了し、作業の正本を.NET 10移行計画へ切り替える。
+この残件をterminal packageで閉じた後、リファクタリングGateを完了し、作業の正本を.NET 10移行計画へ切り替える。
 
 ## 成立済みのtarget boundary
 

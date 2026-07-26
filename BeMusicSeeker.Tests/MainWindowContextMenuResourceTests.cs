@@ -2882,8 +2882,6 @@ public sealed class MainWindowContextMenuResourceTests
             "private bool ExecuteMutation(");
         string autoRenameAllModel = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "Models", "BMSLibrary.LibraryFileOperationOwner.cs");
-        string autoRenamePortCode = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "Models", "BMSLibrary.LibraryFileOperationPort.cs");
         string applicationCompositionCode = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs");
         string progressHubCode = SourceTextTestHelper.ReadProductionSourceText(
@@ -2945,9 +2943,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("FinishFolderAutoRenameProgress"));
         Assert.IsFalse(viewModelCode.Contains("DispatchFolderAutoRenameProgressUpdate"));
         Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
-        StringAssert.Contains(autoRenamePortCode, "CreateOwnedRealPathChartDirectoriesUnsafe(");
-        StringAssert.Contains(autoRenamePortCode, "BuildAutoRenamePlansForSourceFolders");
-        Assert.IsFalse(autoRenameAllModel.Contains("CreateOwnedRealPathChartDirectoriesUnsafe("));
+        StringAssert.Contains(autoRenameAllModel, "CreateOwnedRealPathChartDirectoriesUnsafe");
+        StringAssert.Contains(autoRenameAllModel, "BuildAutoRenamePlansForSourceFolders");
+        Assert.IsFalse(autoRenameAllModel.Contains("ILibraryFileOperationPort"));
         Assert.IsFalse(bmsLibraryCode.Contains("CreateLibraryChartSnapshotsForFolderOperations"));
         Assert.IsFalse(autoRenameAllModel.Contains("CreateOwnedSubtreeChartSnapshot"));
         Assert.IsFalse(autoRenameAllModel.Contains("BMSFiles ??"));
@@ -5281,7 +5279,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "DispatchOwnedChartCollectionMutation(mutationResult, resourceHealthMutationReason)");
         StringAssert.Contains(mergeMethod, "ChartStorageTargetSet movedTargets = ChartStorageTargetSet.FromCharts");
         StringAssert.Contains(mergeMethod, "ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots)");
-        StringAssert.Contains(mergeMethod, "owner.ApplyLibraryMutationDeltaWithPerformanceContext");
+        StringAssert.Contains(mergeMethod, "ApplyLibraryMutationDeltaWithPerformanceContext(catalogDelta");
         Assert.IsFalse(mergeMethod.Contains("NormalizeResourceMaintenanceTargetCharts(maintenanceTargets"));
         Assert.IsFalse(mergeMethod.Contains("ChartStorageTargetSet.FromRows(movedBmsFiles, movedBmsonSongs)"));
         StringAssert.Contains(mergeMaintenanceHostMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");

@@ -27,20 +27,20 @@ internal sealed partial class LibraryFileOperationOwner
         {
             throw new ArgumentNullException(nameof(destinationDirectory));
         }
-        if (owner.TryBlockMutation(nameof(BMSLibrary.MergeChartDirectory), showMessage: true))
+        if (TryBlockMutation(nameof(BMSLibrary.MergeChartDirectory), showMessage: true))
         {
             return;
         }
 
         Stopwatch totalStopwatch = Stopwatch.StartNew();
-        owner.LogInstallPerformance("duplicate_merge_model start op=" + operationId + " src=" + sourceDirectory + " dst=" + destinationDirectory);
+        LogInstallPerformance("duplicate_merge_model start op=" + operationId + " src=" + sourceDirectory + " dst=" + destinationDirectory);
         try
         {
             RunWithMergeDirectoryWriteLocks(operationId, () =>
             {
-                List<ChartFile> sourceChartSnapshots = owner.CreateOwnedRealPathChartSnapshotsUnsafe(sourceDirectory);
-                InstallDestinationOverlayChartRefSnapshot overlayChartRefs = owner.CreateInstallDestinationOverlayChartRefSnapshot();
-                LibraryMutationDelta catalogDelta = owner.PrepareMergeDirectory(
+                List<ChartFile> sourceChartSnapshots = CreateOwnedRealPathChartSnapshotsUnsafe(sourceDirectory);
+                InstallDestinationOverlayChartRefSnapshot overlayChartRefs = CreateInstallDestinationOverlayChartRefSnapshot();
+                LibraryMutationDelta catalogDelta = PrepareMergeDirectory(
                     sourceDirectory,
                     destinationDirectory,
                     sourceChartSnapshots,
@@ -52,7 +52,7 @@ internal sealed partial class LibraryFileOperationOwner
                     out IPrimaryHashLookup existingHashes);
                 if (!mergePrepared)
                 {
-                    owner.LogInstallPerformance("duplicate_merge_model skipped op=" + operationId + " reason=no_source_charts totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                    LogInstallPerformance("duplicate_merge_model skipped op=" + operationId + " reason=no_source_charts totalMs=" + totalStopwatch.ElapsedMilliseconds);
                     return;
                 }
 
@@ -81,7 +81,7 @@ internal sealed partial class LibraryFileOperationOwner
                     destinationDirectory,
                     existingHashes))
                 {
-                    owner.InvalidateInstalledDirectoryIndex();
+                    this.invalidateInstalledDirectoryIndex();
                     ShowFolderMergeFailed(sourceDirectory, destinationDirectory);
                     return;
                 }
@@ -93,7 +93,7 @@ internal sealed partial class LibraryFileOperationOwner
                 }
                 else
                 {
-                    owner.LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
+                    LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
                 }
 
                 ChartStorageTargetSet movedTargets = ChartStorageTargetSet.FromCharts(
@@ -140,15 +140,15 @@ internal sealed partial class LibraryFileOperationOwner
                 catalogDelta.InvalidateInstalledDirectoryIndex = true;
                 catalogDelta.InvalidateParentFolderCache = true;
                 catalogDelta.ClearDuplicatedCache = true;
-                owner.ApplyLibraryMutationDeltaWithPerformanceContext(catalogDelta, "duplicate_merge_catalog_transition op=" + operationId);
+                ApplyLibraryMutationDeltaWithPerformanceContext(catalogDelta, "duplicate_merge_catalog_transition op=" + operationId);
 
-                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = owner.RemoveReverseLookupDirectoriesUnderSource(sourceDirectory);
-                reverseLookupMutation = reverseLookupMutation.Combine(owner.AddReverseLookupDirectories(mergedDirectoryScan));
-                owner.LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
+                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = RemoveReverseLookupDirectoriesUnderSource(sourceDirectory);
+                reverseLookupMutation = reverseLookupMutation.Combine(AddReverseLookupDirectories(mergedDirectoryScan));
+                LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
 
-                List<ChartFile> destinationMaintenanceChartSnapshots = owner.CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);
+                List<ChartFile> destinationMaintenanceChartSnapshots = CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);
                 ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
-                owner.LogInstallPerformance("duplicate_merge_model done op=" + operationId
+                LogInstallPerformance("duplicate_merge_model done op=" + operationId
                     + " movedBms=" + movedTargets.BmsFiles.Count
                     + " movedBmson=" + movedTargets.BmsonSongs.Count
                     + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
@@ -156,8 +156,8 @@ internal sealed partial class LibraryFileOperationOwner
         }
         catch (Exception ex)
         {
-            owner.InvalidateInstalledDirectoryIndex();
-            owner.LogInstallPerformanceWarning("duplicate_merge_model failed op=" + operationId + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds + " exception=" + ex.GetType().Name);
+            this.invalidateInstalledDirectoryIndex();
+            LogInstallPerformanceWarning("duplicate_merge_model failed op=" + operationId + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds + " exception=" + ex.GetType().Name);
             throw;
         }
     }
@@ -317,7 +317,7 @@ internal sealed partial class LibraryFileOperationOwner
 
     private void RunWithMergeDirectoryWriteLocks(long operationId, Action action)
     {
-        using IDisposable mutationScope = owner.EnterMergeWriteScope(operationId);
+        using IDisposable mutationScope = EnterMergeWriteScope(operationId);
         if (mutationScope == null)
         {
             return;
@@ -331,7 +331,7 @@ internal sealed partial class LibraryFileOperationOwner
         string destinationDirectory,
         IPrimaryHashLookup existingHashes)
     {
-        return owner.MoveMergePackageFiles(
+        return MoveMergePackageFiles(
             chartSnapshots,
             sourceDirectory,
             destinationDirectory,
@@ -340,7 +340,7 @@ internal sealed partial class LibraryFileOperationOwner
 
     private void ApplyMergeFolderMaintenance(IEnumerable<ChartFile> charts)
     {
-        owner.ApplyCatalogMaintenance(
+        ApplyCatalogMaintenance(
             charts,
             forceUpdate: true,
             resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
@@ -349,7 +349,7 @@ internal sealed partial class LibraryFileOperationOwner
 
     private void ShowFolderMergeFailed(string sourceDirectory, string destinationDirectory)
     {
-        owner.ShowOperationDialog(
+        ShowOperationDialog(
             string.Format(Resources.Error_BmsFolderMergeFailed, sourceDirectory, destinationDirectory),
             Resources.MessageBoxTitle_Error,
             MessageBoxButton.OK,
