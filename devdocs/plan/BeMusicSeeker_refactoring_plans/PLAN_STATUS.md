@@ -74,8 +74,8 @@ Non-goals:
 - active outcome base commit: `89134990`
 - observed production checkpoint: `89134990`
 - active execution package: `Build, dependency and output closure`
-- execution anchor: `MIG-04-B3 Managed dependency graph and output policy` (active)
-- sequence cursor: `MIG-04-B3 Managed dependency graph and output policy` (active)
+- execution anchor: `MIG-04-B4 Updater dependency, deployment boundary and MIG-04 closure` (active)
+- sequence cursor: `MIG-04-B4 Updater dependency, deployment boundary and MIG-04 closure` (active)
 - next outcome: `MIG-05 .NET 10 migration rehearsal and handoff` (ready)
 
 目的:
@@ -128,8 +128,8 @@ Non-goals:
 |---|---|---|---|
 | `MIG-04` | `B1` | `completed` | `technology-neutral observable model contract` |
 | `MIG-04` | `B2` | `completed` | `owner-held observable collections` |
-| `MIG-04` | `B3` | `active` | `managed dependency graph and output policy` |
-| `MIG-04` | `B4` | `pending` | `updater dependency, deployment boundary and MIG-04 closure` |
+| `MIG-04` | `B3` | `completed` | `managed dependency graph and output policy` |
+| `MIG-04` | `B4` | `active` | `updater dependency, deployment boundary and MIG-04 closure` |
 
 ## Current code evidence
 
@@ -143,6 +143,7 @@ Non-goals:
 - OWN-01-B1〜B4 の owner-boundary closure、outcome-wide Full verification、repository Release executable smoke、fresh outcome reviewが完了した。外部登録の準備はaggregate ownerのimmutable factsへ移り、URL completionはproduction scheduler routeで検証できる構造になっている。
 - `MIG-02-B1`〜`B4`でpath、external shell、external player、updater / restartのproduction routeをtyped gatewayへ閉じ、global fallbackをcomposition / adapter境界へ限定した。Full verification、Release executable smoke、fresh outcome reviewが完了している。
 - `MIG-03-B1`〜`B4`でnative file discovery、audio SDK、external-player window host、window placement / player-resolution、settings-dialog presentation contractを用途別adapterとtechnology-neutral contractへ閉じた。SettingsDialogViewModelのLR2 schema windowは専用の中立portへ接続し、WPF request factoryはview adapterへ限定した。Full verification、Release executable smoke、fresh outcome reviewが完了している。
+- `MIG-04-B3`でresolved managed reference graphをproject-owned MSBuild output policyへ接続し、managed DLLを`libs`へ直接出力する旧copy-then-relocate targetを退役させた。Release verificationはroot managed DLL、legacy native directory、`libs/x86`を拒否し、`app.config`の`libs` probingとoutput layoutをbehavior / project testsで確認する。
 
 ## Outcome states
 
@@ -180,7 +181,7 @@ Non-goals:
 | Library ownership | met | pending estimated-install、library writer / SQL seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Playlist ownership | met | custom-folder output status persistence、external registration preparation、URL completion test seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Configuration ownership | met | `MIG-01-B1`〜`B4`でsettings snapshot、application lifetime、culture catalog、UI schedulerをcomposition boundaryへ閉じ、Full verification、Release smoke、fresh outcome reviewを完了した |
-| Platform boundary | in progress | `MIG-02`でPATH-01 / PROC-01 / UPD-01、`MIG-03`でNAT-01 / INT-01 / UIH-01のproduction boundaryを閉じた。HintPath / output layoutのLAYOUT-01 / DEP-01 / DEPLOY-01は`MIG-04`で閉じるため、migration-ready gateは未達 |
+| Platform boundary | in progress | `MIG-02`でPATH-01 / PROC-01 / UPD-01、`MIG-03`でNAT-01 / INT-01 / UIH-01、`MIG-04-B3`でLAYOUT-01 / DEP-01のproduction boundaryを閉じた。updater project / deploymentのDEPLOY-01は`MIG-04-B4`で閉じるため、migration-ready gateは未達 |
 | Migration readiness | not met | disposable `net10.0-windows` restore / build rehearsalを`MIG-05`で実施する |
 | Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
 | Quality | in progress | UI-05、OWN-01、MIG-01、MIG-02、MIG-03のFull verification、Release smoke、fresh outcome reviewは完了。後続Outcome / Gate evidenceは未完了 |

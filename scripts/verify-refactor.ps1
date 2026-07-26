@@ -108,6 +108,48 @@ function Invoke-MonitoredTestCommand {
     }
 }
 
+function Assert-ReleaseOutputLayout {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ExecutablePath
+    )
+
+    $outputDirectory = Split-Path -Parent $ExecutablePath
+    $rootManagedAssemblies = @(Get-ChildItem -LiteralPath $outputDirectory -Filter '*.dll' -File -ErrorAction SilentlyContinue)
+    if ($rootManagedAssemblies.Count -gt 0) {
+        $names = $rootManagedAssemblies | Select-Object -ExpandProperty Name
+        throw "Release output contains managed assemblies outside libs: $($names -join ', ')"
+    }
+
+    $managedDependencyDirectory = Join-Path $outputDirectory 'libs'
+    if (-not (Test-Path -LiteralPath $managedDependencyDirectory -PathType Container)) {
+        throw "Release output managed dependency directory was not produced: $managedDependencyDirectory"
+    }
+
+    foreach ($managedDependencyName in @(
+        'Livet.dll',
+        'Newtonsoft.Json.dll',
+        'SevenZipExtractor.dll',
+        'OggVorbis.NET64.dll')) {
+        $managedDependencyPath = Join-Path $managedDependencyDirectory $managedDependencyName
+        if (-not (Test-Path -LiteralPath $managedDependencyPath -PathType Leaf)) {
+            throw "Release output managed dependency is missing from libs: $managedDependencyPath"
+        }
+    }
+
+    foreach ($legacyDirectoryName in @('x86', 'x64')) {
+        $legacyDirectory = Join-Path $outputDirectory $legacyDirectoryName
+        if (Test-Path -LiteralPath $legacyDirectory) {
+            throw "Release output contains legacy native directory: $legacyDirectory"
+        }
+    }
+
+    $legacyManagedNativeDirectory = Join-Path $managedDependencyDirectory 'x86'
+    if (Test-Path -LiteralPath $legacyManagedNativeDirectory) {
+        throw "Release output contains legacy managed native directory: $legacyManagedNativeDirectory"
+    }
+}
+
 Push-Location $repoRoot
 try {
     if ($Mode -eq 'Full') {
@@ -125,6 +167,7 @@ try {
 
     $resolvedUiExecutable = (Resolve-Path -LiteralPath $uiExecutable).Path
     Write-Host "Release UI smoke executable: $resolvedUiExecutable"
+    Assert-ReleaseOutputLayout -ExecutablePath $resolvedUiExecutable
 
     $testDiagnosticsDirectory = Join-Path $verificationArtifactsDirectory (
         'tests-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))

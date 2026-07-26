@@ -66,7 +66,7 @@ asset 種別:
 
 updater protocol version は `1`。`BeMusicSeeker.Updater.exe --version` で確認できる。
 
-開発時の Release build では、`BeMusicSeeker.csproj` が `BeMusicSeeker.Updater` を build dependency として扱い、`BeMusicSeeker.Updater.exe` を `bin/Release/net472/` へコピーする。これにより、`dotnet build BeMusicSeeker.sln -c Release` 後の app output はローカル自動更新検証に必要な updater を含む。
+開発時の x64 Release build では、`BeMusicSeeker.csproj` が `BeMusicSeeker.Updater` を build dependency として扱い、`BeMusicSeeker.Updater.exe` を `bin/x64/Release/net472/` へコピーする。managed dependencyは同じoutputの`libs/`へ配置し、`app.config`のprobing設定と一致させる。これにより、`dotnet build BeMusicSeeker.sln -c Release -p:Platform=x64` 後の app output はローカル自動更新検証に必要な updater と portable dependency layout を含む。
 
 updater 引数:
 

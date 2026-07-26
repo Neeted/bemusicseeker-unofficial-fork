@@ -162,20 +162,33 @@
     <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
   </ItemGroup>
 
-  <Target Name="RelocateManagedDependenciesToLibs" AfterTargets="CopyFilesToOutputDirectory">
+  <!--
+    The portable application probes managed dependencies from libs. Keep that
+    layout as an MSBuild output policy instead of copying every reference to
+    the root and relocating it after the build. ReferenceCopyLocalPaths is the
+    resolved managed dependency graph, so package and HintPath references use
+    the same destination without a second copy/delete phase.
+  -->
+  <Target Name="ApplyManagedDependencyOutputPolicy"
+          AfterTargets="ResolveAssemblyReferences"
+          BeforeTargets="_CopyFilesMarkedCopyLocal">
     <ItemGroup>
-      <_ManagedReferenceDllToMove Include="@(ReferenceCopyLocalPaths)"
-                                  Condition="'%(Extension)' == '.dll' and Exists('$(OutDir)%(Filename)%(Extension)')" />
+      <ReferenceCopyLocalPaths Update="@(ReferenceCopyLocalPaths)"
+                               Condition="'%(Extension)' == '.dll'">
+        <DestinationSubDirectory>libs\</DestinationSubDirectory>
+      </ReferenceCopyLocalPaths>
     </ItemGroup>
-
-    <Copy SourceFiles="@(_ManagedReferenceDllToMove->'$(OutDir)%(Filename)%(Extension)')"
-          DestinationFiles="@(_ManagedReferenceDllToMove->'$(OutDir)libs\\%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-
-    <Delete Files="@(_ManagedReferenceDllToMove->'$(OutDir)%(Filename)%(Extension)')" />
   </Target>
 
-  <Target Name="RemoveLegacyNativeOutputArtifacts" AfterTargets="RelocateManagedDependenciesToLibs">
+  <Target Name="RemoveLegacyManagedDependencyRootOutput" AfterTargets="CopyFilesToOutputDirectory">
+    <ItemGroup>
+      <_ManagedDependencyRootOutput Include="@(ReferenceCopyLocalPaths->'$(OutDir)%(Filename)%(Extension)')"
+                                    Condition="'%(Extension)' == '.dll'" />
+    </ItemGroup>
+    <Delete Files="@(_ManagedDependencyRootOutput)" />
+  </Target>
+
+  <Target Name="RemoveLegacyNativeOutputArtifacts" AfterTargets="CopyFilesToOutputDirectory">
     <RemoveDir Directories="$(OutDir)x86;$(OutDir)x64;$(OutDir)libs\x86" />
     <Delete Files="$(OutDir)libs\x64\OggVorbis.NET64.dll" />
   </Target>

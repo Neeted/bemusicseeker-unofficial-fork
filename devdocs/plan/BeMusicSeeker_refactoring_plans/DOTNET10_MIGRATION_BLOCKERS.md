@@ -10,8 +10,8 @@
 - app: WPF + WinForms
 - SDK: `global.json` で .NET SDK 10 系
 - config: `app.config`、`System.Configuration`、custom portable settings provider
-- dependencies: NuGet と `libs/*.dll` HintPath の混在
-- native: `native/*.dll`、`vendor/native/x64/*.dll`、custom output relocation
+- dependencies: NuGet と `libs/*.dll` HintPath の混在を、application projectのresolved reference graphで出力する
+- native: `native/*.dll`、`vendor/native/x64/*.dll`、project-owned output policy
 - migration rehearsal: 未実施
 
 ## Blockers
@@ -28,8 +28,8 @@
 | NAT-01 | Native DLL layout | native asset resolution / loadは用途別adapterへ閉じ、project copy / output layoutの整理は残る | base directoryとnative asset resolution / loadを用途別adapterへ閉じる | `MIG-03` / `MIG-04` | RID native asset、explicit copy、publish layoutを決定 | boundary met |
 | INT-01 | P/Invoke / manual load / CAS | Everything、filesystem、window、audioのnative callはplatform adapter内に限定し、application / domain contractへnative handle / loader policyを漏らさない | call siteをplatform adapter内に限定し、application / domain contractへnative handle / loader policyを漏らさない | `MIG-03` | platform annotation、interop方式、CAS削除、loader error policyを決定 | boundary met |
 | UIH-01 | WPF + WinForms + WebBrowser / COM | WPF / WinForms / COM型はView / view-host adapter内に限定し、player / settings workflowはtechnology-neutral contractを受け取る | WPF / WinForms / COM型をView / view-host adapterの外へ出さない。View固有code量は問題にせずdependency directionで判定する | `UI-05` / `MIG-03` | WinForms継続、WebBrowser / WebView2、System.Drawingの扱いを決定 | boundary met |
-| LAYOUT-01 | `app.config` probing / managed output | build後にmanaged DLLを`libs`へ移動しrootから削除 | output policy、probing、copy / removalをproject / loader boundaryへ閉じ、business workflowへ漏らさない | `MIG-04` | deps.json / apphost / publish layoutへ置換 | open |
-| DEP-01 | HintPath managed DLL | Livet、MetroRadiance、Expression、sqlite.net、Bass.Net等のcompatibility / identityが未確定 | DLL固有型をapplication / domain contractから排除し、各依存のusage / load policyをproject境界で説明できる | `MIG-04` | NuGet / replacement / retentionを依存ごとに決定 | open |
+| LAYOUT-01 | `app.config` probing / managed output | application projectのresolved managed reference graphを`libs`へ直接出力し、rootのlegacy DLLとlegacy native directoryをverificationで拒否する | output policy、probing、copy / removalをproject / loader boundaryへ閉じ、business workflowへ漏らさない | `MIG-04` | deps.json / apphost / publish layoutへ置換 | boundary met |
+| DEP-01 | HintPath managed DLL | Livet、MetroRadiance、Expression、sqlite.net、Bass.Net等はapplication projectのHintPath / PackageReference graphに限定し、runtime load policyは`libs` probingへ集約する | DLL固有型をapplication / domain contractから排除し、各依存のusage / load policyをproject境界で説明できる | `MIG-04` | NuGet / replacement / retentionを依存ごとに決定 | boundary met |
 | DEPLOY-01 | `System.Deployment` / updater project | project referenceとcustom updater copyがあるがsource usage / release policyが不明確 | 実使用をcode / buildから確定し、不要referenceまたはdeployment-specific codeをproject boundaryへ限定する | `MIG-04` | 不要なら削除、必要なら.NET対応deploymentを別設計 | open |
 | PROBE-01 | `.NET 10` migration rehearsal | `net10.0-windows` restore / buildで表面化するerror分類が未確認 | disposable worktree / copyで最小TFM probeを実行し、残失敗が既存blockerのpackage / API / runtime / layout / deployment / data migrationへ分類され、owner / MVVM再設計が残っていない | `MIG-05` | 分類済みerrorを入力にproduction migrationを実装 | open |
 
