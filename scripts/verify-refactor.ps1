@@ -115,6 +115,16 @@ function Assert-ReleaseOutputLayout {
     )
 
     $outputDirectory = Split-Path -Parent $ExecutablePath
+    $updaterExecutable = Join-Path $outputDirectory 'BeMusicSeeker.Updater.exe'
+    if (-not (Test-Path -LiteralPath $updaterExecutable -PathType Leaf)) {
+        throw "Release output updater executable was not produced: $updaterExecutable"
+    }
+
+    $libsUpdaterExecutable = Join-Path (Join-Path $outputDirectory 'libs') 'BeMusicSeeker.Updater.exe'
+    if (Test-Path -LiteralPath $libsUpdaterExecutable) {
+        throw "Release output updater executable must remain at the deployment root: $libsUpdaterExecutable"
+    }
+
     $rootManagedAssemblies = @(Get-ChildItem -LiteralPath $outputDirectory -Filter '*.dll' -File -ErrorAction SilentlyContinue)
     if ($rootManagedAssemblies.Count -gt 0) {
         $names = $rootManagedAssemblies | Select-Object -ExpandProperty Name

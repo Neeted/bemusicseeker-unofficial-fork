@@ -3904,68 +3904,93 @@ public partial class BMSLibrary : ObservableObject
         }
         DateTime now;
         InitializationExecutionResult initializeResult;
+        IDisposable installTableCollectionMutationScope = null;
         try
         {
-            GC.Collect();
-            NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
-            LogInstallPerformance("init_library_enter mode=" + mode + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " setMaintenanceInfo=" + setMaintenanceInfo.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
-            if (isStartup)
+            try
             {
-                TryImportChartInfoMetadataBundleAtStartup();
+                GC.Collect();
+                NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
+                LogInstallPerformance("init_library_enter mode=" + mode + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " setMaintenanceInfo=" + setMaintenanceInfo.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
+                if (isStartup)
+                {
+                    TryImportChartInfoMetadataBundleAtStartup();
+                }
+                packageLifecycleOwner.StartupReadiness.Reset();
+                using (rwlockBMSFilesInitializedAll.GetWriterGuard())
+                {
+                    LogInstallPerformance("init_library_lock_acquired rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
+                    now = DateTime.Now;
+                    initializeResult = initializationService.RunInitialize(
+                        tasksContinuation,
+                        semaphore,
+                        delegate
+                        {
+                            using (rwlockBMSFilesInitializedMin.GetWriterGuard())
+                            {
+                                _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, trackLibraryDatabaseProgress: true);
+                                if (songTblLoad)
+                                {
+                                    packageLifecycleOwner.StartupReadiness.MarkCatalogLoaded();
+                                }
+                                if (songTblFileCheck)
+                                {
+                                    libraryFileScanPipelineOwner.StartActiveNormalFolderMtimeSnapshot(fileScanGeneration);
+                                }
+                            }
+                        },
+                        delegate
+                        {
+                            _initialize(
+                                songTblLoad: false,
+                                scoreTblrLoad: false,
+                                songTblFileCheck,
+                                setMainteInfo: false,
+                                updateIrScore: true,
+                                installTblCheck: false,
+                                trackLibraryFileCheckProgress: true,
+                                fileScanGeneration: fileScanGeneration,
+                                fileScanReason: isStartup ? "initialize" : "full_reinitialize");
+                            if (!isScoreOnly)
+                            {
+                                packageLifecycleOwner.StartupReadiness.MarkDestinationResourceIndexReady();
+                            }
+                        },
+                        delegate
+                        {
+                            _initialize(
+                                songTblLoad: false,
+                                scoreTblrLoad: false,
+                                songTblFileCheck: false,
+                                setMainteInfo: false,
+                                updateIrScore: false,
+                                installTblCheck: false);
+                        });
+                    scheduleDeferredInstallableMaintenance = setMaintenanceInfo;
+                    TimeSpan timeSpan = DateTime.Now - now;
+                    NLogWrapper.DebuggerLogger?.Trace(timeSpan.ToString());
+
+                    if (flag)
+                    {
+                        installTableCollectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
+                        using (rwlockPendingInstallCharts.GetWriterGuard())
+                        {
+                            using (rwlockBMSFiles.GetReaderGuard())
+                            {
+                                _ = packageLifecycleOwner.ReloadInstallTable(
+                                    initializationService,
+                                    dbGateway,
+                                    ContainsInstalledChartUnsafe);
+                            }
+                        }
+                        packageLifecycleOwner.StartupReadiness.MarkPendingPackagesRestored();
+                    }
+                }
             }
-            packageLifecycleOwner.StartupReadiness.Reset();
-            using (rwlockBMSFilesInitializedAll.GetWriterGuard())
+            finally
             {
-                LogInstallPerformance("init_library_lock_acquired rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
-                now = DateTime.Now;
-                initializeResult = initializationService.RunInitialize(
-                    tasksContinuation,
-                    semaphore,
-                    delegate
-                    {
-                        using (rwlockBMSFilesInitializedMin.GetWriterGuard())
-                        {
-                            _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, trackLibraryDatabaseProgress: true);
-                            if (songTblLoad)
-                            {
-                                packageLifecycleOwner.StartupReadiness.MarkCatalogLoaded();
-                            }
-                            if (songTblFileCheck)
-                            {
-                                libraryFileScanPipelineOwner.StartActiveNormalFolderMtimeSnapshot(fileScanGeneration);
-                            }
-                        }
-                    },
-                    delegate
-                    {
-                        _initialize(
-                            songTblLoad: false,
-                            scoreTblrLoad: false,
-                            songTblFileCheck,
-                            setMainteInfo: false,
-                            updateIrScore: true,
-                            installTblCheck: false,
-                            trackLibraryFileCheckProgress: true,
-                            fileScanGeneration: fileScanGeneration,
-                            fileScanReason: isStartup ? "initialize" : "full_reinitialize");
-                        if (!isScoreOnly)
-                        {
-                            packageLifecycleOwner.StartupReadiness.MarkDestinationResourceIndexReady();
-                        }
-                    },
-                    delegate
-                    {
-                        _initialize(
-                            songTblLoad: false,
-                            scoreTblrLoad: false,
-                            songTblFileCheck: false,
-                            setMainteInfo: false,
-                            updateIrScore: false,
-                            installTblCheck: false);
-                    });
-                scheduleDeferredInstallableMaintenance = setMaintenanceInfo;
-                TimeSpan timeSpan = DateTime.Now - now;
-                NLogWrapper.DebuggerLogger?.Trace(timeSpan.ToString());
+                installTableCollectionMutationScope?.Dispose();
+                installTableCollectionMutationScope = null;
             }
         }
         catch
@@ -3976,23 +4001,6 @@ public partial class BMSLibrary : ObservableObject
             }
             ResetEverythingFallbackWarningQueue();
             throw;
-        }
-        if (flag)
-        {
-            using (packageLifecycleOwner.BeginCollectionMutationScope())
-            {
-                using (rwlockPendingInstallCharts.GetWriterGuard())
-                {
-                    using (rwlockBMSFiles.GetReaderGuard())
-                    {
-                        _ = packageLifecycleOwner.ReloadInstallTable(
-                            initializationService,
-                            dbGateway,
-                            ContainsInstalledChartUnsafe);
-                    }
-                }
-            }
-            packageLifecycleOwner.StartupReadiness.MarkPendingPackagesRestored();
         }
         if (flag)
         {

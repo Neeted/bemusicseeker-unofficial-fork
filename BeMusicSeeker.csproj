@@ -85,7 +85,6 @@
     </PackageReference>
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
-    <Reference Include="System.Deployment" />
     <Reference Include="Livet">
       <HintPath>libs\Livet.dll</HintPath>
     </Reference>

@@ -107,6 +107,9 @@ public sealed class BmsLibraryMutationBoundaryTests
         string installDestinationSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PendingPackageWorkflowOwner.cs");
         string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
+        string initializeMethod = ExtractMethodBody(
+            librarySource,
+            "public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore, LibraryInitializeMode mode)");
         string installBatchMethod = ExtractMethodBody(packageInstallSource, "private IReadOnlyList<ChartPackage> ExecuteInstallBatch(");
         string folderMutationMethod = ExtractMethodBody(folderAutoRenameSource, "private bool ExecuteMutation(");
         string forceInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task<PendingPackageMutationResult> InstallResolvedPackagesAsync(");
@@ -133,6 +136,28 @@ public sealed class BmsLibraryMutationBoundaryTests
         Assert.IsFalse(source.Contains("BeginChartPackageMutation"));
         Assert.IsFalse(source.Contains("EndChartPackageMutation"));
         Assert.IsFalse(source.Contains("IsChartPackageMutationInProgress"));
+        int initializeWriterIndex = initializeMethod.IndexOf(
+            "using (rwlockBMSFilesInitializedAll.GetWriterGuard())",
+            StringComparison.Ordinal);
+        int reloadInstallTableIndex = initializeMethod.IndexOf(
+            "ReloadInstallTable(",
+            StringComparison.Ordinal);
+        int initializeCatchIndex = initializeMethod.IndexOf("catch", StringComparison.Ordinal);
+        Assert.IsTrue(initializeWriterIndex >= 0, "Initialize must serialize catalog and package restoration with the all-files writer lock.");
+        string initializeWriterBlock = ExtractBlockBody(initializeMethod, initializeWriterIndex);
+        StringAssert.Contains(
+            initializeWriterBlock,
+            "ReloadInstallTable(",
+            "Install-table restoration must execute before the all-files writer lock is released.");
+        Assert.IsFalse(
+            initializeWriterBlock.IndexOf("installTableCollectionMutationScope.Dispose()", StringComparison.Ordinal) >= 0,
+            "Collection mutation notifications must flush after the all-files writer lock is released.");
+        StringAssert.Contains(
+            initializeMethod,
+            "installTableCollectionMutationScope?.Dispose();");
+        Assert.IsTrue(
+            reloadInstallTableIndex > initializeWriterIndex && reloadInstallTableIndex < initializeCatchIndex,
+            "Install-table restoration must stay inside the initialization writer/failure boundary.");
         StringAssert.Contains(installBatchMethod, "BeginOperationDialogScope()");
         StringAssert.Contains(installBatchMethod, "chartMutationActivity.Enter()");
         StringAssert.Contains(installBatchMethod, "operationGate = chartFileOperations.Enter()");
@@ -257,6 +282,32 @@ public sealed class BmsLibraryMutationBoundaryTests
         }
 
         Assert.Fail(methodName + " body was not closed.");
+        return string.Empty;
+    }
+
+    private static string ExtractBlockBody(string source, int tokenIndex)
+    {
+        int braceIndex = source.IndexOf('{', tokenIndex);
+        Assert.IsTrue(braceIndex >= 0, "Block body was not found.");
+
+        int depth = 0;
+        for (int i = braceIndex; i < source.Length; i++)
+        {
+            if (source[i] == '{')
+            {
+                depth++;
+            }
+            else if (source[i] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return source.Substring(braceIndex, i - braceIndex + 1);
+                }
+            }
+        }
+
+        Assert.Fail("Block body was not closed.");
         return string.Empty;
     }
 

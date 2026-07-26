@@ -69,13 +69,13 @@ Non-goals:
 
 ### `MIG-04 Build, dependency and output closure`
 
-状態: in progress
+状態: completed
 
 - active outcome base commit: `89134990`
 - observed production checkpoint: `89134990`
 - active execution package: `Build, dependency and output closure`
-- execution anchor: `MIG-04-B4 Updater dependency, deployment boundary and MIG-04 closure` (active)
-- sequence cursor: `MIG-04-B4 Updater dependency, deployment boundary and MIG-04 closure` (active)
+- execution anchor: `MIG-04-B4 Updater dependency, deployment boundary and MIG-04 closure` (completed)
+- sequence cursor: `MIG-04-B4 Updater dependency, deployment boundary and MIG-04 closure` (completed)
 - next outcome: `MIG-05 .NET 10 migration rehearsal and handoff` (ready)
 
 目的:
@@ -84,8 +84,8 @@ managed dependency、observable collection / notification contract、output layo
 
 完了条件:
 
-- B1〜B4のvertical unitでproduction route、behavior test、旧Livet / relocation / updater path seam削除、検証、fresh static reviewを完了する。
-- `LAYOUT-01`、`DEP-01`、`DEPLOY-01`のowner境界を更新し、outcome-wide Full verification、Release executable smoke、fresh outcome reviewを完了する。
+- B1〜B4のvertical unitでproduction route、behavior test、旧Livet / relocation / updater path seam削除、検証、fresh static reviewを完了した。
+- `LAYOUT-01`、`DEP-01`、`DEPLOY-01`のowner境界を更新し、outcome-wide Full verification、Release executable smoke、fresh outcome reviewを完了した。
 
 Non-goals:
 
@@ -120,7 +120,7 @@ Non-goals:
 
 ## Active implementation batch
 
-状態: in progress
+状態: completed
 
 `MIG-04` plannerが作成した有限batchであり、B1から依存順に実装する。activeまたはpendingのunitがある間はplannerを再起動しない。
 
@@ -129,7 +129,7 @@ Non-goals:
 | `MIG-04` | `B1` | `completed` | `technology-neutral observable model contract` |
 | `MIG-04` | `B2` | `completed` | `owner-held observable collections` |
 | `MIG-04` | `B3` | `completed` | `managed dependency graph and output policy` |
-| `MIG-04` | `B4` | `active` | `updater dependency, deployment boundary and MIG-04 closure` |
+| `MIG-04` | `B4` | `completed` | `updater dependency, deployment boundary and MIG-04 closure` |
 
 ## Current code evidence
 
@@ -144,6 +144,7 @@ Non-goals:
 - `MIG-02-B1`〜`B4`でpath、external shell、external player、updater / restartのproduction routeをtyped gatewayへ閉じ、global fallbackをcomposition / adapter境界へ限定した。Full verification、Release executable smoke、fresh outcome reviewが完了している。
 - `MIG-03-B1`〜`B4`でnative file discovery、audio SDK、external-player window host、window placement / player-resolution、settings-dialog presentation contractを用途別adapterとtechnology-neutral contractへ閉じた。SettingsDialogViewModelのLR2 schema windowは専用の中立portへ接続し、WPF request factoryはview adapterへ限定した。Full verification、Release executable smoke、fresh outcome reviewが完了している。
 - `MIG-04-B3`でresolved managed reference graphをproject-owned MSBuild output policyへ接続し、managed DLLを`libs`へ直接出力する旧copy-then-relocate targetを退役させた。Release verificationはroot managed DLL、legacy native directory、`libs/x86`を拒否し、`app.config`の`libs` probingとoutput layoutをbehavior / project testsで確認する。
+- `MIG-04-B4`で未使用の`System.Deployment`参照を削除し、updater projectをbuild-only dependencyとして維持しながら`BeMusicSeeker.Updater.exe`をアプリ出力ルートへ配置するdeployment boundaryをproject / behavior test / Release verificationで確認した。updaterはmanaged dependencyの`libs`へ混在させず、missing outputはbuild failureとする。併せて初期化時のinstall table復元をcatalog writer / failure cleanup境界へ戻し、通常のpackage mutationとの競合を防ぐbehavior / source-order testを追加した。
 
 ## Outcome states
 
@@ -167,8 +168,8 @@ Non-goals:
 | MIG-01 Configuration and application-context closure | completed |
 | MIG-02 Path, process and updater closure | completed |
 | MIG-03 Native interop and UI-host closure | completed |
-| MIG-04 Build, dependency and output closure | in progress |
-| MIG-05 .NET 10 migration rehearsal and handoff | not started |
+| MIG-04 Build, dependency and output closure | completed |
+| MIG-05 .NET 10 migration rehearsal and handoff | ready |
 | GATE-01 Refactoring completion audit | not started |
 
 許可する状態は`not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。internal complexity、行数trigger超過、複数caller、broad routeは`blocked`理由にしない。
@@ -181,10 +182,10 @@ Non-goals:
 | Library ownership | met | pending estimated-install、library writer / SQL seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Playlist ownership | met | custom-folder output status persistence、external registration preparation、URL completion test seamを`OWN-01`で閉じ、Full verificationとfresh outcome reviewを完了した |
 | Configuration ownership | met | `MIG-01-B1`〜`B4`でsettings snapshot、application lifetime、culture catalog、UI schedulerをcomposition boundaryへ閉じ、Full verification、Release smoke、fresh outcome reviewを完了した |
-| Platform boundary | in progress | `MIG-02`でPATH-01 / PROC-01 / UPD-01、`MIG-03`でNAT-01 / INT-01 / UIH-01、`MIG-04-B3`でLAYOUT-01 / DEP-01のproduction boundaryを閉じた。updater project / deploymentのDEPLOY-01は`MIG-04-B4`で閉じるため、migration-ready gateは未達 |
+| Platform boundary | met | `MIG-02`でPATH-01 / PROC-01 / UPD-01、`MIG-03`でNAT-01 / INT-01 / UIH-01、`MIG-04-B3`でLAYOUT-01 / DEP-01、`MIG-04-B4`でDEPLOY-01のproduction / project boundaryを閉じた。migration rehearsalは`MIG-05`で実施する |
 | Migration readiness | not met | disposable `net10.0-windows` restore / build rehearsalを`MIG-05`で実施する |
 | Structural cohesion / size | review required | 現行計測では`MainWindow.cs`とtop-level `BMSLibrary*.cs`の2 scopeがtrigger超。数値はfailureではなく、T1 / OWN-01 / Gate reviewで責務を判定する |
-| Quality | in progress | UI-05、OWN-01、MIG-01、MIG-02、MIG-03のFull verification、Release smoke、fresh outcome reviewは完了。後続Outcome / Gate evidenceは未完了 |
+| Quality | in progress | UI-05、OWN-01、MIG-01、MIG-02、MIG-03、MIG-04のFull verification、Release smoke、fresh outcome reviewは完了。MIG-05 / Gate evidenceは未完了 |
 
 ## Active external blocker
 
