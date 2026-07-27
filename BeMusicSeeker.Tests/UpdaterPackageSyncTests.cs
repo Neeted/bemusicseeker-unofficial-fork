@@ -119,7 +119,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "SevenZipExtractor.dll", "new-sevenzip");
             WriteTextFile(packageSourceDirectoryPath, "OggVorbis.NET64.dll", "new-ogv");
             WriteTextFile(packageSourceDirectoryPath, "libs/x64/7z.dll", "new-7z-native");
-            WriteTextFile(packageSourceDirectoryPath, "x64/sqlite3.dll", "new-root-x64");
+            WriteTextFile(packageSourceDirectoryPath, "runtimes/win-x64/native/e_sqlite3.dll", "new-e-sqlite3");
             WriteTextFile(packageSourceDirectoryPath, "native/EverythingBridge_x64.dll", "new-bridge");
             WriteTextFile(packageSourceDirectoryPath, "lang/ja-JP.json", "{}");
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
@@ -131,6 +131,7 @@ public sealed class UpdaterPackageSyncTests
                 "SevenZipExtractor.dll",
                 "OggVorbis.NET64.dll",
                 "libs/x64/7z.dll",
+                "runtimes/win-x64/native/e_sqlite3.dll",
                 "native/EverythingBridge_x64.dll",
                 "lang/ja-JP.json"
             }));
@@ -141,7 +142,8 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.AreEqual("new-ogv", File.ReadAllText(Path.Combine(appDirectoryPath, "OggVorbis.NET64.dll")));
             Assert.AreEqual("new-7z-native", File.ReadAllText(Path.Combine(appDirectoryPath, "libs", "x64", "7z.dll")));
-            Assert.AreEqual("new-root-x64", File.ReadAllText(Path.Combine(appDirectoryPath, "x64", "sqlite3.dll")));
+            Assert.AreEqual("new-e-sqlite3", File.ReadAllText(Path.Combine(appDirectoryPath, "runtimes", "win-x64", "native", "e_sqlite3.dll")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "x64", "sqlite3.dll")));
             Assert.AreEqual("user-x64", File.ReadAllText(Path.Combine(appDirectoryPath, "x64", "user.dll")));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "libs", "SevenZipExtractor.dll")));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "libs", "x64", "OggVorbis.NET64.dll")));

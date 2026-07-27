@@ -4213,32 +4213,48 @@ createTempDirectory);
     }
 
     [TestMethod]
-    public void RetryIfLockedOrBusy_RespectsMaxRetryCount()
+    public void RetryIfLockedOrBusy_RetriesRealDatabaseContention()
     {
-        int attempts = 0;
-
-        Assert.ThrowsException<SQLiteException>(delegate
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_RetryIfLockedOrBusy_" + Guid.NewGuid().ToString("N") + ".db");
+        try
         {
-            SQLiteConnectionEx.RetryIfLockedOrBusy(delegate
+            using var holder = new SQLiteConnectionEx(databasePath);
+            holder.Execute("CREATE TABLE retry_probe (id INTEGER PRIMARY KEY, value TEXT);");
+            holder.Execute("BEGIN IMMEDIATE;");
+
+            using var contender = new SQLiteConnectionEx(databasePath);
+            contender.BusyTimeout = TimeSpan.Zero;
+            int attempts = 0;
+            SQLiteException exception = Assert.ThrowsException<SQLiteException>(delegate
             {
-                attempts++;
-                throw CreateSQLiteException(SQLite3.Result.Busy, "busy");
-            }, null, 0u);
-        });
+                SQLiteConnectionEx.RetryIfLockedOrBusy(delegate
+                {
+                    attempts++;
+                    contender.Execute("INSERT INTO retry_probe (value) VALUES ('blocked');");
+                }, null, 0u);
+            });
 
-        Assert.AreEqual(1, attempts);
+            Assert.AreEqual(1, attempts);
+            Assert.IsTrue(
+                exception.Result == SQLite3.Result.Busy || exception.Result == SQLite3.Result.Locked,
+                "The provider must expose the real SQLite contention result.");
+            holder.Execute("ROLLBACK;");
+        }
+        finally
+        {
+            foreach (string suffix in new[] { string.Empty, "-wal", "-shm" })
+            {
+                string path = databasePath + suffix;
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
     }
 
-    private static SQLiteException CreateSQLiteException(SQLite3.Result result, string message)
-    {
-        System.Reflection.ConstructorInfo constructor = typeof(SQLiteException).GetConstructor(
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
-            null,
-            [typeof(SQLite3.Result), typeof(string)],
-            null);
-        Assert.IsNotNull(constructor, "SQLiteException internal constructor was not found.");
-        return (SQLiteException)constructor.Invoke([result, message]);
-    }
 
     private static long CountChartInfoRows(string songDbPath, string sha256)
     {

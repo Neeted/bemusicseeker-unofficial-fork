@@ -12,7 +12,10 @@ $script:RequiredManagedRootFiles = @(
     "OggVorbis.NET64.dll",
     "SgmlReaderDll.dll",
     "SevenZipExtractor.dll",
-    "sqlite.net.dll"
+    "SQLite-net.dll",
+    "SQLitePCLRaw.batteries_v2.dll",
+    "SQLitePCLRaw.core.dll",
+    "SQLitePCLRaw.provider.e_sqlite3.dll"
 )
 
 $script:RequiredBassNativeFiles = @(
@@ -49,7 +52,7 @@ function Get-PortableRequiredFiles {
         "BeMusicSeeker.Updater.deps.json",
         "BeMusicSeeker.Updater.runtimeconfig.json",
         "test.mp3",
-        "x64/sqlite3.dll",
+        "runtimes/win-x64/native/e_sqlite3.dll",
         "libs/x64/7z.dll",
         "native/Everything3_x64.dll",
         "native/EverythingBridge_x64.dll"
@@ -107,6 +110,7 @@ function Get-PortableForbiddenPaths {
         "libs/SgmlReaderDll.dll",
         "libs/SevenZipExtractor.dll",
         "libs/OggVorbis.NET64.dll",
+        "x64/sqlite3.dll",
         "libs/x64/sqlite3.dll",
         "libs/System.Collections.Immutable.dll",
         "libs/System.Resources.Extensions.dll",

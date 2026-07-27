@@ -180,7 +180,9 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "Roslynator.CodeAnalysis.Analyzers", Version = "4.15.0" },
             new { Id = "Roslynator.Formatting.Analyzers", Version = "4.15.0" },
             new { Id = "System.Configuration.ConfigurationManager", Version = "10.0.10" },
-            new { Id = "System.Resources.Extensions", Version = "10.0.10" }
+            new { Id = "System.Resources.Extensions", Version = "10.0.10" },
+            new { Id = "sqlite-net-pcl", Version = "1.11.285" },
+            new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" }
         }.ToDictionary(item => item.Id, item => item.Version, StringComparer.Ordinal);
 
         XDocument centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
@@ -220,7 +222,9 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "Roslynator.CodeAnalysis.Analyzers",
                     "Roslynator.Formatting.Analyzers",
                     "System.Configuration.ConfigurationManager",
-                    "System.Resources.Extensions"
+                    "System.Resources.Extensions",
+                    "sqlite-net-pcl",
+                    "SQLitePCLRaw.bundle_e_sqlite3"
                 }
             },
             new
@@ -231,7 +235,9 @@ public sealed class ManagedDependencyOutputPolicyTests
                 {
                     "Microsoft.NET.Test.Sdk",
                     "MSTest.TestAdapter",
-                    "MSTest.TestFramework"
+                    "MSTest.TestFramework",
+                    "sqlite-net-pcl",
+                    "SQLitePCLRaw.bundle_e_sqlite3"
                 }
             }
         };

@@ -6,7 +6,7 @@
 
 ## Current checkpoint
 
-- active outcome base commit: `05a3395d`
+- active outcome base commit: `ab5bdb9d`
 - observed worktree: clean
 - Release Freeze: active
 - `git push`／tag／release／public publish: ユーザーの明示指示まで禁止
@@ -18,14 +18,14 @@
 - reason: B1/B2のproduction route、behavior tests、Full verification、Release UI smoke、fresh outcome reviewを完了した
 - .NET 10 migration readiness: architecture is sufficient to start after terminal closure; dependency／runtime／deployment migration remains
 
-Full verificationは`3452 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
+Full verificationは`3454 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
 
 ## Active outcome
 
-- active outcome: `NET10-04 Converter, JSON and document helpers`
-- active execution package: `.NET 10 helper dependency modernization`
-- execution anchor: `NET10-04 D1 DOC-HELPERS`
-- planner state: `D1` completed; planner required once for NET10-05
+- active outcome: `NET10-06 Archive, audio and native runtime corridor`
+- active execution package: `.NET 10 archive, audio and native runtime modernization`
+- execution anchor: `NET10-06 planner required`
+- planner state: `planner required once; no active implementation batch`
 
 ## Active implementation batch
 
@@ -49,8 +49,9 @@ Full verificationは`3452 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `J3 LIBRARY-IR` | completed | ranking JSON boundary | BmsLibraryIrClient request／responseとIRDataCacheInfoのtyped JSON化、candidate／DB mutation order維持 |
 | `J4 SCORE-RETIRE` | completed | Score Viewer boundary and DynamicJson retirement | Score Viewer gateway typed化、DynamicJson binary／HintPath／layout／notice／license退役 |
 | `D1 DOC-HELPERS` | completed | external HTML document owner and managed helper closure | PlaylistExternalSyncOwnerのmaintained SGML route、uBMplayのShift-JIS settings rewrite／restore、IniLibrary／System.Collections.Immutableのlegacy asset retirement、resource snapshotとpackage／layout／notice整合 |
+| `S1 SQLITE-RUNTIME` | completed | SQLite provider／storage／native runtime corridor | app／tests／2 toolsのprovider初期化、connection／repository／schema／transaction、既存DB／lock／failure契約、package／native layout、portable／publish evidence |
 
-次のbatchがmaterializeされるまでunit-plannerを再起動しない。NET10-04 D1の実装・検証・レビュー・commitは完了した。
+active／pending unitがある間はunit-plannerを再起動しない。次のplannerはNET10-06開始時に一度だけ起動する。
 
 ## Review evidence
 
@@ -76,7 +77,7 @@ Full verificationは`3452 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 
 ## Next outcome
 
-- active outcome: `NET10-05 SQLite provider migration`
-- active execution package: `.NET 10 database provider modernization`
-- execution anchor: `NET10-05 provider spike and storage-owner sequence`
+- active outcome: `NET10-06 Archive, audio and native runtime corridor`
+- active execution package: `.NET 10 archive, audio and native runtime modernization`
+- execution anchor: `NET10-06 planner required`
 - active implementation batch: empty; planner required once

@@ -109,14 +109,14 @@ BeMusicSeeker サードパーティ・ノーティス
 12) SQLite
 ================================================================================
 ステータス: GREEN
-コンポーネント: sqlite3.dll, sqlite.net.dll
-著作権所有者: sqlite3: D. Richard Hipp およびコントリビューター; sqlite.net: Frank A. Krueger およびコントリビューター
-ライセンス: sqlite3: パブリックドメイン; sqlite.net.dll: MIT
-ソース: https://www.sqlite.org/ (sqlite3), https://github.com/praeclarum/sqlite-net (sqlite.net.dll)
-ライセンス本文: third_party/licenses/12-SQLite-Public-Domain.txt, third_party/licenses/12-sqlite-net-MIT.txt
+コンポーネント: SQLite-net.dll 1.11.285、SQLitePCLRaw 3.0.4、SourceGear e_sqlite3.dll 3.53.3
+著作権所有者: sqlite-net: Frank A. Krueger およびコントリビューター; SQLitePCLRaw／SourceGear: SourceGear, LLC; SQLite: D. Richard Hipp およびコントリビューター
+ライセンス: sqlite-net: MIT; SQLitePCLRaw: Apache-2.0; SourceGear e_sqlite3: SQLite パブリックドメイン
+ソース: https://github.com/praeclarum/sqlite-net、https://github.com/ericsink/SQLitePCL.raw、https://www.nuget.org/packages/SourceGear.sqlite3/3.53.3、https://www.sqlite.org/
+ライセンス本文: third_party/licenses/11-Apache-2.0.txt, third_party/licenses/12-SQLite-Public-Domain.txt, third_party/licenses/12-sqlite-net-MIT.txt
 再配布時の注意事項:
-- sqlite3 そのものはパブリックドメインです。
-- sqlite.net.dll は praeclarum/sqlite-net を元アプリ開発者がビルドした同一系譜のアーティファクトとして扱われます。MITライセンス本文を同梱してください。
+- SQLite-net.dll は sqlite-net-pcl 1.11.285、SQLitePCLRaw は 3.0.4 のパッケージバンドルが提供するものです。
+- e_sqlite3.dll は SourceGear.sqlite3 3.53.3 パッケージが提供する SQLite ネイティブランタイムです。SQLitePCLRaw の Apache-2.0 表示と SQLite のパブリックドメイン表示を同梱してください。
 
 ================================================================================
 13) NLog
@@ -242,7 +242,7 @@ GitHub リリース準備状況におけるアクション・サマリー
 準備完了（GREEN）:
 - 7z.dll, Livet, NLog, .NET の MIT ランタイム依存関係,
   Everything3_x64.dll, EverythingBridge_x64.dll,
-  SevenZipExtractor.dll, sqlite.net.dll,
+  SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
   フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
   BASS ネイティブバイナリ群, Bass.Net.dll

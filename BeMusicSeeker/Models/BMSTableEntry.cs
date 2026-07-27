@@ -132,7 +132,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             }
             return bmsfile.hash;
         }
-        protected set
+        set
         {
             if (bmsfile != null)
             {
@@ -161,7 +161,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         {
             return _sha256;
         }
-        protected set
+        set
         {
             if (string.IsNullOrWhiteSpace(value))
             {
@@ -191,7 +191,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             }
             return bmsfile.Title;
         }
-        protected set
+        set
         {
             _title = value;
         }
@@ -207,7 +207,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             }
             return bmsfile.Artist;
         }
-        protected set
+        set
         {
             _artist = value;
         }
@@ -224,7 +224,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             }
             return string.Empty;
         }
-        protected set
+        set
         {
             if (IsBulkLoadParseSuppressed)
             {
@@ -268,7 +268,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             }
             return string.Empty;
         }
-        protected set
+        set
         {
             if (IsBulkLoadParseSuppressed)
             {
@@ -308,7 +308,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             ensureDeferredOrgMd5Parsed();
             return (Org_md5 == null || Org_md5.Count == 0) ? string.Empty : new JArray(Org_md5).ToString(Formatting.Indented);
         }
-        protected set
+        set
         {
             if (IsBulkLoadParseSuppressed)
             {

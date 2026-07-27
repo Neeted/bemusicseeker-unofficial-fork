@@ -53,7 +53,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             return new JArray(Folder_order).ToString(Formatting.Indented);
         }
-        protected set
+        set
         {
             try
             {
@@ -97,7 +97,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             }
             return string.Empty;
         }
-        protected set
+        set
         {
             if (string.IsNullOrWhiteSpace(value))
             {
@@ -126,7 +126,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             }
             return string.Empty;
         }
-        protected set
+        set
         {
             if (string.IsNullOrWhiteSpace(value))
             {
@@ -155,7 +155,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             }
             return string.Empty;
         }
-        protected set
+        set
         {
             if (string.IsNullOrWhiteSpace(value))
             {

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using SQLite;
+using SQLitePCL;
 
 namespace BeMusicSeeker.Models.LR2;
 
@@ -176,7 +177,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             }
         }
 
-        public virtual string folder_order { get; protected set; }
+        public virtual string folder_order { get; set; }
 
         public CustomFolderSortType folder_sort_key { get; set; }
 
@@ -184,11 +185,11 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public EntryUnitType entry_type { get; set; }
 
-        public virtual string page_url { get; protected set; }
+        public virtual string page_url { get; set; }
 
-        public virtual string header_url { get; protected set; }
+        public virtual string header_url { get; set; }
 
-        public virtual string data_url { get; protected set; }
+        public virtual string data_url { get; set; }
 
         public string tag { get; set; }
 
@@ -208,7 +209,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public bool is_external_sync { get; set; }
 
-        public string output_dir { get; protected set; }
+        public string output_dir { get; set; }
 
         public string custom_folder_output_base_name { get; set; }
 
@@ -271,7 +272,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             {
                 return _md5;
             }
-            protected set
+            set
             {
                 if (!(_md5 == value))
                 {
@@ -286,7 +287,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             {
                 return _sha256;
             }
-            protected set
+            set
             {
                 if (!(_sha256 == value))
                 {
@@ -303,7 +304,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             {
                 return title;
             }
-            protected set
+            set
             {
                 value ??= string.Empty;
                 if (!(title == value))
@@ -319,7 +320,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             {
                 return _artist;
             }
-            protected set
+            set
             {
                 value ??= string.Empty;
                 if (!(_artist == value))
@@ -347,13 +348,13 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public string lr2_bmsid { get; set; }
 
-        public virtual string url { get; protected set; }
+        public virtual string url { get; set; }
 
-        public virtual string url_diff { get; protected set; }
+        public virtual string url_diff { get; set; }
 
         public string name_diff { get; set; }
 
-        public virtual string org_md5 { get; protected set; }
+        public virtual string org_md5 { get; set; }
 
         public DateTime adddate { get; set; }
 
@@ -1060,7 +1061,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             {
                 return _hash;
             }
-            protected set
+            set
             {
                 if (LR2SongDB.md5HashRegex.IsMatch(value))
                 {
@@ -1140,7 +1141,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             {
                 return _hash;
             }
-            protected set
+            set
             {
                 value = value.ToLowerInvariant();
                 if (_prevHash == value || LR2SongDB.md5HashRegex.IsMatch(value))
@@ -1209,28 +1210,41 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
     public class SQLiteCommandExtended : SQLiteCommand
     {
+        private readonly SQLiteConnection connection;
+
         internal SQLiteCommandExtended(SQLiteConnection conn)
             : base(conn)
         {
+            connection = conn ?? throw new ArgumentNullException(nameof(conn));
+        }
+
+        private sqlite3_stmt PrepareRawStatement()
+        {
+            int result = raw.sqlite3_prepare_v2(connection.Handle, CommandText, out sqlite3_stmt statement);
+            if (result != raw.SQLITE_OK)
+            {
+                throw SQLiteException.New((SQLite3.Result)result, raw.sqlite3_errmsg(connection.Handle).utf8_to_string());
+            }
+            return statement;
         }
 
         public List<string[]> GetRawValuesAsString()
         {
             List<string[]> list = [];
-            IntPtr stmt = Prepare();
+            sqlite3_stmt stmt = PrepareRawStatement();
             try
             {
-                int count = SQLite3.ColumnCount(stmt);
-                while (SQLite3.Step(stmt) == SQLite3.Result.Row)
+                int count = raw.sqlite3_column_count(stmt);
+                while (raw.sqlite3_step(stmt) == raw.SQLITE_ROW)
                 {
                     list.Add([.. (from i in Enumerable.Range(0, count)
-                              select SQLite3.ColumnString(stmt, i))]);
+                              select raw.sqlite3_column_text(stmt, i).utf8_to_string())]);
                 }
                 return list;
             }
             finally
             {
-                Finalize(stmt);
+                raw.sqlite3_finalize(stmt);
             }
         }
 
@@ -1240,17 +1254,17 @@ public sealed class LR2SongDBExtended : LR2SongDB
             {
                 throw new ArgumentNullException(nameof(rowAction));
             }
-            IntPtr stmt = Prepare();
-            int count = SQLite3.ColumnCount(stmt);
+            sqlite3_stmt stmt = PrepareRawStatement();
+            int count = raw.sqlite3_column_count(stmt);
             int rowCount = 0;
             try
             {
-                while (SQLite3.Step(stmt) == SQLite3.Result.Row)
+                while (raw.sqlite3_step(stmt) == raw.SQLITE_ROW)
                 {
                     string[] values = new string[count];
                     for (int i = 0; i < count; i++)
                     {
-                        values[i] = SQLite3.ColumnString(stmt, i);
+                        values[i] = raw.sqlite3_column_text(stmt, i).utf8_to_string();
                     }
                     rowAction(values);
                     rowCount++;
@@ -1258,7 +1272,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             }
             finally
             {
-                Finalize(stmt);
+                raw.sqlite3_finalize(stmt);
             }
             return rowCount;
         }

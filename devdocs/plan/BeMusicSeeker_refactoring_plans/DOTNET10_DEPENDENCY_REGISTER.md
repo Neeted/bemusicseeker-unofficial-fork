@@ -26,8 +26,8 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | `DEP-DOC-01` | Microsoft.Xml.SgmlReader 1.8.30 package (`SgmlReaderDll.dll`) | playlist／HTML parse | maintained packageへ置換し、unclosed HTML／attribute order fixtureを比較済み | Microsoft.Xml.SgmlReader 1.8.30 | `NET10-04` |
 | `DEP-MISC-01` | IniLibrary HintPath (retired) | uBMplayのShift-JIS settings rewrite | source owner内の明示的なrewriteへ置換し、missing key／comment／byte restore／volume clampをtargeted testで確認 | remove legacy binary | `NET10-04` |
 | `DEP-MISC-02` | System.Collections.Immutable HintPath (retired) | runtime collection support | direct HintPath／tracked binaryを削除し、.NET runtime pack供給をpublishで確認 | .NET 10 runtime pack | `NET10-04` |
-| `DEP-DB-01` | sqlite.net HintPath | app／tests／2 toolsのstorage | provider migration＋golden DB test | sqlite-net-pcl 1.11.285 | `NET10-05` |
-| `DEP-DB-02` | hand-placed sqlite3.dll | native provider | SQLitePCLRaw bundleへ一元化 | SQLitePCLRaw.bundle_e_sqlite3 3.0.4 | `NET10-05` |
+| `DEP-DB-01` | sqlite.net HintPath (retired) | app／tests／2 toolsのstorage | sqlite-net-pclへ移行し、既存DB、schema、transaction、raw hydration、lock／failure契約を確認 | sqlite-net-pcl 1.11.285 | `NET10-05` |
+| `DEP-DB-02` | hand-placed sqlite3.dll (retired) | native provider | SQLitePCLRaw bundleへ一元化し、win-x64 native assetをpublish／portable layoutで確認 | SQLitePCLRaw.bundle_e_sqlite3 3.0.4 | `NET10-05` |
 | `DEP-ARC-01` | SevenZipExtractor DLL | archive extraction | PackageReference化しbehavior／native load検証 | SevenZipExtractor 1.0.19 | `NET10-06` |
 | `DEP-AUD-01` | OggVorbis.NET64 DLL | Ogg decode | NVorbis parity spike。差異が大きければ明示retain | NVorbis 0.10.5候補 | `NET10-06` |
 
@@ -67,6 +67,15 @@ NET10-02のmanaged packageは公式NuGet packageをsourceとし、version author
 | `DEP-DOC-01` | Microsoft.Xml.SgmlReader 1.8.30 / Apache-2.0 | app project／root lock | package-owned `SgmlReaderDll.dll`で外部playlist HTMLを解析し、unclosed documentとattribute orderのfixtureを確認 |
 | `DEP-MISC-01` | source-owned Shift-JIS rewrite / no external dependency | app project／test fixture | uBMplayの6設定値、section/key add semantics、failure swallowing、original byte restore、volume clampを確認し、IniLibrary binary／HintPath／noticeを退役 |
 | `DEP-MISC-02` | .NET 10 runtime pack `System.Collections.Immutable.dll` / MIT | runtime pack／publish output | direct HintPath、tracked binary、portable required root entryを削除し、runtime pack outputとlegacy forbidden-path cleanupを確認 |
+
+## NET10-05 S1 closure evidence
+
+| ID | Source / license | Version authority / lock owner | Evidence |
+|---|---|---|---|
+| `DEP-DB-01` | sqlite-net-pcl 1.11.285 / MIT | app／test／2 tool project locks | old HintPath／tracked DLLを削除し、SQLite-net API、既存DB／schema／transaction、raw string／NULL hydration、real Busy／Locked contention、startup／reopen behavior、locked restoreを確認 |
+| `DEP-DB-02` | SQLitePCLRaw.bundle_e_sqlite3 3.0.4 / Apache-2.0; SourceGear.sqlite3 3.53.3 native / SQLite Public Domain | app／test／2 tool project locks | RuntimeBootstrapと2 tool entryでproviderを一度初期化し、framework-dependent portable outputでは`runtimes/win-x64/native/e_sqlite3.dll`、SCD publishではrootの`e_sqlite3.dll`を各1点だけ含め、旧sqlite3 assetsとvendor DLLを削除 |
+
+`SQLitePCLRaw.bundle_e_sqlite3` は NuGet metadata の Apache-2.0 を適用し、ライセンス本文は `third_party/licenses/11-Apache-2.0.txt` を参照する。native asset は version 3.53.3 に固定した [`SourceGear.sqlite3` package](https://www.nuget.org/packages/SourceGear.sqlite3/3.53.3) が供給する `e_sqlite3.dll` であり、SQLite upstream の Public Domain notice (`third_party/licenses/12-SQLite-Public-Domain.txt`) を同梱する。
 
 ## Vendor / native dependencies
 

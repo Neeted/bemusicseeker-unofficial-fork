@@ -110,14 +110,14 @@ Redistribution Notes:
 12) SQLite
 ================================================================================
 Status: GREEN
-Component: sqlite3.dll, sqlite.net.dll
-Copyright: sqlite3: D. Richard Hipp and contributors; sqlite.net: Frank A. Krueger and contributors
-License: sqlite3: Public Domain; sqlite.net.dll: MIT
-Source: https://www.sqlite.org/ (sqlite3), https://github.com/praeclarum/sqlite-net (sqlite.net.dll)
-License Text: third_party/licenses/12-SQLite-Public-Domain.txt, third_party/licenses/12-sqlite-net-MIT.txt
+Component: SQLite-net.dll 1.11.285, SQLitePCLRaw 3.0.4, SourceGear e_sqlite3.dll 3.53.3
+Copyright: sqlite-net: Frank A. Krueger and contributors; SQLitePCLRaw and SourceGear: SourceGear, LLC; SQLite: D. Richard Hipp and contributors
+License: sqlite-net: MIT; SQLitePCLRaw: Apache-2.0; SourceGear e_sqlite3: SQLite Public Domain
+Source: https://github.com/praeclarum/sqlite-net, https://github.com/ericsink/SQLitePCL.raw, https://www.nuget.org/packages/SourceGear.sqlite3/3.53.3, https://www.sqlite.org/
+License Text: third_party/licenses/11-Apache-2.0.txt, third_party/licenses/12-SQLite-Public-Domain.txt, third_party/licenses/12-sqlite-net-MIT.txt
 Redistribution Notes:
-- sqlite3 itself is public domain.
-- sqlite.net.dll is accepted as an artifact built by the original app developer from praeclarum/sqlite-net. Include the MIT license text.
+- SQLite-net.dll is supplied by sqlite-net-pcl 1.11.285 and SQLitePCLRaw is supplied by the 3.0.4 package bundle.
+- e_sqlite3.dll is the package-provided SourceGear.sqlite3 3.53.3 native runtime; retain the Apache-2.0 SQLitePCLRaw notice and the public-domain SQLite notice.
 
 ================================================================================
 13) NLog
@@ -243,7 +243,7 @@ Conditionally releasable with minor remediation (YELLOW):
 Ready for release (GREEN):
 - 7z.dll, Livet, NLog, MIT runtime dependencies for .NET,
   Everything3_x64.dll, EverythingBridge_x64.dll,
-  SevenZipExtractor.dll, sqlite.net.dll,
+  SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
   Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
   BASS native binaries, Bass.Net.dll

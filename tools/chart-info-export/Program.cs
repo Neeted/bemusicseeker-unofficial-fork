@@ -1,4 +1,5 @@
 using System;
+using SQLitePCL;
 
 namespace ChartInfoExportTool;
 
@@ -8,6 +9,7 @@ internal static class Program
     {
         try
         {
+            Batteries_V2.Init();
             ChartInfoExportOptions options = ParseOptions(args);
             ChartInfoExportResult result = ChartInfoExportRunner.Export(options);
             Console.WriteLine(result.ToConsoleSummary());

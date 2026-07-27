@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using SQLitePCL;
 
 namespace ChartInfoCompareTool;
 
@@ -9,6 +10,7 @@ internal static class Program
     {
         try
         {
+            Batteries_V2.Init();
             ChartInfoCompareOptions options = ParseOptions(args);
             ChartInfoCompareResult result = ChartInfoCompareRunner.Compare(options);
             Console.WriteLine(result.ToConsoleSummary());

@@ -250,7 +250,7 @@ try {
         $emptyFile = New-TemporaryFile
         try {
             foreach ($untrackedFile in $untrackedFiles) {
-                $checkOutput = @(& git -c core.autocrlf=false diff --no-index --check -- $emptyFile.FullName $untrackedFile 2>&1)
+                $checkOutput = @(& git -c core.autocrlf=false -c core.whitespace=cr-at-eol diff --no-index --check -- $emptyFile.FullName $untrackedFile 2>&1)
                 $checkExitCode = $LASTEXITCODE
                 if ($checkOutput.Count -gt 0) {
                     throw "Whitespace error in untracked file '$untrackedFile':`n$($checkOutput -join [Environment]::NewLine)"

@@ -44,10 +44,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>libs\x64\%(Filename)%(Extension)</TargetPath>
     </None>
-    <None Include="vendor\native\x64\sqlite3.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <TargetPath>x64\sqlite3.dll</TargetPath>
-    </None>
     <None Update="lang\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -93,10 +89,8 @@
     <PackageReference Include="LivetCask.EventListeners" />
     <PackageReference Include="LivetCask.Mvvm" />
     <PackageReference Include="Microsoft.Xml.SgmlReader" />
-    <!-- Keep HintPath references for legacy libraries without confirmed same-identity PackageReference replacement in this task. -->
-    <Reference Include="sqlite.net">
-      <HintPath>libs\sqlite.net.dll</HintPath>
-    </Reference>
+    <PackageReference Include="sqlite-net-pcl" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
     <Reference Include="Bass.Net">
       <HintPath>libs\Bass.Net.dll</HintPath>
     </Reference>

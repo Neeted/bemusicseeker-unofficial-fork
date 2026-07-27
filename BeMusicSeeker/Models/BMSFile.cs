@@ -272,7 +272,7 @@ public class BMSFile : LR2SongDB.song
         {
             return base.hash;
         }
-        protected set
+        set
         {
             if (!(base.hash == value))
             {

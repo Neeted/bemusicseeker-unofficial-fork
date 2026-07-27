@@ -155,7 +155,7 @@ function Copy-AppFilesToStaging($targetStagingDir) {
         "BeMusicSeeker.Updater.runtimeconfig.json",
         "test.mp3"
     ) + $script:RequiredManagedRootFiles + $script:RequiredBassNativeFiles + $script:RequiredLanguageFiles + @(
-        "x64/sqlite3.dll",
+        "runtimes/win-x64/native/e_sqlite3.dll",
         "libs/x64/7z.dll",
         "native/Everything3_x64.dll",
         "native/EverythingBridge_x64.dll"

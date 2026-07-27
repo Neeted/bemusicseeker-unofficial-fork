@@ -42,7 +42,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _hash;
             }
-            protected set
+            set
             {
                 if (value != null && md5HashRegex.IsMatch(value))
                 {
@@ -64,7 +64,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _title ?? "";
             }
-            protected set
+            set
             {
                 if (!(_title == value))
                 {
@@ -79,7 +79,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _subtitle ?? "";
             }
-            protected set
+            set
             {
                 if (!(_subtitle == value))
                 {
@@ -94,7 +94,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _artist ?? "";
             }
-            protected set
+            set
             {
                 if (!(_artist == value))
                 {
@@ -109,7 +109,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _subartist ?? "";
             }
-            protected set
+            set
             {
                 if (!(_subartist == value))
                 {
@@ -124,7 +124,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _genre ?? "";
             }
-            protected set
+            set
             {
                 if (!(_genre == value))
                 {
@@ -177,7 +177,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _stagefile ?? "";
             }
-            protected set
+            set
             {
                 if (!(_stagefile == value))
                 {
@@ -192,7 +192,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _banner ?? "";
             }
-            protected set
+            set
             {
                 if (!(_banner == value))
                 {
@@ -207,7 +207,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _backbmp ?? "";
             }
-            protected set
+            set
             {
                 if (!(_backbmp == value))
                 {
@@ -222,11 +222,11 @@ public class LR2SongDB : SQLiteConnectionEx
 
         public int? difficulty { get; set; }
 
-        public int? maxbpm { get; protected set; }
+        public int? maxbpm { get; set; }
 
-        public int? minbpm { get; protected set; }
+        public int? minbpm { get; set; }
 
-        public virtual int? mode { get; protected set; }
+        public virtual int? mode { get; set; }
 
         public int? judge
         {
@@ -234,7 +234,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _judge;
             }
-            protected set
+            set
             {
                 if (_judge != value)
                 {
@@ -243,17 +243,17 @@ public class LR2SongDB : SQLiteConnectionEx
             }
         }
 
-        public int? longnote { get; protected set; }
+        public int? longnote { get; set; }
 
-        public int? bga { get; protected set; }
+        public int? bga { get; set; }
 
-        public int? random { get; protected set; }
+        public int? random { get; set; }
 
         public int? date { get; set; }
 
-        public int? favorite { get; protected set; }
+        public int? favorite { get; set; }
 
-        public int? txt { get; protected set; }
+        public int? txt { get; set; }
 
         public int? karinotes
         {
@@ -261,7 +261,7 @@ public class LR2SongDB : SQLiteConnectionEx
             {
                 return _karinotes;
             }
-            protected set
+            set
             {
                 if (_karinotes != value)
                 {
