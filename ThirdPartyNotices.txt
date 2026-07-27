@@ -47,14 +47,14 @@ Redistribution Notes:
 3) 7-Zip core library
 ================================================================================
 Status: GREEN
-Component: 7z.dll (x86/x64)
+Component: 7z.dll (x64, SevenZipExtractor 1.0.19 build asset)
 Copyright: Igor Pavlov
 License: GNU LGPL with unRAR restriction notice
 Source: https://www.7-zip.org/
 License Text: third_party/licenses/03-LGPL-2.1.txt, third_party/licenses/03-7zip-unRAR-restriction.txt
 Redistribution Notes:
 - Distributed as separate DLL (dynamic linking).
-- Repository x86/x64 binary SHA256 values were verified against the build/x86 and build/x64 7z.dll files bundled in SevenZipExtractor 1.0.19.
+- The runtime distributes the package's build/x64 7z.dll asset only (FileVersion/ProductVersion 24.07, SHA256 3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129).
 - Keep LGPL text and unRAR restriction notice with distribution.
 
 ================================================================================
@@ -67,7 +67,7 @@ License: MIT
 Source: https://www.nuget.org/packages/SevenZipExtractor/1.0.19
 License Text: third_party/licenses/04-SevenZipExtractor-MIT.txt
 Redistribution Notes:
-- Repository binary SHA256 matches NuGet 1.0.19 lib/net45 artifact.
+- The managed wrapper is resolved from the NuGet package's lib/netstandard2.0 asset; no repository-tracked wrapper binary is distributed.
 - Keep MIT text with distribution.
 
 7) LivetCask runtime

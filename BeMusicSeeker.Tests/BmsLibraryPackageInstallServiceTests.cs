@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Windows;
 using System.Windows.Threading;
@@ -3290,6 +3291,84 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
             }
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow("encrypted.7z")]
+    [DataRow("corrupt.7z")]
+    [DoNotParallelize]
+    public void ExpandInstallSources_RejectsArchiveFailureWithoutConsumingSource(string archiveFileName)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string archivePath = Path.Combine(tempDirectoryPath, archiveFileName);
+            if (string.Equals(archiveFileName, "corrupt.7z", StringComparison.OrdinalIgnoreCase))
+            {
+                File.WriteAllText(archivePath, "not a valid archive");
+            }
+            else
+            {
+                File.Copy(GetArchiveFixturePath(archiveFileName), archivePath);
+            }
+
+            var service = new BmsLibraryPackageInstallService();
+            List<string> logs = [];
+            var dialogService = new RecordingDialogService();
+            int processedCount = 0;
+
+            try
+            {
+                List<string> expandedPaths = service.ExpandInstallSources(
+                    [archivePath],
+                    new RealFileMutationService(),
+                    new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                    logs.Add,
+                    dialogService,
+                    () => processedCount++);
+
+                Assert.AreEqual(0, expandedPaths.Count);
+                Assert.AreEqual(1, processedCount);
+                Assert.IsTrue(File.Exists(archivePath));
+                Assert.IsTrue(logs.Any(message => message.IndexOf("extract_failed", StringComparison.OrdinalIgnoreCase) >= 0));
+                Assert.AreEqual(1, dialogService.Messages.Count);
+
+                string extractStart = logs.Single(message => message.IndexOf("extract_start", StringComparison.OrdinalIgnoreCase) >= 0);
+                int destinationMarker = extractStart.IndexOf(" destination=", StringComparison.Ordinal);
+                Assert.IsTrue(destinationMarker >= 0);
+                string extractionDirectoryPath = extractStart[(destinationMarker + " destination=".Length)..];
+                Assert.IsFalse(Directory.Exists(extractionDirectoryPath));
+            }
+            finally
+            {
+                global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
+            }
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow("../outside.txt")]
+    [DataRow(".. /outside.txt")]
+    [DataRow(" ../outside.txt")]
+    [DoNotParallelize]
+    public void SevenZipArchiveExtractor_RejectsEntryOutsideExtractionDirectory(string entryName)
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string archivePath = Path.Combine(tempDirectoryPath, "unsafe.zip");
+            using (ZipArchive archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                archive.CreateEntry(entryName);
+            }
+
+            string extractionDirectoryPath = Path.Combine(tempDirectoryPath, "extracted");
+            Assert.ThrowsException<InvalidDataException>(() => SevenZipArchiveExtractor.ExtractArchiveEntries(
+                archivePath,
+                SevenZipArchiveExtractor.ResolveBundledSevenZipLibraryPath(),
+                extractionDirectoryPath));
+            Assert.IsFalse(File.Exists(Path.Combine(tempDirectoryPath, "outside.txt")));
+            Assert.IsFalse(Directory.Exists(extractionDirectoryPath));
         });
     }
 

@@ -6,7 +6,7 @@
 
 ## Current checkpoint
 
-- active outcome base commit: `ab5bdb9d`
+- active outcome base commit: `0b3009de`
 - observed worktree: clean
 - Release Freeze: active
 - `git push`／tag／release／public publish: ユーザーの明示指示まで禁止
@@ -18,14 +18,14 @@
 - reason: B1/B2のproduction route、behavior tests、Full verification、Release UI smoke、fresh outcome reviewを完了した
 - .NET 10 migration readiness: architecture is sufficient to start after terminal closure; dependency／runtime／deployment migration remains
 
-Full verificationは`3454 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
+Full verificationは`3459 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
 
 ## Active outcome
 
 - active outcome: `NET10-06 Archive, audio and native runtime corridor`
 - active execution package: `.NET 10 archive, audio and native runtime modernization`
-- execution anchor: `NET10-06 planner required`
-- planner state: `planner required once; no active implementation batch`
+- execution anchor: `NET10-06 A2 OGG-DECODE`
+- planner state: `sequence materialized; A2 active`
 
 ## Active implementation batch
 
@@ -50,8 +50,12 @@ Full verificationは`3454 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `J4 SCORE-RETIRE` | completed | Score Viewer boundary and DynamicJson retirement | Score Viewer gateway typed化、DynamicJson binary／HintPath／layout／notice／license退役 |
 | `D1 DOC-HELPERS` | completed | external HTML document owner and managed helper closure | PlaylistExternalSyncOwnerのmaintained SGML route、uBMplayのShift-JIS settings rewrite／restore、IniLibrary／System.Collections.Immutableのlegacy asset retirement、resource snapshotとpackage／layout／notice整合 |
 | `S1 SQLITE-RUNTIME` | completed | SQLite provider／storage／native runtime corridor | app／tests／2 toolsのprovider初期化、connection／repository／schema／transaction、既存DB／lock／failure契約、package／native layout、portable／publish evidence |
+| `A1 ARCHIVE-RUNTIME` | completed | SevenZipExtractor／archive extraction corridor | package由来SevenZipExtractor、archive path safety、timestamp／cleanup／metadata import、portable native layout、旧HintPath／vendor asset退役 |
+| `A2 OGG-DECODE` | active | OGG decoder corridor | NVorbis parityまたは明示retain、cache／fallback／audio behavior、旧Ogg asset退役 |
+| `A3 BASS-RUNTIME` | pending | BASS managed／native runtime corridor | vendor-supported x64 ABI、playback／device／conversion／shutdown、native inventory |
+| `A4 EVERYTHING-RUNTIME` | pending | Everything SDK／bridge corridor | ABI、native lifetime、installed／absent fallback、publish／license inventory |
 
-active／pending unitがある間はunit-plannerを再起動しない。次のplannerはNET10-06開始時に一度だけ起動する。
+active／pending unitがある間はunit-plannerを再起動しない。A1〜A4は依存順に閉じる。
 
 ## Review evidence
 
@@ -79,5 +83,5 @@ active／pending unitがある間はunit-plannerを再起動しない。次のpl
 
 - active outcome: `NET10-06 Archive, audio and native runtime corridor`
 - active execution package: `.NET 10 archive, audio and native runtime modernization`
-- execution anchor: `NET10-06 planner required`
-- active implementation batch: empty; planner required once
+- execution anchor: `NET10-06 A2 OGG-DECODE`
+- active implementation batch: `A1 completed; A2 active; A3-A4 pending`

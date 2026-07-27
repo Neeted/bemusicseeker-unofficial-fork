@@ -40,7 +40,7 @@
     <None Include="native\EverythingBridge_x64.dll" Condition="Exists('native\\EverythingBridge_x64.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="vendor\native\x64\*.dll" Exclude="vendor\native\x64\OggVorbis.NET64.dll;vendor\native\x64\sqlite3.dll">
+    <None Include="vendor\native\x64\*.dll" Exclude="vendor\native\x64\7z.dll;vendor\native\x64\OggVorbis.NET64.dll;vendor\native\x64\sqlite3.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>libs\x64\%(Filename)%(Extension)</TargetPath>
     </None>
@@ -94,9 +94,7 @@
     <Reference Include="Bass.Net">
       <HintPath>libs\Bass.Net.dll</HintPath>
     </Reference>
-    <Reference Include="SevenZipExtractor">
-      <HintPath>libs\SevenZipExtractor.dll</HintPath>
-    </Reference>
+    <PackageReference Include="SevenZipExtractor" GeneratePathProperty="true" ExcludeAssets="build" />
     <Reference Include="OggVorbis.NET64">
       <HintPath>vendor\native\x64\OggVorbis.NET64.dll</HintPath>
     </Reference>
@@ -106,9 +104,22 @@
     <PackageReference Include="System.Configuration.ConfigurationManager" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="$(PkgSevenZipExtractor)\build\x64\7z.dll" Condition="Exists('$(PkgSevenZipExtractor)\build\x64\7z.dll')">
+      <Link>libs\x64\7z.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
   <Target Name="RemoveLegacyNativeOutputArtifacts" AfterTargets="CopyFilesToOutputDirectory">
     <RemoveDir Directories="$(OutDir)x86;$(OutDir)libs\x86" />
     <Delete Files="$(OutDir)libs\x64\OggVorbis.NET64.dll" />
+  </Target>
+
+  <Target Name="VerifySevenZipNativeAsset" BeforeTargets="Build;Publish">
+    <Error Condition="!Exists('$(PkgSevenZipExtractor)\build\x64\7z.dll')"
+           Text="SevenZipExtractor x64 native asset is missing: $(PkgSevenZipExtractor)\build\x64\7z.dll" />
   </Target>
 
   <Target Name="CopyUpdaterToAppOutput" AfterTargets="Build">

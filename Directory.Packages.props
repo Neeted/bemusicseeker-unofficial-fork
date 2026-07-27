@@ -19,5 +19,6 @@
     <PackageVersion Include="System.Resources.Extensions" Version="10.0.10" />
     <PackageVersion Include="sqlite-net-pcl" Version="1.11.285" />
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.4" />
+    <PackageVersion Include="SevenZipExtractor" Version="1.0.19" />
   </ItemGroup>
 </Project>

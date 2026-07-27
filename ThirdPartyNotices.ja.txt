@@ -46,14 +46,14 @@ BeMusicSeeker サードパーティ・ノーティス
 3) 7-Zip コアライブラリ
 ================================================================================
 ステータス: GREEN
-コンポーネント: 7z.dll (x86/x64)
+コンポーネント: 7z.dll (x64、SevenZipExtractor 1.0.19 build アセット)
 著作権所有者: Igor Pavlov
 ライセンス: GNU LGPL または unRAR 制限に関する特約付きの混在ライセンス
 ソース: https://www.7-zip.org/
 ライセンス本文: third_party/licenses/03-LGPL-2.1.txt, third_party/licenses/03-7zip-unRAR-restriction.txt
 再配布時の注意事項:
 - 個別のDLLとして配布しています（動的リンク）。
-- リポジトリの x86/x64 バイナリのSHA256値が、SevenZipExtractor 1.0.19 パッケージ同梱の build/x86, build/x64 の 7z.dll と一致していることを確認済みです。
+- 実行時はパッケージの build/x64 7z.dll のみを配布します（FileVersion/ProductVersion 24.07、SHA256 3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129）。
 - LGPLの本文と unRAR 制限事項のノーティスを配布物に同梱してください。
 
 ================================================================================
@@ -66,7 +66,7 @@ BeMusicSeeker サードパーティ・ノーティス
 ソース: https://www.nuget.org/packages/SevenZipExtractor/1.0.19
 ライセンス本文: third_party/licenses/04-SevenZipExtractor-MIT.txt
 再配布時の注意事項:
-- リポジトリのバイナリのSHA256値が、NuGet 1.0.19 lib/net45 のファイルと一致していることを確認済みです。
+- マネージドラッパーはNuGetパッケージの lib/netstandard2.0 アセットから解決し、リポジトリ管理のラッパーバイナリは配布しません。
 - MITライセンス本文を配布物に同梱してください。
 
 7) LivetCask ランタイム

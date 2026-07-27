@@ -28,6 +28,12 @@
         "resolved": "3.6.4",
         "contentHash": "3nV+2CJluKmiJpCSqQfXu5idCq35+vqFywjScyauTIz0Zk7KJw7Qpzv8gtwow0To7pxIlIvwkq9rbMB+V6eOow=="
       },
+      "SevenZipExtractor": {
+        "type": "Direct",
+        "requested": "[1.0.19, )",
+        "resolved": "1.0.19",
+        "contentHash": "tU9H3d8M6zx0u/0II/xecBKVjzX3BMB1v0NTSliSwlO+ryof7BIaiY0pMHd2eRqCWvyleFSERtQm4zQVG6fxAQ=="
+      },
       "sqlite-net-pcl": {
         "type": "Direct",
         "requested": "[1.11.285, )",
@@ -165,6 +171,7 @@
           "NLog": "[6.1.4, )",
           "Newtonsoft.Json": "[13.0.4, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.4, )",
+          "SevenZipExtractor": "[1.0.19, )",
           "sqlite-net-pcl": "[1.11.285, )"
         }
       },

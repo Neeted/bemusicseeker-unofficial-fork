@@ -72,6 +72,13 @@ public sealed class ManagedDependencyOutputPolicyTests
                 $"The host layout must place {dependencyName} beside the application.");
         }
 
+        Assert.IsTrue(
+            File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "7z.dll")),
+            "The package-provided x64 7z native asset must be staged under the existing library native owner path.");
+        Assert.IsFalse(
+            File.Exists(Path.Combine(releaseOutputDirectory, "x64", "7z.dll")),
+            "The package's root x64 native copy must not remain beside the deterministic library path.");
+
         foreach (string removedAddonName in new[] { "NLog.Database.dll", "NLog.WindowsEventLog.dll" })
         {
             Assert.IsFalse(
@@ -182,7 +189,8 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "System.Configuration.ConfigurationManager", Version = "10.0.10" },
             new { Id = "System.Resources.Extensions", Version = "10.0.10" },
             new { Id = "sqlite-net-pcl", Version = "1.11.285" },
-            new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" }
+            new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" },
+            new { Id = "SevenZipExtractor", Version = "1.0.19" }
         }.ToDictionary(item => item.Id, item => item.Version, StringComparer.Ordinal);
 
         XDocument centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
@@ -224,7 +232,8 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "System.Configuration.ConfigurationManager",
                     "System.Resources.Extensions",
                     "sqlite-net-pcl",
-                    "SQLitePCLRaw.bundle_e_sqlite3"
+                    "SQLitePCLRaw.bundle_e_sqlite3",
+                    "SevenZipExtractor"
                 }
             },
             new
@@ -237,7 +246,8 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "MSTest.TestAdapter",
                     "MSTest.TestFramework",
                     "sqlite-net-pcl",
-                    "SQLitePCLRaw.bundle_e_sqlite3"
+                    "SQLitePCLRaw.bundle_e_sqlite3",
+                    "SevenZipExtractor"
                 }
             }
         };

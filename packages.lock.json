@@ -62,6 +62,12 @@
         "resolved": "4.15.0",
         "contentHash": "/LvSJGJbrx+OYC2GePmiAA9fRTfz37R/oaHC2j8YK/j9lE8ykZESCGTMVGqXF5woc6RbzfJlpYkzeG6fAV6hFQ=="
       },
+      "SevenZipExtractor": {
+        "type": "Direct",
+        "requested": "[1.0.19, )",
+        "resolved": "1.0.19",
+        "contentHash": "tU9H3d8M6zx0u/0II/xecBKVjzX3BMB1v0NTSliSwlO+ryof7BIaiY0pMHd2eRqCWvyleFSERtQm4zQVG6fxAQ=="
+      },
       "sqlite-net-pcl": {
         "type": "Direct",
         "requested": "[1.11.285, )",

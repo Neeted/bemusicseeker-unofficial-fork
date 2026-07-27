@@ -28,7 +28,7 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | `DEP-MISC-02` | System.Collections.Immutable HintPath (retired) | runtime collection support | direct HintPath／tracked binaryを削除し、.NET runtime pack供給をpublishで確認 | .NET 10 runtime pack | `NET10-04` |
 | `DEP-DB-01` | sqlite.net HintPath (retired) | app／tests／2 toolsのstorage | sqlite-net-pclへ移行し、既存DB、schema、transaction、raw hydration、lock／failure契約を確認 | sqlite-net-pcl 1.11.285 | `NET10-05` |
 | `DEP-DB-02` | hand-placed sqlite3.dll (retired) | native provider | SQLitePCLRaw bundleへ一元化し、win-x64 native assetをpublish／portable layoutで確認 | SQLitePCLRaw.bundle_e_sqlite3 3.0.4 | `NET10-05` |
-| `DEP-ARC-01` | SevenZipExtractor DLL | archive extraction | PackageReference化しbehavior／native load検証 | SevenZipExtractor 1.0.19 | `NET10-06` |
+| `DEP-ARC-01` | SevenZipExtractor DLL (retired HintPath) | archive extraction | PackageReference化しbehavior／native load検証 | SevenZipExtractor 1.0.19 | `NET10-06 A1` |
 | `DEP-AUD-01` | OggVorbis.NET64 DLL | Ogg decode | NVorbis parity spike。差異が大きければ明示retain | NVorbis 0.10.5候補 | `NET10-06` |
 
 ## NET10-02 closure evidence
@@ -77,12 +77,19 @@ NET10-02のmanaged packageは公式NuGet packageをsourceとし、version author
 
 `SQLitePCLRaw.bundle_e_sqlite3` は NuGet metadata の Apache-2.0 を適用し、ライセンス本文は `third_party/licenses/11-Apache-2.0.txt` を参照する。native asset は version 3.53.3 に固定した [`SourceGear.sqlite3` package](https://www.nuget.org/packages/SourceGear.sqlite3/3.53.3) が供給する `e_sqlite3.dll` であり、SQLite upstream の Public Domain notice (`third_party/licenses/12-SQLite-Public-Domain.txt`) を同梱する。
 
+## NET10-06 A1 closure evidence
+
+| ID | Source / license | Version authority / runtime owner | Evidence |
+|---|---|---|---|
+| `DEP-ARC-01` | SevenZipExtractor 1.0.19 / MIT wrapper; package 7z native asset / LGPL＋unRAR restriction notice | `Directory.Packages.props`; app／test package locks; `SevenZipArchiveExtractor` | archive package／metadata import routes use the package wrapper; old HintPath／tracked wrapper is removed; supported zip／7z／rar／lzh fixtures retain content and timestamp behavior; encrypted and corrupt archive failures preserve source and report the failure |
+| `DEP-ARC-02` | SevenZipExtractor 1.0.19 `build/x64/7z.dll` (FileVersion/ProductVersion 24.07, x64, SHA256 `3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129`) | package path property; app／test output normalization | exactly one package x64 asset is copied to `libs/x64/7z.dll`; no x86 or root `x64` copy is emitted; archive path traversal and extracted reparse points fail before a result is accepted; portable/updater layout tests pass |
+
 ## Vendor / native dependencies
 
 | ID | Current | Decision | Required evidence | Owner |
 |---|---|---|---|---|
 | `DEP-AUD-02` | Bass.Net＋BASS native family | vendor-supported x64組合せへ更新または明示retain | exact version、license／redistribution、ABI、device／decode／shutdown smoke | `NET10-06` |
-| `DEP-ARC-02` | 7z.dll | SevenZipExtractorと整合するx64 binaryをpublish | version、license、encrypted／failure／path-safety tests | `NET10-06` |
+| `DEP-ARC-02` | hand-placed 7z.dll (retired) | SevenZipExtractor 1.0.19 packageのbuild/x64 asset（FileVersion/ProductVersion 24.07、x64、SHA256 `3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129`）を`libs/x64/7z.dll`へ配置 | version、license、encrypted／failure／path-safety tests、x64 publish layout | `NET10-06 A1` |
 | `DEP-NATIVE-01` | Everything3_x64／EverythingBridge_x64 | x64 bridgeをretain可能 | ABI、installed／absent behavior、publish path、license | `NET10-06` |
 | `DEP-UIH-01` | WPF＋WinForms host＋legacy WebBrowser／COM | 初回移行ではretain | startup、host creation、navigation、shutdown、clean-machine smoke | `NET10-03/08` |
 
