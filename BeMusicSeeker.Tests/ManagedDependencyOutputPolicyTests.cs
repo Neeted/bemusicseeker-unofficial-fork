@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -37,6 +38,8 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsFalse(
             config.Descendants(XName.Get("probing", "urn:schemas-microsoft-com:asm.v1")).Any(),
             "The runtime must not depend on Framework private probing.");
+        Assert.IsFalse(config.Descendants("startup").Any(), "Framework supportedRuntime selection must not remain in the .NET 10 app config.");
+        Assert.IsFalse(config.Descendants("runtime").Any(), "Framework runtime switches must not remain in the .NET 10 app config.");
 
         string releaseOutputDirectory = ResolveReleaseOutputDirectory();
         Assert.IsTrue(
@@ -101,7 +104,21 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.AreEqual("10.0.10", (string)resourcesReference.Attribute("Version"));
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "System.Resources.Extensions.dll")),
-            "System.Resources.Extensions must be owned by the SDK package graph, not a tracked HintPath binary.");
+            "System.Resources.Extensions must not be supplied by a tracked HintPath binary; the .NET 10 WindowsDesktop runtime pack supplies the publish asset.");
+
+        XElement configurationReference = projectRoot
+            .Elements("ItemGroup")
+            .Elements("PackageReference")
+            .Single(reference => string.Equals((string)reference.Attribute("Include"), "System.Configuration.ConfigurationManager", StringComparison.Ordinal));
+        Assert.AreEqual("10.0.10", (string)configurationReference.Attribute("Version"));
+
+        string lockFile = File.ReadAllText(Path.Combine(repositoryRoot, "packages.lock.json"));
+        StringAssert.Contains(lockFile, "\"System.Configuration.ConfigurationManager\":");
+        StringAssert.Contains(lockFile, "\"requested\": \"[10.0.10, )\"");
+        using JsonDocument lockDocument = JsonDocument.Parse(lockFile);
+        Assert.IsTrue(
+            lockDocument.RootElement.GetProperty("dependencies").TryGetProperty("net10.0-windows7.0/win-x64", out _),
+            "The lock file must retain the win-x64 target graph used by self-contained publish.");
     }
 
     private static string FindRepositoryRoot()
