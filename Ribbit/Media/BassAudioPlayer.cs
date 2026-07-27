@@ -430,7 +430,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 }
                 break;
         }
-        Ribbit.Media.Audio.BassNet.Free();
+        Ribbit.Media.Audio.BassNet.FreeDevice();
         IsInitialized = false;
     }
 
@@ -454,7 +454,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     NLogWrapper.GetLogger()?.Warn("Initialize ASIO driver failed: " + ex.Message);
                     BassAsio.BASS_ASIO_Free();
-                    Ribbit.Media.Audio.BassNet.Free();
+                    Ribbit.Media.Audio.BassNet.FreeDevice();
                     goto case DeviceDriver.WASAPI_EXCLUSIVE;
                 }
                 break;
@@ -468,7 +468,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     NLogWrapper.GetLogger()?.Warn("Initialize WASAPI(EX) driver failed: " + ex2.Message);
                     BassWasapi.BASS_WASAPI_Free();
-                    Ribbit.Media.Audio.BassNet.Free();
+                    Ribbit.Media.Audio.BassNet.FreeDevice();
                     goto case DeviceDriver.WASAPI_SHARED;
                 }
                 break;
@@ -482,7 +482,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     NLogWrapper.GetLogger()?.Warn("Initialize WASAPI(SH) driver failed: " + ex3.Message);
                     BassWasapi.BASS_WASAPI_Free();
-                    Ribbit.Media.Audio.BassNet.Free();
+                    Ribbit.Media.Audio.BassNet.FreeDevice();
                     goto case DeviceDriver.DIRECT_SOUND;
                 }
                 break;
@@ -495,7 +495,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 catch (Exception ex4)
                 {
                     NLogWrapper.GetLogger()?.Warn("Initialize DirectSound driver failed: " + ex4.Message);
-                    Ribbit.Media.Audio.BassNet.Free();
+                    Ribbit.Media.Audio.BassNet.FreeDevice();
                     goto default;
                 }
                 break;
@@ -1585,7 +1585,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                                                 where i.driver != null && i.IsEnabled
                                                 select new DeviceDescriptor(i.name, i.driver);
         dictionary[DeviceDriver.DIRECT_SOUND] = new DeviceDescriptor[1].Concat(second3).ToList().AsReadOnly();
-        Ribbit.Media.Audio.BassNet.Free();
+        Ribbit.Media.Audio.BassNet.FreeDevice();
         return new ReadOnlyDictionary<DeviceDriver, ReadOnlyCollection<DeviceDescriptor>>(dictionary);
     }
 

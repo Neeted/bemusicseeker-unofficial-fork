@@ -158,7 +158,7 @@ Exit:
 作業:
 
 1. SevenZipExtractorはPackageReference候補へ移し、encrypted／multi-file／failure／path traversal fixtureと7z native loadingを検証する。
-2. BASS managed／nativeのvendor-supported組合せ、x64 ABI、license／redistribution条件を確定し、playback／decode／device／shutdown smokeを行う。
+2. BASS managed／nativeは、`Bass.Net.dll` 2.4.12.1と`vendor/native/x64`の固定six-file set（bass 2.4.12、bassmix 2.4.8、bass_fx 2.4、basswasapi 2.4.1、bassasio 1.3.1、bassenc 2.4.13）を技術的にretainする。`BassNativeRuntime`の絶対path load、ABI probe、partial-load rollback／release、device resetとprocess-level releaseの分離、playback／decode／device／shutdown smokeを同じrouteで検証する。source archive、正式`LICENSE.rtf`、licensee scope、既存registration entitlementは`NATIVE-01` external-gateとして別管理し、証跡が揃うまで配布可能とは扱わない。
 3. OggVorbisはNVorbis 0.10.5へ置換し、legacy PCM parity、同一形式の連結logical stream、形式変更／truncated inputのfailure、cache／fallback、package／publish outputを検証する。
 4. Everythingはbridge ABI、installed／absent時のfallback、native search pathをpublish outputで検証する。
 5. 各native assetにsource、version、architecture、license、copy owner、runtime load testを台帳化する。

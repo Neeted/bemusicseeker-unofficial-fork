@@ -22,6 +22,7 @@ Copyright: un4seen developments
 License: Proprietary (free for non-commercial use, commercial license required)
 Source: https://www.un4seen.com/bass.html, https://www.un4seen.com/doc/bass/bass.html
 License Text: third_party/licenses/01-BASS-NOTICE.txt
+Retained NET10 x64 set: bass.dll 2.4.12 (API 0x02040C01, SHA-256 93A913CA11A3466C73A0984F23FEE570BCB29576A00FABE39E3CA1565588BEF3), bassmix.dll 2.4.8 (API 0x02040800, SHA-256 9D207EAF880CB5C401285CC75CDF8430C0CD274D8C31D1B02B597F790C99BF34), bass_fx.dll 2.4 (API 0x02040B01, SHA-256 572F29C568F05EF2E0FE689B5D928A0B546D902E3D6A673D33D7F61F3BC7BCDB), basswasapi.dll 2.4.1 (API 0x02040102, SHA-256 C0FE6416A6F59EE33CF617FB9C05D3F0BCB05EF47D6B71759710D2BB5BE5C0B0), bassasio.dll 1.3.1 (API 0x01030100, SHA-256 CA830E47D2F7DBED9EE9F885EA4387A9AB20FF20261F82258B3F48043CDCDE80), bassenc.dll 2.4.13 (API 0x02040D00, SHA-256 02CD21F2D47244FD0EF15D652524B5A4BEB3A986AC1BF64A756F901C6633E53A)
 Redistribution Notes:
 - Not covered by this repository MIT license.
 - Non-commercial use is generally permitted by upstream terms.
@@ -31,12 +32,14 @@ Redistribution Notes:
 ================================================================================
 2) Bass.Net (managed wrapper)
 ================================================================================
-Status: GREEN
+Status: YELLOW
 Component: Bass.Net.dll
-Copyright: radio42 GmbH (expected; verify per exact package origin)
+Copyright: radio42 (PE metadata: Copyright © 2005-2016 by radio42: Bernd Niedergesaess)
 License: Vendor-provided wrapper license (not MIT)
 Source: https://www.radio42.com/bass/bass_purchase.html, https://www.radio42.com/bass/bass_register.html
 License Text: third_party/licenses/02-BASS.NET-NOTICE.txt
+Retained NET10 managed wrapper: file/product version 2.4.12.1, SHA-256 25F8BE949CF9A805A4E549590CF06D8937460DF0ABDEE4BFD712C17570E2F065
+Provenance: PE metadata identifies radio42 and version 2.4.12.1; the exact acquisition archive, formal LICENSE.rtf, licensee scope, and existing registration entitlement are not present in this repository. Keep YELLOW and treat as the NATIVE-01 external gate until those records are supplied.
 Redistribution Notes:
 - Managed wrapper is distinct from native BASS binaries and must be tracked separately.
 - For individual, non-commercial, non-money-making end-user software, upstream terms indicate freeware use is allowed.
@@ -237,12 +240,13 @@ Blockers that must be addressed immediately (RED):
 (None)
 
 Conditionally releasable with minor remediation (YELLOW):
-(None)
+- Bass.Net.dll (exact source archive, formal license text, licensee scope,
+  and existing registration entitlement remain unverified; see NATIVE-01)
 
 Ready for release (GREEN):
 - 7z.dll, Livet, NLog, MIT runtime dependencies for .NET,
   Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
   SgmlReaderDll.dll, NVorbis.dll,
-  Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
-  BASS native binaries, Bass.Net.dll
+   Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
+   BASS native binaries

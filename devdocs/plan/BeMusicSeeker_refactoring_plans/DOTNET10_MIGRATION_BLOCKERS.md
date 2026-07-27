@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | `DEP-HELPER-01` | resolved | DynamicJson／IniLibrary routes retired; SgmlReader moved to Microsoft.Xml.SgmlReader 1.8.30; System.Collections.Immutable supplied by runtime pack | `NET10-04` | grouped typed boundaries、Shift-JIS settings／HTML golden tests、legacy refs／binaries／notices削除、locked restore／publish verification |
 | `DB-01` | resolved | sqlite.net／hand-placed sqlite3のprovider／ABI／data compatibility | `NET10-05` | sqlite-net-pcl／SQLitePCLRaw locked restore、startup／existing DB／schema／transaction／raw hydration／real contention、2 tools、win-x64 native bundle／SCD layout verification |
-| `NATIVE-01` | queued | archive、audio、Everythingのversion／license／publish load未確定 | `NET10-06` | dependency register completed、x64 runtime smoke |
+| `NATIVE-01` | external-gate | archive／audio／Everythingのruntime evidenceは進行中。BASS.NET 2.4.12.1のexact source archive、正式`LICENSE.rtf`、licensee scope、既存registration entitlementの証跡が未確認で、proprietary wrapperの配布可否を判定できない | `NET10-06` / release owner | dependency registerのexact binary／ABI／runtime evidenceに加え、取得元archive、正式license、licensee／registration entitlement、BASS native redistribution evidenceを記録する。証跡なしにGREEN／release可とは扱わない |
 | `PUBLISH-01` | queued | current outputはnet10 buildを含むがSelf-contained publishではない | `NET10-07` | versioned win-x64 SCD profiles、publish-folder smoke |
 | `UPD-01` | in-progress | updaterのnet10 protocol／SCD起動は検証済み。app publish／old-to-new acceptanceが未完了 | `NET10-07/08` | update、restart、rollback、old-to-new smoke |
 | `DATA-01` | queued | existing settings／DB／playlist／package stateのmigration acceptance未実施 | `NET10-08` | copied real-format dataによるgolden／manual smoke |

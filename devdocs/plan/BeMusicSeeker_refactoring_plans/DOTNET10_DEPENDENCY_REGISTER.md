@@ -95,10 +95,17 @@ NET10-02のmanaged packageは公式NuGet packageをsourceとし、version author
 
 | ID | Current | Decision | Required evidence | Owner |
 |---|---|---|---|---|
-| `DEP-AUD-02` | Bass.Net＋BASS native family | vendor-supported x64組合せへ更新または明示retain | exact version、license／redistribution、ABI、device／decode／shutdown smoke | `NET10-06` |
+| `DEP-AUD-02` | Bass.Net＋BASS native family | current vendor setを技術的に明示retain。`BassNativeRuntime`が絶対path、固定file set、ABI probe、rollback／releaseを所有し、Bass.Netのproduction routeはこのownerだけを経由する。wrapperのsource archive／正式license／licensee entitlementは`NATIVE-01` external-gate | exact version／SHA-256、PE metadata、license／redistribution、ABI、device／decode／shutdown smoke、publish layout、external entitlement evidence | `NET10-06 A3` |
 | `DEP-ARC-02` | hand-placed 7z.dll (retired) | SevenZipExtractor 1.0.19 packageのbuild/x64 asset（FileVersion/ProductVersion 24.07、x64、SHA256 `3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129`）を`libs/x64/7z.dll`へ配置 | version、license、encrypted／failure／path-safety tests、x64 publish layout | `NET10-06 A1` |
 | `DEP-NATIVE-01` | Everything3_x64／EverythingBridge_x64 | x64 bridgeをretain可能 | ABI、installed／absent behavior、publish path、license | `NET10-06` |
 | `DEP-UIH-01` | WPF＋WinForms host＋legacy WebBrowser／COM | 初回移行ではretain | startup、host creation、navigation、shutdown、clean-machine smoke | `NET10-03/08` |
+
+## NET10-06 A3 closure evidence
+
+| ID | Source / license | Version / ABI authority / runtime owner | Evidence |
+|---|---|---|---|
+| `DEP-AUD-02` | Retained vendor set: `libs/Bass.Net.dll` file/product version 2.4.12.1, SHA-256 `25F8BE949CF9A805A4E549590CF06D8937460DF0ABDEE4BFD712C17570E2F065`; native x64 BASS family under `vendor/native/x64`; proprietary BASS and vendor wrapper notices remain in `third_party/licenses/01-BASS-NOTICE.txt` and `third_party/licenses/02-BASS.NET-NOTICE.txt` | `BassNativeRuntime` is the sole native load owner. `bass.dll` 2.4.12 / API `0x02040C01`; `bassmix.dll` 2.4.8 / API `0x02040800`; `bass_fx.dll` 2.4 / API `0x02040B01`; `basswasapi.dll` 2.4.1 / API `0x02040102`; `bassasio.dll` 1.3.1 / API `0x01030100`; `bassenc.dll` 2.4.13 / API `0x02040D00` | `BassNativeRuntimeTests.NativeFamily_LoadsFixedX64AssetsAndMatchesAbiSet` verifies the fixed six-file order, absolute `libs/x64` path, exact SHA-256 values, load, ABI validation, and release. `BassNet_InitializesAndReleasesNativeRuntime` and `BassAudioPlayer_DeviceEnumerationKeepsNativeRuntimeLoadedUntilFullFree` verify null-device initialization, session/device reset while native handles remain loaded, reinitialization, and terminal shutdown through the production wrapper route. Partial-load rollback is covered by the owner implementation; the old generic `DllLoader` route is removed. Full verification passed `3467/16/0`, and the temporary win-x64 self-contained publish launched and exited cleanly with exactly one retained native family. Exact source archive, formal wrapper license, licensee scope, and existing registration entitlement remain `NATIVE-01` external-gate evidence. |
+| `DEP-AUD-02-OUTPUT` | Retained x64 native family and `Bass.Net.dll` | app project output plus `BassNativeRuntime` absolute `libs\x64` owner; portable/publish layout owner | Release output and self-contained publish must contain the managed wrapper and the six x64 native files from the retained set, with no dependency on current directory or legacy probing. This is technical layout evidence only; it does not close the proprietary wrapper entitlement gate. |
 
 ## Removal rule
 
