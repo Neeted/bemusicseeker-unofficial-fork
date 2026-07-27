@@ -78,7 +78,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             .Elements("ItemGroup")
             .Elements("PackageReference")
             .Single(reference => string.Equals((string)reference.Attribute("Include"), "NLog", StringComparison.Ordinal));
-        Assert.AreEqual("6.1.4", (string)nlogReference.Attribute("Version"));
+        Assert.IsNull(nlogReference.Attribute("Version"));
         Assert.IsFalse(
             projectRoot.Elements("ItemGroup").Elements("PackageReference").Any(reference =>
                 string.Equals((string)reference.Attribute("Include"), "NLog.Database", StringComparison.Ordinal) ||
@@ -92,7 +92,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             .Elements("ItemGroup")
             .Elements("PackageReference")
             .Single(reference => string.Equals((string)reference.Attribute("Include"), "Newtonsoft.Json", StringComparison.Ordinal));
-        Assert.AreEqual("13.0.4", (string)newtonsoftReference.Attribute("Version"));
+        Assert.IsNull(newtonsoftReference.Attribute("Version"));
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "Newtonsoft.Json.dll")),
             "Newtonsoft.Json must be supplied by the SDK package output, not a tracked HintPath binary.");
@@ -101,7 +101,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             .Elements("ItemGroup")
             .Elements("PackageReference")
             .Single(reference => string.Equals((string)reference.Attribute("Include"), "System.Resources.Extensions", StringComparison.Ordinal));
-        Assert.AreEqual("10.0.10", (string)resourcesReference.Attribute("Version"));
+        Assert.IsNull(resourcesReference.Attribute("Version"));
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "System.Resources.Extensions.dll")),
             "System.Resources.Extensions must not be supplied by a tracked HintPath binary; the .NET 10 WindowsDesktop runtime pack supplies the publish asset.");
@@ -110,7 +110,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             .Elements("ItemGroup")
             .Elements("PackageReference")
             .Single(reference => string.Equals((string)reference.Attribute("Include"), "System.Configuration.ConfigurationManager", StringComparison.Ordinal));
-        Assert.AreEqual("10.0.10", (string)configurationReference.Attribute("Version"));
+        Assert.IsNull(configurationReference.Attribute("Version"));
 
         string lockFile = File.ReadAllText(Path.Combine(repositoryRoot, "packages.lock.json"));
         StringAssert.Contains(lockFile, "\"System.Configuration.ConfigurationManager\":");
@@ -136,7 +136,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             .Elements("ItemGroup")
             .Elements("PackageReference")
             .Single(reference => string.Equals((string)reference.Attribute("Include"), "Microsoft.NET.Test.Sdk", StringComparison.Ordinal));
-        Assert.AreEqual("18.8.1", (string)testSdkReference.Attribute("Version"));
+        Assert.IsNull(testSdkReference.Attribute("Version"));
 
         string lockPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "packages.lock.json");
         Assert.IsTrue(File.Exists(lockPath), "The test project lock file must be tracked beside its project.");
@@ -149,6 +149,124 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsTrue(
             dependencies.TryGetProperty("net10.0-windows7.0/win-x64", out _),
             "The test lock file must retain the win-x64 target graph used by the solution restore.");
+    }
+
+    [TestMethod]
+    public void PackageVersionsAreCentrallyOwnedAndAnalyzersStayOutOfRuntimeOutput()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        var expectedVersions = new[]
+        {
+            new { Id = "Microsoft.NET.Test.Sdk", Version = "18.8.1" },
+            new { Id = "MSTest.TestAdapter", Version = "3.6.4" },
+            new { Id = "MSTest.TestFramework", Version = "3.6.4" },
+            new { Id = "NLog", Version = "6.1.4" },
+            new { Id = "Newtonsoft.Json", Version = "13.0.4" },
+            new { Id = "Roslynator.Analyzers", Version = "4.15.0" },
+            new { Id = "Roslynator.CodeAnalysis.Analyzers", Version = "4.15.0" },
+            new { Id = "Roslynator.Formatting.Analyzers", Version = "4.15.0" },
+            new { Id = "System.Configuration.ConfigurationManager", Version = "10.0.10" },
+            new { Id = "System.Resources.Extensions", Version = "10.0.10" }
+        }.ToDictionary(item => item.Id, item => item.Version, StringComparer.Ordinal);
+
+        XDocument centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
+        XElement centralRoot = centralPackages.Root ?? throw new AssertFailedException("Central package props has no root element.");
+        Assert.AreEqual(
+            "true",
+            (string)centralRoot.Elements("PropertyGroup").Elements("ManagePackageVersionsCentrally").Single(),
+            "Central package management must be enabled for the migration dependency graph.");
+        var centralVersions = centralRoot
+            .Elements("ItemGroup")
+            .Elements("PackageVersion")
+            .ToDictionary(
+                package => (string)package.Attribute("Include")!,
+                package => (string)package.Attribute("Version")!,
+                StringComparer.Ordinal);
+        CollectionAssert.AreEquivalent(expectedVersions.Keys.ToArray(), centralVersions.Keys.ToArray());
+        foreach (var expected in expectedVersions)
+        {
+            Assert.AreEqual(expected.Value, centralVersions[expected.Key]);
+        }
+
+        var projectPackages = new[]
+        {
+            new
+            {
+                ProjectPath = Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"),
+                LockPath = Path.Combine(repositoryRoot, "packages.lock.json"),
+                PackageIds = new[]
+                {
+                    "Newtonsoft.Json",
+                    "NLog",
+                    "Roslynator.Analyzers",
+                    "Roslynator.CodeAnalysis.Analyzers",
+                    "Roslynator.Formatting.Analyzers",
+                    "System.Configuration.ConfigurationManager",
+                    "System.Resources.Extensions"
+                }
+            },
+            new
+            {
+                ProjectPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"),
+                LockPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "packages.lock.json"),
+                PackageIds = new[]
+                {
+                    "Microsoft.NET.Test.Sdk",
+                    "MSTest.TestAdapter",
+                    "MSTest.TestFramework"
+                }
+            }
+        };
+
+        foreach (var projectPackage in projectPackages)
+        {
+            XDocument project = XDocument.Load(projectPackage.ProjectPath);
+            XElement projectRoot = project.Root ?? throw new AssertFailedException("Package project has no root element.");
+            foreach (XElement packageReference in projectRoot.Elements("ItemGroup").Elements("PackageReference"))
+            {
+                string packageId = (string)packageReference.Attribute("Include")!;
+                Assert.IsTrue(
+                    expectedVersions.ContainsKey(packageId),
+                    $"Package {packageId} must be declared by Directory.Packages.props.");
+                Assert.IsNull(
+                    packageReference.Attribute("Version"),
+                    $"Package {packageId} must not carry a project-local version.");
+            }
+
+            Assert.IsTrue(File.Exists(projectPackage.LockPath), $"Lock file is missing: {projectPackage.LockPath}");
+            using JsonDocument lockDocument = JsonDocument.Parse(File.ReadAllText(projectPackage.LockPath));
+            JsonElement target = lockDocument.RootElement.GetProperty("dependencies").GetProperty("net10.0-windows7.0");
+            foreach (string packageId in projectPackage.PackageIds)
+            {
+                Assert.IsTrue(target.TryGetProperty(packageId, out JsonElement dependency), $"Lock entry is missing: {packageId}");
+                Assert.AreEqual("Direct", dependency.GetProperty("type").GetString());
+                Assert.AreEqual(expectedVersions[packageId], dependency.GetProperty("resolved").GetString());
+            }
+        }
+
+        XDocument appProject = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
+        foreach (string analyzerId in new[]
+        {
+            "Roslynator.Analyzers",
+            "Roslynator.CodeAnalysis.Analyzers",
+            "Roslynator.Formatting.Analyzers"
+        })
+        {
+            XElement analyzerReference = appProject
+                .Root!
+                .Elements("ItemGroup")
+                .Elements("PackageReference")
+                .Single(reference => string.Equals((string)reference.Attribute("Include"), analyzerId, StringComparison.Ordinal));
+            Assert.AreEqual("all", (string)analyzerReference.Element("PrivateAssets"));
+            Assert.AreEqual(
+                "runtime; build; native; contentfiles; analyzers; buildtransitive",
+                (string)analyzerReference.Element("IncludeAssets"));
+        }
+
+        string releaseOutputDirectory = ResolveReleaseOutputDirectory();
+        Assert.IsFalse(
+            Directory.EnumerateFiles(releaseOutputDirectory, "Roslynator*.dll", SearchOption.AllDirectories).Any(),
+            "Analyzer assemblies must not be copied to the application runtime output.");
     }
 
     private static string FindRepositoryRoot()

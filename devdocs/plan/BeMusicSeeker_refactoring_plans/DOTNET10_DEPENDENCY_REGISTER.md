@@ -10,12 +10,12 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 
 | ID | Current | Usage / risk | Target decision | Candidate baseline | Owner |
 |---|---|---|---|---|---|
-| `DEP-CFG-01` | System.Configuration.ConfigurationManager 10.0.10 | generated settings、`PortableSettingsProvider`、legacy user.config migration | app project／lockに10.0.10をdirect inputとして固定し、publish時は`runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64/10.0.10`が供給する同identity assemblyを検証。section名／setting key／型／default／serializeAs、portable path、save／migration、long-path behaviorを維持し、Framework startup／runtime switchを退役 | System.Configuration.ConfigurationManager 10.0.10 + WindowsDesktop runtime pack 10.0.10 | `NET10-02` |
-| `DEP-LOG-01` | NLog 6.1.4 | `NLogWrapper`がfile／performance／network／trace loggingを所有 | NLog 6 coreへ更新。custom network／trace target、archive／encoding／channel behavior、publish outputを検証済み | NLog 6.1.4 | `NET10-02` |
-| `DEP-JSON-01` | Newtonsoft.Json 13.0.4 | persisted／external JSON ownersで使用 | 13.0.4へpatch更新し、既存ownerのsettings／file／DB／update JSON behaviorとpublish resolutionを確認 | Newtonsoft.Json 13.0.4 | `NET10-02/04` |
-| `DEP-RES-01` | System.Resources.Extensions 10.0.10 | `GenerateResourceUsePreserializedResources`、`Images.resx`のembedded icon serialization／runtime load | 10.0.10をapp project／lockのdirect inputとして固定し、publish時は`runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64/10.0.10`が供給する同identity assemblyを検証。11 iconのResourceManager／typed accessor／XAML converterとlegacy `libs` cleanup契約を維持 | System.Resources.Extensions 10.0.10 + WindowsDesktop runtime pack 10.0.10 | `NET10-02` |
-| `DEP-TEST-01` | Test SDK 17.12.0, MSTest 3.6.4 | migration verification | Test SDKを18.8.1へ更新し、test project／win-x64 lock graphとlocked restoreを所有。MSTest 3.6.4のdiscovery／DataRow／parallelism／failure diagnosticsを維持し、major upgradeは別unitへ分離 | Test SDK 18.8.1、MSTest 3.6.4（MSTest 4.3.2 pending） | `NET10-02` |
-| `DEP-AN-01` | Roslynator 4.15.0 | build analyzer | .NET 10で再解決。警告増加を分類し、必要時だけ更新 | current 4.15.0から検証 | `NET10-02` |
+| `DEP-CFG-01` | System.Configuration.ConfigurationManager 10.0.10 | generated settings、`PortableSettingsProvider`、legacy user.config migration | app project／lockに10.0.10をdirect inputとして固定し、publish時は`runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64/10.0.10`が供給する同identity assemblyを検証。section名／setting key／型／default／serializeAs、portable path、save／migration、long-path behaviorを維持し、Framework startup／runtime switchを退役。version authorityは`Directory.Packages.props` | System.Configuration.ConfigurationManager 10.0.10 + WindowsDesktop runtime pack 10.0.10 | `NET10-02` |
+| `DEP-LOG-01` | NLog 6.1.4 | `NLogWrapper`がfile／performance／network／trace loggingを所有 | NLog 6 coreへ更新。custom network／trace target、archive／encoding／channel behavior、publish outputを検証済み。version authorityは`Directory.Packages.props` | NLog 6.1.4 | `NET10-02` |
+| `DEP-JSON-01` | Newtonsoft.Json 13.0.4 | persisted／external JSON ownersで使用 | 13.0.4へpatch更新し、既存ownerのsettings／file／DB／update JSON behaviorとpublish resolutionを確認。version authorityは`Directory.Packages.props` | Newtonsoft.Json 13.0.4 | `NET10-02/04` |
+| `DEP-RES-01` | System.Resources.Extensions 10.0.10 | `GenerateResourceUsePreserializedResources`、`Images.resx`のembedded icon serialization／runtime load | 10.0.10をapp project／lockのdirect inputとして固定し、publish時は`runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64/10.0.10`が供給する同identity assemblyを検証。11 iconのResourceManager／typed accessor／XAML converterとlegacy `libs` cleanup契約を維持。version authorityは`Directory.Packages.props` | System.Resources.Extensions 10.0.10 + WindowsDesktop runtime pack 10.0.10 | `NET10-02` |
+| `DEP-TEST-01` | Test SDK 18.8.1, MSTest 3.6.4 | migration verification | Test SDK 18.8.1とMSTest 3.6.4をこの移行基線としてretainし、test project／win-x64 lock graphとlocked restoreを所有。discovery／DataRow／parallelism／failure diagnosticsを維持し、MSTest major upgradeは移行完了条件に含めない。version authorityは`Directory.Packages.props` | Test SDK 18.8.1、MSTest 3.6.4 | `NET10-02` |
+| `DEP-AN-01` | Roslynator 4.15.0 | build analyzer | `Directory.Packages.props`とapp lockで3 analyzer packageを4.15.0へ固定し、analyzerは`PrivateAssets=all`／runtime output外を維持。solution Roslynator analysisは0 diagnostics。CLIは`.config/dotnet-tools.json`の0.12.0を継続し、packageとtoolを混同しない | Roslynator analyzer packages 4.15.0、CLI 0.12.0 | `NET10-02` |
 | `DEP-UI-01` | `Livet.dll`, `Livet.Extensions.dll` HintPath | ViewModel、command、notification、dispatcherで広範利用 | vertical migration。Extensionsは必要機能だけ置換 | LivetCask 4.0.2候補 | `NET10-03` |
 | `DEP-UI-02` | System.Windows.Interactivity／Expression Interactions | legacy XAML behavior | modern behavior packageへ置換 | Microsoft.Xaml.Behaviors.Wpf 1.1.142 | `NET10-03` |
 | `DEP-UI-03` | MetroRadiance 3 DLL | Window chrome usageが限定的 | WPF WindowChrome／resourceへ置換し削除 | package更新ではなくremove | `NET10-03` |
@@ -30,6 +30,19 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | `DEP-DB-02` | hand-placed sqlite3.dll | native provider | SQLitePCLRaw bundleへ一元化 | SQLitePCLRaw.bundle_e_sqlite3 3.0.4 | `NET10-05` |
 | `DEP-ARC-01` | SevenZipExtractor DLL | archive extraction | PackageReference化しbehavior／native load検証 | SevenZipExtractor 1.0.19 | `NET10-06` |
 | `DEP-AUD-01` | OggVorbis.NET64 DLL | Ogg decode | NVorbis parity spike。差異が大きければ明示retain | NVorbis 0.10.5候補 | `NET10-06` |
+
+## NET10-02 closure evidence
+
+NET10-02のmanaged packageは公式NuGet packageをsourceとし、version authorityを`Directory.Packages.props`、resolved graphを各projectの`packages.lock.json`へ分離して記録する。licenseはpackage metadataで確認した。
+
+| ID | Source / license | Version authority / lock owner | Evidence |
+|---|---|---|---|
+| `DEP-CFG-01` | NuGet `System.Configuration.ConfigurationManager` 10.0.10 / MIT、WindowsDesktop runtime pack | app project／root lock | settings wire、portable migration、long-path、SCD publishでruntime-pack resolutionを確認 |
+| `DEP-LOG-01` | NuGet `NLog` 6.1.4 / BSD-3-Clause | app project／root lock | `NLogWrapper` route、Full verification、SCD log startupを確認 |
+| `DEP-JSON-01` | NuGet `Newtonsoft.Json` 13.0.4 / MIT | app project／root lock | persisted／external JSON contract、Full verification、SCD resolutionを確認 |
+| `DEP-RES-01` | NuGet `System.Resources.Extensions` 10.0.10 / MIT、WindowsDesktop runtime pack | app project／root lock | 11 icon resource contract、XAML converter、SCD runtime-pack resolutionを確認 |
+| `DEP-TEST-01` | NuGet `Microsoft.NET.Test.Sdk` 18.8.1、MSTest 3.6.4 / MIT | test project／test lock | discovery、DataRow、category、DoNotParallelize、Full suiteを確認 |
+| `DEP-AN-01` | NuGet Roslynator analyzer packages 4.15.0 / Apache-2.0; CLI 0.12.0 / tool manifest | app project／root lock、CLI manifest | 0 diagnostics、analyzer assetのruntime／publish除外を確認 |
 
 ## Vendor / native dependencies
 

@@ -6,7 +6,6 @@
 
 | ID | State | Blocking condition | Owner | Exit evidence |
 |---|---|---|---|---|
-| `CFG-01` | in-progress | settings lifecycleの.NET 10 runtime evidenceが必要 | `NET10-02` | settings golden test、probing非依存、ConfigurationManager route |
 | `DEP-UI-01` | queued | framework-era Livet／Interactivity／Metro／Expression／Code Pack | `NET10-03` | modern package／WPF APIへ移行、legacy HintPathゼロ、UI smoke |
 | `DEP-HELPER-01` | queued | QuickConverter、DynamicJson、SgmlReader、unused managed DLL | `NET10-04` | grouped replacements、golden tests、legacy refs削除 |
 | `DB-01` | in-progress | sqlite.net／hand-placed sqlite3のprovider／ABI／data compatibility | `NET10-05` | startup DB-open、existing DB、transaction、2 tools、native bundle verification |
