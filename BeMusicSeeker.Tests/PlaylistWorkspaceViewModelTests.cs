@@ -467,7 +467,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             workspaceSource.IndexOf("internal Task ExportPlaylistTableAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "tables?.EnsurePlaylistEntriesLoaded(bmsTable, \"ExportBMSTable\")");
         StringAssert.Contains(workspaceSource, "File.WriteAllText(fileNameHeader, contents)");
-        StringAssert.Contains(workspaceSource, "File.WriteAllText(fileNameData, val)");
+        StringAssert.Contains(workspaceSource, "File.WriteAllText(fileNameData, dataContents)");
         StringAssert.Contains(workspaceSource, "internal async Task RestorePlaylistBackupAsync(string fileName)");
         StringAssert.Contains(workspaceSource, "playlistRestoreUiApplyScheduler(() => RestorePlaylistBackup(playlistDump))");
         Assert.AreEqual(-1, workspaceSource.IndexOf("Application.Current", StringComparison.Ordinal));

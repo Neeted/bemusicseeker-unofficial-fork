@@ -10,7 +10,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
-using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 
@@ -335,7 +334,7 @@ public sealed class BmtTableExportServiceTests
             Folder_order = ["Alpha"],
             entries =
             [
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Local Song\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}"))
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Local Song\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}"))
             ]
         };
 
@@ -356,9 +355,9 @@ public sealed class BmtTableExportServiceTests
             Folder_order = ["Alpha"],
             entries =
             [
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Md5 Only\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256B + "\",\"level\":\"Alpha\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Both\",\"md5\":\"33333333333333333333333333333333\",\"sha256\":\"" + new string('c', 64) + "\",\"level\":\"Alpha\"}"))
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Md5 Only\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256B + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Both\",\"md5\":\"33333333333333333333333333333333\",\"sha256\":\"" + new string('c', 64) + "\",\"level\":\"Alpha\"}"))
             ]
         };
         table.SetPersistedCourses(
@@ -400,8 +399,8 @@ public sealed class BmtTableExportServiceTests
             Folder_order = ["Alpha"],
             entries =
             [
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Md5 Only\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256B + "\",\"level\":\"Alpha\"}"))
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Md5 Only\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256B + "\",\"level\":\"Alpha\"}"))
             ]
         };
         var resolver = new TestSongHashResolver(new Dictionary<string, Tuple<string, string>>(StringComparer.OrdinalIgnoreCase)
@@ -431,10 +430,10 @@ public sealed class BmtTableExportServiceTests
             Folder_order = ["Alpha"],
             entries =
             [
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Md5 Resolved\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Md5 Unresolved\",\"md5\":\"" + Md5B + "\",\"level\":\"Alpha\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256B + "\",\"level\":\"Alpha\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Both\",\"md5\":\"33333333333333333333333333333333\",\"sha256\":\"" + new string('c', 64) + "\",\"level\":\"Alpha\"}"))
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Md5 Resolved\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Md5 Unresolved\",\"md5\":\"" + Md5B + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256B + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Both\",\"md5\":\"33333333333333333333333333333333\",\"sha256\":\"" + new string('c', 64) + "\",\"level\":\"Alpha\"}"))
             ]
         };
         var resolver = new TestSongHashResolver(new Dictionary<string, Tuple<string, string>>(StringComparer.OrdinalIgnoreCase)
@@ -479,15 +478,15 @@ public sealed class BmtTableExportServiceTests
             Folder_order = ["Beta", "Alpha"],
             entries =
             [
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Alpha 1\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Beta 1\",\"md5\":\"" + Md5B + "\",\"level\":\"Beta\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Alpha 2\",\"sha256\":\"" + Sha256A + "\",\"level\":\"Alpha\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Removed\",\"md5\":\"33333333333333333333333333333333\",\"level\":\"Beta\"}"))
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Alpha 1\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Beta 1\",\"md5\":\"" + Md5B + "\",\"level\":\"Beta\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Alpha 2\",\"sha256\":\"" + Sha256A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Removed\",\"md5\":\"33333333333333333333333333333333\",\"level\":\"Beta\"}"))
                 {
                     is_removed = true
                 },
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"No Hash\",\"level\":\"Beta\"}")),
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Empty Folder\",\"level\":\"Gamma\"}"))
+                new BMSTableEntry(JObject.Parse("{\"title\":\"No Hash\",\"level\":\"Beta\"}")),
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Empty Folder\",\"level\":\"Gamma\"}"))
             ]
         };
 
@@ -519,7 +518,7 @@ public sealed class BmtTableExportServiceTests
                 Folder_order = ["Alpha"],
                 entries =
                 [
-                    new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Local Song\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}"))
+                    new BMSTableEntry(JObject.Parse("{\"title\":\"Local Song\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}"))
                 ]
             };
             string managedFileName = BmtTableExportService.ExportTable(tempDirectory, table);
@@ -1100,7 +1099,7 @@ public sealed class BmtTableExportServiceTests
             Folder_order = ["Alpha"],
             entries =
             [
-                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Song\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}"))
+                new BMSTableEntry(JObject.Parse("{\"title\":\"Song\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}"))
             ]
         };
 

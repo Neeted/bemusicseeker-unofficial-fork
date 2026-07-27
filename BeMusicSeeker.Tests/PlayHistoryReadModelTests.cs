@@ -13,8 +13,8 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 using SQLite;
 
 namespace BeMusicSeeker.Tests;
@@ -3065,7 +3065,7 @@ public sealed class PlayHistoryReadModelTests
             org_symbol = "SAT",
             entries =
             [
-                new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"" + md5 + "\"" + sha256Json + ",\"title\":\"Target\",\"level\":\"" + folder + "\"}"))
+                new BMSTableEntry(JObject.Parse("{\"md5\":\"" + md5 + "\"" + sha256Json + ",\"title\":\"Target\",\"level\":\"" + folder + "\"}"))
             ]
         };
         return table;

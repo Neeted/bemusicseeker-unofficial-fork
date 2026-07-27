@@ -4,8 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using BeMusicSeeker.Models;
-using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
@@ -42,6 +43,252 @@ public sealed class BMSTableLoadTests
         var table = new BMSTable();
 
         PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(() => table.LoadDataJSON("{ invalid json }"));
+
+        Assert.IsNotNull(exception.InnerException);
+    }
+
+    [TestMethod]
+    public void LoadDataJson_WrongTopLevelShapePreservesParseContract()
+    {
+        var table = new BMSTable();
+
+        PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(
+            () => table.LoadDataJSON("{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"));
+
+        Assert.IsNotNull(exception.InnerException);
+    }
+
+    [TestMethod]
+    public void LoadDataJson_PreservesCaseSensitiveFieldsAndOptionalNulls()
+    {
+        var table = new BMSTable();
+        table.LoadHeaderJSON("{\"name\":\"Typed\",\"symbol\":\"st\",\"data_url\":\"data.json\"}");
+        table.LoadDataJSON("[{\"MD5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Target\",\"level\":2.5,\"comment\":null,\"org_md5s\":[\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"],\"unknown\":true}]");
+
+        BMSTableEntry entry = table.entries.Single();
+        Assert.IsNull(entry.md5);
+        Assert.AreEqual("Target", entry.title);
+        Assert.AreEqual(2.5d, entry.level);
+        Assert.AreEqual("st2.5", entry.folder);
+        CollectionAssert.AreEqual(new[] { "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }, entry.Org_md5);
+    }
+
+    [TestMethod]
+    public void LoadDataJson_ExplicitNullOrgLevelKeepsNullLevelAndUsesCompatibleFolder()
+    {
+        var table = new BMSTable();
+        table.LoadHeaderJSON("{\"name\":\"Typed\",\"symbol\":\"st\",\"data_url\":\"data.json\"}");
+        table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"org_level\":null,\"level\":\"2\"}]");
+
+        BMSTableEntry entry = table.entries.Single();
+        Assert.IsNull(entry.level);
+        Assert.AreEqual("st2", entry.folder);
+    }
+
+    [TestMethod]
+    public void LoadDataJson_InvalidOrgLevelShapePreservesParseContract()
+    {
+        var table = new BMSTable();
+
+        PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(
+            () => table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"org_level\":{}}]"));
+
+        Assert.IsNotNull(exception.InnerException);
+    }
+
+    [DataTestMethod]
+    [DataRow("\"1\"")]
+    [DataRow("true")]
+    [DataRow("[]")]
+    [DataRow("{}")]
+    public void LoadDataJson_NonNumericOrgLevelPreservesParseContract(string orgLevelJson)
+    {
+        var table = new BMSTable();
+
+        PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(
+            () => table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"org_level\":" + orgLevelJson + "}]"));
+
+        Assert.IsNotNull(exception.InnerException);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_ExplicitNullEntryTypePreservesParseContract()
+    {
+        var table = new BMSTable();
+
+        PlaylistHeaderParseException exception = Assert.ThrowsException<PlaylistHeaderParseException>(
+            () => table.LoadHeaderJSON("{\"name\":\"Typed\",\"symbol\":\"st\",\"entry_type\":null,\"data_url\":\"data.json\"}"));
+
+        Assert.IsNotNull(exception.InnerException);
+    }
+
+    [TestMethod]
+    public void LoadJson_PreservesIsoDateStringsAsStringsAtJsonBoundary()
+    {
+        const string timestamp = "2026-01-02T03:04:05.000Z";
+        var table = new BMSTable();
+        table.LoadHeaderJSON("{\"name\":\"Typed\",\"symbol\":\"st\",\"tag\":\"" + timestamp + "\",\"data_url\":\"data.json\"}");
+        table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"" + timestamp + "\",\"comment\":\"" + timestamp + "\"}]");
+
+        Assert.AreEqual(timestamp, table.tag);
+        BMSTableEntry entry = table.entries.Single();
+        Assert.AreEqual(timestamp, entry.title);
+        Assert.AreEqual(timestamp, entry.comment);
+    }
+
+    [TestMethod]
+    public void PlaylistJson_WireFormatMatchesIndependentIndentedGolden()
+    {
+        var entry = new BMSTableEntry(JObject.Parse("{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"org_level\":1.5,\"title\":\"Title \\\"quoted\\\"\",\"artist\":\"Artist\",\"folder\":\"st1\",\"level\":\"1\",\"lr2_bmsid\":\"123\",\"url\":\"https://example.com/u\",\"url_diff\":\"https://example.com/d\",\"name_diff\":\"Diff\",\"org_md5s\":[\"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\"],\"comment\":\"Comment\"}"));
+        entry.adddate = new DateTime(2024, 1, 2);
+
+        string actual = entry.ToJson().Replace(entry.adddate.ToShortDateString(), "<DATE>", StringComparison.Ordinal);
+        string expected = "{" + Environment.NewLine
+            + "  \"md5\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"," + Environment.NewLine
+            + "  \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"," + Environment.NewLine
+            + "  \"org_level\": 1.5," + Environment.NewLine
+            + "  \"title\": \"Title \\\"quoted\\\"\"," + Environment.NewLine
+            + "  \"artist\": \"Artist\"," + Environment.NewLine
+            + "  \"folder\": \"st1\"," + Environment.NewLine
+            + "  \"level\": \"st1\"," + Environment.NewLine
+            + "  \"lr2_bmsid\": \"123\"," + Environment.NewLine
+            + "  \"url\": \"https://example.com/u\"," + Environment.NewLine
+            + "  \"url_diff\": \"https://example.com/d\"," + Environment.NewLine
+            + "  \"name_diff\": \"Diff\"," + Environment.NewLine
+            + "  \"org_md5s\": [" + Environment.NewLine
+            + "    \"cccccccccccccccccccccccccccccccc\"" + Environment.NewLine
+            + "  ]," + Environment.NewLine
+            + "  \"org_md5\": \"cccccccccccccccccccccccccccccccc\"," + Environment.NewLine
+            + "  \"comment\": \"Comment\"," + Environment.NewLine
+            + "  \"adddate\": \"<DATE>\"" + Environment.NewLine
+            + "}";
+
+        Assert.AreEqual(expected, actual);
+    }
+
+    [TestMethod]
+    public void PlaylistPersistedJson_UsesIndependentIndentedArrayGolden()
+    {
+        var table = new BMSTable
+        {
+            Folder_order = ["st2", "st1"]
+        };
+        var entry = new BMSTableEntry
+        {
+            Org_md5 = ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]
+        };
+
+        string expected = "[" + Environment.NewLine
+            + "  \"st2\"," + Environment.NewLine
+            + "  \"st1\"" + Environment.NewLine
+            + "]";
+        string expectedOrgMd5 = "[" + Environment.NewLine
+            + "  \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"," + Environment.NewLine
+            + "  \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"" + Environment.NewLine
+            + "]";
+
+        Assert.AreEqual(expected, table.folder_order);
+        Assert.AreEqual(expectedOrgMd5, entry.org_md5);
+    }
+
+    [TestMethod]
+    public void PlaylistHeaderJson_MatchesIndependentFullGoldenAfterVariableNormalization()
+    {
+        var table = new BMSTable();
+        table.LoadHeaderJSON("{\"name\":\"Table\",\"symbol\":\"st\",\"tag\":\"tag\",\"compat_prefix\":\"st\",\"folder_sort_key\":\"\",\"folder_sort_ascending\":true,\"data_url\":\"data.json\",\"folder_order\":[\"st1\"],\"level_order\":[1],\"course\":[{\"name\":\"Course\",\"constraint\":[\"grade_mirror\"],\"md5\":[\"11111111111111111111111111111111\"]}]}");
+        table.last_update = new DateTime(2024, 1, 2);
+
+        JObject normalized = JObject.Parse(table.HeaderToJson());
+        normalized["last_update"] = "<LAST_UPDATE>";
+        normalized["editor_version"] = "<EDITOR_VERSION>";
+        normalized["output_date"] = "<OUTPUT_DATE>";
+
+        string expected = "{" + Environment.NewLine
+            + "  \"name\": \"Table\"," + Environment.NewLine
+            + "  \"symbol\": \"st\"," + Environment.NewLine
+            + "  \"level_order\": []," + Environment.NewLine
+            + "  \"folder_order\": [" + Environment.NewLine
+            + "    \"st1\"" + Environment.NewLine
+            + "  ]," + Environment.NewLine
+            + "  \"folder_sort_key\": \"\"," + Environment.NewLine
+            + "  \"folder_sort_ascending\": true," + Environment.NewLine
+            + "  \"entry_type\": \"\"," + Environment.NewLine
+            + "  \"data_url\": \"data.json\"," + Environment.NewLine
+            + "  \"tag\": \"tag\"," + Environment.NewLine
+            + "  \"course\": [" + Environment.NewLine
+            + "    {" + Environment.NewLine
+            + "      \"name\": \"Course\"," + Environment.NewLine
+            + "      \"constraint\": [" + Environment.NewLine
+            + "        \"grade_mirror\"" + Environment.NewLine
+            + "      ]," + Environment.NewLine
+            + "      \"md5\": [" + Environment.NewLine
+            + "        \"11111111111111111111111111111111\"" + Environment.NewLine
+            + "      ]" + Environment.NewLine
+            + "    }" + Environment.NewLine
+            + "  ]," + Environment.NewLine
+            + "  \"compat_prefix\": \"st\"," + Environment.NewLine
+            + "  \"last_update\": \"<LAST_UPDATE>\"," + Environment.NewLine
+            + "  \"editor_name\": \"BeMusicSeeker\"," + Environment.NewLine
+            + "  \"editor_version\": \"<EDITOR_VERSION>\"," + Environment.NewLine
+            + "  \"output_date\": \"<OUTPUT_DATE>\"" + Environment.NewLine
+            + "}";
+
+        Assert.AreEqual(expected, normalized.ToString(Formatting.Indented));
+    }
+
+    [TestMethod]
+    public void PlaylistDataJson_MatchesIndependentFullGoldenAfterDateNormalization()
+    {
+        var entry = new BMSTableEntry(JObject.Parse("{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"folder\":\"st1\",\"org_level\":null}"));
+        entry.adddate = new DateTime(2024, 1, 2);
+        var table = new BMSTable
+        {
+            Folder_order = ["st1"],
+            entries = [entry]
+        };
+
+        string actual = table.DataToJson().Replace(entry.adddate.ToShortDateString(), "<DATE>", StringComparison.Ordinal);
+        string expected = "[" + Environment.NewLine
+            + "  {" + Environment.NewLine
+            + "    \"md5\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"," + Environment.NewLine
+            + "    \"sha256\": null," + Environment.NewLine
+            + "    \"org_level\": null," + Environment.NewLine
+            + "    \"title\": \"Song\"," + Environment.NewLine
+            + "    \"artist\": \"\"," + Environment.NewLine
+            + "    \"folder\": \"st1\"," + Environment.NewLine
+            + "    \"level\": \"st1\"," + Environment.NewLine
+            + "    \"lr2_bmsid\": null," + Environment.NewLine
+            + "    \"url\": \"\"," + Environment.NewLine
+            + "    \"url_diff\": \"\"," + Environment.NewLine
+            + "    \"name_diff\": null," + Environment.NewLine
+            + "    \"org_md5s\": []," + Environment.NewLine
+            + "    \"org_md5\": \"\"," + Environment.NewLine
+            + "    \"comment\": \"\"," + Environment.NewLine
+            + "    \"adddate\": \"<DATE>\"" + Environment.NewLine
+            + "  }" + Environment.NewLine
+            + "]";
+
+        Assert.AreEqual(expected, actual);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_RejectsTrailingJsonDocument()
+    {
+        var table = new BMSTable();
+
+        PlaylistHeaderParseException exception = Assert.ThrowsException<PlaylistHeaderParseException>(
+            () => table.LoadHeaderJSON("{\"name\":\"Typed\",\"symbol\":\"st\"}{\"extra\":true}"));
+
+        Assert.IsNotNull(exception.InnerException);
+    }
+
+    [TestMethod]
+    public void LoadDataJson_RejectsTrailingJsonDocument()
+    {
+        var table = new BMSTable();
+
+        PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(
+            () => table.LoadDataJSON("[]{}"));
 
         Assert.IsNotNull(exception.InnerException);
     }
@@ -408,7 +655,7 @@ public sealed class BMSTableLoadTests
 
     private static BMSTableEntry CreateEntry(string md5, string folder)
     {
-        return new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":\"" + folder + "\"}"));
+        return new BMSTableEntry(JObject.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":\"" + folder + "\"}"));
     }
 
     private static BMSTable LoadTableWithSingleEntry(string headerJson, string level)

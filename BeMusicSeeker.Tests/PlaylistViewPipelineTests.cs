@@ -15,8 +15,8 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
-using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
@@ -3548,7 +3548,7 @@ public sealed class PlaylistViewPipelineTests
         var table = new BMSTable
         {
             last_update = lastUpdate,
-            entries = [new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Existing\",\"level\":\"A\"}"))]
+            entries = [new BMSTableEntry(JObject.Parse("{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Existing\",\"level\":\"A\"}"))]
         };
         int entriesRevision = table.PlaylistEntriesRevision;
         List<BMSTableEntry> entriesBefore = [.. table.entries];

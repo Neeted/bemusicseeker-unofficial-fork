@@ -8,7 +8,6 @@ using System.Text;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using Codeplex.Data;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Ribbit.Util;
@@ -26,6 +25,8 @@ public enum PlaylistEntriesLoadState
 
 public class BMSTable : LR2SongDBExtended.playlist
 {
+    private static readonly JsonLoadSettings PlaylistJsonLoadSettings = new();
+
     private List<string> _Folder_order;
 
     private List<LR2SongDBExtended.playlist_course> _Courses = [];
@@ -50,14 +51,18 @@ public class BMSTable : LR2SongDBExtended.playlist
     {
         get
         {
-            return DynamicJson.Serialize(Folder_order);
+            return new JArray(Folder_order).ToString(Formatting.Indented);
         }
         protected set
         {
             try
             {
-                dynamic val = DynamicJson.Parse(value);
-                Folder_order = [.. ((object[])val).Cast<string>()];
+                JArray val = ParseJson(value) as JArray ?? throw new FormatException("folder_order must be an array.");
+                if (val.Any(token => token.Type != JTokenType.String))
+                {
+                    throw new FormatException("folder_order must contain only strings.");
+                }
+                Folder_order = [.. val.Select(token => token.Value<string>())];
             }
             catch
             {
@@ -540,42 +545,41 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     public string HeaderToJson()
     {
-        return HeaderToDynamicJson().ToString();
+        return CreateHeaderJson().ToString(Formatting.Indented);
     }
 
-    public dynamic HeaderToDynamicJson()
+    private JObject CreateHeaderJson()
     {
-        dynamic val = new DynamicJson();
-        val.name = base.name;
-        val.symbol = base.symbol;
-        val.level_order = folder_list.Select(f => ConvertBackFolderNameToCompatibleLevelName(f)).ToArray();
-        val.folder_order = Folder_order.ToArray();
-        val.folder_sort_key = base.folder_sort_key.ToColumnName();
-        val.folder_sort_ascending = base.folder_sort_ascending;
-        val.entry_type = base.entry_type.ToStringName();
-        val.data_url = data_url;
+        var val = new JObject();
+        val["name"] = base.name;
+        val["symbol"] = base.symbol;
+        val["level_order"] = new JArray(folder_list.Select(f => ConvertBackFolderNameToCompatibleLevelName(f)));
+        val["folder_order"] = new JArray(Folder_order);
+        val["folder_sort_key"] = base.folder_sort_key.ToColumnName();
+        val["folder_sort_ascending"] = base.folder_sort_ascending;
+        val["entry_type"] = base.entry_type.ToStringName();
+        val["data_url"] = data_url;
         if (!string.IsNullOrWhiteSpace(base.tag))
         {
-            val.tag = base.tag;
+            val["tag"] = base.tag;
         }
         if (_Courses.Count > 0)
         {
-            val.course = _Courses
+            val["course"] = new JArray(_Courses
                 .OrderBy(course => course.course_order)
-                .Select(course => DynamicJson.Parse(course.course_json))
-                .ToArray();
+                .Select(course => ParseJson(course.course_json)));
         }
-        val.compat_prefix = base.compat_prefix;
-        val.last_update = base.last_update.ToShortDateString();
-        val.editor_name = "BeMusicSeeker";
-        val.editor_version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
-        val.output_date = DateTime.Now.ToShortDateString();
+        val["compat_prefix"] = base.compat_prefix;
+        val["last_update"] = base.last_update.ToShortDateString();
+        val["editor_name"] = "BeMusicSeeker";
+        val["editor_version"] = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
+        val["output_date"] = DateTime.Now.ToShortDateString();
         return val;
     }
 
-    public dynamic DataToJson()
+    public string DataToJson()
     {
-        dynamic val = new DynamicJson(DynamicJson.JsonType.array);
+        var val = new JArray();
         List<List<BMSTableEntry>> list = [.. folder_list.Select(delegate (string f)
         {
             IEnumerable<BMSTableEntry> source = entries.Where(e => !e.is_removed && e.folder == f);
@@ -587,16 +591,14 @@ public class BMSTable : LR2SongDBExtended.playlist
                 _ => (!base.folder_sort_ascending) ? source.OrderByDescending(e => e.title) : source.OrderBy(e => e.title),
             }).ToList();
         })];
-        int num = 0;
         foreach (List<BMSTableEntry> item in list)
         {
-            foreach (dynamic item2 in item.Select(e => e.ToDynamicJson()))
+            foreach (JObject item2 in item.Select(e => e.ToJsonObject()))
             {
-                val[num] = item2;
-                num++;
+                val.Add(item2);
             }
         }
-        return val.ToString();
+        return val.ToString(Formatting.Indented);
     }
 
     public void LoadHeaderJSON(string _header_json, Uri _page_url_absolute = null, Uri __header_url = null, string _data_json = null, bool preserveLoadedCompatPrefix = false)
@@ -610,58 +612,64 @@ public class BMSTable : LR2SongDBExtended.playlist
         _loadedFolderOrderCompatPrefix = null;
         try
         {
-            dynamic val = DynamicJson.Parse(_header_json);
+            JObject val = ParseJson(_header_json) as JObject ?? throw new FormatException("playlist header must be an object.");
             LoadedRawHeaderSha256 = ComputeSha256Hex(_header_json);
             base.header_sha256 = ComputeHeaderSha256Hex(_header_json);
             LoadCourseJsonFromHeader(_header_json);
-            if (val.IsDefined("name") && val.name != null)
+            if (TryGetNonNullProperty(val, "name", out JToken nameToken))
             {
-                string text = (base.org_name = val.name.ToString());
+                string text = (base.org_name = nameToken.ToString());
                 base.name = text;
             }
-            if (val.IsDefined("symbol") && val.symbol != null)
+            if (TryGetNonNullProperty(val, "symbol", out JToken symbolToken))
             {
-                string text = (base.org_symbol = val.symbol.ToString());
+                string text = (base.org_symbol = symbolToken.ToString());
                 base.symbol = text;
             }
-            if (val.IsDefined("tag") && val.tag != null)
+            if (TryGetNonNullProperty(val, "tag", out JToken tagToken))
             {
-                base.tag = val.tag.ToString();
+                base.tag = tagToken.ToString();
             }
-            if (val.IsDefined("folder_sort_key") && val.folder_sort_key != null)
+            if (TryGetNonNullProperty(val, "folder_sort_key", out JToken folderSortKeyToken))
             {
-                base.folder_sort_key = CustomFolderSortTypeExt.FromColumnName(val.folder_sort_key.ToString());
+                base.folder_sort_key = CustomFolderSortTypeExt.FromColumnName(folderSortKeyToken.ToString());
             }
-            if (val.IsDefined("folder_sort_ascending"))
+            if (val.TryGetValue("folder_sort_ascending", out JToken folderSortAscendingToken))
             {
-                base.folder_sort_ascending = (val.folder_sort_ascending as bool?) ?? true;
+                base.folder_sort_ascending = folderSortAscendingToken.Type == JTokenType.Boolean
+                    ? folderSortAscendingToken.Value<bool>()
+                    : true;
             }
-            if (val.IsDefined("entry_type"))
+            if (val.TryGetValue("entry_type", out JToken entryTypeToken))
             {
-                base.entry_type = EntryUnitTypeExt.FromStringName(val.entry_type.ToString());
+                if (entryTypeToken.Type == JTokenType.Null)
+                {
+                    throw new FormatException("entry_type must not be null.");
+                }
+                base.entry_type = EntryUnitTypeExt.FromStringName(entryTypeToken.ToString());
             }
-            bool hasExplicitCompatPrefix = val.IsDefined("compat_prefix") && val.compat_prefix != null;
-            string explicitCompatPrefix = hasExplicitCompatPrefix ? val.compat_prefix.ToString() : null;
+            bool hasExplicitCompatPrefix = TryGetNonNullProperty(val, "compat_prefix", out JToken compatPrefixToken);
+            string explicitCompatPrefix = hasExplicitCompatPrefix ? compatPrefixToken.ToString() : null;
             if (hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
             {
                 base.compat_prefix = explicitCompatPrefix;
             }
             List<string> headerFolderOrder = null;
-            if (val.IsDefined("last_update") && val.last_update != null && !string.IsNullOrWhiteSpace(val.last_update.ToString()))
+            if (TryGetNonNullProperty(val, "last_update", out JToken lastUpdateToken) && !string.IsNullOrWhiteSpace(lastUpdateToken.ToString()))
             {
                 try
                 {
-                    base.last_update = DateTime.Parse(val.last_update.ToString());
+                    base.last_update = DateTime.Parse(lastUpdateToken.ToString());
                 }
                 catch
                 {
                 }
             }
-            if (val.IsDefined("folder_order") && val.folder_order != null)
+            if (TryGetNonNullProperty(val, "folder_order", out JToken folderOrderToken))
             {
                 try
                 {
-                    headerFolderOrder = [.. ((object[])val.folder_order).Select(e => e.ToString()).Cast<string>()];
+                    headerFolderOrder = [.. RequireStringArray(folderOrderToken)];
                     Folder_order = headerFolderOrder;
                     if (preserveLoadedCompatPrefix
                         && hasExplicitCompatPrefix
@@ -683,22 +691,22 @@ public class BMSTable : LR2SongDBExtended.playlist
             {
                 Header_url = __header_url;
             }
-            if (val.IsDefined("data_url") && val.data_url != null)
+            if (TryGetNonNullProperty(val, "data_url", out JToken dataUrlToken))
             {
-                Data_url = ParsePlaylistUriOrThrow(val.data_url.ToString(), "data_url");
+                Data_url = ParsePlaylistUriOrThrow(dataUrlToken.ToString(), "data_url");
             }
-            if (!hasExplicitCompatPrefix || !val.IsDefined("folder_sort_key") || !val.IsDefined("folder_sort_ascending"))
+            if (!hasExplicitCompatPrefix || !val.ContainsKey("folder_sort_key") || !val.ContainsKey("folder_sort_ascending"))
             {
                 base.ignore_folder_output |= CustomFolderType.LevelFolder;
                 if (!hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
                 {
                     base.compat_prefix = ResolveDefaultCompatibleFolderPrefix(base.tag, base.symbol);
                 }
-                if (val.IsDefined("level_order"))
+                if (val.TryGetValue("level_order", out JToken levelOrderToken))
                 {
                     try
                     {
-                        Folder_order = [.. ((object[])val.level_order).Select(e => ConvertCompatibleLevelNameToFolderName(e.ToString())).Cast<string>()];
+                        Folder_order = [.. RequireStringArray(levelOrderToken).Select(ConvertCompatibleLevelNameToFolderName)];
                     }
                     catch
                     {
@@ -753,9 +761,12 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         try
         {
-            dynamic val = DynamicJson.Parse(_data_json);
+            JArray val = ParseJson(_data_json) as JArray ?? throw new FormatException("playlist data must be an array.");
             base.data_sha256 = ComputeSha256Hex(_data_json);
-            entries = [.. ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).Where(entry => PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(entry) != null)];
+            entries = [.. val
+                .Select(token => token as JObject ?? throw new InvalidOperationException("playlist entry must be an object"))
+                .Select(json => new BMSTableEntry(json, this))
+                .Where(entry => PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(entry) != null)];
             ResolveDefaultCompatPrefixFolderOrderAfterDataLoad();
             RewriteLoadedCompatPrefixFolderOrderAfterDataLoad();
         }
@@ -1300,7 +1311,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         _Courses = [];
         try
         {
-            var header = JObject.Parse(headerJson);
+            var header = ParseJson(headerJson) as JObject ?? throw new FormatException("playlist header must be an object.");
             if (header["course"] == null)
             {
                 return;
@@ -1320,6 +1331,36 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             _Courses = [];
         }
+    }
+
+    private static bool TryGetNonNullProperty(JObject source, string propertyName, out JToken value)
+    {
+        return source.TryGetValue(propertyName, out value) && value.Type != JTokenType.Null;
+    }
+
+    private static JToken ParseJson(string json)
+    {
+        using var reader = new JsonTextReader(new StringReader(json))
+        {
+            DateParseHandling = DateParseHandling.None
+        };
+        JToken token = JToken.ReadFrom(reader, PlaylistJsonLoadSettings);
+        if (reader.Read())
+        {
+            throw new JsonReaderException("JSON document contains trailing content.");
+        }
+        return token;
+    }
+
+    private static IEnumerable<string> RequireStringArray(JToken value)
+    {
+        if (value is not JArray array
+            || array.Any(token => token.Type is JTokenType.Null or JTokenType.Object or JTokenType.Array))
+        {
+            throw new FormatException("JSON value must be an array of primitive values.");
+        }
+
+        return array.Select(token => token.ToString());
     }
 
     private static IEnumerable<JObject> EnumerateCourseObjects(JToken token)
@@ -1349,7 +1390,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         try
         {
-            return JToken.Parse(json).ToString(Formatting.None);
+            return ParseJson(json).ToString(Formatting.None);
         }
         catch
         {
@@ -1373,7 +1414,7 @@ public class BMSTable : LR2SongDBExtended.playlist
     {
         try
         {
-            var header = JObject.Parse(headerJson ?? string.Empty);
+            var header = ParseJson(headerJson ?? string.Empty) as JObject ?? throw new FormatException("playlist header must be an object.");
             string compatPrefix = header.TryGetValue("compat_prefix", out JToken compatPrefixToken) && compatPrefixToken.Type != JTokenType.Null
                 ? compatPrefixToken.ToString()
                 : string.Empty;

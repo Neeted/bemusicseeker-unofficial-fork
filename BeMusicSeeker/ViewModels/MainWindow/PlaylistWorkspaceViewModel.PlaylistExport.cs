@@ -95,11 +95,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
 
             string contents = bmsTable.HeaderToJson();
-            dynamic val = bmsTable.DataToJson();
+            string dataContents = bmsTable.DataToJson();
             try
             {
                 File.WriteAllText(fileNameHeader, contents);
-                File.WriteAllText(fileNameData, val);
+                File.WriteAllText(fileNameData, dataContents);
             }
             catch (Exception)
             {

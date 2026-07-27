@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models.LR2;
-using Codeplex.Data;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Models;
 
 public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 {
+    private static readonly JsonLoadSettings PlaylistJsonLoadSettings = new();
+
     private enum PlaylistHashIdentityKind
     {
         Automatic,
@@ -302,7 +306,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         get
         {
             ensureDeferredOrgMd5Parsed();
-            return (Org_md5 == null || Org_md5.Count == 0) ? string.Empty : DynamicJson.Serialize(Org_md5);
+            return (Org_md5 == null || Org_md5.Count == 0) ? string.Empty : new JArray(Org_md5).ToString(Formatting.Indented);
         }
         protected set
         {
@@ -436,113 +440,111 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return entry;
     }
 
-    public BMSTableEntry(dynamic data_json, BMSTable _parent = null)
+    public BMSTableEntry(JObject dataJson, BMSTable parentTable = null)
         : this()
     {
-        if (_parent != null)
+        if (dataJson == null)
         {
-            parent = _parent;
+            throw new ArgumentNullException(nameof(dataJson));
         }
-        bool flag = (data_json.IsDefined("md5") && data_json.md5 != null) ? true : false;
-        bool flag2 = (data_json.IsDefined("sha256") && data_json.sha256 != null) ? true : false;
-        bool flag3 = (data_json.IsDefined("lr2_bmsid") && data_json.lr2_bmsid != null) ? true : false;
-        bool flag4 = (data_json.IsDefined("title") && data_json.title != null) ? true : false;
-        if (!flag && !flag2 && !flag3 && !flag4)
+        parent = parentTable;
+        bool hasMd5 = TryGetNonNullProperty(dataJson, "md5", out JToken md5Token);
+        bool hasSha256 = TryGetNonNullProperty(dataJson, "sha256", out JToken sha256Token);
+        bool hasLr2BmsId = TryGetNonNullProperty(dataJson, "lr2_bmsid", out JToken lr2BmsIdToken);
+        bool hasTitle = TryGetNonNullProperty(dataJson, "title", out JToken titleToken);
+        if (!hasMd5 && !hasSha256 && !hasLr2BmsId && !hasTitle)
         {
             return;
         }
-        if (flag)
+        if (hasMd5)
         {
             try
             {
-                md5 = data_json.md5.ToString();
+                md5 = md5Token.ToString();
             }
             catch
             {
             }
         }
-        if (flag2)
+        if (hasSha256)
         {
             try
             {
-                sha256 = data_json.sha256.ToString();
+                sha256 = sha256Token.ToString();
             }
             catch
             {
             }
         }
-        if (data_json.IsDefined("org_level"))
+        if (dataJson.TryGetValue("org_level", out JToken orgLevelToken))
         {
-            base.level = data_json.org_level;
-            if (data_json.IsDefined("folder") && data_json.folder != null)
+            base.level = orgLevelToken.Type switch
             {
-                base.folder = data_json.folder.ToString();
+                JTokenType.Null => null,
+                JTokenType.Integer or JTokenType.Float => orgLevelToken.ToObject<double?>(),
+                _ => throw new FormatException("org_level must be a JSON number or null.")
+            };
+            if (TryGetNonNullProperty(dataJson, "folder", out JToken folderToken))
+            {
+                base.folder = folderToken.ToString();
             }
-            else if (data_json.IsDefined("level") && data_json.level != null)
+            else if (TryGetNonNullProperty(dataJson, "level", out JToken compatibleLevelToken))
             {
-                if (parent != null)
-                {
-                    base.folder = parent.ConvertCompatibleLevelNameToFolderName(data_json.level.ToString());
-                }
-                else
-                {
-                    base.folder = data_json.level.ToString();
-                }
+                string compatibleLevel = compatibleLevelToken.ToString();
+                base.folder = parent != null
+                    ? parent.ConvertCompatibleLevelNameToFolderName(compatibleLevel)
+                    : compatibleLevel;
             }
         }
-        else if (data_json.IsDefined("level") && data_json.level != null)
+        else if (TryGetNonNullProperty(dataJson, "level", out JToken levelToken))
         {
-            MatchCollection matchCollection = numParseRegex.Matches((string)data_json.level.ToString());
+            string levelText = levelToken.ToString();
+            MatchCollection matchCollection = numParseRegex.Matches(levelText);
             if (matchCollection.Count == 1)
             {
-                base.level = (double.TryParse(matchCollection[0].ToString(), out double result) ? new double?(result) : ((double?)null));
+                base.level = double.TryParse(matchCollection[0].ToString(), out double result) ? result : null;
             }
-            if (parent != null)
-            {
-                base.folder = parent.ConvertCompatibleLevelNameToFolderName(data_json.level.ToString());
-            }
-            else
-            {
-                base.folder = data_json.level.ToString();
-            }
+            base.folder = parent != null
+                ? parent.ConvertCompatibleLevelNameToFolderName(levelText)
+                : levelText;
         }
-        if (data_json.IsDefined("title") && data_json.title != null)
+        if (hasTitle)
         {
-            title = data_json.title.ToString();
+            title = titleToken.ToString();
         }
-        if (data_json.IsDefined("artist") && data_json.artist != null)
+        if (TryGetNonNullProperty(dataJson, "artist", out JToken artistToken))
         {
-            artist = data_json.artist.ToString();
+            artist = artistToken.ToString();
         }
-        if (data_json.IsDefined("lr2_bmsid") && data_json.lr2_bmsid != null)
+        if (hasLr2BmsId)
         {
-            base.lr2_bmsid = data_json.lr2_bmsid.ToString();
+            base.lr2_bmsid = lr2BmsIdToken.ToString();
         }
-        if (data_json.IsDefined("comment") && data_json.comment != null)
+        if (TryGetNonNullProperty(dataJson, "comment", out JToken commentToken))
         {
-            base.comment = data_json.comment.ToString();
+            base.comment = commentToken.ToString();
         }
-        if (data_json.IsDefined("url") && data_json.url != null && !string.IsNullOrWhiteSpace(data_json.url.ToString()))
+        if (TryGetNonNullProperty(dataJson, "url", out JToken urlToken) && !string.IsNullOrWhiteSpace(urlToken.ToString()))
         {
-            url = data_json.url.ToString();
+            url = urlToken.ToString();
         }
-        if (data_json.IsDefined("url_diff") && data_json.url_diff != null && !string.IsNullOrWhiteSpace(data_json.url_diff.ToString()))
+        if (TryGetNonNullProperty(dataJson, "url_diff", out JToken urlDiffToken) && !string.IsNullOrWhiteSpace(urlDiffToken.ToString()))
         {
-            url_diff = data_json.url_diff.ToString();
+            url_diff = urlDiffToken.ToString();
         }
-        if (data_json.IsDefined("name_diff") && data_json.name_diff != null && !string.IsNullOrWhiteSpace(data_json.name_diff.ToString()))
+        if (TryGetNonNullProperty(dataJson, "name_diff", out JToken nameDiffToken) && !string.IsNullOrWhiteSpace(nameDiffToken.ToString()))
         {
-            base.name_diff = data_json.name_diff.ToString();
+            base.name_diff = nameDiffToken.ToString();
         }
-        if (data_json.IsDefined("adddate") && data_json.adddate != null && !string.IsNullOrWhiteSpace(data_json.adddate.ToString()))
+        if (TryGetNonNullProperty(dataJson, "adddate", out JToken addDateToken) && !string.IsNullOrWhiteSpace(addDateToken.ToString()))
         {
             try
             {
-                string text = (string)data_json.adddate.ToString();
+                string text = addDateToken.ToString();
                 Match match = dateparseRegex.Match(text);
                 if (match.Success)
                 {
-                    text = match.Groups[1].ToString() + ((match.Groups.Count == 1) ? "" : (" " + match.Groups[2].ToString()));
+                    text = match.Groups[1].ToString() + (match.Groups.Count == 1 ? "" : " " + match.Groups[2].ToString());
                 }
                 base.adddate = DateTime.Parse(text);
             }
@@ -552,13 +554,17 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
         try
         {
-            if (data_json.IsDefined("org_md5s") && data_json.org_md5s != null)
+            if (TryGetNonNullProperty(dataJson, "org_md5s", out JToken orgMd5sToken))
             {
-                Org_md5 = [.. ((object[])data_json.org_md5s).Select(e => e.ToString()).Cast<string>()];
+                if (orgMd5sToken is not JArray orgMd5sArray)
+                {
+                    throw new FormatException("org_md5s must be an array.");
+                }
+                Org_md5 = [.. orgMd5sArray.Select(e => e.ToString())];
             }
-            else if (data_json.IsDefined("org_md5") && data_json.org_md5 != null && !string.IsNullOrWhiteSpace(data_json.org_md5.ToString()))
+            else if (TryGetNonNullProperty(dataJson, "org_md5", out JToken orgMd5Token) && !string.IsNullOrWhiteSpace(orgMd5Token.ToString()))
             {
-                Org_md5.Add(data_json.org_md5.ToString());
+                Org_md5.Add(orgMd5Token.ToString());
             }
         }
         catch
@@ -648,27 +654,48 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
-    public dynamic ToDynamicJson()
+    public JObject ToJsonObject()
     {
         NormalizeForPlaylistPersistence();
         ensureDeferredOrgMd5Parsed();
-        dynamic val = new DynamicJson();
-        val.md5 = md5;
-        val.sha256 = sha256;
-        val.org_level = base.level;
-        val.title = title;
-        val.artist = artist;
-        val.folder = base.folder;
-        val.level = ((parent == null) ? base.folder : parent.ConvertBackFolderNameToCompatibleLevelName(base.folder));
-        val.lr2_bmsid = base.lr2_bmsid;
-        val.url = url;
-        val.url_diff = url_diff;
-        val.name_diff = base.name_diff;
-        val.org_md5s = Org_md5.ToArray();
-        val.org_md5 = ((Org_md5.Count == 0) ? string.Empty : Org_md5[0]);
-        val.comment = base.comment ?? string.Empty;
-        val.adddate = base.adddate.ToShortDateString();
+        var val = new JObject
+        {
+            ["md5"] = md5,
+            ["sha256"] = sha256,
+            ["org_level"] = base.level,
+            ["title"] = title,
+            ["artist"] = artist,
+            ["folder"] = base.folder,
+            ["level"] = parent == null ? base.folder : parent.ConvertBackFolderNameToCompatibleLevelName(base.folder),
+            ["lr2_bmsid"] = base.lr2_bmsid,
+            ["url"] = url,
+            ["url_diff"] = url_diff,
+            ["name_diff"] = base.name_diff,
+            ["org_md5s"] = new JArray(Org_md5),
+            ["org_md5"] = Org_md5.Count == 0 ? string.Empty : Org_md5[0],
+            ["comment"] = base.comment ?? string.Empty,
+            ["adddate"] = base.adddate.ToShortDateString()
+        };
         return val;
+    }
+
+    private static bool TryGetNonNullProperty(JObject source, string propertyName, out JToken value)
+    {
+        return source.TryGetValue(propertyName, out value) && value.Type != JTokenType.Null;
+    }
+
+    private static JToken ParseJson(string json)
+    {
+        using var reader = new JsonTextReader(new StringReader(json))
+        {
+            DateParseHandling = DateParseHandling.None
+        };
+        JToken token = JToken.ReadFrom(reader, PlaylistJsonLoadSettings);
+        if (reader.Read())
+        {
+            throw new JsonReaderException("JSON document contains trailing content.");
+        }
+        return token;
     }
 
     internal void MarkAsBmsPlaylistIdentity()
@@ -795,12 +822,12 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
         try
         {
-            dynamic val = DynamicJson.Parse(value);
-            if (val == null)
+            JToken val = ParseJson(value);
+            if (val is not JArray array)
             {
                 return [];
             }
-            return [.. ((object[])val).Select(e => e.ToString()).Cast<string>()];
+            return [.. array.Select(e => e.ToString())];
         }
         catch
         {
@@ -835,7 +862,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
     public string ToJson()
     {
-        return ToDynamicJson().ToString();
+        return ToJsonObject().ToString(Formatting.Indented);
     }
 
     public static BMSTableEntry CreateDummyBMSTableEntry()

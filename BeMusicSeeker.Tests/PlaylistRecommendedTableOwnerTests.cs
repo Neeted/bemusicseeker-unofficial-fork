@@ -9,8 +9,8 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
-using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 using SQLite;
 
 namespace BeMusicSeeker.Tests;
@@ -263,7 +263,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
 
     private static BMSTableEntry CreateEntry(string md5, string lr2BmsId, string title)
     {
-        return new BMSTableEntry(DynamicJson.Parse(
+        return new BMSTableEntry(JObject.Parse(
             "{\"md5\":\"" + md5 + "\",\"lr2_bmsid\":\"" + lr2BmsId + "\",\"title\":\"" + title + "\"}"));
     }
 }

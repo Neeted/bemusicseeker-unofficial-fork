@@ -13,6 +13,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
@@ -545,11 +546,11 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void BMSTableEntry_ToDynamicJson_RoundTripsSha256()
+    public void BMSTableEntry_ToJsonObject_RoundTripsSha256()
     {
         TestablePlaylistEntry entry = CreateShaOnlyEntry("5656565656565656565656565656565656565656565656565656565656565656", "ShaRoundTrip", "memo");
 
-        var reloaded = new BMSTableEntry(entry.ToDynamicJson());
+        var reloaded = new BMSTableEntry(entry.ToJsonObject());
 
         Assert.AreEqual(entry.sha256, reloaded.sha256);
         Assert.AreEqual(entry.title, reloaded.title);
@@ -557,15 +558,15 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void BMSTableEntry_ToDynamicJson_NormalizesNullOrgMd5ToEmpty()
+    public void BMSTableEntry_ToJsonObject_NormalizesNullOrgMd5ToEmpty()
     {
         TestablePlaylistEntry entry = CreateShaOnlyEntry("6767676767676767676767676767676767676767676767676767676767676767", "OrgEmpty", "memo");
         entry.Org_md5 = null;
 
-        dynamic json = entry.ToDynamicJson();
+        JObject json = entry.ToJsonObject();
 
-        CollectionAssert.AreEqual(Array.Empty<string>(), ((object[])json.org_md5s).Select(value => value?.ToString()).ToArray());
-        Assert.AreEqual(string.Empty, (string)json.org_md5);
+        CollectionAssert.AreEqual(Array.Empty<string>(), ((JArray)json["org_md5s"]).Values<string>().ToArray());
+        Assert.AreEqual(string.Empty, (string)json["org_md5"]);
         Assert.AreEqual(string.Empty, entry.org_md5);
     }
 
@@ -576,10 +577,10 @@ public sealed class PlaylistUrlCompletionTests
         TestablePlaylistEntry entry = CreateShaOnlyEntry("7878787878787878787878787878787878787878787878787878787878787878", "OrgStringNull", "memo");
         entry.SetOrgMd5Raw("null");
 
-        dynamic json = entry.ToDynamicJson();
+        JObject json = entry.ToJsonObject();
 
-        CollectionAssert.AreEqual(Array.Empty<string>(), ((object[])json.org_md5s).Select(value => value?.ToString()).ToArray());
-        Assert.AreEqual(string.Empty, (string)json.org_md5);
+        CollectionAssert.AreEqual(Array.Empty<string>(), ((JArray)json["org_md5s"]).Values<string>().ToArray());
+        Assert.AreEqual(string.Empty, (string)json["org_md5"]);
     }
 
     [TestMethod]
