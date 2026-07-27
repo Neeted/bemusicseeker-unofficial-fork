@@ -8,7 +8,7 @@ using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
-using OggVorbisDotNet64;
+using NVorbis;
 using Ribbit.Cryptography;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
@@ -1682,17 +1682,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     try
                     {
                         using FileStream fileStream = LongPathFileSystem.OpenRead(fileName);
-                        using var stream = new OggDecodeStream(fileStream);
-                        long num = stream.Length;
-                        int sampleRate = stream.SamplesPerSecond;
-                        int channelCount = stream.Channels;
-                        using (new MemoryFailPoint(1 + (int)num / 1024 / 1024))
-                        {
-                        }
-                        _sampleBuffer = new byte[num + 44];
-                        stream.ReadExactly(_sampleBuffer.AsSpan(44));
-                        using var targetStream = new MemoryStream(_sampleBuffer, 0, 44);
-                        WavFile.WriteHeader(targetStream, _sampleBuffer.Length - 44, channelCount, sampleRate);
+                        _sampleBuffer = DecodeOggToWave(fileStream);
                     }
                     catch (Exception ex)
                     {
@@ -1741,6 +1731,115 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             InstanceLocks[_handle] = new object();
         }
+    }
+
+    internal static byte[] DecodeOggToWave(Stream source)
+    {
+        using var stream = new VorbisReader(source, closeOnDispose: false);
+        stream.ClipSamples = true;
+        // Discover every logical stream before allocating the output buffer.  The old
+        // decoder used ov_pcm_total(-1), so a concatenated OGG must not be truncated
+        // to its first link or silently cached as a successful partial decode.
+        while (stream.FindNextStream())
+        {
+        }
+
+        if (stream.Streams.Count == 0)
+        {
+            throw new InvalidDataException("Decoded OGG stream did not contain a logical stream.");
+        }
+
+        var firstStream = stream.Streams[0];
+        int sampleRate = firstStream.SampleRate;
+        int channelCount = firstStream.Channels;
+        if (sampleRate <= 0 || channelCount <= 0)
+        {
+            throw new InvalidDataException("Decoded OGG stream has invalid audio format metadata.");
+        }
+
+        long totalSampleCountLong = 0;
+        for (int streamIndex = 0; streamIndex < stream.Streams.Count; streamIndex++)
+        {
+            var logicalStream = stream.Streams[streamIndex];
+            if (logicalStream.SampleRate != sampleRate || logicalStream.Channels != channelCount)
+            {
+                throw new InvalidDataException("Concatenated OGG streams must use one audio format.");
+            }
+
+            long totalFrames = logicalStream.TotalSamples;
+            if (totalFrames < 0)
+            {
+                throw new InvalidDataException("Decoded OGG stream does not have a supported sample count.");
+            }
+
+            totalSampleCountLong = checked(totalSampleCountLong + checked(totalFrames * channelCount));
+        }
+
+        if (totalSampleCountLong > int.MaxValue)
+        {
+            throw new InvalidDataException("Decoded OGG stream does not have a supported sample count.");
+        }
+
+        int totalSampleCount = (int)totalSampleCountLong;
+        long pcmByteCount = checked(totalSampleCountLong * sizeof(short));
+        if (pcmByteCount > int.MaxValue - 44)
+        {
+            throw new InvalidDataException("Decoded OGG stream is too large for an in-memory WAV buffer.");
+        }
+
+        using (new MemoryFailPoint(1 + (int)pcmByteCount / 1024 / 1024))
+        {
+        }
+
+        byte[] sampleBufferBytes = new byte[(int)pcmByteCount + 44];
+        int chunkSampleCount = 4096 - (4096 % channelCount);
+        if (chunkSampleCount < channelCount)
+        {
+            chunkSampleCount = channelCount;
+        }
+
+        float[] sampleBuffer = new float[System.Math.Min(chunkSampleCount, totalSampleCount)];
+        int samplesWritten = 0;
+        for (int streamIndex = 0; streamIndex < stream.Streams.Count; streamIndex++)
+        {
+            var logicalStream = stream.Streams[streamIndex];
+            stream.SwitchStreams(streamIndex);
+            int logicalSampleCount = checked((int)checked(logicalStream.TotalSamples * channelCount));
+            int logicalSamplesWritten = 0;
+            while (logicalSamplesWritten < logicalSampleCount)
+            {
+                int samplesRead = stream.ReadSamples(
+                    sampleBuffer,
+                    0,
+                    System.Math.Min(sampleBuffer.Length, logicalSampleCount - logicalSamplesWritten));
+                if (samplesRead <= 0)
+                {
+                    throw new EndOfStreamException("Decoded OGG stream ended before its declared sample count.");
+                }
+
+                for (int i = 0; i < samplesRead; i++)
+                {
+                    // The legacy decoder emitted signed 16-bit PCM using 32768 scaling and symmetric rounding.
+                    int pcmSample = (int)System.Math.Round(sampleBuffer[i] * 32768.0, MidpointRounding.AwayFromZero);
+                    pcmSample = System.Math.Max(short.MinValue, System.Math.Min(short.MaxValue, pcmSample));
+                    int byteOffset = 44 + (samplesWritten + i) * sizeof(short);
+                    sampleBufferBytes[byteOffset] = (byte)(pcmSample & 0xff);
+                    sampleBufferBytes[byteOffset + 1] = (byte)((pcmSample >> 8) & 0xff);
+                }
+
+                samplesWritten += samplesRead;
+                logicalSamplesWritten += samplesRead;
+            }
+
+            if (logicalSamplesWritten != logicalSampleCount)
+            {
+                throw new EndOfStreamException("Decoded OGG stream ended before its declared sample count.");
+            }
+        }
+
+        using var targetStream = new MemoryStream(sampleBufferBytes, 0, 44);
+        WavFile.WriteHeader(targetStream, sampleBufferBytes.Length - 44, channelCount, sampleRate);
+        return sampleBufferBytes;
     }
 
     private void FileProcClose(IntPtr user)

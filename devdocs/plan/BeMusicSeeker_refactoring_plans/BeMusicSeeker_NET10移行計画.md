@@ -152,14 +152,14 @@ Exit:
 
 - SevenZipExtractor／7z.dll
 - Bass.Net／BASS native family
-- OggVorbis.NET64
+- OggVorbis.NET64 (retired; NVorbis 0.10.5)
 - Everything bridge／native DLL
 
 作業:
 
 1. SevenZipExtractorはPackageReference候補へ移し、encrypted／multi-file／failure／path traversal fixtureと7z native loadingを検証する。
 2. BASS managed／nativeのvendor-supported組合せ、x64 ABI、license／redistribution条件を確定し、playback／decode／device／shutdown smokeを行う。
-3. OggVorbisはNVorbis候補とのdecode parity／performanceをspikeし、置換または明示retainを決定する。
+3. OggVorbisはNVorbis 0.10.5へ置換し、legacy PCM parity、同一形式の連結logical stream、形式変更／truncated inputのfailure、cache／fallback、package／publish outputを検証する。
 4. Everythingはbridge ABI、installed／absent時のfallback、native search pathをpublish outputで検証する。
 5. 各native assetにsource、version、architecture、license、copy owner、runtime load testを台帳化する。
 

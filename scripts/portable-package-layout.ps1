@@ -9,7 +9,7 @@ $script:RequiredManagedRootFiles = @(
     "Microsoft.Xaml.Behaviors.dll",
     "Newtonsoft.Json.dll",
     "NLog.dll",
-    "OggVorbis.NET64.dll",
+    "NVorbis.dll",
     "SgmlReaderDll.dll",
     "SevenZipExtractor.dll",
     "SQLite-net.dll",

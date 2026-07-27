@@ -144,7 +144,6 @@ public partial class App : System.Windows.Application
         TempDirectoryPublisher.StartCleanupStaleDirectoriesAsync(
             message => NLogWrapper.FileLogger?.Info(message),
             (path, ex) => NLogWrapper.FileLogger?.Warn(ex, "temp_startup_cleanup_failed path=" + path));
-        ManagedDependencyPreloader.Preload();
 
         CreateAndShowMainWindow();
     }

@@ -183,18 +183,17 @@ Redistribution Notes:
 - First-party bridge DLL built from native/EverythingBridge source.
 
 ================================================================================
-18) OggVorbis.NET binaries
+18) NVorbis
 ================================================================================
 Status: GREEN
-Component: OggVorbis.NET.dll, OggVorbis.NET64.dll
-Copyright: tu-sa; Xiph.org Foundation
-License: BSD-3-Clause style (wrapper + libogg/libvorbis notices)
-Source: https://github.com/ttsuki/OggVorbis.NET
-License Text: third_party/licenses/18-OggVorbis.NET-COPYING.txt
+Component: NVorbis.dll (NuGet NVorbis 0.10.5)
+Copyright: Andrew Ward
+License: MIT
+Source: https://github.com/NVorbis/NVorbis
+License Text: third_party/licenses/18-NVorbis-MIT.txt
 Redistribution Notes:
-- Upstream repository and COPYING text confirmed.
-- Decompilation analysis confirms the bundled binaries perfectly match the ttsuki/OggVorbis.NET source code.
-- Retain the COPYING text along with distributions.
+- Managed Ogg Vorbis decoding is supplied by the package; no OggVorbis.NET native binary is distributed.
+- The package license is retained with the repository and release artifacts.
 
 ================================================================================
 20) Fonts
@@ -244,6 +243,6 @@ Ready for release (GREEN):
 - 7z.dll, Livet, NLog, MIT runtime dependencies for .NET,
   Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
-  SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
+  SgmlReaderDll.dll, NVorbis.dll,
   Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
   BASS native binaries, Bass.Net.dll

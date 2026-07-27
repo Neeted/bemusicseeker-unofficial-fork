@@ -182,18 +182,17 @@ BeMusicSeeker サードパーティ・ノーティス
 - native/EverythingBridge ソースコードからビルドされたファーストパーティ製のブリッジDLLです。
 
 ================================================================================
-18) OggVorbis.NET バイナリ
+18) NVorbis
 ================================================================================
 ステータス: GREEN
-コンポーネント: OggVorbis.NET.dll, OggVorbis.NET64.dll
-著作権所有者: tu-sa; Xiph.org Foundation
-ライセンス: BSD 3条項スタイル（ラッパーに加えて libogg / libvorbis の注意書きを含む）
-ソース: https://github.com/ttsuki/OggVorbis.NET
-ライセンス本文: third_party/licenses/18-OggVorbis.NET-COPYING.txt
+コンポーネント: NVorbis.dll（NuGet NVorbis 0.10.5）
+著作権所有者: Andrew Ward
+ライセンス: MIT
+ソース: https://github.com/NVorbis/NVorbis
+ライセンス本文: third_party/licenses/18-NVorbis-MIT.txt
 再配布時の注意事項:
-- 上流となるアップストリームリポジトリおよび COPYING （コピー条項）については確認済みです。
-- デコンパイル調査により、同梱のバイナリが ttsuki/OggVorbis.NET のソースコードと完全に一致することが確認されました。
-- COPYING ファイル（libogg / libvorbis の著作権表示を含む）を同梱してください。
+- マネージド Ogg Vorbis デコードはパッケージから供給し、OggVorbis.NET のネイティブバイナリは配布しません。
+- パッケージのライセンス本文をリポジトリおよびリリース成果物に同梱します。
 
 ================================================================================
 20) フォントファイル (Fonts)
@@ -243,6 +242,6 @@ GitHub リリース準備状況におけるアクション・サマリー
 - 7z.dll, Livet, NLog, .NET の MIT ランタイム依存関係,
   Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
-  SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
+  SgmlReaderDll.dll, NVorbis.dll,
   フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
   BASS ネイティブバイナリ群, Bass.Net.dll

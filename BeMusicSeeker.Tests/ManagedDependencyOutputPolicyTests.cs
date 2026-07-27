@@ -63,6 +63,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             "Microsoft.Xaml.Behaviors.dll",
             "Newtonsoft.Json.dll",
             "NLog.dll",
+            "NVorbis.dll",
             "SevenZipExtractor.dll",
             "SgmlReaderDll.dll"
         })
@@ -190,7 +191,8 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "System.Resources.Extensions", Version = "10.0.10" },
             new { Id = "sqlite-net-pcl", Version = "1.11.285" },
             new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" },
-            new { Id = "SevenZipExtractor", Version = "1.0.19" }
+            new { Id = "SevenZipExtractor", Version = "1.0.19" },
+            new { Id = "NVorbis", Version = "0.10.5" }
         }.ToDictionary(item => item.Id, item => item.Version, StringComparer.Ordinal);
 
         XDocument centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
@@ -233,7 +235,8 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "System.Resources.Extensions",
                     "sqlite-net-pcl",
                     "SQLitePCLRaw.bundle_e_sqlite3",
-                    "SevenZipExtractor"
+                    "SevenZipExtractor",
+                    "NVorbis"
                 }
             },
             new
@@ -247,7 +250,8 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "MSTest.TestFramework",
                     "sqlite-net-pcl",
                     "SQLitePCLRaw.bundle_e_sqlite3",
-                    "SevenZipExtractor"
+                    "SevenZipExtractor",
+                    "NVorbis"
                 }
             }
         };
@@ -305,6 +309,10 @@ public sealed class ManagedDependencyOutputPolicyTests
             File.Exists(Path.Combine(repositoryRoot, "libs", "Livet.dll")) ||
             File.Exists(Path.Combine(repositoryRoot, "libs", "Livet.Extensions.dll")),
             "The tracked legacy Livet binaries must not remain beside the package-owned WPF project.");
+        Assert.IsFalse(
+            File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "OggVorbis.NET64.dll")) ||
+            File.Exists(Path.Combine(releaseOutputDirectory, "OggVorbis.NET64.dll")),
+            "The retired OggVorbis native and managed assets must not remain in the release output.");
     }
 
     private static string FindRepositoryRoot()

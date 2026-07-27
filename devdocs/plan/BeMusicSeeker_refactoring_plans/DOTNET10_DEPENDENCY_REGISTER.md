@@ -29,7 +29,7 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | `DEP-DB-01` | sqlite.net HintPath (retired) | app／tests／2 toolsのstorage | sqlite-net-pclへ移行し、既存DB、schema、transaction、raw hydration、lock／failure契約を確認 | sqlite-net-pcl 1.11.285 | `NET10-05` |
 | `DEP-DB-02` | hand-placed sqlite3.dll (retired) | native provider | SQLitePCLRaw bundleへ一元化し、win-x64 native assetをpublish／portable layoutで確認 | SQLitePCLRaw.bundle_e_sqlite3 3.0.4 | `NET10-05` |
 | `DEP-ARC-01` | SevenZipExtractor DLL (retired HintPath) | archive extraction | PackageReference化しbehavior／native load検証 | SevenZipExtractor 1.0.19 | `NET10-06 A1` |
-| `DEP-AUD-01` | OggVorbis.NET64 DLL | Ogg decode | NVorbis parity spike。差異が大きければ明示retain | NVorbis 0.10.5候補 | `NET10-06` |
+| `DEP-AUD-01` | OggVorbis.NET64 DLL (retired) | Ogg decode | NVorbis 0.10.5へ移行。legacy PCM parity、cache／fallback、package／publish出力を検証 | NVorbis 0.10.5 | `NET10-06 A2` |
 
 ## NET10-02 closure evidence
 
@@ -83,6 +83,13 @@ NET10-02のmanaged packageは公式NuGet packageをsourceとし、version author
 |---|---|---|---|
 | `DEP-ARC-01` | SevenZipExtractor 1.0.19 / MIT wrapper; package 7z native asset / LGPL＋unRAR restriction notice | `Directory.Packages.props`; app／test package locks; `SevenZipArchiveExtractor` | archive package／metadata import routes use the package wrapper; old HintPath／tracked wrapper is removed; supported zip／7z／rar／lzh fixtures retain content and timestamp behavior; encrypted and corrupt archive failures preserve source and report the failure |
 | `DEP-ARC-02` | SevenZipExtractor 1.0.19 `build/x64/7z.dll` (FileVersion/ProductVersion 24.07, x64, SHA256 `3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129`) | package path property; app／test output normalization | exactly one package x64 asset is copied to `libs/x64/7z.dll`; no x86 or root `x64` copy is emitted; archive path traversal and extracted reparse points fail before a result is accepted; portable/updater layout tests pass |
+
+## NET10-06 A2 closure evidence
+
+| ID | Source / license | Version authority / runtime owner | Evidence |
+|---|---|---|---|
+| `DEP-AUD-01` | NVorbis 0.10.5 / MIT (`third_party/licenses/18-NVorbis-MIT.txt`) | `Directory.Packages.props`; app／test package locks; `BassAudioPlayer.DecodeOggToWave` | OGG `onMemory` decoding now uses NVorbis and emits the existing PCM16 WAV/cache shape. Mono and stereo fixtures verify channel／sample-rate／sample-count headers and deterministic PCM; the mono fixture matches the legacy decoder byte-for-byte, while the stereo parity probe differs by at most one 16-bit sample value in 0.03% of samples. Same-format concatenated logical streams are enumerated and decoded in order; a chained format change or truncated input remains a decode failure and the constructor retains the existing warning／BASS file-stream fallback. |
+| `DEP-AUD-01-OUTPUT` | NVorbis managed package output | app／test project output policy | `NVorbis.dll` is the only current OGG decoder assembly; `OggVorbis.NET64.dll`, the preloader, old HintPath references, and the tracked vendor binary are removed. Release layout tests assert the retired Ogg paths are absent. |
 
 ## Vendor / native dependencies
 

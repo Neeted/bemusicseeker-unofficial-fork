@@ -40,7 +40,7 @@
     <None Include="native\EverythingBridge_x64.dll" Condition="Exists('native\\EverythingBridge_x64.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="vendor\native\x64\*.dll" Exclude="vendor\native\x64\7z.dll;vendor\native\x64\OggVorbis.NET64.dll;vendor\native\x64\sqlite3.dll">
+    <None Include="vendor\native\x64\*.dll" Exclude="vendor\native\x64\7z.dll;vendor\native\x64\sqlite3.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>libs\x64\%(Filename)%(Extension)</TargetPath>
     </None>
@@ -95,9 +95,7 @@
       <HintPath>libs\Bass.Net.dll</HintPath>
     </Reference>
     <PackageReference Include="SevenZipExtractor" GeneratePathProperty="true" ExcludeAssets="build" />
-    <Reference Include="OggVorbis.NET64">
-      <HintPath>vendor\native\x64\OggVorbis.NET64.dll</HintPath>
-    </Reference>
+    <PackageReference Include="NVorbis" />
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="NLog" />
     <PackageReference Include="System.Resources.Extensions" />
@@ -114,7 +112,6 @@
 
   <Target Name="RemoveLegacyNativeOutputArtifacts" AfterTargets="CopyFilesToOutputDirectory">
     <RemoveDir Directories="$(OutDir)x86;$(OutDir)libs\x86" />
-    <Delete Files="$(OutDir)libs\x64\OggVorbis.NET64.dll" />
   </Target>
 
   <Target Name="VerifySevenZipNativeAsset" BeforeTargets="Build;Publish">

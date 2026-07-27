@@ -44,6 +44,12 @@
         "resolved": "6.1.4",
         "contentHash": "ft6Lv17uoFuHTGWiY47FEXH7VA5HMHp973zodaOZAJyFg6mHL9RdXjqdNkRJXFo5plQJR+LPt5e6aAZU8KSDog=="
       },
+      "NVorbis": {
+        "type": "Direct",
+        "requested": "[0.10.5, )",
+        "resolved": "0.10.5",
+        "contentHash": "o+IptCG4Avze39HrGeztC+xIp6fOOwGVAwkoa1J++4Ji1WmZ+KIKlFl5wsgxsXqBkmdpfs/vFSUproiLKYa2bw=="
+      },
       "Roslynator.Analyzers": {
         "type": "Direct",
         "requested": "[4.15.0, )",

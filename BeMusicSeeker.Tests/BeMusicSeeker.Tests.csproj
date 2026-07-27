@@ -29,9 +29,7 @@
 
   <ItemGroup>
     <PackageReference Include="SevenZipExtractor" GeneratePathProperty="true" ExcludeAssets="build" />
-    <Reference Include="OggVorbis.NET64">
-      <HintPath>..\vendor\native\x64\OggVorbis.NET64.dll</HintPath>
-    </Reference>
+    <PackageReference Include="NVorbis" />
   </ItemGroup>
 
   <ItemGroup>
@@ -43,6 +41,9 @@
 
   <ItemGroup>
     <None Update="TestData\archives\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\audio\*.ogg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="TestData\chart_info_real\expected.db">
