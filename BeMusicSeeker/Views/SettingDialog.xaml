@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<UserControl x:Class="BeMusicSeeker.Views.SettingDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:qc="http://QuickConverter.CodePlex.com/" xmlns:sys="clr-namespace:System;assembly=mscorlib" xmlns:prop="clr-namespace:BeMusicSeeker.Properties" x:Name="settingDialog">
+<UserControl x:Class="BeMusicSeeker.Views.SettingDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:sys="clr-namespace:System;assembly=mscorlib" xmlns:prop="clr-namespace:BeMusicSeeker.Properties" x:Name="settingDialog">
   <Grid Name="settingDialogRootGrid" IsEnabled="{Binding IsEditCompletionEnabled}">
     <Grid Name="settingDialogOperationGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
     <FrameworkElement.Resources>
@@ -7,6 +7,12 @@
         <v:expanderDetailedLR2PathConverter x:Key="expanderDetailedLR2PathConverter" />
         <v:backupTargetConverter x:Key="backupTargetConverter" />
         <v:lr2DetailedPathAutoExpandConverter x:Key="lr2DetailedPathAutoExpandConverter" />
+        <v:notOperatorBoolConverter x:Key="notOperatorBoolConverter" />
+        <v:playerDriverSelectionEnabledConverter x:Key="playerDriverSelectionEnabledConverter" />
+        <v:wasapiDriverSelectionEnabledConverter x:Key="wasapiDriverSelectionEnabledConverter" />
+        <v:encoderDriverSelectionEnabledConverter x:Key="encoderDriverSelectionEnabledConverter" />
+        <v:wasapiControlEnabledConverter x:Key="wasapiControlEnabledConverter" />
+        <v:backupSpanRadioConverter x:Key="backupSpanRadioConverter" />
         <Style TargetType="{x:Type TabControl}" BasedOn="{StaticResource {x:Type TabControl}}">
           <Setter Property="Margin" Value="0,0,0,10" />
           <Setter Property="Template">
@@ -153,7 +159,7 @@
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode, Mode=OneWay}">
                   <StackPanel>
-                    <RadioButton Name="radioButtonNotUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Not_use_LR2DB, Mode=OneWay}" IsChecked="{Binding OperationModeLR2DB, Converter={qc:QuickConverter '!$P', ConvertBack='!$value'}}" />
+                    <RadioButton Name="radioButtonNotUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Not_use_LR2DB, Mode=OneWay}" IsChecked="{Binding OperationModeLR2DB, Converter={StaticResource notOperatorBoolConverter}}" />
                     <RadioButton Name="radioButtonUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_LR2_DB, Mode=OneWay}" IsChecked="{Binding OperationModeLR2DB}" />
                     <Grid Margin="20,2,10,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
                       <Grid.RowDefinitions>
@@ -384,19 +390,25 @@
                       </DockPanel>
                     </DockPanel>
                     <DockPanel Height="35">
-                      <DockPanel Width="229" IsEnabled="{qc:Binding '$P != 0 &amp;&amp; $P != 1', P={Binding SelectedIndex, ElementName=comboBoxPlayerDriver}}">
+                      <DockPanel Width="229" IsEnabled="{Binding SelectedIndex, ElementName=comboBoxPlayerDriver, Converter={StaticResource playerDriverSelectionEnabledConverter}}">
                         <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerSampleRateNames, Mode=OneWay}" SelectedValue="{Binding PlayerSampleRate, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_samplerate, Mode=OneWay}" />
                       </DockPanel>
-                      <DockPanel Width="229" IsEnabled="{qc:Binding '$P != 0 &amp;&amp; $P != 1', P={Binding SelectedIndex, ElementName=comboBoxPlayerDriver}}">
+                      <DockPanel Width="229" IsEnabled="{Binding SelectedIndex, ElementName=comboBoxPlayerDriver, Converter={StaticResource playerDriverSelectionEnabledConverter}}">
                         <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerFormatNames, Mode=OneWay}" SelectedValue="{Binding PlayerFormat, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_format, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>
                     <DockPanel Margin="0,5">
                       <StackPanel>
-                        <CheckBox Name="checkBoxWasapiLowLatency" Margin="0,0,0,10" HorizontalAlignment="Right" IsEnabled="{qc:Binding '$P == 1 || $P == 2', P={Binding SelectedIndex, ElementName=comboBoxPlayerDriver}}" IsChecked="{Binding PlayerWASAPIParam, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency, Mode=OneWay}" />
-                        <DockPanel Width="315" Margin="0,0,0,5" IsEnabled="{qc:MultiBinding '$P1 == 1 &amp;&amp; $P2 ? False : True', P1={Binding SelectedIndex, ElementName=comboBoxPlayerDriver}, P2={Binding IsChecked, ElementName=checkBoxWasapiLowLatency}}">
+                        <CheckBox Name="checkBoxWasapiLowLatency" Margin="0,0,0,10" HorizontalAlignment="Right" IsEnabled="{Binding SelectedIndex, ElementName=comboBoxPlayerDriver, Converter={StaticResource wasapiDriverSelectionEnabledConverter}}" IsChecked="{Binding PlayerWASAPIParam, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency, Mode=OneWay}" />
+                         <DockPanel Width="315" Margin="0,0,0,5">
+                           <DockPanel.IsEnabled>
+                             <MultiBinding Converter="{StaticResource wasapiControlEnabledConverter}">
+                               <Binding Path="SelectedIndex" ElementName="comboBoxPlayerDriver" />
+                               <Binding Path="IsChecked" ElementName="checkBoxWasapiLowLatency" />
+                             </MultiBinding>
+                           </DockPanel.IsEnabled>
                           <TextBlock DockPanel.Dock="Right" Width="35" TextAlignment="Center" VerticalAlignment="Center" Text="{Binding PlayerBufferSize, Mode=OneWay}">
                             <FrameworkElement.Style>
                               <Style TargetType="{x:Type TextBlock}">
@@ -437,7 +449,7 @@
                         <ComboBox Name="comboBoxEncoder" IsSynchronizedWithCurrentItem="True" Height="24" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" IsReadOnly="True" VerticalContentAlignment="Center" ItemsSource="{Binding EncoderNames, Mode=OneWay}" SelectedIndex="{Binding EncoderIndex, Mode=TwoWay}" SelectionChanged="comboBoxEncoderSelectionChanged" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_filetype, Mode=OneWay}" />
                       </DockPanel>
-                      <DockPanel Dock="Right" Width="229" Margin="0,5" IsEnabled="{qc:Binding '($P != 0 &amp;&amp; $P != 4) ? True : False', P={Binding SelectedIndex, ElementName=comboBoxEncoder, Mode=OneWay}}">
+                      <DockPanel Dock="Right" Width="229" Margin="0,5" IsEnabled="{Binding SelectedIndex, ElementName=comboBoxEncoder, Mode=OneWay, Converter={StaticResource encoderDriverSelectionEnabledConverter}}">
                         <TextBlock DockPanel.Dock="Right" Width="30" VerticalAlignment="Center" FlowDirection="RightToLeft" Text="{Binding EncoderQuality, Mode=OneWay, StringFormat={}{0:N1}}">
                           <FrameworkElement.Style>
                             <Style TargetType="{x:Type TextBlock}">
@@ -647,9 +659,9 @@
                       <StackPanel>
                         <UniformGrid ScrollViewer.VerticalScrollBarVisibility="Disabled" UseLayoutRounding="False" Columns="2" Margin="5,5,5,0">
                           <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Daily, Mode=OneWay}" IsChecked="{Binding LR2BackupSpan, Converter={qc:QuickConverter '$P == 1', ConvertBack='$value ? 1 : 0'}}" />
-                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Weekly, Mode=OneWay}" IsChecked="{Binding LR2BackupSpan, Converter={qc:QuickConverter '$P == 7', ConvertBack='$value ? 7 : 0'}}" />
-                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Monthly, Mode=OneWay}" IsChecked="{Binding LR2BackupSpan, Converter={qc:QuickConverter '$P == 30', ConvertBack='$value ? 30 : 0'}}" />
+                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Daily, Mode=OneWay}" IsChecked="{Binding LR2BackupSpan, Converter={StaticResource backupSpanRadioConverter}, ConverterParameter=1}" />
+                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Weekly, Mode=OneWay}" IsChecked="{Binding LR2BackupSpan, Converter={StaticResource backupSpanRadioConverter}, ConverterParameter=7}" />
+                            <RadioButton GroupName="Backup Timespan" Margin="10,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Monthly, Mode=OneWay}" IsChecked="{Binding LR2BackupSpan, Converter={StaticResource backupSpanRadioConverter}, ConverterParameter=30}" />
                           </StackPanel>
                           <DockPanel LastChildFill="False">
                             <ComboBox DockPanel.Dock="Right" SelectedIndex="9" VerticalContentAlignment="Center" Width="50" Margin="10,0,5,0" Height="24" SelectedValue="{Binding LR2BackupNum}">

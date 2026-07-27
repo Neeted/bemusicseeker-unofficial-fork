@@ -25,7 +25,7 @@ Full verificationは`3410 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 - active outcome: `NET10-04 Converter, JSON and document helpers`
 - active execution package: `.NET 10 helper dependency modernization`
 - execution anchor: `NET10-04 helper replacement corridor`
-- planner state: empty batch; planner is required once
+- planner state: empty batch; planner is required once for the next NET10-04 route
 
 ## Active implementation batch
 
@@ -43,8 +43,9 @@ Full verificationは`3410 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `L1 LIVET-RUNTIME` | completed | LivetCask WPF presentation runtime corridor | LivetCask Core／Mvvm／EventListeners 4.0.2、通知／dispatcher／command／listener／lifetime behavior、legacy Livet asset retirement |
 | `L2 WPF-CHROME` | completed | native WPF chrome／legacy behavior-visual closure | MainWindow chrome、activation appearance、caption command／hit-test、search glyph、legacy Interactivity／Expression／Metro route retirement |
 | `L3 WPF-PICKERS` | completed | WPF file／folder picker corridor and Code Pack retirement | UiDialogCoordinatorのfile／folder route、picker result／failure contract、全production caller、portable layout、updater cleanup、dependency／blocker closure |
+| `Q1 WPF-BINDINGS` | completed | QuickConverter presentation corridor closure | MainWindow、PlaybackPanelView、SettingDialog、EditableTextBlock、PlaylistPropertyDialogのtyped binding／trigger移行、旧markup／runtime登録／package route退役、UI behavior verification |
 
-active／pending unitがある間はunit-plannerを再起動しない。`L3 WPF-PICKERS`を同じproduction code commitで完了し、次に`NET10-04`の最初の未完routeへplannerを一度だけ起動する。
+active／pending unitがある間はunit-plannerを再起動しない。Q1の実装・検証・レビュー・commitを完了したため、NET10-04の次の未完routeでplannerを一度だけ起動する。
 
 ## Review evidence
 
@@ -73,4 +74,4 @@ active／pending unitがある間はunit-plannerを再起動しない。`L3 WPF-
 - active outcome: `NET10-04 Converter, JSON and document helpers`
 - active execution package: `.NET 10 helper dependency modernization`
 - execution anchor: `NET10-04 helper replacement corridor`
-- active implementation batch: empty; planner is required once
+- active implementation batch: empty; planner is required once for the next NET10-04 route

@@ -12,7 +12,6 @@ $script:RequiredManagedRootFiles = @(
     "Newtonsoft.Json.dll",
     "NLog.dll",
     "OggVorbis.NET64.dll",
-    "QuickConverter.dll",
     "SgmlReaderDll.dll",
     "SevenZipExtractor.dll",
     "sqlite.net.dll"
@@ -96,6 +95,7 @@ function Get-PortableForbiddenPaths {
         "Microsoft.Expression.Drawing.dll",
         "Microsoft.Expression.Effects.dll",
         "Microsoft.Expression.Interactions.dll",
+        "QuickConverter.dll",
         "System.Windows.Interactivity.dll",
         "libs/Microsoft.WindowsAPICodePack.dll",
         "libs/Microsoft.WindowsAPICodePack.Shell.dll",

@@ -110,21 +110,21 @@ Exit:
 
 対象:
 
-- QuickConverter
+- QuickConverter（Q1でretire）
 - DynamicJson
 - SgmlReaderDll
 - IniLibrary、System.Collections.Immutable
 
 作業:
 
-1. QuickConverter式をbinding一件ずつではなくfeature family単位でtyped converter／ViewModel projectionへ置換する。XAMLのobservable behaviorを維持する。
+1. Q1ではQuickConverter式をfeature family単位のtyped converter／MultiBinding／triggerへ置換し、XAMLのobservable behaviorを維持する。以降のhelper置換は同じNET10-04 owner corridorで続ける。
 2. DynamicJson利用をNewtonsoft.JsonまたはSystem.Text.Jsonを包む明示boundaryへ移し、missing member、number、date、null、case semanticsをgolden testで固定する。
 3. SgmlReaderDllをmaintained package候補へ移し、外部playlist／HTML parse fixtureを比較する。
 4. source usageのないIniLibraryとSystem.Collections.Immutable HintPathは削除する。必要性が判明した場合だけmodern packageを追加する。
 
 Exit:
 
-- QuickConverter、DynamicJson、IniLibraryのlegacy binary referenceがない。
+- QuickConverterのlegacy binary／markup／runtime registrationがなく、MainWindow／dialogs／playbackのtyped presentation routeで置換されている。DynamicJson、IniLibraryのlegacy binary referenceがない。
 - external document／JSON fixtureと主要XAML binding behaviorが維持される。
 
 ### `NET10-05 SQLite provider migration`

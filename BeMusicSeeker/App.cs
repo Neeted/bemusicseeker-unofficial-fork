@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
@@ -11,8 +10,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Forms;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Localization;
@@ -23,7 +20,6 @@ using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using NLog;
 using NLog.Targets;
-using QuickConverter;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker;
@@ -104,14 +100,6 @@ public partial class App : System.Windows.Application
         }
         InitializeAvailableCultures();
         applicationSettingsLifecycle.MigrateLegacy(AvailableCultures.Values, CultureInfo.CurrentCulture.Name);
-        EquationTokenizer.AddNamespace(typeof(object));
-        EquationTokenizer.AddNamespace(typeof(Visibility));
-        EquationTokenizer.AddNamespace(typeof(DataGridLength));
-        EquationTokenizer.AddNamespace(typeof(DataGridLengthUnitType));
-        EquationTokenizer.AddExtensionMethods(typeof(Enumerable));
-        EquationTokenizer.AddNamespace(typeof(BMSTable));
-        EquationTokenizer.AddNamespace(typeof(Path));
-        EquationTokenizer.AddNamespace(typeof(SystemInformation));
         applicationSettingsLifecycle.Initialize(
             AvailableCultures.Values,
             () => new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version),

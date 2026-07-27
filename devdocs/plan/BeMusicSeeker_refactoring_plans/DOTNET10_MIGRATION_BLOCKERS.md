@@ -6,7 +6,7 @@
 
 | ID | State | Blocking condition | Owner | Exit evidence |
 |---|---|---|---|---|
-| `DEP-HELPER-01` | queued | QuickConverter、DynamicJson、SgmlReader、unused managed DLL | `NET10-04` | grouped replacements、golden tests、legacy refs削除 |
+| `DEP-HELPER-01` | queued | DynamicJson、SgmlReader、unused managed DLL | `NET10-04` | grouped replacements、golden tests、legacy refs削除 |
 | `DB-01` | in-progress | sqlite.net／hand-placed sqlite3のprovider／ABI／data compatibility | `NET10-05` | startup DB-open、existing DB、transaction、2 tools、native bundle verification |
 | `NATIVE-01` | queued | archive、audio、Everythingのversion／license／publish load未確定 | `NET10-06` | dependency register completed、x64 runtime smoke |
 | `PUBLISH-01` | queued | current outputはnet10 buildを含むがSelf-contained publishではない | `NET10-07` | versioned win-x64 SCD profiles、publish-folder smoke |

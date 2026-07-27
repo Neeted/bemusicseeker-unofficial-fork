@@ -2241,6 +2241,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
+    private void keywordSearchClearMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        KeywordSearchBox.Text = string.Empty;
+        e.Handled = true;
+    }
+
+    private void keywordSearchPlaylistSummaryClearMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        KeywordSearchBoxPlaylistSummary.Text = string.Empty;
+        e.Handled = true;
+    }
+
     private void keywordSearchSuggestionPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (sender is not ListBox listBox)

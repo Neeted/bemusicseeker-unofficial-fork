@@ -21,7 +21,7 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | `DEP-UI-03` | MetroRadiance 3 DLL | Window chrome usageが限定的 | WPF WindowChrome／Window.IsActive resourceへ置換し削除 | package更新ではなくremove | `NET10-03` |
 | `DEP-UI-04` | Expression Drawing／Effects | XAML search glyph | WPF Ellipse／Path／Geometryへ置換し削除 | remove | `NET10-03` |
 | `DEP-OS-01` | retired Windows API Code Pack 2 DLL | file／folder picker | WPF OpenFileDialog／OpenFolderDialogへ置換し、HintPath／tracked binary／現行noticeを削除。updaterの旧install cleanupだけは保持 | framework API | `NET10-03` |
-| `DEP-XAML-01` | QuickConverter HintPath | XAMLで広範な式変換 | feature family単位でtyped converter／projectionへ置換 | remove | `NET10-04` |
+| `DEP-XAML-01` | QuickConverter HintPath (retired) | 旧XAMLの式変換 | MainWindow／PlaybackPanel／SettingDialog／dialogのpresentation routeをtyped converter／MultiBinding／triggerへ置換し、runtime登録、HintPath、binaryを削除 | typed WPF presentation bindings | `NET10-04 Q1` |
 | `DEP-JSON-02` | DynamicJson HintPath | external JSONのdynamic access | explicit JSON boundaryへ置換。semanticsをgolden test化 | Newtonsoft.Json／System.Text.Json | `NET10-04` |
 | `DEP-DOC-01` | SgmlReaderDll HintPath | playlist／HTML parse | maintained packageへ置換しfixture比較 | Microsoft.Xml.SgmlReader 1.8.30 | `NET10-04` |
 | `DEP-MISC-01` | IniLibrary HintPath | source usage未確認 | compile／testで不要を確認して削除 | remove | `NET10-04` |

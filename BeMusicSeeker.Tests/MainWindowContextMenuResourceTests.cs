@@ -445,7 +445,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainTable, "ColumnsSettings=\"{Binding ColumnsSettings, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "SortColumnName=\"{Binding SortParameters.ColumnsName, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "SortDirection=\"{Binding SortParameters.Direction, Mode=OneWay}\"");
-        StringAssert.Contains(mainTable, "Visibility=\"{Binding DataContext.PlaylistWorkspace.IsPlaylistSummaryMode, ElementName=window, Converter={qc:QuickConverter '!$P ? Visibility.Visible : Visibility.Collapsed'}}\"");
+        StringAssert.Contains(mainTable, "Visibility=\"{Binding DataContext.PlaylistWorkspace.IsPlaylistSummaryMode, ElementName=window, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}\"");
         StringAssert.Contains(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings.Title.Visibility, Source={StaticResource vm}");
         Assert.AreEqual(69, CountOccurrences(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings."));
         Assert.IsFalse(xaml.Contains("ColumnsSettingsChartRowsView"));
@@ -572,9 +572,9 @@ public sealed class MainWindowContextMenuResourceTests
         string summaryRow = FindElementByAttribute(mainWindowDocument, "Name", "playHistorySummaryBar")
             .ToString(SaveOptions.DisableFormatting);
 
-        StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
-        StringAssert.Contains(summaryRow, "P0={Binding PlayHistory.IsViewActive}");
-        StringAssert.Contains(summaryRow, "P1={Binding PlaylistWorkspace.IsPlaylistSummaryMode}");
+        StringAssert.Contains(summaryRow, "<MultiBinding Converter=\"{StaticResource playHistorySummaryVisibilityConverter}\">");
+        StringAssert.Contains(summaryRow, "<Binding Path=\"PlayHistory.IsViewActive\" />");
+        StringAssert.Contains(summaryRow, "<Binding Path=\"PlaylistWorkspace.IsPlaylistSummaryMode\" />");
         StringAssert.Contains(summaryRow, "ItemsSource=\"{Binding PlayHistory.SummaryCards}\"");
         StringAssert.Contains(summaryRow, "Text=\"{Binding PlayHistory.SummaryDiagnosticText}\"");
         StringAssert.Contains(summaryRow, "Visibility=\"{Binding PlayHistory.SummaryDiagnosticText");
@@ -1378,7 +1378,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowCode.Contains("viewModel.PlaybackPanel.SetBmsPlayerHeader"));
         StringAssert.Contains(mainWindowCode, "viewModel.PlaybackPanel.HandleTableSelection(e.SelectedRow)");
         StringAssert.Contains(mainWindowCode, "viewModel.PlaybackPanel.HandleTableRowActivation(e.RowIndex, e.Row)");
-        Assert.AreEqual("{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 + $P2 : $P0', P0={Binding ActualHeight, ElementName=playbackPanelView}, P1={Binding Visibility, ElementName=progressStatusBar}, P2={Binding Height, ElementName=progressStatusBar}}", GetAttributeValue(mainWindowDocument.Root, "MinHeight"));
+        XElement minHeight = mainWindowDocument.Root.Elements().Single(element => element.Name.LocalName == "Window.MinHeight");
+        StringAssert.Contains(minHeight.ToString(SaveOptions.DisableFormatting), "StaticResource mainWindowMinHeightConverter");
+        StringAssert.Contains(minHeight.ToString(SaveOptions.DisableFormatting), "ElementName=\"playbackPanelView\" Path=\"ActualHeight\"");
         Assert.AreEqual("Auto", GetAttributeValue(playbackRow, "Height"));
         Assert.AreEqual("{Binding ActualHeight, ElementName=playbackPanelView}", GetAttributeValue(playbackRow, "MinHeight"));
         Assert.AreEqual("Top", GetAttributeValue(playbackRoot, "VerticalAlignment"));
@@ -4560,8 +4562,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(simpleProgressBar, "ProgressBar.IndicatorBrush");
         StringAssert.Contains(styles, "x:Key=\"ProgressBar.IndicatorBrush\" Color=\"#FF06B025\"");
         StringAssert.Contains(mainWindow, "App.ControlBackgroundActiveBrush");
-        StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBox, Mode=OneWay, Converter={qc:QuickConverter '!String.IsNullOrWhiteSpace($P)'}");
-        StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={qc:QuickConverter '!String.IsNullOrWhiteSpace($P)'}");
+        StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBox, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}");
+        StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}");
         StringAssert.Contains(mainWindow, "TextBox Name=\"KeywordSearchBox\" Width=\"390\"");
         StringAssert.Contains(mainWindow, "TextBox Name=\"KeywordSearchBoxPlaylistSummary\" Width=\"390\"");
         StringAssert.Contains(styles, "Data=\"M2,6 L5,9 L11,2\"");
@@ -5238,13 +5240,12 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void SettingDialog_DoesNotUseMultiParameterQuickConverterBindings()
+    public void SettingDialog_UsesTypedBindingConverters()
     {
         string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
 
-        Assert.IsFalse(
-            settingDialogXaml.IndexOf("qc:Binding '$P0", StringComparison.Ordinal) >= 0,
-            "SettingDialog is loaded during MainWindow startup; multi-parameter QuickConverter bindings can fail during BAML load.");
+        Assert.IsFalse(settingDialogXaml.Contains("QuickConverter", StringComparison.Ordinal));
+        StringAssert.Contains(settingDialogXaml, "x:Key=\"wasapiControlEnabledConverter\"");
         StringAssert.Contains(settingDialogXaml, "Lr2_song_db_sync_data_resync");
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\"");
         Assert.IsFalse(settingDialogXaml.Contains("checkBoxEnableLr2SongDbFullGeneration"));

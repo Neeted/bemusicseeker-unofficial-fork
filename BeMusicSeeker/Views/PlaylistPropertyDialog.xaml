@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<UserControl x:Class="BeMusicSeeker.Views.PlaylistPropertyDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:qc="http://QuickConverter.CodePlex.com/" x:Name="playlistPropertyDialog">
+<UserControl x:Class="BeMusicSeeker.Views.PlaylistPropertyDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" x:Name="playlistPropertyDialog">
   <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
     <FrameworkElement.Resources>
       <ResourceDictionary>
@@ -199,7 +199,7 @@
                   </DockPanel>
                   <StackPanel Orientation="Horizontal" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
                     <RadioButton GroupName="SortOrder" Margin="0,0,20,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_asc, Mode=OneWay}" IsChecked="{Binding folder_sort_ascending}" />
-                    <RadioButton GroupName="SortOrder" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_desc, Mode=OneWay}" IsChecked="{qc:Binding !$P, P={Binding folder_sort_ascending}}" />
+                    <RadioButton GroupName="SortOrder" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_desc, Mode=OneWay}" IsChecked="{Binding folder_sort_ascending, Converter={StaticResource notOperatorBoolConverter}}" />
                   </StackPanel>
                 </Grid>
               </GroupBox>
