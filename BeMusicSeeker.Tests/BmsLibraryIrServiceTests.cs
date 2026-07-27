@@ -8,8 +8,9 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
-using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SQLite;
 
 namespace BeMusicSeeker.Tests;
@@ -966,6 +967,42 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     [TestMethod]
+    public void BuildRankingInfoRequestJson_FiltersInvalidHashesAndKeepsArrayContract()
+    {
+        string validHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+        string json = BmsLibraryIrClient.BuildRankingInfoRequestJson(
+            [validHash, "not-a-hash", validHash.ToUpperInvariant()]);
+
+        Assert.AreEqual("[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"]", json);
+    }
+
+    [TestMethod]
+    public void ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows()
+    {
+        string json = "["
+            + "{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"size\":1.0,\"lastupdate\":\"2026-04-08 12:00:00\"},"
+            + "{\"md5\":\"not-a-hash\",\"size\":2,\"lastupdate\":\"2026-04-08 12:00:00\"},"
+            + "{\"MD5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"size\":3,\"lastupdate\":\"2026-04-08 12:00:00\"},"
+            + "null"
+            + "]";
+
+        List<BMSLibrary.IRDataCacheInfo> result = BmsLibraryIrClient.ParseRankingInfoResponse(json);
+
+        Assert.AreEqual(1, result.Count);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result[0].md5);
+        Assert.AreEqual(1, result[0].size);
+        Assert.AreEqual(new DateTime(2026, 4, 8, 12, 0, 0), result[0].lastupdate);
+    }
+
+    [TestMethod]
+    public void ParseRankingInfoResponse_RejectsTrailingDocument()
+    {
+        Assert.ThrowsException<JsonReaderException>(
+            () => BmsLibraryIrClient.ParseRankingInfoResponse("[] {}"));
+    }
+
+    [TestMethod]
     public void UpdateIrScoreTableWithMetrics_SameScoreDigestSkipsReplaceForSameXml()
     {
         using var env = TempIrEnvironment.Create();
@@ -1177,7 +1214,12 @@ public sealed class BmsLibraryIrServiceTests
 
     private static BMSLibrary.IRDataCacheInfo CreateCacheInfo(string md5, DateTime lastUpdate)
     {
-        dynamic json = DynamicJson.Parse("{\"md5\":\"" + md5 + "\",\"size\":1,\"lastupdate\":\"" + lastUpdate.ToString("yyyy-MM-dd HH:mm:ss") + "\"}");
+        var json = new JObject
+        {
+            ["md5"] = md5,
+            ["size"] = 1,
+            ["lastupdate"] = lastUpdate.ToString("yyyy-MM-dd HH:mm:ss")
+        };
         return new BMSLibrary.IRDataCacheInfo(json);
     }
 

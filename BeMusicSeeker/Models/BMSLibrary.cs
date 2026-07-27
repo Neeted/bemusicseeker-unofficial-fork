@@ -23,9 +23,9 @@ using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHe
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Codeplex.Data;
 using Microsoft.VisualBasic.FileIO;
 using NLog;
+using Newtonsoft.Json.Linq;
 using Ribbit.Logging;
 using Ribbit.Net;
 using Ribbit.Util;
@@ -511,24 +511,53 @@ public partial class BMSLibrary : ObservableObject
 
         public DateTime lastupdate { get; set; }
 
-        public IRDataCacheInfo(dynamic json)
+        public IRDataCacheInfo(JObject json)
         {
             if (json == null)
             {
-                throw new ArgumentNullException("json");
+                throw new ArgumentNullException(nameof(json));
             }
-            if (json.IsDefined("md5") && json.md5 != null && json.IsDefined("size") && json.size != null && json.IsDefined("lastupdate") && json.lastupdate != null)
+            if (TryGetNonNullProperty(json, "md5", out JToken md5Token)
+                && TryGetNonNullProperty(json, "size", out JToken sizeToken)
+                && TryGetNonNullProperty(json, "lastupdate", out JToken lastUpdateToken))
             {
-                if ((!LR2SongDB.md5HashRegex.IsMatch(json.md5.ToString())))
+                string md5Value = md5Token.ToString();
+                if (!LR2SongDB.md5HashRegex.IsMatch(md5Value))
                 {
                     throw new ArgumentException(Resources.Error_NotMd5Hash, "json.md5");
                 }
-                md5 = json.md5.ToString();
-                size = int.Parse(json.size.ToString());
-                lastupdate = DateTime.ParseExact(json.lastupdate.ToString(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                md5 = md5Value;
+                size = ParseSize(sizeToken);
+                lastupdate = DateTime.ParseExact(lastUpdateToken.ToString(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
                 return;
             }
             throw new ArgumentException(Resources.Error_InvalidJsonObject, "json");
+        }
+
+        private static bool TryGetNonNullProperty(JObject source, string propertyName, out JToken value)
+        {
+            return source.TryGetValue(propertyName, out value) && value.Type != JTokenType.Null;
+        }
+
+        private static int ParseSize(JToken token)
+        {
+            if (token.Type == JTokenType.Integer)
+            {
+                return token.Value<int>();
+            }
+            if (token.Type == JTokenType.Float)
+            {
+                double value = token.Value<double>();
+                if (!double.IsNaN(value)
+                    && !double.IsInfinity(value)
+                    && value >= int.MinValue
+                    && value <= int.MaxValue
+                    && Math.Truncate(value) == value)
+                {
+                    return (int)value;
+                }
+            }
+            return int.Parse(token.ToString());
         }
     }
 

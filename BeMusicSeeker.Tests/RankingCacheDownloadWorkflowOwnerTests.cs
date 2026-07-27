@@ -7,8 +7,8 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
-using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
@@ -266,8 +266,12 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
 
     private static BMSLibrary.IRDataCacheInfo CacheInfo(string md5, int size)
     {
-        dynamic json = DynamicJson.Parse(
-            "{\"md5\":\"" + md5 + "\",\"size\":" + size + ",\"lastupdate\":\"2026-04-08 12:00:00\"}");
+        var json = new JObject
+        {
+            ["md5"] = md5,
+            ["size"] = size,
+            ["lastupdate"] = "2026-04-08 12:00:00"
+        };
         return new BMSLibrary.IRDataCacheInfo(json);
     }
 
