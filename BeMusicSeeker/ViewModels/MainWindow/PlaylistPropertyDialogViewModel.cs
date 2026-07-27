@@ -164,7 +164,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
                 DisableInvalidOutputFolders(value);
                 _entry_type = value;
                 RaisePropertyChanged("entry_type");
-                RaisePropertyChanged(() => folder_sort_key_list);
+                RaisePropertyChanged(nameof(folder_sort_key_list));
             }
         }
     }
@@ -261,7 +261,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
                     _name = value;
                 }
                 RaisePropertyChanged("name");
-                RaisePropertyChanged(() => output_dir);
+                RaisePropertyChanged(nameof(output_dir));
                 if (temp_custom_folder_output_settings?.OperationModeLR2DB == true && !IsOutputDirValid())
                 {
                     saveService.NotifyValidationError(PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName);
@@ -525,11 +525,11 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             return;
         }
         ignore_folder_output |= LR2SongDBExtended.playlist.CustomFolderType.LevelFolder;
-        RaisePropertyChanged(() => ignore_folder_output);
+        RaisePropertyChanged(nameof(ignore_folder_output));
         if (folder_sort_key == LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL || folder_sort_key == LR2SongDBExtended.playlist.CustomFolderSortType.ADDDATE)
         {
             folder_sort_key = LR2SongDBExtended.playlist.CustomFolderSortType.NONE;
-            RaisePropertyChanged(() => folder_sort_key);
+            RaisePropertyChanged(nameof(folder_sort_key));
         }
     }
 
@@ -718,41 +718,41 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
     private void loadTableProperties(PlaylistPropertyValues values)
     {
         _folder_order = new ObservableCollection<string>(values.FolderOrder ?? []);
-        RaisePropertyChanged(() => folder_order);
+        RaisePropertyChanged(nameof(folder_order));
         _folder_sort_key = values.FolderSortKey;
-        RaisePropertyChanged(() => folder_sort_key);
+        RaisePropertyChanged(nameof(folder_sort_key));
         _folder_sort_ascending = values.FolderSortAscending;
-        RaisePropertyChanged(() => folder_sort_ascending);
+        RaisePropertyChanged(nameof(folder_sort_ascending));
         _ignore_folder_output = values.IgnoreFolderOutput;
-        RaisePropertyChanged(() => ignore_folder_output);
+        RaisePropertyChanged(nameof(ignore_folder_output));
         _entry_type = values.EntryType;
-        RaisePropertyChanged(() => entry_type);
+        RaisePropertyChanged(nameof(entry_type));
         _name = values.Name;
-        RaisePropertyChanged(() => name);
+        RaisePropertyChanged(nameof(name));
         _symbol = values.Symbol;
-        RaisePropertyChanged(() => symbol);
+        RaisePropertyChanged(nameof(symbol));
         _Page_url = values.PageUrl;
-        RaisePropertyChanged(() => Page_url);
+        RaisePropertyChanged(nameof(Page_url));
         _Header_url = values.HeaderUrl;
-        RaisePropertyChanged(() => Header_url);
+        RaisePropertyChanged(nameof(Header_url));
         _Data_url = values.DataUrl;
-        RaisePropertyChanged(() => Data_url);
+        RaisePropertyChanged(nameof(Data_url));
         _is_external_sync = values.IsExternalSync;
-        RaisePropertyChanged(() => is_external_sync);
+        RaisePropertyChanged(nameof(is_external_sync));
         _output_dir = values.OutputDirectory;
-        RaisePropertyChanged(() => output_dir);
+        RaisePropertyChanged(nameof(output_dir));
         _outputBaseOptions = PlaylistCustomFolderOutputBaseOptions.Create(
             temp_custom_folder_output_settings?.LR2CustomFolderOutputBaseDir,
             CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(temp_custom_folder_output_settings?.LR2CustomFolderAdditionalOutputBaseDirs));
         _custom_folder_output_base_option = ResolveOutputBaseOption(values.CustomFolderOutputBaseName);
-        RaisePropertyChanged(() => OutputBaseOptions);
-        RaisePropertyChanged(() => custom_folder_output_base_option);
+        RaisePropertyChanged(nameof(OutputBaseOptions));
+        RaisePropertyChanged(nameof(custom_folder_output_base_option));
         _is_root_folder = values.IsRootFolder;
-        RaisePropertyChanged(() => is_root_folder);
+        RaisePropertyChanged(nameof(is_root_folder));
         _is_auto_folder_sort = values.IsAutoFolderSort;
-        RaisePropertyChanged(() => is_auto_folder_sort);
+        RaisePropertyChanged(nameof(is_auto_folder_sort));
         _compat_prefix = values.CompatPrefix;
-        RaisePropertyChanged(() => compat_prefix);
+        RaisePropertyChanged(nameof(compat_prefix));
     }
 
     protected override void Dispose(bool disposing)

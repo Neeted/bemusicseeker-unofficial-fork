@@ -129,7 +129,11 @@ function Assert-ReleaseOutputLayout {
     foreach ($hostFileName in @(
         'BeMusicSeeker.deps.json',
         'BeMusicSeeker.runtimeconfig.json',
-        'Livet.dll',
+        'Livet.Core.dll',
+        'Livet.EventListeners.dll',
+        'Livet.Messaging.dll',
+        'Livet.Mvvm.dll',
+        'Microsoft.Xaml.Behaviors.dll',
         'Newtonsoft.Json.dll',
         'NLog.dll',
         'SevenZipExtractor.dll')) {

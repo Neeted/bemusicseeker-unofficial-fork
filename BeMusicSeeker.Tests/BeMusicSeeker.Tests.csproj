@@ -29,9 +29,6 @@
     <Reference Include="sqlite.net">
       <HintPath>..\libs\sqlite.net.dll</HintPath>
     </Reference>
-    <Reference Include="Livet">
-      <HintPath>..\libs\Livet.dll</HintPath>
-    </Reference>
     <Reference Include="QuickConverter">
       <HintPath>..\libs\QuickConverter.dll</HintPath>
     </Reference>

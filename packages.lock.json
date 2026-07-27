@@ -2,6 +2,30 @@
   "version": 2,
   "dependencies": {
     "net10.0-windows7.0": {
+      "LivetCask.Core": {
+        "type": "Direct",
+        "requested": "[4.0.2, )",
+        "resolved": "4.0.2",
+        "contentHash": "/Cp5areP4R0rSxBQNCIUhrvRrT9aOFl90oW/j/t+tiXvByhjLkweVzfmrjNKQD0jRJCaxipZkK+3twVFCtKXwg=="
+      },
+      "LivetCask.EventListeners": {
+        "type": "Direct",
+        "requested": "[4.0.2, )",
+        "resolved": "4.0.2",
+        "contentHash": "bRcfcgP6Ncc2In2Jla+V5YKZ+M6fRyJwx7aMKO9MShD1r9ZsYz7UY3x7XrQoRav8Q7zIENupJJo0r7xxdEYBOQ==",
+        "dependencies": {
+          "LivetCask.Core": "4.0.2"
+        }
+      },
+      "LivetCask.Mvvm": {
+        "type": "Direct",
+        "requested": "[4.0.2, )",
+        "resolved": "4.0.2",
+        "contentHash": "lrqCgHGRC6YHmhivfF+g23c8Q4j2mgCgBkfNuhJ45SqlEdgjIzeUfMLC9BwHsdRnN6Iso6ezAWgL02OsQcZrWQ==",
+        "dependencies": {
+          "LivetCask.Messaging": "4.0.2"
+        }
+      },
       "Newtonsoft.Json": {
         "type": "Direct",
         "requested": "[13.0.4, )",
@@ -43,6 +67,21 @@
         "requested": "[10.0.10, )",
         "resolved": "10.0.10",
         "contentHash": "xUBGLR+HPujL5k3LmHIJSS6xFsKECOGO52nurXMDADkLRFNVVUxCH4ng2WBD1YTxGHkE/s2kJs1I2B89DJJyLA=="
+      },
+      "LivetCask.Messaging": {
+        "type": "Transitive",
+        "resolved": "4.0.2",
+        "contentHash": "zyFeUvDjALJQegYqg0MV9t969uzcp3hhtsNitRttfWPdpPUZBF0GSgMG/uy+bT1olmBOjCB6/2+MwG+5pB0IYA==",
+        "dependencies": {
+          "LivetCask.Core": "4.0.2",
+          "LivetCask.EventListeners": "4.0.2",
+          "Microsoft.Xaml.Behaviors.Wpf": "1.1.31"
+        }
+      },
+      "Microsoft.Xaml.Behaviors.Wpf": {
+        "type": "Transitive",
+        "resolved": "1.1.31",
+        "contentHash": "LZpuf82ACZWldmfMuv3CTUMDh3o0xo0uHUaybR5HgqVLDBJJ9RZLykplQ/bTJd0/VDt3EhD4iDgUgbdIUAM+Kg=="
       }
     },
     "net10.0-windows7.0/win-x64": {}

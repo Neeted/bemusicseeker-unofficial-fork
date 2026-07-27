@@ -56,7 +56,11 @@ public sealed class ManagedDependencyOutputPolicyTests
 
         foreach (string dependencyName in new[]
         {
-            "Livet.dll",
+            "Livet.Core.dll",
+            "Livet.EventListeners.dll",
+            "Livet.Messaging.dll",
+            "Livet.Mvvm.dll",
+            "Microsoft.Xaml.Behaviors.dll",
             "Newtonsoft.Json.dll",
             "NLog.dll",
             "SevenZipExtractor.dll"
@@ -160,6 +164,9 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "Microsoft.NET.Test.Sdk", Version = "18.8.1" },
             new { Id = "MSTest.TestAdapter", Version = "3.6.4" },
             new { Id = "MSTest.TestFramework", Version = "3.6.4" },
+            new { Id = "LivetCask.Core", Version = "4.0.2" },
+            new { Id = "LivetCask.EventListeners", Version = "4.0.2" },
+            new { Id = "LivetCask.Mvvm", Version = "4.0.2" },
             new { Id = "NLog", Version = "6.1.4" },
             new { Id = "Newtonsoft.Json", Version = "13.0.4" },
             new { Id = "Roslynator.Analyzers", Version = "4.15.0" },
@@ -196,6 +203,9 @@ public sealed class ManagedDependencyOutputPolicyTests
                 LockPath = Path.Combine(repositoryRoot, "packages.lock.json"),
                 PackageIds = new[]
                 {
+                    "LivetCask.Core",
+                    "LivetCask.EventListeners",
+                    "LivetCask.Mvvm",
                     "Newtonsoft.Json",
                     "NLog",
                     "Roslynator.Analyzers",
@@ -267,6 +277,10 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsFalse(
             Directory.EnumerateFiles(releaseOutputDirectory, "Roslynator*.dll", SearchOption.AllDirectories).Any(),
             "Analyzer assemblies must not be copied to the application runtime output.");
+        Assert.IsFalse(
+            File.Exists(Path.Combine(repositoryRoot, "libs", "Livet.dll")) ||
+            File.Exists(Path.Combine(repositoryRoot, "libs", "Livet.Extensions.dll")),
+            "The tracked legacy Livet binaries must not remain beside the package-owned WPF project.");
     }
 
     private static string FindRepositoryRoot()

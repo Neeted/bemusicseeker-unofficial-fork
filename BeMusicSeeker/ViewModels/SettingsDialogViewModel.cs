@@ -147,9 +147,9 @@ public partial class SettingsDialogViewModel : ViewModel
             }
 
             isEditCompletionInProgress = value;
-            RaisePropertyChanged(() => IsEditCompletionInProgress);
-            RaisePropertyChanged(() => IsEditCompletionEnabled);
-            RaisePropertyChanged(() => IsEditCancellationEnabled);
+            RaisePropertyChanged(nameof(IsEditCompletionInProgress));
+            RaisePropertyChanged(nameof(IsEditCompletionEnabled));
+            RaisePropertyChanged(nameof(IsEditCancellationEnabled));
         }
     }
 
@@ -446,7 +446,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         scoreReloadPending = value;
-        RaisePropertyChanged(() => IsEditCancellationEnabled);
+        RaisePropertyChanged(nameof(IsEditCancellationEnabled));
         RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
     }
 
@@ -458,7 +458,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         fileDiffReloadPending = value;
-        RaisePropertyChanged(() => IsEditCancellationEnabled);
+        RaisePropertyChanged(nameof(IsEditCancellationEnabled));
         RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
     }
 
@@ -774,8 +774,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RaiseLr2SongDbSyncDataResyncAvailabilityChanged()
     {
-        RaisePropertyChanged(() => CanRequestLr2SongDbSyncDataResync);
-        RaisePropertyChanged(() => IsLr2SongDbSyncDataResyncBlockedByLibraryOperation);
+        RaisePropertyChanged(nameof(CanRequestLr2SongDbSyncDataResync));
+        RaisePropertyChanged(nameof(IsLr2SongDbSyncDataResyncBlockedByLibraryOperation));
     }
 
     public bool IsOperationModeChanged => tempOperationModeLR2DB != OperationModeLR2DB;
@@ -784,19 +784,19 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RaiseValidationStateChanged()
     {
-        RaisePropertyChanged(() => CanSaveSettings);
+        RaisePropertyChanged(nameof(CanSaveSettings));
     }
 
     private void SetOperationModeSelection(bool value)
     {
         operationModeLR2DB = value;
         RaisePropertyChanged("OperationModeLR2DB");
-        RaisePropertyChanged(() => IsOperationModeChanged);
-        RaisePropertyChanged(() => CanUseLr2Features);
-        RaisePropertyChanged(() => AvailableBMSDirectories);
-        RaisePropertyChanged(() => SelectedBmsSearchRootPath);
-        RaisePropertyChanged(() => IsBmsSearchRootEditorEnabled);
-        RaisePropertyChanged(() => BMSInstallDir);
+        RaisePropertyChanged(nameof(IsOperationModeChanged));
+        RaisePropertyChanged(nameof(CanUseLr2Features));
+        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+        RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
+        RaisePropertyChanged(nameof(BMSInstallDir));
         RaiseValidationStateChanged();
         RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         ResetLr2PlayHistorySchemaStatus();
@@ -894,7 +894,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 ApplicationSettings.LR2RootPath = null;
             }
             RaisePropertyChanged("LR2RootPath");
-            RaisePropertyChanged(() => LR2bodyPath);
+            RaisePropertyChanged(nameof(LR2bodyPath));
             RaiseValidationStateChanged();
             ResetLr2PlayHistorySchemaStatus();
         }
@@ -976,8 +976,8 @@ public partial class SettingsDialogViewModel : ViewModel
                 selectedPlayHistoryFolderDisplayPreset = value;
                 MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
                 RaisePropertyChanged();
-                RaisePropertyChanged(() => CanEditPlayHistoryFolderDisplayPreset);
-                RaisePropertyChanged(() => CanRemovePlayHistoryFolderDisplayPreset);
+                RaisePropertyChanged(nameof(CanEditPlayHistoryFolderDisplayPreset));
+                RaisePropertyChanged(nameof(CanRemovePlayHistoryFolderDisplayPreset));
                 RaiseValidationStateChanged();
             }
         }
@@ -1004,8 +1004,8 @@ public partial class SettingsDialogViewModel : ViewModel
             if (!string.Equals(selectedStandaloneBmsRootPath, value, StringComparison.Ordinal))
             {
                 selectedStandaloneBmsRootPath = value;
-                RaisePropertyChanged(() => SelectedStandaloneBmsRootPath);
-                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+                RaisePropertyChanged(nameof(SelectedStandaloneBmsRootPath));
+                RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
             }
         }
     }
@@ -1030,13 +1030,13 @@ public partial class SettingsDialogViewModel : ViewModel
             if (!OperationModeLR2DB)
             {
                 SelectedStandaloneBmsRootPath = value;
-                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+                RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
                 return;
             }
             if (!string.Equals(selectedLR2ConfigBmsDirectory, value, StringComparison.Ordinal))
             {
                 selectedLR2ConfigBmsDirectory = value;
-                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+                RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
             }
         }
     }
@@ -1453,16 +1453,16 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RaiseLr2PlayHistorySchemaStatusChanged()
     {
-        RaisePropertyChanged(() => Lr2PlayHistorySchemaStatusSnapshot);
-        RaisePropertyChanged(() => Lr2PlayHistoryScoreDbPath);
-        RaisePropertyChanged(() => Lr2PlayHistorySchemaStatusText);
-        RaisePropertyChanged(() => Lr2PlayHistorySchemaMessage);
-        RaisePropertyChanged(() => Lr2PlayHistorySchemaDetailText);
-        RaisePropertyChanged(() => CanInstallLr2PlayHistorySchema);
-        RaisePropertyChanged(() => CanRepairLr2PlayHistorySchema);
-        RaisePropertyChanged(() => CanInstallOrRepairLr2PlayHistorySchema);
-        RaisePropertyChanged(() => Lr2PlayHistorySchemaInstallOrRepairButtonText);
-        RaisePropertyChanged(() => CanUninstallLr2PlayHistorySchema);
+        RaisePropertyChanged(nameof(Lr2PlayHistorySchemaStatusSnapshot));
+        RaisePropertyChanged(nameof(Lr2PlayHistoryScoreDbPath));
+        RaisePropertyChanged(nameof(Lr2PlayHistorySchemaStatusText));
+        RaisePropertyChanged(nameof(Lr2PlayHistorySchemaMessage));
+        RaisePropertyChanged(nameof(Lr2PlayHistorySchemaDetailText));
+        RaisePropertyChanged(nameof(CanInstallLr2PlayHistorySchema));
+        RaisePropertyChanged(nameof(CanRepairLr2PlayHistorySchema));
+        RaisePropertyChanged(nameof(CanInstallOrRepairLr2PlayHistorySchema));
+        RaisePropertyChanged(nameof(Lr2PlayHistorySchemaInstallOrRepairButtonText));
+        RaisePropertyChanged(nameof(CanUninstallLr2PlayHistorySchema));
     }
 
     private static void LogLr2PlayHistorySchema(string action, Lr2PlayHistorySchemaCheckResult result, bool isLr2LinkedProfile)
@@ -1506,8 +1506,8 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 selectedCustomFolderAdditionalOutputBaseDir = value;
                 selectedCustomFolderAdditionalOutputBaseName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(value);
-                RaisePropertyChanged(() => SelectedCustomFolderAdditionalOutputBaseDir);
-                RaisePropertyChanged(() => SelectedCustomFolderAdditionalOutputBaseName);
+                RaisePropertyChanged(nameof(SelectedCustomFolderAdditionalOutputBaseDir));
+                RaisePropertyChanged(nameof(SelectedCustomFolderAdditionalOutputBaseName));
             }
         }
     }
@@ -1528,7 +1528,7 @@ public partial class SettingsDialogViewModel : ViewModel
             if (!string.Equals(selectedCustomFolderAdditionalOutputBaseName, value, StringComparison.Ordinal))
             {
                 selectedCustomFolderAdditionalOutputBaseName = value;
-                RaisePropertyChanged(() => SelectedCustomFolderAdditionalOutputBaseName);
+                RaisePropertyChanged(nameof(SelectedCustomFolderAdditionalOutputBaseName));
             }
         }
     }
@@ -1579,11 +1579,11 @@ public partial class SettingsDialogViewModel : ViewModel
                 }
             }
             RaisePropertyChanged("LR2ConfigXmlPath");
-            RaisePropertyChanged(() => LR2bodyPath);
-            RaisePropertyChanged(() => AvailableBMSDirectories);
-            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
-            RaisePropertyChanged(() => IsBmsSearchRootEditorEnabled);
-            RaisePropertyChanged(() => BMSInstallDir);
+            RaisePropertyChanged(nameof(LR2bodyPath));
+            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+            RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
+            RaisePropertyChanged(nameof(BMSInstallDir));
             RaiseValidationStateChanged();
             ResetLr2PlayHistorySchemaStatus();
         }
@@ -1622,10 +1622,10 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplicationSettings.BeatorajaRootPath = path;
             RefreshBeatorajaDerivedSettings();
             RaisePropertyChanged("BeatorajaRootPath");
-            RaisePropertyChanged(() => AvailableBeatorajaPlayers);
-            RaisePropertyChanged(() => BeatorajaPlayerId);
-            RaisePropertyChanged(() => BeatorajaScoreDbPath);
-            RaisePropertyChanged(() => BeatorajaBmtTablePath);
+            RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
+            RaisePropertyChanged(nameof(BeatorajaPlayerId));
+            RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
+            RaisePropertyChanged(nameof(BeatorajaBmtTablePath));
             RaiseValidationStateChanged();
         }
     }
@@ -1654,7 +1654,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplicationSettings.BeatorajaPlayerId = playerId;
             RefreshBeatorajaDerivedSettings();
             RaisePropertyChanged("BeatorajaPlayerId");
-            RaisePropertyChanged(() => BeatorajaScoreDbPath);
+            RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
             RaiseValidationStateChanged();
         }
     }
@@ -1762,12 +1762,12 @@ public partial class SettingsDialogViewModel : ViewModel
             if (lr2ConfigValue != value)
             {
                 lr2ConfigValue = value;
-                RaisePropertyChanged(() => LR2ConfigBMSDirectories);
-                RaisePropertyChanged(() => AvailableBMSDirectories);
-                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
-                RaisePropertyChanged(() => LR2CustomFolderOutputDir);
-                RaisePropertyChanged(() => LR2CustomFolderAsRootOutputDir);
-                RaisePropertyChanged(() => BMSInstallDir);
+                RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+                RaisePropertyChanged(nameof(AvailableBMSDirectories));
+                RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+                RaisePropertyChanged(nameof(LR2CustomFolderOutputDir));
+                RaisePropertyChanged(nameof(LR2CustomFolderAsRootOutputDir));
+                RaisePropertyChanged(nameof(BMSInstallDir));
             }
         }
     }
@@ -1897,10 +1897,10 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.UsePlayeruBMplay = usePlayeruBMplay;
         ApplicationSettings.UsePlayerLR2body = usePlayerLR2body;
         ApplicationSettings.UsePlayerBMIIDXView = usePlayerBMIIDXView;
-        RaisePropertyChanged(() => UseInternalPlayer);
-        RaisePropertyChanged(() => UsePlayeruBMplay);
-        RaisePropertyChanged(() => UsePlayerLR2body);
-        RaisePropertyChanged(() => UsePlayerBMIIDXView);
+        RaisePropertyChanged(nameof(UseInternalPlayer));
+        RaisePropertyChanged(nameof(UsePlayeruBMplay));
+        RaisePropertyChanged(nameof(UsePlayerLR2body));
+        RaisePropertyChanged(nameof(UsePlayerBMIIDXView));
         RaiseValidationStateChanged();
     }
 
@@ -2036,9 +2036,9 @@ public partial class SettingsDialogViewModel : ViewModel
                     ShowSettingValidationError(errMsg);
                 }
                 RaisePropertyChanged("LR2CustomFolderOutputDir");
-                RaisePropertyChanged(() => LR2ConfigBMSDirectories);
-                RaisePropertyChanged(() => AvailableBMSDirectories);
-                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+                RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+                RaisePropertyChanged(nameof(AvailableBMSDirectories));
+                RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
                 RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
                 RaiseValidationStateChanged();
             }
@@ -2107,9 +2107,9 @@ public partial class SettingsDialogViewModel : ViewModel
                     ShowSettingValidationError(errMsg);
                 }
                 RaisePropertyChanged("LR2CustomFolderAsRootOutputDir");
-                RaisePropertyChanged(() => LR2ConfigBMSDirectories);
-                RaisePropertyChanged(() => AvailableBMSDirectories);
-                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+                RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+                RaisePropertyChanged(nameof(AvailableBMSDirectories));
+                RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
                 RaiseValidationStateChanged();
             }
         }
@@ -2215,19 +2215,19 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RaiseDefaultCustomFolderOutputPropertiesChanged()
     {
-        RaisePropertyChanged(() => DefaultOutputAllSongsFolder);
-        RaisePropertyChanged(() => DefaultOutputUserFolder);
-        RaisePropertyChanged(() => DefaultOutputLevelFolder);
-        RaisePropertyChanged(() => DefaultOutputAlphabetFolder);
-        RaisePropertyChanged(() => DefaultOutputClearFolder);
-        RaisePropertyChanged(() => DefaultOutputDJLevelFolder);
-        RaisePropertyChanged(() => DefaultOutputCategoryAllFolder);
-        RaisePropertyChanged(() => DefaultOutputOtherFolder);
-        RaisePropertyChanged(() => DefaultOutputRandomFolder);
-        RaisePropertyChanged(() => DefaultOutputBpmSortFolder);
-        RaisePropertyChanged(() => DefaultOutputBpSortFolder);
-        RaisePropertyChanged(() => DefaultOutputPlayCountSortFolder);
-        RaisePropertyChanged(() => DefaultOutputLastPlaySortFolder);
+        RaisePropertyChanged(nameof(DefaultOutputAllSongsFolder));
+        RaisePropertyChanged(nameof(DefaultOutputUserFolder));
+        RaisePropertyChanged(nameof(DefaultOutputLevelFolder));
+        RaisePropertyChanged(nameof(DefaultOutputAlphabetFolder));
+        RaisePropertyChanged(nameof(DefaultOutputClearFolder));
+        RaisePropertyChanged(nameof(DefaultOutputDJLevelFolder));
+        RaisePropertyChanged(nameof(DefaultOutputCategoryAllFolder));
+        RaisePropertyChanged(nameof(DefaultOutputOtherFolder));
+        RaisePropertyChanged(nameof(DefaultOutputRandomFolder));
+        RaisePropertyChanged(nameof(DefaultOutputBpmSortFolder));
+        RaisePropertyChanged(nameof(DefaultOutputBpSortFolder));
+        RaisePropertyChanged(nameof(DefaultOutputPlayCountSortFolder));
+        RaisePropertyChanged(nameof(DefaultOutputLastPlaySortFolder));
     }
 
     private void ShowSettingValidationError(string errMsg)
@@ -2773,7 +2773,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
         internal void RefreshDisplayName()
         {
-            RaisePropertyChanged(() => DisplayName);
+            RaisePropertyChanged(nameof(DisplayName));
         }
     }
 
@@ -2810,7 +2810,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
         internal void RefreshDisplayName()
         {
-            RaisePropertyChanged(() => DisplayName);
+            RaisePropertyChanged(nameof(DisplayName));
         }
     }
 
@@ -3515,7 +3515,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 ApplicationSettings.EncoderExeDir = value;
                 RaisePropertyChanged("EncoderExeDir");
-                RaisePropertyChanged(() => EncoderIndex);
+                RaisePropertyChanged(nameof(EncoderIndex));
             }
         }
     }
@@ -3567,8 +3567,8 @@ public partial class SettingsDialogViewModel : ViewModel
                 audioSettingsGateway.PlayerDriver = driver;
                 playerDeviceNames = [.. audioDeviceCatalog.GetDevices(driver)];
                 RaisePropertyChanged("PlayerDriverIndex");
-                RaisePropertyChanged(() => PlayerDeviceNames);
-                RaisePropertyChanged(() => PlayerDevice);
+                RaisePropertyChanged(nameof(PlayerDeviceNames));
+                RaisePropertyChanged(nameof(PlayerDevice));
             }
         }
     }
@@ -3821,8 +3821,8 @@ public partial class SettingsDialogViewModel : ViewModel
         ];
         playlistTableChangedHandler = (_, _) =>
         {
-            settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.LR2ConfigBMSDirectories);
-            settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.AvailableBMSDirectories);
+            settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.LR2ConfigBMSDirectories));
+            settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.AvailableBMSDirectories));
             settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
         };
         workspacePort.SubscribePlaylistTableChanges(playlistTableChangedHandler);
@@ -3835,17 +3835,17 @@ public partial class SettingsDialogViewModel : ViewModel
         resourceServiceEventListener = new PropertyChangedEventListener(ResourceService.Current);
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
-            settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.LR2ConfigBMSDirectories);
-            settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.AvailableBMSDirectories);
+            settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.LR2ConfigBMSDirectories));
+            settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.AvailableBMSDirectories));
             settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
         });
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
-            settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.EncoderNormalizationNames);
+            settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.EncoderNormalizationNames));
         });
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
-            settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.EncoderNormalization);
+            settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.EncoderNormalization));
         });
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
@@ -4062,9 +4062,9 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 StandaloneBmsRootPathList.Add(path);
             }
-            RaisePropertyChanged(() => StandaloneBmsRootPathList);
-            RaisePropertyChanged(() => AvailableBMSDirectories);
-            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+            RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
+            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
         }
         if (selectedChanged)
         {
@@ -4131,7 +4131,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     ApplyPlayHistoryFolderDisplayPresetPlaylistSelection));
             }
         }
-        RaisePropertyChanged(() => PlayHistoryFolderDisplayPresetPlaylistOptions);
+        RaisePropertyChanged(nameof(PlayHistoryFolderDisplayPresetPlaylistOptions));
     }
 
     internal void RefreshPlayHistoryFolderDisplayPresetPlaylistOptionsIfDirty()
@@ -4417,10 +4417,10 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RaisePlayHistoryFolderDisplayPresetPropertiesChanged()
     {
-        RaisePropertyChanged(() => PlayHistoryFolderDisplayPresets);
-        RaisePropertyChanged(() => SelectedPlayHistoryFolderDisplayPreset);
-        RaisePropertyChanged(() => CanEditPlayHistoryFolderDisplayPreset);
-        RaisePropertyChanged(() => CanRemovePlayHistoryFolderDisplayPreset);
+        RaisePropertyChanged(nameof(PlayHistoryFolderDisplayPresets));
+        RaisePropertyChanged(nameof(SelectedPlayHistoryFolderDisplayPreset));
+        RaisePropertyChanged(nameof(CanEditPlayHistoryFolderDisplayPreset));
+        RaisePropertyChanged(nameof(CanRemovePlayHistoryFolderDisplayPreset));
         RaiseValidationStateChanged();
     }
 
@@ -4473,13 +4473,13 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RaiseCustomFolderAdditionalOutputBasePropertiesChanged()
     {
-        RaisePropertyChanged(() => CustomFolderAdditionalOutputBaseDirList);
-        RaisePropertyChanged(() => SelectedCustomFolderAdditionalOutputBaseDir);
-        RaisePropertyChanged(() => SelectedCustomFolderAdditionalOutputBaseName);
-        RaisePropertyChanged(() => LR2ConfigBMSDirectories);
-        RaisePropertyChanged(() => AvailableBMSDirectories);
-        RaisePropertyChanged(() => SelectedBmsSearchRootPath);
-        RaisePropertyChanged(() => PlaylistPropertyOutputBaseOptions);
+        RaisePropertyChanged(nameof(CustomFolderAdditionalOutputBaseDirList));
+        RaisePropertyChanged(nameof(SelectedCustomFolderAdditionalOutputBaseDir));
+        RaisePropertyChanged(nameof(SelectedCustomFolderAdditionalOutputBaseName));
+        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+        RaisePropertyChanged(nameof(PlaylistPropertyOutputBaseOptions));
         RaiseValidationStateChanged();
     }
 
@@ -5321,9 +5321,9 @@ public partial class SettingsDialogViewModel : ViewModel
             string after = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
             isSearchRootsChanged = !string.Equals(before, after, StringComparison.OrdinalIgnoreCase);
             isBMSDirectoryAdded = isSearchRootsChanged;
-            RaisePropertyChanged(() => StandaloneBmsRootPathList);
-            RaisePropertyChanged(() => AvailableBMSDirectories);
-            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+            RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
+            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
             RaiseValidationStateChanged();
         }
         catch (Exception ex)
@@ -5363,9 +5363,9 @@ public partial class SettingsDialogViewModel : ViewModel
             isSearchRootsChanged = true;
             isBMSDirectoryAdded = true;
             selectedLR2ConfigBmsDirectory = requestedPath;
-            RaisePropertyChanged(() => LR2ConfigBMSDirectories);
-            RaisePropertyChanged(() => AvailableBMSDirectories);
-            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+            RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
             RaiseValidationStateChanged();
             if (!string.IsNullOrWhiteSpace(settingPropertyPath))
             {
@@ -5529,10 +5529,10 @@ public partial class SettingsDialogViewModel : ViewModel
             string after = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
             isSearchRootsChanged = !string.Equals(before, after, StringComparison.OrdinalIgnoreCase);
             isBMSDirectoryRemoved = isSearchRootsChanged;
-            RaisePropertyChanged(() => StandaloneBmsRootPathList);
-            RaisePropertyChanged(() => AvailableBMSDirectories);
-            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
-            RaisePropertyChanged(() => BMSInstallDir);
+            RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
+            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+            RaisePropertyChanged(nameof(BMSInstallDir));
             RaiseValidationStateChanged();
             return null;
         }
@@ -5580,10 +5580,10 @@ public partial class SettingsDialogViewModel : ViewModel
                 {
                     selectedLR2ConfigBmsDirectory = LR2ConfigBMSDirectories.FirstOrDefault();
                 }
-                RaisePropertyChanged(() => LR2ConfigBMSDirectories);
-                RaisePropertyChanged(() => AvailableBMSDirectories);
-                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
-                RaisePropertyChanged(() => BMSInstallDir);
+                RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+                RaisePropertyChanged(nameof(AvailableBMSDirectories));
+                RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+                RaisePropertyChanged(nameof(BMSInstallDir));
                 RaiseValidationStateChanged();
                 if (searchRootRuntimePort.HasOwnedChartUnderRealPath(dir))
                 {
@@ -5612,10 +5612,10 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.StandaloneBmsRootPaths = previousSerializedPaths;
         ApplicationSettings.BMSRootPath = previousLegacyBmsRootPath;
         SelectedStandaloneBmsRootPath = previousSelection;
-        RaisePropertyChanged(() => StandaloneBmsRootPathList);
-        RaisePropertyChanged(() => AvailableBMSDirectories);
-        RaisePropertyChanged(() => SelectedBmsSearchRootPath);
-        RaisePropertyChanged(() => BMSInstallDir);
+        RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
+        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+        RaisePropertyChanged(nameof(BMSInstallDir));
         RaiseValidationStateChanged();
         isSearchRootsChanged = false;
         isBMSDirectoryRemoved = false;
@@ -5650,10 +5650,10 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplicationSettings.uBMplayVolume,
             playSound: true);
         Task<AudioDeviceTestResult> testTask = audioDeviceTestWorkflow.TryRunAsync(request);
-        RaisePropertyChanged(() => IsAudioDeviceTestInProgress);
-        RaisePropertyChanged(() => IsAudioDeviceTestAvailable);
-        RaisePropertyChanged(() => IsEditCompletionEnabled);
-        RaisePropertyChanged(() => IsEditCancellationEnabled);
+        RaisePropertyChanged(nameof(IsAudioDeviceTestInProgress));
+        RaisePropertyChanged(nameof(IsAudioDeviceTestAvailable));
+        RaisePropertyChanged(nameof(IsEditCompletionEnabled));
+        RaisePropertyChanged(nameof(IsEditCancellationEnabled));
         try
         {
             AudioDeviceTestResult result = await testTask;
@@ -5668,19 +5668,19 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplicationSettings.PlayerSampleRate = result.PlayerSampleRate;
             ApplicationSettings.PlayerFormat = result.PlayerFormat;
             PlayerLatency = result.PlayerLatency;
-            RaisePropertyChanged(() => PlayerDriverIndex);
-            RaisePropertyChanged(() => PlayerDeviceNames);
-            RaisePropertyChanged(() => PlayerDevice);
-            RaisePropertyChanged(() => PlayerSampleRate);
-            RaisePropertyChanged(() => PlayerFormat);
-            RaisePropertyChanged(() => PlayerLatency);
+            RaisePropertyChanged(nameof(PlayerDriverIndex));
+            RaisePropertyChanged(nameof(PlayerDeviceNames));
+            RaisePropertyChanged(nameof(PlayerDevice));
+            RaisePropertyChanged(nameof(PlayerSampleRate));
+            RaisePropertyChanged(nameof(PlayerFormat));
+            RaisePropertyChanged(nameof(PlayerLatency));
         }
         finally
         {
-            RaisePropertyChanged(() => IsAudioDeviceTestInProgress);
-            RaisePropertyChanged(() => IsAudioDeviceTestAvailable);
-            RaisePropertyChanged(() => IsEditCompletionEnabled);
-            RaisePropertyChanged(() => IsEditCancellationEnabled);
+            RaisePropertyChanged(nameof(IsAudioDeviceTestInProgress));
+            RaisePropertyChanged(nameof(IsAudioDeviceTestAvailable));
+            RaisePropertyChanged(nameof(IsEditCompletionEnabled));
+            RaisePropertyChanged(nameof(IsEditCancellationEnabled));
         }
     }
 
@@ -5887,7 +5887,7 @@ public partial class SettingsDialogViewModel : ViewModel
         isBMSDirectoryRemoved = false;
         if (scope.HasFlag(SettingsSnapshotRefreshScope.OperationMode))
         {
-            RaisePropertyChanged(() => IsOperationModeChanged);
+            RaisePropertyChanged(nameof(IsOperationModeChanged));
         }
         if (scope.HasFlag(SettingsSnapshotRefreshScope.ValidationState))
         {
@@ -6209,9 +6209,9 @@ public partial class SettingsDialogViewModel : ViewModel
                     isBMSDirectoryAdded = true;
                     isBMSDirectoryRemoved = true;
                     ApplyRuntimeSearchRootsForCurrentMode();
-                    RaisePropertyChanged(() => LR2ConfigBMSDirectories);
-                    RaisePropertyChanged(() => AvailableBMSDirectories);
-                    RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+                    RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+                    RaisePropertyChanged(nameof(AvailableBMSDirectories));
+                    RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
                     RaiseValidationStateChanged();
                 }
                 customFolderSearchRootSyncMs = stepStopwatch.ElapsedMilliseconds;
@@ -6377,9 +6377,9 @@ public partial class SettingsDialogViewModel : ViewModel
             selectedLR2ConfigBmsDirectory = LR2ConfigBMSDirectories.FirstOrDefault();
         }
         ApplyRuntimeSearchRootsForCurrentMode();
-        RaisePropertyChanged(() => LR2ConfigBMSDirectories);
-        RaisePropertyChanged(() => AvailableBMSDirectories);
-        RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
         RaiseValidationStateChanged();
     }
 
@@ -7051,98 +7051,98 @@ public partial class SettingsDialogViewModel : ViewModel
         RefreshStandaloneBmsRootPathsFromSettings();
         RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
         ResetPlayHistoryFolderDisplayPresetsForCancel();
-        RaisePropertyChanged(() => OperationModeLR2DB);
-        RaisePropertyChanged(() => CanUseLr2Features);
+        RaisePropertyChanged(nameof(OperationModeLR2DB));
+        RaisePropertyChanged(nameof(CanUseLr2Features));
         RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
-        RaisePropertyChanged(() => LR2RootPath);
-        RaisePropertyChanged(() => BMSRootPath);
-        RaisePropertyChanged(() => StandaloneBmsRootPathList);
-        RaisePropertyChanged(() => SelectedStandaloneBmsRootPath);
-        RaisePropertyChanged(() => AvailableBMSDirectories);
-        RaisePropertyChanged(() => SelectedBmsSearchRootPath);
-        RaisePropertyChanged(() => IsBmsSearchRootEditorEnabled);
-        RaisePropertyChanged(() => LR2SongDBPath);
-        RaisePropertyChanged(() => LR2ConfigXmlPath);
-        RaisePropertyChanged(() => UseBeatorajaScoreDb);
-        RaisePropertyChanged(() => BeatorajaRootPath);
-        RaisePropertyChanged(() => AvailableBeatorajaPlayers);
-        RaisePropertyChanged(() => BeatorajaPlayerId);
-        RaisePropertyChanged(() => BeatorajaScoreDbPath);
-        RaisePropertyChanged(() => EnableBeatorajaBmtOutput);
-        RaisePropertyChanged(() => KeepBeatorajaBmtFilesWhenOutputDisabled);
-        RaisePropertyChanged(() => BeatorajaBmtHashOutputMode);
-        RaisePropertyChanged(() => BeatorajaBmtTablePath);
-        RaisePropertyChanged(() => RegisterBeatorajaBmtUrls);
-        RaisePropertyChanged(() => uBMplayPath);
-        RaisePropertyChanged(() => BMIIDXViewPath);
-        RaisePropertyChanged(() => UsePlayeruBMplay);
-        RaisePropertyChanged(() => UsePlayerLR2body);
-        RaisePropertyChanged(() => UsePlayerBMIIDXView);
-        RaisePropertyChanged(() => UseInternalPlayer);
-        RaisePropertyChanged(() => LR2bodyResolution);
-        RaisePropertyChanged(() => IsSaveLR2bodyWindowPosition);
-        RaisePropertyChanged(() => LR2ConfigBMSDirectories);
-        RaisePropertyChanged(() => LR2CustomFolderOutputDir);
-        RaisePropertyChanged(() => BMSInstallDir);
-        RaisePropertyChanged(() => LR2CustomFolderAsRootOutputDir);
+        RaisePropertyChanged(nameof(LR2RootPath));
+        RaisePropertyChanged(nameof(BMSRootPath));
+        RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
+        RaisePropertyChanged(nameof(SelectedStandaloneBmsRootPath));
+        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+        RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
+        RaisePropertyChanged(nameof(LR2SongDBPath));
+        RaisePropertyChanged(nameof(LR2ConfigXmlPath));
+        RaisePropertyChanged(nameof(UseBeatorajaScoreDb));
+        RaisePropertyChanged(nameof(BeatorajaRootPath));
+        RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
+        RaisePropertyChanged(nameof(BeatorajaPlayerId));
+        RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
+        RaisePropertyChanged(nameof(EnableBeatorajaBmtOutput));
+        RaisePropertyChanged(nameof(KeepBeatorajaBmtFilesWhenOutputDisabled));
+        RaisePropertyChanged(nameof(BeatorajaBmtHashOutputMode));
+        RaisePropertyChanged(nameof(BeatorajaBmtTablePath));
+        RaisePropertyChanged(nameof(RegisterBeatorajaBmtUrls));
+        RaisePropertyChanged(nameof(uBMplayPath));
+        RaisePropertyChanged(nameof(BMIIDXViewPath));
+        RaisePropertyChanged(nameof(UsePlayeruBMplay));
+        RaisePropertyChanged(nameof(UsePlayerLR2body));
+        RaisePropertyChanged(nameof(UsePlayerBMIIDXView));
+        RaisePropertyChanged(nameof(UseInternalPlayer));
+        RaisePropertyChanged(nameof(LR2bodyResolution));
+        RaisePropertyChanged(nameof(IsSaveLR2bodyWindowPosition));
+        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+        RaisePropertyChanged(nameof(LR2CustomFolderOutputDir));
+        RaisePropertyChanged(nameof(BMSInstallDir));
+        RaisePropertyChanged(nameof(LR2CustomFolderAsRootOutputDir));
         RaiseDefaultCustomFolderOutputPropertiesChanged();
-        RaisePropertyChanged(() => TableListURL);
-        RaisePropertyChanged(() => EnablePlaylistUrlCompletion);
-        RaisePropertyChanged(() => OverwritePlaylistUrlsWithCompletion);
-        RaisePropertyChanged(() => EnableStellaFullPlaylistUrlCompletion);
-        RaisePropertyChanged(() => PlaylistMd5UrlMappingTsvUri);
-        RaisePropertyChanged(() => PlayHistoryFolderDisplayPresets);
-        RaisePropertyChanged(() => SelectedPlayHistoryFolderDisplayPreset);
-        RaisePropertyChanged(() => PlayHistoryFolderDisplayPresetPlaylistOptions);
-        RaisePropertyChanged(() => IsLR2BackupEnabled);
-        RaisePropertyChanged(() => LR2BackupPath);
-        RaisePropertyChanged(() => LR2BackupTarget);
-        RaisePropertyChanged(() => LR2BackupSpan);
-        RaisePropertyChanged(() => LR2BackupNum);
-        RaisePropertyChanged(() => UseExternalWebBrowser);
-        RaisePropertyChanged(() => UseExternalPanelImage);
-        RaisePropertyChanged(() => AppearanceTheme);
-        RaisePropertyChanged(() => CustomTableFontSize);
-        RaisePropertyChanged(() => CustomTableRowHeight);
-        RaisePropertyChanged(() => CustomTableHeaderHeight);
-        RaisePropertyChanged(() => StagefilePath);
-        RaisePropertyChanged(() => FolderNameFormat);
-        RaisePropertyChanged(() => UseOnlyShiftJISChars);
-        RaisePropertyChanged(() => ShowScoreViewerRegisterConfirmMsg);
-        RaisePropertyChanged(() => ShowDiffBMSInstallConfirmMsg);
-        RaisePropertyChanged(() => ShowDuplicateFileCheckConfirmMsg);
-        RaisePropertyChanged(() => ShowRecommUpdatedMsg);
-        RaisePropertyChanged(() => ScanBmsFilesOnStartup);
-        RaisePropertyChanged(() => SkipInitPlaylistLoad);
-        RaisePropertyChanged(() => StartupSelectInstallPending);
-        RaisePropertyChanged(() => EnableReadOptimizedPragmas);
-        RaisePropertyChanged(() => EstimateOfflineScoreRanking);
-        RaisePropertyChanged(() => UpdateLr2IrRankingCacheOnStartup);
-        RaisePropertyChanged(() => EnableDownloadLr2IrScoreAndDetectUnsent);
-        RaisePropertyChanged(() => EnableAutoInstall);
-        RaisePropertyChanged(() => KeepInstallablePackagesPending);
-        RaisePropertyChanged(() => AutoApplyAmbiguousInstallDestination);
-        RaisePropertyChanged(() => DeletePendingPackageSourceAfterInstall);
-        RaisePropertyChanged(() => EnableSmartComponentOverwrite);
-        RaisePropertyChanged(() => KeepSmartOverwriteProtectedFilesByRenaming);
-        RaisePropertyChanged(() => EncoderSampleRate);
-        RaisePropertyChanged(() => EncoderIndex);
-        RaisePropertyChanged(() => EncoderNormalization);
-        RaisePropertyChanged(() => EncoderFormat);
-        RaisePropertyChanged(() => EncoderExeDir);
-        RaisePropertyChanged(() => EncoderAmplifier);
-        RaisePropertyChanged(() => EncoderQuality);
-        RaisePropertyChanged(() => EncodeFileNameFormat);
-        RaisePropertyChanged(() => PlayerDriverIndex);
-        RaisePropertyChanged(() => PlayerDevice);
-        RaisePropertyChanged(() => PlayerDeviceNames);
-        RaisePropertyChanged(() => PlayerDevice);
-        RaisePropertyChanged(() => PlayerSampleRate);
-        RaisePropertyChanged(() => PlayerFormat);
-        RaisePropertyChanged(() => PlayerBufferSize);
-        RaisePropertyChanged(() => PlayerWASAPIParam);
-        RaisePropertyChanged(() => Languages);
-        RaisePropertyChanged(() => IsOperationModeChanged);
+        RaisePropertyChanged(nameof(TableListURL));
+        RaisePropertyChanged(nameof(EnablePlaylistUrlCompletion));
+        RaisePropertyChanged(nameof(OverwritePlaylistUrlsWithCompletion));
+        RaisePropertyChanged(nameof(EnableStellaFullPlaylistUrlCompletion));
+        RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUri));
+        RaisePropertyChanged(nameof(PlayHistoryFolderDisplayPresets));
+        RaisePropertyChanged(nameof(SelectedPlayHistoryFolderDisplayPreset));
+        RaisePropertyChanged(nameof(PlayHistoryFolderDisplayPresetPlaylistOptions));
+        RaisePropertyChanged(nameof(IsLR2BackupEnabled));
+        RaisePropertyChanged(nameof(LR2BackupPath));
+        RaisePropertyChanged(nameof(LR2BackupTarget));
+        RaisePropertyChanged(nameof(LR2BackupSpan));
+        RaisePropertyChanged(nameof(LR2BackupNum));
+        RaisePropertyChanged(nameof(UseExternalWebBrowser));
+        RaisePropertyChanged(nameof(UseExternalPanelImage));
+        RaisePropertyChanged(nameof(AppearanceTheme));
+        RaisePropertyChanged(nameof(CustomTableFontSize));
+        RaisePropertyChanged(nameof(CustomTableRowHeight));
+        RaisePropertyChanged(nameof(CustomTableHeaderHeight));
+        RaisePropertyChanged(nameof(StagefilePath));
+        RaisePropertyChanged(nameof(FolderNameFormat));
+        RaisePropertyChanged(nameof(UseOnlyShiftJISChars));
+        RaisePropertyChanged(nameof(ShowScoreViewerRegisterConfirmMsg));
+        RaisePropertyChanged(nameof(ShowDiffBMSInstallConfirmMsg));
+        RaisePropertyChanged(nameof(ShowDuplicateFileCheckConfirmMsg));
+        RaisePropertyChanged(nameof(ShowRecommUpdatedMsg));
+        RaisePropertyChanged(nameof(ScanBmsFilesOnStartup));
+        RaisePropertyChanged(nameof(SkipInitPlaylistLoad));
+        RaisePropertyChanged(nameof(StartupSelectInstallPending));
+        RaisePropertyChanged(nameof(EnableReadOptimizedPragmas));
+        RaisePropertyChanged(nameof(EstimateOfflineScoreRanking));
+        RaisePropertyChanged(nameof(UpdateLr2IrRankingCacheOnStartup));
+        RaisePropertyChanged(nameof(EnableDownloadLr2IrScoreAndDetectUnsent));
+        RaisePropertyChanged(nameof(EnableAutoInstall));
+        RaisePropertyChanged(nameof(KeepInstallablePackagesPending));
+        RaisePropertyChanged(nameof(AutoApplyAmbiguousInstallDestination));
+        RaisePropertyChanged(nameof(DeletePendingPackageSourceAfterInstall));
+        RaisePropertyChanged(nameof(EnableSmartComponentOverwrite));
+        RaisePropertyChanged(nameof(KeepSmartOverwriteProtectedFilesByRenaming));
+        RaisePropertyChanged(nameof(EncoderSampleRate));
+        RaisePropertyChanged(nameof(EncoderIndex));
+        RaisePropertyChanged(nameof(EncoderNormalization));
+        RaisePropertyChanged(nameof(EncoderFormat));
+        RaisePropertyChanged(nameof(EncoderExeDir));
+        RaisePropertyChanged(nameof(EncoderAmplifier));
+        RaisePropertyChanged(nameof(EncoderQuality));
+        RaisePropertyChanged(nameof(EncodeFileNameFormat));
+        RaisePropertyChanged(nameof(PlayerDriverIndex));
+        RaisePropertyChanged(nameof(PlayerDevice));
+        RaisePropertyChanged(nameof(PlayerDeviceNames));
+        RaisePropertyChanged(nameof(PlayerDevice));
+        RaisePropertyChanged(nameof(PlayerSampleRate));
+        RaisePropertyChanged(nameof(PlayerFormat));
+        RaisePropertyChanged(nameof(PlayerBufferSize));
+        RaisePropertyChanged(nameof(PlayerWASAPIParam));
+        RaisePropertyChanged(nameof(Languages));
+        RaisePropertyChanged(nameof(IsOperationModeChanged));
         RaiseValidationStateChanged();
         backupSavedSettings();
         ResetLr2PlayHistorySchemaStatus();

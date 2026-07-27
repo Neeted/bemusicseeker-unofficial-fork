@@ -19,7 +19,7 @@ public class ResourceService : ViewModel
             JsonLanguageCatalog.Invalidate(name);
             BeMusicSeeker.Properties.Resources.Culture = CultureInfo.GetCultureInfo(name);
             Resources = new Resources();
-            RaisePropertyChanged(() => Resources);
+            RaisePropertyChanged(nameof(Resources));
         }
     }
 }

@@ -1,6 +1,6 @@
 BeMusicSeeker サードパーティ・ノーティス
 
-最終更新: 2026-04-21
+最終更新: 2026-07-27
 適用範囲: BeMusicSeeker.csproj によって参照され、bin/Release/net472、vendor/native/{x86,x64}、native/、および resources/ 下で配布されるサードパーティ製ファイル。
 
 ステータスの凡例:
@@ -96,16 +96,28 @@ BeMusicSeeker サードパーティ・ノーティス
 - ライセンス本文を配布物に同梱してください。
 
 ================================================================================
-7) Livet
+7) LivetCask ランタイム
 ================================================================================
 ステータス: GREEN
-コンポーネント: Livet.dll, Livet.Extensions.dll
-著作権所有者: Livet Project
+コンポーネント: Livet.Core.dll, Livet.EventListeners.dll, Livet.Messaging.dll, Livet.Mvvm.dll
+著作権所有者: Livet Project (2010-2019)
 ライセンス: zlib/libpng
-ソース: https://github.com/runceel/Livet
+ソース: https://github.com/runceel/Livet; LivetCask.Core／EventListeners／Messaging／Mvvm 4.0.2
 ライセンス本文: third_party/licenses/07-Livet-zlib.txt
 再配布時の注意事項:
 - ライセンスと著作権表示を残してください。
+
+================================================================================
+7a) Microsoft.Xaml.Behaviors.Wpf ランタイム依存
+================================================================================
+ステータス: GREEN
+コンポーネント: Microsoft.Xaml.Behaviors.dll（transitive Microsoft.Xaml.Behaviors.Wpf 1.1.31）
+著作権所有者: Microsoft Corporation
+ライセンス: MIT
+ソース: https://github.com/microsoft/XamlBehaviorsWpf
+ライセンス本文: third_party/licenses/17-Microsoft.Xaml.Behaviors-MIT.txt
+再配布時の注意事項:
+- MIT ライセンス本文と著作権表示を同梱してください。
 
 ================================================================================
 8) MetroRadiance

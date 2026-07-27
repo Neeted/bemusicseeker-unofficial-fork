@@ -87,9 +87,9 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <Reference Include="Livet">
-      <HintPath>libs\Livet.dll</HintPath>
-    </Reference>
+    <PackageReference Include="LivetCask.Core" />
+    <PackageReference Include="LivetCask.EventListeners" />
+    <PackageReference Include="LivetCask.Mvvm" />
     <Reference Include="System.Windows.Interactivity">
       <HintPath>libs\System.Windows.Interactivity.dll</HintPath>
     </Reference>
@@ -110,9 +110,6 @@
     </Reference>
     <Reference Include="Microsoft.Expression.Effects">
       <HintPath>libs\Microsoft.Expression.Effects.dll</HintPath>
-    </Reference>
-    <Reference Include="Livet.Extensions">
-      <HintPath>libs\Livet.Extensions.dll</HintPath>
     </Reference>
     <Reference Include="IniLibrary">
       <HintPath>libs\IniLibrary.dll</HintPath>

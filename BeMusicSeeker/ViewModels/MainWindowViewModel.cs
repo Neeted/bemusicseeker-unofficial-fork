@@ -2472,7 +2472,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void ChartMutationActivityChanged(object sender, EventArgs e)
     {
-        RaisePropertyChanged(() => IsLibraryOperationInProgress);
+        RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
         RaiseLibraryOperationAvailabilityChanged();
     }
 
@@ -3678,11 +3678,11 @@ public partial class MainWindowViewModel : ViewModel,
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
         initializationCompleted = false;
-        RaisePropertyChanged(() => IsInitializationCompleted);
+        RaisePropertyChanged(nameof(IsInitializationCompleted));
         if (hasActiveLibraryProfile)
         {
             hasActiveLibraryProfile = false;
-            RaisePropertyChanged(() => HasActiveLibraryProfile);
+            RaisePropertyChanged(nameof(HasActiveLibraryProfile));
             RaiseLibraryOperationAvailabilityChanged();
         }
         _ = string.Empty;
@@ -4146,8 +4146,8 @@ public partial class MainWindowViewModel : ViewModel,
         }
         initializationCompleted = true;
         hasActiveLibraryProfile = true;
-        RaisePropertyChanged(() => IsInitializationCompleted);
-        RaisePropertyChanged(() => HasActiveLibraryProfile);
+        RaisePropertyChanged(nameof(IsInitializationCompleted));
+        RaisePropertyChanged(nameof(HasActiveLibraryProfile));
         RaiseLibraryOperationAvailabilityChanged();
         PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
         _semaphore.Release();
