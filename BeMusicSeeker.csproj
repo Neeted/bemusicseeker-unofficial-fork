@@ -31,9 +31,6 @@
     <None Remove="BeMusicSeeker.Updater\**\*" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
-                      ReferenceOutputAssembly="false"
-                      PrivateAssets="all" />
     <None Include="native\Everything3_x64.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -126,25 +123,4 @@
            Text="SevenZipExtractor x64 native asset is missing: $(PkgSevenZipExtractor)\build\x64\7z.dll" />
   </Target>
 
-  <Target Name="CopyUpdaterToAppOutput" AfterTargets="Build">
-    <PropertyGroup>
-      <_UpdaterProjectDirectory>$(MSBuildProjectDirectory)\BeMusicSeeker.Updater\</_UpdaterProjectDirectory>
-      <_UpdaterBuildOutputDirectory Condition="'$(Platform)' == 'x64'">$([System.IO.Path]::GetFullPath('$(_UpdaterProjectDirectory)bin\x64\$(Configuration)\$(TargetFramework)'))\</_UpdaterBuildOutputDirectory>
-      <_UpdaterBuildOutputDirectory Condition="'$(Platform)' != 'x64'">$([System.IO.Path]::GetFullPath('$(_UpdaterProjectDirectory)bin\$(Configuration)\$(TargetFramework)'))\</_UpdaterBuildOutputDirectory>
-    </PropertyGroup>
-
-    <ItemGroup>
-      <_UpdaterPayload Include="$(_UpdaterBuildOutputDirectory)BeMusicSeeker.Updater.exe" />
-      <_UpdaterPayload Include="$(_UpdaterBuildOutputDirectory)BeMusicSeeker.Updater.dll" />
-      <_UpdaterPayload Include="$(_UpdaterBuildOutputDirectory)BeMusicSeeker.Updater.deps.json" />
-      <_UpdaterPayload Include="$(_UpdaterBuildOutputDirectory)BeMusicSeeker.Updater.runtimeconfig.json" />
-    </ItemGroup>
-
-    <Error Condition="!Exists('%(_UpdaterPayload.Identity)')"
-           Text="Updater payload was not found: %(_UpdaterPayload.Identity)" />
-
-    <Copy SourceFiles="@(_UpdaterPayload)"
-          DestinationFolder="$(OutDir)"
-          SkipUnchangedFiles="true" />
-  </Target>
 </Project>

@@ -60,7 +60,7 @@ asset 種別:
 - ダウンロード後のサイズが `sizeBytes` と一致すること
 - SHA-256 が `sha256` と一致すること
 
-検証後、アプリは packaged updater の exe、dll、deps.json、runtimeconfig.json を `update_work/current/` にコピーして、同じディレクトリから起動する。updater は request を parse できた時点で `current/updater-ready.txt` を公開し、アプリはこの ready handshake を確認してから shutdown preparation を行う。preparation 成功時だけ `current/updater-decision.txt` に `proceed` を公開し、updater はそれを受けてから親プロセス終了待ちと適用を開始する。preparation が長引いてもアプリ process が生存している間は decision 待ちを延長し、`proceed` 前に 60 秒の終了待ちを消費しない。preparation 失敗や中断時は `cancel` を公開し、updater は適用せず終了する。ready 前に updater が終了または起動できなかった場合、アプリは終了せず既存の update failure dialog へ通知する。再起動直後のアプリ初期化は、実行中 updater が保持している `current/` を削除対象にせず、`downloads/` や `extracted/` などの一時領域だけを掃除する。`current/` は次回の updater payload 準備時に上書きする。
+検証後、アプリは packaged updater の self-contained single-file exe だけを `update_work/current/` にコピーして、同じディレクトリから起動する。updater は request を parse できた時点で `current/updater-ready.txt` を公開し、アプリはこの ready handshake を確認してから shutdown preparation を行う。preparation 成功時だけ `current/updater-decision.txt` に `proceed` を公開し、updater はそれを受けてから親プロセス終了待ちと適用を開始する。preparation が長引いてもアプリ process が生存している間は decision 待ちを延長し、`proceed` 前に 60 秒の終了待ちを消費しない。preparation 失敗や中断時は `cancel` を公開し、updater は適用せず終了する。ready 前に updater が終了または起動できなかった場合、アプリは終了せず既存の update failure dialog へ通知する。再起動直後のアプリ初期化は、実行中 updater が保持している `current/` を削除対象にせず、`downloads/` や `extracted/` などの一時領域だけを掃除する。`current/` は次回の updater payload 準備時に上書きする。
 
 updater がアプリ終了後に適用または rollback に失敗した場合は、`update_work/update-failure.txt` を一時ファイルから atomic に公開して失敗内容を記録してから終了する。atomic 移動に失敗しても `update-failure.txt.tmp` を durable fallback として残し、次回起動時に同じ receipt として扱う。startup cleanup は receipt を読み取って一時領域を掃除し、既存の update failure dialog が正常に戻った後で receipt を acknowledge（削除）する。shell 終了などで dialog を抑止した場合は acknowledge を延期して receipt を保持する。これにより updater の stderr だけに失敗を残さず、再起動後のユーザー操作で失敗を観測できる。
 
@@ -68,7 +68,7 @@ updater がアプリ終了後に適用または rollback に失敗した場合�
 
 updater protocol version は `1`。`BeMusicSeeker.Updater.exe --version` で確認できる。
 
-開発時の x64 Release build では、`BeMusicSeeker.csproj` が `BeMusicSeeker.Updater` を build dependency として扱い、updater の実行 payload 一式を `bin/x64/Release/net10.0-windows/` へコピーする。これにより、`dotnet build BeMusicSeeker.sln -c Release -p:Platform=x64` 後の app output はローカル自動更新検証に必要な updater payload と portable dependency layout を含む。managed dependency の解決は `app.config` の private probing に依存しない。
+開発時の x64 Release build は main app の実行確認用であり、updaterを配布物へ混在させない。配布時は `Properties/PublishProfiles/WinX64SelfContained.pubxml` で main app の untrimmed folder SCD を、`BeMusicSeeker.Updater/Properties/PublishProfiles/WinX64SelfContainedSingleFile.pubxml` で updater の self-contained single-file SCD をそれぞれ生成する。`scripts/publish.ps1` が clean publish output を組み合わせ、updater は root に exe 一つだけを配置する。managed dependency の解決は `app.config` の private probing に依存しない。
 
 updater 引数:
 
@@ -116,7 +116,7 @@ restart executable の起動に成功した時点を更新の commit point と�
 
 `scripts/publish.ps1` は以下を行う。
 
-- `BeMusicSeeker.exe`、`BeMusicSeeker.dll`、deps／runtimeconfig／config と `BeMusicSeeker.Updater.exe`、dll、deps／runtimeconfig を Release build から同梱
+- main app の untrimmed folder SCD と updater の self-contained single-file exe を別々の publish profile から生成し、updater は exe 一つだけを同梱
 - x64 BASS native family（`bass.dll`、`bassasio.dll`、`bassenc.dll`、`bassmix.dll`、`basswasapi.dll`、`bass_fx.dll`）と `lang/*.json` を明示 inventory で同梱し、incremental build の残骸を取り込まない
 - 通常版 zip を作成
 - `-IncludeMetadata` 指定時に `chart-info-metadata.7z` 同梱版 zip を作成

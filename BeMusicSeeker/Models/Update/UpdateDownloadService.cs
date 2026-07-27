@@ -18,7 +18,11 @@ internal sealed class UpdateDownloadService
     private const string UpdaterDecisionFileName = "updater-decision.txt";
     private static readonly string[] UpdaterPayloadFileNames =
     [
-        "BeMusicSeeker.Updater.exe",
+        "BeMusicSeeker.Updater.exe"
+    ];
+
+    private static readonly string[] LegacyUpdaterPayloadFileNames =
+    [
         "BeMusicSeeker.Updater.dll",
         "BeMusicSeeker.Updater.deps.json",
         "BeMusicSeeker.Updater.runtimeconfig.json"
@@ -123,6 +127,15 @@ internal sealed class UpdateDownloadService
         if (LongPathFileSystem.FileExists(decisionFilePath))
         {
             LongPathFileSystem.DeleteFile(decisionFilePath);
+        }
+        foreach (string legacyPayloadFileName in LegacyUpdaterPayloadFileNames)
+        {
+            string legacyPayloadPath = Path.Combine(currentUpdaterDirectory, legacyPayloadFileName);
+            EnsureNoReparsePointIfPresent(legacyPayloadPath);
+            if (LongPathFileSystem.FileExists(legacyPayloadPath))
+            {
+                LongPathFileSystem.DeleteFile(legacyPayloadPath);
+            }
         }
         string updaterPath = null;
         foreach (string payloadFileName in UpdaterPayloadFileNames)

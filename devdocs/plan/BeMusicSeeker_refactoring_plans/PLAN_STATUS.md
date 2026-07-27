@@ -6,7 +6,7 @@
 
 ## Current checkpoint
 
-- active outcome base commit: `0b3009de`
+- active outcome base commit: `fd9c3cba`
 - observed worktree: clean
 - Release Freeze: active
 - `git push`／tag／release／public publish: ユーザーの明示指示まで禁止
@@ -23,10 +23,10 @@ Full verificationは`3470 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 
 ## Active outcome
 
-- active outcome: `NET10-06 Archive, audio and native runtime corridor`
-- active execution package: `.NET 10 archive, audio and native runtime modernization`
-- execution anchor: `NET10-07 planner required`
-- planner state: `active batch empty; planner required; NATIVE-01 external-gate`
+- active outcome: `NET10-07 Self-contained publish and updater closure`
+- active execution package: `.NET 10 self-contained publish／updater closure`
+- execution anchor: `P2 SCD-TRANSACTION`
+- planner state: `batch materialized; P1 completed; P2 active; NATIVE-01 external-gate`
 
 ## Active implementation batch
 
@@ -55,8 +55,10 @@ Full verificationは`3470 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `A2 OGG-DECODE` | completed | OGG decoder corridor | NVorbis parity、cache／fallback／audio behavior、旧Ogg asset退役 |
 | `A3 BASS-RUNTIME` | completed | BASS managed／native runtime corridor | retained x64 ABI、absolute load／rollback、device resetとprocess-level release、playback／device／conversion／shutdown、native inventory。`NATIVE-01` external-gateは別管理 |
 | `A4 EVERYTHING-RUNTIME` | completed | Everything SDK／bridge corridor | ABI、native lifetime、installed／absent fallback、publish／license inventory |
+| `P1 SCD-ARTIFACT` | completed | Self-contained publish artifact／updater payload corridor | versioned app folder SCD、updater single-file SCD、clean package layout、publish-folder startup／`--version` smoke、single-file update payload |
+| `P2 SCD-TRANSACTION` | active | Self-contained update transaction／recovery corridor | exclusive writer、durable journal、rollback／recovery、restart／failure receipt、old-to-new acceptance |
 
-active／pending unitがある間はunit-plannerを再起動しない。A1〜A4は依存順に閉じる。
+active／pending unitがある間はunit-plannerを再起動しない。P1〜P2は依存順に閉じる。
 
 ## Review evidence
 
@@ -83,7 +85,7 @@ active／pending unitがある間はunit-plannerを再起動しない。A1〜A4�
 
 ## Next outcome
 
-- active outcome: `NET10-07 Self-contained publish and updater closure`
-- active execution package: `.NET 10 self-contained publish／updater closure`
-- execution anchor: `NET10-07 planner required`
+- active outcome: `NET10-08 Existing-data and clean-machine acceptance`
+- active execution package: `.NET 10 existing-data／clean-machine acceptance`
+- execution anchor: `planner required`
 - active implementation batch: `empty; planner required; NATIVE-01 external-gate`

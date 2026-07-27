@@ -11,65 +11,33 @@ namespace BeMusicSeeker.Tests;
 public sealed class UpdaterDeploymentBoundaryTests
 {
     [TestMethod]
-    public void ApplicationProjectOwnsUpdaterBuildAndRootDeploymentBoundary()
+    public void ApplicationProjectUsesDedicatedUpdaterPublishBoundary()
     {
         string repositoryRoot = FindRepositoryRoot();
         XDocument applicationProject = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
         XElement projectRoot = applicationProject.Root
             ?? throw new AssertFailedException("Application project XML has no root element.");
 
-        XElement updaterReference = projectRoot
-            .Descendants("ProjectReference")
-            .SingleOrDefault(reference => string.Equals(
+        Assert.IsFalse(
+            projectRoot.Descendants("ProjectReference").Any(reference => string.Equals(
                 (string)reference.Attribute("Include"),
                 @"BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj",
-                StringComparison.OrdinalIgnoreCase))
-            ?? throw new AssertFailedException("The application project must build the updater project.");
-
-        Assert.AreEqual("false", (string)updaterReference.Attribute("ReferenceOutputAssembly"));
-        Assert.AreEqual("all", (string)updaterReference.Attribute("PrivateAssets"));
+                StringComparison.OrdinalIgnoreCase)),
+            "The main app publish must not inherit the updater build output.");
+        Assert.IsFalse(
+            projectRoot.Elements("Target").Any(target => string.Equals(
+                (string)target.Attribute("Name"),
+                "CopyUpdaterToAppOutput",
+                StringComparison.Ordinal)),
+            "The build output must not be the updater deployment boundary.");
         Assert.IsNull(
             projectRoot
                 .Descendants("Reference")
                 .SingleOrDefault(reference => string.Equals(
                     (string)reference.Attribute("Include"),
-                    "System.Deployment",
-                    StringComparison.OrdinalIgnoreCase)),
+            "System.Deployment",
+            StringComparison.OrdinalIgnoreCase)),
             "The unused System.Deployment reference must not remain in the application project.");
-
-        XElement copyTarget = projectRoot
-            .Elements("Target")
-            .SingleOrDefault(target => string.Equals(
-                (string)target.Attribute("Name"),
-                "CopyUpdaterToAppOutput",
-                StringComparison.Ordinal))
-            ?? throw new AssertFailedException("The updater deployment target is missing.");
-
-        Assert.AreEqual("Build", (string)copyTarget.Attribute("AfterTargets"));
-        StringAssert.Contains(copyTarget.ToString(SaveOptions.DisableFormatting), "BeMusicSeeker.Updater.exe");
-        StringAssert.Contains(copyTarget.ToString(SaveOptions.DisableFormatting), "BeMusicSeeker.Updater.dll");
-        Assert.IsFalse(copyTarget.ToString(SaveOptions.DisableFormatting).Contains("net472", StringComparison.OrdinalIgnoreCase));
-        StringAssert.Contains(copyTarget.ToString(SaveOptions.DisableFormatting), "DestinationFolder=\"$(OutDir)\"");
-        Assert.IsNotNull(
-            copyTarget.Descendants("Error").SingleOrDefault(),
-            "The build must fail when the updater output is missing.");
-        XElement updaterOutputDirectoryProperties = copyTarget
-            .Descendants("_UpdaterBuildOutputDirectory")
-            .SingleOrDefault(property => string.Equals(
-                (string)property.Attribute("Condition"),
-                "'$(Platform)' == 'x64'",
-                StringComparison.Ordinal))
-            ?? throw new AssertFailedException("The x64 updater output path is missing.");
-        StringAssert.Contains(updaterOutputDirectoryProperties.Value, "bin\\x64\\$(Configuration)\\$(TargetFramework)");
-        XElement defaultUpdaterOutputDirectoryProperties = copyTarget
-            .Descendants("_UpdaterBuildOutputDirectory")
-            .SingleOrDefault(property => string.Equals(
-                (string)property.Attribute("Condition"),
-                "'$(Platform)' != 'x64'",
-                StringComparison.Ordinal))
-            ?? throw new AssertFailedException("The default-platform updater output path is missing.");
-        Assert.IsFalse(defaultUpdaterOutputDirectoryProperties.Value.Contains("AnyCPU", StringComparison.OrdinalIgnoreCase));
-        StringAssert.Contains(defaultUpdaterOutputDirectoryProperties.Value, "bin\\$(Configuration)\\$(TargetFramework)");
 
         XDocument updaterProject = XDocument.Load(Path.Combine(
             repositoryRoot,
@@ -80,42 +48,57 @@ public sealed class UpdaterDeploymentBoundaryTests
         Assert.AreEqual("net10.0-windows", (string)updaterRoot.Descendants("TargetFramework").Single());
         Assert.AreEqual("x64", (string)updaterRoot.Descendants("PlatformTarget").Single());
 
-        string releaseOutputDirectory = ResolveReleaseOutputDirectory();
-        Assert.IsTrue(
-            File.Exists(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.Updater.exe")),
-            "The Release application output must contain the updater at the deployment root.");
-        foreach (string companionFileName in new[]
-        {
-            "BeMusicSeeker.Updater.dll",
-            "BeMusicSeeker.Updater.deps.json",
-            "BeMusicSeeker.Updater.runtimeconfig.json"
-        })
-        {
-            Assert.IsTrue(
-                File.Exists(Path.Combine(releaseOutputDirectory, companionFileName)),
-                "The Release application output must contain the updater companion payload at the deployment root: " + companionFileName);
-        }
-        Assert.IsFalse(
-            File.Exists(Path.Combine(releaseOutputDirectory, "libs", "BeMusicSeeker.Updater.exe")),
-            "The updater is a root deployment artifact, not a managed dependency under libs.");
+        string updaterProfilePath = Path.Combine(
+            repositoryRoot,
+            "BeMusicSeeker.Updater",
+            "Properties",
+            "PublishProfiles",
+            "WinX64SelfContainedSingleFile.pubxml");
+        XDocument updaterProfile = XDocument.Load(updaterProfilePath);
+        AssertProfileValue(updaterProfile, "RuntimeIdentifier", "win-x64");
+        AssertProfileValue(updaterProfile, "SelfContained", "true");
+        AssertProfileValue(updaterProfile, "PublishSingleFile", "true");
+        AssertProfileValue(updaterProfile, "IncludeNativeLibrariesForSelfExtract", "true");
+        AssertProfileValue(updaterProfile, "PublishTrimmed", "false");
+        AssertProfileValue(updaterProfile, "PublishReadyToRun", "false");
+
+        string appProfilePath = Path.Combine(
+            repositoryRoot,
+            "Properties",
+            "PublishProfiles",
+            "WinX64SelfContained.pubxml");
+        XDocument appProfile = XDocument.Load(appProfilePath);
+        AssertProfileValue(appProfile, "RuntimeIdentifier", "win-x64");
+        AssertProfileValue(appProfile, "SelfContained", "true");
+        AssertProfileValue(appProfile, "PublishSingleFile", "false");
+        AssertProfileValue(appProfile, "PublishTrimmed", "false");
+        AssertProfileValue(appProfile, "PublishReadyToRun", "false");
     }
 
     [TestMethod]
-    public void PortablePackageLayoutValidatorAcceptsReleaseOutput()
+    public void PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput()
     {
         string repositoryRoot = FindRepositoryRoot();
         string validatorPath = Path.Combine(repositoryRoot, "scripts", "portable-package-layout.ps1");
         Assert.IsTrue(File.Exists(validatorPath), "The release layout validator must be present.");
 
-        string releaseOutputDirectory = ResolveReleaseOutputDirectory();
+        string appPublishDirectory = ResolveSelfContainedPublishDirectory("BMS_SCD_APP_PUBLISH_ROOT", "app");
+        string updaterPublishDirectory = ResolveSelfContainedPublishDirectory("BMS_SCD_UPDATER_PUBLISH_ROOT", "updater");
         string stagingDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ReleaseLayoutTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stagingDirectory);
-        foreach (string sourcePath in Directory.EnumerateFiles(releaseOutputDirectory, "*", SearchOption.AllDirectories))
+        foreach (string sourcePath in Directory.EnumerateFiles(appPublishDirectory, "*", SearchOption.AllDirectories))
         {
-            string relativePath = Path.GetRelativePath(releaseOutputDirectory, sourcePath);
+            string relativePath = Path.GetRelativePath(appPublishDirectory, sourcePath);
             string topLevelName = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
             if (topLevelName.Equals("config", StringComparison.OrdinalIgnoreCase)
-                || topLevelName.Equals("log", StringComparison.OrdinalIgnoreCase))
+                || topLevelName.Equals("data", StringComparison.OrdinalIgnoreCase)
+                || topLevelName.Equals("log", StringComparison.OrdinalIgnoreCase)
+                || topLevelName.Equals("logs", StringComparison.OrdinalIgnoreCase)
+                || topLevelName.Equals("update_backup", StringComparison.OrdinalIgnoreCase)
+                || topLevelName.Equals("update_work", StringComparison.OrdinalIgnoreCase)
+                || topLevelName.Equals("imported_metadata", StringComparison.OrdinalIgnoreCase)
+                || relativePath.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)
+                || relativePath.StartsWith("BeMusicSeeker.Updater.", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -124,6 +107,9 @@ public sealed class UpdaterDeploymentBoundaryTests
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             File.Copy(sourcePath, destinationPath);
         }
+        string updaterPath = Path.Combine(updaterPublishDirectory, "BeMusicSeeker.Updater.exe");
+        Assert.IsTrue(File.Exists(updaterPath), "The self-contained updater publish output must exist.");
+        File.Copy(updaterPath, Path.Combine(stagingDirectory, "BeMusicSeeker.Updater.exe"));
 
         ProcessStartInfo CreateValidatorStartInfo()
         {
@@ -276,6 +262,15 @@ public sealed class UpdaterDeploymentBoundaryTests
         return value.Replace("'", "''", StringComparison.Ordinal);
     }
 
+    private static void AssertProfileValue(XDocument profile, string propertyName, string expectedValue)
+    {
+        XElement property = profile
+            .Descendants()
+            .SingleOrDefault(element => string.Equals(element.Name.LocalName, propertyName, StringComparison.Ordinal))
+            ?? throw new AssertFailedException($"Publish profile property is missing: {propertyName}");
+        Assert.AreEqual(expectedValue, property.Value, propertyName);
+    }
+
     private static string FindRepositoryRoot()
     {
         string? directoryPath = AppContext.BaseDirectory;
@@ -304,5 +299,21 @@ public sealed class UpdaterDeploymentBoundaryTests
         }
 
         return Path.Combine(FindRepositoryRoot(), "bin", platform, configuration, targetFramework);
+    }
+
+    private static string ResolveSelfContainedPublishDirectory(string environmentVariableName, string childDirectoryName)
+    {
+        string configuredPath = Environment.GetEnvironmentVariable(environmentVariableName);
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            Assert.Inconclusive($"Self-contained publish verification requires {environmentVariableName} for {childDirectoryName}.");
+        }
+
+        string path = configuredPath!;
+        if (!Directory.Exists(path))
+        {
+            Assert.Inconclusive("Self-contained publish output is missing: " + path);
+        }
+        return path;
     }
 }

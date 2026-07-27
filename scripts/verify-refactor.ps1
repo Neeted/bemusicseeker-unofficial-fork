@@ -17,6 +17,9 @@ $toolExecutables = @(
     (Join-Path $repoRoot 'tools\chart-info-compare\bin\x64\Release\net10.0\ChartInfoCompare.exe'),
     (Join-Path $repoRoot 'tools\chart-info-export\bin\x64\Release\net10.0\ChartInfoExport.exe'))
 $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
+$scdPublishRoot = Join-Path $repoRoot 'artifacts\publish'
+$scdAppPublishOutput = Join-Path $scdPublishRoot 'app'
+$scdUpdaterPublishOutput = Join-Path $scdPublishRoot 'updater'
 $testTimeoutSeconds = 300
 
 function Invoke-CheckedCommand {
@@ -121,11 +124,6 @@ function Assert-ReleaseOutputLayout {
     )
 
     $outputDirectory = Split-Path -Parent $ExecutablePath
-    $updaterExecutable = Join-Path $outputDirectory 'BeMusicSeeker.Updater.exe'
-    if (-not (Test-Path -LiteralPath $updaterExecutable -PathType Leaf)) {
-        throw "Release output updater executable was not produced: $updaterExecutable"
-    }
-
     foreach ($hostFileName in @(
         'BeMusicSeeker.deps.json',
         'BeMusicSeeker.runtimeconfig.json',
@@ -168,6 +166,77 @@ function Assert-ReleaseOutputLayout {
     }
 }
 
+function Invoke-SelfContainedPublishSmoke {
+    if (Test-Path -LiteralPath $scdPublishRoot) {
+        Remove-Item -LiteralPath $scdPublishRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $scdAppPublishOutput, $scdUpdaterPublishOutput -Force | Out-Null
+
+    Invoke-CheckedCommand dotnet publish (Join-Path $repoRoot 'BeMusicSeeker.csproj') '/p:Configuration=Release' '/p:Platform=x64' '-r' 'win-x64' '--self-contained' 'true' '--no-restore' '-p:PublishProfile=WinX64SelfContained' "-p:PublishDir=$scdAppPublishOutput"
+    Invoke-CheckedCommand dotnet publish (Join-Path $repoRoot 'BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj') '/p:Configuration=Release' '/p:Platform=x64' '-r' 'win-x64' '--self-contained' 'true' '--no-restore' '-p:PublishProfile=WinX64SelfContainedSingleFile' "-p:PublishDir=$scdUpdaterPublishOutput"
+
+    foreach ($requiredPath in @(
+        'BeMusicSeeker.exe',
+        'BeMusicSeeker.runtimeconfig.json',
+        'e_sqlite3.dll',
+        'native\Everything3_x64.dll',
+        'native\EverythingBridge_x64.dll',
+        'libs\x64\7z.dll',
+        'libs\x64\bass.dll')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $scdAppPublishOutput $requiredPath) -PathType Leaf)) {
+            throw "Self-contained app publish output is missing: $requiredPath"
+        }
+    }
+
+    $updaterExecutable = Join-Path $scdUpdaterPublishOutput 'BeMusicSeeker.Updater.exe'
+    if (-not (Test-Path -LiteralPath $updaterExecutable -PathType Leaf)) {
+        throw "Self-contained updater publish output is missing: $updaterExecutable"
+    }
+    foreach ($companion in @(
+        'BeMusicSeeker.Updater.dll',
+        'BeMusicSeeker.Updater.deps.json',
+        'BeMusicSeeker.Updater.runtimeconfig.json')) {
+        if (Test-Path -LiteralPath (Join-Path $scdUpdaterPublishOutput $companion)) {
+            throw "Single-file updater publish output contains a companion file: $companion"
+        }
+    }
+
+    $versionProcess = Start-Process -FilePath $updaterExecutable -WorkingDirectory $scdUpdaterPublishOutput -ArgumentList '--version' -PassThru -Wait -NoNewWindow
+    if ($versionProcess.ExitCode -ne 0) {
+        throw "Self-contained updater --version failed with exit code $($versionProcess.ExitCode)."
+    }
+
+    $appExecutable = Join-Path $scdAppPublishOutput 'BeMusicSeeker.exe'
+    $appProcess = Start-Process -FilePath $appExecutable -WorkingDirectory $scdAppPublishOutput -PassThru
+    try {
+        [void]$appProcess.WaitForInputIdle(30000)
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        do {
+            Start-Sleep -Milliseconds 250
+            $appProcess.Refresh()
+        } while ($appProcess.MainWindowHandle -eq 0 -and -not $appProcess.HasExited -and [DateTime]::UtcNow -lt $deadline)
+        if ($appProcess.HasExited) {
+            throw "Self-contained app exited before UI smoke completed (exit code $($appProcess.ExitCode))."
+        }
+        if ($appProcess.MainWindowHandle -eq 0) {
+            throw 'Self-contained app did not expose a main window.'
+        }
+        $appProcess.CloseMainWindow() | Out-Null
+        if (-not $appProcess.WaitForExit(30000)) {
+            throw 'Self-contained app did not exit after UI smoke close.'
+        }
+        if ($appProcess.ExitCode -ne 0) {
+            throw "Self-contained app UI smoke failed with exit code $($appProcess.ExitCode)."
+        }
+    }
+    finally {
+        if (-not $appProcess.HasExited) {
+            $appProcess.Kill()
+        }
+        $appProcess.Dispose()
+    }
+}
+
 Push-Location $repoRoot
 try {
     if ($Mode -eq 'Full') {
@@ -193,6 +262,13 @@ try {
         }
 
         Invoke-CheckedCommand $toolExecutable '--help'
+    }
+
+    if ($Mode -eq 'Full') {
+        Write-Host "Self-contained publish smoke output: $scdPublishRoot"
+        Invoke-SelfContainedPublishSmoke
+        $env:BMS_SCD_APP_PUBLISH_ROOT = $scdAppPublishOutput
+        $env:BMS_SCD_UPDATER_PUBLISH_ROOT = $scdUpdaterPublishOutput
     }
 
     $resolvedUiExecutable = (Resolve-Path -LiteralPath $uiExecutable).Path
@@ -222,6 +298,9 @@ try {
         -Arguments $testArguments `
         -WorkingDirectory $repoRoot `
         -DiagnosticsDirectory $testDiagnosticsDirectory
+
+    Remove-Item Env:BMS_SCD_APP_PUBLISH_ROOT -ErrorAction SilentlyContinue
+    Remove-Item Env:BMS_SCD_UPDATER_PUBLISH_ROOT -ErrorAction SilentlyContinue
 
     Invoke-CheckedCommand dotnet format whitespace $solution '--verify-no-changes' '--no-restore' '--verbosity' 'minimal'
 

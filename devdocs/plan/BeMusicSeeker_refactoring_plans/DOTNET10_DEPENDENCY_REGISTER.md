@@ -116,3 +116,11 @@ NET10-02のmanaged packageは公式NuGet packageをsourceとし、version author
 ## Removal rule
 
 HintPathを消しただけで完了にしない。source usage、XAML、reflection string、resource、test、publish outputを確認し、置換routeと旧binaryの双方を同じunitで閉じる。vendor binaryをretainする場合は、理由、exact version、source、license、architecture、runtime load testをこの台帳へ記録する。
+
+## NET10-07 P1 deployment evidence
+
+- `Properties/PublishProfiles/WinX64SelfContained.pubxml` は `win-x64`、Self-contained、untrimmed、folder publish、non-single-file、ReadyToRunなしを固定する。
+- `BeMusicSeeker.Updater/Properties/PublishProfiles/WinX64SelfContainedSingleFile.pubxml` は `win-x64`、Self-contained、untrimmed、single-file、native library self-extract、ReadyToRunなしを固定する。
+- `scripts/publish.ps1` は `artifacts/publish/app` と `artifacts/publish/updater` を別々に clean publish し、main app の runtime pack 全体と updater exe 一つを packageへ組み合わせる。`bin/x64/Release/net10.0-windows` は配布元にしない。
+- SCD SQLite native assetは app publish root の `e_sqlite3.dll` 一つ、Everythingは `native/Everything3_x64.dll` と `native/EverythingBridge_x64.dll`、BASS／SevenZipは既存の `libs/x64` ownerへ配置する。updaterの dll／deps／runtimeconfig companion は package／`update_work/current`へ持ち込まない。
+- P1の layout／publish smokeは package validator、updater `--version`、publish-folder app startup、`UpdateDownloadService` single-file copyを確認する。これは `UPD-01` の transaction／rollback／旧版から新版の実機受入れを完了した証拠ではない。

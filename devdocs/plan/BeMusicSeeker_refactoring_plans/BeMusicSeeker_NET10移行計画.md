@@ -172,16 +172,17 @@ Exit:
 
 作業:
 
-1. appとupdaterにversion-controlled publish profileを追加する。
-2. publish outputのmanaged／native／resource／config layoutを明示し、旧`libs` probingとbuild-output relocationを退役する。
-3. updaterがSelf-contained app folderをdownload、verify、swap、restart、rollbackできるようmanifest／path policyを更新する。
-4. updaterのsingle-fileはuntrimmedでのみspikeし、既存の「rootに一つのupdater exe」契約を安全に維持できる場合だけ採用する。
-5. publish outputから起動し、build outputをsmoke対象にしない。
+1. `P1 SCD-ARTIFACT` で app の untrimmed／non-single-file folder SCD と updater の untrimmed／single-file SCD を version-controlled profile から再現する。
+2. `publish.ps1` と portable layout validator を clean publish output の composition owner とし、runtime pack、managed dependency、native asset、resource、config の inventory を packageへ反映する。build outputを配布元にせず、旧 updater companion 4ファイルと build-time copy target を退役する。
+3. `UpdateDownloadService` は root の single-file updater exe 一つだけを `update_work/current/` へコピーし、既存の ready／decision／failure contractを維持する。
+4. P1で publish folder の app／updater 起動、`--version`、package layout、repository Release executable smokeを閉じる。
+5. `P2 SCD-TRANSACTION` で Self-contained app folder の download、verify、swap、restart、rollback、durable recovery、exclusive writerを閉じる。
 
 Exit:
 
-- `dotnet publish -c Release -r win-x64 --self-contained true`で再現可能なfolder artifactが生成される。
-- runtime未導入環境を想定したapp／updater起動とupdate／rollback testが通る。
+- `WinX64SelfContained.pubxml` と `WinX64SelfContainedSingleFile.pubxml` から、main app folder artifactと single-file updater artifactが再現される。
+- publish folderから app が起動し、isolated updater exe が `--version` と既存 handshake を実行できる。
+- P2完了後に runtime未導入環境を想定した app／updater の update／rollback testが通る。
 
 ### `NET10-08 Existing-data and clean-machine acceptance`
 
@@ -221,8 +222,8 @@ dotnet build BeMusicSeeker.sln -c Release --no-restore
 dotnet test BeMusicSeeker.Tests/BeMusicSeeker.Tests.csproj -c Release --no-build
 dotnet build tools/chart-info-compare/ChartInfoCompare.csproj -c Release
 dotnet build tools/chart-info-export/ChartInfoExport.csproj -c Release
-dotnet publish BeMusicSeeker.csproj -c Release -r win-x64 --self-contained true
-dotnet publish BeMusicSeeker.Updater/BeMusicSeeker.Updater.csproj -c Release -r win-x64 --self-contained true
+dotnet publish BeMusicSeeker.csproj -c Release -r win-x64 --self-contained true -p:PublishProfile=WinX64SelfContained
+dotnet publish BeMusicSeeker.Updater/BeMusicSeeker.Updater.csproj -c Release -r win-x64 --self-contained true -p:PublishProfile=WinX64SelfContainedSingleFile
 ```
 
 package lock導入後はclean locked restoreを追加する。publish artifactにはhash、file inventory、managed／native architecture、license inventoryを生成するが、公開はしない。

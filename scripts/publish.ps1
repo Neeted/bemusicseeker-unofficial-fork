@@ -16,24 +16,106 @@ param(
     [switch]$IncludeMetadata,
     [string]$MetadataSource = "artifacts\chart-info-metadata\latest\chart-info-metadata.7z",
     [string]$MetadataPackageSuffix = "-with-metadata",
-    [string]$PublicSiteUrl = "https://neeted.github.io/bemusicseeker-unofficial-fork"
+    [string]$PublicSiteUrl = "https://neeted.github.io/bemusicseeker-unofficial-fork",
+    [string]$PublicRepositoryRoot
 )
 
 $ErrorActionPreference = "Stop"
 
 # パス定義
-$devRoot = "D:\work\BeMusicSeeker-decomp"
-$pubRoot = "D:\github\bemusicseeker-unofficial-fork"
+$devRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$pubRoot = if ([string]::IsNullOrWhiteSpace($PublicRepositoryRoot)) {
+    Join-Path (Split-Path -Parent $devRoot) "bemusicseeker-unofficial-fork"
+}
+else {
+    [System.IO.Path]::GetFullPath($PublicRepositoryRoot)
+}
 $configuration = "Release"
 $platform = "x64"
-$targetFramework = "net10.0-windows"
-$buildOutput = Join-Path $devRoot "bin\$platform\$configuration\$targetFramework"
+$solution = Join-Path $devRoot "BeMusicSeeker.sln"
+$appProject = Join-Path $devRoot "BeMusicSeeker.csproj"
+$updaterProject = Join-Path $devRoot "BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
+$appPublishOutput = Join-Path $devRoot "artifacts\publish\app"
+$updaterPublishOutput = Join-Path $devRoot "artifacts\publish\updater"
 $distDir = Join-Path $devRoot "dist"
 $stagingRoot = Join-Path $distDir "_staging"
 $publicRepoOwner = "Neeted"
 $publicRepoName = "bemusicseeker-unofficial-fork"
 
 . (Join-Path $PSScriptRoot "portable-package-layout.ps1")
+
+function Invoke-CheckedCommand {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Command,
+
+        [Parameter(ValueFromRemainingArguments)]
+        [string[]]$Arguments
+    )
+
+    & $Command @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed with exit code $LASTEXITCODE`: $Command $($Arguments -join ' ')"
+    }
+}
+
+function Invoke-SelfContainedPublish {
+    if (Test-Path $appPublishOutput) { Remove-Item $appPublishOutput -Recurse -Force }
+    if (Test-Path $updaterPublishOutput) { Remove-Item $updaterPublishOutput -Recurse -Force }
+    New-Item -ItemType Directory -Path $appPublishOutput, $updaterPublishOutput -Force | Out-Null
+
+    Write-Host "  main app の folder SCD を publish 中..."
+    & dotnet publish $appProject `
+        --configuration $configuration `
+        --runtime win-x64 `
+        --self-contained true `
+        --no-restore `
+        --property:Platform=$platform `
+        --property:PublishProfile=WinX64SelfContained `
+        --property:PublishDir=$appPublishOutput
+    if ($LASTEXITCODE -ne 0) { throw "main app の Self-contained publish に失敗しました" }
+
+    Write-Host "  updater の single-file SCD を publish 中..."
+    & dotnet publish $updaterProject `
+        --configuration $configuration `
+        --runtime win-x64 `
+        --self-contained true `
+        --no-restore `
+        --property:Platform=$platform `
+        --property:PublishProfile=WinX64SelfContainedSingleFile `
+        --property:PublishDir=$updaterPublishOutput
+    if ($LASTEXITCODE -ne 0) { throw "updater の Self-contained single-file publish に失敗しました" }
+
+    Assert-SelfContainedPublishLayout $appPublishOutput $updaterPublishOutput
+}
+
+function Assert-SelfContainedPublishLayout($appOutput, $updaterOutput) {
+    foreach ($required in @(
+        "BeMusicSeeker.exe",
+        "BeMusicSeeker.deps.json",
+        "BeMusicSeeker.runtimeconfig.json",
+        "native\Everything3_x64.dll",
+        "native\EverythingBridge_x64.dll",
+        "libs\x64\7z.dll",
+        "libs\x64\bass.dll")) {
+        if (-not (Test-Path (Join-Path $appOutput $required) -PathType Leaf)) {
+            throw "Self-contained app publish output is missing: $required"
+        }
+    }
+
+    $updaterExecutable = Join-Path $updaterOutput "BeMusicSeeker.Updater.exe"
+    if (-not (Test-Path $updaterExecutable -PathType Leaf)) {
+        throw "Self-contained updater publish output is missing: BeMusicSeeker.Updater.exe"
+    }
+    foreach ($legacyCompanion in @(
+        "BeMusicSeeker.Updater.dll",
+        "BeMusicSeeker.Updater.deps.json",
+        "BeMusicSeeker.Updater.runtimeconfig.json")) {
+        if (Test-Path (Join-Path $updaterOutput $legacyCompanion)) {
+            throw "Single-file updater publish output contains a companion payload: $legacyCompanion"
+        }
+    }
+}
 
 # AssemblyInformationalVersion を読み取る
 function Get-AppVersion {
@@ -131,10 +213,10 @@ function Copy-AppFilesToStaging($targetStagingDir) {
     if (Test-Path $targetStagingDir) { Remove-Item $targetStagingDir -Recurse -Force }
     New-Item -ItemType Directory -Path $targetStagingDir -Force | Out-Null
 
-    function Copy-BuildFile($relativePath) {
-        $sourcePath = Join-Path $buildOutput $relativePath
+    function Copy-PublishedFile($sourceRoot, $relativePath) {
+        $sourcePath = Join-Path $sourceRoot $relativePath
         if (-not (Test-Path $sourcePath -PathType Leaf)) {
-            throw "Release build output の必須ファイルが見つかりません: $relativePath"
+            throw "Self-contained publish output の必須ファイルが見つかりません: $relativePath"
         }
         $destinationPath = Join-Path $targetStagingDir $relativePath
         $destinationDirectory = Split-Path $destinationPath -Parent
@@ -142,26 +224,23 @@ function Copy-AppFilesToStaging($targetStagingDir) {
         Copy-Item $sourcePath $destinationPath -Force
     }
 
-    # アプリ本体と updater の明示 inventory のみをコピーする (.pdb, *.log, stale DLL は除外)
-    foreach ($relativePath in @(
-        "BeMusicSeeker.exe",
-        "BeMusicSeeker.dll",
-        "BeMusicSeeker.deps.json",
-        "BeMusicSeeker.runtimeconfig.json",
-        "BeMusicSeeker.dll.config",
-        "BeMusicSeeker.Updater.exe",
-        "BeMusicSeeker.Updater.dll",
-        "BeMusicSeeker.Updater.deps.json",
-        "BeMusicSeeker.Updater.runtimeconfig.json",
-        "test.mp3"
-    ) + $script:RequiredManagedRootFiles + $script:RequiredBassNativeFiles + $script:RequiredLanguageFiles + @(
-        "runtimes/win-x64/native/e_sqlite3.dll",
-        "libs/x64/7z.dll",
-        "native/Everything3_x64.dll",
-        "native/EverythingBridge_x64.dll"
-    )) {
-        Copy-BuildFile $relativePath
+    # app folder SCD は runtime pack を含むため、mutable data、debug symbol、updater payload を除く全ファイルをコピーする。
+    $mutableTopLevelNames = @("config", "data", "log", "logs", "update_backup", "update_work", "imported_metadata")
+    foreach ($sourceFile in Get-ChildItem $appPublishOutput -File -Recurse) {
+        $relativePath = [System.IO.Path]::GetRelativePath($appPublishOutput, $sourceFile.FullName)
+        $normalized = $relativePath.Replace('\', '/')
+        $topLevel = $normalized.Split('/')[0]
+        if ($mutableTopLevelNames -contains $topLevel -or
+            $normalized -like "*.pdb" -or
+            $normalized -like "BeMusicSeeker.Updater.*") {
+            continue
+        }
+        $destinationPath = Join-Path $targetStagingDir $relativePath
+        New-Item -ItemType Directory -Path (Split-Path $destinationPath -Parent) -Force | Out-Null
+        Copy-Item $sourceFile.FullName $destinationPath -Force
     }
+
+    Copy-PublishedFile $updaterPublishOutput "BeMusicSeeker.Updater.exe"
 
     # README, LICENSE, ThirdPartyNotices
     Copy-Item (Join-Path $devRoot "README.md")               $targetStagingDir
@@ -277,17 +356,18 @@ function New-ReleasePackage {
         Write-Host "  metadata source: $($metadataInfo.SourcePath)"
     }
 
-    # クリーンビルド
+    # clean Self-contained publish
     if (-not $SkipBuild) {
-        Write-Host "  ビルド中..."
+        Write-Host "  配布用 Self-contained publish 中..."
         Push-Location $devRoot
-        dotnet build BeMusicSeeker.csproj -c $configuration -p:Platform=$platform | Out-Host
-        if ($LASTEXITCODE -ne 0) { throw "ビルドに失敗しました" }
+        Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode'
+        Invoke-SelfContainedPublish
         Pop-Location
-        Write-Host "  ビルド完了" -ForegroundColor Green
+        Write-Host "  Self-contained publish 完了" -ForegroundColor Green
     }
     else {
-        Write-Host "  ビルドをスキップしました" -ForegroundColor Yellow
+        Write-Host "  publish をスキップしました" -ForegroundColor Yellow
+        Assert-SelfContainedPublishLayout $appPublishOutput $updaterPublishOutput
     }
 
     # バージョン取得

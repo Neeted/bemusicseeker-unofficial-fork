@@ -57,15 +57,22 @@ public sealed class UpdateDownloadServiceTests
         string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
         string packagePath = Path.Combine(root, "update_work", "downloads", "app.zip");
         File.WriteAllText(applicationPath, string.Empty);
+        Directory.CreateDirectory(Path.Combine(root, "update_work", "current"));
         foreach (string fileName in new[]
         {
-            "BeMusicSeeker.Updater.exe",
+            "BeMusicSeeker.Updater.exe"
+        })
+        {
+            File.WriteAllText(Path.Combine(root, fileName), "updater");
+        }
+        foreach (string legacyPayloadFileName in new[]
+        {
             "BeMusicSeeker.Updater.dll",
             "BeMusicSeeker.Updater.deps.json",
             "BeMusicSeeker.Updater.runtimeconfig.json"
         })
         {
-            File.WriteAllText(Path.Combine(root, fileName), "updater");
+            File.WriteAllText(Path.Combine(root, "update_work", "current", legacyPayloadFileName), "legacy-updater");
         }
         var gateway = new RecordingUpdaterProcessGateway();
         var service = new UpdateDownloadService(
@@ -78,16 +85,10 @@ public sealed class UpdateDownloadServiceTests
 
             Assert.AreSame(gateway.PreparedLaunch, preparedLaunch);
             Assert.IsTrue(File.Exists(gateway.Request.ExecutablePath));
-            foreach (string fileName in new[]
-            {
-                "BeMusicSeeker.Updater.exe",
-                "BeMusicSeeker.Updater.dll",
-                "BeMusicSeeker.Updater.deps.json",
-                "BeMusicSeeker.Updater.runtimeconfig.json"
-            })
-            {
-                Assert.IsTrue(File.Exists(Path.Combine(gateway.Request.WorkingDirectory, fileName)));
-            }
+            Assert.IsTrue(File.Exists(Path.Combine(gateway.Request.WorkingDirectory, "BeMusicSeeker.Updater.exe")));
+            Assert.AreEqual(
+                1,
+                Directory.GetFiles(gateway.Request.WorkingDirectory, "BeMusicSeeker.Updater*", SearchOption.TopDirectoryOnly).Length);
             Assert.AreEqual(Path.Combine(root, "update_work", "current"), gateway.Request.WorkingDirectory);
             Assert.AreEqual(root, gateway.Request.ApplicationDirectory);
             Assert.AreEqual(packagePath, gateway.Request.PackagePath);
@@ -207,17 +208,17 @@ public sealed class UpdateDownloadServiceTests
     [TestMethod]
     public void PreparedUpdaterPayloadStartsFromCurrentDirectory()
     {
-        string repositoryRoot = FindRepositoryRoot();
-        string releaseOutput = Path.Combine(repositoryRoot, "bin", "x64", "Release", "net10.0-windows");
+        string updaterPublishOutput = Environment.GetEnvironmentVariable("BMS_SCD_UPDATER_PUBLISH_ROOT");
+        if (string.IsNullOrWhiteSpace(updaterPublishOutput))
+        {
+            Assert.Inconclusive("Self-contained updater verification requires BMS_SCD_UPDATER_PUBLISH_ROOT.");
+        }
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
         string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
         string packagePath = Path.Combine(root, "update_work", "downloads", "app.zip");
         string[] payloadFileNames =
         {
-            "BeMusicSeeker.Updater.exe",
-            "BeMusicSeeker.Updater.dll",
-            "BeMusicSeeker.Updater.deps.json",
-            "BeMusicSeeker.Updater.runtimeconfig.json"
+            "BeMusicSeeker.Updater.exe"
         };
 
         Directory.CreateDirectory(Path.GetDirectoryName(packagePath)!);
@@ -225,8 +226,11 @@ public sealed class UpdateDownloadServiceTests
         File.WriteAllText(packagePath, "package");
         foreach (string fileName in payloadFileNames)
         {
-            string sourcePath = Path.Combine(releaseOutput, fileName);
-            Assert.IsTrue(File.Exists(sourcePath), "Release updater payload is missing: " + sourcePath);
+            string sourcePath = Path.Combine(updaterPublishOutput, fileName);
+            if (!File.Exists(sourcePath))
+            {
+                Assert.Inconclusive("Self-contained updater payload is missing: " + sourcePath);
+            }
             File.Copy(sourcePath, Path.Combine(root, fileName));
         }
 
@@ -274,10 +278,7 @@ public sealed class UpdateDownloadServiceTests
         File.WriteAllText(Path.Combine(root, "BeMusicSeeker.exe"), string.Empty);
         foreach (string fileName in new[]
         {
-            "BeMusicSeeker.Updater.exe",
-            "BeMusicSeeker.Updater.dll",
-            "BeMusicSeeker.Updater.deps.json",
-            "BeMusicSeeker.Updater.runtimeconfig.json"
+            "BeMusicSeeker.Updater.exe"
         })
         {
             File.WriteAllText(Path.Combine(root, fileName), "updater");
@@ -325,10 +326,7 @@ public sealed class UpdateDownloadServiceTests
         File.WriteAllText(applicationPath, string.Empty);
         foreach (string fileName in new[]
         {
-            "BeMusicSeeker.Updater.exe",
-            "BeMusicSeeker.Updater.dll",
-            "BeMusicSeeker.Updater.deps.json",
-            "BeMusicSeeker.Updater.runtimeconfig.json"
+            "BeMusicSeeker.Updater.exe"
         })
         {
             File.WriteAllText(Path.Combine(root, fileName), "updater");
