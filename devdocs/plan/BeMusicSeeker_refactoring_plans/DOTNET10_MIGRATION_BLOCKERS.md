@@ -18,4 +18,4 @@
 
 ## Rehearsal evidence
 
-N1〜N3ではapp／tests／updaterの`net10.0-windows`と2 toolsの`net10.0`についてsolution／個別Release build、settings／code-page／startup DB-open targeted tests、chart compare／export DB behavior tests、updaterのwin-x64 Self-contained `--version` smoke、repository Release executableのstartup smokeが通っている。これはNET10-01の全5 project baseline evidenceであり、dependency replacement、main app Self-contained publish、existing data、old-to-new updater acceptanceを完了した証拠ではない。
+N1〜N3ではapp／tests／updaterの`net10.0-windows`と2 toolsの`net10.0`についてsolution／個別Release build、settings／code-page／startup DB-open targeted tests、chart compare／export DB behavior tests、updaterのwin-x64 Self-contained `--version` smoke、repository Release executableのstartup smokeが通っている。M1ではNLog 6.1.4のlogging／archive behavior test、package/output layout、temporary win-x64 Self-contained appの起動とapplication log生成も通っている。これはNET10-01の全5 project baselineとNET10-02のlogging corridor evidenceであり、dependency replacement全体、main app Self-contained publish、existing data、old-to-new updater acceptanceを完了した証拠ではない。

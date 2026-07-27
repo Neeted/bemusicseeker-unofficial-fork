@@ -39,15 +39,7 @@ public static class NLogWrapper
 
     private static Func<Logger> _ConsoleLogger;
 
-    private static Func<Logger> _DatabaseLogger;
-
-    private static Func<Logger> _EventLogLogger;
-
-    private static Func<Logger> _MailLogger;
-
     private static Func<Logger> _TraceLogger;
-
-    private static Func<Logger> _WebServiceLogger;
 
     private const string layoutDefaultFormat = "'${longdate}|${level:uppercase=true}|${logger}|${message}'";
 
@@ -75,25 +67,9 @@ public static class NLogWrapper
 
     public static ConsoleTarget ConsoleTarget { get; private set; }
 
-    public static Logger DatabaseLogger => _DatabaseLogger?.Invoke();
-
-    public static DatabaseTarget DatabaseTarget { get; private set; }
-
-    public static Logger EventLogLogger => _EventLogLogger?.Invoke();
-
-    public static EventLogTarget EventLogTarget { get; private set; }
-
-    public static Logger MailLogger => _MailLogger?.Invoke();
-
-    public static MailTarget MailTarget { get; private set; }
-
     public static Logger TraceLogger => _TraceLogger?.Invoke();
 
-    public static TraceTarget TraceTarget { get; private set; }
-
-    public static Logger WebServiceLogger => _WebServiceLogger?.Invoke();
-
-    public static WebServiceTarget WebServiceTarget { get; private set; }
+    internal static TraceTarget TraceTarget { get; private set; }
 
     static NLogWrapper()
     {
@@ -151,7 +127,7 @@ public static class NLogWrapper
         var applicationFileTarget = CreateRollingFileTarget(
             "ApplicationFileTarget",
             Path.Combine(logDirectoryPath, ApplicationLogFileName),
-            Path.Combine(logDirectoryPath, ArchiveDirectoryName, "application.{#}.log"));
+            Path.Combine(logDirectoryPath, ArchiveDirectoryName, ApplicationLogFileName));
         AddTarget(applicationFileTarget, effectiveMinimumFileLogLevel);
         SetDefaultConfigurationMinLogLevel(effectiveMinimumFileLogLevel);
         if (enableInstallPerformanceLogging)
@@ -167,8 +143,8 @@ public static class NLogWrapper
             Name = targetName,
             FileName = filePath,
             ArchiveFileName = archiveFilePath,
+            ArchiveSuffixFormat = ".{0}",
             ArchiveAboveSize = DefaultArchiveAboveSizeBytes,
-            ArchiveNumbering = ArchiveNumberingMode.Rolling,
             MaxArchiveFiles = DefaultMaxArchiveFiles,
             CreateDirs = true,
             Encoding = LogFileEncoding,
@@ -181,7 +157,7 @@ public static class NLogWrapper
         var target = CreateRollingFileTarget(
             "InstallPerformanceFileTarget",
             Path.Combine(logDirectoryPath, InstallPerformanceLogFileName),
-            Path.Combine(logDirectoryPath, ArchiveDirectoryName, "install-performance.{#}.log"));
+            Path.Combine(logDirectoryPath, ArchiveDirectoryName, InstallPerformanceLogFileName));
         LogManager.Configuration?.AddTarget(target);
         AddRule(target, LogLevel.Info, "InstallPerformance*", final: true);
         LogManager.ReconfigExistingLoggers();
@@ -221,7 +197,7 @@ public static class NLogWrapper
         }
         else if (target is FileTarget)
         {
-            if (FileLogger == null)
+            if (FileLogger == null || string.Equals(target.Name, "ApplicationFileTarget", StringComparison.Ordinal))
             {
                 _FileLogger = () => LogManager.GetLogger(patternName);
                 FileTarget = (FileTarget)target;
@@ -251,30 +227,6 @@ public static class NLogWrapper
                 ConsoleTarget = (ConsoleTarget)target;
             }
         }
-        else if (target is DatabaseTarget)
-        {
-            if (DatabaseLogger == null)
-            {
-                _DatabaseLogger = () => LogManager.GetLogger(patternName);
-                DatabaseTarget = (DatabaseTarget)target;
-            }
-        }
-        else if (target is EventLogTarget)
-        {
-            if (EventLogLogger == null)
-            {
-                _EventLogLogger = () => LogManager.GetLogger(patternName);
-                EventLogTarget = (EventLogTarget)target;
-            }
-        }
-        else if (target is MailTarget)
-        {
-            if (MailLogger == null)
-            {
-                _MailLogger = () => LogManager.GetLogger(patternName);
-                MailTarget = (MailTarget)target;
-            }
-        }
         else if (target is TraceTarget)
         {
             if (TraceLogger == null)
@@ -282,11 +234,6 @@ public static class NLogWrapper
                 _TraceLogger = () => LogManager.GetLogger(patternName);
                 TraceTarget = (TraceTarget)target;
             }
-        }
-        else if (target is WebServiceTarget && WebServiceLogger == null)
-        {
-            _WebServiceLogger = () => LogManager.GetLogger(patternName);
-            WebServiceTarget = (WebServiceTarget)target;
         }
     }
 

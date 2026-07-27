@@ -11,7 +11,7 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | ID | Current | Usage / risk | Target decision | Candidate baseline | Owner |
 |---|---|---|---|---|---|
 | `DEP-CFG-01` | framework `System.Configuration` | generated settingsとcustom provider | configuration adapterを維持しPackageReference化 | `System.Configuration.ConfigurationManager 10.0.10` | `NET10-01` |
-| `DEP-LOG-01` | NLog 4.4.3 | logging boundary内で使用 | current supported majorへ更新しconfig／file behavior確認 | NLog 6.1.4 | `NET10-02` |
+| `DEP-LOG-01` | NLog 6.1.4 | `NLogWrapper`がfile／performance／network／trace loggingを所有 | NLog 6 coreへ更新。custom network／trace target、archive／encoding／channel behavior、publish outputを検証済み | NLog 6.1.4 | `NET10-02` |
 | `DEP-JSON-01` | Newtonsoft.Json 13.0.3 | persisted／external JSON | patch更新。DynamicJson置換先候補でもある | Newtonsoft.Json 13.0.4 | `NET10-02/04` |
 | `DEP-RES-01` | System.Resources.Extensions 8.0.0 | resource serialization | .NET 10系へ更新しresource load smoke | 10.0.10 | `NET10-02` |
 | `DEP-TEST-01` | Test SDK 17.12.0, MSTest 3.6.4 | migration verification | current supported versionsへ更新 | Test SDK 18.8.1, MSTest 4.3.2 | `NET10-02` |

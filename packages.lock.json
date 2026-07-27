@@ -10,27 +10,9 @@
       },
       "NLog": {
         "type": "Direct",
-        "requested": "[5.4.0, )",
-        "resolved": "5.4.0",
-        "contentHash": "LwMcGSW3soF3/SL68rlJN3Eh3ktrAPycC3zZR/07OYBPraZUu0bygEC7kIN10lUQgMXT4s84Fi1chglGdGrQEg=="
-      },
-      "NLog.Database": {
-        "type": "Direct",
-        "requested": "[5.4.0, )",
-        "resolved": "5.4.0",
-        "contentHash": "FuD6QwU+jxLMP0IPMBYtK5C+Euyd2JOa1sGYmQZC9AWdFk9nF7JuiO+j9a8lZW2hI9rgo1lyKAjE4Qp+dG0QUQ==",
-        "dependencies": {
-          "NLog": "5.4.0"
-        }
-      },
-      "NLog.WindowsEventLog": {
-        "type": "Direct",
-        "requested": "[5.4.0, )",
-        "resolved": "5.4.0",
-        "contentHash": "3BiXyW3sT1UMOoCRQZzhrQ5mVly2LJM3vvtHUQyIABzzIxwhCvNDSyVu5e1Q2N5ykY5rt+24YnHNaXFyFqNiLg==",
-        "dependencies": {
-          "NLog": "5.4.0"
-        }
+        "requested": "[6.1.4, )",
+        "resolved": "6.1.4",
+        "contentHash": "ft6Lv17uoFuHTGWiY47FEXH7VA5HMHp973zodaOZAJyFg6mHL9RdXjqdNkRJXFo5plQJR+LPt5e6aAZU8KSDog=="
       },
       "Roslynator.Analyzers": {
         "type": "Direct",
@@ -50,6 +32,7 @@
         "resolved": "4.15.0",
         "contentHash": "/LvSJGJbrx+OYC2GePmiAA9fRTfz37R/oaHC2j8YK/j9lE8ykZESCGTMVGqXF5woc6RbzfJlpYkzeG6fAV6hFQ=="
       }
-    }
+    },
+    "net10.0-windows7.0/win-x64": {}
   }
 }

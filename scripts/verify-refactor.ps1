@@ -131,10 +131,18 @@ function Assert-ReleaseOutputLayout {
         'BeMusicSeeker.runtimeconfig.json',
         'Livet.dll',
         'Newtonsoft.Json.dll',
+        'NLog.dll',
         'SevenZipExtractor.dll')) {
         $hostFilePath = Join-Path $outputDirectory $hostFileName
         if (-not (Test-Path -LiteralPath $hostFilePath -PathType Leaf)) {
             throw "Release output host file is missing: $hostFilePath"
+        }
+    }
+
+    foreach ($removedNLogAddon in @('NLog.Database.dll', 'NLog.WindowsEventLog.dll')) {
+        $removedNLogAddonPath = Join-Path $outputDirectory $removedNLogAddon
+        if (Test-Path -LiteralPath $removedNLogAddonPath -PathType Leaf) {
+            throw "Release output contains removed NLog addon: $removedNLogAddonPath"
         }
     }
 }

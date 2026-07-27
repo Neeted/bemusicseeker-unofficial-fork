@@ -53,6 +53,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         {
             "Livet.dll",
             "Newtonsoft.Json.dll",
+            "NLog.dll",
             "SevenZipExtractor.dll"
         })
         {
@@ -60,6 +61,27 @@ public sealed class ManagedDependencyOutputPolicyTests
                 File.Exists(Path.Combine(releaseOutputDirectory, dependencyName)),
                 $"The host layout must place {dependencyName} beside the application.");
         }
+
+        foreach (string removedAddonName in new[] { "NLog.Database.dll", "NLog.WindowsEventLog.dll" })
+        {
+            Assert.IsFalse(
+                File.Exists(Path.Combine(releaseOutputDirectory, removedAddonName)),
+                $"The NLog 6 host layout must not deploy removed target package {removedAddonName}.");
+        }
+
+        XElement nlogReference = projectRoot
+            .Elements("ItemGroup")
+            .Elements("PackageReference")
+            .Single(reference => string.Equals((string)reference.Attribute("Include"), "NLog", StringComparison.Ordinal));
+        Assert.AreEqual("6.1.4", (string)nlogReference.Attribute("Version"));
+        Assert.IsFalse(
+            projectRoot.Elements("ItemGroup").Elements("PackageReference").Any(reference =>
+                string.Equals((string)reference.Attribute("Include"), "NLog.Database", StringComparison.Ordinal) ||
+                string.Equals((string)reference.Attribute("Include"), "NLog.WindowsEventLog", StringComparison.Ordinal)),
+            "NLog 6 core must be the only NLog package reference.");
+        Assert.IsFalse(
+            File.Exists(Path.Combine(repositoryRoot, "libs", "NLog.dll")),
+            "The tracked legacy NLog binary must not remain beside the SDK project.");
     }
 
     private static string FindRepositoryRoot()

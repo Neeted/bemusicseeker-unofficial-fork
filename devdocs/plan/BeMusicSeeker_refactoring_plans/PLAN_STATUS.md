@@ -6,7 +6,7 @@
 
 ## Current checkpoint
 
-- active outcome base commit: `a78cbaea`
+- active outcome base commit: `05a3395d`
 - observed worktree: clean
 - Release Freeze: active
 - `git push`／tag／release／public publish: ユーザーの明示指示まで禁止
@@ -18,7 +18,7 @@
 - reason: B1/B2のproduction route、behavior tests、Full verification、Release UI smoke、fresh outcome reviewを完了した
 - .NET 10 migration readiness: architecture is sufficient to start after terminal closure; dependency／runtime／deployment migration remains
 
-Full verificationは`3399 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10-01 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
+Full verificationは`3401 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10-01 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
 
 ## Active outcome
 
@@ -34,8 +34,9 @@ Full verificationは`3399 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `N1 APP-CFG` | completed | application runtime／portable settings baseline | app／testsの.NET 10 retarget、settings wire format、code-page bootstrap、managed loader、startup DB-openを同じrouteで検証 |
 | `N2 UPDATER` | completed | updater executable／protocol corridor | updater retarget、protocol／swap／rollback／restart behavior、temporary self-contained smoke |
 | `N3 CHART-TOOLS` | completed | chart metadata DB tools／outcome closure | 2 tools retarget、solution／verificationを5 projectへ拡張、CLI／DB behavior、NET10-01完了 |
+| `M1 LOG-RUNTIME` | completed | NLog 6 logging／runtime corridor | NLog 6.1.4、全logging route、legacy addon cleanup、package/layout、behavior test、temporary publish smoke |
 
-active／pending unitがある間はunit-plannerを再起動しない。現在のbatchは空であり、次のoutcome開始時にplannerを一度起動する。各unitのstatus更新は対応するproduction code commitへ含める。
+active／pending unitがある間はunit-plannerを再起動しない。現在のbatchは空であり、次に残るNET10-02 routeの開始時にplannerを一度だけ起動する。各unitのstatus更新は対応するproduction code commitへ含める。
 
 ## Review evidence
 
@@ -45,6 +46,7 @@ active／pending unitがある間はunit-plannerを再起動しない。現在�
 - Viewに残る主要処理はWPF event、selection、focus、hit-test、drag／ContextMenu／typed presentationのterminal applyで説明できる。
 - library、playlist、package、LR2、configuration、path、process、native integrationにowner／adapterがある。
 - app、tests、updaterのdisposable .NET 10 build rehearsalは成功記録がある。
+- NLogWrapperはNLog 6.1.4 core、application／install-performance archive、network／trace targetを所有し、temporary win-x64 Self-contained publishで起動とログ出力を確認している。
 
 ### Blocking residuals
 

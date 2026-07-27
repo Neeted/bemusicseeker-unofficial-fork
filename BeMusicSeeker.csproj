@@ -150,9 +150,7 @@
       <HintPath>vendor\native\x64\OggVorbis.NET64.dll</HintPath>
     </Reference>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="NLog" Version="5.4.0" />
-    <PackageReference Include="NLog.Database" Version="5.4.0" />
-    <PackageReference Include="NLog.WindowsEventLog" Version="5.4.0" />
+    <PackageReference Include="NLog" Version="6.1.4" />
   </ItemGroup>
 
   <Target Name="RemoveLegacyNativeOutputArtifacts" AfterTargets="CopyFilesToOutputDirectory">
