@@ -71,19 +71,6 @@ Redistribution Notes:
 - Keep MIT text with distribution.
 
 ================================================================================
-5) Blend SDK WPF binaries
-================================================================================
-Status: GREEN
-Component: System.Windows.Interactivity.dll, Microsoft.Expression.Interactions.dll,
-           Microsoft.Expression.Drawing.dll, Microsoft.Expression.Effects.dll
-Copyright: Microsoft Corporation
-License: Microsoft SDK/EULA redistribution terms
-Source: https://www.nuget.org/packages/Expression.Blend.Sdk (Official MS Download Center link retired)
-License Text: third_party/licenses/05-Microsoft-SDK-NOTICE.txt
-Redistribution Notes:
-- Treated as redistributable SDK binaries, not OSI OSS package licenses.
-- The official Microsoft Download Center page is no longer available, but packages are distributed via NuGet under identical license policies. Retain the SDK notice.
-
 ================================================================================
 6) Windows API Code Pack
 ================================================================================
@@ -121,17 +108,6 @@ Redistribution Notes:
 - Include the MIT text and copyright notice.
 
 ================================================================================
-8) MetroRadiance
-================================================================================
-Status: GREEN
-Component: MetroRadiance.dll, MetroRadiance.Core.dll, MetroRadiance.Chrome.dll
-Copyright: MetroRadiance contributors
-License: MIT
-Source: https://github.com/Grabacr07/MetroRadiance
-License Text: third_party/licenses/08-MetroRadiance-MIT.txt
-Redistribution Notes:
-- Include MIT text and copyright notice.
-
 ================================================================================
 9) QuickConverter
 ================================================================================
@@ -315,10 +291,10 @@ Conditionally releasable with minor remediation (YELLOW):
 (None)
 
 Ready for release (GREEN):
-- 7z.dll, Livet, MetroRadiance, QuickConverter, DynamicJson,
+- 7z.dll, Livet, QuickConverter, DynamicJson,
   Windows API Code Pack, NLog, MIT runtime dependencies for .NET,
   System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
   Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
-  BASS native binaries, Bass.Net.dll, Blend SDK binaries
+  BASS native binaries, Bass.Net.dll

@@ -90,27 +90,6 @@
     <PackageReference Include="LivetCask.Core" />
     <PackageReference Include="LivetCask.EventListeners" />
     <PackageReference Include="LivetCask.Mvvm" />
-    <Reference Include="System.Windows.Interactivity">
-      <HintPath>libs\System.Windows.Interactivity.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Expression.Interactions">
-      <HintPath>libs\Microsoft.Expression.Interactions.dll</HintPath>
-    </Reference>
-    <Reference Include="MetroRadiance">
-      <HintPath>libs\MetroRadiance.dll</HintPath>
-    </Reference>
-    <Reference Include="MetroRadiance.Core">
-      <HintPath>libs\MetroRadiance.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="MetroRadiance.Chrome">
-      <HintPath>libs\MetroRadiance.Chrome.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Expression.Drawing">
-      <HintPath>libs\Microsoft.Expression.Drawing.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Expression.Effects">
-      <HintPath>libs\Microsoft.Expression.Effects.dll</HintPath>
-    </Reference>
     <Reference Include="IniLibrary">
       <HintPath>libs\IniLibrary.dll</HintPath>
     </Reference>

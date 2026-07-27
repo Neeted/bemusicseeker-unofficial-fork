@@ -70,19 +70,6 @@ BeMusicSeeker サードパーティ・ノーティス
 - MITライセンス本文を配布物に同梱してください。
 
 ================================================================================
-5) Blend SDK WPF バイナリ
-================================================================================
-ステータス: GREEN
-コンポーネント: System.Windows.Interactivity.dll, Microsoft.Expression.Interactions.dll,
-           Microsoft.Expression.Drawing.dll, Microsoft.Expression.Effects.dll
-著作権所有者: Microsoft Corporation
-ライセンス: Microsoft SDK/EULA 再配布条件
-ソース: https://www.nuget.org/packages/Expression.Blend.Sdk (旧公式DLページは提供終了)
-ライセンス本文: third_party/licenses/05-Microsoft-SDK-NOTICE.txt
-再配布時の注意事項:
-- OSI 準拠のオープンソース・パッケージではなく、再配布可能な SDK バイナリとして扱います。
-- Microsoft 公式のダウンロードセンターからの単体提供は終了していますが、デファクトの NuGet パッケージ経由等で同等のライセンス下にて流通しています。製品の注意事項を残してください。
-
 ================================================================================
 6) Windows API Code Pack
 ================================================================================
@@ -120,17 +107,6 @@ BeMusicSeeker サードパーティ・ノーティス
 - MIT ライセンス本文と著作権表示を同梱してください。
 
 ================================================================================
-8) MetroRadiance
-================================================================================
-ステータス: GREEN
-コンポーネント: MetroRadiance.dll, MetroRadiance.Core.dll, MetroRadiance.Chrome.dll
-著作権所有者: Manato KAMEYA
-ライセンス: MIT
-ソース: https://github.com/Grabacr07/MetroRadiance
-ライセンス本文: third_party/licenses/08-MetroRadiance-MIT.txt
-再配布時の注意事項:
-- ライセンス本文と著作権表示を同梱してください。
-
 ================================================================================
 9) QuickConverter
 ================================================================================
@@ -314,10 +290,10 @@ GitHub リリース準備状況におけるアクション・サマリー
 (なし)
 
 準備完了（GREEN）:
-- 7z.dll, Livet, MetroRadiance, QuickConverter, DynamicJson,
+- 7z.dll, Livet, QuickConverter, DynamicJson,
   Windows API Code Pack, NLog, .NET の MIT ランタイム依存関係,
   System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
   フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
-  BASS ネイティブバイナリ群, Bass.Net.dll, Blend SDK バイナリ群
+  BASS ネイティブバイナリ群, Bass.Net.dll

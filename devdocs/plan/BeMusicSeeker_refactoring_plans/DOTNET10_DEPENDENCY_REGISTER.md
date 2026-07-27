@@ -17,9 +17,9 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | `DEP-TEST-01` | Test SDK 18.8.1, MSTest 3.6.4 | migration verification | Test SDK 18.8.1とMSTest 3.6.4をこの移行基線としてretainし、test project／win-x64 lock graphとlocked restoreを所有。discovery／DataRow／parallelism／failure diagnosticsを維持し、MSTest major upgradeは移行完了条件に含めない。version authorityは`Directory.Packages.props` | Test SDK 18.8.1、MSTest 3.6.4 | `NET10-02` |
 | `DEP-AN-01` | Roslynator 4.15.0 | build analyzer | `Directory.Packages.props`とapp lockで3 analyzer packageを4.15.0へ固定し、analyzerは`PrivateAssets=all`／runtime output外を維持。solution Roslynator analysisは0 diagnostics。CLIは`.config/dotnet-tools.json`の0.12.0を継続し、packageとtoolを混同しない | Roslynator analyzer packages 4.15.0、CLI 0.12.0 | `NET10-02` |
 | `DEP-UI-01` | LivetCask.Core／Mvvm／EventListeners 4.0.2 | ViewModel、command、notification、dispatcher、listenerで広範利用 | `Directory.Packages.props`の4.0.2をapp／test lockへ固定し、旧tracked Livet binary／XAML DataContextDisposeActionを退役。WPF event／selection／focusなどのterminal applyはView境界へ残す。Livet.MessagingとMicrosoft.Xaml.BehaviorsはLivetCaskのtransitive runtime closureとしてpublishへ含める | LivetCask.Core／Mvvm／EventListeners／Messaging 4.0.2 / zlib-libpng、`Microsoft.Xaml.Behaviors.Wpf` 1.1.31 / MIT | `NET10-03` |
-| `DEP-UI-02` | System.Windows.Interactivity／Expression Interactions | legacy XAML behavior | modern behavior packageへ置換 | Microsoft.Xaml.Behaviors.Wpf 1.1.142 | `NET10-03` |
-| `DEP-UI-03` | MetroRadiance 3 DLL | Window chrome usageが限定的 | WPF WindowChrome／resourceへ置換し削除 | package更新ではなくremove | `NET10-03` |
-| `DEP-UI-04` | Expression Drawing／Effects | XAML drawing／effect | WPF Path／Geometry／Effectへ置換し削除 | remove | `NET10-03` |
+| `DEP-UI-02` | System.Windows.Interactivity／Expression Interactions | legacy XAML behavior namespace | direct callerを退役し、LivetCaskのlocked transitive `Microsoft.Xaml.Behaviors.Wpf` 1.1.31だけをruntime closureとして保持 | Microsoft.Xaml.Behaviors.Wpf 1.1.31 (transitive) | `NET10-03` |
+| `DEP-UI-03` | MetroRadiance 3 DLL | Window chrome usageが限定的 | WPF WindowChrome／Window.IsActive resourceへ置換し削除 | package更新ではなくremove | `NET10-03` |
+| `DEP-UI-04` | Expression Drawing／Effects | XAML search glyph | WPF Ellipse／Path／Geometryへ置換し削除 | remove | `NET10-03` |
 | `DEP-OS-01` | Windows API Code Pack 2 DLL | folder pickerが主用途 | WPF OpenFolderDialogへ置換し削除 | framework API | `NET10-03` |
 | `DEP-XAML-01` | QuickConverter HintPath | XAMLで広範な式変換 | feature family単位でtyped converter／projectionへ置換 | remove | `NET10-04` |
 | `DEP-JSON-02` | DynamicJson HintPath | external JSONのdynamic access | explicit JSON boundaryへ置換。semanticsをgolden test化 | Newtonsoft.Json／System.Text.Json | `NET10-04` |
@@ -44,6 +44,14 @@ NET10-02のmanaged packageは公式NuGet packageをsourceとし、version author
 | `DEP-TEST-01` | NuGet `Microsoft.NET.Test.Sdk` 18.8.1、MSTest 3.6.4 / MIT | test project／test lock | discovery、DataRow、category、DoNotParallelize、Full suiteを確認 |
 | `DEP-AN-01` | NuGet Roslynator analyzer packages 4.15.0 / Apache-2.0; CLI 0.12.0 / tool manifest | app project／root lock、CLI manifest | 0 diagnostics、analyzer assetのruntime／publish除外を確認 |
 | `DEP-UI-01` | NuGet LivetCask.Core／Mvvm／EventListeners／Messaging 4.0.2 / zlib-libpng; Microsoft.Xaml.Behaviors.Wpf 1.1.31 / MIT | app project／root lock | Release outputの`Livet.Core.dll`／`Livet.EventListeners.dll`／`Livet.Messaging.dll`／`Livet.Mvvm.dll`／`Microsoft.Xaml.Behaviors.dll`、旧`Livet.dll`／`Livet.Extensions.dll`不在、XAML DataContextDisposeAction退役、対象テストを確認 |
+
+## NET10-03 L2 closure evidence
+
+| ID | Source / license | Version authority / lock owner | Evidence |
+|---|---|---|---|
+| `DEP-UI-02` | WPF framework API; LivetCask transitive `Microsoft.Xaml.Behaviors.Wpf` 1.1.31 / MIT | app lock／LivetCask package graph | MainWindow／dialog XAMLにlegacy interaction namespace／behavior callerがなく、transitive behavior assemblyだけをpublishへ含めることを確認 |
+| `DEP-UI-03` | WPF framework `WindowChrome`／`Window.IsActive` | app project | MainWindowのcaption command／hit-test、active appearance、maximized marginをnative WPF routeで維持し、MetroRadiance DLL／HintPath／現行noticeを削除 |
+| `DEP-UI-04` | WPF `Ellipse`／`Path`／`Geometry` | app project | chart／playlist summary両search glyphをnative WPF shapeへ置換し、Expression Drawing／Effects DLL／現行noticeを削除 |
 
 ## Vendor / native dependencies
 

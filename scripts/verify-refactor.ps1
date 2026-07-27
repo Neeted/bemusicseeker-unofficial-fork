@@ -149,6 +149,20 @@ function Assert-ReleaseOutputLayout {
             throw "Release output contains removed NLog addon: $removedNLogAddonPath"
         }
     }
+
+    foreach ($removedWpfLegacyAssembly in @(
+        'System.Windows.Interactivity.dll',
+        'Microsoft.Expression.Interactions.dll',
+        'Microsoft.Expression.Drawing.dll',
+        'Microsoft.Expression.Effects.dll',
+        'MetroRadiance.dll',
+        'MetroRadiance.Core.dll',
+        'MetroRadiance.Chrome.dll')) {
+        $removedWpfLegacyAssemblyPath = Join-Path $outputDirectory $removedWpfLegacyAssembly
+        if (Test-Path -LiteralPath $removedWpfLegacyAssemblyPath -PathType Leaf) {
+            throw "Release output contains retired WPF legacy assembly: $removedWpfLegacyAssemblyPath"
+        }
+    }
 }
 
 Push-Location $repoRoot

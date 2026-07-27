@@ -41,8 +41,9 @@ Full verificationは`3401 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `M5 TEST-HOST` | completed | .NET 10 test execution host／deterministic restore corridor | Test SDK 18.8.1、test project lock、win-x64 locked restore、discovery／diagnostics／publish exclusion |
 | `M6 PACKAGE-GATE` | completed | central package version／analyzer gate corridor | Directory.Packages.props、app／test lock ownership、Roslynator 4.15.0、locked restore、runtime／publish exclusion |
 | `L1 LIVET-RUNTIME` | completed | LivetCask WPF presentation runtime corridor | LivetCask Core／Mvvm／EventListeners 4.0.2、通知／dispatcher／command／listener／lifetime behavior、legacy Livet asset retirement |
+| `L2 WPF-CHROME` | completed | native WPF chrome／legacy behavior-visual closure | MainWindow chrome、activation appearance、caption command／hit-test、search glyph、legacy Interactivity／Expression／Metro route retirement |
 
-active／pending unitがある間はunit-plannerを再起動しない。`L1 LIVET-RUNTIME`は完了し、次に残るNET10-03 routeへplannerを一度だけ起動する。各unitのstatus更新は対応するcode commitへ含める。
+active／pending unitがある間はunit-plannerを再起動しない。`L2 WPF-CHROME`のstatus更新を対応するcode commitへ含め、commit後に次のNET10-03 routeへplannerを一度だけ起動する。
 
 ## Review evidence
 

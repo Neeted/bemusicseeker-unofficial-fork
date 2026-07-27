@@ -97,7 +97,7 @@ Exit:
 作業:
 
 1. Livetは現行API利用をinventoryし、`LivetCask`候補へverticalに移行する。notification、command、dispatcher、lifetime semanticsをtestsで比較する。
-2. behaviorは`Microsoft.Xaml.Behaviors.Wpf`へ移し、XAML namespace／behaviorを更新する。
+2. behavior callerが残る場合は`Microsoft.Xaml.Behaviors.Wpf`へ移す。現在のMainWindow／dialog routeではdirect behaviorを退役し、LivetCaskのlocked transitive runtimeだけを保持する。
 3. folder pickerはWPFの`Microsoft.Win32.OpenFolderDialog`へ移し、Windows API Code Packを削除する。
 4. MetroRadiance chromeとExpression drawing／effectsはWPF `WindowChrome`、resource、Path／Geometryへ置換する。
 
