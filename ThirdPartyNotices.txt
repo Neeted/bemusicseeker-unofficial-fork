@@ -97,13 +97,13 @@ Redistribution Notes:
 11) SgmlReader
 ================================================================================
 Status: GREEN
-Component: SgmlReaderDll.dll
+Component: Microsoft.Xml.SgmlReader 1.8.30 (SgmlReaderDll.dll)
 Copyright: Microsoft Corporation; MindTouch
 License: Apache-2.0
-Source: https://github.com/MindTouch/SGMLReader
+Source: https://www.nuget.org/packages/Microsoft.Xml.SgmlReader/1.8.30 (upstream: https://github.com/lovettchris/SgmlReader)
 License Text: third_party/licenses/11-Apache-2.0.txt
 Redistribution Notes:
-- Verified as the binary of v1.8.11 (MindTouch fork).
+- The package-owned SgmlReaderDll.dll is used at version 1.8.30.
 - Retain Apache 2.0 license text and copyright notice.
 
 ================================================================================
@@ -135,12 +135,13 @@ Redistribution Notes:
 14) System.Collections.Immutable
 ================================================================================
 Status: GREEN
-Component: System.Collections.Immutable.dll
+Component: .NET 10 runtime pack System.Collections.Immutable.dll
 Copyright: .NET Foundation and contributors
 License: MIT
-Source: https://www.nuget.org/packages/System.Collections.Immutable/
+Source: https://github.com/dotnet/runtime/tree/main/src/libraries/System.Collections.Immutable
 License Text: third_party/licenses/14-System.Collections.Immutable-MIT.txt
 Redistribution Notes:
+- The assembly is supplied by the .NET runtime pack; no standalone legacy DLL is redistributed.
 - Include MIT text.
 
 ================================================================================
@@ -196,18 +197,6 @@ Redistribution Notes:
 - Retain the COPYING text along with distributions.
 
 ================================================================================
-19) IniLibrary
-================================================================================
-Status: GREEN
-Component: IniLibrary.dll
-Copyright: fork-origin BeMusicSeeker lineage
-License: Accepted as fork-author-built binary (maintainer provenance decision)
-Source: Original app installation and build-path evidence
-License Text: 
-Redistribution Notes:
-- Accepted by maintainer as same-lineage artifact from original BeMusicSeeker build environment.
-
-================================================================================
 20) Fonts
 ================================================================================
 20-1) Ligature Symbols
@@ -253,8 +242,8 @@ Conditionally releasable with minor remediation (YELLOW):
 
 Ready for release (GREEN):
 - 7z.dll, Livet, NLog, MIT runtime dependencies for .NET,
-  System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
-  SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
+  Everything3_x64.dll, EverythingBridge_x64.dll,
+  SevenZipExtractor.dll, sqlite.net.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
   Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
   BASS native binaries, Bass.Net.dll

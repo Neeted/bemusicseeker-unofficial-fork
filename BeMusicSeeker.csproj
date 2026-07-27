@@ -92,22 +92,13 @@
     <PackageReference Include="LivetCask.Core" />
     <PackageReference Include="LivetCask.EventListeners" />
     <PackageReference Include="LivetCask.Mvvm" />
-    <Reference Include="IniLibrary">
-      <HintPath>libs\IniLibrary.dll</HintPath>
-    </Reference>
+    <PackageReference Include="Microsoft.Xml.SgmlReader" />
     <!-- Keep HintPath references for legacy libraries without confirmed same-identity PackageReference replacement in this task. -->
     <Reference Include="sqlite.net">
       <HintPath>libs\sqlite.net.dll</HintPath>
     </Reference>
     <Reference Include="Bass.Net">
       <HintPath>libs\Bass.Net.dll</HintPath>
-    </Reference>
-    <!-- Keep HintPath because requested 4.5.0 resolves to 5.0.0 via current package graph (identity parity not guaranteed). -->
-    <Reference Include="System.Collections.Immutable">
-      <HintPath>libs\System.Collections.Immutable.dll</HintPath>
-    </Reference>
-    <Reference Include="SgmlReaderDll">
-      <HintPath>libs\SgmlReaderDll.dll</HintPath>
     </Reference>
     <Reference Include="SevenZipExtractor">
       <HintPath>libs\SevenZipExtractor.dll</HintPath>

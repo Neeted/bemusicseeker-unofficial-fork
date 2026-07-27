@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Ini;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -41,101 +40,158 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         F2 = 60
     }
 
-    private class temporarilyRewriteSettings
+    internal sealed class TemporarilyRewriteSettings
     {
-        private readonly IniDocument backup = new();
-
-        private readonly IniDocument settings = new();
-
         private readonly string iniFilePath;
 
-        private readonly IniSyntaxDefinition syntax = new()
-        {
-            CommentStartChar = ';',
-            NameValueDelimiter = '=',
-            QuoteChar = '"',
-            RequireQuotes = false
-        };
+        private readonly byte[] backupContents;
 
-        private readonly IniWriterFormattingSettings format = new()
+        internal bool RevertSettings()
         {
-            IndentParameters = false,
-            SpaceBeforeDelimiter = false,
-            SpaceAfterDelimiter = false,
-            SpaceBeforeCommentStart = false,
-            SpaceAfterCommentStart = false,
-            SeparateSections = false
-        };
-
-        public void revertSettings()
-        {
-            if (backup == null)
+            if (backupContents == null)
             {
-                return;
+                return true;
             }
             try
             {
-                using var tw = new StreamWriter(iniFilePath, append: false, Encoding.GetEncoding("shift_jis"));
-                backup.Save(tw, format);
+                File.WriteAllBytes(iniFilePath, backupContents);
+                return true;
             }
             catch
             {
+                return false;
             }
         }
 
-        public temporarilyRewriteSettings(string iniFilePath, int playerVolume)
+        internal TemporarilyRewriteSettings(string iniFilePath, int playerVolume)
         {
             this.iniFilePath = iniFilePath;
+            byte[] originalContents = null;
+            string input = string.Empty;
+            string newline = Environment.NewLine;
+            bool trailingNewline = true;
             try
             {
-                backup.SyntaxDefinition = syntax;
-                settings.SyntaxDefinition = syntax;
-                using (var tr = new StreamReader(iniFilePath, Encoding.GetEncoding("shift_jis")))
+                originalContents = File.ReadAllBytes(iniFilePath);
+                input = File.ReadAllText(iniFilePath, Encoding.GetEncoding("shift_jis"));
+                newline = input.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+                trailingNewline = input.EndsWith("\n", StringComparison.Ordinal);
+            }
+            catch
+            {
+                originalContents = null;
+            }
+
+            List<string> lines = input.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
+            if (trailingNewline && lines.Count > 0 && lines[^1].Length == 0)
+            {
+                lines.RemoveAt(lines.Count - 1);
+            }
+            bool allParametersExisted = true;
+            allParametersExisted &= SetSectionParameterValue(lines, "Main", "AlwaysOnTop", "False");
+            allParametersExisted &= SetSectionParameterValue(lines, "Main", "VSYNC", "False");
+            allParametersExisted &= SetSectionParameterValue(lines, "Option", "BGA", "3");
+            allParametersExisted &= SetSectionParameterValue(lines, "Option", "AutoSeparate", "True");
+            allParametersExisted &= SetSectionParameterValue(lines, "Option", "SkinType", "0");
+            allParametersExisted &= SetSectionParameterValue(
+                lines,
+                "Option",
+                "Volume",
+                Math.Min(100, Math.Max(0, playerVolume)).ToString());
+
+            try
+            {
+                string output = string.Join(newline, lines);
+                if (trailingNewline)
                 {
-                    settings.Load(tr);
+                    output += newline;
                 }
-                using var tr2 = new StreamReader(iniFilePath, Encoding.GetEncoding("shift_jis"));
-                backup.Load(tr2);
+                File.WriteAllText(iniFilePath, output, Encoding.GetEncoding("shift_jis"));
             }
             catch
             {
-                backup = null;
-                settings = new IniDocument
-                {
-                    SyntaxDefinition = syntax
-                };
+                originalContents = null;
             }
-            if ((1u & (setSectionParameterValue("Main", "AlwaysOnTop", "False") ? 1u : 0u) & (setSectionParameterValue("Main", "VSYNC", "False") ? 1u : 0u) & (setSectionParameterValue("Option", "BGA", "3") ? 1u : 0u) & (setSectionParameterValue("Option", "AutoSeparate", "True") ? 1u : 0u) & (setSectionParameterValue("Option", "SkinType", "0") ? 1u : 0u) & (setSectionParameterValue("Option", "Volume", Math.Min(100, Math.Max(0, playerVolume)).ToString()) ? 1u : 0u)) == 0)
-            {
-                backup = null;
-            }
-            try
-            {
-                using var tw = new StreamWriter(iniFilePath, append: false, Encoding.GetEncoding("shift_jis"));
-                settings.Save(tw, format);
-            }
-            catch
-            {
-                backup = null;
-            }
+            backupContents = allParametersExisted ? originalContents : null;
         }
 
-        private bool setSectionParameterValue(string sectionName, string parameterName, string value)
+        private static bool SetSectionParameterValue(
+            List<string> lines,
+            string sectionName,
+            string parameterName,
+            string value)
         {
-            if (!settings.Sections.Any(s => s.Header == sectionName))
+            int sectionStart = FindSectionStart(lines, sectionName);
+            if (sectionStart < 0)
             {
-                var iniSection = new IniSection(sectionName);
-                iniSection.Parameters.Add(new IniParameter(parameterName, value));
-                settings.Sections.Add(iniSection);
+                if (lines.Count > 0 && lines[^1].Length != 0)
+                {
+                    lines.Add(string.Empty);
+                }
+                lines.Add("[" + sectionName + "]");
+                lines.Add(parameterName + "=" + value);
                 return false;
             }
-            if (!settings.Sections[sectionName].Parameters.Any(p => p.Name == parameterName))
+
+            int sectionEnd = FindNextSectionStart(lines, sectionStart + 1);
+            for (int index = sectionStart + 1; index < sectionEnd; index++)
             {
-                settings.Sections[sectionName].AddParameter(parameterName, value);
-                return false;
+                string line = lines[index];
+                int delimiter = line.IndexOf('=');
+                if (delimiter < 0 || !string.Equals(line[..delimiter].Trim(), parameterName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                string suffix = line[(delimiter + 1)..];
+                int comment = suffix.IndexOf(';');
+                if (comment >= 0)
+                {
+                    int commentStart = comment;
+                    while (commentStart > 0 && char.IsWhiteSpace(suffix[commentStart - 1]))
+                    {
+                        commentStart--;
+                    }
+                    suffix = suffix[commentStart..];
+                }
+                else
+                {
+                    suffix = string.Empty;
+                }
+                lines[index] = line[..(delimiter + 1)] + value + suffix;
+                return true;
             }
-            settings.Sections[sectionName].Parameters[parameterName].Value = value;
-            return true;
+
+            lines.Insert(sectionEnd, parameterName + "=" + value);
+            return false;
+        }
+
+        private static int FindSectionStart(List<string> lines, string sectionName)
+        {
+            for (int index = 0; index < lines.Count; index++)
+            {
+                string line = lines[index].Trim();
+                if (line.Length > 2
+                    && line[0] == '['
+                    && line[^1] == ']'
+                    && string.Equals(line[1..^1].Trim(), sectionName, StringComparison.Ordinal))
+                {
+                    return index;
+                }
+            }
+            return -1;
+        }
+
+        private static int FindNextSectionStart(List<string> lines, int start)
+        {
+            for (int index = start; index < lines.Count; index++)
+            {
+                string line = lines[index].Trim();
+                if (line.Length > 2 && line[0] == '[' && line[^1] == ']')
+                {
+                    return index;
+                }
+            }
+            return lines.Count;
         }
     }
 
@@ -151,7 +207,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private readonly object lockThis = new();
 
-    private temporarilyRewriteSettings iniFile;
+    private TemporarilyRewriteSettings iniFile;
 
     private string _exePath;
 
@@ -321,45 +377,59 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     {
         lock (lockThis)
         {
-            if (uBMplayProcess == null)
-            {
-                return;
-            }
-            SendReleaseKeyEvent(KeyCode.NONE);
-            if (onExitEventHandlerRegstered != null)
-            {
-                uBMplayProcess.Exited -= onExitEventHandlerRegstered;
-            }
-            if (onExitEventHandlerDefault != null)
-            {
-                uBMplayProcess.Exited -= onExitEventHandlerDefault;
-            }
-            try
-            {
-                uBMplayProcess.CloseMainWindow();
-                int num = 0;
-                while (!uBMplayProcess.HasExited)
-                {
-                    Thread.Sleep(100);
-                    if (num == 50)
-                    {
-                        try
-                        {
-                            uBMplayProcess.Kill();
-                        }
-                        catch
-                        {
-                        }
-                        num = 0;
-                    }
-                    num++;
-                }
-            }
-            catch
-            {
-            }
-            onExitEventHandlerDefault?.Invoke(null, null);
+            CloseProcessLocked(restoreSettings: true);
         }
+    }
+
+    private void CloseProcessLocked(bool restoreSettings)
+    {
+        if (uBMplayProcess == null)
+        {
+            if (restoreSettings)
+            {
+                RevertSettingsLocked();
+            }
+            return;
+        }
+        SendReleaseKeyEvent(KeyCode.NONE);
+        if (onExitEventHandlerRegstered != null)
+        {
+            uBMplayProcess.Exited -= onExitEventHandlerRegstered;
+        }
+        if (onExitEventHandlerDefault != null)
+        {
+            uBMplayProcess.Exited -= onExitEventHandlerDefault;
+        }
+        try
+        {
+            uBMplayProcess.CloseMainWindow();
+            int num = 0;
+            while (!uBMplayProcess.HasExited)
+            {
+                Thread.Sleep(100);
+                if (num == 50)
+                {
+                    try
+                    {
+                        uBMplayProcess.Kill();
+                    }
+                    catch
+                    {
+                    }
+                    num = 0;
+                }
+                num++;
+            }
+        }
+        catch
+        {
+        }
+        if (restoreSettings)
+        {
+            RevertSettingsLocked();
+        }
+        uBMplayHandleShowing = default;
+        uBMplayProcess = null;
     }
 
     public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
@@ -375,16 +445,41 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "ubm.ini");
         lock (lockThis)
         {
-            iniFile = new temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
-            bool startedNewProcess = createProcess(bmsFilePath, onExitEventHandler);
-            if (startedNewProcess && (uBMplayProcess == null || uBMplayProcess.HasExited || !RequireWindowHost().IsWindow(uBMplayHandleShowing)))
+            if (RevertSettingsLocked())
             {
-                ThrowStartupFailed();
+                iniFile = new TemporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
             }
-            waitForLoading(bmsFilePath);
-            setParent();
+            try
+            {
+                bool startedNewProcess = createProcess(bmsFilePath, onExitEventHandler);
+                if (startedNewProcess && (uBMplayProcess == null || uBMplayProcess.HasExited || !RequireWindowHost().IsWindow(uBMplayHandleShowing)))
+                {
+                    ThrowStartupFailed();
+                }
+                waitForLoading(bmsFilePath);
+                setParent();
+            }
+            catch
+            {
+                RevertSettingsLocked();
+                throw;
+            }
         }
         return Task.CompletedTask;
+    }
+
+    private bool RevertSettingsLocked()
+    {
+        if (iniFile == null)
+        {
+            return true;
+        }
+        if (!iniFile.RevertSettings())
+        {
+            return false;
+        }
+        iniFile = null;
+        return true;
     }
 
     private static void ThrowStartupFailed()
@@ -403,7 +498,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             if (uBMplayHandleShowing.IsEmpty)
             {
                 uBMplayProcess = existingProcesses[0];
-                CloseProcess();
+                CloseProcessLocked(restoreSettings: false);
             }
             else
             {
@@ -712,6 +807,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     {
         lock (lockThis)
         {
+            RevertSettingsLocked();
             uBMplayHandleShowing = default;
             uBMplayProcess = null;
         }

@@ -12,6 +12,22 @@ namespace BeMusicSeeker.Tests;
 public sealed class ChartResourceSnapshotTests
 {
     [TestMethod]
+    public void ResourcesSnapshotsRemainImmutableAfterOwnerMutation()
+    {
+        var resources = new Ribbit.BMS.Resources();
+        resources.AddFilePath("sound.wav");
+        var paths = resources.FilePaths;
+        var hashes = resources.FilePathsHashSet;
+
+        resources.AddFilePath("image.png");
+
+        Assert.AreEqual(1, paths.Count);
+        Assert.AreEqual(1, hashes.Count);
+        CollectionAssert.Contains(paths.ToArray(), "sound.wav");
+        CollectionAssert.DoesNotContain(paths.ToArray(), "image.png");
+    }
+
+    [TestMethod]
     public void CreateAggregate_PreservesExtensionlessResourceKeysWithDotsInStem()
     {
         BMSFile file = CreateBmsFile(

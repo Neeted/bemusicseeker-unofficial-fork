@@ -114,6 +114,7 @@
           "LivetCask.Core": "[4.0.2, )",
           "LivetCask.EventListeners": "[4.0.2, )",
           "LivetCask.Mvvm": "[4.0.2, )",
+          "Microsoft.Xml.SgmlReader": "[1.8.30, )",
           "NLog": "[6.1.4, )",
           "Newtonsoft.Json": "[13.0.4, )"
         }
@@ -141,6 +142,12 @@
         "dependencies": {
           "LivetCask.Messaging": "4.0.2"
         }
+      },
+      "Microsoft.Xml.SgmlReader": {
+        "type": "CentralTransitive",
+        "requested": "[1.8.30, )",
+        "resolved": "1.8.30",
+        "contentHash": "aPLhDn2rg8aFo2JRpghTVi2/kU7ZEJSLUuXSHvedCyNhf15tneuhLldSfrjaCKP9MX6vp+tdpUE8wDxe2UnFjg=="
       },
       "Newtonsoft.Json": {
         "type": "CentralTransitive",

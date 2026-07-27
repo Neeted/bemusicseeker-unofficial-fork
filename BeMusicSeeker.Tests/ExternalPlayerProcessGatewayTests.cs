@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
@@ -298,6 +299,113 @@ public sealed class ExternalPlayerProcessGatewayTests
     }
 
     [TestMethod]
+    public void UbmplayRestoresTemporarySettingsOnCloseAndStartupFailure()
+    {
+        WithTemporaryPlayerFiles("uBMplay.exe", (root, executablePath, chartPath) =>
+        {
+            const string original =
+                "[Main]\r\n"
+                + "AlwaysOnTop=True\r\n"
+                + "VSYNC=True\r\n"
+                + "[Option]\r\n"
+                + "BGA=1\r\n"
+                + "AutoSeparate=False\r\n"
+                + "SkinType=2\r\n"
+                + "Volume=12\r\n";
+            string iniPath = Path.Combine(root, "ubm.ini");
+            File.WriteAllText(iniPath, original, Encoding.GetEncoding("shift_jis"));
+            byte[] originalBytes = File.ReadAllBytes(iniPath);
+
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            var windowHandle = new ExternalWindowHandle(new IntPtr(31));
+            gateway.Session.MainWindowHandle = windowHandle;
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = new[] { windowHandle },
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chartPath
+            };
+            var player = new uBMplay(
+                executablePath,
+                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                gateway);
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+
+            player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
+            CollectionAssert.DoesNotContain(
+                File.ReadAllLines(iniPath, Encoding.GetEncoding("shift_jis")),
+                "AlwaysOnTop=True");
+
+            gateway.Session.KeepRunning = false;
+            gateway.Session.RaiseExited();
+            CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
+
+            gateway.Session.KeepRunning = true;
+            player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
+            StringAssert.Contains(
+                File.ReadAllText(iniPath, Encoding.GetEncoding("shift_jis")),
+                "AlwaysOnTop=False");
+
+            gateway.Session.KeepRunning = false;
+            player.CloseProcess();
+            CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
+
+            Assert.ThrowsException<InvalidOperationException>(
+                () => player.PlayStart(chartPath, (Action<object, EventArgs>)null!));
+            CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
+        });
+    }
+
+    [TestMethod]
+    public void UbmplayKeepsRewriteWhenReplacingExistingProcess()
+    {
+        WithTemporaryPlayerFiles("uBMplay.exe", (root, executablePath, chartPath) =>
+        {
+            const string original =
+                "[Main]\r\n"
+                + "AlwaysOnTop=True\r\n"
+                + "VSYNC=True\r\n"
+                + "[Option]\r\n"
+                + "BGA=1\r\n"
+                + "AutoSeparate=False\r\n"
+                + "SkinType=2\r\n"
+                + "Volume=12\r\n";
+            string iniPath = Path.Combine(root, "ubm.ini");
+            File.WriteAllText(iniPath, original, Encoding.GetEncoding("shift_jis"));
+            byte[] originalBytes = File.ReadAllBytes(iniPath);
+
+            var oldSession = new RecordingExternalPlayerProcessSession();
+            oldSession.Start();
+            var gateway = new RecordingExternalPlayerProcessGateway
+            {
+                ExistingProcesses = new[] { oldSession }
+            };
+            gateway.Session.KeepRunning = true;
+            var windowHandle = new ExternalWindowHandle(new IntPtr(41));
+            gateway.Session.MainWindowHandle = windowHandle;
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = new[] { windowHandle },
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chartPath
+            };
+            var player = new uBMplay(
+                executablePath,
+                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                gateway);
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+
+            player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
+            StringAssert.Contains(File.ReadAllText(iniPath, Encoding.GetEncoding("shift_jis")), "AlwaysOnTop=False");
+
+            gateway.Session.KeepRunning = false;
+            player.CloseProcess();
+            CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
+        });
+    }
+
+    [TestMethod]
     public void SavedWindowPlacementRestoreNormalizesFlagsAndSize()
     {
         var placement = new WindowPlacement(7, (int)Win32API.ShowWindowCommands.ShowMaximized, 1, 2, 3, 4, 10, 20, 810, 620);
@@ -411,6 +519,11 @@ public sealed class ExternalPlayerProcessGatewayTests
         public void Start()
         {
             Started = true;
+        }
+
+        internal void RaiseExited()
+        {
+            exitHandlers?.Invoke(this, EventArgs.Empty);
         }
 
         public void CloseMainWindow()

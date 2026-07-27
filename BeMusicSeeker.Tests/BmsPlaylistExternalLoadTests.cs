@@ -218,6 +218,44 @@ public sealed class BmsPlaylistExternalLoadTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void LoadExternalTable_UnclosedHtmlWithReorderedMetaAttributes_LoadsSuccessfully()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string htmlPath = Path.Combine(tempDirectory, "table.html");
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllText(
+                htmlPath,
+                "<html><head><meta content=\"header.json\" name=\"bmstable\"><title>unfinished",
+                Encoding.UTF8);
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes(
+                "{\"name\":\"UnclosedHtml\",\"symbol\":\"U\",\"data_url\":\"./score.json\"}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes(
+                "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new TestBmsPlaylist(songDbPath);
+
+            BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(htmlPath));
+
+            Assert.AreEqual("UnclosedHtml", table.name);
+            Assert.AreEqual("U", table.symbol);
+            Assert.AreEqual(1, table.entries.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void LoadExternalTable_Sha256OnlyEntry_LoadsSuccessfully()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));

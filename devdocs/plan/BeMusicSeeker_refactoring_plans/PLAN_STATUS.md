@@ -18,14 +18,14 @@
 - reason: B1/B2のproduction route、behavior tests、Full verification、Release UI smoke、fresh outcome reviewを完了した
 - .NET 10 migration readiness: architecture is sufficient to start after terminal closure; dependency／runtime／deployment migration remains
 
-Full verificationは`3443 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
+Full verificationは`3452 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
 
 ## Active outcome
 
 - active outcome: `NET10-04 Converter, JSON and document helpers`
 - active execution package: `.NET 10 helper dependency modernization`
-- execution anchor: `NET10-04 J4 SCORE-RETIRE completed; remaining document／unused-helper routes`
-- planner state: `J1` through `J4` completed; planner is required once for the remaining NET10-04 routes
+- execution anchor: `NET10-04 D1 DOC-HELPERS`
+- planner state: `D1` completed; planner required once for NET10-05
 
 ## Active implementation batch
 
@@ -48,8 +48,9 @@ Full verificationは`3443 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `J2 PLAYLIST-FEEDS` | completed | playlist catalog／recommendation／URL completion | 外部feed、recommended／estimation、Stella URL completionのtyped JSON化とcache／failure contract |
 | `J3 LIBRARY-IR` | completed | ranking JSON boundary | BmsLibraryIrClient request／responseとIRDataCacheInfoのtyped JSON化、candidate／DB mutation order維持 |
 | `J4 SCORE-RETIRE` | completed | Score Viewer boundary and DynamicJson retirement | Score Viewer gateway typed化、DynamicJson binary／HintPath／layout／notice／license退役 |
+| `D1 DOC-HELPERS` | completed | external HTML document owner and managed helper closure | PlaylistExternalSyncOwnerのmaintained SGML route、uBMplayのShift-JIS settings rewrite／restore、IniLibrary／System.Collections.Immutableのlegacy asset retirement、resource snapshotとpackage／layout／notice整合 |
 
-active／pending unitがある間はunit-plannerを再起動しない。J1からJ4までの実装・検証・レビュー・commitを完了した。NET10-04のSgmlReaderDll、IniLibrary、System.Collections.Immutable残件は次のplanner sequenceで閉じる。
+次のbatchがmaterializeされるまでunit-plannerを再起動しない。NET10-04 D1の実装・検証・レビュー・commitは完了した。
 
 ## Review evidence
 
@@ -75,7 +76,7 @@ active／pending unitがある間はunit-plannerを再起動しない。J1から
 
 ## Next outcome
 
-- active outcome: `NET10-04 Converter, JSON and document helpers`
-- active execution package: `.NET 10 helper dependency modernization`
-- execution anchor: `NET10-04 remaining document／unused-helper routes`
+- active outcome: `NET10-05 SQLite provider migration`
+- active execution package: `.NET 10 database provider modernization`
+- execution anchor: `NET10-05 provider spike and storage-owner sequence`
 - active implementation batch: empty; planner required once

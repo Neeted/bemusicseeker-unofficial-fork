@@ -96,13 +96,13 @@ BeMusicSeeker サードパーティ・ノーティス
 11) SgmlReader
 ================================================================================
 ステータス: GREEN
-コンポーネント: SgmlReaderDll.dll
+コンポーネント: Microsoft.Xml.SgmlReader 1.8.30 (SgmlReaderDll.dll)
 著作権所有者: Microsoft Corporation; MindTouch
 ライセンス: Apache-2.0
-ソース: https://github.com/MindTouch/SGMLReader
+ソース: https://www.nuget.org/packages/Microsoft.Xml.SgmlReader/1.8.30（上流: https://github.com/lovettchris/SgmlReader）
 ライセンス本文: third_party/licenses/11-Apache-2.0.txt
 再配布時の注意事項:
-- v1.8.11 (MindTouchフォーク) のバイナリであることを確認済みです。
+- パッケージが提供するバージョン1.8.30のSgmlReaderDll.dllを使用します。
 - Apache 2.0 ライセンスの本文および著作権表示を同梱してください。
 
 ================================================================================
@@ -134,12 +134,13 @@ BeMusicSeeker サードパーティ・ノーティス
 14) System.Collections.Immutable
 ================================================================================
 ステータス: GREEN
-コンポーネント: System.Collections.Immutable.dll
+コンポーネント: .NET 10 ランタイムパックの System.Collections.Immutable.dll
 著作権所有者: .NET Foundation およびコントリビューター
 ライセンス: MIT
-ソース: https://www.nuget.org/packages/System.Collections.Immutable/
+ソース: https://github.com/dotnet/runtime/tree/main/src/libraries/System.Collections.Immutable
 ライセンス本文: third_party/licenses/14-System.Collections.Immutable-MIT.txt
 再配布時の注意事項:
+- ランタイムパックが供給するアセンブリであり、旧式の単独DLLは再配布しません。
 - MIT ライセンス本文を同梱してください。
 
 ================================================================================
@@ -195,18 +196,6 @@ BeMusicSeeker サードパーティ・ノーティス
 - COPYING ファイル（libogg / libvorbis の著作権表示を含む）を同梱してください。
 
 ================================================================================
-19) IniLibrary
-================================================================================
-ステータス: GREEN
-コンポーネント: IniLibrary.dll
-著作権所有者: フォーク元である BeMusicSeeker の由来
-ライセンス: フォーク元作成者によるバイナリとして採用（メンテナの出自判定）
-ソース: 元アプリのインストールおよびビルドパスの証拠に基づく
-ライセンス本文: 
-再配布時の注意事項:
-- オリジナルの BeMusicSeeker ビルド環境で生成された同一系譜の成果物であるというメンテナによる判断です。
-
-================================================================================
 20) フォントファイル (Fonts)
 ================================================================================
 20-1) Ligature Symbols
@@ -252,8 +241,8 @@ GitHub リリース準備状況におけるアクション・サマリー
 
 準備完了（GREEN）:
 - 7z.dll, Livet, NLog, .NET の MIT ランタイム依存関係,
-  System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
-  SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
+  Everything3_x64.dll, EverythingBridge_x64.dll,
+  SevenZipExtractor.dll, sqlite.net.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
   フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
   BASS ネイティブバイナリ群, Bass.Net.dll

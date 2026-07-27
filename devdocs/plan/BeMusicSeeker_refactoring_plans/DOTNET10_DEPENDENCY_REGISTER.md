@@ -22,10 +22,10 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | `DEP-UI-04` | Expression Drawing／Effects | XAML search glyph | WPF Ellipse／Path／Geometryへ置換し削除 | remove | `NET10-03` |
 | `DEP-OS-01` | retired Windows API Code Pack 2 DLL | file／folder picker | WPF OpenFileDialog／OpenFolderDialogへ置換し、HintPath／tracked binary／現行noticeを削除。updaterの旧install cleanupだけは保持 | framework API | `NET10-03` |
 | `DEP-XAML-01` | QuickConverter HintPath (retired) | 旧XAMLの式変換 | MainWindow／PlaybackPanel／SettingDialog／dialogのpresentation routeをtyped converter／MultiBinding／triggerへ置換し、runtime登録、HintPath、binaryを削除 | typed WPF presentation bindings | `NET10-04 Q1` |
-| `DEP-JSON-02` | DynamicJson HintPath | external JSONのdynamic access | explicit JSON boundaryへ置換。semanticsをgolden test化 | Newtonsoft.Json／System.Text.Json | `NET10-04` |
-| `DEP-DOC-01` | SgmlReaderDll HintPath | playlist／HTML parse | maintained packageへ置換しfixture比較 | Microsoft.Xml.SgmlReader 1.8.30 | `NET10-04` |
-| `DEP-MISC-01` | IniLibrary HintPath | source usage未確認 | compile／testで不要を確認して削除 | remove | `NET10-04` |
-| `DEP-MISC-02` | System.Collections.Immutable HintPath | direct source usage未確認 | framework供給で足りれば削除。必要時だけpackage化 | 10.0.10候補 | `NET10-04` |
+| `DEP-JSON-02` | DynamicJson HintPath (retired) | external JSONのdynamic access | explicit Newtonsoft.Json boundariesへ置換し、registration／upload／score viewer semanticsをgolden test化済み | Newtonsoft.Json 13.0.4 | `NET10-04` |
+| `DEP-DOC-01` | Microsoft.Xml.SgmlReader 1.8.30 package (`SgmlReaderDll.dll`) | playlist／HTML parse | maintained packageへ置換し、unclosed HTML／attribute order fixtureを比較済み | Microsoft.Xml.SgmlReader 1.8.30 | `NET10-04` |
+| `DEP-MISC-01` | IniLibrary HintPath (retired) | uBMplayのShift-JIS settings rewrite | source owner内の明示的なrewriteへ置換し、missing key／comment／byte restore／volume clampをtargeted testで確認 | remove legacy binary | `NET10-04` |
+| `DEP-MISC-02` | System.Collections.Immutable HintPath (retired) | runtime collection support | direct HintPath／tracked binaryを削除し、.NET runtime pack供給をpublishで確認 | .NET 10 runtime pack | `NET10-04` |
 | `DEP-DB-01` | sqlite.net HintPath | app／tests／2 toolsのstorage | provider migration＋golden DB test | sqlite-net-pcl 1.11.285 | `NET10-05` |
 | `DEP-DB-02` | hand-placed sqlite3.dll | native provider | SQLitePCLRaw bundleへ一元化 | SQLitePCLRaw.bundle_e_sqlite3 3.0.4 | `NET10-05` |
 | `DEP-ARC-01` | SevenZipExtractor DLL | archive extraction | PackageReference化しbehavior／native load検証 | SevenZipExtractor 1.0.19 | `NET10-06` |
@@ -58,6 +58,15 @@ NET10-02のmanaged packageは公式NuGet packageをsourceとし、version author
 | ID | Source / license | Version authority / lock owner | Evidence |
 |---|---|---|---|
 | `DEP-OS-01` | WPF framework `OpenFileDialog`／`OpenFolderDialog` | app project | UiDialogCoordinatorのfile／folder routeをframework dialogへ置換し、typed file／folder result、filter／initial directory、multi-select、failure contract、all production callers、portable layout、updater legacy cleanup、現行notice／tracked Code Pack binary削除を確認 |
+
+## NET10-04 D1 closure evidence
+
+| ID | Source / license | Version authority / lock owner | Evidence |
+|---|---|---|---|
+| `DEP-JSON-02` | Newtonsoft.Json 13.0.4 / MIT | app project／root lock | DynamicJson binary／HintPath／noticeを退役し、playlist、library IR、score viewerのtyped JSON routeとgolden testを確認 |
+| `DEP-DOC-01` | Microsoft.Xml.SgmlReader 1.8.30 / Apache-2.0 | app project／root lock | package-owned `SgmlReaderDll.dll`で外部playlist HTMLを解析し、unclosed documentとattribute orderのfixtureを確認 |
+| `DEP-MISC-01` | source-owned Shift-JIS rewrite / no external dependency | app project／test fixture | uBMplayの6設定値、section/key add semantics、failure swallowing、original byte restore、volume clampを確認し、IniLibrary binary／HintPath／noticeを退役 |
+| `DEP-MISC-02` | .NET 10 runtime pack `System.Collections.Immutable.dll` / MIT | runtime pack／publish output | direct HintPath、tracked binary、portable required root entryを削除し、runtime pack outputとlegacy forbidden-path cleanupを確認 |
 
 ## Vendor / native dependencies
 

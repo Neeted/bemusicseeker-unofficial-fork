@@ -63,7 +63,8 @@ public sealed class ManagedDependencyOutputPolicyTests
             "Microsoft.Xaml.Behaviors.dll",
             "Newtonsoft.Json.dll",
             "NLog.dll",
-            "SevenZipExtractor.dll"
+            "SevenZipExtractor.dll",
+            "SgmlReaderDll.dll"
         })
         {
             Assert.IsTrue(
@@ -100,6 +101,11 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "Newtonsoft.Json.dll")),
             "Newtonsoft.Json must be supplied by the SDK package output, not a tracked HintPath binary.");
+        Assert.IsFalse(
+            File.Exists(Path.Combine(repositoryRoot, "libs", "IniLibrary.dll")) ||
+            File.Exists(Path.Combine(repositoryRoot, "libs", "SgmlReaderDll.dll")) ||
+            File.Exists(Path.Combine(repositoryRoot, "libs", "System.Collections.Immutable.dll")),
+            "Legacy helper binaries must be supplied by the package/runtime graph or removed, not tracked beside the SDK project.");
 
         XElement resourcesReference = projectRoot
             .Elements("ItemGroup")
@@ -167,6 +173,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "LivetCask.Core", Version = "4.0.2" },
             new { Id = "LivetCask.EventListeners", Version = "4.0.2" },
             new { Id = "LivetCask.Mvvm", Version = "4.0.2" },
+            new { Id = "Microsoft.Xml.SgmlReader", Version = "1.8.30" },
             new { Id = "NLog", Version = "6.1.4" },
             new { Id = "Newtonsoft.Json", Version = "13.0.4" },
             new { Id = "Roslynator.Analyzers", Version = "4.15.0" },
@@ -206,6 +213,7 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "LivetCask.Core",
                     "LivetCask.EventListeners",
                     "LivetCask.Mvvm",
+                    "Microsoft.Xml.SgmlReader",
                     "Newtonsoft.Json",
                     "NLog",
                     "Roslynator.Analyzers",

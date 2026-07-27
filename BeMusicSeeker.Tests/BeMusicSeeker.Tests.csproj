@@ -29,17 +29,11 @@
     <Reference Include="sqlite.net">
       <HintPath>..\libs\sqlite.net.dll</HintPath>
     </Reference>
-    <Reference Include="SgmlReaderDll">
-      <HintPath>..\libs\SgmlReaderDll.dll</HintPath>
-    </Reference>
     <Reference Include="SevenZipExtractor">
       <HintPath>..\libs\SevenZipExtractor.dll</HintPath>
     </Reference>
     <Reference Include="OggVorbis.NET64">
       <HintPath>..\vendor\native\x64\OggVorbis.NET64.dll</HintPath>
-    </Reference>
-    <Reference Include="IniLibrary">
-      <HintPath>..\libs\IniLibrary.dll</HintPath>
     </Reference>
   </ItemGroup>
 
