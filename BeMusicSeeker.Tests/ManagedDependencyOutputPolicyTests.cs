@@ -121,6 +121,36 @@ public sealed class ManagedDependencyOutputPolicyTests
             "The lock file must retain the win-x64 target graph used by self-contained publish.");
     }
 
+    [TestMethod]
+    public void TestProjectOwnsLockedTestHostDependencyGraph()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        XDocument project = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"));
+        XElement projectRoot = project.Root ?? throw new AssertFailedException("Test project XML has no root element.");
+
+        Assert.AreEqual(
+            "true",
+            (string)projectRoot.Elements("PropertyGroup").Elements("RestorePackagesWithLockFile").Single(),
+            "The test project must own a packages.lock.json for deterministic testhost restore.");
+        XElement testSdkReference = projectRoot
+            .Elements("ItemGroup")
+            .Elements("PackageReference")
+            .Single(reference => string.Equals((string)reference.Attribute("Include"), "Microsoft.NET.Test.Sdk", StringComparison.Ordinal));
+        Assert.AreEqual("18.8.1", (string)testSdkReference.Attribute("Version"));
+
+        string lockPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "packages.lock.json");
+        Assert.IsTrue(File.Exists(lockPath), "The test project lock file must be tracked beside its project.");
+        using JsonDocument lockDocument = JsonDocument.Parse(File.ReadAllText(lockPath));
+        JsonElement dependencies = lockDocument.RootElement.GetProperty("dependencies");
+        JsonElement targetDependencies = dependencies.GetProperty("net10.0-windows7.0");
+        JsonElement sdk = targetDependencies.GetProperty("Microsoft.NET.Test.Sdk");
+        Assert.AreEqual("18.8.1", sdk.GetProperty("resolved").GetString());
+        Assert.AreEqual("Direct", sdk.GetProperty("type").GetString());
+        Assert.IsTrue(
+            dependencies.TryGetProperty("net10.0-windows7.0/win-x64", out _),
+            "The test lock file must retain the win-x64 target graph used by the solution restore.");
+    }
+
     private static string FindRepositoryRoot()
     {
         string? directoryPath = AppContext.BaseDirectory;

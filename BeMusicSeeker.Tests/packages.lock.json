@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "Microsoft.NET.Test.Sdk": {
+        "type": "Direct",
+        "requested": "[18.8.1, )",
+        "resolved": "18.8.1",
+        "contentHash": "dknJL3/9Y3t4XuCBqnc0PevPxgLsUMmVhjwup/b1HNovA8zWcj3XsfIf7c6p05363DWcqL7X/YhDL9B+Zymv1w==",
+        "dependencies": {
+          "Microsoft.CodeCoverage": "18.8.1",
+          "Microsoft.TestPlatform.TestHost": "18.8.1"
+        }
+      },
+      "MSTest.TestAdapter": {
+        "type": "Direct",
+        "requested": "[3.6.4, )",
+        "resolved": "3.6.4",
+        "contentHash": "YdwseRA+nDhRqD2oPHjCE4KzLEN5B10A61lOslE3N3OvUwHJ6ezyZZjYWf7mrZ8jckCcx/UlBclTzgWUpMpPQw==",
+        "dependencies": {
+          "Microsoft.Testing.Extensions.VSTestBridge": "1.4.3",
+          "Microsoft.Testing.Platform.MSBuild": "1.4.3"
+        }
+      },
+      "MSTest.TestFramework": {
+        "type": "Direct",
+        "requested": "[3.6.4, )",
+        "resolved": "3.6.4",
+        "contentHash": "3nV+2CJluKmiJpCSqQfXu5idCq35+vqFywjScyauTIz0Zk7KJw7Qpzv8gtwow0To7pxIlIvwkq9rbMB+V6eOow=="
+      },
+      "Microsoft.ApplicationInsights": {
+        "type": "Transitive",
+        "resolved": "2.22.0",
+        "contentHash": "3AOM9bZtku7RQwHyMEY3tQMrHIgjcfRDa6YQpd/QG2LDGvMydSlL9Di+8LLMt7J2RDdfJ7/2jdYv6yHcMJAnNw=="
+      },
+      "Microsoft.CodeCoverage": {
+        "type": "Transitive",
+        "resolved": "18.8.1",
+        "contentHash": "Eclse/ZZjr4lmWzZFNN9h/OluhKL+SK/QbUyKUewgX139aGeyMEO/DkMPwuFs2MixvanTnz6891rF8UHDg+W4Q=="
+      },
+      "Microsoft.Testing.Extensions.Telemetry": {
+        "type": "Transitive",
+        "resolved": "1.4.3",
+        "contentHash": "dh8jnqWikxQXJ4kWy8B82PtSAlQCnvDKh1128arDmSW5OU5xWA84HwruV3TanXi3ZjIHn1wWFCgtMOhcDNwBow==",
+        "dependencies": {
+          "Microsoft.ApplicationInsights": "2.22.0",
+          "Microsoft.Testing.Platform": "1.4.3"
+        }
+      },
+      "Microsoft.Testing.Extensions.TrxReport.Abstractions": {
+        "type": "Transitive",
+        "resolved": "1.4.3",
+        "contentHash": "16sWznD6ZMok/zgW+vrO6zerCFMD9N+ey9bi1iV/e9xxsQb4V4y/aW6cY/Y7E9jA7pc+aZ6ffZby43yxQOoYZA==",
+        "dependencies": {
+          "Microsoft.Testing.Platform": "1.4.3"
+        }
+      },
+      "Microsoft.Testing.Extensions.VSTestBridge": {
+        "type": "Transitive",
+        "resolved": "1.4.3",
+        "contentHash": "xZ6oyNYh2aM5Wb+HJAy1fj2C4CNRVhINXHCjlWs/2C8hEIpdqVSpP3y6HWUN40KpFqyGD4myHGR1Rflm28UpcQ==",
+        "dependencies": {
+          "Microsoft.ApplicationInsights": "2.22.0",
+          "Microsoft.TestPlatform.ObjectModel": "17.11.1",
+          "Microsoft.Testing.Extensions.Telemetry": "1.4.3",
+          "Microsoft.Testing.Extensions.TrxReport.Abstractions": "1.4.3",
+          "Microsoft.Testing.Platform": "1.4.3"
+        }
+      },
+      "Microsoft.Testing.Platform": {
+        "type": "Transitive",
+        "resolved": "1.4.3",
+        "contentHash": "NedIbwl1T7+ZMeg7gwk0Db8/RFLf0siyVpeTcRMMOle6Xl/ujaYOM4Aduo8rEfVqNj3kcQ7blegpyT3dHi+0PA=="
+      },
+      "Microsoft.Testing.Platform.MSBuild": {
+        "type": "Transitive",
+        "resolved": "1.4.3",
+        "contentHash": "1gGqgHtiZ6tZn/6Tby+qlKpNe5Ye/5LnxlSsyl4XMZ4m4V+Cu1K1m+gD1zxoxHIvLjgX8mCnQRK95MGBBFuumw==",
+        "dependencies": {
+          "Microsoft.Testing.Platform": "1.4.3"
+        }
+      },
+      "Microsoft.TestPlatform.ObjectModel": {
+        "type": "Transitive",
+        "resolved": "18.8.1",
+        "contentHash": "qLbktNB1+b1XZLNJBTzaWVVJAd6PEzD7cgD406geMb6PcFZhp3EDNa1tctWx1+mtMU6MP/6ozVvFPC9vs2a9rw=="
+      },
+      "Microsoft.TestPlatform.TestHost": {
+        "type": "Transitive",
+        "resolved": "18.8.1",
+        "contentHash": "FaQHPDTUOcE+SFTjssNPfrub2lT9Zyon4J2W/KLHt/efLJACb1TCeWXyOgh0D/4Q1e4n+S3E6mOKud+9nLZlEA==",
+        "dependencies": {
+          "Microsoft.TestPlatform.ObjectModel": "18.8.1"
+        }
+      },
+      "Newtonsoft.Json": {
+        "type": "Transitive",
+        "resolved": "13.0.4",
+        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
+      },
+      "NLog": {
+        "type": "Transitive",
+        "resolved": "6.1.4",
+        "contentHash": "ft6Lv17uoFuHTGWiY47FEXH7VA5HMHp973zodaOZAJyFg6mHL9RdXjqdNkRJXFo5plQJR+LPt5e6aAZU8KSDog=="
+      },
+      "bemusicseeker": {
+        "type": "Project",
+        "dependencies": {
+          "NLog": "[6.1.4, )",
+          "Newtonsoft.Json": "[13.0.4, )"
+        }
+      }
+    },
+    "net10.0-windows7.0/win-x64": {}
+  }
+}

@@ -150,7 +150,7 @@ function Assert-ReleaseOutputLayout {
 Push-Location $repoRoot
 try {
     if ($Mode -eq 'Full') {
-        Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64'
+        Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode'
         Invoke-CheckedCommand dotnet tool restore
     }
 

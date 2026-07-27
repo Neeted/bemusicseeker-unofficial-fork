@@ -25,7 +25,7 @@ Full verificationは`3401 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 - active outcome: `NET10-02 Managed package and configuration baseline`
 - active execution package: `.NET 10 managed dependency and configuration`
 - execution anchor: `NET10-02 managed package/configuration corridor`
-- planner state: M4 completed; planner is required once for the next NET10-02 route
+- planner state: M5 completed; planner is required once for the next NET10-02 route
 
 ## Active implementation batch
 
@@ -38,8 +38,9 @@ Full verificationは`3401 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `M2 JSON-CONTRACT` | completed | Newtonsoft.Json／persisted and external JSON corridor | Newtonsoft.Json 13.0.4、既存 JSON owner、settings／file／DB／update contract、package／publish evidence |
 | `M3 RESOURCE-ICONS` | completed | System.Resources.Extensions／embedded resource runtime corridor | 11 Images.resx icons、typed Icon accessors、XAML converter route、resource package／publish ownership |
 | `M4 CFG-RUNTIME` | completed | System.Configuration／settings runtime corridor | ConfigurationManager 10.0.10、app.config framework seam退役、Properties.Settings／portable migration／long-path behavior、publish resolution |
+| `M5 TEST-HOST` | completed | .NET 10 test execution host／deterministic restore corridor | Test SDK 18.8.1、test project lock、win-x64 locked restore、discovery／diagnostics／publish exclusion |
 
-active／pending unitがある間はunit-plannerを再起動しない。M4完了後、残るNET10-02 routeへplannerを一度だけ起動する。各unitのstatus更新は対応するproduction code commitへ含める。
+active／pending unitがある間はunit-plannerを再起動しない。M5完了後、残るNET10-02 routeへplannerを一度だけ起動する。各unitのstatus更新は対応するcode commitへ含める。
 
 ## Review evidence
 
