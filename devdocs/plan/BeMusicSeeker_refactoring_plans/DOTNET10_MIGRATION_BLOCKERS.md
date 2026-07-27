@@ -6,7 +6,6 @@
 
 | ID | State | Blocking condition | Owner | Exit evidence |
 |---|---|---|---|---|
-| `DEP-OS-01` | queued | Windows API Code Pack folder picker／host boundary | `NET10-03` | WPF folder pickerへ移行、legacy Code Pack HintPath／binary削除、folder-dialog／UI smoke |
 | `DEP-HELPER-01` | queued | QuickConverter、DynamicJson、SgmlReader、unused managed DLL | `NET10-04` | grouped replacements、golden tests、legacy refs削除 |
 | `DB-01` | in-progress | sqlite.net／hand-placed sqlite3のprovider／ABI／data compatibility | `NET10-05` | startup DB-open、existing DB、transaction、2 tools、native bundle verification |
 | `NATIVE-01` | queued | archive、audio、Everythingのversion／license／publish load未確定 | `NET10-06` | dependency register completed、x64 runtime smoke |

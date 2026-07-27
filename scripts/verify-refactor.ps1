@@ -157,7 +157,9 @@ function Assert-ReleaseOutputLayout {
         'Microsoft.Expression.Effects.dll',
         'MetroRadiance.dll',
         'MetroRadiance.Core.dll',
-        'MetroRadiance.Chrome.dll')) {
+        'MetroRadiance.Chrome.dll',
+        'Microsoft.WindowsAPICodePack.dll',
+        'Microsoft.WindowsAPICodePack.Shell.dll')) {
         $removedWpfLegacyAssemblyPath = Join-Path $outputDirectory $removedWpfLegacyAssembly
         if (Test-Path -LiteralPath $removedWpfLegacyAssemblyPath -PathType Leaf) {
             throw "Release output contains retired WPF legacy assembly: $removedWpfLegacyAssemblyPath"

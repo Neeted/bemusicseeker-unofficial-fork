@@ -10,7 +10,7 @@ It is intentionally used as both a migration checklist and an architecture-test 
 - Command shape:
 
 ```powershell
-rg -n "DispatcherMessageBox\.Show|internal static class DispatcherMessageBox|internal static class UiDialogLegacyAdapter|UiDialogLegacyAdapter\.ShowMessageBox|System\.Windows\.MessageBox\.Show|MessageBox\.Show\(|new ConfirmationMessage|InteractionMessageAction<FrameworkElement>|RaiseInteractionMessageOnUiThread|InteractionMessageTrigger|MessageKey=|CommonOpenFileDialog|OpenFileDialog|SaveFileDialog|FolderBrowserDialog|\.ShowDialog\(|ProgressDialog\.Execute|ProgressDialog\.Current" BeMusicSeeker -g "*.cs" -g "*.xaml"
+rg -n "DispatcherMessageBox\.Show|internal static class DispatcherMessageBox|internal static class UiDialogLegacyAdapter|UiDialogLegacyAdapter\.ShowMessageBox|System\.Windows\.MessageBox\.Show|MessageBox\.Show\(|new ConfirmationMessage|InteractionMessageAction<FrameworkElement>|RaiseInteractionMessageOnUiThread|InteractionMessageTrigger|MessageKey=|CommonOpenFileDialog|OpenFileDialog|OpenFolderDialog|SaveFileDialog|FolderBrowserDialog|\.ShowDialog\(|ProgressDialog\.Execute|ProgressDialog\.Current" BeMusicSeeker -g "*.cs" -g "*.xaml"
 ```
 
 ## Route Counts
@@ -30,8 +30,9 @@ These counts are refreshed as implementation units complete. They should monoton
 | `RaiseInteractionMessageOnUiThread` | 0 | Livet interaction dispatch |
 | `InteractionMessageTrigger` | 0 | Livet interaction dispatch |
 | `MessageKey=` | 0 | Livet interaction dispatch |
-| `CommonOpenFileDialog` | 3 | common picker |
-| `OpenFileDialog` | 3 | open picker |
+| `CommonOpenFileDialog` | 0 | retired Code Pack picker |
+| `OpenFileDialog` | 1 | WPF coordinator open-file picker |
+| `OpenFolderDialog` | 1 | WPF coordinator folder picker |
 | `SaveFileDialog` | 1 | save picker |
 | `FolderBrowserDialog` | 0 | legacy folder picker |
 | `.ShowDialog(` | 5 | window / picker modal |
@@ -64,7 +65,6 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
 | `BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs` | emergency native message box boundary | Unit 7 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress / picker display component bridge | Unit 4, Unit 5 |
-| `BeMusicSeeker/Views/Dialogs/UiFilePickerUtilities.cs` | picker display component utility | Unit 5 |
 
 ## Route Classification Axes
 

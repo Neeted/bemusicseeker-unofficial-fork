@@ -98,12 +98,12 @@ Exit:
 
 1. Livetは現行API利用をinventoryし、`LivetCask`候補へverticalに移行する。notification、command、dispatcher、lifetime semanticsをtestsで比較する。
 2. behavior callerが残る場合は`Microsoft.Xaml.Behaviors.Wpf`へ移す。現在のMainWindow／dialog routeではdirect behaviorを退役し、LivetCaskのlocked transitive runtimeだけを保持する。
-3. folder pickerはWPFの`Microsoft.Win32.OpenFolderDialog`へ移し、Windows API Code Packを削除する。
+3. file／folder pickerはWPFの`Microsoft.Win32.OpenFileDialog`／`OpenFolderDialog`へ移し、Windows API Code Packを削除する。
 4. MetroRadiance chromeとExpression drawing／effectsはWPF `WindowChrome`、resource、Path／Geometryへ置換する。
 
 Exit:
 
--旧Livet、Interactivity、Expression、MetroRadiance、Windows API Code PackのHintPathがない。
+-旧Livet、Interactivity、Expression、MetroRadiance、Windows API Code PackのHintPathがない。updaterの旧install cleanupだけは維持する。
 - main windows／dialogs／drag／command／selection／shutdown smokeが通る。
 
 ### `NET10-04 Converter, JSON and document helpers`

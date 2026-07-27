@@ -20,7 +20,7 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | `DEP-UI-02` | System.Windows.Interactivity／Expression Interactions | legacy XAML behavior namespace | direct callerを退役し、LivetCaskのlocked transitive `Microsoft.Xaml.Behaviors.Wpf` 1.1.31だけをruntime closureとして保持 | Microsoft.Xaml.Behaviors.Wpf 1.1.31 (transitive) | `NET10-03` |
 | `DEP-UI-03` | MetroRadiance 3 DLL | Window chrome usageが限定的 | WPF WindowChrome／Window.IsActive resourceへ置換し削除 | package更新ではなくremove | `NET10-03` |
 | `DEP-UI-04` | Expression Drawing／Effects | XAML search glyph | WPF Ellipse／Path／Geometryへ置換し削除 | remove | `NET10-03` |
-| `DEP-OS-01` | Windows API Code Pack 2 DLL | folder pickerが主用途 | WPF OpenFolderDialogへ置換し削除 | framework API | `NET10-03` |
+| `DEP-OS-01` | retired Windows API Code Pack 2 DLL | file／folder picker | WPF OpenFileDialog／OpenFolderDialogへ置換し、HintPath／tracked binary／現行noticeを削除。updaterの旧install cleanupだけは保持 | framework API | `NET10-03` |
 | `DEP-XAML-01` | QuickConverter HintPath | XAMLで広範な式変換 | feature family単位でtyped converter／projectionへ置換 | remove | `NET10-04` |
 | `DEP-JSON-02` | DynamicJson HintPath | external JSONのdynamic access | explicit JSON boundaryへ置換。semanticsをgolden test化 | Newtonsoft.Json／System.Text.Json | `NET10-04` |
 | `DEP-DOC-01` | SgmlReaderDll HintPath | playlist／HTML parse | maintained packageへ置換しfixture比較 | Microsoft.Xml.SgmlReader 1.8.30 | `NET10-04` |
@@ -52,6 +52,12 @@ NET10-02のmanaged packageは公式NuGet packageをsourceとし、version author
 | `DEP-UI-02` | WPF framework API; LivetCask transitive `Microsoft.Xaml.Behaviors.Wpf` 1.1.31 / MIT | app lock／LivetCask package graph | MainWindow／dialog XAMLにlegacy interaction namespace／behavior callerがなく、transitive behavior assemblyだけをpublishへ含めることを確認 |
 | `DEP-UI-03` | WPF framework `WindowChrome`／`Window.IsActive` | app project | MainWindowのcaption command／hit-test、active appearance、maximized marginをnative WPF routeで維持し、MetroRadiance DLL／HintPath／現行noticeを削除 |
 | `DEP-UI-04` | WPF `Ellipse`／`Path`／`Geometry` | app project | chart／playlist summary両search glyphをnative WPF shapeへ置換し、Expression Drawing／Effects DLL／現行noticeを削除 |
+
+## NET10-03 L3 closure evidence
+
+| ID | Source / license | Version authority / lock owner | Evidence |
+|---|---|---|---|
+| `DEP-OS-01` | WPF framework `OpenFileDialog`／`OpenFolderDialog` | app project | UiDialogCoordinatorのfile／folder routeをframework dialogへ置換し、typed file／folder result、filter／initial directory、multi-select、failure contract、all production callers、portable layout、updater legacy cleanup、現行notice／tracked Code Pack binary削除を確認 |
 
 ## Vendor / native dependencies
 

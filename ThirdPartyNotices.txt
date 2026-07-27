@@ -70,20 +70,6 @@ Redistribution Notes:
 - Repository binary SHA256 matches NuGet 1.0.19 lib/net45 artifact.
 - Keep MIT text with distribution.
 
-================================================================================
-================================================================================
-6) Windows API Code Pack
-================================================================================
-Status: GREEN
-Component: Microsoft.WindowsAPICodePack.dll, Microsoft.WindowsAPICodePack.Shell.dll
-Copyright: Microsoft Corporation
-License: MIT
-Source: https://www.nuget.org/packages/WindowsAPICodePack/
-License Text: third_party/licenses/06-WindowsAPICodePack-MIT.txt
-Redistribution Notes:
-- Include MS-PL text in distribution.
-
-================================================================================
 7) LivetCask runtime
 ================================================================================
 Status: GREEN
@@ -291,8 +277,7 @@ Conditionally releasable with minor remediation (YELLOW):
 (None)
 
 Ready for release (GREEN):
-- 7z.dll, Livet, QuickConverter, DynamicJson,
-  Windows API Code Pack, NLog, MIT runtime dependencies for .NET,
+- 7z.dll, Livet, QuickConverter, DynamicJson, NLog, MIT runtime dependencies for .NET,
   System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,

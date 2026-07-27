@@ -5157,7 +5157,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void CommonOpenFileDialogActions_ReplaceLegacyDialogsAndSupportStandaloneMultiSelect()
+    public void WpfFileDialogRoutes_SupportStandaloneMultiSelect()
     {
         string root = FindRepositoryRoot();
         string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
@@ -5212,7 +5212,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual("bmp", inferDefaultExtensionMethod.Invoke(null, [string.Empty, "Image file|*.bmp;*.gif;*.jpg;*.jpeg;*.png|すべてのファイル(*.*)|*.*"]));
         Assert.IsNull(inferDefaultExtensionMethod.Invoke(null, [string.Empty, "すべてのファイル(*.*)|*.*"]));
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
-        StringAssert.Contains(coordinatorCode, "dialog.DefaultExtension = defaultExtension.TrimStart('.');");
+        StringAssert.Contains(coordinatorCode, "dialog.DefaultExt = \".\" + defaultExtension.TrimStart('.');");
         StringAssert.Contains(coordinatorCode, "UiFilePickerUtilities.InferDefaultExtension(request.FileName, request.Filter)");
         StringAssert.Contains(settingDialogCode, "\"|config.xm?|");
         StringAssert.Contains(settingDialogCode, "\"song.db (*.db)|*.db|");

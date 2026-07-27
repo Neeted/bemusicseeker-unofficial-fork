@@ -145,7 +145,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 title,
                 selectedPath,
                 multiselect: false,
-                ensurePathExists: true,
                 owner: Window.GetWindow(this)))
             .GetAwaiter()
             .GetResult();
@@ -164,7 +163,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 title,
                 selectedPath,
                 multiselect: false,
-                ensurePathExists: true,
                 owner: Window.GetWindow(this)))
             .GetAwaiter()
             .GetResult();
@@ -326,7 +324,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
             .PickFolderAsync(new UiFolderPickerRequest(
                 selectedPath: settingDialogViewModel.AvailableBMSDirectories?.FirstOrDefault(),
                 multiselect: false,
-                ensurePathExists: true,
                 owner: Window.GetWindow(this)))
             .GetAwaiter()
             .GetResult();
@@ -545,7 +542,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
             BeMusicSeeker.Properties.Resources.Add_BMSDirectory,
             settingDialogViewModel.SelectedBmsSearchRootPath,
             multiselect: true,
-            ensurePathExists: true,
             Window.GetWindow(this)))
             .GetAwaiter()
             .GetResult();
@@ -566,7 +562,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
             BeMusicSeeker.Properties.Resources.Playlist_output_additional,
             settingDialogViewModel.SelectedCustomFolderAdditionalOutputBaseDir ?? settingDialogViewModel.LR2CustomFolderOutputDir,
             multiselect: true,
-            ensurePathExists: true,
             Window.GetWindow(this)))
             .GetAwaiter()
             .GetResult();

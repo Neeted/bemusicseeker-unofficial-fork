@@ -166,7 +166,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             .PickFolderAsync(new UiFolderPickerRequest(
                 selectedPath: viewModel.LibraryFolderTree.BMSParentFolderList?.FirstOrDefault(),
                 multiselect: false,
-                ensurePathExists: true,
                 owner: this));
         ThrowIfPickerFailed(result.Status, result.Error, "Main window add root folder picker");
         if (result.Status == UiDialogStatus.Accepted)

@@ -18,14 +18,14 @@
 - reason: B1/B2のproduction route、behavior tests、Full verification、Release UI smoke、fresh outcome reviewを完了した
 - .NET 10 migration readiness: architecture is sufficient to start after terminal closure; dependency／runtime／deployment migration remains
 
-Full verificationは`3401 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10-01 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
+Full verificationは`3410 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
 
 ## Active outcome
 
-- active outcome: `NET10-03 WPF dependency modernization`
-- active execution package: `.NET 10 WPF dependency modernization`
-- execution anchor: `NET10-03 WPF package/API corridor`
-- planner state: active batch materialized; planner is not required
+- active outcome: `NET10-04 Converter, JSON and document helpers`
+- active execution package: `.NET 10 helper dependency modernization`
+- execution anchor: `NET10-04 helper replacement corridor`
+- planner state: empty batch; planner is required once
 
 ## Active implementation batch
 
@@ -42,8 +42,9 @@ Full verificationは`3401 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `M6 PACKAGE-GATE` | completed | central package version／analyzer gate corridor | Directory.Packages.props、app／test lock ownership、Roslynator 4.15.0、locked restore、runtime／publish exclusion |
 | `L1 LIVET-RUNTIME` | completed | LivetCask WPF presentation runtime corridor | LivetCask Core／Mvvm／EventListeners 4.0.2、通知／dispatcher／command／listener／lifetime behavior、legacy Livet asset retirement |
 | `L2 WPF-CHROME` | completed | native WPF chrome／legacy behavior-visual closure | MainWindow chrome、activation appearance、caption command／hit-test、search glyph、legacy Interactivity／Expression／Metro route retirement |
+| `L3 WPF-PICKERS` | completed | WPF file／folder picker corridor and Code Pack retirement | UiDialogCoordinatorのfile／folder route、picker result／failure contract、全production caller、portable layout、updater cleanup、dependency／blocker closure |
 
-active／pending unitがある間はunit-plannerを再起動しない。`L2 WPF-CHROME`のstatus更新を対応するcode commitへ含め、commit後に次のNET10-03 routeへplannerを一度だけ起動する。
+active／pending unitがある間はunit-plannerを再起動しない。`L3 WPF-PICKERS`を同じproduction code commitで完了し、次に`NET10-04`の最初の未完routeへplannerを一度だけ起動する。
 
 ## Review evidence
 
@@ -69,7 +70,7 @@ active／pending unitがある間はunit-plannerを再起動しない。`L2 WPF-
 
 ## Next outcome
 
-- active outcome: `NET10-03 WPF dependency modernization`
-- active execution package: `.NET 10 WPF dependency modernization`
-- execution anchor: `NET10-03 WPF package/API corridor`
-- active implementation batch: empty; planner is required once for the next NET10-03 route
+- active outcome: `NET10-04 Converter, JSON and document helpers`
+- active execution package: `.NET 10 helper dependency modernization`
+- execution anchor: `NET10-04 helper replacement corridor`
+- active implementation batch: empty; planner is required once

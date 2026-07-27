@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
-using Microsoft.WindowsAPICodePack.Dialogs;
 using Parago.Windows;
 
 namespace BeMusicSeeker.Views.Dialogs;
@@ -356,31 +355,9 @@ internal sealed class UiDialogCoordinator : IUiDialogService
 
         try
         {
-            using var dialog = new CommonOpenFileDialog
-            {
-                Title = request.Title,
-                IsFolderPicker = false,
-                EnsureFileExists = request.EnsureFileExists,
-                EnsurePathExists = request.EnsurePathExists,
-                Multiselect = request.Multiselect,
-                DefaultFileName = request.FileName
-            };
-            string defaultExtension = request.DefaultExtension;
-            if (string.IsNullOrWhiteSpace(defaultExtension))
-            {
-                defaultExtension = UiFilePickerUtilities.InferDefaultExtension(request.FileName, request.Filter);
-            }
-            if (!string.IsNullOrWhiteSpace(defaultExtension))
-            {
-                dialog.DefaultExtension = defaultExtension.TrimStart('.');
-            }
-            UiFilePickerUtilities.SetInitialDirectory(dialog, request.InitialDirectory);
-            foreach (Tuple<string, string> filter in UiFilePickerUtilities.ParseFilterPairs(request.Filter))
-            {
-                dialog.Filters.Add(new CommonFileDialogFilter(filter.Item1, filter.Item2));
-            }
+            OpenFileDialog dialog = CreateOpenFileDialog(request);
 
-            return dialog.ShowDialog(owner) == CommonFileDialogResult.Ok
+            return dialog.ShowDialog(owner) == true
                 ? new UiFilePickerResult(UiDialogStatus.Accepted, dialog.FileNames)
                 : new UiFilePickerResult(UiDialogStatus.CancelledByUser);
         }
@@ -400,22 +377,50 @@ internal sealed class UiDialogCoordinator : IUiDialogService
 
         try
         {
-            using var dialog = new CommonOpenFileDialog
-            {
-                Title = request.Title,
-                IsFolderPicker = true,
-                EnsurePathExists = request.EnsurePathExists,
-                Multiselect = request.Multiselect
-            };
-            UiFilePickerUtilities.SetInitialDirectory(dialog, request.SelectedPath);
-            return dialog.ShowDialog(owner) == CommonFileDialogResult.Ok
-                ? new UiFolderPickerResult(UiDialogStatus.Accepted, dialog.FileNames)
+            OpenFolderDialog dialog = CreateOpenFolderDialog(request);
+            return dialog.ShowDialog(owner) == true
+                ? new UiFolderPickerResult(UiDialogStatus.Accepted, dialog.FolderNames)
                 : new UiFolderPickerResult(UiDialogStatus.CancelledByUser);
         }
         catch (Exception ex)
         {
             return new UiFolderPickerResult(UiDialogStatus.Failed, error: ex);
         }
+    }
+
+    private static OpenFileDialog CreateOpenFileDialog(UiFilePickerRequest request)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = request.Title,
+            FileName = request.FileName,
+            InitialDirectory = UiFilePickerUtilities.ResolveInitialDirectory(request.InitialDirectory),
+            Filter = UiFilePickerUtilities.BuildFilter(request.Filter),
+            CheckFileExists = request.EnsureFileExists,
+            CheckPathExists = request.EnsurePathExists,
+            Multiselect = request.Multiselect
+        };
+        string defaultExtension = request.DefaultExtension;
+        if (string.IsNullOrWhiteSpace(defaultExtension))
+        {
+            defaultExtension = UiFilePickerUtilities.InferDefaultExtension(request.FileName, request.Filter);
+        }
+        if (!string.IsNullOrWhiteSpace(defaultExtension))
+        {
+            dialog.DefaultExt = "." + defaultExtension.TrimStart('.');
+            dialog.AddExtension = true;
+        }
+        return dialog;
+    }
+
+    private static OpenFolderDialog CreateOpenFolderDialog(UiFolderPickerRequest request)
+    {
+        return new OpenFolderDialog
+        {
+            Title = request.Title,
+            InitialDirectory = UiFilePickerUtilities.ResolveInitialDirectory(request.SelectedPath),
+            Multiselect = request.Multiselect
+        };
     }
 
     private UiSaveFilePickerResult PickSaveFileCore(UiSaveFilePickerRequest request)

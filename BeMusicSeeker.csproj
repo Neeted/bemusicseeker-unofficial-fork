@@ -107,12 +107,6 @@
     <Reference Include="QuickConverter">
       <HintPath>libs\QuickConverter.dll</HintPath>
     </Reference>
-    <Reference Include="Microsoft.WindowsAPICodePack.Shell">
-      <HintPath>libs\Microsoft.WindowsAPICodePack.Shell.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.WindowsAPICodePack">
-      <HintPath>libs\Microsoft.WindowsAPICodePack.dll</HintPath>
-    </Reference>
     <Reference Include="DynamicJson">
       <HintPath>libs\DynamicJson.dll</HintPath>
     </Reference>

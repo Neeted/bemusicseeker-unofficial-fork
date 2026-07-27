@@ -69,20 +69,6 @@ BeMusicSeeker サードパーティ・ノーティス
 - リポジトリのバイナリのSHA256値が、NuGet 1.0.19 lib/net45 のファイルと一致していることを確認済みです。
 - MITライセンス本文を配布物に同梱してください。
 
-================================================================================
-================================================================================
-6) Windows API Code Pack
-================================================================================
-ステータス: GREEN
-コンポーネント: Microsoft.WindowsAPICodePack.dll, Microsoft.WindowsAPICodePack.Shell.dll
-著作権所有者: Microsoft Corporation
-ライセンス: MIT
-ソース: https://www.nuget.org/packages/WindowsAPICodePack/
-ライセンス本文: third_party/licenses/06-WindowsAPICodePack-MIT.txt
-再配布時の注意事項:
-- ライセンス本文を配布物に同梱してください。
-
-================================================================================
 7) LivetCask ランタイム
 ================================================================================
 ステータス: GREEN
@@ -290,8 +276,7 @@ GitHub リリース準備状況におけるアクション・サマリー
 (なし)
 
 準備完了（GREEN）:
-- 7z.dll, Livet, QuickConverter, DynamicJson,
-  Windows API Code Pack, NLog, .NET の MIT ランタイム依存関係,
+- 7z.dll, Livet, QuickConverter, DynamicJson, NLog, .NET の MIT ランタイム依存関係,
   System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,

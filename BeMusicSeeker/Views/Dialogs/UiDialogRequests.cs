@@ -335,13 +335,11 @@ internal sealed class UiFolderPickerRequest
         string title = null,
         string selectedPath = null,
         bool multiselect = false,
-        bool ensurePathExists = true,
         Window owner = null)
     {
         Title = title;
         SelectedPath = selectedPath;
         Multiselect = multiselect;
-        EnsurePathExists = ensurePathExists;
         Owner = owner;
     }
 
@@ -350,8 +348,6 @@ internal sealed class UiFolderPickerRequest
     internal string SelectedPath { get; }
 
     internal bool Multiselect { get; }
-
-    internal bool EnsurePathExists { get; }
 
     internal Window Owner { get; }
 }

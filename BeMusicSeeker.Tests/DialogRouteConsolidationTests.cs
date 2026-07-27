@@ -27,6 +27,7 @@ public sealed class DialogRouteConsolidationTests
         new Regex(@"MessageKey=", RegexOptions.Compiled),
         new Regex(@"CommonOpenFileDialog", RegexOptions.Compiled),
         new Regex(@"OpenFileDialog", RegexOptions.Compiled),
+        new Regex(@"OpenFolderDialog", RegexOptions.Compiled),
         new Regex(@"SaveFileDialog", RegexOptions.Compiled),
         new Regex(@"FolderBrowserDialog", RegexOptions.Compiled),
         new Regex(@"\.ShowDialog\(", RegexOptions.Compiled),

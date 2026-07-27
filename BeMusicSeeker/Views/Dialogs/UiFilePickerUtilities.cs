@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Microsoft.WindowsAPICodePack.Dialogs;
 
 namespace BeMusicSeeker.Views.Dialogs;
 
@@ -54,6 +53,17 @@ internal static class UiFilePickerUtilities
         return null;
     }
 
+    internal static string BuildFilter(string filter)
+    {
+        List<string> parts = [];
+        foreach (Tuple<string, string> filterPair in ParseFilterPairs(filter))
+        {
+            parts.Add(filterPair.Item1);
+            parts.Add(filterPair.Item2);
+        }
+        return string.Join("|", parts);
+    }
+
     internal static string ResolveInitialDirectory(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -76,16 +86,6 @@ internal static class UiFilePickerUtilities
         {
         }
         return null;
-    }
-
-    internal static void SetInitialDirectory(CommonOpenFileDialog dialog, string path)
-    {
-        string initialDirectory = ResolveInitialDirectory(path);
-        if (!string.IsNullOrWhiteSpace(initialDirectory))
-        {
-            dialog.InitialDirectory = initialDirectory;
-            dialog.DefaultDirectory = initialDirectory;
-        }
     }
 
     private static string GetExtensionWithoutDot(string pathOrPattern)
