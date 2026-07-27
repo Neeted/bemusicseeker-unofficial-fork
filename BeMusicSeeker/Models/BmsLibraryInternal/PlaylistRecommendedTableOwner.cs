@@ -9,7 +9,8 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
-using Codeplex.Data;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Ribbit.Net;
 using Ribbit.Util;
 using SQLite;
@@ -334,27 +335,34 @@ internal sealed class PlaylistRecommendedTableOwner
     {
         string input = httpClient.GetString(estimationJsonUri);
         input = workAroundRegex.Replace(input, "\"key${id}\":{");
-        dynamic dataJson = DynamicJson.Parse(input);
+        JObject dataJson = ParseJsonObject(input);
         BMSTable insane = GetInsaneTable() ?? throw new InvalidOperationException("Load insane table failed");
         BMSTable overjoy = GetOverjoyTable() ?? throw new InvalidOperationException("Load overjoy table failed");
-        var inner = ((IEnumerable<string>)dataJson.GetDynamicMemberNames())
-            .Select(item =>
+        var inner = dataJson.Properties()
+            .Select(property =>
             {
                 try
                 {
+                    JObject item = property.Value as JObject ?? throw new FormatException("estimation item must be an object.");
+                    string bmsid = null;
+                    EstimationHoshi hoshi = null;
+                    if (item.TryGetValue("bmsid", out JToken bmsIdToken))
+                    {
+                        bmsid = ParseRequiredInt(bmsIdToken).ToString();
+                        JObject hoshiObject = item["hoshi"] as JObject ?? throw new FormatException("estimation hoshi must be an object.");
+                        hoshi = new EstimationHoshi
+                        {
+                            easy = ParseRequiredNullableDouble(hoshiObject, "easy"),
+                            normal = ParseRequiredNullableDouble(hoshiObject, "normal"),
+                            hard = ParseRequiredNullableDouble(hoshiObject, "hard"),
+                            fc = ParseRequiredNullableDouble(hoshiObject, "fc")
+                        };
+                    }
                     return new EstimationData
                     {
-                        type = (string)dataJson[item].type,
-                        bmsid = dataJson[item].IsDefined("bmsid") ? ((int)dataJson[item].bmsid).ToString() : null,
-                        hoshi = dataJson[item].IsDefined("bmsid")
-                            ? new EstimationHoshi
-                            {
-                                easy = (double?)dataJson[item].hoshi.easy,
-                                normal = (double?)dataJson[item].hoshi.normal,
-                                hard = (double?)dataJson[item].hoshi.hard,
-                                fc = (double?)dataJson[item].hoshi.fc
-                            }
-                            : null
+                        type = ParseRequiredNullableString(item, "type"),
+                        bmsid = bmsid,
+                        hoshi = hoshi
                     };
                 }
                 catch
@@ -502,34 +510,36 @@ internal sealed class PlaylistRecommendedTableOwner
             }
         }
         Uri address = new(recommendJsonUriStr + lr2Id, UriKind.Absolute);
-        dynamic value = DynamicJson.Parse(httpClient.GetString(address));
-        if ((string)value.status != "success")
+        JObject value = ParseJsonObject(httpClient.GetString(address));
+        if (ParseRequiredNullableString(value, "status") != "success")
         {
-            notificationOwner.QueueWarning(string.Format(Resources.Warn_RecommendFetchFailed, (string)value.message), null);
+            notificationOwner.QueueWarning(string.Format(Resources.Warn_RecommendFetchFailed, ParseRequiredNullableString(value, "message")), null);
             throw new InvalidOperationException(Resources.Error_RecommendFetchFailed);
         }
-        double skill = (double)value.hoshi;
+        double skill = ParseRequiredDouble(value, "hoshi");
         DateTime lastModified = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)
-            .AddSeconds((int)value.last_modified)
+            .AddSeconds(ParseRequiredInt(value, "last_modified"))
             .ToLocalTime();
-        name = ((string)value.name).Replace('〜', '～');
+        name = ParseRequiredNullableString(value, "name").Replace('〜', '～');
         BMSTable insane = GetInsaneTable() ?? throw new InvalidOperationException("Load insane table failed");
         BMSTable overjoy = GetOverjoyTable() ?? throw new InvalidOperationException("Load overjoy table failed");
         IEnumerable<BMSTableEntry> sourceEntries = insane.entries.Concat(overjoy.entries)
             .Where(entry => !string.IsNullOrWhiteSpace(entry.md5) && !string.IsNullOrWhiteSpace(entry.lr2_bmsid))
             .GroupBy(entry => entry.md5)
             .Select(group => group.FirstOrDefault(entry => entry.parent == insane) ?? group.First());
-        List<BMSTableEntry> entries = [.. ((object[])value.recommended)
+        List<BMSTableEntry> entries = [.. ParseRequiredArray(value, "recommended")
             .Select(item =>
             {
                 try
                 {
+                    JObject itemObject = item as JObject ?? throw new FormatException("recommendation item must be an object.");
+                    JObject bms = itemObject["bms"] as JObject ?? throw new FormatException("recommendation bms must be an object.");
                     return new RecommendedData
                     {
-                        type = (string)((dynamic)item).bms.type,
-                        bmsid = ((dynamic)item).bms.IsDefined("bmsid") ? ((int)((dynamic)item).bms.bmsid).ToString() : null,
-                        new_lamp = (string)((dynamic)item).new_lamp,
-                        percent = (double?)((dynamic)item).p
+                        type = ParseRequiredNullableString(bms, "type"),
+                        bmsid = bms.TryGetValue("bmsid", out JToken bmsIdToken) ? ParseRequiredInt(bmsIdToken).ToString() : null,
+                        new_lamp = ParseRequiredNullableString(itemObject, "new_lamp"),
+                        percent = ParseRequiredNullableDouble(itemObject, "p")
                     };
                 }
                 catch
@@ -537,7 +547,7 @@ internal sealed class PlaylistRecommendedTableOwner
                     return null;
                 }
             })
-            .Where(entry => entry != null && entry.type != "course")
+            .Where(entry => entry != null && entry.type != "course" && entry.new_lamp != null)
             .ToList()
             .Join(sourceEntries, recommendation => recommendation.bmsid, entry => entry.lr2_bmsid, (recommendation, entry) =>
             {
@@ -588,6 +598,108 @@ internal sealed class PlaylistRecommendedTableOwner
         catch
         {
         }
+    }
+
+    private static string ParseNullableString(JObject source, string propertyName)
+    {
+        return source.TryGetValue(propertyName, out JToken token) ? ParseNullableString(token) : null;
+    }
+
+    private static string ParseRequiredNullableString(JObject source, string propertyName)
+    {
+        if (!source.TryGetValue(propertyName, out JToken token))
+        {
+            throw new FormatException("Required string property is missing: " + propertyName);
+        }
+        return ParseNullableString(token);
+    }
+
+    private static string ParseNullableString(JToken token)
+    {
+        return token.Type switch
+        {
+            JTokenType.Null => null,
+            JTokenType.String => token.Value<string>(),
+            _ => throw new FormatException("JSON value must be a string or null.")
+        };
+    }
+
+    private static int ParseRequiredInt(JObject source, string propertyName)
+    {
+        if (!source.TryGetValue(propertyName, out JToken token))
+        {
+            throw new FormatException("Required integer property is missing: " + propertyName);
+        }
+        return ParseRequiredInt(token);
+    }
+
+    private static int ParseRequiredInt(JToken token)
+    {
+        if (token.Type is not (JTokenType.Integer or JTokenType.Float))
+        {
+            throw new FormatException("JSON value must be numeric.");
+        }
+        double value = token.ToObject<double>();
+        double truncated = Math.Truncate(value);
+        if (double.IsNaN(truncated) || double.IsInfinity(truncated) || truncated < int.MinValue || truncated > int.MaxValue)
+        {
+            throw new FormatException("JSON number is outside the supported integer range.");
+        }
+        return (int)truncated;
+    }
+
+    private static double ParseRequiredDouble(JObject source, string propertyName)
+    {
+        if (!source.TryGetValue(propertyName, out JToken token) || token.Type is not (JTokenType.Integer or JTokenType.Float))
+        {
+            throw new FormatException("Required numeric property is missing or invalid: " + propertyName);
+        }
+        return token.ToObject<double>();
+    }
+
+    private static double? ParseNullableDouble(JObject source, string propertyName)
+    {
+        return source.TryGetValue(propertyName, out JToken token) ? ParseNullableDouble(token) : null;
+    }
+
+    private static double? ParseRequiredNullableDouble(JObject source, string propertyName)
+    {
+        if (!source.TryGetValue(propertyName, out JToken token))
+        {
+            throw new FormatException("Required numeric property is missing: " + propertyName);
+        }
+        return ParseNullableDouble(token);
+    }
+
+    private static double? ParseNullableDouble(JToken token)
+    {
+        return token.Type switch
+        {
+            JTokenType.Null => null,
+            JTokenType.Integer or JTokenType.Float => token.ToObject<double?>(),
+            _ => throw new FormatException("JSON value must be numeric or null.")
+        };
+    }
+
+    private static JArray ParseRequiredArray(JObject source, string propertyName)
+    {
+        return source.TryGetValue(propertyName, out JToken token) && token is JArray array
+            ? array
+            : throw new FormatException("Required array property is missing or invalid: " + propertyName);
+    }
+
+    private static JObject ParseJsonObject(string json)
+    {
+        using var reader = new JsonTextReader(new StringReader(json))
+        {
+            DateParseHandling = DateParseHandling.None
+        };
+        JToken token = JToken.ReadFrom(reader);
+        if (reader.Read())
+        {
+            throw new JsonReaderException("JSON document contains trailing content.");
+        }
+        return token as JObject ?? throw new FormatException("JSON document must be an object.");
     }
 
     private void UpdatedClearedSongs(string mode, int lr2Id, string name, string filter, string baseline)

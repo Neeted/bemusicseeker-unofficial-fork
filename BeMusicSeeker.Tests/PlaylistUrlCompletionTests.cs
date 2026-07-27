@@ -13,6 +13,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
@@ -67,6 +68,52 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(new Uri("https://example.com/diff-a"), snapshot.Candidates["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"].UrlDiff);
         Assert.AreEqual(new Uri("https://example.com/main-b"), snapshot.Candidates["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"].Url);
         Assert.IsNull(snapshot.Candidates["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"].UrlDiff);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ParseStellaUploadFullJson_PreservesCaseSensitiveAndWrongShapeFiltering()
+    {
+        string content = "["
+            + "{\"MD5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"url\":\"https://example.com/ignored\"},"
+            + "null,"
+            + "{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/accepted\"}"
+            + "]";
+
+        PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseStellaUploadFullJson(content);
+
+        Assert.AreEqual(1, snapshot.CandidateCount);
+        Assert.AreEqual(2, snapshot.IgnoredRowCount);
+        Assert.AreEqual(new Uri("https://example.com/accepted"), snapshot.Candidates["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"].Url);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ParseStellaUploadFullJson_RejectsTrailingDocument()
+    {
+        Assert.ThrowsException<JsonReaderException>(
+            () => PlaylistUrlCompletionSupport.ParseStellaUploadFullJson("[]{}"));
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BMSTableSimple_ParsesTypedCaseSensitiveFields()
+    {
+        var table = new BMSTableSimple(JObject.Parse("{\"symbol\":\"st\",\"name\":\"Table\",\"url\":\"https://example.com/table\",\"tag1\":\"First\",\"tag2\":\"Second\",\"TAG1\":\"ignored\"}"));
+
+        Assert.AreEqual("st", table.symbol);
+        Assert.AreEqual("Table", table.name);
+        Assert.AreEqual(new Uri("https://example.com/table"), table.url);
+        Assert.AreEqual("First", table.tag1);
+        Assert.AreEqual("Second", table.tag2);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BMSTableSimple_InvalidUrlPreservesFailureContract()
+    {
+        Assert.ThrowsException<UriFormatException>(
+            () => new BMSTableSimple(JObject.Parse("{\"name\":\"Table\",\"url\":\"http://[broken\"}")));
     }
 
     [TestMethod]

@@ -97,6 +97,71 @@ public sealed class PlaylistRecommendedTableOwnerTests
     }
 
     [TestMethod]
+    public void LoadWalkureTable_RecommendedSkipsInvalidRowsAndKeepsNumericContract()
+    {
+        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
+        var httpClient = new FakeHttpClient
+        {
+            GetStringHandler = _ => "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote\",\"recommended\":[null,{\"bms\":{\"type\":\"normal\",\"bmsid\":\"1001\"},\"new_lamp\":\"hard\",\"p\":4.25},{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"new_lamp\":\"clear\",\"p\":3.5}]}"
+        };
+        PlaylistRecommendedTableOwner owner = CreateOwner(
+            httpClient: httpClient,
+            externalTableLoader: uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : CreateTable());
+
+        BMSTable table = owner.LoadWalkureTable(new Uri("bmseeker:table.recommended?id=123&mode=readonly"));
+
+        Assert.AreEqual(1, table.entries.Count);
+        Assert.AreEqual("CLEAR", table.entries.Single().folder);
+        Assert.AreEqual(3.5, table.entries.Single().level);
+    }
+
+    [TestMethod]
+    public void LoadWalkureTable_RecommendedSkipsRowsWithMissingRequiredFields()
+    {
+        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
+        var httpClient = new FakeHttpClient
+        {
+            GetStringHandler = _ => "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0.5,\"name\":\"Remote\",\"recommended\":["
+                + "{\"bms\":{\"bmsid\":1001},\"new_lamp\":\"hard\",\"p\":4.25},"
+                + "{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"p\":4.25},"
+                + "{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"new_lamp\":\"hard\"},"
+                + "{\"bms\":{\"type\":\"normal\",\"bmsid\":1001.5},\"new_lamp\":\"clear\",\"p\":null}]}"
+        };
+        PlaylistRecommendedTableOwner owner = CreateOwner(
+            httpClient: httpClient,
+            externalTableLoader: uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : CreateTable());
+
+        BMSTable table = owner.LoadWalkureTable(new Uri("bmseeker:table.recommended?id=123&mode=readonly"));
+
+        Assert.AreEqual(1, table.entries.Count);
+        Assert.AreEqual("CLEAR", table.entries.Single().folder);
+        Assert.IsNull(table.entries.Single().level);
+    }
+
+    [TestMethod]
+    public void LoadWalkureTable_EstimationSkipsRowsWithMissingRequiredFields()
+    {
+        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
+        var httpClient = new FakeHttpClient
+        {
+            GetStringHandler = _ => "{\"1\":{\"bmsid\":999,\"hoshi\":{\"easy\":1.5,\"normal\":null,\"hard\":3,\"fc\":4},\"type\":\"normal\"},"
+                + "\"2\":{\"bmsid\":1001,\"hoshi\":{\"easy\":2.5,\"normal\":null,\"hard\":3,\"fc\":4}},"
+                + "\"3\":{\"bmsid\":1001.5,\"hoshi\":{\"easy\":3.5,\"normal\":null,\"hard\":3,\"fc\":4},\"type\":\"normal\"}}"
+        };
+        PlaylistRecommendedTableOwner owner = CreateOwner(
+            httpClient: httpClient,
+            externalTableLoader: uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : CreateTable());
+
+        BMSTable table = owner.LoadWalkureTable(new Uri("bmseeker:table.estimation?type=easy"));
+
+        Assert.AreEqual(1, table.entries.Count);
+        Assert.AreEqual(3.5, table.entries.Single().level);
+    }
+
+    [TestMethod]
     public void LoadWalkureTable_RecommendedFetchFailureQueuesWarningAndThrows()
     {
         var httpClient = new FakeHttpClient
@@ -117,6 +182,30 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Assert.AreEqual(1, receipt.Notifications.Count);
         StringAssert.Contains(receipt.Notifications[0].Message, "offline");
         Assert.AreEqual(1, httpClient.GetUris.Count);
+    }
+
+    [TestMethod]
+    public void LoadWalkureTable_RecommendedMissingDocumentFieldsFailsWithoutWarning()
+    {
+        foreach (string response in new[]
+        {
+            "{\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote\",\"recommended\":[]}",
+            "{\"status\":\"failed\",\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote\",\"recommended\":[]}",
+            "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0,\"recommended\":[]}"
+        })
+        {
+            var httpClient = new FakeHttpClient { GetStringHandler = _ => response };
+            var notificationOwner = new PlaylistOperationNotificationOwner();
+            PlaylistRecommendedTableOwner owner = CreateOwner(
+                httpClient: httpClient,
+                notificationOwner: notificationOwner);
+
+            using PlaylistOperationNotificationOwner.OperationNotificationSession session = notificationOwner.BeginSession();
+            Assert.ThrowsException<FormatException>(
+                () => owner.LoadWalkureTable(new Uri("bmseeker:table.recommended?id=123&mode=readonly")));
+
+            Assert.AreEqual(0, session.TakeReceipt().Notifications.Count);
+        }
     }
 
     [TestMethod]

@@ -15,8 +15,9 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Codeplex.Data;
 using NLog;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Ribbit.Logging;
 using Ribbit.Net;
 using Ribbit.Util;
@@ -4528,16 +4529,30 @@ public partial class BMSPlaylist : ObservableObject
         {
             throw;
         }
-        object[] source;
+        JArray source;
         try
         {
-            source = (object[])DynamicJson.Parse(json);
+            source = ParseTableInfoJson(json);
         }
         catch
         {
             throw new ArgumentException(Resources.Error_ParseFailed, "tableinfoUri");
         }
-        return [.. source.Select((dynamic e) => new BMSTableSimple(e))];
+        return [.. source.Select(token => new BMSTableSimple(token as JObject ?? throw new InvalidOperationException("table info row must be an object")))];
+    }
+
+    private static JArray ParseTableInfoJson(string json)
+    {
+        using var reader = new JsonTextReader(new StringReader(json))
+        {
+            DateParseHandling = DateParseHandling.None
+        };
+        JToken token = JToken.ReadFrom(reader);
+        if (reader.Read())
+        {
+            throw new JsonReaderException("JSON document contains trailing content.");
+        }
+        return token as JArray ?? throw new FormatException("table info JSON must be an array.");
     }
 
     /// <summary>

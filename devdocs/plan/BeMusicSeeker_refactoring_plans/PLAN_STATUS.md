@@ -24,8 +24,8 @@ Full verificationは`3410 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 
 - active outcome: `NET10-04 Converter, JSON and document helpers`
 - active execution package: `.NET 10 helper dependency modernization`
-- execution anchor: `NET10-04 helper replacement corridor`
-- planner state: `J2` active; `J3`-`J4` pending; planner remains paused while this batch is active
+- execution anchor: `NET10-04 J3 LIBRARY-IR route`
+- planner state: `J3` active; `J4` pending; planner remains paused while this batch is active
 
 ## Active implementation batch
 
@@ -45,11 +45,11 @@ Full verificationは`3410 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `L3 WPF-PICKERS` | completed | WPF file／folder picker corridor and Code Pack retirement | UiDialogCoordinatorのfile／folder route、picker result／failure contract、全production caller、portable layout、updater cleanup、dependency／blocker closure |
 | `Q1 WPF-BINDINGS` | completed | QuickConverter presentation corridor closure | MainWindow、PlaybackPanelView、SettingDialog、EditableTextBlock、PlaylistPropertyDialogのtyped binding／trigger移行、旧markup／runtime登録／package route退役、UI behavior verification |
 | `J1 TABLE-DOC` | completed | playlist JSON wire boundary | BMSTable／BMSTableEntryのheader／data／entry／course JSON、playlist persistence／external sync／export、DynamicJson route退役 |
-| `J2 PLAYLIST-FEEDS` | active | playlist catalog／recommendation／URL completion | 外部feed、recommended／estimation、Stella URL completionのtyped JSON化とcache／failure contract |
-| `J3 LIBRARY-IR` | pending | ranking JSON boundary | BmsLibraryIrClient request／responseとIRDataCacheInfoのtyped JSON化、candidate／DB mutation order維持 |
+| `J2 PLAYLIST-FEEDS` | completed | playlist catalog／recommendation／URL completion | 外部feed、recommended／estimation、Stella URL completionのtyped JSON化とcache／failure contract |
+| `J3 LIBRARY-IR` | active | ranking JSON boundary | BmsLibraryIrClient request／responseとIRDataCacheInfoのtyped JSON化、candidate／DB mutation order維持 |
 | `J4 SCORE-RETIRE` | pending | Score Viewer boundary and DynamicJson retirement | Score Viewer gateway typed化、DynamicJson binary／HintPath／layout／notice／license退役 |
 
-active／pending unitがある間はunit-plannerを再起動しない。J1の実装・検証・レビュー・commitを完了したためJ2へ進み、同じ順序でJ4まで閉じる。
+active／pending unitがある間はunit-plannerを再起動しない。J2の実装・検証・レビュー・commitを完了したためJ3へ進み、同じ順序でJ4まで閉じる。
 
 ## Review evidence
 
@@ -77,5 +77,5 @@ active／pending unitがある間はunit-plannerを再起動しない。J1の実
 
 - active outcome: `NET10-04 Converter, JSON and document helpers`
 - active execution package: `.NET 10 helper dependency modernization`
-- execution anchor: `NET10-04 helper replacement corridor`
-- active implementation batch: `J1` completed, `J2` active, `J3`-`J4` pending
+- execution anchor: `NET10-04 J3 LIBRARY-IR route`
+- active implementation batch: `J2` completed, `J3` active, `J4` pending

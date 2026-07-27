@@ -1,4 +1,6 @@
 using System;
+using Newtonsoft.Json.Linq;
+
 namespace BeMusicSeeker.Models;
 
 public class BMSTableSimple : ObservableObject
@@ -49,27 +51,38 @@ public class BMSTableSimple : ObservableObject
     {
     }
 
-    public BMSTableSimple(dynamic json)
+    public BMSTableSimple(JObject json)
     {
-        if (json.IsDefined("symbol") && json.symbol != null)
+        if (json == null)
         {
-            symbol = json.symbol.ToString();
+            throw new ArgumentNullException(nameof(json));
         }
-        if (json.IsDefined("name") && json.name != null)
+        if (TryGetNonNullProperty(json, "symbol", out JToken symbolToken))
         {
-            name = json.name.ToString();
+            symbol = symbolToken.ToString();
         }
-        if (json.IsDefined("url") && json.url != null)
+        if (TryGetNonNullProperty(json, "name", out JToken nameToken))
         {
-            table.Page_url = new Uri(json.url.ToString(), UriKind.Absolute);
+            name = nameToken.ToString();
         }
-        if (json.IsDefined("tag1") && json.name != null)
+        if (TryGetNonNullProperty(json, "url", out JToken urlToken))
         {
-            tag1 = json.tag1.ToString();
+            table.Page_url = new Uri(urlToken.ToString(), UriKind.Absolute);
         }
-        if (json.IsDefined("tag2") && json.name != null)
+        if (TryGetNonNullProperty(json, "tag1", out JToken tag1Token)
+            && TryGetNonNullProperty(json, "name", out _))
         {
-            tag2 = json.tag2.ToString();
+            tag1 = tag1Token.ToString();
         }
+        if (TryGetNonNullProperty(json, "tag2", out JToken tag2Token)
+            && TryGetNonNullProperty(json, "name", out _))
+        {
+            tag2 = tag2Token.ToString();
+        }
+    }
+
+    private static bool TryGetNonNullProperty(JObject source, string propertyName, out JToken value)
+    {
+        return source.TryGetValue(propertyName, out value) && value.Type != JTokenType.Null;
     }
 }

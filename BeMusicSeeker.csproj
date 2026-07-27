@@ -2,6 +2,7 @@
   <PropertyGroup>
     <AssemblyName>BeMusicSeeker</AssemblyName>
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>False</GenerateTargetFrameworkAttribute>
     <OutputType>WinExe</OutputType>
     <UseWPF>True</UseWPF>
     <UseWindowsForms>True</UseWindowsForms>
@@ -22,6 +23,7 @@
     <RootNamespace />
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="bin\**\*.cs;obj\**\*.cs" />
     <Compile Remove="BeMusicSeeker.Tests\**\*.cs" />
     <Compile Remove="BeMusicSeeker.Updater\**\*.cs" />
     <Compile Remove="tools\**\*.cs" />

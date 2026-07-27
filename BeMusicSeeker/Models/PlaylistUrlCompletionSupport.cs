@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using BeMusicSeeker.Models.LR2;
-using Codeplex.Data;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Models;
 
@@ -125,17 +126,17 @@ internal static class PlaylistUrlCompletionSupport
         var candidates = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
         int duplicateCount = 0;
         int ignoredRowCount = 0;
-        object[] rows = (object[])DynamicJson.Parse(content ?? "[]");
-        foreach (dynamic row in rows)
+        JArray rows = ParseJsonArray(content ?? "[]");
+        foreach (JToken row in rows)
         {
-            string normalizedMd5 = NormalizeMd5(GetDynamicString(row, "md5"));
+            string normalizedMd5 = NormalizeMd5(GetJsonString(row, "md5"));
             if (normalizedMd5 == null)
             {
                 ignoredRowCount++;
                 continue;
             }
-            Uri url = TryParseAbsoluteUri(GetDynamicString(row, "url"));
-            Uri urlDiff = TryParseAbsoluteUri(GetDynamicString(row, "url_diff"));
+            Uri url = TryParseAbsoluteUri(GetJsonString(row, "url"));
+            Uri urlDiff = TryParseAbsoluteUri(GetJsonString(row, "url_diff"));
             if (url == null && urlDiff == null)
             {
                 ignoredRowCount++;
@@ -170,24 +171,31 @@ internal static class PlaylistUrlCompletionSupport
         return trimmedValue.ToLowerInvariant();
     }
 
-    private static string GetDynamicString(dynamic row, string memberName)
+    private static string GetJsonString(JToken row, string memberName)
     {
-        if (row == null || string.IsNullOrWhiteSpace(memberName))
+        if (row is not JObject jsonObject || string.IsNullOrWhiteSpace(memberName))
         {
             return null;
         }
-        try
-        {
-            if (!(row.IsDefined(memberName) && row[memberName] != null))
-            {
-                return null;
-            }
-            return row[memberName].ToString();
-        }
-        catch
+        if (!jsonObject.TryGetValue(memberName, out JToken value) || value.Type == JTokenType.Null)
         {
             return null;
         }
+        return value.ToString();
+    }
+
+    private static JArray ParseJsonArray(string json)
+    {
+        using var reader = new JsonTextReader(new StringReader(json))
+        {
+            DateParseHandling = DateParseHandling.None
+        };
+        JToken token = JToken.ReadFrom(reader);
+        if (reader.Read())
+        {
+            throw new JsonReaderException("JSON document contains trailing content.");
+        }
+        return token as JArray ?? throw new FormatException("JSON document must be an array.");
     }
 
     private static Uri TryParseAbsoluteUri(string value)

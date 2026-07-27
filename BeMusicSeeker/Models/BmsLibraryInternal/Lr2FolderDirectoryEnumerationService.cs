@@ -76,7 +76,8 @@ internal static class Lr2FolderDirectoryEnumerationService
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
             rootDirectories,
             [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)],
-            everythingNative);
+            everythingNative,
+            retryEmptyEverythingResultWithFastEnumerator: true);
         if (!result.Success)
         {
             if (RootFileEnumerationService.IsBridgeContractFailure(result.ErrorReason))
