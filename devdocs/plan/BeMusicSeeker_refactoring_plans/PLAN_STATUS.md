@@ -25,7 +25,7 @@ Full verificationは`3401 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 - active outcome: `NET10-02 Managed package and configuration baseline`
 - active execution package: `.NET 10 managed dependency and configuration`
 - execution anchor: `NET10-02 managed package/configuration corridor`
-- planner state: planner required once
+- planner state: planner required once for the next NET10-02 route
 
 ## Active implementation batch
 
@@ -35,8 +35,9 @@ Full verificationは`3401 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `N2 UPDATER` | completed | updater executable／protocol corridor | updater retarget、protocol／swap／rollback／restart behavior、temporary self-contained smoke |
 | `N3 CHART-TOOLS` | completed | chart metadata DB tools／outcome closure | 2 tools retarget、solution／verificationを5 projectへ拡張、CLI／DB behavior、NET10-01完了 |
 | `M1 LOG-RUNTIME` | completed | NLog 6 logging／runtime corridor | NLog 6.1.4、全logging route、legacy addon cleanup、package/layout、behavior test、temporary publish smoke |
+| `M2 JSON-CONTRACT` | completed | Newtonsoft.Json／persisted and external JSON corridor | Newtonsoft.Json 13.0.4、既存 JSON owner、settings／file／DB／update contract、package／publish evidence |
 
-active／pending unitがある間はunit-plannerを再起動しない。現在のbatchは空であり、次に残るNET10-02 routeの開始時にplannerを一度だけ起動する。各unitのstatus更新は対応するproduction code commitへ含める。
+active／pending unitがある間はunit-plannerを再起動しない。`M2 JSON-CONTRACT`完了後、残るNET10-02 routeへ次のplannerを一度だけ起動する。各unitのstatus更新は対応するproduction code commitへ含める。
 
 ## Review evidence
 
@@ -65,4 +66,4 @@ active／pending unitがある間はunit-plannerを再起動しない。現在�
 - active outcome: `NET10-02 Managed package and configuration baseline`
 - active execution package: `.NET 10 managed dependency and configuration`
 - execution anchor: `NET10-02 managed package/configuration corridor`
-- active implementation batch: empty; planner required once
+- active implementation batch: empty; planner required once for the next NET10-02 route

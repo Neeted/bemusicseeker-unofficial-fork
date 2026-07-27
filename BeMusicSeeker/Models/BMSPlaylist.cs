@@ -16,7 +16,6 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Codeplex.Data;
-using Newtonsoft.Json.Linq;
 using NLog;
 using Ribbit.Logging;
 using Ribbit.Net;

@@ -149,7 +149,7 @@
     <Reference Include="OggVorbis.NET64">
       <HintPath>vendor\native\x64\OggVorbis.NET64.dll</HintPath>
     </Reference>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="NLog" Version="6.1.4" />
   </ItemGroup>
 

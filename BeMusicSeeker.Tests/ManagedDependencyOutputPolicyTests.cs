@@ -48,6 +48,8 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsTrue(
             File.Exists(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.runtimeconfig.json")),
             "The host runtime configuration must be emitted beside the application.");
+        string dependencyGraph = File.ReadAllText(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.deps.json"));
+        StringAssert.Contains(dependencyGraph, "\"Newtonsoft.Json/13.0.4\"");
 
         foreach (string dependencyName in new[]
         {
@@ -82,6 +84,15 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "NLog.dll")),
             "The tracked legacy NLog binary must not remain beside the SDK project.");
+
+        XElement newtonsoftReference = projectRoot
+            .Elements("ItemGroup")
+            .Elements("PackageReference")
+            .Single(reference => string.Equals((string)reference.Attribute("Include"), "Newtonsoft.Json", StringComparison.Ordinal));
+        Assert.AreEqual("13.0.4", (string)newtonsoftReference.Attribute("Version"));
+        Assert.IsFalse(
+            File.Exists(Path.Combine(repositoryRoot, "libs", "Newtonsoft.Json.dll")),
+            "Newtonsoft.Json must be supplied by the SDK package output, not a tracked HintPath binary.");
     }
 
     private static string FindRepositoryRoot()
