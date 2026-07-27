@@ -18,6 +18,7 @@ using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -3747,6 +3748,27 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.AreSame(ownerFailure, exception.InnerExceptions[0]);
         Assert.AreSame(prepareFailure, exception.InnerExceptions[1]);
+    }
+
+    [TestMethod]
+    public void StartupUpdateFailurePresentationDefersReceiptWhenShellIsClosing()
+    {
+        var receiptException = new UpdateFailureReceiptException(
+            "durable update failure",
+            () => { });
+
+        bool shouldDefer = MainWindow.ShouldDeferStartupUpdateFailurePresentation(
+            shellClosing: true,
+            updateShutdownPreparationFailed: false,
+            receiptException);
+
+        Assert.IsTrue(shouldDefer);
+        receiptException.DeferAcknowledge();
+        Assert.IsFalse(receiptException.ShouldAcknowledgeAfterPresentation);
+        Assert.IsFalse(MainWindow.ShouldDeferStartupUpdateFailurePresentation(
+            shellClosing: true,
+            updateShutdownPreparationFailed: false,
+            new UpdaterLaunchFailureException("ready handshake failed")));
     }
 
     [TestMethod]

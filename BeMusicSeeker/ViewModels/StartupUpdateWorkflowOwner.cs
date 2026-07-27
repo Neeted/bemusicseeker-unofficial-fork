@@ -284,7 +284,8 @@ internal sealed class StartupUpdateWorkflowOwner
             }
             catch (Exception exception)
             {
-                LogWarningSafely(exception, "startup_update cleanup failed");
+                CompleteFailure(run, exception, preShutdown: true);
+                return;
             }
 
             UpdateCheckResult result;
@@ -294,8 +295,7 @@ internal sealed class StartupUpdateWorkflowOwner
             }
             catch (Exception exception)
             {
-                LogWarningSafely(exception, "startup_update check failed");
-                Complete(run, StartupUpdateWorkflowOutcome.Failed);
+                CompleteFailure(run, exception, preShutdown: true);
                 return;
             }
 
@@ -314,8 +314,7 @@ internal sealed class StartupUpdateWorkflowOwner
             }
             catch (Exception exception)
             {
-                LogWarningSafely(exception, "startup_update presentation failed");
-                Complete(run, StartupUpdateWorkflowOutcome.Failed);
+                CompleteFailure(run, exception, preShutdown: true);
                 return;
             }
 
@@ -368,6 +367,8 @@ internal sealed class StartupUpdateWorkflowOwner
     private async Task ApplyAsync(RunContext run, UpdateAssetInfo selectedAsset)
     {
         string packagePath = null;
+        UpdaterLaunchReceipt launchReceipt = null;
+        bool shutdownPreparationStarted = false;
         bool shutdownPreparationCompleted = false;
         try
         {
@@ -384,34 +385,54 @@ internal sealed class StartupUpdateWorkflowOwner
             }
             IPreparedUpdaterLaunch preparedLaunch = prepareUpdaterLaunch(packagePath)
                 ?? throw new InvalidOperationException("Updater launch preparation returned no launch.");
+            launchReceipt = preparedLaunch.Start()
+                ?? throw new UpdaterLaunchFailureException("Updater process did not start.");
             if (!TryBeginShutdownPreparation(run))
             {
+                launchReceipt.Abort();
                 Complete(run, StartupUpdateWorkflowOutcome.Closing);
                 return;
             }
+            shutdownPreparationStarted = true;
             ShutdownPreparationResult shutdownResult = await RequestShutdownPreparationAsync().ConfigureAwait(false);
             shutdownPreparationCompleted = true;
             LogInfoSafely("startup_update shutdown prepared " + shutdownResult.ToLogFields());
 
-            if (preparedLaunch.Start() == null)
-            {
-                throw new InvalidOperationException("Updater process did not start.");
-            }
+            launchReceipt.Proceed();
             Complete(run, StartupUpdateWorkflowOutcome.Applied, shutdownPrepared: true);
             RequestApplicationShutdown();
         }
-        catch (Exception exception)
+        catch (UpdaterLaunchFailureException exception)
         {
-            LogErrorSafely(exception, "startup_update apply failed");
+            LogErrorSafely(exception, "startup_update updater launch failed");
+            launchReceipt?.Abort();
             if (!IsCurrentForApply(run))
             {
                 Complete(run, StartupUpdateWorkflowOutcome.Closing);
                 return;
             }
-            if (shutdownPreparationCompleted)
+            TryDeleteDownloadedPackage(packagePath);
+            RequestFailurePresentation(exception);
+            Complete(run, StartupUpdateWorkflowOutcome.Failed, exception, shutdownPrepared: shutdownPreparationCompleted);
+            if (shutdownPreparationStarted)
+            {
+                RequestApplicationShutdown();
+            }
+        }
+        catch (Exception exception)
+        {
+            LogErrorSafely(exception, "startup_update apply failed");
+            launchReceipt?.Abort();
+            if (!IsCurrentForApply(run))
+            {
+                Complete(run, StartupUpdateWorkflowOutcome.Closing);
+                return;
+            }
+            if (shutdownPreparationStarted)
             {
                 TryDeleteDownloadedPackage(packagePath);
-                Complete(run, StartupUpdateWorkflowOutcome.Failed, exception, shutdownPrepared: true);
+                RequestFailurePresentation(exception);
+                Complete(run, StartupUpdateWorkflowOutcome.Failed, exception, shutdownPrepared: shutdownPreparationCompleted);
                 RequestApplicationShutdown();
                 return;
             }
@@ -452,9 +473,19 @@ internal sealed class StartupUpdateWorkflowOwner
     {
         DispatchToUi(() =>
         {
+            Action<Exception> presenter = FailurePresentationRequested;
+            if (presenter == null)
+            {
+                return;
+            }
             try
             {
-                FailurePresentationRequested?.Invoke(exception);
+                presenter(exception);
+                if (exception is UpdateFailureReceiptException receipt
+                    && receipt.ShouldAcknowledgeAfterPresentation)
+                {
+                    receipt.Acknowledge();
+                }
             }
             catch (Exception notificationException)
             {

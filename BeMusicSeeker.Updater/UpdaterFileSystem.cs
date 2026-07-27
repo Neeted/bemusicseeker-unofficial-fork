@@ -75,6 +75,11 @@ namespace BeMusicSeeker.Updater
             File.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
         }
 
+        public static void MoveFile(string sourcePath, string destinationPath, bool overwrite)
+        {
+            File.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath), overwrite);
+        }
+
         public static void MoveDirectory(string sourcePath, string destinationPath)
         {
             Directory.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));

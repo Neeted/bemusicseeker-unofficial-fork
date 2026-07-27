@@ -26,12 +26,14 @@ $devRoot = "D:\work\BeMusicSeeker-decomp"
 $pubRoot = "D:\github\bemusicseeker-unofficial-fork"
 $configuration = "Release"
 $platform = "x64"
-$targetFramework = "net472"
+$targetFramework = "net10.0-windows"
 $buildOutput = Join-Path $devRoot "bin\$platform\$configuration\$targetFramework"
 $distDir = Join-Path $devRoot "dist"
 $stagingRoot = Join-Path $distDir "_staging"
 $publicRepoOwner = "Neeted"
 $publicRepoName = "bemusicseeker-unofficial-fork"
+
+. (Join-Path $PSScriptRoot "portable-package-layout.ps1")
 
 # AssemblyInformationalVersion を読み取る
 function Get-AppVersion {
@@ -125,72 +127,41 @@ function Build-PublicDocSite($targetDocsDir) {
     Write-Host "  Pages HTML docs 生成完了" -ForegroundColor Green
 }
 
-function Join-PackageRelativePath($root, $relativePath) {
-    return Join-Path $root ($relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
-}
-
-function Assert-AppPackageLayout($targetStagingDir, $requiresMetadataArchive) {
-    $requiredFiles = @(
-        "BeMusicSeeker.exe",
-        "BeMusicSeeker.exe.config",
-        "BeMusicSeeker.Updater.exe",
-        "test.mp3",
-        "libs/SevenZipExtractor.dll",
-        "libs/OggVorbis.NET64.dll",
-        "libs/x64/7z.dll",
-        "libs/x64/bass.dll",
-        "libs/x64/sqlite3.dll",
-        "native/Everything3_x64.dll",
-        "native/EverythingBridge_x64.dll",
-        "lang/ja-JP.json"
-    )
-    foreach ($relativePath in $requiredFiles) {
-        $path = Join-PackageRelativePath $targetStagingDir $relativePath
-        if (-not (Test-Path $path -PathType Leaf)) {
-            throw "release package の必須ファイルが見つかりません: $relativePath"
-        }
-    }
-
-    $forbiddenPaths = @(
-        "x86",
-        "x64",
-        "libs/x86",
-        "libs/x64/OggVorbis.NET64.dll",
-        "SevenZipExtractor.dll",
-        "OggVorbis.NET64.dll",
-        "imported_metadata",
-        "chart-info-metadata.db"
-    )
-    foreach ($relativePath in $forbiddenPaths) {
-        $path = Join-PackageRelativePath $targetStagingDir $relativePath
-        if (Test-Path $path) {
-            throw "release package に禁止された配置が残っています: $relativePath"
-        }
-    }
-
-    $metadataArchivePath = Join-PackageRelativePath $targetStagingDir "chart-info-metadata.7z"
-    if ($requiresMetadataArchive) {
-        if (-not (Test-Path $metadataArchivePath -PathType Leaf)) {
-            throw "metadata 同梱 release package に chart-info-metadata.7z がありません。"
-        }
-    }
-    elseif (Test-Path $metadataArchivePath) {
-        throw "通常版 release package に chart-info-metadata.7z が含まれています。"
-    }
-}
-
 function Copy-AppFilesToStaging($targetStagingDir) {
     if (Test-Path $targetStagingDir) { Remove-Item $targetStagingDir -Recurse -Force }
     New-Item -ItemType Directory -Path $targetStagingDir -Force | Out-Null
 
-    # アプリ本体のコピー (config, .pdb, *.log は除外)
-    Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe")        $targetStagingDir
-    Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe.config") $targetStagingDir
-    Copy-Item (Join-Path $buildOutput "BeMusicSeeker.Updater.exe") $targetStagingDir
-    Copy-Item (Join-Path $buildOutput "test.mp3") $targetStagingDir
-    Copy-Item (Join-Path $buildOutput "libs")   (Join-Path $targetStagingDir "libs")   -Recurse
-    Copy-Item (Join-Path $buildOutput "native") (Join-Path $targetStagingDir "native") -Recurse
-    Copy-Item (Join-Path $buildOutput "lang")   (Join-Path $targetStagingDir "lang")   -Recurse
+    function Copy-BuildFile($relativePath) {
+        $sourcePath = Join-Path $buildOutput $relativePath
+        if (-not (Test-Path $sourcePath -PathType Leaf)) {
+            throw "Release build output の必須ファイルが見つかりません: $relativePath"
+        }
+        $destinationPath = Join-Path $targetStagingDir $relativePath
+        $destinationDirectory = Split-Path $destinationPath -Parent
+        New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+        Copy-Item $sourcePath $destinationPath -Force
+    }
+
+    # アプリ本体と updater の明示 inventory のみをコピーする (.pdb, *.log, stale DLL は除外)
+    foreach ($relativePath in @(
+        "BeMusicSeeker.exe",
+        "BeMusicSeeker.dll",
+        "BeMusicSeeker.deps.json",
+        "BeMusicSeeker.runtimeconfig.json",
+        "BeMusicSeeker.dll.config",
+        "BeMusicSeeker.Updater.exe",
+        "BeMusicSeeker.Updater.dll",
+        "BeMusicSeeker.Updater.deps.json",
+        "BeMusicSeeker.Updater.runtimeconfig.json",
+        "test.mp3"
+    ) + $script:RequiredManagedRootFiles + $script:RequiredBassNativeFiles + $script:RequiredLanguageFiles + @(
+        "x64/sqlite3.dll",
+        "libs/x64/7z.dll",
+        "native/Everything3_x64.dll",
+        "native/EverythingBridge_x64.dll"
+    )) {
+        Copy-BuildFile $relativePath
+    }
 
     # README, LICENSE, ThirdPartyNotices
     Copy-Item (Join-Path $devRoot "README.md")               $targetStagingDir
@@ -261,7 +232,7 @@ function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
         Copy-Item $metadataInfo.SourcePath (Join-Path $targetStagingDir $metadataInfo.TargetName) -Force
     }
 
-    Assert-AppPackageLayout $targetStagingDir ($metadataInfo -ne $null)
+    Assert-PortableStagingLayout $targetStagingDir ($metadataInfo -ne $null)
     New-ManagedFilesManifest $targetStagingDir
 
     $zipName = "bemusicseeker-unofficial-fork-v$version$packageSuffix.zip"
@@ -357,16 +328,9 @@ function Sync-PublicRepo($releasePackagePaths) {
         Write-Host "  コピー: $srcName"
     }
 
-    # dist\ の zip をコピー (古い zip は削除しない、追加のみ)
+    # 配布元 asset を先に列挙・検証してから公開先を変更する
     $pubDist = Join-Path $pubRoot "dist"
     if (-not (Test-Path $pubDist)) { New-Item -ItemType Directory -Path $pubDist -Force | Out-Null }
-    $version = Get-AppVersion
-    $currentVersionPattern = "bemusicseeker-unofficial-fork-v$version*.zip"
-    Get-ChildItem $pubDist -Filter $currentVersionPattern -File | ForEach-Object {
-        Remove-Item $_.FullName -Force
-        Write-Host "  削除: dist\$($_.Name)"
-    }
-
     $releaseAssets = @()
     if ($releasePackagePaths -ne $null -and $releasePackagePaths.Count -gt 0) {
         $releaseAssets = @($releasePackagePaths | ForEach-Object { Get-Item $_ })
@@ -374,6 +338,20 @@ function Sync-PublicRepo($releasePackagePaths) {
     else {
         $releaseAssets = @(Get-ChildItem (Join-Path $distDir "*.zip") -File)
     }
+    if ($releaseAssets.Count -eq 0) {
+        throw "検証対象の release package がありません。先に publish.ps1 -PackageOnly を実行してください。"
+    }
+    foreach ($asset in $releaseAssets) {
+        Assert-PortableReleasePackageLayout $asset.FullName
+    }
+
+    $version = Get-AppVersion
+    $currentVersionPattern = "bemusicseeker-unofficial-fork-v$version*.zip"
+    Get-ChildItem $pubDist -Filter $currentVersionPattern -File | ForEach-Object {
+        Remove-Item $_.FullName -Force
+        Write-Host "  削除: dist\$($_.Name)"
+    }
+
     foreach ($asset in $releaseAssets) {
         Copy-Item $asset.FullName $pubDist -Force
         Write-Host "  コピー: dist\$($asset.Name)"

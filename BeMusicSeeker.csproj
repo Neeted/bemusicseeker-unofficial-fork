@@ -163,15 +163,21 @@
   <Target Name="CopyUpdaterToAppOutput" AfterTargets="Build">
     <PropertyGroup>
       <_UpdaterProjectDirectory>$(MSBuildProjectDirectory)\BeMusicSeeker.Updater\</_UpdaterProjectDirectory>
-      <_UpdaterOutputPath Condition="$([System.IO.Path]::IsPathRooted('$(OutDir)'))">$([System.IO.Path]::GetFullPath('$(OutDir)BeMusicSeeker.Updater.exe'))</_UpdaterOutputPath>
-      <_UpdaterOutputPath Condition="!$([System.IO.Path]::IsPathRooted('$(OutDir)'))">$([System.IO.Path]::GetFullPath('$(_UpdaterProjectDirectory)$(OutDir)BeMusicSeeker.Updater.exe'))</_UpdaterOutputPath>
-      <_UpdaterOutputPath Condition="!Exists('$(_UpdaterOutputPath)')">$([System.IO.Path]::GetFullPath('$(_UpdaterProjectDirectory)bin\x64\Release\net472\BeMusicSeeker.Updater.exe'))</_UpdaterOutputPath>
+      <_UpdaterBuildOutputDirectory Condition="'$(Platform)' == 'x64'">$([System.IO.Path]::GetFullPath('$(_UpdaterProjectDirectory)bin\x64\$(Configuration)\$(TargetFramework)'))\</_UpdaterBuildOutputDirectory>
+      <_UpdaterBuildOutputDirectory Condition="'$(Platform)' != 'x64'">$([System.IO.Path]::GetFullPath('$(_UpdaterProjectDirectory)bin\$(Configuration)\$(TargetFramework)'))\</_UpdaterBuildOutputDirectory>
     </PropertyGroup>
 
-    <Error Condition="!Exists('$(_UpdaterOutputPath)')"
-           Text="Updater output was not found: $(_UpdaterOutputPath)" />
+    <ItemGroup>
+      <_UpdaterPayload Include="$(_UpdaterBuildOutputDirectory)BeMusicSeeker.Updater.exe" />
+      <_UpdaterPayload Include="$(_UpdaterBuildOutputDirectory)BeMusicSeeker.Updater.dll" />
+      <_UpdaterPayload Include="$(_UpdaterBuildOutputDirectory)BeMusicSeeker.Updater.deps.json" />
+      <_UpdaterPayload Include="$(_UpdaterBuildOutputDirectory)BeMusicSeeker.Updater.runtimeconfig.json" />
+    </ItemGroup>
 
-    <Copy SourceFiles="$(_UpdaterOutputPath)"
+    <Error Condition="!Exists('%(_UpdaterPayload.Identity)')"
+           Text="Updater payload was not found: %(_UpdaterPayload.Identity)" />
+
+    <Copy SourceFiles="@(_UpdaterPayload)"
           DestinationFolder="$(OutDir)"
           SkipUnchangedFiles="true" />
   </Target>

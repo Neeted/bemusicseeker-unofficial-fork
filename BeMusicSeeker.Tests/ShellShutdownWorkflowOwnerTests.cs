@@ -166,7 +166,6 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
         Assert.IsTrue(owner.IsShutdownRequested);
         Assert.IsTrue(owner.IsShutdownPrepared);
-        Assert.IsTrue(owner.IsCloseAllowed);
         Assert.IsTrue(owner.ConsumeUpdatePreparationFailure());
         ShellShutdownWorkflowCompletionReceipt close = await owner.RequestWindowCloseAsync();
         Assert.IsFalse(close.PreparationSucceeded);
@@ -271,7 +270,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task StartupUpdateWaitsForPreparationBeforeLaunchAndPublishesTerminalBeforeClose()
+    public async Task StartupUpdatePublishesReadyBeforePreparationAndTerminalBeforeClose()
     {
         var events = new List<string>();
         var startEntered = new ManualResetEventSlim();
@@ -316,13 +315,14 @@ public sealed class ShellShutdownWorkflowOwnerTests
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, startupUpdate: startupUpdate);
         Assert.IsTrue(startupUpdate.Start());
         Assert.IsTrue(startEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(owner.IsShutdownPrepared);
-
-        Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
-        Assert.IsFalse(close.Wait(TimeSpan.FromMilliseconds(100)));
-        Assert.IsFalse(owner.IsCloseAllowed);
+        Assert.IsFalse(owner.IsShutdownPreparationStarted);
 
         startRelease.SetResult(true);
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => owner.IsShutdownPrepared && startupUpdate.IsIdle,
+            TimeSpan.FromSeconds(5)));
+
+        Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
         ShellShutdownWorkflowCompletionReceipt receipt = await close;
         events.Add("close");
 

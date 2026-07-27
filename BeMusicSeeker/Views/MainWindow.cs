@@ -709,8 +709,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool updateShutdownPreparationFailed = viewModel?.ShellShutdownWorkflow.ConsumeUpdatePreparationFailure() == true;
-        if (IsShellClosingOrClosed() && !updateShutdownPreparationFailed)
+        if (ShouldDeferStartupUpdateFailurePresentation(
+            IsShellClosingOrClosed(),
+            updateShutdownPreparationFailed,
+            exception))
         {
+            if (exception is UpdateFailureReceiptException receipt)
+            {
+                receipt.DeferAcknowledge();
+            }
             return;
         }
         UiDialogRoute.ShowMessageBox(
@@ -718,6 +725,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             "Update Failed",
             MessageBoxButton.OK,
             MessageBoxImage.Error);
+    }
+
+    internal static bool ShouldDeferStartupUpdateFailurePresentation(
+        bool shellClosing,
+        bool updateShutdownPreparationFailed,
+        Exception exception)
+    {
+        return shellClosing
+            && !updateShutdownPreparationFailed
+            && exception is not UpdaterLaunchFailureException;
     }
 
     private void MainWindowViewModel_StartupUpdateApplicationShutdownRequested()

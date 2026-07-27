@@ -46,6 +46,8 @@ $publicRepoOwner = "Neeted"
 $publicRepoName = "bemusicseeker-unofficial-fork"
 $publicBranch = "main"
 
+. (Join-Path $PSScriptRoot "portable-package-layout.ps1")
+
 function Assert-ExactlyOneMode {
     $modeCount = @($CreateDraft, $UpdateDraftBody, $RecreateDraft, $CreatePrereleaseDraft, $PublishDraft).Where({ $_ }).Count
     if ($modeCount -ne 1) {
@@ -101,85 +103,6 @@ function Get-AppVersion {
     return $version
 }
 
-function Get-ZipEntryNames($asset) {
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($asset.FullName)
-    try {
-        $entries = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($entry in $archive.Entries) {
-            $isDirectoryEntry = $entry.FullName.EndsWith("/", [System.StringComparison]::Ordinal) -or
-                $entry.FullName.EndsWith("\", [System.StringComparison]::Ordinal)
-            $normalized = $entry.FullName.Replace('\', '/').Trim('/')
-            if ($isDirectoryEntry) {
-                $normalized = "$normalized/"
-            }
-            if (-not [string]::IsNullOrWhiteSpace($normalized)) {
-                [void]$entries.Add($normalized)
-            }
-        }
-        return ,$entries
-    }
-    finally {
-        $archive.Dispose()
-    }
-}
-
-function Test-ZipEntryOrDescendantExists($entryNames, $relativePath) {
-    $normalized = $relativePath.Replace('\', '/').Trim('/')
-    return $entryNames.Contains($normalized) -or
-        @($entryNames | Where-Object { $_.StartsWith("$normalized/", [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
-}
-
-function Assert-ReleasePackageLayout($asset) {
-    $entryNames = Get-ZipEntryNames $asset
-
-    $requiredFiles = @(
-        "BeMusicSeeker.exe",
-        "BeMusicSeeker.exe.config",
-        "BeMusicSeeker.Updater.exe",
-        "test.mp3",
-        "libs/SevenZipExtractor.dll",
-        "libs/OggVorbis.NET64.dll",
-        "libs/x64/7z.dll",
-        "libs/x64/bass.dll",
-        "libs/x64/sqlite3.dll",
-        "native/Everything3_x64.dll",
-        "native/EverythingBridge_x64.dll",
-        "lang/ja-JP.json",
-        "update-managed-files.txt"
-    )
-    foreach ($relativePath in $requiredFiles) {
-        if (-not $entryNames.Contains($relativePath)) {
-            throw "release asset に必須ファイルがありません: $($asset.Name): $relativePath"
-        }
-    }
-
-    $forbiddenPaths = @(
-        "x86",
-        "x64",
-        "libs/x86",
-        "libs/x64/OggVorbis.NET64.dll",
-        "SevenZipExtractor.dll",
-        "OggVorbis.NET64.dll",
-        "imported_metadata",
-        "chart-info-metadata.db"
-    )
-    foreach ($relativePath in $forbiddenPaths) {
-        if (Test-ZipEntryOrDescendantExists $entryNames $relativePath) {
-            throw "release asset に禁止された配置が残っています: $($asset.Name): $relativePath"
-        }
-    }
-
-    $isMetadataPackage = $asset.Name -like "*-with-metadata.zip"
-    $hasMetadataArchive = $entryNames.Contains("chart-info-metadata.7z")
-    if ($isMetadataPackage -and -not $hasMetadataArchive) {
-        throw "metadata 同梱 release asset に chart-info-metadata.7z がありません: $($asset.Name)"
-    }
-    if (-not $isMetadataPackage -and $hasMetadataArchive) {
-        throw "通常版 release asset に chart-info-metadata.7z が含まれています: $($asset.Name)"
-    }
-}
-
 function Get-ReleaseContext {
     param(
         [bool]$RequireAssets = $true
@@ -203,7 +126,7 @@ function Get-ReleaseContext {
     }
     if ($RequireAssets) {
         foreach ($asset in $releaseAssets) {
-            Assert-ReleasePackageLayout $asset
+            Assert-PortableReleasePackageLayout $asset.FullName
         }
     }
 

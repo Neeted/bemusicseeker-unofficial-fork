@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
@@ -11,6 +12,17 @@ namespace BeMusicSeeker.Models.Update;
 internal sealed class UpdateDownloadService
 {
     private const int DownloadTimeoutMilliseconds = 300000;
+    private const string UpdateFailureReceiptFileName = "update-failure.txt";
+    private const string UpdateFailureReceiptTemporaryFileName = "update-failure.txt.tmp";
+    private const string UpdaterReadyFileName = "updater-ready.txt";
+    private const string UpdaterDecisionFileName = "updater-decision.txt";
+    private static readonly string[] UpdaterPayloadFileNames =
+    [
+        "BeMusicSeeker.Updater.exe",
+        "BeMusicSeeker.Updater.dll",
+        "BeMusicSeeker.Updater.deps.json",
+        "BeMusicSeeker.Updater.runtimeconfig.json"
+    ];
 
     private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
@@ -35,6 +47,13 @@ internal sealed class UpdateDownloadService
 
         string workRoot = GetUpdateWorkRoot();
         string downloadsDirectory = Path.Combine(workRoot, "downloads");
+        EnsureNoReparsePointAncestors(applicationPathSnapshot.BaseDirectory, "update_work/downloads");
+        EnsureNoReparsePointIfPresent(workRoot);
+        if (LongPathFileSystem.DirectoryExists(workRoot))
+        {
+            EnsureNoReparsePointTree(workRoot);
+        }
+        EnsureNoReparsePointIfPresent(downloadsDirectory);
         LongPathFileSystem.CreateDirectory(downloadsDirectory);
 
         string fileName = Path.GetFileName(asset.FileName);
@@ -84,16 +103,44 @@ internal sealed class UpdateDownloadService
         }
 
         string appDirectory = applicationPathSnapshot.BaseDirectory;
-        string sourceUpdaterPath = Path.Combine(appDirectory, "BeMusicSeeker.Updater.exe");
-        if (!LongPathFileSystem.FileExists(sourceUpdaterPath))
-        {
-            throw new FileNotFoundException("Updater executable was not found.", sourceUpdaterPath);
-        }
-
+        EnsureDownloadedPackagePath(packagePath);
         string currentUpdaterDirectory = Path.Combine(GetUpdateWorkRoot(), "current");
+        EnsureNoReparsePointAncestors(appDirectory, "update_work/current");
+        EnsureNoReparsePointIfPresent(currentUpdaterDirectory);
+        if (LongPathFileSystem.DirectoryExists(currentUpdaterDirectory))
+        {
+            EnsureNoReparsePointTree(currentUpdaterDirectory);
+        }
         LongPathFileSystem.CreateDirectory(currentUpdaterDirectory);
-        string updaterPath = Path.Combine(currentUpdaterDirectory, "BeMusicSeeker.Updater.exe");
-        LongPathFileSystem.CopyFile(sourceUpdaterPath, updaterPath, overwrite: true);
+        string readyFilePath = Path.Combine(currentUpdaterDirectory, UpdaterReadyFileName);
+        string decisionFilePath = Path.Combine(currentUpdaterDirectory, UpdaterDecisionFileName);
+        EnsureNoReparsePointIfPresent(readyFilePath);
+        if (LongPathFileSystem.FileExists(readyFilePath))
+        {
+            LongPathFileSystem.DeleteFile(readyFilePath);
+        }
+        EnsureNoReparsePointIfPresent(decisionFilePath);
+        if (LongPathFileSystem.FileExists(decisionFilePath))
+        {
+            LongPathFileSystem.DeleteFile(decisionFilePath);
+        }
+        string updaterPath = null;
+        foreach (string payloadFileName in UpdaterPayloadFileNames)
+        {
+            string sourcePath = Path.Combine(appDirectory, payloadFileName);
+            if (!LongPathFileSystem.FileExists(sourcePath))
+            {
+                throw new FileNotFoundException("Updater payload file was not found.", sourcePath);
+            }
+
+            string destinationPath = Path.Combine(currentUpdaterDirectory, payloadFileName);
+            EnsureNoReparsePointIfPresent(destinationPath);
+            LongPathFileSystem.CopyFile(sourcePath, destinationPath, overwrite: true);
+            if (string.Equals(payloadFileName, "BeMusicSeeker.Updater.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                updaterPath = destinationPath;
+            }
+        }
 
         return updaterProcessGateway.Prepare(
             UpdaterProcessLaunchRequest.Create(
@@ -102,6 +149,8 @@ internal sealed class UpdateDownloadService
                 appDirectory,
                 packagePath,
                 Path.Combine(appDirectory, "update_backup"),
+                readyFilePath,
+                decisionFilePath,
                 applicationPathSnapshot.ExecutablePath));
     }
 
@@ -113,9 +162,150 @@ internal sealed class UpdateDownloadService
     internal void CleanupPreviousWorkDirectory()
     {
         string workRoot = GetUpdateWorkRoot();
-        if (LongPathFileSystem.DirectoryExists(workRoot))
+        EnsureNoReparsePointIfPresent(workRoot);
+        if (!LongPathFileSystem.DirectoryExists(workRoot))
         {
-            LongPathFileSystem.DeleteDirectory(workRoot, recursive: true);
+            return;
+        }
+
+        EnsureNoReparsePointTree(workRoot);
+        UpdateFailureReceiptException failureReceipt = ReadFailureReceipt(workRoot);
+
+        foreach (string child in LongPathFileSystem.EnumerateFileSystemEntries(workRoot))
+        {
+            string childName = Path.GetFileName(child.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (LongPathFileSystem.DirectoryExists(child)
+                && string.Equals(childName, "current", StringComparison.OrdinalIgnoreCase))
+            {
+                // The updater process is launched from this directory and may still hold
+                // its payload open while the restarted application is initializing.
+                // Leave the payload in place; it is overwritten on the next launch.
+                continue;
+            }
+            if (string.Equals(childName, UpdateFailureReceiptFileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(childName, UpdateFailureReceiptTemporaryFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            EnsureNoReparsePointTree(child);
+            if (LongPathFileSystem.DirectoryExists(child))
+            {
+                LongPathFileSystem.DeleteDirectory(child, recursive: true);
+            }
+            else if (LongPathFileSystem.FileExists(child))
+            {
+                LongPathFileSystem.DeleteFile(child);
+            }
+        }
+
+        if (failureReceipt != null)
+        {
+            throw failureReceipt;
+        }
+    }
+
+    private UpdateFailureReceiptException ReadFailureReceipt(string workRoot)
+    {
+        string receiptPath = Path.Combine(workRoot, UpdateFailureReceiptFileName);
+        if (!LongPathFileSystem.FileExists(receiptPath))
+        {
+            receiptPath = Path.Combine(workRoot, UpdateFailureReceiptTemporaryFileName);
+            if (!LongPathFileSystem.FileExists(receiptPath))
+            {
+                return null;
+            }
+        }
+
+        EnsureNoReparsePointIfPresent(receiptPath);
+        string failureDetails = Encoding.UTF8.GetString(LongPathFileSystem.ReadAllBytes(receiptPath)).Trim();
+        return new UpdateFailureReceiptException(
+            "The previous update failed before the application could restart. "
+            + (string.IsNullOrWhiteSpace(failureDetails) ? "No failure details were recorded." : failureDetails),
+            () => AcknowledgeFailureReceipt(workRoot));
+    }
+
+    private void AcknowledgeFailureReceipt(string workRoot)
+    {
+        EnsureNoReparsePointAncestors(applicationPathSnapshot.BaseDirectory, "update_work/update-failure.txt");
+        EnsureNoReparsePointIfPresent(workRoot);
+        foreach (string fileName in new[] { UpdateFailureReceiptFileName, UpdateFailureReceiptTemporaryFileName })
+        {
+            string path = Path.Combine(workRoot, fileName);
+            EnsureNoReparsePointIfPresent(path);
+            if (LongPathFileSystem.FileExists(path))
+            {
+                LongPathFileSystem.DeleteFile(path);
+            }
+        }
+    }
+
+    private static void EnsureNoReparsePointTree(string path)
+    {
+        EnsureNoReparsePointEntry(path);
+        if (!LongPathFileSystem.DirectoryExists(path))
+        {
+            return;
+        }
+
+        foreach (string child in LongPathFileSystem.EnumerateFileSystemEntries(path))
+        {
+            EnsureNoReparsePointTree(child);
+        }
+    }
+
+    private static void EnsureNoReparsePointAncestors(string rootDirectory, string relativePath)
+    {
+        string normalized = relativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+        string[] segments = normalized.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        string current = rootDirectory;
+        for (int i = 0; i < segments.Length - 1; i++)
+        {
+            current = Path.Combine(current, segments[i]);
+            EnsureNoReparsePointIfPresent(current);
+        }
+    }
+
+    private static void EnsureNoReparsePointIfPresent(string path)
+    {
+        try
+        {
+            EnsureNoReparsePointEntry(path);
+        }
+        catch (FileNotFoundException)
+        {
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
+    }
+
+    private static void EnsureNoReparsePointEntry(string path)
+    {
+        FileAttributes attributes = LongPathFileSystem.GetAttributes(path);
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException("Reparse points are not supported in the update work directory: " + path);
+        }
+    }
+
+    private void EnsureDownloadedPackagePath(string packagePath)
+    {
+        string downloadsDirectory = Path.Combine(GetUpdateWorkRoot(), "downloads");
+        string normalizedPackagePath = LongPathFileSystem.NormalizePathForStorage(packagePath);
+        string normalizedDownloadsDirectory = LongPathFileSystem.TrimTrailingDirectorySeparators(
+            LongPathFileSystem.NormalizePathForStorage(downloadsDirectory));
+        if (string.Equals(normalizedPackagePath, normalizedDownloadsDirectory, StringComparison.OrdinalIgnoreCase)
+            || !LongPathFileSystem.IsSameOrDescendantDirectoryPath(normalizedPackagePath, normalizedDownloadsDirectory))
+        {
+            throw new InvalidOperationException("The update package must be under update_work/downloads.");
+        }
+
+        EnsureNoReparsePointAncestors(applicationPathSnapshot.BaseDirectory, "update_work/downloads");
+        EnsureNoReparsePointIfPresent(downloadsDirectory);
+        if (LongPathFileSystem.DirectoryExists(downloadsDirectory))
+        {
+            EnsureNoReparsePointTree(downloadsDirectory);
         }
     }
 
@@ -127,6 +317,8 @@ internal sealed class UpdateDownloadService
         }
         try
         {
+            EnsureDownloadedPackagePath(packagePath);
+            EnsureNoReparsePointIfPresent(packagePath);
             if (LongPathFileSystem.FileExists(packagePath))
             {
                 LongPathFileSystem.DeleteFile(packagePath);

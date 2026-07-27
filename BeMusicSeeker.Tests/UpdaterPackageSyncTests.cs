@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -11,38 +12,124 @@ namespace BeMusicSeeker.Tests;
 public sealed class UpdaterPackageSyncTests
 {
     [TestMethod]
+    public void UpdaterWaitsForProceedDecisionBeforeApplyingOrWaitingForApplicationExit()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "not-yet-applied");
+
+            using Process process = StartUpdater(
+                appDirectoryPath,
+                packagePath,
+                backupDirectoryPath,
+                publishProceed: false);
+            Assert.IsFalse(process.WaitForExit(250));
+
+            string decisionFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
+            File.WriteAllText(decisionFilePath, "cancel");
+            Assert.IsTrue(process.WaitForExit(5000));
+            Assert.AreEqual(0, process.ExitCode);
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+        });
+    }
+
+    [TestMethod]
     public void ApplyUpdate_RemovesLegacyDllLayoutWithoutPreviousManifest()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
             string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
-            string packagePath = Path.Combine(tempDirectoryPath, "package.zip");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe.config", "old-config");
+            CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "libs/SevenZipExtractor.dll", "old-sevenzip");
             WriteTextFile(appDirectoryPath, "libs/x64/7z.dll", "old-7z-native");
             WriteTextFile(appDirectoryPath, "libs/x64/OggVorbis.NET64.dll", "old-wrong-ogv");
             WriteTextFile(appDirectoryPath, "libs/x86/7z.dll", "old-7z-x86");
+            WriteTextFile(appDirectoryPath, "libs/x64/sqlite3.dll", "old-libs-x64-sqlite");
             WriteTextFile(appDirectoryPath, "x86/sqlite3.dll", "old-root-x86");
+            WriteTextFile(appDirectoryPath, "libs/x86/user.dll", "user-libs-x86");
+            WriteTextFile(appDirectoryPath, "x86/user.dll", "user-root-x86");
+            WriteTextFile(appDirectoryPath, "x64/sqlite3.dll", "old-root-x64");
+            foreach (string legacyManagedLibraryName in new[]
+            {
+                "Bass.Net.dll",
+                "DynamicJson.dll",
+                "IniLibrary.dll",
+                "Livet.dll",
+                "Livet.Extensions.dll",
+                "MetroRadiance.Chrome.dll",
+                "MetroRadiance.Core.dll",
+                "MetroRadiance.dll",
+                "Microsoft.Expression.Drawing.dll",
+                "Microsoft.Expression.Effects.dll",
+                "Microsoft.Expression.Interactions.dll",
+                "Microsoft.WindowsAPICodePack.dll",
+                "Microsoft.WindowsAPICodePack.Shell.dll",
+                "Newtonsoft.Json.dll",
+                "NLog.Database.dll",
+                "NLog.dll",
+                "NLog.WindowsEventLog.dll",
+                "QuickConverter.dll",
+                "SgmlReaderDll.dll",
+                "System.Collections.Immutable.dll",
+                "System.Resources.Extensions.dll",
+                "System.Memory.dll",
+                "System.Buffers.dll",
+                "System.Numerics.Vectors.dll",
+                "System.Runtime.CompilerServices.Unsafe.dll",
+                "System.Windows.Interactivity.dll",
+                "sqlite.net.dll"
+            })
+            {
+                WriteTextFile(appDirectoryPath, "libs/" + legacyManagedLibraryName, "legacy-managed-library");
+            }
+            foreach (string legacyRootX64File in new[]
+            {
+                "OggVorbis.NET.dll",
+                "x64/OggVorbis.NET64.dll",
+                "x64/7z.dll",
+                "x64/bass.dll",
+                "x64/bass_fx.dll",
+                "x64/bassasio.dll",
+                "x64/bassenc.dll",
+                "x64/bassmix.dll",
+                "x64/basswasapi.dll"
+            })
+            {
+                WriteTextFile(appDirectoryPath, legacyRootX64File, "legacy-root-x64");
+            }
+            WriteTextFile(appDirectoryPath, "x64/user.dll", "user-x64");
             WriteTextFile(appDirectoryPath, "config/user.config", "user-config");
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe.config", "new-config");
+            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
+            CopyRestartExecutable(packageSourceDirectoryPath);
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.Updater.exe", "new-updater");
-            WriteTextFile(packageSourceDirectoryPath, "libs/SevenZipExtractor.dll", "new-sevenzip");
-            WriteTextFile(packageSourceDirectoryPath, "libs/OggVorbis.NET64.dll", "new-ogv");
+            WriteTextFile(packageSourceDirectoryPath, "SevenZipExtractor.dll", "new-sevenzip");
+            WriteTextFile(packageSourceDirectoryPath, "OggVorbis.NET64.dll", "new-ogv");
             WriteTextFile(packageSourceDirectoryPath, "libs/x64/7z.dll", "new-7z-native");
+            WriteTextFile(packageSourceDirectoryPath, "x64/sqlite3.dll", "new-root-x64");
             WriteTextFile(packageSourceDirectoryPath, "native/EverythingBridge_x64.dll", "new-bridge");
             WriteTextFile(packageSourceDirectoryPath, "lang/ja-JP.json", "{}");
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
-                "BeMusicSeeker.exe.config",
+                "restart.cmd",
+                "restart.exe",
                 "BeMusicSeeker.Updater.exe",
-                "libs/SevenZipExtractor.dll",
-                "libs/OggVorbis.NET64.dll",
+                "SevenZipExtractor.dll",
+                "OggVorbis.NET64.dll",
                 "libs/x64/7z.dll",
                 "native/EverythingBridge_x64.dll",
                 "lang/ja-JP.json"
@@ -52,15 +139,68 @@ public sealed class UpdaterPackageSyncTests
             RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
 
             Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
-            Assert.AreEqual("new-ogv", File.ReadAllText(Path.Combine(appDirectoryPath, "libs", "OggVorbis.NET64.dll")));
+            Assert.AreEqual("new-ogv", File.ReadAllText(Path.Combine(appDirectoryPath, "OggVorbis.NET64.dll")));
             Assert.AreEqual("new-7z-native", File.ReadAllText(Path.Combine(appDirectoryPath, "libs", "x64", "7z.dll")));
+            Assert.AreEqual("new-root-x64", File.ReadAllText(Path.Combine(appDirectoryPath, "x64", "sqlite3.dll")));
+            Assert.AreEqual("user-x64", File.ReadAllText(Path.Combine(appDirectoryPath, "x64", "user.dll")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "libs", "SevenZipExtractor.dll")));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "libs", "x64", "OggVorbis.NET64.dll")));
-            Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "libs", "x86")));
-            Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "x86")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "libs", "x64", "sqlite3.dll")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe.config")));
+            foreach (string legacyManagedLibraryName in new[]
+            {
+                "Bass.Net.dll",
+                "DynamicJson.dll",
+                "IniLibrary.dll",
+                "Livet.dll",
+                "Livet.Extensions.dll",
+                "MetroRadiance.Chrome.dll",
+                "MetroRadiance.Core.dll",
+                "MetroRadiance.dll",
+                "Microsoft.Expression.Drawing.dll",
+                "Microsoft.Expression.Effects.dll",
+                "Microsoft.Expression.Interactions.dll",
+                "Microsoft.WindowsAPICodePack.dll",
+                "Microsoft.WindowsAPICodePack.Shell.dll",
+                "Newtonsoft.Json.dll",
+                "NLog.Database.dll",
+                "NLog.dll",
+                "NLog.WindowsEventLog.dll",
+                "QuickConverter.dll",
+                "SgmlReaderDll.dll",
+                "System.Collections.Immutable.dll",
+                "System.Resources.Extensions.dll",
+                "System.Memory.dll",
+                "System.Buffers.dll",
+                "System.Numerics.Vectors.dll",
+                "System.Runtime.CompilerServices.Unsafe.dll",
+                "System.Windows.Interactivity.dll",
+                "sqlite.net.dll"
+            })
+            {
+                Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "libs", legacyManagedLibraryName)));
+            }
+            foreach (string legacyRootX64File in new[]
+            {
+                "OggVorbis.NET.dll",
+                "x64/OggVorbis.NET64.dll",
+                "x64/7z.dll",
+                "x64/bass.dll",
+                "x64/bass_fx.dll",
+                "x64/bassasio.dll",
+                "x64/bassenc.dll",
+                "x64/bassmix.dll",
+                "x64/basswasapi.dll"
+            })
+            {
+                Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, legacyRootX64File.Replace('/', Path.DirectorySeparatorChar))));
+            }
+            Assert.AreEqual("user-libs-x86", File.ReadAllText(Path.Combine(appDirectoryPath, "libs", "x86", "user.dll")));
+            Assert.AreEqual("user-root-x86", File.ReadAllText(Path.Combine(appDirectoryPath, "x86", "user.dll")));
             Assert.AreEqual("user-config", File.ReadAllText(Path.Combine(appDirectoryPath, "config", "user.config")));
 
             string[] managedManifestLines = File.ReadAllLines(Path.Combine(appDirectoryPath, "update-managed-files.txt"));
-            CollectionAssert.Contains(managedManifestLines, "libs\\OggVorbis.NET64.dll");
+            CollectionAssert.Contains(managedManifestLines, "OggVorbis.NET64.dll");
             CollectionAssert.Contains(managedManifestLines, "libs\\x64\\7z.dll");
             CollectionAssert.DoesNotContain(managedManifestLines, "libs\\x64\\OggVorbis.NET64.dll");
         });
@@ -73,17 +213,26 @@ public sealed class UpdaterPackageSyncTests
         {
             string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
             string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
-            string packagePath = Path.Combine(tempDirectoryPath, "package.zip");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
+            CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
             WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
             WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.7z", "old-imported-archive");
             WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.aaaaaaaaaaaa.7z", "old-history-archive");
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe");
+            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "restart.cmd",
+                "restart.exe"
+            }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
 
             RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
@@ -102,20 +251,26 @@ public sealed class UpdaterPackageSyncTests
         {
             string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
             string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
-            string packagePath = Path.Combine(tempDirectoryPath, "package.zip");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
+            CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
             WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
             WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.7z", "old-imported-archive");
             WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.bbbbbbbbbbbb.7z", "old-history-archive");
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
+            CopyRestartExecutable(packageSourceDirectoryPath);
             WriteTextFile(packageSourceDirectoryPath, "chart-info-metadata.7z", "new-bundled-archive");
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
+                "restart.cmd",
+                "restart.exe",
                 "chart-info-metadata.7z"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -136,21 +291,25 @@ public sealed class UpdaterPackageSyncTests
         {
             string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
             string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
-            string packagePath = Path.Combine(tempDirectoryPath, "package.zip");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
+            CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
             WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
             WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.7z", "old-imported-archive");
-            WriteTextFile(appDirectoryPath, "blocked", "existing-file");
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "blocked/file.txt", "copy-should-fail");
+            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "restart.exe", "not-an-executable");
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
-                "blocked/file.txt"
+                "restart.cmd",
+                "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
 
@@ -160,18 +319,469 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual("old-root-archive", File.ReadAllText(Path.Combine(appDirectoryPath, "chart-info-metadata.7z")));
             Assert.AreEqual("old-root-db", File.ReadAllText(Path.Combine(appDirectoryPath, "chart-info-metadata.db")));
             Assert.AreEqual("old-imported-archive", File.ReadAllText(Path.Combine(appDirectoryPath, "imported_metadata", "chart-info-metadata.7z")));
-            Assert.AreEqual("existing-file", File.ReadAllText(Path.Combine(appDirectoryPath, "blocked")));
+            Assert.IsFalse(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "update_work", "extracted")));
+            Assert.IsTrue(File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-failure.txt")));
         });
     }
 
-    private static void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath)
+    [TestMethod]
+    public void ApplyUpdate_RejectsBackupDirectoryOutsideDedicatedChildWithoutMutation()
     {
-        using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "restart.cmd",
+                "restart.exe"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, appDirectoryPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsTrue(File.Exists(packagePath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RejectsMissingRestartTargetBeforeMutation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string missingRestartPath = Path.Combine(appDirectoryPath, "missing.exe");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe");
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath, missingRestartPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsTrue(File.Exists(packagePath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RejectsPackageWithoutManagedRestartTargetBeforeMutation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string restartExecutablePath = Path.Combine(appDirectoryPath, "BeMusicSeeker.exe");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe");
+            WriteTextFile(packageSourceDirectoryPath, "replacement.txt", "new-file");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "replacement.txt");
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(restartExecutablePath));
+            Assert.AreEqual("BeMusicSeeker.exe", File.ReadAllText(Path.Combine(appDirectoryPath, "update-managed-files.txt")));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RejectsInvalidProcessIdBeforeMutation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe");
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath, processId: "0");
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RejectsPackageOutsideDownloadsBeforeMutation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "outside.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "restart.exe"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_DoesNotRollbackAfterRestartWhenCleanupFails()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string restartExecutablePath = Path.Combine(appDirectoryPath, "restart.cmd");
+            string restartMarkerPath = Path.Combine(appDirectoryPath, "restart.marker");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "restart.cmd", "@echo old>\"%~dp0old.marker\"");
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "restart.cmd"
+            }));
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@echo restarted>\"%~dp0restart.marker\"");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "restart.cmd"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            using FileStream packageLock = new(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath);
+
+            WaitForFile(restartMarkerPath);
+            Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsTrue(File.Exists(packagePath), "The package remains available when post-restart cleanup cannot delete it.");
+            Assert.IsTrue(File.Exists(restartMarkerPath), "The updated restart target must be started before cleanup.");
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RollbackRestoresFileDirectoryTransition()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "a", "old-file");
+            WriteTextFile(appDirectoryPath, "z", "blocking-file");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "a",
+                "restart.exe"
+            }));
+            WriteTextFile(packageSourceDirectoryPath, "a/b/c.dll", "new-child");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "restart.exe", "not-an-executable");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "a/b/c.dll",
+                "restart.exe"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("old-file", File.ReadAllText(Path.Combine(appDirectoryPath, "a")));
+            Assert.IsTrue(File.Exists(Path.Combine(appDirectoryPath, "z")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "a")) && File.Exists(Path.Combine(appDirectoryPath, "a", "b", "c.dll")));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_ReplacesManagedDirectoryWithFile()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "a/b/old.dll", "old-child");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "a/b/old.dll",
+                "restart.exe"
+            }));
+            WriteTextFile(packageSourceDirectoryPath, "a", "new-file");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "a",
+                "restart.exe"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.IsTrue(File.Exists(Path.Combine(appDirectoryPath, "a")));
+            Assert.AreEqual("new-file", File.ReadAllText(Path.Combine(appDirectoryPath, "a")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "a", "b", "old.dll")));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RejectsDirectoryToFileTransitionWithUnmanagedChildBeforeMutation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "a/old.dll", "old-child");
+            WriteTextFile(appDirectoryPath, "a/user.dll", "user-child");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "a/old.dll",
+                "restart.exe"
+            }));
+            WriteTextFile(packageSourceDirectoryPath, "a", "new-file");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "a",
+                "restart.exe"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+            WriteTextFile(backupDirectoryPath, "previous/keep.txt", "previous-generation");
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.IsTrue(Directory.Exists(Path.Combine(appDirectoryPath, "a")));
+            Assert.AreEqual("old-child", File.ReadAllText(Path.Combine(appDirectoryPath, "a", "old.dll")));
+            Assert.AreEqual("user-child", File.ReadAllText(Path.Combine(appDirectoryPath, "a", "user.dll")));
+            Assert.AreEqual("previous-generation", File.ReadAllText(Path.Combine(backupDirectoryPath, "previous", "keep.txt")));
+            Assert.IsTrue(File.Exists(packagePath));
+            string failureReceiptPath = Path.Combine(appDirectoryPath, "update_work", "update-failure.txt");
+            Assert.IsTrue(File.Exists(failureReceiptPath));
+            StringAssert.Contains(File.ReadAllText(failureReceiptPath), "unmanaged");
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RejectsReplacingUnmanagedFileWhenManifestExistsBeforeMutation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "user-added.dll", "user-content");
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "restart.exe"
+            }));
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "user-added.dll", "package-content");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "restart.exe",
+                "user-added.dll"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.AreEqual("user-content", File.ReadAllText(Path.Combine(appDirectoryPath, "user-added.dll")));
+            Assert.AreEqual(
+                string.Join(Environment.NewLine, new[] { "BeMusicSeeker.exe", "restart.exe" }),
+                File.ReadAllText(Path.Combine(appDirectoryPath, "update-managed-files.txt")));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RejectsManagedFilePathThatBecameDirectoryWithUserChild()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "a/user.txt", "user-content");
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "a",
+                "restart.exe"
+            }));
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "a/new.dll", "package-content");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "a/new.dll",
+                "restart.exe"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("user-content", File.ReadAllText(Path.Combine(appDirectoryPath, "a", "user.txt")));
+            Assert.AreEqual(
+                string.Join(Environment.NewLine, new[] { "BeMusicSeeker.exe", "a", "restart.exe" }),
+                File.ReadAllText(Path.Combine(appDirectoryPath, "update-managed-files.txt")));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RollbackPreservesUnmanagedSiblingInSharedDirectory()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "docs/a.txt", "old-managed");
+            WriteTextFile(appDirectoryPath, "docs/user.txt", "user-file");
+            WriteTextFile(appDirectoryPath, "zz", "blocking-file");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "docs/a.txt",
+                "restart.exe"
+            }));
+            WriteTextFile(packageSourceDirectoryPath, "docs/a.txt", "new-managed");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "restart.exe", "not-an-executable");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "docs/a.txt",
+                "restart.exe"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("old-managed", File.ReadAllText(Path.Combine(appDirectoryPath, "docs", "a.txt")));
+            Assert.AreEqual("user-file", File.ReadAllText(Path.Combine(appDirectoryPath, "docs", "user.txt")));
+            Assert.AreEqual("blocking-file", File.ReadAllText(Path.Combine(appDirectoryPath, "zz")));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RejectsReparseAncestorBeforeMovingManagedPath()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string externalDirectoryPath = Path.Combine(tempDirectoryPath, "external");
+            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "plugins/old.dll",
+                "restart.exe"
+            }));
+            WriteTextFile(externalDirectoryPath, "old.dll", "external-sentinel");
+            string linkPath = Path.Combine(appDirectoryPath, "plugins");
+            try
+            {
+                Directory.CreateSymbolicLink(linkPath, externalDirectoryPath);
+            }
+            catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is PlatformNotSupportedException)
+            {
+                Assert.Inconclusive("The test environment does not permit directory symbolic links: " + exception.Message);
+                return;
+            }
+
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "restart.exe"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("external-sentinel", File.ReadAllText(Path.Combine(externalDirectoryPath, "old.dll")));
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsTrue(File.Exists(packagePath));
+        });
+    }
+
+    private static void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string restartExecutablePath = null, string processId = null)
+    {
+        string effectiveRestartExecutablePath = restartExecutablePath ?? Path.Combine(appDirectoryPath, "restart.exe");
+        using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
         if (!process.WaitForExit(30000))
         {
             process.Kill();
             Assert.Fail("Updater process timed out.");
         }
+
+        WaitForFileAvailable(effectiveRestartExecutablePath);
 
         string standardOutput = process.StandardOutput.ReadToEnd();
         string standardError = process.StandardError.ReadToEnd();
@@ -181,14 +791,17 @@ public sealed class UpdaterPackageSyncTests
         }
     }
 
-    private static void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath)
+    private static void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath, string restartExecutablePath = null, string processId = null)
     {
-        using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
+        string effectiveRestartExecutablePath = restartExecutablePath ?? Path.Combine(appDirectoryPath, "restart.exe");
+        using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
         if (!process.WaitForExit(30000))
         {
             process.Kill();
             Assert.Fail("Updater process timed out.");
         }
+
+        WaitForFileAvailable(effectiveRestartExecutablePath);
 
         if (process.ExitCode == 0)
         {
@@ -198,9 +811,23 @@ public sealed class UpdaterPackageSyncTests
         }
     }
 
-    private static Process StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath)
+    private static Process StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string restartExecutablePath = null, string processId = null, bool publishProceed = true)
     {
         string updaterPath = FindUpdaterExecutable();
+        restartExecutablePath ??= Path.Combine(appDirectoryPath, "restart.exe");
+        processId ??= GetExitedProcessId().ToString();
+        string readyFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt");
+        string decisionFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(readyFilePath)!);
+        if (File.Exists(readyFilePath))
+        {
+            File.Delete(readyFilePath);
+        }
+        if (File.Exists(decisionFilePath))
+        {
+            File.Delete(decisionFilePath);
+        }
+
         var processStartInfo = new ProcessStartInfo
         {
             FileName = updaterPath,
@@ -212,8 +839,14 @@ public sealed class UpdaterPackageSyncTests
                 packagePath,
                 "--backup-dir",
                 backupDirectoryPath,
+                "--ready-file",
+                readyFilePath,
+                "--decision-file",
+                decisionFilePath,
                 "--pid",
-                "0"
+                processId,
+                "--restart-exe",
+                restartExecutablePath
             }.Select(QuoteArgument)),
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -221,7 +854,75 @@ public sealed class UpdaterPackageSyncTests
             WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? Environment.CurrentDirectory
         };
 
-        return Process.Start(processStartInfo) ?? throw new InvalidOperationException("Updater process was not started.");
+        Process process = Process.Start(processStartInfo) ?? throw new InvalidOperationException("Updater process was not started.");
+        bool validProcessId = int.TryParse(processId, out int parsedProcessId) && parsedProcessId > 0;
+        if (validProcessId)
+        {
+            WaitForFile(readyFilePath);
+            if (publishProceed)
+            {
+                File.WriteAllText(decisionFilePath, "proceed");
+            }
+        }
+        return process;
+    }
+
+    private static int GetExitedProcessId()
+    {
+        using Process process = Process.Start(new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+            Arguments = "/c exit 0",
+            UseShellExecute = false,
+            CreateNoWindow = true
+        }) ?? throw new InvalidOperationException("The exited process fixture was not started.");
+        int processId = process.Id;
+        if (!process.WaitForExit(5000))
+        {
+            process.Kill();
+            Assert.Fail("The exited process fixture did not terminate.");
+        }
+
+        return processId;
+    }
+
+    private static void WaitForFile(string filePath)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!File.Exists(filePath) && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(50);
+        }
+
+        Assert.IsTrue(File.Exists(filePath), "Expected file was not created: " + filePath);
+    }
+
+    private static void WaitForFileAvailable(string filePath)
+    {
+        if (!File.Exists(filePath))
+        {
+            return;
+        }
+
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                using FileStream stream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
+                return;
+            }
+            catch (IOException)
+            {
+                Thread.Sleep(50);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Thread.Sleep(50);
+            }
+        }
+
+        Assert.Fail("Restart target remained locked: " + filePath);
     }
 
     private static string FindUpdaterExecutable()
@@ -235,9 +936,7 @@ public sealed class UpdaterPackageSyncTests
         string[] candidates =
         [
             Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", platform, configuration, targetFramework, "BeMusicSeeker.Updater.exe"),
-            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", configuration, targetFramework, "BeMusicSeeker.Updater.exe"),
-            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", platform, configuration, "net472", "BeMusicSeeker.Updater.exe"),
-            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", configuration, "net472", "BeMusicSeeker.Updater.exe")
+            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", configuration, targetFramework, "BeMusicSeeker.Updater.exe")
         ];
         foreach (string candidate in candidates)
         {
@@ -277,6 +976,12 @@ public sealed class UpdaterPackageSyncTests
         }
 
         File.WriteAllText(filePath, contents);
+    }
+
+    private static void CopyRestartExecutable(string rootDirectoryPath)
+    {
+        Directory.CreateDirectory(rootDirectoryPath);
+        File.Copy(FindUpdaterExecutable(), Path.Combine(rootDirectoryPath, "restart.exe"), overwrite: true);
     }
 
     private static string QuoteArgument(string argument)
@@ -324,6 +1029,7 @@ public sealed class UpdaterPackageSyncTests
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerUpdaterTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
+        Directory.CreateDirectory(Path.Combine(tempDirectoryPath, "app", "update_work", "downloads"));
         try
         {
             action(tempDirectoryPath);
@@ -332,7 +1038,24 @@ public sealed class UpdaterPackageSyncTests
         {
             if (Directory.Exists(tempDirectoryPath))
             {
-                Directory.Delete(tempDirectoryPath, recursive: true);
+                DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+                while (Directory.Exists(tempDirectoryPath) && DateTime.UtcNow < deadline)
+                {
+                    try
+                    {
+                        Directory.Delete(tempDirectoryPath, recursive: true);
+                    }
+                    catch (IOException)
+                    {
+                        Thread.Sleep(50);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        Thread.Sleep(50);
+                    }
+                }
+
+                Assert.IsFalse(Directory.Exists(tempDirectoryPath), "Temporary updater test directory remained locked: " + tempDirectoryPath);
             }
         }
     }

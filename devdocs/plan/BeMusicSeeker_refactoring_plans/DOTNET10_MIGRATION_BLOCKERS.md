@@ -6,17 +6,17 @@
 
 | ID | State | Blocking condition | Owner | Exit evidence |
 |---|---|---|---|---|
-| `TFM-01` | in-progress | updaterと2 toolsが`net472`。app／testsは`net10.0-windows` | `NET10-01` | 全projectのtarget matrix、Release build／test |
+| `TFM-01` | in-progress | 2 toolsが`net472`。app／tests／updaterは`net10.0-windows` | `NET10-01` | 全projectのtarget matrix、Release build／test |
 | `CFG-01` | in-progress | settings lifecycleの.NET 10 runtime evidenceが必要 | `NET10-01/02` | settings golden test、probing非依存、ConfigurationManager route |
 | `DEP-UI-01` | queued | framework-era Livet／Interactivity／Metro／Expression／Code Pack | `NET10-03` | modern package／WPF APIへ移行、legacy HintPathゼロ、UI smoke |
 | `DEP-HELPER-01` | queued | QuickConverter、DynamicJson、SgmlReader、unused managed DLL | `NET10-04` | grouped replacements、golden tests、legacy refs削除 |
 | `DB-01` | in-progress | sqlite.net／hand-placed sqlite3のprovider／ABI／data compatibility | `NET10-01/05` | startup DB-open、existing DB、transaction、2 tools、native bundle verification |
 | `NATIVE-01` | queued | archive、audio、Everythingのversion／license／publish load未確定 | `NET10-06` | dependency register completed、x64 runtime smoke |
 | `PUBLISH-01` | queued | current outputはnet10 buildを含むがSelf-contained publishではない | `NET10-07` | versioned win-x64 SCD profiles、publish-folder smoke |
-| `UPD-01` | queued | updaterが新publish layout／runtime payloadで未検証 | `NET10-07/08` | update、restart、rollback、old-to-new smoke |
+| `UPD-01` | in-progress | updaterのnet10 protocol／SCD起動は検証済み。app publish／old-to-new acceptanceが未完了 | `NET10-07/08` | update、restart、rollback、old-to-new smoke |
 | `DATA-01` | queued | existing settings／DB／playlist／package stateのmigration acceptance未実施 | `NET10-08` | copied real-format dataによるgolden／manual smoke |
 | `CLEAN-01` | external-gate | .NET runtime未導入clean x64 Windowsで未検証 | `NET10-08` | OS／artifact hash付きmanual acceptance record |
 
 ## Rehearsal evidence
 
-N1ではapp／testsの`net10.0-windows` restore／Release build、settings／code-page／startup DB-open targeted tests、repository Release executableのstartup smokeが通っている。これはapp／testsのbaseline evidenceであり、updater、2 tools、dependency replacement、Self-contained publish、existing data、updater acceptanceを完了した証拠ではない。
+N1／N2ではapp／tests／updaterの`net10.0-windows` restore／Release build、settings／code-page／startup DB-open targeted tests、updaterのwin-x64 Self-contained `--version` smoke、repository Release executableのstartup smokeが通っている。これはapp／tests／updaterのbaseline evidenceであり、2 tools、dependency replacement、main app Self-contained publish、existing data、old-to-new updater acceptanceを完了した証拠ではない。

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Update;
@@ -54,10 +55,18 @@ public sealed class UpdateDownloadServiceTests
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
-        string sourceUpdaterPath = Path.Combine(root, "BeMusicSeeker.Updater.exe");
-        string packagePath = Path.Combine(root, "downloads", "app.zip");
+        string packagePath = Path.Combine(root, "update_work", "downloads", "app.zip");
         File.WriteAllText(applicationPath, string.Empty);
-        File.WriteAllText(sourceUpdaterPath, "updater");
+        foreach (string fileName in new[]
+        {
+            "BeMusicSeeker.Updater.exe",
+            "BeMusicSeeker.Updater.dll",
+            "BeMusicSeeker.Updater.deps.json",
+            "BeMusicSeeker.Updater.runtimeconfig.json"
+        })
+        {
+            File.WriteAllText(Path.Combine(root, fileName), "updater");
+        }
         var gateway = new RecordingUpdaterProcessGateway();
         var service = new UpdateDownloadService(
             ApplicationPathSnapshot.FromExecutablePath(applicationPath),
@@ -69,11 +78,315 @@ public sealed class UpdateDownloadServiceTests
 
             Assert.AreSame(gateway.PreparedLaunch, preparedLaunch);
             Assert.IsTrue(File.Exists(gateway.Request.ExecutablePath));
+            foreach (string fileName in new[]
+            {
+                "BeMusicSeeker.Updater.exe",
+                "BeMusicSeeker.Updater.dll",
+                "BeMusicSeeker.Updater.deps.json",
+                "BeMusicSeeker.Updater.runtimeconfig.json"
+            })
+            {
+                Assert.IsTrue(File.Exists(Path.Combine(gateway.Request.WorkingDirectory, fileName)));
+            }
             Assert.AreEqual(Path.Combine(root, "update_work", "current"), gateway.Request.WorkingDirectory);
             Assert.AreEqual(root, gateway.Request.ApplicationDirectory);
             Assert.AreEqual(packagePath, gateway.Request.PackagePath);
             Assert.AreEqual(Path.Combine(root, "update_backup"), gateway.Request.BackupDirectory);
+            Assert.AreEqual(Path.Combine(root, "update_work", "current", "updater-ready.txt"), gateway.Request.ReadyFilePath);
+            Assert.AreEqual(Path.Combine(root, "update_work", "current", "updater-decision.txt"), gateway.Request.DecisionFilePath);
             Assert.AreEqual(applicationPath, gateway.Request.RestartExecutablePath);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
+        string workRoot = Path.Combine(root, "update_work");
+        string currentDirectory = Path.Combine(workRoot, "current");
+        Directory.CreateDirectory(currentDirectory);
+        Directory.CreateDirectory(Path.Combine(workRoot, "downloads"));
+        File.WriteAllText(applicationPath, string.Empty);
+        File.WriteAllText(Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe"), "running-updater");
+        File.WriteAllText(Path.Combine(workRoot, "downloads", "stale.zip"), "stale-package");
+
+        try
+        {
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(applicationPath),
+                new RecordingUpdaterProcessGateway());
+
+            service.CleanupPreviousWorkDirectory();
+
+            Assert.IsTrue(File.Exists(Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(workRoot, "downloads")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CleanupPreviousWorkDirectoryPublishesAndConsumesUpdaterFailureReceipt()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
+        string failureReceiptPath = Path.Combine(root, "update_work", "update-failure.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(failureReceiptPath)!);
+        File.WriteAllText(applicationPath, string.Empty);
+        File.WriteAllText(failureReceiptPath, "updater failure details");
+
+        try
+        {
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(applicationPath),
+                new RecordingUpdaterProcessGateway());
+
+            UpdateFailureReceiptException exception = Assert.ThrowsException<UpdateFailureReceiptException>(
+                () => service.CleanupPreviousWorkDirectory());
+
+            StringAssert.Contains(exception.Message, "updater failure details");
+            Assert.IsTrue(File.Exists(failureReceiptPath));
+            exception.Acknowledge();
+            Assert.IsFalse(File.Exists(failureReceiptPath));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CleanupPreviousWorkDirectoryReadsTemporaryUpdaterFailureReceipt()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
+        string failureReceiptPath = Path.Combine(root, "update_work", "update-failure.txt.tmp");
+        Directory.CreateDirectory(Path.GetDirectoryName(failureReceiptPath)!);
+        File.WriteAllText(applicationPath, string.Empty);
+        File.WriteAllText(failureReceiptPath, "temporary updater failure details");
+
+        try
+        {
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(applicationPath),
+                new RecordingUpdaterProcessGateway());
+
+            UpdateFailureReceiptException exception = Assert.ThrowsException<UpdateFailureReceiptException>(
+                () => service.CleanupPreviousWorkDirectory());
+
+            StringAssert.Contains(exception.Message, "temporary updater failure details");
+            Assert.IsTrue(File.Exists(failureReceiptPath));
+            exception.Acknowledge();
+            Assert.IsFalse(File.Exists(failureReceiptPath));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PreparedUpdaterPayloadStartsFromCurrentDirectory()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string releaseOutput = Path.Combine(repositoryRoot, "bin", "x64", "Release", "net10.0-windows");
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
+        string packagePath = Path.Combine(root, "update_work", "downloads", "app.zip");
+        string[] payloadFileNames =
+        {
+            "BeMusicSeeker.Updater.exe",
+            "BeMusicSeeker.Updater.dll",
+            "BeMusicSeeker.Updater.deps.json",
+            "BeMusicSeeker.Updater.runtimeconfig.json"
+        };
+
+        Directory.CreateDirectory(Path.GetDirectoryName(packagePath)!);
+        File.WriteAllText(applicationPath, string.Empty);
+        File.WriteAllText(packagePath, "package");
+        foreach (string fileName in payloadFileNames)
+        {
+            string sourcePath = Path.Combine(releaseOutput, fileName);
+            Assert.IsTrue(File.Exists(sourcePath), "Release updater payload is missing: " + sourcePath);
+            File.Copy(sourcePath, Path.Combine(root, fileName));
+        }
+
+        try
+        {
+            var gateway = new RecordingUpdaterProcessGateway();
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(applicationPath),
+                gateway);
+            service.PrepareUpdaterLaunch(packagePath);
+
+            var startInfo = new ProcessStartInfo(gateway.Request.ExecutablePath)
+            {
+                UseShellExecute = false,
+                WorkingDirectory = gateway.Request.WorkingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("--version");
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("The prepared updater payload did not start.");
+            Assert.IsTrue(process.WaitForExit(30000), "The prepared updater payload did not exit.");
+            string standardOutput = process.StandardOutput.ReadToEnd();
+            string standardError = process.StandardError.ReadToEnd();
+            Assert.AreEqual(0, process.ExitCode, standardError);
+            StringAssert.Contains(standardOutput, "1");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PrepareUpdaterLaunchRejectsReparsePointInCurrentWorkDirectory()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        string externalDirectory = Path.Combine(root, "external");
+        Directory.CreateDirectory(externalDirectory);
+        File.WriteAllText(Path.Combine(externalDirectory, "sentinel.txt"), "external-sentinel");
+        File.WriteAllText(Path.Combine(root, "BeMusicSeeker.exe"), string.Empty);
+        foreach (string fileName in new[]
+        {
+            "BeMusicSeeker.Updater.exe",
+            "BeMusicSeeker.Updater.dll",
+            "BeMusicSeeker.Updater.deps.json",
+            "BeMusicSeeker.Updater.runtimeconfig.json"
+        })
+        {
+            File.WriteAllText(Path.Combine(root, fileName), "updater");
+        }
+        Directory.CreateDirectory(Path.Combine(root, "update_work"));
+        string currentDirectory = Path.Combine(root, "update_work", "current");
+        try
+        {
+            Directory.CreateSymbolicLink(currentDirectory, externalDirectory);
+        }
+        catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is PlatformNotSupportedException)
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            Assert.Inconclusive("The test environment does not permit directory symbolic links: " + exception.Message);
+            return;
+        }
+
+        try
+        {
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+                new RecordingUpdaterProcessGateway());
+
+            Assert.ThrowsException<InvalidOperationException>(() => service.PrepareUpdaterLaunch(Path.Combine(root, "update_work", "downloads", "app.zip")));
+            Assert.AreEqual("external-sentinel", File.ReadAllText(Path.Combine(externalDirectory, "sentinel.txt")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PrepareUpdaterLaunchRejectsPackageOutsideDownloadDirectory()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
+        File.WriteAllText(applicationPath, string.Empty);
+        foreach (string fileName in new[]
+        {
+            "BeMusicSeeker.Updater.exe",
+            "BeMusicSeeker.Updater.dll",
+            "BeMusicSeeker.Updater.deps.json",
+            "BeMusicSeeker.Updater.runtimeconfig.json"
+        })
+        {
+            File.WriteAllText(Path.Combine(root, fileName), "updater");
+        }
+
+        try
+        {
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(applicationPath),
+                new RecordingUpdaterProcessGateway());
+
+            Assert.ThrowsException<InvalidOperationException>(() => service.PrepareUpdaterLaunch(Path.Combine(root, "outside.zip")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void TryDeleteDownloadedPackageRejectsReparsePointDownloadsDirectory()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        string externalDirectory = Path.Combine(root, "external");
+        Directory.CreateDirectory(externalDirectory);
+        string externalPackagePath = Path.Combine(externalDirectory, "app.zip");
+        File.WriteAllText(externalPackagePath, "external-package");
+        File.WriteAllText(Path.Combine(root, "BeMusicSeeker.exe"), string.Empty);
+        Directory.CreateDirectory(Path.Combine(root, "update_work"));
+        string downloadsDirectory = Path.Combine(root, "update_work", "downloads");
+        try
+        {
+            Directory.CreateSymbolicLink(downloadsDirectory, externalDirectory);
+        }
+        catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is PlatformNotSupportedException)
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            Assert.Inconclusive("The test environment does not permit directory symbolic links: " + exception.Message);
+            return;
+        }
+
+        try
+        {
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+                new RecordingUpdaterProcessGateway());
+            Exception warning = null;
+
+            service.TryDeleteDownloadedPackage(Path.Combine(downloadsDirectory, "app.zip"), exception => warning = exception);
+
+            Assert.IsNotNull(warning);
+            Assert.AreEqual("external-package", File.ReadAllText(externalPackagePath));
         }
         finally
         {

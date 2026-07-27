@@ -60,23 +60,28 @@ asset 種別:
 - ダウンロード後のサイズが `sizeBytes` と一致すること
 - SHA-256 が `sha256` と一致すること
 
-検証後、アプリは packaged updater を `update_work/current/BeMusicSeeker.Updater.exe` にコピーして起動し、自身を終了する。
+検証後、アプリは packaged updater の exe、dll、deps.json、runtimeconfig.json を `update_work/current/` にコピーして、同じディレクトリから起動する。updater は request を parse できた時点で `current/updater-ready.txt` を公開し、アプリはこの ready handshake を確認してから shutdown preparation を行う。preparation 成功時だけ `current/updater-decision.txt` に `proceed` を公開し、updater はそれを受けてから親プロセス終了待ちと適用を開始する。preparation が長引いてもアプリ process が生存している間は decision 待ちを延長し、`proceed` 前に 60 秒の終了待ちを消費しない。preparation 失敗や中断時は `cancel` を公開し、updater は適用せず終了する。ready 前に updater が終了または起動できなかった場合、アプリは終了せず既存の update failure dialog へ通知する。再起動直後のアプリ初期化は、実行中 updater が保持している `current/` を削除対象にせず、`downloads/` や `extracted/` などの一時領域だけを掃除する。`current/` は次回の updater payload 準備時に上書きする。
+
+updater がアプリ終了後に適用または rollback に失敗した場合は、`update_work/update-failure.txt` を一時ファイルから atomic に公開して失敗内容を記録してから終了する。atomic 移動に失敗しても `update-failure.txt.tmp` を durable fallback として残し、次回起動時に同じ receipt として扱う。startup cleanup は receipt を読み取って一時領域を掃除し、既存の update failure dialog が正常に戻った後で receipt を acknowledge（削除）する。shell 終了などで dialog を抑止した場合は acknowledge を延期して receipt を保持する。これにより updater の stderr だけに失敗を残さず、再起動後のユーザー操作で失敗を観測できる。
 
 ## Updater
 
 updater protocol version は `1`。`BeMusicSeeker.Updater.exe --version` で確認できる。
 
-開発時の x64 Release build では、`BeMusicSeeker.csproj` が `BeMusicSeeker.Updater` を build dependency として扱い、`BeMusicSeeker.Updater.exe` を `bin/x64/Release/net472/` へコピーする。managed dependencyは同じoutputの`libs/`へ配置し、`app.config`のprobing設定と一致させる。これにより、`dotnet build BeMusicSeeker.sln -c Release -p:Platform=x64` 後の app output はローカル自動更新検証に必要な updater と portable dependency layout を含む。
+開発時の x64 Release build では、`BeMusicSeeker.csproj` が `BeMusicSeeker.Updater` を build dependency として扱い、updater の実行 payload 一式を `bin/x64/Release/net10.0-windows/` へコピーする。これにより、`dotnet build BeMusicSeeker.sln -c Release -p:Platform=x64` 後の app output はローカル自動更新検証に必要な updater payload と portable dependency layout を含む。managed dependency の解決は `app.config` の private probing に依存しない。
 
 updater 引数:
 
 - `--app-dir`: アプリ本体ディレクトリ
-- `--package`: 検証済み zip
+- `--package`: `app-dir/update_work/downloads/` 配下にある検証済み zip（この境界外のパスは拒否）
 - `--backup-dir`: `update_backup`
+- `--ready-file`: `app-dir/update_work/current/updater-ready.txt`（request 受理 handshake。境界外のパスは拒否）
+- `--decision-file`: `app-dir/update_work/current/updater-decision.txt`（`proceed`／`cancel` の二段階 launch decision。境界外のパスは拒否）
 - `--pid`: 終了待ち対象の BeMusicSeeker process id
-- `--restart-exe`: 更新後に起動する exe
+- `--restart-exe`: 更新後に起動する exe（必須。app directory 内の既存ファイルで、更新 package に同じ相対パスを含み、更新後も存在する必要がある）
 
 updater は `--pid` の終了を最大 60 秒待つ。
+`--backup-dir` は app directory 直下の `update_backup/` と完全一致しなければならない。
 
 ## ファイル保持ポリシー
 
@@ -84,6 +89,7 @@ updater は `--pid` の終了を最大 60 秒待つ。
 
 - `config/`
 - `data/`
+- `log/`
 - `logs/`
 - `update_backup/`
 - `update_work/`
@@ -102,15 +108,16 @@ updater は `--pid` の終了を最大 60 秒待つ。
 
 更新前の管理ファイルは `update_backup/previous/` に退避する。保持数は 1 世代。
 
-更新中に失敗した場合は、今回の package path だけを削除して `update_backup/previous/` から復元する。ユーザー追加ファイルや保持対象ディレクトリは rollback でも触らない。
+更新適用から restart executable の `Process.Start` 成功までは rollback 可能な段階とし、失敗時は今回の package path と extracted directory を掃除して `update_backup/previous/` から復元する。ユーザー追加ファイルや保持対象ディレクトリは rollback でも触らない。アプリ終了後にこの段階で失敗した場合、updater は復元後に旧 restart executable の再起動を試み、更新失敗でアプリが閉じたままになることを避ける（再起動自体の失敗は stderr に記録する）。
 
-ダウンロード済み zip は更新成功後に削除する。
+restart executable の起動に成功した時点を更新の commit point とする。適用後、restart 前に zip／extract directory の cleanup を試み、失敗しても rollback せず警告を stderr に出して、再起動後の startup cleanup に委ねる。restart 後に updater が一時領域を同時に掃除しないことで、起動済み新プロセスとの cleanup 競合を避ける。
 
 ## Release 運用
 
 `scripts/publish.ps1` は以下を行う。
 
-- `BeMusicSeeker.exe` と `BeMusicSeeker.Updater.exe` を Release build
+- `BeMusicSeeker.exe`、`BeMusicSeeker.dll`、deps／runtimeconfig／config と `BeMusicSeeker.Updater.exe`、dll、deps／runtimeconfig を Release build から同梱
+- x64 BASS native family（`bass.dll`、`bassasio.dll`、`bassenc.dll`、`bassmix.dll`、`basswasapi.dll`、`bass_fx.dll`）と `lang/*.json` を明示 inventory で同梱し、incremental build の残骸を取り込まない
 - 通常版 zip を作成
 - `-IncludeMetadata` 指定時に `chart-info-metadata.7z` 同梱版 zip を作成
 - `update-managed-files.txt` と `dist/update-v{version}.json` を生成
