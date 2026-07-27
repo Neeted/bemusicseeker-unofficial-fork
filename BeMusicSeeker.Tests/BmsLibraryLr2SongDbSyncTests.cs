@@ -6600,7 +6600,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(lr2FolderPath, "#TITLE Random", Encoding.GetEncoding("shift_jis"));
             Settings.Default.LR2RootPath = lr2Root;
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x1, titleFlashHours: 24, bmsRoot);
-            var library = new TestBmsLibrary(scope.SongDbPath, () => config)
+            BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default);
+            var library = new TestBmsLibrary(scope.SongDbPath, () => config, null, null, () => options)
             {
                 SearchTargets = [bmsRoot],
                 BMSFiles = []

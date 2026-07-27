@@ -10,6 +10,12 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $repoRoot 'BeMusicSeeker.sln'
 $uiExecutable = Join-Path $repoRoot 'bin\x64\Release\net10.0-windows\BeMusicSeeker.exe'
+$toolProjects = @(
+    (Join-Path $repoRoot 'tools\chart-info-compare\ChartInfoCompare.csproj'),
+    (Join-Path $repoRoot 'tools\chart-info-export\ChartInfoExport.csproj'))
+$toolExecutables = @(
+    (Join-Path $repoRoot 'tools\chart-info-compare\bin\x64\Release\net10.0\ChartInfoCompare.exe'),
+    (Join-Path $repoRoot 'tools\chart-info-export\bin\x64\Release\net10.0\ChartInfoExport.exe'))
 $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
 $testTimeoutSeconds = 300
 
@@ -144,8 +150,20 @@ try {
     # has the simple 300-second command-response timeout described above.
     Invoke-CheckedCommand dotnet build $solution '/p:Configuration=Release' '/p:Platform=x64' '--no-restore'
 
+    foreach ($toolProject in $toolProjects) {
+        Invoke-CheckedCommand dotnet build $toolProject '/p:Configuration=Release' '/p:Platform=x64' '--no-restore'
+    }
+
     if (-not (Test-Path -LiteralPath $uiExecutable -PathType Leaf)) {
         throw "Release UI smoke executable was not produced: $uiExecutable"
+    }
+
+    foreach ($toolExecutable in $toolExecutables) {
+        if (-not (Test-Path -LiteralPath $toolExecutable -PathType Leaf)) {
+            throw "Release tool executable was not produced: $toolExecutable"
+        }
+
+        Invoke-CheckedCommand $toolExecutable '--help'
     }
 
     $resolvedUiExecutable = (Resolve-Path -LiteralPath $uiExecutable).Path

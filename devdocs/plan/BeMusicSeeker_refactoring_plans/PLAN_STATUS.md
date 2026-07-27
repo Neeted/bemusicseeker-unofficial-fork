@@ -22,9 +22,9 @@ Full verificationは`3399 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 
 ## Active outcome
 
-- active outcome: `NET10-01 Retarget and complete project baseline`
-- active execution package: `.NET 10 Self-contained migration`
-- execution anchor: `NET10-01 project retarget baseline`
+- active outcome: `NET10-02 Managed package and configuration baseline`
+- active execution package: `.NET 10 managed dependency and configuration`
+- execution anchor: `NET10-02 managed package/configuration corridor`
 - planner state: planner required once
 
 ## Active implementation batch
@@ -33,9 +33,9 @@ Full verificationは`3399 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 |---|---|---|---|
 | `N1 APP-CFG` | completed | application runtime／portable settings baseline | app／testsの.NET 10 retarget、settings wire format、code-page bootstrap、managed loader、startup DB-openを同じrouteで検証 |
 | `N2 UPDATER` | completed | updater executable／protocol corridor | updater retarget、protocol／swap／rollback／restart behavior、temporary self-contained smoke |
-| `N3 CHART-TOOLS` | active | chart metadata DB tools／outcome closure | 2 tools retarget、solution／verificationを5 projectへ拡張、CLI／DB behavior、NET10-01完了 |
+| `N3 CHART-TOOLS` | completed | chart metadata DB tools／outcome closure | 2 tools retarget、solution／verificationを5 projectへ拡張、CLI／DB behavior、NET10-01完了 |
 
-active／pending unitがある間はunit-plannerを再起動しない。各unitのstatus更新は対応するproduction code commitへ含める。
+active／pending unitがある間はunit-plannerを再起動しない。現在のbatchは空であり、次のoutcome開始時にplannerを一度起動する。各unitのstatus更新は対応するproduction code commitへ含める。
 
 ## Review evidence
 
@@ -52,7 +52,7 @@ active／pending unitがある間はunit-plannerを再起動しない。各unit�
 
 ### Migration baseline
 
-- app／tests／updaterは`net10.0-windows`へretarget済み。2 toolsは`net472`でN3の対象。
+- app／tests／updaterは`net10.0-windows`、2 toolsは`net10.0`へretarget済み。全5 projectをsolution／verificationでRelease build対象にしている。
 - appはWPF＋WinForms、x64、managed HintPathとnative DLLを含む。
 - current `app.config`はframework startupのみを持ち、managed private probingには依存しない。
 - `global.json`は.NET SDK `10.0.301`を指定する。
@@ -60,7 +60,7 @@ active／pending unitがある間はunit-plannerを再起動しない。各unit�
 
 ## Next outcome
 
-- active outcome: `NET10-01 Retarget and complete project baseline`
-- active execution package: `.NET 10 Self-contained migration`
-- execution anchor: `NET10-01 project retarget baseline`
-- active implementation batch: `N3 CHART-TOOLS` active
+- active outcome: `NET10-02 Managed package and configuration baseline`
+- active execution package: `.NET 10 managed dependency and configuration`
+- execution anchor: `NET10-02 managed package/configuration corridor`
+- active implementation batch: empty; planner required once

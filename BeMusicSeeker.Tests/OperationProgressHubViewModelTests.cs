@@ -107,6 +107,7 @@ public sealed class OperationProgressHubViewModelTests
 
         fixture.ReleasePackageProgress();
         Assert.IsTrue(SpinWait.SpinUntil(() => fixture.Package.IsIdle, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(SpinWait.SpinUntil(() => !hub.IsInstallPipelineStatusActive, TimeSpan.FromSeconds(5)));
         Assert.IsFalse(hub.IsInstallPipelineStatusActive);
         Assert.AreEqual(0, hub.InstallPipelineValue);
         Assert.AreEqual(1, hub.InstallPipelineMaximum);
