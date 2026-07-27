@@ -31,6 +31,12 @@
         "requested": "[4.15.0, )",
         "resolved": "4.15.0",
         "contentHash": "/LvSJGJbrx+OYC2GePmiAA9fRTfz37R/oaHC2j8YK/j9lE8ykZESCGTMVGqXF5woc6RbzfJlpYkzeG6fAV6hFQ=="
+      },
+      "System.Resources.Extensions": {
+        "type": "Direct",
+        "requested": "[10.0.10, )",
+        "resolved": "10.0.10",
+        "contentHash": "xUBGLR+HPujL5k3LmHIJSS6xFsKECOGO52nurXMDADkLRFNVVUxCH4ng2WBD1YTxGHkE/s2kJs1I2B89DJJyLA=="
       }
     },
     "net10.0-windows7.0/win-x64": {}

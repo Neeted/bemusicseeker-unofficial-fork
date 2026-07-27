@@ -151,6 +151,7 @@
     </Reference>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="NLog" Version="6.1.4" />
+    <PackageReference Include="System.Resources.Extensions" Version="10.0.10" />
   </ItemGroup>
 
   <Target Name="RemoveLegacyNativeOutputArtifacts" AfterTargets="CopyFilesToOutputDirectory">

@@ -36,8 +36,9 @@ Full verificationは`3401 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `N3 CHART-TOOLS` | completed | chart metadata DB tools／outcome closure | 2 tools retarget、solution／verificationを5 projectへ拡張、CLI／DB behavior、NET10-01完了 |
 | `M1 LOG-RUNTIME` | completed | NLog 6 logging／runtime corridor | NLog 6.1.4、全logging route、legacy addon cleanup、package/layout、behavior test、temporary publish smoke |
 | `M2 JSON-CONTRACT` | completed | Newtonsoft.Json／persisted and external JSON corridor | Newtonsoft.Json 13.0.4、既存 JSON owner、settings／file／DB／update contract、package／publish evidence |
+| `M3 RESOURCE-ICONS` | completed | System.Resources.Extensions／embedded resource runtime corridor | 11 Images.resx icons、typed Icon accessors、XAML converter route、resource package／publish ownership |
 
-active／pending unitがある間はunit-plannerを再起動しない。`M2 JSON-CONTRACT`完了後、残るNET10-02 routeへ次のplannerを一度だけ起動する。各unitのstatus更新は対応するproduction code commitへ含める。
+active／pending unitがある間はunit-plannerを再起動しない。`M3 RESOURCE-ICONS`完了後、残るNET10-02 routeへ次のplannerを一度だけ起動する。各unitのstatus更新は対応するproduction code commitへ含める。
 
 ## Review evidence
 

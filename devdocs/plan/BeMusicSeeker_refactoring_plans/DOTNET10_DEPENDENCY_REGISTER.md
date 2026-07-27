@@ -13,7 +13,7 @@ versionは実行計画を固定するための候補baselineであり、各Outco
 | `DEP-CFG-01` | framework `System.Configuration` | generated settingsとcustom provider | configuration adapterを維持しPackageReference化 | `System.Configuration.ConfigurationManager 10.0.10` | `NET10-01` |
 | `DEP-LOG-01` | NLog 6.1.4 | `NLogWrapper`がfile／performance／network／trace loggingを所有 | NLog 6 coreへ更新。custom network／trace target、archive／encoding／channel behavior、publish outputを検証済み | NLog 6.1.4 | `NET10-02` |
 | `DEP-JSON-01` | Newtonsoft.Json 13.0.4 | persisted／external JSON ownersで使用 | 13.0.4へpatch更新し、既存ownerのsettings／file／DB／update JSON behaviorとpublish resolutionを確認 | Newtonsoft.Json 13.0.4 | `NET10-02/04` |
-| `DEP-RES-01` | System.Resources.Extensions 8.0.0 | resource serialization | .NET 10系へ更新しresource load smoke | 10.0.10 | `NET10-02` |
+| `DEP-RES-01` | System.Resources.Extensions 10.0.10 | `GenerateResourceUsePreserializedResources`、`Images.resx`のembedded icon serialization／runtime load | 10.0.10をapp project／lockのdirect ownerとし、11 iconのResourceManager／typed accessor／XAML converterとSelf-contained publishを検証。legacy `libs` cleanup契約は維持 | System.Resources.Extensions 10.0.10 | `NET10-02` |
 | `DEP-TEST-01` | Test SDK 17.12.0, MSTest 3.6.4 | migration verification | current supported versionsへ更新 | Test SDK 18.8.1, MSTest 4.3.2 | `NET10-02` |
 | `DEP-AN-01` | Roslynator 4.15.0 | build analyzer | .NET 10で再解決。警告増加を分類し、必要時だけ更新 | current 4.15.0から検証 | `NET10-02` |
 | `DEP-UI-01` | `Livet.dll`, `Livet.Extensions.dll` HintPath | ViewModel、command、notification、dispatcherで広範利用 | vertical migration。Extensionsは必要機能だけ置換 | LivetCask 4.0.2候補 | `NET10-03` |

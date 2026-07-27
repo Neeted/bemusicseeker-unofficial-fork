@@ -93,6 +93,15 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "Newtonsoft.Json.dll")),
             "Newtonsoft.Json must be supplied by the SDK package output, not a tracked HintPath binary.");
+
+        XElement resourcesReference = projectRoot
+            .Elements("ItemGroup")
+            .Elements("PackageReference")
+            .Single(reference => string.Equals((string)reference.Attribute("Include"), "System.Resources.Extensions", StringComparison.Ordinal));
+        Assert.AreEqual("10.0.10", (string)resourcesReference.Attribute("Version"));
+        Assert.IsFalse(
+            File.Exists(Path.Combine(repositoryRoot, "libs", "System.Resources.Extensions.dll")),
+            "System.Resources.Extensions must be owned by the SDK package graph, not a tracked HintPath binary.");
     }
 
     private static string FindRepositoryRoot()
