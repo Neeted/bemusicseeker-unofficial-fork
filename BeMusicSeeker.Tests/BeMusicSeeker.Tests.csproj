@@ -29,9 +29,6 @@
     <Reference Include="sqlite.net">
       <HintPath>..\libs\sqlite.net.dll</HintPath>
     </Reference>
-    <Reference Include="DynamicJson">
-      <HintPath>..\libs\DynamicJson.dll</HintPath>
-    </Reference>
     <Reference Include="SgmlReaderDll">
       <HintPath>..\libs\SgmlReaderDll.dll</HintPath>
     </Reference>

@@ -93,18 +93,6 @@ BeMusicSeeker サードパーティ・ノーティス
 - MIT ライセンス本文と著作権表示を同梱してください。
 
 ================================================================================
-10) DynamicJson
-================================================================================
-ステータス: GREEN
-コンポーネント: DynamicJson.dll
-著作権所有者: neuecc
-ライセンス: MS-PL
-ソース: https://github.com/neuecc/DynamicJson
-ライセンス本文: third_party/licenses/10-DynamicJson-MS-PL.txt
-再配布時の注意事項:
-- MS-PL ライセンス本文を同梱してください。
-
-================================================================================
 11) SgmlReader
 ================================================================================
 ステータス: GREEN
@@ -263,7 +251,7 @@ GitHub リリース準備状況におけるアクション・サマリー
 (なし)
 
 準備完了（GREEN）:
-- 7z.dll, Livet, DynamicJson, NLog, .NET の MIT ランタイム依存関係,
+- 7z.dll, Livet, NLog, .NET の MIT ランタイム依存関係,
   System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,

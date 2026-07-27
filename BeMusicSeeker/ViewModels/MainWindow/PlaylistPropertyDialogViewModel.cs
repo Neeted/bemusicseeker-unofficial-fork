@@ -24,7 +24,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
-using Codeplex.Data;
 using Livet;
 using Livet.Commands;
 using Livet.EventListeners;

@@ -27,7 +27,6 @@ using BeMusicSeeker.Views.Dialogs;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using Codeplex.Data;
 using Livet;
 using Livet.Commands;
 using Livet.EventListeners;

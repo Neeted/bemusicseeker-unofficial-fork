@@ -2,7 +2,6 @@ Set-StrictMode -Version Latest
 
 $script:RequiredManagedRootFiles = @(
     "Bass.Net.dll",
-    "DynamicJson.dll",
     "IniLibrary.dll",
     "Livet.Core.dll",
     "Livet.EventListeners.dll",

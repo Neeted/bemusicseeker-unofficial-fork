@@ -10,7 +10,8 @@ using BeMusicSeeker.Views.Dialogs;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using Codeplex.Data;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Ribbit.Net;
 
 namespace BeMusicSeeker.ViewModels;
@@ -387,8 +388,7 @@ internal sealed class AppScoreViewerRegistrationGateway : IScoreViewerRegistrati
     public bool IsRegistered(string hash)
     {
         string json = AppHttpClient.Shared.GetString(new Uri(StatusUrl + hash), Encoding.UTF8);
-        dynamic response = DynamicJson.Parse(json);
-        return response.status == "OK";
+        return ParseRegistrationStatusResponse(json);
     }
 
     public ScoreViewerUploadResponse Upload(string path)
@@ -399,11 +399,57 @@ internal sealed class AppScoreViewerRegistrationGateway : IScoreViewerRegistrati
             responseEncoding: Encoding.UTF8,
             headers: new Dictionary<string, string> { { "Accept", "application/json" } },
             logErrorResponseBody: true);
-        dynamic response = DynamicJson.Parse(json);
-        string status = Convert.ToString(response.status, CultureInfo.InvariantCulture);
+        return ParseUploadResponse(json);
+    }
+
+    internal static bool ParseRegistrationStatusResponse(string json)
+    {
+        JObject response = ParseJsonObject(json);
+        if (!response.TryGetValue("status", out JToken token))
+        {
+            throw new FormatException("Required JSON property is missing: status");
+        }
+        return token.Type switch
+        {
+            JTokenType.Null => false,
+            JTokenType.String => token.Value<string>() == "OK",
+            _ => throw new FormatException("JSON property must be a string or null: status")
+        };
+    }
+
+    internal static ScoreViewerUploadResponse ParseUploadResponse(string json)
+    {
+        JObject response = ParseJsonObject(json);
+        string status = ReadResponseString(response, "status");
         return status == "OK"
-            ? ScoreViewerUploadResponse.Success(Convert.ToString(response.md5, CultureInfo.InvariantCulture))
+            ? ScoreViewerUploadResponse.Success(ReadResponseString(response, "md5"))
             : ScoreViewerUploadResponse.Rejected(status);
+    }
+
+    private static string ReadResponseString(JObject response, string propertyName)
+    {
+        if (!response.TryGetValue(propertyName, out JToken token))
+        {
+            throw new FormatException("Required JSON property is missing: " + propertyName);
+        }
+        return Convert.ToString(
+                   token.Type == JTokenType.Null ? null : token.ToObject<object>(),
+                   CultureInfo.InvariantCulture)
+               ?? string.Empty;
+    }
+
+    private static JObject ParseJsonObject(string json)
+    {
+        using var reader = new JsonTextReader(new System.IO.StringReader(json ?? string.Empty))
+        {
+            DateParseHandling = DateParseHandling.None
+        };
+        JToken token = JToken.ReadFrom(reader);
+        if (reader.Read())
+        {
+            throw new JsonReaderException("JSON document contains trailing content.");
+        }
+        return token as JObject ?? throw new FormatException("JSON document must be an object.");
     }
 }
 

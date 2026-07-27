@@ -94,18 +94,6 @@ Redistribution Notes:
 - Include the MIT text and copyright notice.
 
 ================================================================================
-10) DynamicJson
-================================================================================
-Status: GREEN
-Component: DynamicJson.dll
-Copyright: neuecc
-License: MS-PL
-Source: https://github.com/neuecc/DynamicJson
-License Text: third_party/licenses/10-DynamicJson-MS-PL.txt
-Redistribution Notes:
-- Include MS-PL text.
-
-================================================================================
 11) SgmlReader
 ================================================================================
 Status: GREEN
@@ -264,7 +252,7 @@ Conditionally releasable with minor remediation (YELLOW):
 (None)
 
 Ready for release (GREEN):
-- 7z.dll, Livet, DynamicJson, NLog, MIT runtime dependencies for .NET,
+- 7z.dll, Livet, NLog, MIT runtime dependencies for .NET,
   System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,

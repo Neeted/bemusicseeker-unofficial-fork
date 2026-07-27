@@ -6,12 +6,55 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
 public sealed class ScoreViewerRegistrationWorkflowOwnerTests
 {
+    [TestMethod]
+    public void AppGatewayJsonParsers_PreserveStatusAndUploadContracts()
+    {
+        Assert.IsTrue(AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse(
+            "{\"status\":\"OK\"}"));
+        Assert.IsFalse(AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse(
+            "{\"status\":\"REJECTED\"}"));
+        Assert.IsFalse(AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse(
+            "{\"status\":null}"));
+        Assert.ThrowsException<FormatException>(() =>
+            AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse("{\"status\":1}"));
+
+        ScoreViewerUploadResponse accepted = AppScoreViewerRegistrationGateway.ParseUploadResponse(
+            "{\"status\":\"OK\",\"md5\":\"server-hash\"}");
+        Assert.IsTrue(accepted.Accepted);
+        Assert.AreEqual("server-hash", accepted.Hash);
+        Assert.AreEqual("OK", accepted.Status);
+
+        ScoreViewerUploadResponse rejected = AppScoreViewerRegistrationGateway.ParseUploadResponse(
+            "{\"status\":\"REJECTED\"}");
+        Assert.IsFalse(rejected.Accepted);
+        Assert.AreEqual("REJECTED", rejected.Status);
+        Assert.IsNull(rejected.Hash);
+
+        ScoreViewerUploadResponse nullStatus = AppScoreViewerRegistrationGateway.ParseUploadResponse(
+            "{\"status\":null}");
+        Assert.IsFalse(nullStatus.Accepted);
+        Assert.AreEqual(string.Empty, nullStatus.Status);
+    }
+
+    [TestMethod]
+    public void AppGatewayJsonParsers_RejectMissingPropertiesAndTrailingDocuments()
+    {
+        Assert.ThrowsException<FormatException>(() =>
+            AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse("{}"));
+        Assert.ThrowsException<FormatException>(() =>
+            AppScoreViewerRegistrationGateway.ParseUploadResponse("{\"status\":\"OK\"}"));
+        Assert.ThrowsException<JsonReaderException>(() =>
+            AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse(
+                "{\"status\":\"OK\"} {\"status\":\"OK\"}"));
+    }
+
     [TestMethod]
     public void SelectionQueries_UseScoreViewerCapabilityAndLocalFileAvailability()
     {
