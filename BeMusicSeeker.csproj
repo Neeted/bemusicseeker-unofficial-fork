@@ -37,7 +37,7 @@
     <None Include="native\Everything3_x64.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="native\EverythingBridge_x64.dll" Condition="Exists('native\\EverythingBridge_x64.dll')">
+    <None Include="native\EverythingBridge_x64.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="vendor\native\x64\*.dll" Exclude="vendor\native\x64\7z.dll;vendor\native\x64\sqlite3.dll">
@@ -72,6 +72,13 @@
     <Resource Include="resources\imageres_5328.ico" />
     <Resource Include="resources\commodore-20rounded-20v1.2.ttf" />
   </ItemGroup>
+
+  <Target Name="VerifyEverythingNativeAssets" BeforeTargets="Build">
+    <Error Condition="!Exists('native\Everything3_x64.dll')"
+           Text="Everything SDK x64 native asset is missing: native\Everything3_x64.dll" />
+    <Error Condition="!Exists('native\EverythingBridge_x64.dll')"
+           Text="Everything bridge x64 native asset is missing: native\EverythingBridge_x64.dll" />
+  </Target>
   <ItemGroup>
   <PackageReference Include="Roslynator.Analyzers">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

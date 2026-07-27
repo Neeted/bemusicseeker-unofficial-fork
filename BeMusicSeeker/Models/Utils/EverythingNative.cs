@@ -15,6 +15,13 @@ internal sealed class EverythingNative
 {
     private const string BridgeDllName = "EverythingBridge_x64.dll";
 
+    private static readonly object processBridgeRegistrySync = new();
+
+    // Process-lifetime entries prevent a pending owner acquisition from creating a second
+    // coordination state for the same bridge path after the last current owner shuts down.
+    private static readonly Dictionary<string, ProcessBridgeState> processBridgeStates =
+        new(StringComparer.OrdinalIgnoreCase);
+
     internal const string GroupedEnumerationBackendName = "everything_bridge";
 
     internal const string FixedScanNativeBridgeReason = "everything_bridge_fixed_scan";
@@ -29,7 +36,20 @@ internal sealed class EverythingNative
 
     private int activeNativeCalls;
 
+    private ProcessBridgeState processBridgeState;
+
     private IntPtr loadedBridgeModule = IntPtr.Zero;
+
+    private bool processBridgeOwnerAcquired;
+
+    private sealed class ProcessBridgeState
+    {
+        internal readonly object Sync = new();
+
+        internal int ActiveNativeCalls;
+
+        internal int Owners;
+    }
 
     private ScanChartAndResourcesDelegate scanChartAndResources;
 
@@ -42,6 +62,8 @@ internal sealed class EverythingNative
     private EnumerateGroupedFilesDelegate enumerateGroupedFiles;
 
     private FreeGroupedFilesResultDelegate freeGroupedFilesResult;
+
+    private ShutdownBridgeDelegate shutdownBridge;
 
     private bool bridgeExportsProbed;
 
@@ -56,6 +78,8 @@ internal sealed class EverythingNative
     private bool bridgeGroupedEnumerationQueryAvailable;
 
     private bool bridgeFreeGroupedEnumerationResultAvailable;
+
+    private bool bridgeShutdownAvailable;
 
     private bool disposed;
 
@@ -101,11 +125,39 @@ internal sealed class EverythingNative
             freeSourceRootsResult = null;
             enumerateGroupedFiles = null;
             freeGroupedFilesResult = null;
+            ShutdownBridgeDelegate shutdown = shutdownBridge;
+            shutdownBridge = null;
             bridgeExportsProbed = false;
-            if (loadedBridgeModule != IntPtr.Zero)
+            IntPtr bridgeModule = loadedBridgeModule;
+            loadedBridgeModule = IntPtr.Zero;
+            ProcessBridgeState processState = processBridgeState;
+            bool releaseProcessBridgeOwner = processBridgeOwnerAcquired;
+            processBridgeState = null;
+            processBridgeOwnerAcquired = false;
+            if (bridgeModule != IntPtr.Zero)
             {
-                FreeLibrary(loadedBridgeModule);
-                loadedBridgeModule = IntPtr.Zero;
+                try
+                {
+                    if (releaseProcessBridgeOwner && processState != null)
+                    {
+                        lock (processState.Sync)
+                        {
+                            processState.Owners--;
+                            while (processState.Owners == 0 && processState.ActiveNativeCalls > 0)
+                            {
+                                Monitor.Wait(processState.Sync);
+                            }
+                            if (processState.Owners == 0)
+                            {
+                                shutdown?.Invoke();
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    FreeLibrary(bridgeModule);
+                }
             }
         }
     }
@@ -123,12 +175,13 @@ internal sealed class EverythingNative
             if (loadedBridgeModule == IntPtr.Zero)
             {
                 string expectedBridgeDllPath = GetExpectedBridgeDllPath();
-                if (!File.Exists(expectedBridgeDllPath))
+                string normalizedBridgeDllPath = Path.GetFullPath(expectedBridgeDllPath);
+                if (!File.Exists(normalizedBridgeDllPath))
                 {
-                    reason = "bridge_dll_not_found:" + expectedBridgeDllPath;
+                    reason = "bridge_dll_not_found:" + normalizedBridgeDllPath;
                     return false;
                 }
-                IntPtr module = LoadLibraryW(expectedBridgeDllPath);
+                IntPtr module = LoadLibraryW(normalizedBridgeDllPath);
                 if (module == IntPtr.Zero)
                 {
                     reason = "bridge_dll_load_failed:" + Marshal.GetLastWin32Error();
@@ -139,6 +192,22 @@ internal sealed class EverythingNative
             if (!bridgeExportsProbed)
             {
                 ProbeBridgeExports();
+            }
+            if (!bridgeShutdownAvailable)
+            {
+                reason = "bridge_shutdown_export_missing";
+                return false;
+            }
+            if (!processBridgeOwnerAcquired)
+            {
+                ProcessBridgeState state = processBridgeState
+                    ?? throw new InvalidOperationException("Everything native bridge process state was not acquired.");
+                lock (state.Sync)
+                {
+                    state.Owners++;
+                    processBridgeState = state;
+                    processBridgeOwnerAcquired = true;
+                }
             }
             return true;
         }
@@ -153,20 +222,53 @@ internal sealed class EverythingNative
                 throw new ObjectDisposedException(nameof(EverythingNative));
             }
 
+            ProcessBridgeState state = GetOrCreateProcessBridgeState(
+                Path.GetFullPath(GetExpectedBridgeDllPath()));
+            processBridgeState = state;
             activeNativeCalls++;
+            lock (state.Sync)
+            {
+                state.ActiveNativeCalls++;
+            }
             return new NativeCallLease(this);
         }
     }
 
     private void ExitNativeCall()
     {
+        ProcessBridgeState state;
         lock (bridgeSync)
         {
             activeNativeCalls--;
+            state = processBridgeState;
             if (activeNativeCalls == 0)
             {
                 System.Threading.Monitor.PulseAll(bridgeSync);
             }
+        }
+        if (state != null)
+        {
+            lock (state.Sync)
+            {
+                state.ActiveNativeCalls--;
+                if (state.ActiveNativeCalls == 0)
+                {
+                    Monitor.PulseAll(state.Sync);
+                }
+            }
+        }
+    }
+
+    private static ProcessBridgeState GetOrCreateProcessBridgeState(string normalizedBridgeDllPath)
+    {
+        lock (processBridgeRegistrySync)
+        {
+            if (!processBridgeStates.TryGetValue(normalizedBridgeDllPath, out ProcessBridgeState state))
+            {
+                state = new ProcessBridgeState();
+                processBridgeStates.Add(normalizedBridgeDllPath, state);
+            }
+            return state;
         }
     }
 
@@ -178,12 +280,14 @@ internal sealed class EverythingNative
         freeSourceRootsResult = GetDelegate<FreeSourceRootsResultDelegate>("EBridge_FreeSourceRootsResult");
         enumerateGroupedFiles = GetDelegate<EnumerateGroupedFilesDelegate>("EBridge_EnumerateGroupedFiles");
         freeGroupedFilesResult = GetDelegate<FreeGroupedFilesResultDelegate>("EBridge_FreeGroupedFilesResult");
+        shutdownBridge = GetDelegate<ShutdownBridgeDelegate>("EBridge_Shutdown");
         bridgeFixedScanAvailable = scanChartAndResources != null;
         bridgeFreeResultAvailable = freeResult != null;
         bridgeSourceRootScanAvailable = scanSourceRoots != null;
         bridgeFreeSourceRootResultAvailable = freeSourceRootsResult != null;
         bridgeGroupedEnumerationQueryAvailable = enumerateGroupedFiles != null;
         bridgeFreeGroupedEnumerationResultAvailable = freeGroupedFilesResult != null;
+        bridgeShutdownAvailable = shutdownBridge != null;
         bridgeExportsProbed = true;
     }
 
@@ -1192,6 +1296,9 @@ internal sealed class EverythingNative
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void FreeGroupedFilesResultDelegate(IntPtr result);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void ShutdownBridgeDelegate();
 
     private sealed class NativeCallLease : IDisposable
     {

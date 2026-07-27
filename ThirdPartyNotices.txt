@@ -177,13 +177,13 @@ Redistribution Notes:
 17) EverythingBridge
 ================================================================================
 Status: GREEN
-Component: EverythingBridge_x64.dll (optional, locally built)
+Component: EverythingBridge_x64.dll (required, locally built from tracked source)
 Copyright: ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ@CyanHowan
 License: MIT (project LICENSE)
 Source: native/EverythingBridge
 License Text: LICENSE
 Redistribution Notes:
-- First-party bridge DLL built from native/EverythingBridge source.
+- Required first-party bridge DLL built from native/EverythingBridge source and shipped beside Everything3_x64.dll.
 
 ================================================================================
 18) NVorbis

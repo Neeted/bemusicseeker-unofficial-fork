@@ -76,6 +76,23 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsTrue(
             File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "7z.dll")),
             "The package-provided x64 7z native asset must be staged under the existing library native owner path.");
+        Assert.IsTrue(
+            File.Exists(Path.Combine(releaseOutputDirectory, "native", "Everything3_x64.dll")),
+            "The Everything SDK x64 native asset must be staged under the application native owner path.");
+        Assert.IsTrue(
+            File.Exists(Path.Combine(releaseOutputDirectory, "native", "EverythingBridge_x64.dll")),
+            "The Everything bridge x64 native asset must be staged beside its SDK sibling.");
+        Assert.AreEqual(
+            2,
+            Directory.GetFiles(Path.Combine(releaseOutputDirectory, "native"), "Everything*_x64.dll", SearchOption.TopDirectoryOnly).Length,
+            "The application native owner must contain exactly one copy of each Everything x64 asset.");
+        XElement everythingBridgeAsset = projectRoot
+            .Elements("ItemGroup")
+            .Elements("None")
+            .Single(item => string.Equals((string)item.Attribute("Include"), "native\\EverythingBridge_x64.dll", StringComparison.Ordinal));
+        Assert.IsNull(
+            everythingBridgeAsset.Attribute("Condition"),
+            "The bridge and SDK must be a mandatory, deterministic native ship set.");
         Assert.IsFalse(
             File.Exists(Path.Combine(releaseOutputDirectory, "x64", "7z.dll")),
             "The package's root x64 native copy must not remain beside the deterministic library path.");
@@ -313,6 +330,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "OggVorbis.NET64.dll")) ||
             File.Exists(Path.Combine(releaseOutputDirectory, "OggVorbis.NET64.dll")),
             "The retired OggVorbis native and managed assets must not remain in the release output.");
+
     }
 
     private static string FindRepositoryRoot()

@@ -19,14 +19,14 @@
 - .NET 10 migration readiness: architecture is sufficient to start after terminal closure; dependency／runtime／deployment migration remains
 - NET10-06 technical BASS runtime closure: completed; proprietary Bass.Net source／licensee／registration evidence remains the `NATIVE-01` external-gate and is not treated as release permission
 
-Full verificationは`3467 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
+Full verificationは`3470 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
 
 ## Active outcome
 
 - active outcome: `NET10-06 Archive, audio and native runtime corridor`
 - active execution package: `.NET 10 archive, audio and native runtime modernization`
-- execution anchor: `NET10-06 A4 EVERYTHING-RUNTIME`
-- planner state: `sequence materialized; A4 active; NATIVE-01 external-gate`
+- execution anchor: `NET10-07 planner required`
+- planner state: `active batch empty; planner required; NATIVE-01 external-gate`
 
 ## Active implementation batch
 
@@ -54,7 +54,7 @@ Full verificationは`3467 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `A1 ARCHIVE-RUNTIME` | completed | SevenZipExtractor／archive extraction corridor | package由来SevenZipExtractor、archive path safety、timestamp／cleanup／metadata import、portable native layout、旧HintPath／vendor asset退役 |
 | `A2 OGG-DECODE` | completed | OGG decoder corridor | NVorbis parity、cache／fallback／audio behavior、旧Ogg asset退役 |
 | `A3 BASS-RUNTIME` | completed | BASS managed／native runtime corridor | retained x64 ABI、absolute load／rollback、device resetとprocess-level release、playback／device／conversion／shutdown、native inventory。`NATIVE-01` external-gateは別管理 |
-| `A4 EVERYTHING-RUNTIME` | active | Everything SDK／bridge corridor | ABI、native lifetime、installed／absent fallback、publish／license inventory |
+| `A4 EVERYTHING-RUNTIME` | completed | Everything SDK／bridge corridor | ABI、native lifetime、installed／absent fallback、publish／license inventory |
 
 active／pending unitがある間はunit-plannerを再起動しない。A1〜A4は依存順に閉じる。
 
@@ -83,7 +83,7 @@ active／pending unitがある間はunit-plannerを再起動しない。A1〜A4�
 
 ## Next outcome
 
-- active outcome: `NET10-06 Archive, audio and native runtime corridor`
-- active execution package: `.NET 10 archive, audio and native runtime modernization`
-- execution anchor: `NET10-06 A4 EVERYTHING-RUNTIME`
-- active implementation batch: `A1-A3 completed; A4 active; NATIVE-01 external-gate`
+- active outcome: `NET10-07 Self-contained publish and updater closure`
+- active execution package: `.NET 10 self-contained publish／updater closure`
+- execution anchor: `NET10-07 planner required`
+- active implementation batch: `empty; planner required; NATIVE-01 external-gate`

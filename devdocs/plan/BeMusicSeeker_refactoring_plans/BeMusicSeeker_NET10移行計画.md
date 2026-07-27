@@ -160,12 +160,12 @@ Exit:
 1. SevenZipExtractorはPackageReference候補へ移し、encrypted／multi-file／failure／path traversal fixtureと7z native loadingを検証する。
 2. BASS managed／nativeは、`Bass.Net.dll` 2.4.12.1と`vendor/native/x64`の固定six-file set（bass 2.4.12、bassmix 2.4.8、bass_fx 2.4、basswasapi 2.4.1、bassasio 1.3.1、bassenc 2.4.13）を技術的にretainする。`BassNativeRuntime`の絶対path load、ABI probe、partial-load rollback／release、device resetとprocess-level releaseの分離、playback／decode／device／shutdown smokeを同じrouteで検証する。source archive、正式`LICENSE.rtf`、licensee scope、既存registration entitlementは`NATIVE-01` external-gateとして別管理し、証跡が揃うまで配布可能とは扱わない。
 3. OggVorbisはNVorbis 0.10.5へ置換し、legacy PCM parity、同一形式の連結logical stream、形式変更／truncated inputのfailure、cache／fallback、package／publish outputを検証する。
-4. Everythingはbridge ABI、installed／absent時のfallback、native search pathをpublish outputで検証する。
+4. Everythingは、tracked `Everything3_x64.dll` 3.0.0.9 と first-party `EverythingBridge_x64.dll` の固定x64 native ship setを同じ `native` 配下へ配置し、bridge ABI、absolute sibling load、installed／absent時のfallback、SDK／bridge shutdown順序、native search pathをpublish outputで検証する。bridgeはoptional copyやcurrent-directory probingに依存しない。
 5. 各native assetにsource、version、architecture、license、copy owner、runtime load testを台帳化する。
 
 Exit:
 
-- native DLLはproject／publish itemとして決定的に配置され、current directoryやlegacy probingの偶然に依存しない。
+- Everything3／bridgeを含むnative DLLはproject／publish itemとして決定的に配置され、current directoryやlegacy probingの偶然に依存しない。bridgeのSDK export／contract／shutdownを検証し、active native callの完了前にいずれのmoduleも解放しない。
 - x64 processでarchive、audio、Everythingの代表routeが通る。
 
 ### `NET10-07 Self-contained publish and updater closure`

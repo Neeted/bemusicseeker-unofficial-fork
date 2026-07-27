@@ -8,6 +8,7 @@
 #include <cwctype>
 #include <type_traits>
 #include <thread>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -223,6 +224,7 @@ __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const EBridgeGro
 __declspec(dllexport) void __cdecl EBridge_FreeResult(EBridgeResult* result);
 __declspec(dllexport) void __cdecl EBridge_FreeSourceRootsResult(EBridgeSourceRootsResult* result);
 __declspec(dllexport) void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
+__declspec(dllexport) void __cdecl EBridge_Shutdown();
 }
 
 namespace {
@@ -439,6 +441,7 @@ struct SourceRootAggregate {
 HMODULE g_bridgeModule = nullptr;
 EverythingApi g_api;
 bool g_apiLoaded = false;
+std::mutex g_apiMutex;
 
 template <typename T>
 T LoadProc(HMODULE module, const char* name) {
@@ -464,49 +467,55 @@ std::wstring GetDirectoryPathFromModule(HMODULE module) {
 }
 
 bool EnsureEverythingApiLoaded() {
+	std::lock_guard<std::mutex> lock(g_apiMutex);
 	if (g_apiLoaded) {
 		return g_api.everythingModule != nullptr;
 	}
 
-	g_apiLoaded = true;
-	HMODULE module = GetModuleHandleW(L"Everything3_x64.dll");
+	std::wstring dir = GetDirectoryPathFromModule(g_bridgeModule);
+	if (dir.empty()) {
+		return false;
+	}
+	std::wstring dllPath = dir + L"Everything3_x64.dll";
+	HMODULE module = LoadLibraryW(dllPath.c_str());
 	if (!module) {
-		std::wstring dir = GetDirectoryPathFromModule(g_bridgeModule);
-		if (dir.empty()) {
-			return false;
-		}
-		std::wstring dllPath = dir + L"Everything3_x64.dll";
-		module = LoadLibraryW(dllPath.c_str());
-		if (!module) {
-			return false;
-		}
+		return false;
 	}
 
-	g_api.everythingModule = module;
-	g_api.ConnectW = LoadProc<Everything3_ConnectWFn>(module, "Everything3_ConnectW");
-	g_api.DestroyClient = LoadProc<Everything3_DestroyClientFn>(module, "Everything3_DestroyClient");
-	g_api.GetLastError = LoadProc<Everything3_GetLastErrorFn>(module, "Everything3_GetLastError");
-	g_api.CreateSearchState = LoadProc<Everything3_CreateSearchStateFn>(module, "Everything3_CreateSearchState");
-	g_api.DestroySearchState = LoadProc<Everything3_DestroySearchStateFn>(module, "Everything3_DestroySearchState");
-	g_api.SetSearchTextW = LoadProc<Everything3_SetSearchTextWFn>(module, "Everything3_SetSearchTextW");
-	g_api.ClearSearchPropertyRequests = LoadProc<Everything3_ClearSearchPropertyRequestsFn>(module, "Everything3_ClearSearchPropertyRequests");
-	g_api.AddSearchPropertyRequest = LoadProc<Everything3_AddSearchPropertyRequestFn>(module, "Everything3_AddSearchPropertyRequest");
-	g_api.SetSearchViewportOffset = LoadProc<Everything3_SetSearchViewportOffsetFn>(module, "Everything3_SetSearchViewportOffset");
-	g_api.SetSearchViewportCount = LoadProc<Everything3_SetSearchViewportCountFn>(module, "Everything3_SetSearchViewportCount");
-	g_api.Search = LoadProc<Everything3_SearchFn>(module, "Everything3_Search");
-	g_api.DestroyResultList = LoadProc<Everything3_DestroyResultListFn>(module, "Everything3_DestroyResultList");
-	g_api.GetResultListViewportCount = LoadProc<Everything3_GetResultListViewportCountFn>(module, "Everything3_GetResultListViewportCount");
-	g_api.GetResultPathW = LoadProc<Everything3_GetResultPathWFn>(module, "Everything3_GetResultPathW");
-	g_api.GetResultNameW = LoadProc<Everything3_GetResultNameWFn>(module, "Everything3_GetResultNameW");
-	g_api.GetResultFullPathNameW = LoadProc<Everything3_GetResultFullPathNameWFn>(module, "Everything3_GetResultFullPathNameW");
-	g_api.FindPropertyW = LoadProc<Everything3_FindPropertyWFn>(module, "Everything3_FindPropertyW");
-	g_api.GetResultDateModified = LoadProc<Everything3_GetResultDateModifiedFn>(module, "Everything3_GetResultDateModified");
+	EverythingApi api;
+	api.everythingModule = module;
+	api.ConnectW = LoadProc<Everything3_ConnectWFn>(module, "Everything3_ConnectW");
+	api.DestroyClient = LoadProc<Everything3_DestroyClientFn>(module, "Everything3_DestroyClient");
+	api.GetLastError = LoadProc<Everything3_GetLastErrorFn>(module, "Everything3_GetLastError");
+	api.CreateSearchState = LoadProc<Everything3_CreateSearchStateFn>(module, "Everything3_CreateSearchState");
+	api.DestroySearchState = LoadProc<Everything3_DestroySearchStateFn>(module, "Everything3_DestroySearchState");
+	api.SetSearchTextW = LoadProc<Everything3_SetSearchTextWFn>(module, "Everything3_SetSearchTextW");
+	api.ClearSearchPropertyRequests = LoadProc<Everything3_ClearSearchPropertyRequestsFn>(module, "Everything3_ClearSearchPropertyRequests");
+	api.AddSearchPropertyRequest = LoadProc<Everything3_AddSearchPropertyRequestFn>(module, "Everything3_AddSearchPropertyRequest");
+	api.SetSearchViewportOffset = LoadProc<Everything3_SetSearchViewportOffsetFn>(module, "Everything3_SetSearchViewportOffset");
+	api.SetSearchViewportCount = LoadProc<Everything3_SetSearchViewportCountFn>(module, "Everything3_SetSearchViewportCount");
+	api.Search = LoadProc<Everything3_SearchFn>(module, "Everything3_Search");
+	api.DestroyResultList = LoadProc<Everything3_DestroyResultListFn>(module, "Everything3_DestroyResultList");
+	api.GetResultListViewportCount = LoadProc<Everything3_GetResultListViewportCountFn>(module, "Everything3_GetResultListViewportCount");
+	api.GetResultPathW = LoadProc<Everything3_GetResultPathWFn>(module, "Everything3_GetResultPathW");
+	api.GetResultNameW = LoadProc<Everything3_GetResultNameWFn>(module, "Everything3_GetResultNameW");
+	api.GetResultFullPathNameW = LoadProc<Everything3_GetResultFullPathNameWFn>(module, "Everything3_GetResultFullPathNameW");
+	api.FindPropertyW = LoadProc<Everything3_FindPropertyWFn>(module, "Everything3_FindPropertyW");
+	api.GetResultDateModified = LoadProc<Everything3_GetResultDateModifiedFn>(module, "Everything3_GetResultDateModified");
 
-	return g_api.ConnectW && g_api.DestroyClient && g_api.GetLastError && g_api.CreateSearchState && g_api.DestroySearchState &&
-		g_api.SetSearchTextW && g_api.ClearSearchPropertyRequests && g_api.AddSearchPropertyRequest &&
-		g_api.SetSearchViewportOffset && g_api.SetSearchViewportCount && g_api.Search &&
-		g_api.DestroyResultList && g_api.GetResultListViewportCount && g_api.GetResultPathW && g_api.GetResultNameW &&
-		g_api.FindPropertyW && g_api.GetResultDateModified;
+	bool complete = api.ConnectW && api.DestroyClient && api.GetLastError && api.CreateSearchState && api.DestroySearchState &&
+		api.SetSearchTextW && api.ClearSearchPropertyRequests && api.AddSearchPropertyRequest &&
+		api.SetSearchViewportOffset && api.SetSearchViewportCount && api.Search &&
+		api.DestroyResultList && api.GetResultListViewportCount && api.GetResultPathW && api.GetResultNameW &&
+		api.GetResultFullPathNameW && api.FindPropertyW && api.GetResultDateModified;
+	if (!complete) {
+		FreeLibrary(module);
+		return false;
+	}
+
+	g_api = api;
+	g_apiLoaded = true;
+	return true;
 }
 
 void* TryConnectClient(unsigned int* lastError) {
@@ -2472,6 +2481,15 @@ extern "C" __declspec(dllexport) void __cdecl EBridge_FreeGroupedFilesResult(EBr
 		return;
 	}
 	std::free(result);
+}
+
+extern "C" __declspec(dllexport) void __cdecl EBridge_Shutdown() {
+	std::lock_guard<std::mutex> lock(g_apiMutex);
+	if (g_api.everythingModule != nullptr) {
+		FreeLibrary(g_api.everythingModule);
+	}
+	g_api = EverythingApi{};
+	g_apiLoaded = false;
 }
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID) {

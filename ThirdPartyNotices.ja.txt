@@ -176,13 +176,13 @@ NET10でretainするマネージドラッパー: file/product version 2.4.12.1�
 17) EverythingBridge
 ================================================================================
 ステータス: GREEN
-コンポーネント: EverythingBridge_x64.dll (ローカルで任意にビルドされたもの)
+コンポーネント: EverythingBridge_x64.dll（追跡済みソースからローカルでビルドする必須資産）
 著作権所有者: ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ@CyanHowan
 ライセンス: MIT (本プロジェクトの LICENSEに準拠)
 ソース: native/EverythingBridge
 ライセンス本文: LICENSE
 再配布時の注意事項:
-- native/EverythingBridge ソースコードからビルドされたファーストパーティ製のブリッジDLLです。
+- native/EverythingBridge ソースコードからビルドされ、Everything3_x64.dll と同じ場所に配置する必須のファーストパーティ製ブリッジDLLです。
 
 ================================================================================
 18) NVorbis
