@@ -26,7 +26,7 @@ Full verificationは`3480 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 - active outcome: `NET10-08 Existing-data and clean-machine acceptance`
 - active execution package: `.NET 10 existing-data／clean-machine acceptance`
 - execution anchor: `planner required`
-- planner state: `E1 completed; planner required; NATIVE-01 external-gate`
+- planner state: `E1 completed; E2 completed; planner required; NATIVE-01 external-gate`
 
 ## Active implementation batch
 
@@ -56,10 +56,11 @@ Full verificationは`3480 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `A3 BASS-RUNTIME` | completed | BASS managed／native runtime corridor | retained x64 ABI、absolute load／rollback、device resetとprocess-level release、playback／device／conversion／shutdown、native inventory。`NATIVE-01` external-gateは別管理 |
 | `A4 EVERYTHING-RUNTIME` | completed | Everything SDK／bridge corridor | ABI、native lifetime、installed／absent fallback、publish／license inventory |
 | `P1 SCD-ARTIFACT` | completed | Self-contained publish artifact／updater payload corridor | versioned app folder SCD、updater single-file SCD、clean package layout、publish-folder startup／`--version` smoke、single-file update payload |
-| `P2 SCD-TRANSACTION` | completed | Self-contained update transaction／recovery corridor | exclusive writer、durable journal、rollback／recovery、restart／failure receipt、old-to-new acceptance |
+| `P2 SCD-TRANSACTION` | completed | Self-contained update transaction／recovery corridor | exclusive writer、durable journal、rollback／recovery、restart／failure receipt |
 | `E1 DATA-ROUNDTRIP` | completed | Existing-data SCD startup／shutdown／restart acceptance | isolated legacy settings／standalone DB／LR2 profile fixture、semantic receipt、two-start hydration、graceful shutdown／lock release |
+| `E2 UPDATE-ROUNDTRIP` | completed | pre-NET10 package to current SCD update／rollback acceptance | historical package provenance、legacy updater handoff、success restart、fault-package rollback、semantic data preservation |
 
-active／pending unitがある間はunit-plannerを再起動しない。E1はfixture、acceptance runner、semantic test、既存shallow smoke退役を完了した。
+active／pending unitがある間はunit-plannerを再起動しない。E1／E2のacceptance runner、fixture、semantic receipt、update／rollback evidenceを完了し、次はclean-machine external gateのplannerへ進む。
 
 ## Review evidence
 

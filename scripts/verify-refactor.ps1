@@ -21,6 +21,7 @@ $scdPublishRoot = Join-Path $repoRoot 'artifacts\publish'
 $scdAppPublishOutput = Join-Path $scdPublishRoot 'app'
 $scdUpdaterPublishOutput = Join-Path $scdPublishRoot 'updater'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
+$updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
 $testTimeoutSeconds = 300
 
 function Invoke-CheckedCommand {
@@ -219,6 +220,15 @@ function Invoke-ExistingDataAcceptance {
         '-OutputDirectory' $acceptanceOutputDirectory
 }
 
+function Invoke-UpdateAcceptance {
+    if (-not (Test-Path -LiteralPath $updateAcceptanceScript -PathType Leaf)) {
+        throw "Update acceptance runner is missing: $updateAcceptanceScript"
+    }
+    $acceptanceOutputDirectory = Join-Path $verificationArtifactsDirectory 'net10-update'
+    Invoke-CheckedCommand pwsh '-NoProfile' '-File' $updateAcceptanceScript `
+        '-OutputDirectory' $acceptanceOutputDirectory
+}
+
 Push-Location $repoRoot
 try {
     if ($Mode -eq 'Full') {
@@ -250,6 +260,7 @@ try {
         Write-Host "Self-contained publish verification output: $scdPublishRoot"
         Invoke-SelfContainedPublishVerification
         Invoke-ExistingDataAcceptance
+        Invoke-UpdateAcceptance
         $env:BMS_SCD_APP_PUBLISH_ROOT = $scdAppPublishOutput
         $env:BMS_SCD_UPDATER_PUBLISH_ROOT = $scdUpdaterPublishOutput
     }
