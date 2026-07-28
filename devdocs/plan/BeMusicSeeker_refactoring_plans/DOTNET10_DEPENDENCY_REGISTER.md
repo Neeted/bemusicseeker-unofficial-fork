@@ -4,65 +4,57 @@
 
 調査基準日: 2026-07-29
 
-## Toolchain
+## Toolchain／deployment
 
-| Item | Current | Final engineering target | Owner |
+| Item | Current | Final target | Owner |
 |---|---|---|---|
-| .NET SDK | `10.0.302`, `rollForward: latestPatch` | `10.0.302`, `rollForward: latestPatch` | `NET10-09 F1` |
-| Main app publish | win-x64 Self-contained single-file、untrimmed、ReadyToRun無効。`lang`／config／native ownerは隣接 | win-x64 Self-contained single-file、同じcontent／native owner contract | `NET10-09 F2` |
-| Updater publish | win-x64 Self-contained single-file | retain | `NET10-07/09` |
+| .NET SDK | `10.0.302`, `rollForward: latestPatch` | retain; release候補は同servicing baselineで再publish | `NET10-10 P4` |
+| Main app | win-x64 SCD、single-file、native self-extract、R2R無効 | candidate matrixから選択し、中立profile `WinX64SelfContained`へ固定 | `NET10-10 P1/P2/P3` |
+| Updater | win-x64 SCD single-file | retain | `NET10-07/10` |
+| Main app content | `lang`、config、`libs/x64`、`native` | owner directoryを維持 | `NET10-10 P3` |
 
-Self-contained artifactはmachine-installed runtimeのsecurity servicingへ自動追随しないため、公開候補は選択SDKで再publishする。
+Self-contained artifactはmachine-installed runtimeのservicingへ自動追随しないため、公開候補は選択SDKで再publishする。
 
-## Managed packages retained at current migration baseline
+## Managed packages retained
 
 | Corridor | Package / version | Decision |
 |---|---|---|
-| configuration／resources | System.Configuration.ConfigurationManager 10.0.10、System.Resources.Extensions 10.0.10 | retain; generated settings／embedded icon behaviorを維持 |
+| configuration／resources | System.Configuration.ConfigurationManager 10.0.10、System.Resources.Extensions 10.0.10 | retain |
 | logging／JSON | NLog 6.1.4、Newtonsoft.Json 13.0.4 | retain |
-| WPF MVVM | LivetCask Core／Mvvm／EventListeners／Messaging 4.0.2、Microsoft.Xaml.Behaviors.Wpf 1.1.31 transitive | retain |
+| WPF MVVM | LivetCask 4.0.2、Microsoft.Xaml.Behaviors.Wpf 1.1.31 transitive | retain |
 | document | Microsoft.Xml.SgmlReader 1.8.30 | retain |
 | SQLite | sqlite-net-pcl 1.11.285、SQLitePCLRaw.bundle_e_sqlite3 3.0.4、SourceGear.sqlite3 3.53.3 | retain; app／tests／2 tools共通policy |
 | archive／audio | SevenZipExtractor 1.0.19、NVorbis 0.10.5 | retain |
-| tests | Microsoft.NET.Test.Sdk 18.8.1、MSTest 3.6.4 | retain for migration closure; MSTest major upgradeは別目的 |
-| analyzers | Roslynator analyzer packages 4.15.0、CLI 0.12.0 | retain |
-| BASS wrapper | `libs/Bass.Net.dll` 2.4.12.1、SHA-256 `25F8BE949CF9A805A4E549590CF06D8937460DF0ABDEE4BFD712C17570E2F065` | technical retain。source／licensee／registration確認はrelease prerequisite |
+| tests／analyzers | Microsoft.NET.Test.Sdk 18.8.1、MSTest 3.6.4、Roslynator 4.15.0／CLI 0.12.0 | retain |
+| BASS wrapper | `libs/Bass.Net.dll` 2.4.12.1、SHA-256 `25F8BE949CF9A805A4E549590CF06D8937460DF0ABDEE4BFD712C17570E2F065` | technical retain。公開権限は`RELEASE-01` |
 
-Version authorityは`Directory.Packages.props`、resolved graphは各`packages.lock.json`とする。F1ではSDK servicingだけを行い、必要のないpackage major upgradeを混ぜない。
+Version authorityは`Directory.Packages.props`、resolved graphは各`packages.lock.json`とする。
 
 ## Retained native assets
 
 | Asset | Version / identity | Runtime owner / layout | Status |
 |---|---|---|---|
-| SQLite `e_sqlite3.dll` | SourceGear.sqlite3 3.53.3 | SQLitePCLRaw provider。selected publish layoutで一系統 | verified |
-| `7z.dll` | 24.07 x64、SHA-256 `3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129` | `libs/x64/7z.dll`、SevenZip archive owner | verified |
-| BASS six-file family | bass 2.4.12、bassmix 2.4.8、bass_fx 2.4、basswasapi 2.4.1、bassasio 1.3.1、bassenc 2.4.13 | `BassNativeRuntime`、`libs/x64` absolute path、x64 only | technical verification complete; release entitlement pending |
-| Everything SDK | `Everything3_x64.dll` 3.0.0.9、SHA-256 `BE25B01C73BBF359B50DDF30255133225F93B4BC40A8D208173319373BCDAA5C` | `native`、Everything owner | verified |
-| Everything bridge | first-party x64、SHA-256 `24863BFD06BFDFE0419DF767152575ADCD38B4104DC2063ED411AA7F956AA835` | `native` sibling absolute load／shutdown owner | verified |
+| SQLite `e_sqlite3.dll` | SourceGear.sqlite3 3.53.3 | SQLitePCLRaw provider。profileに応じSDK bundle／standard root | verified |
+| `7z.dll` | 24.07 x64、SHA-256 `3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129` | `libs/x64/7z.dll` | verified |
+| BASS six-file family | bass 2.4.12系 | `BassNativeRuntime`、`libs/x64`、x64 only | technical verification complete; entitlement pending |
+| Everything SDK／bridge | SDK 3.0.0.9＋first-party x64 bridge | `native`、explicit load／shutdown owner | verified |
+
+## Performance candidate policy
+
+| Family | Managed assemblies | Runtime native | Extraction | Directory characteristic |
+|---|---|---|---|---|
+| folder SCD | exe隣接 | exe隣接 | なし | standard host fileがrootに並ぶ |
+| managed bundle | bundle | exe隣接 | なし | managed DLLを減らしつつstandard bundlerを使用 |
+| native self-extract bundle | bundle | bundle→temporary extraction | fresh install／cache missであり | root fileは最少 |
+
+各familyでReadyToRun有無を比較する。`EnableCompressionInSingleFile=false`、trimming／Composite R2R／NativeAOTは使わない。
+
+file数はselection metricではない。standard host fileを`libs`へ移すcustom loader、probing、deps rewrite、post-publish relocation、wrapper launcherは禁止する。application-owned native／contentだけを`libs/x64`、`native`、`lang`へ整理する。
 
 ## Retired legacy dependencies
 
-次は移行済みであり再導入しない。
-
-- legacy Livet／Livet.Extensions、System.Windows.Interactivity／Expression Interactions
-- MetroRadiance、Expression Drawing／Effects、Windows API Code Pack
-- QuickConverter、DynamicJson、IniLibrary、tracked SgmlReader／System.Collections.Immutable binaries
-- sqlite.net HintPath、hand-placed sqlite3.dll
-- OggVorbis.NET64、tracked SevenZipExtractor wrapper
-- Framework startup／runtime probing configuration
-
-## Distribution layout policy
-
-### Folder Self-contained baseline
-
-standard .NET host／`.deps.json` graphを使うため、managed package／runtime DLLは`BeMusicSeeker.exe`と同じdirectoryに置く。BASS／7zは`libs/x64`、Everythingは`native`、language catalogは`lang`に置く。
-
-managed DLLを見た目のためだけに`libs`へ移す独自loader、probing、deps rewrite、post-publish relocationは認めない。
-
-### Adopted official single-file
-
-`NET10-09 F2`で公式profileをbounded評価し、`ADOPTED`とした。managed assembliesと公式runtime nativeはbundleし、`lang`、`test.mp3`、`BeMusicSeeker.dll.config`、BASS／7z／Everythingのapplication-owned native owner directoryだけを隣接保持する。`ApplicationPathSnapshot`、audio encoder／writer、BASS runtimeは`AppContext.BaseDirectory`／`Environment.ProcessPath`を使う。独自loader、probing、deps書換え、managed relocation、wrapperはない。
+legacy Livet、Expression／MetroRadiance、Windows API Code Pack、QuickConverter、DynamicJson、IniLibrary、sqlite.net HintPath、hand-placed sqlite3、OggVorbis.NET64等は移行済みであり再導入しない。詳細はGit historyとlock graphを正本とする。
 
 ## Release prerequisite
 
-BASS.NETのexact source archive、正式license、licensee scope、registration／redistribution entitlementは[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)の`RELEASE-01`で確認する。これはtechnical Engineering GateやCodex停止条件ではないが、公開配布の許可を意味するものでもない。
+BASS.NETのexact source、正式license、licensee scope、registration／redistribution entitlementは[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)の`RELEASE-01`で確認する。これはCodexのEngineering Gateを停止しない。

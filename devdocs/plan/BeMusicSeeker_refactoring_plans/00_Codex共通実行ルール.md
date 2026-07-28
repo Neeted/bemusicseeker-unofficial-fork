@@ -1,36 +1,60 @@
 # Codex 共通実行ルール
 
-[現在地](./PLAN_STATUS.md) / [リファクタリング完了記録](./BeMusicSeekerリファクタリング計画.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md) / [手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)
+[現在地](./PLAN_STATUS.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md) / [依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md)
 
-## 1. Start / resume
+## 1. 正本と現在地
 
-1. worktree、HEAD、untrackedを確認し、unrelatedな差分へ触れない。
-2. `PLAN_STATUS.md`のactive outcome、execution anchor、active implementation batchを読む。
-3. batchに`active`／`pending`があればplannerを起動せず、最初の未完unitを実装する。
-4. batchが空のときだけunit-plannerをsingle-flightで一度起動する。
-5. planner結果は最初のcode unitと同じworktreeで`PLAN_STATUS.md`へmaterializeし、status-only progress commitを作らない。
+1. `PLAN_STATUS.md`を読む。
+2. active outcomeに対応する計画と台帳を読む。
+3. active implementation batchに未完unitがあればplannerを起動せず、記載順に進める。
 
-commit、review完了、context切替、unit先頭はplanner再起動理由ではない。具体的なproduction evidenceがbatch前提を無効にした場合だけ、その差異に限定して再計画する。
+`PLAN_STATUS.md`には現在の判定、active batch、現行evidenceだけを置く。過去のunit、commit、review logはGit historyへ委ねる。
 
-## 2. Single-flight
+## 2. Orchestration
 
-planner／reviewer実行中、rootはrepositoryの読み取り、Git、検索、編集、build、test、format、analyzer、stage、commitを凍結する。rootによる同scopeの独立再調査、第2planner、consensus取得を行わない。
+- planner／reviewerは同時に一つだけ起動する。
+- サブエージェント実行中、rootはrepositoryの読み取り、検索、編集、build、test、format、analyzer、stage、commitを凍結する。
+- rootは同scopeを独立再調査しない。planner後は指定symbol、route、testのbounded feasibility checkだけを行う。
+- active batchが空、batch完了後もanchor未達、または具体的evidenceでbatch前提が崩れた場合だけplannerを起動する。
+- `NO_SAFE_UNIT`は無効。内部複雑性はowner、transaction、compatibility、publish、performance corridorへ分解する。
 
-planner後に許されるのは、指定symbol／route／testのbounded feasibility checkと実装だけである。
+## 3. Unit
 
-## 3. Implementation unit
+一つのunitで次を閉じる。
 
-unitはproduction route、compatibility evidence、旧surface削除を一緒に閉じる。
+- production routeとowner boundary
+- behavior／compatibility evidence
+- 旧route、fallback、adapter、test seamの退役
+- targeted verification
+- frozen snapshotのfresh review
+- 重大指摘修正後の再検証
+- 対応する`PLAN_STATUS.md`の状態遷移
 
-- 同じowner、user-visible workflow、persisted data、failure contract、test fixtureを共有するrouteをまとめる。
-- method、callback、property、binding、package、DLL一件だけをunitにしない。
-- interface／adapter／DTO追加、rename、file move、行数削減だけで完了にしない。
-- temporary seamは同じunitまたは明示された直後unitで退役する。
-- facadeを保持してprivate operationをforwardするport／hostを別名へ移しただけにしない。
+method、callback、property、package、DLL、candidate profile一件だけをunitにしない。同じowner、invariant、fixture、verification scopeを持つ変更をまとめる。status-only progress commitを作らない。
 
-`NO_SAFE_UNIT`は無効。内部複雑性はowner／transaction／publish／compatibility corridorへ分解する。
+## 4. Architecture regression
 
-## 4. Compatibility
+- feature state、domain decision、durable write、retry／fallback、複数serviceの順序制御をroot View／facadeへ戻さない。
+- facade private state、lock、mutable collection、private operationを列挙するbroad host／portを作らない。
+- non-event `async void`、unobserved Task、通常経路の意味を変えるfallbackを作らない。
+- WPF terminal mappingを理由なくserviceへ隠さず、platform dependencyをfeature ownerへ漏らさない。
+- setting、DB、file／update contractをmigration evidenceなしに変えない。
+
+行数、file数、type数は調査signalにだけ使い、合否値にしない。
+
+## 5. Performance-first distribution
+
+- main appの最終配布profileは、公式SDK機構だけを使った再現可能なbenchmarkで決める。
+- file数、exe一個、zipの見た目はsecondary metricであり、startup、working set、runtime failureより優先しない。
+- end-to-end startupはharness側のStopwatchでprocess startからmain-window ready／`startup_ready_operable`検出まで測る。production log内の`elapsedMs`はphase内訳にだけ使う。
+- self-extract profileは専用`DOTNET_BUNDLE_EXTRACT_BASE_DIR`を使い、fresh install／cache missとwarm cacheを分ける。
+- candidateは同じHEAD、SDK、fixture、settings、native asset、acceptance routeで比較し、実行順を交互またはrotationする。
+- compression、trimming、Composite ReadyToRun、NativeAOTを性能推測だけで有効化しない。ReadyToRunも実測で採否を決める。
+- standard folder hostのmanaged／runtime fileはexe隣接を許可する。application-owned native／contentは`libs/x64`、`native`、`lang`等へ整理する。
+- managed DLLを見た目のために`libs`へ移す独自loader、probing、deps rewrite、post-publish relocation、wrapper launcherを追加しない。
+- updaterはtransaction handoffの単一payloadとしてsingle-fileを維持し、main appのprofile変更と不必要に連動させない。
+
+## 6. Compatibility
 
 次を変更するunitはbefore／after evidenceとrollbackまたはmigrationを持つ。
 
@@ -38,38 +62,19 @@ unitはproduction route、compatibility evidence、旧surface削除を一緒に�
 - DB schema、existing rows、DateTime／enum／null mapping、transaction／lock ordering
 - chart、playlist、package、LR2、external document format
 - UI observable behavior、selection／focus、failure／cancel timing
-- updater manifest、folder layout、restart／rollback
+- updater manifest、folder layout、managed-file manifest、restart／rollback
 - external player、Everything、native ABI、CLI／IPC／COM contract
 
-## 5. .NET 10 engineering
+## 7. Verification
 
-- app、tests、updater、2 toolsを対象から漏らさない。
-- dependency replacementは[依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md)のcorridor単位で行う。
-- HintPath削除と置換route／test／publish assetを同じunitで閉じる。
-- native DLLはversion、source、license、architecture、copy owner、runtime load testを持つ。
-- `RuntimeIdentifier`だけでSelf-containedと判断せず、publish profileで明示する。
-- build outputではなくSelf-contained publish outputを配布候補とする。
-- Self-containedはmachine-installed runtimeのservicingへ自動追随しないため、Engineering Gate直前に公式の最新.NET 10 servicing SDKへ更新し、再publishする。
-
-### Distribution layout
-
-- folder Self-containedではmanaged dependencyとruntime fileがexe隣接になる。これは標準host layoutであり、数だけを理由に失敗扱いしない。
-- managed DLLを`libs`へ移すための独自`AssemblyLoadContext`／`AssemblyResolve`、private probing、deps.json書換え、post-publish relocation、wrapper launcherを追加しない。
-- 配布物の簡素化は公式single-file publishだけを一度、有限に評価する。
-- single-file候補はwin-x64 Self-contained、untrimmed、ReadyToRun無効とし、必要なら公式の`IncludeNativeLibrariesForSelfExtract`を使う。
-- executable／application base pathは`Environment.ProcessPath`／`AppContext.BaseDirectory`で表し、`Assembly.Location`へ依存しない。
-- standard single-fileとboundedなpath修正だけで全自動受入れを通せなければ`NOT_ADOPTED`としてprobeを退役し、folder Self-containedを最終構成にする。これは正常完了である。
-
-## 6. Verification
-
-### Planning / agent docs only
+### Planning／agent docs only
 
 UTF-8、LF、末尾改行、TOML／Markdown構文、相対link、table、whitespace、`git diff --check`を確認する。production／test／build／resource差分がなければbuild、test、code reviewは不要。
 
 ### Engineering unit
 
 - affected projectのlocked restore／Release build／targeted test
-- dependency／layout corridorのbehavior／golden test
+- behavior／golden／layout／performance evidence
 - publish変更時は実際のwin-x64 Self-contained outputからruntime smoke
 - frozen snapshotのfresh read-only review
 
@@ -82,20 +87,11 @@ UTF-8、LF、末尾改行、TOML／Markdown構文、相対link、table、whitesp
 - package／layout validator、publish-folder startup
 - automated existing-data acceptance
 - automated old-to-new update／rollback acceptance
+- `devdocs/acceptance/net10-distribution-performance.md`のcurrent report、raw report hash、再現command
 - fresh outcome review
 
-## 7. Post-engineering manual acceptance
+## 8. 手動受入れとRelease Freeze
 
-`.NET Desktop Runtime`未導入clean machine／VM、署名、公開、BASS.NET licensee／registration証跡は[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoffする。
+`.NET Desktop Runtime`未導入clean machine／VM、署名、公開、BASS.NET licensee／registration証跡は[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoffする。これらをCodexのactive outcome、Engineering Gate、planner停止条件、`EXTERNAL_BLOCKER`にしない。
 
-これらはCodexのactive outcome、Engineering Gate、planner停止条件、`EXTERNAL_BLOCKER`にしない。自動工程が完了したら`engineering migration: complete`として作業を閉じる。
-
-`EXTERNAL_BLOCKER`にできるのは、外部入力がなければコードまたは自動検証の選択／実行自体が不可能で、安全なdefaultが正本にない場合だけである。
-
-## 8. Review / commit / freeze
-
-- rootだけがwrite、stage、commitする。
-- active batchの状態遷移を対応code commitへ含める。
-- `PLAN_STATUS.md`に過去のcommit、unit、review logを追記しない。
-- outcome未完ならunit commitをユーザー応答境界にしない。
-- `git push`、tag、署名、公開release／publish、version／release notes変更はユーザーの明示指示まで行わない。
+rootだけがwrite、stage、commitする。`git push`、tag、署名、公開release／publish、version／release notes変更はユーザーの明示指示まで行わない。

@@ -6,8 +6,8 @@
 
 ## Current checkpoint
 
-- reviewed HEAD: `39ff5c3a`
-- observed worktree: clean; engineering migration complete
+- reviewed HEAD: `01679562`
+- observed worktree: clean repository snapshot
 - Release Freeze: active
 - `git push`／tag／署名／public release: ユーザーの明示指示まで禁止
 
@@ -15,45 +15,51 @@
 
 - MVVM／owner整理: **complete**
 - strict Refactoring Completion Gate: **met**
-- .NET 10 implementation through `NET10-08`: **complete**
-- .NET 10 Engineering Gate: **met**
+- .NET 10 code／dependency／data／updater migration: **complete**
+- previous functional Engineering Gate: **met at `01679562`**
+- performance-first distribution closure: **not yet met**
 - post-engineering clean-machine acceptance: **user-owned; not a Codex blocker**
 
-現行sourceは全5 projectを.NET 10へ移行し、managed／native dependency、SQLite、single-file app、single-file updater、existing-data、old-to-new update／rollbackの自動routeを持つ。repository記録上の直近Full verificationは`3480 passed / 16 skipped / 0 failed`、Roslynator `0 diagnostics`である。
+現行single-file appは機能acceptanceを通過している。ただし採用判断はfile数と機能互換性を中心とし、process launchからのstartup／working set比較を持たないため、最終配布profileだけを`NET10-10`で再開する。MVVMや.NET 10 dependency corridorを再調査しない。
 
 ## Active outcome
 
-- active outcome: `none`
-- active execution package: `none`
-- execution anchor: `HANDOFF complete`
-- planner state: `no active batch; post-engineering manual acceptance is user-owned`
+- active outcome: `NET10-10 Performance-first distribution closure`
+- active execution package: `main-app profile measurement／selection／package closure`
+- execution anchor: `P1 BENCHMARK-HARNESS`
+- planner state: `active batch materialized; do not invoke planner`
 
 ## Active implementation batch
 
 | Unit | State | Closure family | Exit |
 |---|---|---|---|
-| `F1 SDK-SERVICING` | completed | SDK／runtime servicing baseline | `global.json`を10.0.302／latestPatchへ更新し、全5 projectと現行SCD artifactをlocked再検証 |
-| `F2 LAYOUT-DECISION` | completed | official single-file bounded evaluation | `ADOPTED`: managed assemblies／runtimeは公式bundle、application content／native owner directoryは隣接配置。custom loader／probing／relocationなし |
-| `F3 ENGINEERING-GATE` | completed | selected distributionの最終自動Gate | full tests、analyzer、publish、layout、startup、existing-data、update／rollback、fresh review |
-| `HANDOFF` | completed | Engineering completion／manual handoff | statusをcompleteへ更新し、manual clean-machine／BASS entitlementを別checklistへ渡す |
+| `P1 BENCHMARK-HARNESS` | active | official candidate publish＋external startup／memory harness | six candidatesをfresh install／warm cacheで反復測定し、machine-readable reportを生成 |
+| `P2 PROFILE-SELECTION` | pending | deterministic performance decision | decision ruleでwinnerを一つ選び、current-only acceptance evidenceへ記録 |
+| `P3 PACKAGE-CLOSURE` | pending | selected profileのpublish／layout／update contract | profile、scripts、validators、tests、spec、台帳を一貫更新 |
+| `P4 FINAL-GATE` | pending | final automated Engineering Gate | full tests、analyzer、publish、existing-data、update／rollback、performance rerun、fresh review |
+| `HANDOFF` | pending | Engineering completion／manual handoff | statusをcompleteへ戻し、manual clean-machine／release prerequisiteへhandoff |
 
-F1〜F3とHANDOFFは完了した。以後はplannerを起動せず、手動受入れ／release prerequisiteだけをユーザーが実施する。
+active／pending unitがある間はunit-plannerを起動しない。各状態遷移を対応code／config commitへ含める。
 
 ## Current evidence and constraints
 
-- `global.json`はSDK `10.0.302`、`rollForward: latestPatch`。F1のlocked restore／Release／publish／acceptanceはこのSDKで完了した。
-- main app／updater profileはwin-x64 Self-contained single-file、untrimmed、ReadyToRun無効。application contentは`lang`、`test.mp3`、`BeMusicSeeker.dll.config`、native owner directoryを隣接配置する。
-- `scripts/portable-package-layout.ps1`はsingle-file bundleを標準契約とし、managed DLL／deps／runtimeconfigのexe隣接を要求しない。
-- `ApplicationPathSnapshot`、audio encoder／writer、BASS runtimeのpath利用は`Environment.ProcessPath`／`AppContext.BaseDirectory`へ統一し、`Assembly.Location`へfallbackしない。
-- managed DLLを`libs`へ移す独自loader／probing／deps rewrite／post-publish relocationは採用しない。
-- selected single-file publish、startup、existing-data、package layout、old-to-new update success／fault rollback acceptanceはF3で完了した。
-- `.NET Desktop Runtime`未導入machine／VMは`POST_MIGRATION_MANUAL_ACCEPTANCE.md`の`MANUAL-01`でEngineering完了後にユーザーが実施する。
-- BASS.NET source／licensee／registration／redistribution evidenceは`RELEASE-01`で公開前に確認する。
+- HEADは全5 projectを.NET 10へ移行済み。SDKは`10.0.302`／`latestPatch`。
+- repository記録上の直近Full verificationは`3480 passed / 16 skipped / 0 failed`、Roslynator `0 diagnostics`。
+- main appの現行profileはwin-x64 Self-contained single-file、`IncludeNativeLibrariesForSelfExtract=true`、trimming／ReadyToRun無効。
+- managed assembliesはbundleから読み込まれるが、bundled native runtimeはfresh install／cache miss時の起動前にtemporary extractionされる。
+- `startup_ready_operable elapsedMs`のStopwatchはViewModel初期化途中で開始されるため、process launch、apphost、native extractionを含むend-to-end指標ではない。
+- BASS／7zは`libs/x64`、Everythingは`native`、language catalogは`lang`に既に整理されている。
+- standard host fileを`libs`へ移すcustom loader、probing、deps rewrite、post-publish relocation、wrapperは作らない。
+- updaterはsingle-fileのまま維持する。
+- `.NET Desktop Runtime`未導入machine／VMは`MANUAL-01`、BASS entitlementは`RELEASE-01`として非blocking handoffする。
 
 ## Outcome exit
+
+`P1`〜`P4`と`HANDOFF`を完了したら次へ更新する。
 
 - engineering migration: `complete`
 - active outcome: `none`
 - active implementation batch: `empty`
-- selected main-app layout: `single-file ADOPTED`
+- selected main-app layout: benchmark winner (`Properties/PublishProfiles/WinX64SelfContained.pubxml`)
+- performance acceptance: `met`
 - post-engineering manual acceptance: `pending user action; non-blocking`

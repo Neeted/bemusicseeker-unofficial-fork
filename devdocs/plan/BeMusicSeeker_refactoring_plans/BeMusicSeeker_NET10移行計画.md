@@ -4,153 +4,130 @@
 
 ## 1. 現在の判定
 
-MVVM／owner整理と.NET 10移行の主要実装は完了している。app、tests、updaterは`net10.0-windows`、2 toolsは`net10.0`へ移行済みで、managed／native dependency、SQLite、Self-contained publish、existing-data、update／rollbackの自動受入れが成立している。
+MVVM／owner整理、全5 projectの.NET 10 retarget、managed／native dependency、SQLite、existing-data、update／rollbackのengineeringは完了している。
 
-Codexの.NET 10 Engineering Gateは`NET10-09 Final engineering closure`で完了した。
+一方、main appの現行profileは「配布物を一つのexeへ寄せる」機能受入れで選ばれており、end-to-end startup／working setの比較evidenceを持たない。性能最優先という最終要件に対しては完了判定を一度だけ再開し、`NET10-10 Performance-first distribution closure`で配布profileを確定する。
 
-- 最新servicing SDKでSelf-contained artifactを再生成した。
-- 公式single-fileを有限に評価し、正式layoutとして採用した。
-- 選択した配布構成で全自動Engineering Gateを閉じた。
+現在のsingle-file profileは次の性質を持つ。
 
-`.NET Desktop Runtime`未導入machine／VMでの確認とproprietary license証跡はCodex工程ではなく、Engineering Gate後のユーザー手動受入れ／release prerequisiteとする。
+- managed assembliesはbundleから読み込まれ、通常のfolderへ全展開されない。
+- `IncludeNativeLibrariesForSelfExtract=true`のため、CoreCLR、JIT、SQLite等のbundled native payloadはcache miss時の起動前にWindowsのbundle extraction directoryへ展開される。
+- `PublishReadyToRun=false`であり、startup時のJIT削減効果は比較していない。
+- production logの`startup_ready_operable elapsedMs`はViewModel初期化途中からのphase計測で、process launch、host初期化、native extractionを含まない。
+
+したがって「全DLLを毎回folderへ解凍している」わけではないが、現行profileにはfresh install／cache miss時のnative extractionとsingle-file host costがある。warm cacheでは再利用され得るため、最終判断はfresh installとwarm cacheを分けた外部benchmarkで行う。
 
 ## 2. Target matrix
 
-| Project | Target | 配布／検証 |
+| Project | Target | 方針 |
 |---|---|---|
-| `BeMusicSeeker.csproj` | `net10.0-windows`, x64 | win-x64 Self-contained single-file。`lang`／config／native ownerは隣接、trimming／ReadyToRun無効 |
+| `BeMusicSeeker.csproj` | `net10.0-windows`, x64 | win-x64 Self-contained。最終profileは`NET10-10`で性能選択 |
 | `BeMusicSeeker.Tests` | `net10.0-windows`, x64 | full test／architecture／publish behavior |
-| `BeMusicSeeker.Updater` | `net10.0-windows`, x64 | win-x64 Self-contained single-file |
+| `BeMusicSeeker.Updater` | `net10.0-windows`, x64 | win-x64 Self-contained single-fileを維持 |
 | `chart-info-compare` | `net10.0`, x64 | locked restore／Release build／DB behavior |
 | `chart-info-export` | `net10.0`, x64 | locked restore／Release build／DB behavior |
 
-Self-contained main appはmachine-installed runtimeへ依存しない一方、machine側のruntime servicingへ自動追随しない。そのため最終artifactはEngineering Gate時点の公式最新.NET 10 servicing SDKで再生成する。
+trimming、NativeAOT、Composite ReadyToRunは対象外。single-file compressionは明示的に無効とする。
 
-## 3. 完了済みcorridor
+## 3. Active outcome: `NET10-10 Performance-first distribution closure`
 
-| Outcome | 状態 | 成立した境界 |
-|---|---|---|
-| `NET10-01` | completed | 全5 projectのretarget、solution／verification baseline |
-| `NET10-02` | completed | central package versions、lock graph、configuration／logging／resource／test host |
-| `NET10-03` | completed | LivetCask、native WPF chrome／picker、legacy WPF dependency退役 |
-| `NET10-04` | completed | typed XAML binding、JSON／HTML／INI helper modernize |
-| `NET10-05` | completed | sqlite-net-pcl／SQLitePCLRawと既存DB互換性 |
-| `NET10-06` | completed | archive、NVorbis、BASS、Everythingのx64 runtime owner |
-| `NET10-07` | completed | main app folder SCD、updater single-file SCD、transaction／rollback |
-| `NET10-08` | completed | existing-data roundtripとold-to-new update／rollbackの自動受入れ |
+active batchは[PLAN_STATUS](./PLAN_STATUS.md)にmaterialize済みであり、plannerを起動しない。
 
-詳細なunit／commit履歴はGit historyに委ねる。
+### `P1 BENCHMARK-HARNESS`
 
-## 4. Completed outcome: `NET10-09 Final engineering closure`
+公式SDK設定だけで、同じHEADから次のcandidateをclean publishする。candidateは一つのbenchmark scriptからMSBuild propertyで生成し、六つの恒久pubxmlやproduction fallbackを追加しない。publish outputとraw run logはignored `artifacts/performance/net10-distribution/`配下へ置く。
 
-F1〜F3とHANDOFFを完了し、以後plannerは起動しない。手動受入れとrelease prerequisiteは別checklistへhandoffする。
+| Candidate | PublishSingleFile | Native self-extract | ReadyToRun |
+|---|---:|---:|---:|
+| `folder-il` | false | false | false |
+| `folder-r2r` | false | false | true |
+| `bundle-il` | true | false | false |
+| `bundle-r2r` | true | false | true |
+| `extract-il` | true | true | false |
+| `extract-r2r` | true | true | true |
 
-### `F1 SDK servicing baseline`
-
-目的:
-
-- `global.json`の`10.0.301`を、計画更新時点の公式最新servicing SDK `10.0.302`へ更新する。
-- 再現性のためroll-forwardを同じfeature bandのpatch範囲へ限定する。
-- Self-containedに含まれる.NET runtimeを最新servicing levelで再生成する。
-
-作業:
-
-1. `global.json`を`10.0.302`、`rollForward: latestPatch`へ更新する。
-2. app、tests、updater、2 toolsをclean locked restoreし、必要なlock差分だけを更新する。
-3. Release build、full tests、analyzerを実行する。
-4. selected app／updater profileをpublishし、startup、layout、existing-data、update／rollbackの代表自動受入れを再実行する。
-
-Exit:
-
-- `dotnet --info`とartifact inventoryが選択SDK／runtimeを示す。
-- package major upgradeやbehavior changeを混ぜず、全baseline verificationが通る。
-
-### `F2 Distribution layout decision`
-
-#### Baseline
-
-F2開始時のmain appは標準のfolder Self-contained publishであった。この形式ではmanaged dependencyとruntime fileが`BeMusicSeeker.exe`の隣に並ぶ。これらを単純に`libs`へ移すと標準host／`.deps.json` resolutionから外れるため、その方式は採用しない。F2完了後の正式profileは公式single-fileである。
-
-禁止する回避策:
-
-- 独自`AssemblyLoadContext`／`AssemblyResolve`
-- Framework-style private probing
-- `.deps.json`の手動書換え
-- publish後のmanaged DLL relocation／削除
-- loader専用wrapper executable
-- updaterだけが知る二重layout
-
-#### Bounded single-file evaluation
-
-exe隣接DLLを減らす唯一の候補として、公式SDKのsingle-fileを一度だけ評価する。
-
-候補profile:
+共通値:
 
 ```xml
-<RuntimeIdentifier>win-x64</RuntimeIdentifier>
 <SelfContained>true</SelfContained>
-<PublishSingleFile>true</PublishSingleFile>
-<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 <PublishTrimmed>false</PublishTrimmed>
-<PublishReadyToRun>false</PublishReadyToRun>
+<PublishReadyToRunComposite>false</PublishReadyToRunComposite>
+<EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+<IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
 ```
 
-`IncludeAllContentForSelfExtract`、trimming、ReadyToRun、NativeAOTは使わない。`lang`、`libs/x64`、`native`、user-editable／application contentは既存owner directoryへ残してよい。
+harness要件:
 
-作業:
+1. existing-data acceptanceと同じisolated profile／fixtureを使う。
+2. harness側Stopwatchを`Process.Start()`前に開始し、process start→main window handle／input idle、process start→`startup_ready_operable`ログ検出を測る。log pollingは測定誤差がselection thresholdを支配しない間隔またはevent通知で行い、ログ本文の`elapsedMs`はphase内訳にだけ使う。
+3. `fresh-install`はimmutable candidateを毎回新しいinstall directoryへcopyする。`extract-*`には毎回空の専用`DOTNET_BUNDLE_EXTRACT_BASE_DIR`を与える。`warm-cache`は同じinstall directoryとextract directoryを再利用する。これはOS page cacheを強制消去するcold benchmarkとは呼ばない。
+4. 各candidateについて3回warm-up後に20回の`warm-cache`を測り、別に10回の`fresh-install`を測る。上位差が3%未満、または変動係数が5%を超える場合は、上位candidateだけ各20回を一度追加する。追加測定後も不安定なら再試行を反復せず、no-extractの`folder-il`を保守的defaultとして選ぶ。
+5. candidate順序をround-robinで入れ替え、同じsettings、data、native asset、network／Defender条件を使う。
+6. p50／p90、failure、peak working set at ready、process CPU time、publish byte数、file数、extract byte数／file数、artifact hash、Windows build、SDKをmachine-readable reportへ出す。
+7. appをgraceful shutdownし、設定／DBのsemantic snapshotが測定前後で一致することを確認する。startup phase logとmain-view build等の既存内部metricsは診断用に保存するが、外部end-to-end metricを置き換えない。
 
-1. `ApplicationPathSnapshot`、audio encoder／writer、BASS runtime等のpath利用を棚卸しし、exe pathは`Environment.ProcessPath`、application baseは`AppContext.BaseDirectory`へ統一する。`Assembly.Location`へfallbackしない。
-2. candidate profileを作り、single-file compatibility warningを解消する。
-3. candidate publishからstartup／shutdown、settings、SQLite、playlist、scan、package、archive、BASS／audio、Everything installed／absent、existing-dataを検証する。
-4. `publish.ps1`、portable layout validator、update manifest、success／rollback acceptanceをcandidate layoutへ通す。
-5. root managed dependencyを前提にするtestsは、single-fileを採用する場合だけbundle contractへ更新する。
+benchmark専用のproduction fallback、loader、startup short-cutを追加しない。
 
-Adoption rule:
+### `P2 PROFILE-SELECTION`
 
-- 公式profileとboundedなpath修正だけで全自動受入れが通る場合は`ADOPTED`とし、main appの正式profile／package contractをsingle-fileへ切り替える。
-- third-party dependency、native load、updater contractを成立させるため禁止回避策が必要、またはbehavior／startup costが受入不能なら`NOT_ADOPTED`とする。candidate profile／probe seamを退役し、現行folder Self-containedを最終構成として明記する。
-- `NOT_ADOPTED`は正常完了であり、再調査やユーザー承認待ちにしない。
+機能受入れを通らないcandidateは失格とする。残候補を次の順で決める。
 
-### `F3 Automated Engineering Gate`
+1. `max(fresh-install p90, warm-cache p90)`のprocess start→`startup_ready_operable`が最小のcandidateを基準にする。
+2. 基準との差が`max(100 ms, 3%)`以内を同率候補とする。
+3. 同率候補ではpeak working set p90が小さいものを選ぶ。差が5%以内ならprocess start→main-window ready p90が小さいものを選ぶ。
+4. なお同率なら、native self-extractなし、次にfolder profileを選ぶ。
 
-選択したmain-app profileに対して次をclean checkout相当で閉じる。
+file数、exe一個、zip sizeはtie-breakerより下位であり、性能selectionを覆さない。ReadyToRunは公式説明上startup改善の可能性がある一方、size／working setを増やし得るため、実測結果だけで採否を決める。
+
+選択結果は`devdocs/acceptance/net10-distribution-performance.md`へcurrent-onlyのperformance acceptance reportとして、command、environment、candidate summary、selected profile、理由、raw report hashを記録する。raw JSON／CSVはartifactとして保持し、過去runの逐次logを計画文書へ追記しない。
+
+### `P3 PACKAGE-CLOSURE`
+
+選択profileを唯一のmain-app release contractへ反映する。
+
+- main appの選択profileを中立名`Properties/PublishProfiles/WinX64SelfContained.pubxml`へ置き、未選択profileを退役
+- `BeMusicSeeker.csproj`のapplication-owned native／content publish targetをselected profileで一貫させる
+- `scripts/publish.ps1`、`scripts/verify-refactor.ps1`、benchmark harness
+- portable package layout validatorと関連tests
+- existing-data／update success／rollback acceptance
+- `devdocs/spec/portable-auto-update.md`
+- `devdocs/acceptance/net10-distribution-performance.md`、dependency register、blocker台帳、`PLAN_STATUS.md`
+
+layout規則:
+
+- folder profileではstandard hostのmanaged assemblies、runtime DLL、`.deps.json`、`.runtimeconfig.json`を`BeMusicSeeker.exe`と同じdirectoryに置く。
+- bundle profileではSDKが公式に隣接配置するnative runtime fileを許可する。
+- BASS／7zは`libs/x64`、Everythingは`native`、language catalogは`lang`に置く。
+- managed DLLを`libs`へ移す独自loader、probing、deps rewrite、post-publish relocation、wrapper launcherを作らない。
+- `ApplicationPathSnapshot`等の`Environment.ProcessPath`／`AppContext.BaseDirectory`境界はfolder／bundleの両方で維持する。
+- updaterはsingle-fileのままにし、`update_work/current`への単一payload handoffを維持する。
+
+### `P4 FINAL-GATE`
+
+選択profileについて次をclean checkout相当で閉じる。
 
 1. 全5 projectのlocked restore、Release build、full tests。
 2. Roslynator／format／warning gate。
 3. main appとupdaterのwin-x64 Self-contained publish。
 4. package／layout validator、hash／managed／native／license inventory。
-5. publish-folderからのstartup／shutdownと主要runtime smoke。
-6. existing-data acceptance。
-7. pre-NET10 packageからのupdate success／fault rollback acceptance。
+5. publish outputからのstartup／shutdown、existing-data acceptance。
+6. pre-NET10 packageからのupdate success／fault rollback acceptance。
+7. performance reportの再現runとselected profileの閾値再確認。
 8. frozen snapshotのfresh outcome review、重大指摘修正後の再検証／fresh review。
 
-`.NET Desktop Runtime`未導入machine／VMはこのGateへ含めない。repository内で自動実行できるevidenceがすべて通ればEngineering Gateを満たす。
+P4完了後、`engineering migration: complete`へ戻し、manual clean-machine／release prerequisiteへhandoffする。
 
-### `HANDOFF Engineering completion`
+## 4. Engineering Completion Gate
 
-F3完了と同じclosure cycleで次を行う。
-
-- `PLAN_STATUS.md`を`engineering migration: complete`、active batch emptyへ更新する。
-- 選択した配布profileとlayout decisionを依存関係台帳へ反映する。
-- `.NET Desktop Runtime`未導入machine／VMの確認とBASS.NET entitlement確認を[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoffする。
-- manual結果待ちでCodexを停止せず、Engineering Outcomeを完了する。
-
-## 5. Engineering Completion Gate
-
-次をすべて満たしたとき、Codexの.NET 10移行作業を完了とする。
+次を満たしたときCodexの.NET 10作業を完了とする。
 
 1. tracked projectに`net472`がない。
-2. 全5 projectが最新servicing baselineでlocked restore／Release buildでき、full testsとanalyzerが通る。
-3. main appとupdaterのwin-x64 Self-contained publishが再現できる。
-4. selected layoutが標準hostまたは公式single-fileだけで成立し、custom probing／loader／relocationを持たない。
+2. 全5 projectのlocked restore／Release build、full tests、analyzerが通る。
+3. selected main-app profileとupdaterのwin-x64 Self-contained publishが再現できる。
+4. selected layoutが公式host／bundlerだけで成立し、custom probing／loader／relocationを持たない。
 5. retained native componentがversion、source、license notice、ABI test、publish ownerを持つ。
 6. existing-data、update success、rollbackの自動受入れが通る。
-7. fresh outcome reviewで重大指摘がない。
+7. selected profileがcurrent performance reportのdecision ruleを満たす。
+8. fresh outcome reviewで重大指摘がない。
 
-次はEngineering Gateの条件ではない。
-
-- `.NET Desktop Runtime`未導入clean machine／VMでのユーザー手動確認
-- code signing、tag、push、public release／publish
-- BASS.NETのlicensee／registration／redistribution権限のユーザー確認
-
-これらはrelease前に[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)で閉じる。
+`.NET Desktop Runtime`未導入machine／VM、署名、公開、BASS.NET entitlementはEngineering Gateに含めず、[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoffする。
