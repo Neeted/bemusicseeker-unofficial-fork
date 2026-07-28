@@ -302,14 +302,14 @@ public sealed class LR2SongDBExtended : LR2SongDB
         {
             get
             {
-                return title;
+                return _title;
             }
             set
             {
                 value ??= string.Empty;
-                if (!(title == value))
+                if (!(_title == value))
                 {
-                    title = value;
+                    _title = value;
                 }
             }
         }

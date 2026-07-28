@@ -20,6 +20,7 @@ $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
 $scdPublishRoot = Join-Path $repoRoot 'artifacts\publish'
 $scdAppPublishOutput = Join-Path $scdPublishRoot 'app'
 $scdUpdaterPublishOutput = Join-Path $scdPublishRoot 'updater'
+$existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $testTimeoutSeconds = 300
 
 function Invoke-CheckedCommand {
@@ -166,7 +167,7 @@ function Assert-ReleaseOutputLayout {
     }
 }
 
-function Invoke-SelfContainedPublishSmoke {
+function Invoke-SelfContainedPublishVerification {
     if (Test-Path -LiteralPath $scdPublishRoot) {
         Remove-Item -LiteralPath $scdPublishRoot -Recurse -Force
     }
@@ -206,35 +207,16 @@ function Invoke-SelfContainedPublishSmoke {
         throw "Self-contained updater --version failed with exit code $($versionProcess.ExitCode)."
     }
 
-    $appExecutable = Join-Path $scdAppPublishOutput 'BeMusicSeeker.exe'
-    $appProcess = Start-Process -FilePath $appExecutable -WorkingDirectory $scdAppPublishOutput -PassThru
-    try {
-        [void]$appProcess.WaitForInputIdle(30000)
-        $deadline = [DateTime]::UtcNow.AddSeconds(30)
-        do {
-            Start-Sleep -Milliseconds 250
-            $appProcess.Refresh()
-        } while ($appProcess.MainWindowHandle -eq 0 -and -not $appProcess.HasExited -and [DateTime]::UtcNow -lt $deadline)
-        if ($appProcess.HasExited) {
-            throw "Self-contained app exited before UI smoke completed (exit code $($appProcess.ExitCode))."
-        }
-        if ($appProcess.MainWindowHandle -eq 0) {
-            throw 'Self-contained app did not expose a main window.'
-        }
-        $appProcess.CloseMainWindow() | Out-Null
-        if (-not $appProcess.WaitForExit(30000)) {
-            throw 'Self-contained app did not exit after UI smoke close.'
-        }
-        if ($appProcess.ExitCode -ne 0) {
-            throw "Self-contained app UI smoke failed with exit code $($appProcess.ExitCode)."
-        }
+}
+
+function Invoke-ExistingDataAcceptance {
+    if (-not (Test-Path -LiteralPath $existingDataAcceptanceScript -PathType Leaf)) {
+        throw "Existing-data acceptance runner is missing: $existingDataAcceptanceScript"
     }
-    finally {
-        if (-not $appProcess.HasExited) {
-            $appProcess.Kill()
-        }
-        $appProcess.Dispose()
-    }
+    $acceptanceOutputDirectory = Join-Path $verificationArtifactsDirectory 'net10-existing-data'
+    Invoke-CheckedCommand pwsh '-NoProfile' '-File' $existingDataAcceptanceScript `
+        '-AppPublishRoot' $scdAppPublishOutput `
+        '-OutputDirectory' $acceptanceOutputDirectory
 }
 
 Push-Location $repoRoot
@@ -253,7 +235,7 @@ try {
     }
 
     if (-not (Test-Path -LiteralPath $uiExecutable -PathType Leaf)) {
-        throw "Release UI smoke executable was not produced: $uiExecutable"
+        throw "Release UI executable was not produced: $uiExecutable"
     }
 
     foreach ($toolExecutable in $toolExecutables) {
@@ -265,14 +247,15 @@ try {
     }
 
     if ($Mode -eq 'Full') {
-        Write-Host "Self-contained publish smoke output: $scdPublishRoot"
-        Invoke-SelfContainedPublishSmoke
+        Write-Host "Self-contained publish verification output: $scdPublishRoot"
+        Invoke-SelfContainedPublishVerification
+        Invoke-ExistingDataAcceptance
         $env:BMS_SCD_APP_PUBLISH_ROOT = $scdAppPublishOutput
         $env:BMS_SCD_UPDATER_PUBLISH_ROOT = $scdUpdaterPublishOutput
     }
 
     $resolvedUiExecutable = (Resolve-Path -LiteralPath $uiExecutable).Path
-    Write-Host "Release UI smoke executable: $resolvedUiExecutable"
+    Write-Host "Release UI executable: $resolvedUiExecutable"
     Assert-ReleaseOutputLayout -ExecutablePath $resolvedUiExecutable
 
     $testDiagnosticsDirectory = Join-Path $verificationArtifactsDirectory (

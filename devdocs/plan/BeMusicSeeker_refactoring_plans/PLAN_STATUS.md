@@ -6,7 +6,7 @@
 
 ## Current checkpoint
 
-- active outcome base commit: `fcc03059`
+- active outcome base commit: `6d5136b4`
 - observed worktree: clean
 - Release Freeze: active
 - `git push`／tag／release／public publish: ユーザーの明示指示まで禁止
@@ -19,14 +19,14 @@
 - .NET 10 migration readiness: architecture is sufficient to start after terminal closure; dependency／runtime／deployment migration remains
 - NET10-06 technical BASS runtime closure: completed; proprietary Bass.Net source／licensee／registration evidence remains the `NATIVE-01` external-gate and is not treated as release permission
 
-Full verificationは`3479 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
+Full verificationは`3480 passed / 16 skipped / 0 failed`、Roslynatorは`0 diagnostics`。既存データ受入れはcleanなSelf-contained app publishからstandalone／LR2の各profileを2回起動し、portable settings、song DBのsemantic rows、fixture hash、graceful shutdownを確認する。Refactoring Gate時点のRelease buildは`bin\\x64\\Release\\net472\\BeMusicSeeker.exe`で、現在のNET10 smoke対象は`bin\\x64\\Release\\net10.0-windows\\BeMusicSeeker.exe`。メソッド単位並列による全体実行限定失敗を避けるため、テストアセンブリはクラス単位並列へ揃えた。
 
 ## Active outcome
 
 - active outcome: `NET10-08 Existing-data and clean-machine acceptance`
 - active execution package: `.NET 10 existing-data／clean-machine acceptance`
-- execution anchor: `NET10-08 planner required`
-- planner state: `P2 completed; planner required; NATIVE-01 external-gate`
+- execution anchor: `planner required`
+- planner state: `E1 completed; planner required; NATIVE-01 external-gate`
 
 ## Active implementation batch
 
@@ -57,8 +57,9 @@ Full verificationは`3479 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `A4 EVERYTHING-RUNTIME` | completed | Everything SDK／bridge corridor | ABI、native lifetime、installed／absent fallback、publish／license inventory |
 | `P1 SCD-ARTIFACT` | completed | Self-contained publish artifact／updater payload corridor | versioned app folder SCD、updater single-file SCD、clean package layout、publish-folder startup／`--version` smoke、single-file update payload |
 | `P2 SCD-TRANSACTION` | completed | Self-contained update transaction／recovery corridor | exclusive writer、durable journal、rollback／recovery、restart／failure receipt、old-to-new acceptance |
+| `E1 DATA-ROUNDTRIP` | completed | Existing-data SCD startup／shutdown／restart acceptance | isolated legacy settings／standalone DB／LR2 profile fixture、semantic receipt、two-start hydration、graceful shutdown／lock release |
 
-active／pending unitがある間はunit-plannerを再起動しない。P1〜P2は依存順に閉じた。次のoutcomeはplanner requiredとする。
+active／pending unitがある間はunit-plannerを再起動しない。E1はfixture、acceptance runner、semantic test、既存shallow smoke退役を完了した。
 
 ## Review evidence
 
