@@ -8,7 +8,7 @@
 
 | Item | Current | Final engineering target | Owner |
 |---|---|---|---|
-| .NET SDK | `10.0.301`, `rollForward: latestFeature` | `10.0.302`, `rollForward: latestPatch`。実装時に公式.NET 10 servicing pageを再確認 | `NET10-09 F1` |
+| .NET SDK | `10.0.302`, `rollForward: latestPatch` | `10.0.302`, `rollForward: latestPatch` | `NET10-09 F1` |
 | Main app publish | win-x64 folder Self-contained、untrimmed、non-single-file | `F2`で公式single-fileを有限評価。`ADOPTED`またはfolder SCD `NOT_ADOPTED` | `NET10-09 F2` |
 | Updater publish | win-x64 Self-contained single-file | retain | `NET10-07/09` |
 

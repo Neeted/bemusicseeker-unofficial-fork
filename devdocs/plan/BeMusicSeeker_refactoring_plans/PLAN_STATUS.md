@@ -25,23 +25,23 @@
 
 - active outcome: `NET10-09 Final engineering closure`
 - active execution package: `.NET 10 servicing／distribution／automated gate`
-- execution anchor: `F1 SDK servicing baseline`
+- execution anchor: `F2 Distribution layout decision`
 - planner state: `active batch materialized; do not invoke planner`
 
 ## Active implementation batch
 
 | Unit | State | Closure family | Exit |
 |---|---|---|---|
-| `F1 SDK-SERVICING` | active | SDK／runtime servicing baseline | `global.json`を10.0.302／latestPatchへ更新し、全5 projectと現行SCD artifactをlocked再検証 |
-| `F2 LAYOUT-DECISION` | pending | official single-file bounded evaluation | `ADOPTED`またはfolder SCD `NOT_ADOPTED`を自動evidenceで確定。custom loader／probing／relocationなし |
+| `F1 SDK-SERVICING` | completed | SDK／runtime servicing baseline | `global.json`を10.0.302／latestPatchへ更新し、全5 projectと現行SCD artifactをlocked再検証 |
+| `F2 LAYOUT-DECISION` | active | official single-file bounded evaluation | `ADOPTED`またはfolder SCD `NOT_ADOPTED`を自動evidenceで確定。custom loader／probing／relocationなし |
 | `F3 ENGINEERING-GATE` | pending | selected distributionの最終自動Gate | full tests、analyzer、publish、layout、startup、existing-data、update／rollback、fresh review |
 | `HANDOFF` | pending | Engineering completion／manual handoff | statusをcompleteへ更新し、manual clean-machine／BASS entitlementを別checklistへ渡す |
 
-active／pending unitがある間はunit-plannerを起動しない。各unitの状態遷移は対応code commitへ含める。
+active／pending unitがある間はunit-plannerを起動しない。F1の状態遷移は対応code/config commitへ含め、次はF2のbounded single-file評価を行う。
 
 ## Current evidence and constraints
 
-- `global.json`は現在SDK `10.0.301`、`rollForward: latestFeature`。公式latest servicing baselineは計画更新時点で`10.0.302`。
+- `global.json`はSDK `10.0.302`、`rollForward: latestPatch`。F1のlocked restore／Release／publish／acceptanceはこのSDKで完了した。
 - main app profileはwin-x64 folder Self-contained、untrimmed、non-single-file。updaterはwin-x64 Self-contained single-file。
 - `scripts/portable-package-layout.ps1`と`ManagedDependencyOutputPolicyTests`はmanaged DLLを標準host layoutとしてexe隣接に置くことを明示している。
 - `ApplicationPathSnapshot`、audio encoder／writer、BASS runtime周辺に`Assembly.Location`依存が残り、single-file候補ではboundedなpath修正が必要である。

@@ -12,8 +12,8 @@
 
 | ID | State | Work | Owner / exit |
 |---|---|---|---|
-| `SDK-01` | active | SDK `10.0.301`から公式latest servicing baseline `10.0.302`へ更新し、Self-contained artifactを再生成 | `NET10-09 F1` |
-| `LAYOUT-01` | pending | official single-fileをbounded評価。標準機構で成立すれば`ADOPTED`、特殊回避が必要ならfolder SCD `NOT_ADOPTED` | `NET10-09 F2` |
+| `SDK-01` | resolved | SDK `10.0.302`／`latestPatch`でSelf-contained artifactを再生成し、全5 projectのlocked restore／Release／acceptanceを再検証済み | `NET10-09 F1` |
+| `LAYOUT-01` | active | official single-fileをbounded評価。標準機構で成立すれば`ADOPTED`、特殊回避が必要ならfolder SCD `NOT_ADOPTED` | `NET10-09 F2` |
 | `GATE-01` | pending | selected layoutでlocked restore、full tests、publish、existing-data、update／rollback、fresh reviewを完了 | `NET10-09 F3` |
 
 これらは実装unitでありblockerではない。active batchに従ってplannerなしで進める。
