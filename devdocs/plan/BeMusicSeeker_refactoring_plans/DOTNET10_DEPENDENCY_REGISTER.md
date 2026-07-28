@@ -9,7 +9,7 @@
 | Item | Current | Final engineering target | Owner |
 |---|---|---|---|
 | .NET SDK | `10.0.302`, `rollForward: latestPatch` | `10.0.302`, `rollForward: latestPatch` | `NET10-09 F1` |
-| Main app publish | win-x64 folder Self-contained、untrimmed、non-single-file | `F2`で公式single-fileを有限評価。`ADOPTED`またはfolder SCD `NOT_ADOPTED` | `NET10-09 F2` |
+| Main app publish | win-x64 Self-contained single-file、untrimmed、ReadyToRun無効。`lang`／config／native ownerは隣接 | win-x64 Self-contained single-file、同じcontent／native owner contract | `NET10-09 F2` |
 | Updater publish | win-x64 Self-contained single-file | retain | `NET10-07/09` |
 
 Self-contained artifactはmachine-installed runtimeのsecurity servicingへ自動追随しないため、公開候補は選択SDKで再publishする。
@@ -59,9 +59,9 @@ standard .NET host／`.deps.json` graphを使うため、managed package／runti
 
 managed DLLを見た目のためだけに`libs`へ移す独自loader、probing、deps rewrite、post-publish relocationは認めない。
 
-### Optional official single-file
+### Adopted official single-file
 
-`NET10-09 F2`で公式single-fileを評価する。採用時はmanaged assembliesと公式runtime nativeをbundleし、application-owned content／native owner directoryは必要に応じて隣接保持する。single-file非互換API、native load、updater transactionを標準機構だけで閉じられない場合は`NOT_ADOPTED`としてfolder baselineを最終構成にする。
+`NET10-09 F2`で公式profileをbounded評価し、`ADOPTED`とした。managed assembliesと公式runtime nativeはbundleし、`lang`、`test.mp3`、`BeMusicSeeker.dll.config`、BASS／7z／Everythingのapplication-owned native owner directoryだけを隣接保持する。`ApplicationPathSnapshot`、audio encoder／writer、BASS runtimeは`AppContext.BaseDirectory`／`Environment.ProcessPath`を使う。独自loader、probing、deps書換え、managed relocation、wrapperはない。
 
 ## Release prerequisite
 

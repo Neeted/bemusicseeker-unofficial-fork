@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Reflection;
 
 namespace BeMusicSeeker.Models;
 
@@ -39,14 +38,10 @@ internal sealed class ApplicationPathSnapshot
 
     internal static ApplicationPathSnapshot Capture()
     {
-        string executablePath = Assembly.GetExecutingAssembly().Location;
+        string executablePath = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(executablePath))
         {
-            executablePath = Assembly.GetEntryAssembly()?.Location;
-        }
-        if (string.IsNullOrWhiteSpace(executablePath))
-        {
-            throw new InvalidOperationException("Application executable path is not available.");
+            throw new InvalidOperationException("Application process path is not available.");
         }
         return FromExecutablePath(executablePath);
     }

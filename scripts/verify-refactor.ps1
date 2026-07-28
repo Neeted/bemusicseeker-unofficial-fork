@@ -174,20 +174,39 @@ function Invoke-SelfContainedPublishVerification {
     }
     New-Item -ItemType Directory -Path $scdAppPublishOutput, $scdUpdaterPublishOutput -Force | Out-Null
 
-    Invoke-CheckedCommand dotnet publish (Join-Path $repoRoot 'BeMusicSeeker.csproj') '/p:Configuration=Release' '/p:Platform=x64' '-r' 'win-x64' '--self-contained' 'true' '--no-restore' '-p:PublishProfile=WinX64SelfContained' "-p:PublishDir=$scdAppPublishOutput"
+    Invoke-CheckedCommand dotnet publish (Join-Path $repoRoot 'BeMusicSeeker.csproj') '/p:Configuration=Release' '/p:Platform=x64' '-r' 'win-x64' '--self-contained' 'true' '--no-restore' '-p:PublishProfile=WinX64SelfContainedSingleFile' "-p:PublishDir=$scdAppPublishOutput"
     Invoke-CheckedCommand dotnet publish (Join-Path $repoRoot 'BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj') '/p:Configuration=Release' '/p:Platform=x64' '-r' 'win-x64' '--self-contained' 'true' '--no-restore' '-p:PublishProfile=WinX64SelfContainedSingleFile' "-p:PublishDir=$scdUpdaterPublishOutput"
 
     foreach ($requiredPath in @(
         'BeMusicSeeker.exe',
-        'BeMusicSeeker.runtimeconfig.json',
-        'e_sqlite3.dll',
+        'BeMusicSeeker.dll.config',
+        'test.mp3',
+        'lang\en-US.json',
         'native\Everything3_x64.dll',
         'native\EverythingBridge_x64.dll',
         'libs\x64\7z.dll',
-        'libs\x64\bass.dll')) {
+        'libs\x64\bass.dll',
+        'libs\x64\bassasio.dll',
+        'libs\x64\bassenc.dll',
+        'libs\x64\bassmix.dll',
+        'libs\x64\basswasapi.dll',
+        'libs\x64\bass_fx.dll')) {
         if (-not (Test-Path -LiteralPath (Join-Path $scdAppPublishOutput $requiredPath) -PathType Leaf)) {
             throw "Self-contained app publish output is missing: $requiredPath"
         }
+    }
+
+    foreach ($forbiddenPath in @(
+        'BeMusicSeeker.dll',
+        'BeMusicSeeker.deps.json',
+        'BeMusicSeeker.runtimeconfig.json')) {
+        if (Test-Path -LiteralPath (Join-Path $scdAppPublishOutput $forbiddenPath) -PathType Leaf) {
+            throw "Single-file app publish output contains a companion file: $forbiddenPath"
+        }
+    }
+    $rootManagedPayloads = @(Get-ChildItem -LiteralPath $scdAppPublishOutput -File -Filter '*.dll')
+    if ($rootManagedPayloads.Count -gt 0) {
+        throw "Single-file app publish output contains root DLL payloads: $($rootManagedPayloads.Name -join ', ')"
     }
 
     $updaterExecutable = Join-Path $scdUpdaterPublishOutput 'BeMusicSeeker.Updater.exe'

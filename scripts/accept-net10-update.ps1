@@ -3,6 +3,7 @@ param(
     [string]$LegacyCommit = '8786e59f6bfc0a80625a65c17e10c79e6e86f4ac',
     [string]$FixtureRoot,
     [string]$OutputDirectory,
+    [string]$SqliteAssemblyRoot,
     [switch]$KeepSandbox
 )
 
@@ -14,6 +15,11 @@ if ([string]::IsNullOrWhiteSpace($FixtureRoot)) {
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repoRoot 'artifacts\verification\net10-update'
 }
+if ([string]::IsNullOrWhiteSpace($SqliteAssemblyRoot)) {
+    $SqliteAssemblyRoot = Join-Path $repoRoot 'BeMusicSeeker.Tests\bin\x64\Release\net10.0-windows'
+}
+
+. (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
 
 Add-Type -TypeDefinition @'
 using System;
@@ -72,7 +78,7 @@ function Invoke-CheckedCommand {
         [Parameter(Mandatory)][string]$Command,
         [Parameter(ValueFromRemainingArguments)][string[]]$Arguments
     )
-    & $Command @Arguments
+    & $Command @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed with exit code $LASTEXITCODE`: $Command $($Arguments -join ' ')"
     }
@@ -143,8 +149,12 @@ function Initialize-SqliteRuntime {
         return
     }
     foreach ($name in @('SQLitePCLRaw.core.dll', 'SQLitePCLRaw.batteries_v2.dll', 'SQLite-net.dll', 'BeMusicSeeker.dll')) {
-        Assert-File (Join-Path $script:currentAppPublishRoot $name)
-        Add-Type -Path (Join-Path $script:currentAppPublishRoot $name) -ErrorAction SilentlyContinue
+        Assert-File (Join-Path $SqliteAssemblyRoot $name)
+        Add-Type -Path (Join-Path $SqliteAssemblyRoot $name) -ErrorAction SilentlyContinue
+    }
+    $nativeRoot = Join-Path $SqliteAssemblyRoot 'runtimes\win-x64\native'
+    if (Test-Path -LiteralPath $nativeRoot -PathType Container) {
+        $env:PATH = $nativeRoot + [IO.Path]::PathSeparator + $env:PATH
     }
     [SQLitePCL.Batteries_V2]::Init()
     $script:sqliteRuntimeLoaded = $true
@@ -700,6 +710,7 @@ try {
     Close-IsolatedApplication -Process $currentProcess
     $successAfter = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $successApp; DatabasePath = $successProfile.DatabasePath; InstallPath = $successProfile.InstallPath; LegacyConfigPath = $successProfile.LegacyConfigPath; MarkerPath = $successProfile.MarkerPath })
     Assert-SemanticStateEqual -Before $beforeSuccess -After $successAfter -Label 'old-to-new success'
+    Assert-PortableSingleFilePayloadLayout $successApp
     $successManaged = Get-TreeSha256 -Root $successApp
     if ((Get-Sha256 -Path (Join-Path $successApp 'BeMusicSeeker.exe')) -eq (Get-Sha256 -Path (Join-Path $historical.SourceRoot 'bin\x64\Release\net472\BeMusicSeeker.exe'))) { throw 'Old-to-new update did not replace the application executable.' }
     Assert-File (Join-Path $successApp 'BeMusicSeeker.Updater.exe')

@@ -123,4 +123,20 @@
            Text="SevenZipExtractor x64 native asset is missing: $(PkgSevenZipExtractor)\build\x64\7z.dll" />
   </Target>
 
+  <Target Name="CopySingleFileNativeAssets" AfterTargets="Publish" Condition="'$(PublishSingleFile)' == 'true'">
+    <MakeDir Directories="$(PublishDir)native;$(PublishDir)libs\x64" />
+    <Copy SourceFiles="native\Everything3_x64.dll"
+          DestinationFiles="$(PublishDir)native\Everything3_x64.dll"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="native\EverythingBridge_x64.dll"
+          DestinationFiles="$(PublishDir)native\EverythingBridge_x64.dll"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="vendor\native\x64\bass.dll;vendor\native\x64\bassasio.dll;vendor\native\x64\bassenc.dll;vendor\native\x64\bassmix.dll;vendor\native\x64\basswasapi.dll;vendor\native\x64\bass_fx.dll"
+          DestinationFiles="$(PublishDir)libs\x64\bass.dll;$(PublishDir)libs\x64\bassasio.dll;$(PublishDir)libs\x64\bassenc.dll;$(PublishDir)libs\x64\bassmix.dll;$(PublishDir)libs\x64\basswasapi.dll;$(PublishDir)libs\x64\bass_fx.dll"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(PkgSevenZipExtractor)\build\x64\7z.dll"
+          DestinationFiles="$(PublishDir)libs\x64\7z.dll"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

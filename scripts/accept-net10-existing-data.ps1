@@ -3,6 +3,7 @@ param(
     [string]$AppPublishRoot,
     [string]$FixtureRoot,
     [string]$OutputDirectory,
+    [string]$SqliteAssemblyRoot,
     [switch]$KeepSandbox
 )
 
@@ -31,6 +32,14 @@ if ([string]::IsNullOrWhiteSpace($FixtureRoot)) {
 }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repoRoot 'artifacts\verification\net10-existing-data'
+}
+if ([string]::IsNullOrWhiteSpace($SqliteAssemblyRoot)) {
+    $SqliteAssemblyRoot = if (Test-Path -LiteralPath (Join-Path $AppPublishRoot 'SQLitePCLRaw.core.dll') -PathType Leaf) {
+        $AppPublishRoot
+    }
+    else {
+        Join-Path $repoRoot 'BeMusicSeeker.Tests\bin\x64\Release\net10.0-windows'
+    }
 }
 
 function Resolve-FullPath {
@@ -147,10 +156,14 @@ function Initialize-SqliteRuntime {
     if ($script:sqliteRuntimeLoaded) {
         return
     }
-    $assemblyRoot = Resolve-FullPath (Join-Path $AppPublishRoot '.')
+    $assemblyRoot = Resolve-FullPath $SqliteAssemblyRoot
     foreach ($name in @('SQLitePCLRaw.core.dll', 'SQLitePCLRaw.batteries_v2.dll', 'SQLite-net.dll', 'BeMusicSeeker.dll')) {
         Assert-File (Join-Path $assemblyRoot $name)
         Add-Type -Path (Join-Path $assemblyRoot $name) -ErrorAction SilentlyContinue
+    }
+    $nativeRoot = Join-Path $assemblyRoot 'runtimes\win-x64\native'
+    if (Test-Path -LiteralPath $nativeRoot -PathType Container) {
+        $env:PATH = $nativeRoot + [IO.Path]::PathSeparator + $env:PATH
     }
     [SQLitePCL.Batteries_V2]::Init()
     $script:sqliteRuntimeLoaded = $true

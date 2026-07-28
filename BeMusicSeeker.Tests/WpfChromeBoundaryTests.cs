@@ -98,7 +98,7 @@ public sealed class WpfChromeBoundaryTests
             Assert.IsFalse(File.Exists(Path.Combine(repositoryRoot, "libs", assemblyName)), assemblyName);
         }
 
-        Assert.IsTrue(layout.Contains("\"Microsoft.Xaml.Behaviors.dll\"", StringComparison.Ordinal));
+        Assert.IsFalse(requiredManagedRoot.Contains("\"Microsoft.Xaml.Behaviors.dll\"", StringComparison.Ordinal));
     }
 
     private static string FindRepositoryRoot()

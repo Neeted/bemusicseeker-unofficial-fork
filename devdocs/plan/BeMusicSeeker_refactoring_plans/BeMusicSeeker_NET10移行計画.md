@@ -18,7 +18,7 @@ MVVM／owner整理と.NET 10移行の主要実装は完了している。app、t
 
 | Project | Target | 配布／検証 |
 |---|---|---|
-| `BeMusicSeeker.csproj` | `net10.0-windows`, x64 | win-x64 Self-contained。folderまたは採用判定済みsingle-file。trimming／ReadyToRun無効 |
+| `BeMusicSeeker.csproj` | `net10.0-windows`, x64 | win-x64 Self-contained single-file。`lang`／config／native ownerは隣接、trimming／ReadyToRun無効 |
 | `BeMusicSeeker.Tests` | `net10.0-windows`, x64 | full test／architecture／publish behavior |
 | `BeMusicSeeker.Updater` | `net10.0-windows`, x64 | win-x64 Self-contained single-file |
 | `chart-info-compare` | `net10.0`, x64 | locked restore／Release build／DB behavior |
@@ -58,7 +58,7 @@ active batchは`PLAN_STATUS.md`に固定済みであり、plannerを起動しな
 1. `global.json`を`10.0.302`、`rollForward: latestPatch`へ更新する。
 2. app、tests、updater、2 toolsをclean locked restoreし、必要なlock差分だけを更新する。
 3. Release build、full tests、analyzerを実行する。
-4. 現行folder app profileとupdater profileをpublishし、startup、layout、existing-data、update／rollbackの代表自動受入れを再実行する。
+4. selected app／updater profileをpublishし、startup、layout、existing-data、update／rollbackの代表自動受入れを再実行する。
 
 Exit:
 
@@ -69,7 +69,7 @@ Exit:
 
 #### Baseline
 
-現在のmain appは標準のfolder Self-contained publishである。この形式ではmanaged dependencyとruntime fileが`BeMusicSeeker.exe`の隣に並ぶ。これらを単純に`libs`へ移すと標準host／`.deps.json` resolutionから外れるため、その方式は採用しない。
+F2開始時のmain appは標準のfolder Self-contained publishであった。この形式ではmanaged dependencyとruntime fileが`BeMusicSeeker.exe`の隣に並ぶ。これらを単純に`libs`へ移すと標準host／`.deps.json` resolutionから外れるため、その方式は採用しない。F2完了後の正式profileは公式single-fileである。
 
 禁止する回避策:
 

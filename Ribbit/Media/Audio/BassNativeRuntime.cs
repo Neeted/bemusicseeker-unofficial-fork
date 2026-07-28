@@ -30,9 +30,7 @@ internal static class BassNativeRuntime
     {
         get
         {
-            string assemblyDirectory = Path.GetDirectoryName(typeof(BassNativeRuntime).Assembly.Location)
-                ?? AppContext.BaseDirectory;
-            return Path.Combine(assemblyDirectory, "libs", "x64");
+            return Path.Combine(AppContext.BaseDirectory, "libs", "x64");
         }
     }
 

@@ -73,6 +73,20 @@ public sealed class UpdaterDeploymentBoundaryTests
         AssertProfileValue(appProfile, "PublishSingleFile", "false");
         AssertProfileValue(appProfile, "PublishTrimmed", "false");
         AssertProfileValue(appProfile, "PublishReadyToRun", "false");
+
+        string singleFileAppProfilePath = Path.Combine(
+            repositoryRoot,
+            "Properties",
+            "PublishProfiles",
+            "WinX64SelfContainedSingleFile.pubxml");
+        XDocument singleFileAppProfile = XDocument.Load(singleFileAppProfilePath);
+        AssertProfileValue(singleFileAppProfile, "RuntimeIdentifier", "win-x64");
+        AssertProfileValue(singleFileAppProfile, "SelfContained", "true");
+        AssertProfileValue(singleFileAppProfile, "PublishSingleFile", "true");
+        AssertProfileValue(singleFileAppProfile, "IncludeNativeLibrariesForSelfExtract", "true");
+        AssertProfileValue(singleFileAppProfile, "IncludeAllContentForSelfExtract", "false");
+        AssertProfileValue(singleFileAppProfile, "PublishTrimmed", "false");
+        AssertProfileValue(singleFileAppProfile, "PublishReadyToRun", "false");
     }
 
     [TestMethod]
@@ -192,6 +206,8 @@ public sealed class UpdaterDeploymentBoundaryTests
                 "libs/x86/bassenc.dll",
                 "libs/x86/bassmix.dll",
                 "libs/x86/basswasapi.dll",
+                "e_sqlite3.dll",
+                "Bass.Net.dll",
                 "x64/OggVorbis.NET64.dll",
                 "x64/7z.dll",
                 "x64/bass.dll",

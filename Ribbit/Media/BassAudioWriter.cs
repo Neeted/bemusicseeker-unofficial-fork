@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Media.Audio;
 using Un4seen.Bass;
@@ -22,7 +21,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static PlayState RecordState { get; protected set; } = PlayState.Stopped;
 
-    public static string EncoderDirectory { get; set; } = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+    public static string EncoderDirectory { get; set; } = AppContext.BaseDirectory;
 
     public static string EncoderCommandLine => encoder?.EncoderCommandLine;
 

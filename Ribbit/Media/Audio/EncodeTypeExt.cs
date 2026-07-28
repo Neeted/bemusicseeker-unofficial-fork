@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Reflection;
 using BeMusicSeeker.Models.Utils;
 
 namespace Ribbit.Media.Audio;
@@ -37,17 +36,17 @@ internal static class EncodeTypeExt
         {
             return EncoderDirectory;
         }
-        string directoryName = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        string directoryName = AppContext.BaseDirectory;
         if (LongPathFileSystem.FileExists(Path.Combine(directoryName, encoderFileName)))
         {
             return directoryName;
         }
-        directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", NativeArchitectureDirectoryName);
+        directoryName = Path.Combine(AppContext.BaseDirectory, "libs", NativeArchitectureDirectoryName);
         if (LongPathFileSystem.FileExists(Path.Combine(directoryName, encoderFileName)))
         {
             return directoryName;
         }
-        directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), NativeArchitectureDirectoryName);
+        directoryName = Path.Combine(AppContext.BaseDirectory, NativeArchitectureDirectoryName);
         if (LongPathFileSystem.FileExists(Path.Combine(directoryName, encoderFileName)))
         {
             return directoryName;

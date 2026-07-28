@@ -1,22 +1,6 @@
 Set-StrictMode -Version Latest
 
-$script:RequiredManagedRootFiles = @(
-    "Bass.Net.dll",
-    "Livet.Core.dll",
-    "Livet.EventListeners.dll",
-    "Livet.Messaging.dll",
-    "Livet.Mvvm.dll",
-    "Microsoft.Xaml.Behaviors.dll",
-    "Newtonsoft.Json.dll",
-    "NLog.dll",
-    "NVorbis.dll",
-    "SgmlReaderDll.dll",
-    "SevenZipExtractor.dll",
-    "SQLite-net.dll",
-    "SQLitePCLRaw.batteries_v2.dll",
-    "SQLitePCLRaw.core.dll",
-    "SQLitePCLRaw.provider.e_sqlite3.dll"
-)
+$script:RequiredManagedRootFiles = @()
 
 $script:RequiredBassNativeFiles = @(
     "libs/x64/bass.dll",
@@ -43,13 +27,9 @@ function Join-PortablePackageRelativePath($root, $relativePath) {
 function Get-PortableRequiredFiles {
     return @(
         "BeMusicSeeker.exe",
-        "BeMusicSeeker.dll",
-        "BeMusicSeeker.deps.json",
-        "BeMusicSeeker.runtimeconfig.json",
         "BeMusicSeeker.dll.config",
         "BeMusicSeeker.Updater.exe",
         "test.mp3",
-        "e_sqlite3.dll",
         "libs/x64/7z.dll",
         "native/Everything3_x64.dll",
         "native/EverythingBridge_x64.dll"
@@ -113,6 +93,25 @@ function Get-PortableForbiddenPaths {
         "BeMusicSeeker.Updater.dll",
         "BeMusicSeeker.Updater.deps.json",
         "BeMusicSeeker.Updater.runtimeconfig.json",
+        "BeMusicSeeker.dll",
+        "BeMusicSeeker.deps.json",
+        "BeMusicSeeker.runtimeconfig.json",
+        "e_sqlite3.dll",
+        "Bass.Net.dll",
+        "Livet.Core.dll",
+        "Livet.EventListeners.dll",
+        "Livet.Messaging.dll",
+        "Livet.Mvvm.dll",
+        "Microsoft.Xaml.Behaviors.dll",
+        "Newtonsoft.Json.dll",
+        "NLog.dll",
+        "NVorbis.dll",
+        "SgmlReaderDll.dll",
+        "SevenZipExtractor.dll",
+        "SQLite-net.dll",
+        "SQLitePCLRaw.batteries_v2.dll",
+        "SQLitePCLRaw.core.dll",
+        "SQLitePCLRaw.provider.e_sqlite3.dll",
         "libs/System.Collections.Immutable.dll",
         "libs/System.Resources.Extensions.dll",
         "libs/System.Memory.dll",
@@ -143,26 +142,61 @@ function Get-PortableForbiddenPaths {
     )
 }
 
-function Assert-PortableStagingLayout($targetStagingDirectory, [bool]$requiresMetadataArchive) {
+function Get-PortableRuntimeDataPaths {
+    return @(
+        "config",
+        "data",
+        "log",
+        "logs",
+        "update_backup",
+        "update_work",
+        "imported_metadata"
+    )
+}
+
+function Get-PortablePayloadForbiddenPaths {
+    $runtimeDataPaths = [System.Collections.Generic.HashSet[string]]::new(
+        [string[]](Get-PortableRuntimeDataPaths),
+        [System.StringComparer]::OrdinalIgnoreCase)
+    return @(Get-PortableForbiddenPaths | Where-Object { -not $runtimeDataPaths.Contains($_) })
+}
+
+function Assert-PortableSingleFilePayloadLayout($targetDirectory) {
     foreach ($relativePath in Get-PortableRequiredFiles) {
-        $path = Join-PortablePackageRelativePath $targetStagingDirectory $relativePath
+        $path = Join-PortablePackageRelativePath $targetDirectory $relativePath
         if (-not (Test-Path $path -PathType Leaf)) {
             throw "release package の必須ファイルが見つかりません: $relativePath"
         }
     }
 
-    foreach ($relativePath in Get-PortableForbiddenPaths) {
-        $path = Join-PortablePackageRelativePath $targetStagingDirectory $relativePath
+    foreach ($relativePath in Get-PortablePayloadForbiddenPaths) {
+        $path = Join-PortablePackageRelativePath $targetDirectory $relativePath
         if (Test-Path $path) {
             throw "release package に禁止された配置が残っています: $relativePath"
         }
     }
 
-    $languageDirectory = Join-PortablePackageRelativePath $targetStagingDirectory "lang"
+    $rootDlls = @(Get-ChildItem -LiteralPath $targetDirectory -File -Filter '*.dll')
+    if ($rootDlls.Count -gt 0) {
+        throw "single-file release package にroot DLLが含まれています: $($rootDlls.Name -join ', ')"
+    }
+
+    $languageDirectory = Join-PortablePackageRelativePath $targetDirectory "lang"
     foreach ($languageFile in Get-ChildItem $languageDirectory -File -Recurse) {
-        $relativePath = [System.IO.Path]::GetRelativePath($targetStagingDirectory, $languageFile.FullName).Replace('\', '/')
+        $relativePath = [System.IO.Path]::GetRelativePath($targetDirectory, $languageFile.FullName).Replace('\', '/')
         if ($script:RequiredLanguageFiles -notcontains $relativePath) {
             throw "release package に未知の language catalog が含まれています: $relativePath"
+        }
+    }
+}
+
+function Assert-PortableStagingLayout($targetStagingDirectory, [bool]$requiresMetadataArchive) {
+    Assert-PortableSingleFilePayloadLayout $targetStagingDirectory
+
+    foreach ($relativePath in Get-PortableForbiddenPaths) {
+        $path = Join-PortablePackageRelativePath $targetStagingDirectory $relativePath
+        if (Test-Path $path) {
+            throw "release package に禁止された配置が残っています: $relativePath"
         }
     }
 
@@ -220,6 +254,13 @@ function Assert-PortableReleasePackageLayout($assetPath) {
         if (Test-PortableZipEntryOrDescendantExists $entryNames $relativePath) {
             throw "release asset に禁止された配置が残っています: $($asset.Name): $relativePath"
         }
+    }
+
+    $rootDllEntries = @($entryNames | Where-Object {
+        -not $_.Contains('/') -and $_ -like '*.dll'
+    })
+    if ($rootDllEntries.Count -gt 0) {
+        throw "single-file release asset にroot DLLが含まれています: $($asset.Name): $($rootDllEntries -join ', ')"
     }
 
     foreach ($entryName in $entryNames) {
