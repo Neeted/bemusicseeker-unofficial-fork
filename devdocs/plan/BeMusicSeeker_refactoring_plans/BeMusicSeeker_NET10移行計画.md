@@ -6,11 +6,11 @@
 
 MVVM／owner整理と.NET 10移行の主要実装は完了している。app、tests、updaterは`net10.0-windows`、2 toolsは`net10.0`へ移行済みで、managed／native dependency、SQLite、Self-contained publish、existing-data、update／rollbackの自動受入れが成立している。
 
-残るCodex工程は`NET10-09 Final engineering closure`だけである。
+Codexの.NET 10 Engineering Gateは`NET10-09 Final engineering closure`で完了した。
 
-- 最新servicing SDKでSelf-contained artifactを作り直す。
-- exe隣接DLLを減らせるか、公式single-fileだけを有限に評価する。
-- 選択した配布構成で全自動Engineering Gateを閉じる。
+- 最新servicing SDKでSelf-contained artifactを再生成した。
+- 公式single-fileを有限に評価し、正式layoutとして採用した。
+- 選択した配布構成で全自動Engineering Gateを閉じた。
 
 `.NET Desktop Runtime`未導入machine／VMでの確認とproprietary license証跡はCodex工程ではなく、Engineering Gate後のユーザー手動受入れ／release prerequisiteとする。
 
@@ -41,9 +41,9 @@ Self-contained main appはmachine-installed runtimeへ依存しない一方、ma
 
 詳細なunit／commit履歴はGit historyに委ねる。
 
-## 4. Active outcome: `NET10-09 Final engineering closure`
+## 4. Completed outcome: `NET10-09 Final engineering closure`
 
-active batchは`PLAN_STATUS.md`に固定済みであり、plannerを起動しない。
+F1〜F3とHANDOFFを完了し、以後plannerは起動しない。手動受入れとrelease prerequisiteは別checklistへhandoffする。
 
 ### `F1 SDK servicing baseline`
 

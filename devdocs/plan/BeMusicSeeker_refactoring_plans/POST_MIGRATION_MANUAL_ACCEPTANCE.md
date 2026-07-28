@@ -36,7 +36,7 @@ Architecture: x64
 Machine-wide .NET Desktop Runtime 10: absent
 Artifact name:
 Artifact SHA-256:
-Main-app layout: single-file ADOPTED / folder SCD NOT_ADOPTED
+Main-app layout: single-file ADOPTED
 Startup: pass / fail
 Core workflow smoke: pass / fail
 Settings restart: pass / fail

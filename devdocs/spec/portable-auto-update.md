@@ -69,7 +69,7 @@ transaction の preflight journal が作成された時点で、`update_work/cur
 
 updater protocol version は `1`。`BeMusicSeeker.Updater.exe --version` で確認できる。
 
-開発時の x64 Release build は main app の実行確認用であり、updaterを配布物へ混在させない。配布時は `Properties/PublishProfiles/WinX64SelfContained.pubxml` で main app の untrimmed folder SCD を、`BeMusicSeeker.Updater/Properties/PublishProfiles/WinX64SelfContainedSingleFile.pubxml` で updater の self-contained single-file SCD をそれぞれ生成する。`scripts/publish.ps1` が clean publish output を組み合わせ、updater は root に exe 一つだけを配置する。managed dependency の解決は `app.config` の private probing に依存しない。
+開発時の x64 Release build は main app の実行確認用であり、updaterを配布物へ混在させない。配布時は `Properties/PublishProfiles/WinX64SelfContainedSingleFile.pubxml` で main app の untrimmed single-file SCD を、`BeMusicSeeker.Updater/Properties/PublishProfiles/WinX64SelfContainedSingleFile.pubxml` で updater の self-contained single-file SCD をそれぞれ生成する。`scripts/publish.ps1` が clean publish output を組み合わせ、updater は root に exe 一つだけを配置する。managed dependency の解決は `app.config` の private probing に依存しない。
 
 updater 引数:
 
@@ -117,7 +117,7 @@ restart executable の起動に成功した時点を更新の commit point と�
 
 `scripts/publish.ps1` は以下を行う。
 
-- main app の untrimmed folder SCD と updater の self-contained single-file exe を別々の publish profile から生成し、updater は exe 一つだけを同梱
+- main app と updater の untrimmed self-contained single-file exe を別々の publish profile から生成し、application content／native owner directoryだけを隣接配置する
 - x64 BASS native family（`bass.dll`、`bassasio.dll`、`bassenc.dll`、`bassmix.dll`、`basswasapi.dll`、`bass_fx.dll`）と `lang/*.json` を明示 inventory で同梱し、incremental build の残骸を取り込まない
 - 通常版 zip を作成
 - `-IncludeMetadata` 指定時に `chart-info-metadata.7z` 同梱版 zip を作成

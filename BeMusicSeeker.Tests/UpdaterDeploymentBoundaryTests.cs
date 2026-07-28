@@ -62,18 +62,6 @@ public sealed class UpdaterDeploymentBoundaryTests
         AssertProfileValue(updaterProfile, "PublishTrimmed", "false");
         AssertProfileValue(updaterProfile, "PublishReadyToRun", "false");
 
-        string appProfilePath = Path.Combine(
-            repositoryRoot,
-            "Properties",
-            "PublishProfiles",
-            "WinX64SelfContained.pubxml");
-        XDocument appProfile = XDocument.Load(appProfilePath);
-        AssertProfileValue(appProfile, "RuntimeIdentifier", "win-x64");
-        AssertProfileValue(appProfile, "SelfContained", "true");
-        AssertProfileValue(appProfile, "PublishSingleFile", "false");
-        AssertProfileValue(appProfile, "PublishTrimmed", "false");
-        AssertProfileValue(appProfile, "PublishReadyToRun", "false");
-
         string singleFileAppProfilePath = Path.Combine(
             repositoryRoot,
             "Properties",

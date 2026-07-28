@@ -735,8 +735,20 @@ try {
     Approve-UpdaterHandshake -Handshake $rollbackHandshake
     $rollbackExitCode = Wait-UpdaterExit -Handshake $rollbackHandshake
     if ($rollbackExitCode -eq 0) { throw 'Fault package unexpectedly completed as a successful update.' }
-    $failureReceiptPath = Join-Path $rollbackApp 'update_work\update-failure.txt'
-    $failureReceiptHash = if (Test-Path -LiteralPath $failureReceiptPath -PathType Leaf) { Get-Sha256 -Path $failureReceiptPath } else { $null }
+    $failureReceiptCandidates = @(
+        (Join-Path $rollbackApp 'update_work\update-failure.txt'),
+        (Join-Path $rollbackApp 'update_work\update-failure.txt.tmp')
+    )
+    $failureReceiptPath = $failureReceiptCandidates |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+        Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($failureReceiptPath)) {
+        throw 'Fault-package rollback did not persist an update failure receipt.'
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-Content -LiteralPath $failureReceiptPath -Raw))) {
+        throw "Fault-package rollback persisted an empty update failure receipt: $failureReceiptPath"
+    }
+    $failureReceiptHash = Get-Sha256 -Path $failureReceiptPath
     $recoveredProcess = Wait-CurrentRestart -Executable (Join-Path $rollbackApp 'BeMusicSeeker.exe') -LogDirectory $rollbackLog
     Close-IsolatedApplication -Process $recoveredProcess
     $rollbackAfter = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $rollbackApp; DatabasePath = $rollbackProfile.DatabasePath; InstallPath = $rollbackProfile.InstallPath; LegacyConfigPath = $rollbackProfile.LegacyConfigPath; MarkerPath = $rollbackProfile.MarkerPath })
@@ -755,7 +767,7 @@ try {
         currentAppPublishTreeSha256 = Get-TreeSha256 -Root $current.AppPublishRoot
         fixtureManifestSha256 = $script:manifestHash
         success = [ordered]@{ updaterExitCode = $successExitCode; appTreeSha256 = $successManaged; semanticDataPreserved = $true }
-        rollback = [ordered]@{ updaterExitCode = $rollbackExitCode; failureReceiptSha256 = $failureReceiptHash; restoredExecutableSha256 = $rollbackOldExeHash; semanticDataPreserved = $true }
+        rollback = [ordered]@{ updaterExitCode = $rollbackExitCode; failureReceiptFileName = [IO.Path]::GetFileName($failureReceiptPath); failureReceiptSha256 = $failureReceiptHash; restoredExecutableSha256 = $rollbackOldExeHash; semanticDataPreserved = $true }
     }
     [IO.File]::WriteAllText($script:receiptPath, ($receipt | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
     Write-Host "NET10 update acceptance passed: $script:receiptPath"

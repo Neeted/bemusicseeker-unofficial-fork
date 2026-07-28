@@ -14,9 +14,9 @@
 |---|---|---|---|
 | `SDK-01` | resolved | SDK `10.0.302`／`latestPatch`でSelf-contained artifactを再生成し、全5 projectのlocked restore／Release／acceptanceを再検証済み | `NET10-09 F1` |
 | `LAYOUT-01` | resolved | official single-file profile、bounded path修正、隣接native owner、package／startup／existing-data／update success／rollbackを検証し`ADOPTED` | `NET10-09 F2` |
-| `GATE-01` | pending | selected layoutでlocked restore、full tests、publish、existing-data、update／rollback、fresh reviewを完了 | `NET10-09 F3` |
+| `GATE-01` | resolved | selected layoutでlocked restore、full tests、publish、existing-data、update／rollback、fresh reviewを完了 | `NET10-09 F3` |
 
-これらは実装unitでありblockerではない。active batchに従ってplannerなしで進める。
+これらのengineering unitはすべて解消済みであり、現在のblockerではない。以後は手動受入れ／release prerequisiteだけを追跡する。
 
 ## Post-engineering / release follow-up
 

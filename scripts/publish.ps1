@@ -244,7 +244,7 @@ function Copy-AppFilesToStaging($targetStagingDir) {
         Copy-Item $sourcePath $destinationPath -Force
     }
 
-    # app folder SCD は runtime pack を含むため、mutable data、debug symbol、updater payload を除く全ファイルをコピーする。
+    # app single-file SCD の application content と native owner をコピーし、mutable data、debug symbol、updater payload は除外する。
     $mutableTopLevelNames = @("config", "data", "log", "logs", "update_backup", "update_work", "imported_metadata")
     foreach ($sourceFile in Get-ChildItem $appPublishOutput -File -Recurse) {
         $relativePath = [System.IO.Path]::GetRelativePath($appPublishOutput, $sourceFile.FullName)
