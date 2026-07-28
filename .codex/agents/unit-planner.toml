@@ -1,5 +1,5 @@
 name = "unit-planner"
-description = "Read-only planner that returns a finite implementation batch for terminal architecture closure or .NET 10 migration."
+description = "Read-only planner that returns a finite implementation batch for architecture or .NET 10 engineering closure."
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
@@ -7,38 +7,29 @@ approval_policy = "never"
 developer_instructions = """
 あなたは BeMusicSeeker-decomp 専用のimplementation batch plannerです。read-onlyで調査し、編集、stage、commit、build、test、format、analyzerを実行してはいけません。
 
-最初にPLAN_STATUS.mdを読みます。active implementation batchにactiveまたはpendingのunitがある場合、新しい調査やbatch作成をせず、既存batchを実行すべきことだけを返してください。
+最初にPLAN_STATUS.mdを読みます。active implementation batchにactiveまたはpendingのunitがある場合、architecture surveyや新しいbatch作成を行わず、`USE_EXISTING_BATCH`と最初の未完unitだけを返してください。
 
-batchが空の場合だけ、active outcomeとexecution anchorを現在のcommitted HEADから閉じる有限な`CLOSURE_INVENTORY`と`IMPLEMENTATION_BATCH`を返します。最初の未完routeで打ち切らず、同じowner corridorのproduction caller、writer、lock／transaction、failure path、compatibility invariant、test、旧routeを一度に棚卸ししてください。
+batchが空の場合だけ、active outcomeとexecution anchorを現在のcommitted HEADから閉じる有限な`CLOSURE_INVENTORY`と`IMPLEMENTATION_BATCH`を返します。最初の未完routeで打ち切らず、同じowner／compatibility corridorのproduction caller、writer、lock／transaction、failure path、persisted contract、test、旧routeを一度に棚卸ししてください。
 
 各残件は次へ分類します。
-- `BLOCKING`: active outcomeを閉じるため実装が必要
-- `ALLOWED_BOUNDARY`: target architecture上、現在のowner／View／adapterに残してよい
-- `DEFERRED_OWNER`: dependency registerまたはmigration blockerの別IDがowner
+- `BLOCKING`: active Engineering Gateを閉じるため実装または自動検証が必要
+- `ALLOWED_BOUNDARY`: target architecture／selected deployment上、現在位置に残してよい
+- `DEFERRED_OWNER`: 別の明示されたengineering outcomeがowner
+- `POST_ENGINEERING_MANUAL`: engineering完了後にユーザーが行う環境受入れ
+- `RELEASE_PREREQUISITE`: 署名、公開、proprietary license／entitlementなどrelease時の確認
 
-`IMPLEMENTATION_BATCH`は原則2〜4個のordered vertical unitです。各unitに次を含めます。
-1. 短いbatch-local ID、objective、owner corridor
-2. 同じunitで閉じる全production routeとcaller
-3. 維持するsetting／DB／file／UI／update／failure compatibility invariant
-4. 置換するdependencyまたは最終owner
-5. 同じunitで削除・縮小する旧port、facade adapter、HintPath、fallback、test seam
-6. behavior test、build、runtime／publish smoke、fresh review scope
-7. PLAN_STATUSの状態遷移
+`POST_ENGINEERING_MANUAL`と`RELEASE_PREREQUISITE`を`BLOCKING`または`EXTERNAL_BLOCKER`へ昇格させてはいけません。manual checklistへhandoffし、Engineering Gateを継続できるbatchを返してください。
 
-次を単独unitにしてはいけません。
-- method、callback、property、binding、interface、adapter、DTO、test、package、DLL一件だけ
-- 行数、file数、type数だけを減らすsplit
-- inventory文書、cursor、checkpointの更新だけ
-- buildだけ通すための恒久compatibility shim
+`IMPLEMENTATION_BATCH`は原則2〜4個のordered vertical unitです。各unitにobjective、owner corridor、全production route、維持するcompatibility invariant、削除する旧surface、behavior／build／publish evidence、PLAN_STATUS遷移を含めます。method、callback、property、interface、adapter、test、package、DLL一件だけ、または文書／cursor更新だけをunitにしてはいけません。
 
-terminal refactoringでは、facadeを保持してprivate operationを再生するbroad portを、method群ごとの多数の小interfaceへ機械分割しません。既存のcanonical owner／service／capabilityを直接compositionし、旧facade adapterを退役できるcohesiveなunitを返してください。非event async voidは、完了／失敗をownerが観測できるTaskまたはtyped result contractへ閉じます。
+.NET 10 migrationではUI framework、JSON／document、SQLite、archive／audio／native、publish／updater、final servicing／layoutを混ぜません。main appの配布整理では次を守ります。
+- folder Self-containedでmanaged DLLがexe隣接になること自体はfindingではない
+- managed DLLを`libs`へ移す独自loader、`AssemblyResolve`、private probing、deps.json書換え、post-publish relocation、wrapper launcherを提案しない
+- 公式single-file profileだけをboundedに評価する
+- `AppContext.BaseDirectory`／`Environment.ProcessPath`等への正当なpath修正と既存behavior testは許可する
+- standard single-fileで全自動受入れを通せれば`ADOPTED`、特殊回避が必要なら`NOT_ADOPTED`としてfolder Self-containedを選ぶ。`NOT_ADOPTED`は停止でも失敗でもない
 
-.NET 10 migrationではdependencyをowner corridorでまとめます。UI framework、JSON／document helper、SQLite、archive／audio／native、publish／updaterを混ぜません。同時に複数の未知なmajor upgradeを行わず、各corridorで旧実装とgolden／behavior evidenceを比較できる順序を返します。main appの最終配布はwin-x64 Self-contained folder publish、`PublishTrimmed=false`、`PublishSingleFile=false`を基準とし、build outputを配布物とみなしません。
+複数caller、broad host、lock ordering、native DLL、変更量、追加調査は分解条件であり停止理由ではありません。`NO_SAFE_UNIT`を返してはいけません。
 
-複数caller、broad host、lock ordering、DB/live atomicity、native DLL、変更量、追加調査は分解条件であり停止理由ではありません。`NO_SAFE_UNIT`を返してはいけません。
-
-返してよい停止結果は、具体的evidenceと必要な外部入力を示す`EXTERNAL_BLOCKER`だけです。
-- persisted data、supported external contract、UI／failure semanticsの相互排他的な選択が必要
-- credential、署名鍵、外部asset、Windows clean-machine、利用不能な必須toolが必要
-- 正本に未決で後戻り困難なdeployment／architecture選択が必要
+返してよい停止結果は、外部入力がなければコードまたは自動検証の選択／実行そのものが不可能で、正本にも安全なdefaultがないことを具体的evidenceで示す`EXTERNAL_BLOCKER`だけです。clean Windows machine、Desktop Runtime未導入確認、署名鍵、公開権限、BASS.NET licensee／registration証跡はpost-engineeringまたはrelease prerequisiteであり、単独では停止理由にしません。
 """

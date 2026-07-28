@@ -1,237 +1,156 @@
 # BeMusicSeeker .NET 10 Self-contained 移行計画
 
-[現在地](./PLAN_STATUS.md) / [共通実行ルール](./00_Codex共通実行ルール.md) / [依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md)
+[現在地](./PLAN_STATUS.md) / [共通実行ルール](./00_Codex共通実行ルール.md) / [依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md) / [手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)
 
-## 1. Goal
+## 1. 現在の判定
 
-BeMusicSeekerを.NET Framework 4.7.2から.NET 10へ移行し、Windows x64向けの**Self-contained**配布物を生成する。MVVM／owner boundaryを維持し、既存settings、library DB、playlist／chart file、native integration、update／restart contractを壊さない。
+MVVM／owner整理と.NET 10移行の主要実装は完了している。app、tests、updaterは`net10.0-windows`、2 toolsは`net10.0`へ移行済みで、managed／native dependency、SQLite、Self-contained publish、existing-data、update／rollbackの自動受入れが成立している。
 
-完了成果物はbuild directoryではなく、clean checkoutから再現できる`dotnet publish` outputである。
+残るCodex工程は`NET10-09 Final engineering closure`だけである。
 
-## 2. Target deployment
+- 最新servicing SDKでSelf-contained artifactを作り直す。
+- exe隣接DLLを減らせるか、公式single-fileだけを有限に評価する。
+- 選択した配布構成で全自動Engineering Gateを閉じる。
 
-| Project | Target | Distribution |
+`.NET Desktop Runtime`未導入machine／VMでの確認とproprietary license証跡はCodex工程ではなく、Engineering Gate後のユーザー手動受入れ／release prerequisiteとする。
+
+## 2. Target matrix
+
+| Project | Target | 配布／検証 |
 |---|---|---|
-| `BeMusicSeeker.csproj` | `net10.0-windows`, x64 | `win-x64` Self-contained folder publish |
-| `BeMusicSeeker.Updater` | `net10.0-windows`, x64 | Self-contained。単一exe化はuntrimmedでprotocol検証後に採用可 |
-| `BeMusicSeeker.Tests` | `net10.0-windows`, x64 | test runner用。配布しない |
-| `chart-info-compare` | `net10.0`, x64 | tool build。配布要否は既存運用を維持 |
-| `chart-info-export` | `net10.0`, x64 | tool build。配布要否は既存運用を維持 |
+| `BeMusicSeeker.csproj` | `net10.0-windows`, x64 | win-x64 Self-contained。folderまたは採用判定済みsingle-file。trimming／ReadyToRun無効 |
+| `BeMusicSeeker.Tests` | `net10.0-windows`, x64 | full test／architecture／publish behavior |
+| `BeMusicSeeker.Updater` | `net10.0-windows`, x64 | win-x64 Self-contained single-file |
+| `chart-info-compare` | `net10.0`, x64 | locked restore／Release build／DB behavior |
+| `chart-info-export` | `net10.0`, x64 | locked restore／Release build／DB behavior |
 
-main appの初期publish profileは次を固定する。
+Self-contained main appはmachine-installed runtimeへ依存しない一方、machine側のruntime servicingへ自動追随しない。そのため最終artifactはEngineering Gate時点の公式最新.NET 10 servicing SDKで再生成する。
+
+## 3. 完了済みcorridor
+
+| Outcome | 状態 | 成立した境界 |
+|---|---|---|
+| `NET10-01` | completed | 全5 projectのretarget、solution／verification baseline |
+| `NET10-02` | completed | central package versions、lock graph、configuration／logging／resource／test host |
+| `NET10-03` | completed | LivetCask、native WPF chrome／picker、legacy WPF dependency退役 |
+| `NET10-04` | completed | typed XAML binding、JSON／HTML／INI helper modernize |
+| `NET10-05` | completed | sqlite-net-pcl／SQLitePCLRawと既存DB互換性 |
+| `NET10-06` | completed | archive、NVorbis、BASS、Everythingのx64 runtime owner |
+| `NET10-07` | completed | main app folder SCD、updater single-file SCD、transaction／rollback |
+| `NET10-08` | completed | existing-data roundtripとold-to-new update／rollbackの自動受入れ |
+
+詳細なunit／commit履歴はGit historyに委ねる。
+
+## 4. Active outcome: `NET10-09 Final engineering closure`
+
+active batchは`PLAN_STATUS.md`に固定済みであり、plannerを起動しない。
+
+### `F1 SDK servicing baseline`
+
+目的:
+
+- `global.json`の`10.0.301`を、計画更新時点の公式最新servicing SDK `10.0.302`へ更新する。
+- 再現性のためroll-forwardを同じfeature bandのpatch範囲へ限定する。
+- Self-containedに含まれる.NET runtimeを最新servicing levelで再生成する。
+
+作業:
+
+1. `global.json`を`10.0.302`、`rollForward: latestPatch`へ更新する。
+2. app、tests、updater、2 toolsをclean locked restoreし、必要なlock差分だけを更新する。
+3. Release build、full tests、analyzerを実行する。
+4. 現行folder app profileとupdater profileをpublishし、startup、layout、existing-data、update／rollbackの代表自動受入れを再実行する。
+
+Exit:
+
+- `dotnet --info`とartifact inventoryが選択SDK／runtimeを示す。
+- package major upgradeやbehavior changeを混ぜず、全baseline verificationが通る。
+
+### `F2 Distribution layout decision`
+
+#### Baseline
+
+現在のmain appは標準のfolder Self-contained publishである。この形式ではmanaged dependencyとruntime fileが`BeMusicSeeker.exe`の隣に並ぶ。これらを単純に`libs`へ移すと標準host／`.deps.json` resolutionから外れるため、その方式は採用しない。
+
+禁止する回避策:
+
+- 独自`AssemblyLoadContext`／`AssemblyResolve`
+- Framework-style private probing
+- `.deps.json`の手動書換え
+- publish後のmanaged DLL relocation／削除
+- loader専用wrapper executable
+- updaterだけが知る二重layout
+
+#### Bounded single-file evaluation
+
+exe隣接DLLを減らす唯一の候補として、公式SDKのsingle-fileを一度だけ評価する。
+
+候補profile:
 
 ```xml
 <RuntimeIdentifier>win-x64</RuntimeIdentifier>
 <SelfContained>true</SelfContained>
-<PublishSingleFile>false</PublishSingleFile>
+<PublishSingleFile>true</PublishSingleFile>
+<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 <PublishTrimmed>false</PublishTrimmed>
 <PublishReadyToRun>false</PublishReadyToRun>
 ```
 
-`RuntimeIdentifier`だけにSelf-contained判定を任せない。WPF、reflection、legacy serializer、native DLL、update layoutの移行を安定させるため、main appのsingle-file、trimming、ReadyToRun、NativeAOTは本計画の対象外とする。
-
-## 3. Compatibility invariants
-
-- generated settingsのkey、type、default、serialized value、save timing、既存`user.config`読込
-- SQLite schema、PRAGMA、DateTime／enum／null変換、transaction／lock ordering、既存DBのin-place open
-- BMS／bmson／playlist／LR2／package metadataの読書き結果
-- install directory、portable／user data path、resource lookup、external player／LR2／Everything integration
-- updater manifest、download、swap、restart、rollback、旧版から新版への更新
-- UI startup、library initialize／scan、playlist、search／filter、playback、package、maintenance、settings、shutdown
-- failure時にlive state、DB、package state、notificationを部分適用しない既存契約
-
-互換性を意図的に変える場合は、migration、rollback、user-visible説明を同じunitへ含める。
-
-## 4. Ordered outcomes
-
-### `NET10-01 Retarget and complete project baseline`
-
-対象:
-
-- app、tests、updater、2 toolsの全5 project
-- solution／verification script／output path
-- .NET 10 breaking-change inventory
+`IncludeAllContentForSelfExtract`、trimming、ReadyToRun、NativeAOTは使わない。`lang`、`libs/x64`、`native`、user-editable／application contentは既存owner directoryへ残してよい。
 
 作業:
 
-1. 全projectをtarget matrixへretargetする。Framework-only explicit referenceをSDK reference／PackageReferenceへ必要最小限で置換する。
-2. `System.Configuration.ConfigurationManager`を導入し、既存settings providerとmigration testsを維持する。
-3. app、tests、updater、2 toolsをclean restore／Release build可能にする。toolsをsolution外だから未検証のまま残さない。
-4. target framework起因のwarning／runtime failureをblocker IDへ分類する。恒久shimで隠さない。
+1. `ApplicationPathSnapshot`、audio encoder／writer、BASS runtime等のpath利用を棚卸しし、exe pathは`Environment.ProcessPath`、application baseは`AppContext.BaseDirectory`へ統一する。`Assembly.Location`へfallbackしない。
+2. candidate profileを作り、single-file compatibility warningを解消する。
+3. candidate publishからstartup／shutdown、settings、SQLite、playlist、scan、package、archive、BASS／audio、Everything installed／absent、existing-dataを検証する。
+4. `publish.ps1`、portable layout validator、update manifest、success／rollback acceptanceをcandidate layoutへ通す。
+5. root managed dependencyを前提にするtestsは、single-fileを採用する場合だけbundle contractへ更新する。
 
-Exit:
+Adoption rule:
 
-- 全5 projectのRelease buildが通る。
-- existing full testsが.NET 10 runnerで通る。
-- startup、settings load、library DB openの最小smokeが通る。
+- 公式profileとboundedなpath修正だけで全自動受入れが通る場合は`ADOPTED`とし、main appの正式profile／package contractをsingle-fileへ切り替える。
+- third-party dependency、native load、updater contractを成立させるため禁止回避策が必要、またはbehavior／startup costが受入不能なら`NOT_ADOPTED`とする。candidate profile／probe seamを退役し、現行folder Self-containedを最終構成として明記する。
+- `NOT_ADOPTED`は正常完了であり、再調査やユーザー承認待ちにしない。
 
-### `NET10-02 Managed package and configuration baseline`
+### `F3 Automated Engineering Gate`
 
-対象:
+選択したmain-app profileに対して次をclean checkout相当で閉じる。
 
-- NLog、Newtonsoft.Json、System.Resources.Extensions、test SDK／MSTest、Roslynator
-- package versionの中央管理／lock policy
-- `app.config` startup／probing依存
+1. 全5 projectのlocked restore、Release build、full tests。
+2. Roslynator／format／warning gate。
+3. main appとupdaterのwin-x64 Self-contained publish。
+4. package／layout validator、hash／managed／native／license inventory。
+5. publish-folderからのstartup／shutdownと主要runtime smoke。
+6. existing-data acceptance。
+7. pre-NET10 packageからのupdate success／fault rollback acceptance。
+8. frozen snapshotのfresh outcome review、重大指摘修正後の再検証／fresh review。
 
-作業:
+`.NET Desktop Runtime`未導入machine／VMはこのGateへ含めない。repository内で自動実行できるevidenceがすべて通ればEngineering Gateを満たす。
 
-1. [依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md)の候補versionを実行時点で再確認し、一度に未知なmajor upgradeを混ぜずcorridor単位で更新する。
-2. NuGet化できるmanaged DLLはPackageReferenceへ移す。package lockを導入した後はlocked restoreをverificationに加える。
-3. configuration adapter外の`System.Configuration`依存を増やさない。
-4. legacy `app.config`のruntime startup／private probingを最終publish contractに使わない。
+### `HANDOFF Engineering completion`
 
-Exit:
+F3完了と同じclosure cycleで次を行う。
 
-- managed dependencyのsource、version、license、owner outcomeが台帳と一致する。
-- app／testsで同じlibraryをHintPathとNuGetの二重供給にしない。
+- `PLAN_STATUS.md`を`engineering migration: complete`、active batch emptyへ更新する。
+- 選択した配布profileとlayout decisionを依存関係台帳へ反映する。
+- `.NET Desktop Runtime`未導入machine／VMの確認とBASS.NET entitlement確認を[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoffする。
+- manual結果待ちでCodexを停止せず、Engineering Outcomeを完了する。
 
-### `NET10-03 WPF dependency modernization`
+## 5. Engineering Completion Gate
 
-対象:
-
-- Livet／Livet.Extensions
-- System.Windows.Interactivity／Microsoft.Expression.Interactions
-- MetroRadiance／Expression Drawing／Effects
-- Windows API Code Pack
-
-作業:
-
-1. Livetは現行API利用をinventoryし、`LivetCask`候補へverticalに移行する。notification、command、dispatcher、lifetime semanticsをtestsで比較する。
-2. behavior callerが残る場合は`Microsoft.Xaml.Behaviors.Wpf`へ移す。現在のMainWindow／dialog routeではdirect behaviorを退役し、LivetCaskのlocked transitive runtimeだけを保持する。
-3. file／folder pickerはWPFの`Microsoft.Win32.OpenFileDialog`／`OpenFolderDialog`へ移し、Windows API Code Packを削除する。
-4. MetroRadiance chromeとExpression drawing／effectsはWPF `WindowChrome`、resource、Path／Geometryへ置換する。
-
-Exit:
-
--旧Livet、Interactivity、Expression、MetroRadiance、Windows API Code PackのHintPathがない。updaterの旧install cleanupだけは維持する。
-- main windows／dialogs／drag／command／selection／shutdown smokeが通る。
-
-### `NET10-04 Converter, JSON and document helpers`
-
-対象:
-
-- QuickConverter（Q1でretire）
-- DynamicJson
-- SgmlReaderDll
-- IniLibrary、System.Collections.Immutable
-
-作業:
-
-1. Q1ではQuickConverter式をfeature family単位のtyped converter／MultiBinding／triggerへ置換し、XAMLのobservable behaviorを維持する。以降のhelper置換は同じNET10-04 owner corridorで続ける。
-2. DynamicJson利用をNewtonsoft.JsonまたはSystem.Text.Jsonを包む明示boundaryへ移し、missing member、number、date、null、case semanticsをgolden testで固定する。
-3. SgmlReaderDllをmaintained package候補へ移し、外部playlist／HTML parse fixtureを比較する。
-4. source usageのないIniLibraryとSystem.Collections.Immutable HintPathは削除する。必要性が判明した場合だけmodern packageを追加する。
-
-Exit:
-
-- QuickConverterのlegacy binary／markup／runtime registrationがなく、MainWindow／dialogs／playbackのtyped presentation routeで置換されている。DynamicJson、IniLibraryのlegacy binary referenceがない。
-- external document／JSON fixtureと主要XAML binding behaviorが維持される。
-
-### `NET10-05 SQLite provider migration`
-
-対象:
-
-- app、tests、2 toolsの`sqlite.net.dll`／`sqlite3.dll`
-- schema、mapping、transaction、backup／repair behavior
-
-作業:
-
-1. `sqlite-net-pcl`＋`SQLitePCLRaw` bundle候補でspikeし、既存ORM behaviorとnative initializationを比較する。
-2. storage owner／repositoryごとに移行し、raw SQL、parameter、DateTime、enum、primary key、busy／lock、transaction failureのgolden testを追加する。
-3. existing user DBのcopyを使ったread／write／rollback／maintenance／tool compare-export testを行う。
-4. provider migration後に旧`sqlite.net.dll`と手配置`sqlite3.dll`を削除し、native assetを一系統にする。
-
-Exit:
-
-- 全DB routeと2 toolsが同じprovider policyを使う。
-- schema migrationを要求しない既存DBはそのまま開ける。要求する場合はversioned migration／backup／rollbackがある。
-
-### `NET10-06 Archive, audio and native runtime corridor`
-
-対象:
-
-- SevenZipExtractor／7z.dll
-- Bass.Net／BASS native family
-- OggVorbis.NET64 (retired; NVorbis 0.10.5)
-- Everything bridge／native DLL
-
-作業:
-
-1. SevenZipExtractorはPackageReference候補へ移し、encrypted／multi-file／failure／path traversal fixtureと7z native loadingを検証する。
-2. BASS managed／nativeは、`Bass.Net.dll` 2.4.12.1と`vendor/native/x64`の固定six-file set（bass 2.4.12、bassmix 2.4.8、bass_fx 2.4、basswasapi 2.4.1、bassasio 1.3.1、bassenc 2.4.13）を技術的にretainする。`BassNativeRuntime`の絶対path load、ABI probe、partial-load rollback／release、device resetとprocess-level releaseの分離、playback／decode／device／shutdown smokeを同じrouteで検証する。source archive、正式`LICENSE.rtf`、licensee scope、既存registration entitlementは`NATIVE-01` external-gateとして別管理し、証跡が揃うまで配布可能とは扱わない。
-3. OggVorbisはNVorbis 0.10.5へ置換し、legacy PCM parity、同一形式の連結logical stream、形式変更／truncated inputのfailure、cache／fallback、package／publish outputを検証する。
-4. Everythingは、tracked `Everything3_x64.dll` 3.0.0.9 と first-party `EverythingBridge_x64.dll` の固定x64 native ship setを同じ `native` 配下へ配置し、bridge ABI、absolute sibling load、installed／absent時のfallback、SDK／bridge shutdown順序、native search pathをpublish outputで検証する。bridgeはoptional copyやcurrent-directory probingに依存しない。
-5. 各native assetにsource、version、architecture、license、copy owner、runtime load testを台帳化する。
-
-Exit:
-
-- Everything3／bridgeを含むnative DLLはproject／publish itemとして決定的に配置され、current directoryやlegacy probingの偶然に依存しない。bridgeのSDK export／contract／shutdownを検証し、active native callの完了前にいずれのmoduleも解放しない。
-- x64 processでarchive、audio、Everythingの代表routeが通る。
-
-### `NET10-07 Self-contained publish and updater closure`
-
-作業:
-
-1. `P1 SCD-ARTIFACT` で app の untrimmed／non-single-file folder SCD と updater の untrimmed／single-file SCD を version-controlled profile から再現する。
-2. `publish.ps1` と portable layout validator を clean publish output の composition owner とし、runtime pack、managed dependency、native asset、resource、config の inventory を packageへ反映する。build outputを配布元にせず、旧 updater companion 4ファイルと build-time copy target を退役する。
-3. `UpdateDownloadService` は root の single-file updater exe 一つだけを `update_work/current/` へコピーし、既存の ready／decision／failure contractを維持する。
-4. P1で publish folder の app／updater 起動、`--version`、package layout、repository Release executable smokeを閉じる。
-5. `P2 SCD-TRANSACTION` で Self-contained app folder の download、verify、swap、restart、rollback、durable recovery、exclusive writerを閉じる。
-
-Exit:
-
-- `WinX64SelfContained.pubxml` と `WinX64SelfContainedSingleFile.pubxml` から、main app folder artifactと single-file updater artifactが再現される。
-- publish folderから app が起動し、isolated updater exe が `--version` と既存 handshake を実行できる。
-- P2完了後に runtime未導入環境を想定した app／updater の update／rollback testが通る。
-
-### `NET10-08 Existing-data and clean-machine acceptance`
-
-作業:
-
-- legacy versionが作成したsettings、DB、playlist、package state、LR2 dataをcopyしてmigration smokeを行う。
-- clean x64 Windows machine／VMで.NET Desktop Runtime未導入を確認し、publish folderだけから起動する。
-- startup、scan、playlist、playback、package install／uninstall、maintenance、settings save／restart、updaterを検証する。
-- machine-specific credential、player、LR2、Everythingがない場合の既存failure／fallbackを確認する。
-
-Exit:
-
-- machine-installed .NETに依存せず主要workflowが動く。
-- data loss、silent reset、partial updateがない。
-- manual-only evidenceは日付、OS、artifact hash、結果をGate recordへ短く残す。
-
-### `NET10-09 Migration Gate`
-
-完了条件:
+次をすべて満たしたとき、Codexの.NET 10移行作業を完了とする。
 
 1. tracked projectに`net472`がない。
-2. app、tests、updater、2 toolsのrestore／Release build／testが通る。
+2. 全5 projectが最新servicing baselineでlocked restore／Release buildでき、full testsとanalyzerが通る。
 3. main appとupdaterのwin-x64 Self-contained publishが再現できる。
-4. obsolete managed HintPathはゼロ。明示retainするvendor/native componentは台帳、license、ABI test、publish ownerを持つ。
-5. existing-data、clean-machine、update／rollback smokeが通る。
-6. .NET 10 breaking changesとdependency registerに未分類項目がない。
+4. selected layoutが標準hostまたは公式single-fileだけで成立し、custom probing／loader／relocationを持たない。
+5. retained native componentがversion、source、license notice、ABI test、publish ownerを持つ。
+6. existing-data、update success、rollbackの自動受入れが通る。
 7. fresh outcome reviewで重大指摘がない。
-8. release artifactの公開、署名、tag、pushはユーザーの明示指示まで行わない。
 
-## 5. Verification commands
+次はEngineering Gateの条件ではない。
 
-project構成に合わせてscriptへ統合するが、最終的に少なくとも次をclean checkoutで実行する。
+- `.NET Desktop Runtime`未導入clean machine／VMでのユーザー手動確認
+- code signing、tag、push、public release／publish
+- BASS.NETのlicensee／registration／redistribution権限のユーザー確認
 
-```powershell
-dotnet restore BeMusicSeeker.sln
-dotnet build BeMusicSeeker.sln -c Release --no-restore
-dotnet test BeMusicSeeker.Tests/BeMusicSeeker.Tests.csproj -c Release --no-build
-dotnet build tools/chart-info-compare/ChartInfoCompare.csproj -c Release
-dotnet build tools/chart-info-export/ChartInfoExport.csproj -c Release
-dotnet publish BeMusicSeeker.csproj -c Release -r win-x64 --self-contained true -p:PublishProfile=WinX64SelfContained
-dotnet publish BeMusicSeeker.Updater/BeMusicSeeker.Updater.csproj -c Release -r win-x64 --self-contained true -p:PublishProfile=WinX64SelfContainedSingleFile
-```
-
-package lock導入後はclean locked restoreを追加する。publish artifactにはhash、file inventory、managed／native architecture、license inventoryを生成するが、公開はしない。
-
-## 6. Unit policy
-
-- package一件ではなくcompatibility corridorをunitにする。
-- 一つのunitでsource update、旧reference削除、behavior／golden test、build、runtime smokeを閉じる。
-- 「compileするshim追加」と「旧route削除」を別unitにして恒久seamを残さない。
-- unknownなdependencyを複数同時にmajor upgradeしない。
-- clean-machine、署名鍵、外部playerなど実行環境だけが不足する場合は、code／automated verificationを先に完了し、具体的なmanual gateだけを`EXTERNAL_BLOCKER`として残す。
+これらはrelease前に[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)で閉じる。

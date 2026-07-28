@@ -1,19 +1,31 @@
-# .NET 10 Migration Blockers
+# .NET 10 Engineering Blockers
 
-[移行計画](./BeMusicSeeker_NET10移行計画.md) / [依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md) / [現在地](./PLAN_STATUS.md)
+[移行計画](./BeMusicSeeker_NET10移行計画.md) / [依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md) / [手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)
 
-この文書は現在のblockerだけを持つ。完了したunit履歴やfull logはGit history／test artifactへ委ねる。
+## Current decision
 
-| ID | State | Blocking condition | Owner | Exit evidence |
-|---|---|---|---|---|
-| `DEP-HELPER-01` | resolved | DynamicJson／IniLibrary routes retired; SgmlReader moved to Microsoft.Xml.SgmlReader 1.8.30; System.Collections.Immutable supplied by runtime pack | `NET10-04` | grouped typed boundaries、Shift-JIS settings／HTML golden tests、legacy refs／binaries／notices削除、locked restore／publish verification |
-| `DB-01` | resolved | sqlite.net／hand-placed sqlite3のprovider／ABI／data compatibility | `NET10-05` | sqlite-net-pcl／SQLitePCLRaw locked restore、startup／existing DB／schema／transaction／raw hydration／real contention、2 tools、win-x64 native bundle／SCD layout verification |
-| `NATIVE-01` | external-gate | Everything SDK／bridgeのruntime evidenceは`NET10-06 A4`で完了。BASS.NET 2.4.12.1のexact source archive、正式`LICENSE.rtf`、licensee scope、既存registration entitlementの証跡が未確認で、proprietary wrapperの配布可否を判定できない | `NET10-06` / release owner | dependency registerのexact binary／ABI／runtime evidenceに加え、取得元archive、正式license、licensee／registration entitlement、BASS native redistribution evidenceを記録する。証跡なしにGREEN／release可とは扱わない |
-| `PUBLISH-01` | resolved | main app／updaterの配布artifactがversioned win-x64 Self-contained publishから再現される | `NET10-07 P1` | app folder SCD、updater single-file SCD、clean package layout、publish-folder startup／`--version` smoke |
-| `UPD-01` | resolved | updaterのnet10 protocol／SCD起動、pre-NET10 packageからcurrent SCDへの更新、再起動、fault package rollbackを検証済み | `NET10-07/08` | E2のhistorical package provenance、success／rollback receipt、semantic preservation、residual cleanup |
-| `DATA-01` | resolved | existing settings／DB／playlist／package stateのSCD startup／restart／update preservationを検証済み | `NET10-08` | E1／E2のtracked legacy fixture、semantic rows、portable settings、unmanaged marker、graceful shutdown／restart |
-| `CLEAN-01` | external-gate | .NET runtime未導入clean x64 Windowsで未検証 | `NET10-08` | OS／artifact hash付きmanual acceptance record |
+現行checkpointに、Codexのコード／自動検証を停止させる`EXTERNAL_BLOCKER`はない。
 
-## Rehearsal evidence
+`.NET Desktop Runtime`未導入machine／VMの確認は`MANUAL-01`、BASS.NETの公開配布権限確認は`RELEASE-01`として手動checklistへ分離した。どちらもactive outcome、planner停止条件、Engineering Gateではない。
 
-N1〜N3ではapp／tests／updaterの`net10.0-windows`と2 toolsの`net10.0`についてsolution／個別Release build、settings／code-page／startup DB-open targeted tests、chart compare／export DB behavior tests、updaterのwin-x64 Self-contained `--version` smoke、repository Release executableのstartup smokeが通っている。M1ではNLog 6.1.4のlogging／archive behavior test、package/output layout、temporary win-x64 Self-contained appの起動とapplication log生成も通っている。NET10-07 P1ではmain app folder SCDとupdater single-file SCD、clean package layout、publish-folder startup／`--version` smokeが通っている。これはpublish artifactの技術的成立を示すが、updater transaction／rollback、existing data、old-to-new acceptanceを完了した証拠ではない。
+## Remaining engineering work
+
+| ID | State | Work | Owner / exit |
+|---|---|---|---|
+| `SDK-01` | active | SDK `10.0.301`から公式latest servicing baseline `10.0.302`へ更新し、Self-contained artifactを再生成 | `NET10-09 F1` |
+| `LAYOUT-01` | pending | official single-fileをbounded評価。標準機構で成立すれば`ADOPTED`、特殊回避が必要ならfolder SCD `NOT_ADOPTED` | `NET10-09 F2` |
+| `GATE-01` | pending | selected layoutでlocked restore、full tests、publish、existing-data、update／rollback、fresh reviewを完了 | `NET10-09 F3` |
+
+これらは実装unitでありblockerではない。active batchに従ってplannerなしで進める。
+
+## Post-engineering / release follow-up
+
+| ID | Classification | Owner | Engineeringへの影響 |
+|---|---|---|---|
+| `MANUAL-01` | post-engineering manual acceptance | user | なし。Codex完了後にruntime未導入clean x64 Windows／VMで実施 |
+| `RELEASE-01` | release prerequisite | user／release owner | なし。BASS.NET source／licensee／registration／redistribution証跡を公開前に確認 |
+| `RELEASE-02` | release operation | user／release owner | なし。署名、tag、push、public publishは明示指示後 |
+
+## Resolved corridor summary
+
+configuration、dispatcher、path／process、native interop、managed dependency、SQLite、archive／audio、Self-contained publish、updater transaction、existing-data、old-to-new update／rollbackのmigration blockerは解消済みである。詳細はGit historyとbehavior／acceptance testsを正本とし、この台帳へ履歴を追記しない。
