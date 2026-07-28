@@ -67,7 +67,14 @@ namespace BeMusicSeeker.Updater
 
         public static void CopyFile(string sourcePath, string destinationPath, bool overwrite)
         {
-            File.Copy(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath), overwrite);
+            using FileStream source = new(ToExtendedPath(sourcePath), FileMode.Open, FileAccess.Read, FileShare.Read);
+            using FileStream destination = new(
+                ToExtendedPath(destinationPath),
+                overwrite ? FileMode.Create : FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None);
+            source.CopyTo(destination);
+            destination.Flush(flushToDisk: true);
         }
 
         public static void MoveFile(string sourcePath, string destinationPath)
@@ -78,6 +85,18 @@ namespace BeMusicSeeker.Updater
         public static void MoveFile(string sourcePath, string destinationPath, bool overwrite)
         {
             File.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath), overwrite);
+        }
+
+        public static void ReplaceFile(string sourcePath, string destinationPath)
+        {
+            File.Replace(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath), destinationBackupFileName: null, ignoreMetadataErrors: true);
+            FlushFile(destinationPath);
+        }
+
+        public static void FlushFile(string path)
+        {
+            using FileStream stream = new(ToExtendedPath(path), FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            stream.Flush(flushToDisk: true);
         }
 
         public static void MoveDirectory(string sourcePath, string destinationPath)
@@ -139,6 +158,8 @@ namespace BeMusicSeeker.Updater
             {
                 writer.WriteLine(line);
             }
+            writer.Flush();
+            stream.Flush(flushToDisk: true);
         }
 
         private static string RemoveExtendedPathPrefix(string path)

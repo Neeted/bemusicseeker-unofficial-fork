@@ -4,7 +4,10 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using Microsoft.Win32;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 
 namespace BeMusicSeeker.Updater
@@ -26,12 +29,34 @@ namespace BeMusicSeeker.Updater
         private const string ManagedFilesManifestName = "update-managed-files.txt";
         private const string UpdateFailureReceiptFileName = "update-failure.txt";
         private const string UpdateFailureReceiptTemporaryFileName = "update-failure.txt.tmp";
+        private const string TransactionJournalFileName = "update-transaction.json";
+        private const string TransactionJournalTemporaryFileName = "update-transaction.json.tmp";
+        private const string TransactionLeaseFileName = "update-transaction.lock";
+        private const string RecoveryRunOnceSubKey = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";
+        private const string RecoveryRunSubKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        // The leading ! keeps the value present until the recovery command exits. Recovery
+        // re-arms the handoff before it mutates anything and clears it only after success.
+        private const string RecoveryRunOnceValuePrefix = "!BeMusicSeeker.UpdateRecovery-";
+        private const string LegacyRecoveryRunOnceValuePrefix = "BeMusicSeeker.UpdateRecovery-";
+        private const string RecoverySupervisorValuePrefix = "BeMusicSeeker.UpdateRecoverySupervisor-";
         private const string UpdaterReadyFileName = "updater-ready.txt";
         private const string UpdaterDecisionFileName = "updater-decision.txt";
         private const int DecisionWaitMilliseconds = 300000;
+        private const int WatchdogApplicationExitWaitMilliseconds = 60000;
         private const string ImportedMetadataDirectoryName = "imported_metadata";
         private const string MetadataDbFileName = "chart-info-metadata.db";
         private const string MetadataArchiveFileName = "chart-info-metadata.7z";
+
+        private static class TransactionPhase
+        {
+            internal const string Prepared = "prepared";
+            internal const string BackingUp = "backing-up";
+            internal const string Applying = "applying";
+            internal const string Applied = "applied";
+            internal const string RolledBack = "rolled-back";
+            internal const string Restarting = "restarting";
+            internal const string Committed = "committed";
+        }
 
         private static readonly string[] LegacyManagedFilePaths =
         [
@@ -66,6 +91,7 @@ namespace BeMusicSeeker.Updater
             "libs/sqlite.net.dll",
             "libs/x64/OggVorbis.NET64.dll",
             "libs/x64/sqlite3.dll",
+            "runtimes/win-x64/native/e_sqlite3.dll",
             "x64/sqlite3.dll",
             "x86/sqlite3.dll",
             "x86/7z.dll",
@@ -105,21 +131,170 @@ namespace BeMusicSeeker.Updater
                 return 0;
             }
 
+            if (args.Length > 0 && string.Equals(args[0], "--recover", StringComparison.OrdinalIgnoreCase))
+            {
+                return RecoverFromCommandLine(args);
+            }
+
+            if (args.Length > 0 && string.Equals(args[0], "--watch", StringComparison.OrdinalIgnoreCase))
+            {
+                return WatchTransactionFromCommandLine(args);
+            }
+
+            UpdateRequest request = null;
+            bool transactionLeaseAcquired = false;
             try
             {
-                UpdateRequest request = UpdateRequest.Parse(args);
+                request = UpdateRequest.Parse(args);
+                using TransactionLease lease = AcquireTransactionLease(request.AppDirectory);
+                transactionLeaseAcquired = true;
+                DeferRecoveryIfApplicationIsRunning(request.AppDirectory);
+                RecoverIncompleteTransaction(NormalizeExistingDirectory(request.AppDirectory));
+                ClearRecoveryStartup(request.AppDirectory);
+                RegisterRecoveryStartup(request.AppDirectory);
+                WritePreparedTransactionJournal(request);
+                StartTransactionWatchdog(request.AppDirectory);
                 PublishReadyHandshake(request);
                 if (!WaitForLaunchDecision(request))
                 {
+                    DiscardPreparedTransactionJournal(request.AppDirectory);
+                    ClearRecoveryStartup(request.AppDirectory);
                     return 0;
                 }
+                PrepareFullTransactionJournal(request);
                 ApplyUpdate(request);
                 return 0;
             }
+            catch (TransactionRecoveryDeferredException exception)
+            {
+                Console.Error.WriteLine(exception.Message);
+                return 2;
+            }
             catch (Exception ex)
             {
+                if (request != null)
+                {
+                    if (transactionLeaseAcquired)
+                    {
+                        TryDiscardPreparedTransactionJournal(request.AppDirectory);
+                        TryWriteFailureReceipt(request, ex);
+                    }
+                }
                 Console.Error.WriteLine(ex);
                 return 1;
+            }
+        }
+
+        private static int RecoverFromCommandLine(string[] args)
+        {
+            string appDirectory = null;
+            try
+            {
+                appDirectory = RecoveryRequest.Parse(args).AppDirectory;
+                while (true)
+                {
+                    try
+                    {
+                        using TransactionLease lease = AcquireTransactionLease(appDirectory);
+                        return RecoverFromCommandLineWithLease(appDirectory);
+                    }
+                    catch (TransactionLeaseUnavailableException)
+                    {
+                        // Run and RunOnce may invoke the same recovery command at logon.
+                        // Wait for the owner to finish instead of rearming after it has
+                        // already cleared the handoff.
+                        Thread.Sleep(100);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                TryWriteFailureReceipt(appDirectory, exception);
+                TryRearmRecoveryStartup(appDirectory);
+                Console.Error.WriteLine(exception);
+                return 1;
+            }
+        }
+
+        private static int RecoverFromCommandLineWithLease(string appDirectory)
+        {
+            string normalizedAppDirectory = NormalizeExistingDirectory(appDirectory);
+            RegisterRecoveryStartup(normalizedAppDirectory);
+            string journalPath = Path.Combine(normalizedAppDirectory, "update_work", TransactionJournalFileName);
+            TransactionJournalRecord journal = null;
+            if (UpdaterFileSystem.FileExists(journalPath))
+            {
+                EnsureNoReparsePointIfPresent(journalPath);
+                journal = ReadTransactionJournal(journalPath);
+                ValidateTransactionJournal(journal, normalizedAppDirectory);
+            }
+
+            // The recorded application PID is only a shutdown hint. It is not a
+            // process identity across an OS restart, so use the executable path when
+            // deciding whether a live application still owns the tree.
+            bool applicationStillRunning = journal != null
+                && IsProcessRunningForExecutable(journal.RestartExecutablePath);
+            bool restartApplication = journal != null
+                && !applicationStillRunning
+                && !string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
+                && !(string.Equals(journal.Phase, TransactionPhase.Restarting, StringComparison.Ordinal)
+                    && (journal.RestartProcessId > 0
+                        || IsProcessRunningForExecutable(journal.RestartExecutablePath)));
+            if (applicationStillRunning
+                && journal != null
+                && !string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal))
+            {
+                // Startup cleanup must never mutate a live application tree. Leave the
+                // journal and handoff in place for the watchdog or a later logon.
+                TryRearmRecoveryStartup(normalizedAppDirectory);
+                return 2;
+            }
+            RecoverIncompleteTransaction(normalizedAppDirectory, retainRolledBackJournal: true);
+            if (restartApplication)
+            {
+                StartRecoveredApplication(journal);
+            }
+            CleanupRolledBackJournalIfPresent(normalizedAppDirectory);
+            ClearRecoveryStartup(normalizedAppDirectory);
+            return 0;
+        }
+
+        private static TransactionLease AcquireTransactionLease(string appDirectory)
+        {
+            string normalizedAppDirectory = NormalizeExistingDirectory(appDirectory);
+            EnsureNoReparsePointAncestors(normalizedAppDirectory, "update_work/update-transaction.lock");
+            string workDirectory = Path.Combine(normalizedAppDirectory, "update_work");
+            EnsureNoReparsePointIfPresent(workDirectory);
+            UpdaterFileSystem.CreateDirectory(workDirectory);
+            string leasePath = Path.Combine(workDirectory, TransactionLeaseFileName);
+            EnsureNoReparsePointIfPresent(leasePath);
+            FileStream leaseStream;
+            try
+            {
+                leaseStream = UpdaterFileSystem.Open(
+                    leasePath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None);
+            }
+            catch (IOException exception)
+            {
+                throw new TransactionLeaseUnavailableException(
+                    "Another updater transaction currently owns the application update lease.",
+                    exception);
+            }
+            try
+            {
+                leaseStream.SetLength(0);
+                byte[] marker = Encoding.UTF8.GetBytes(Environment.ProcessId.ToString());
+                leaseStream.Write(marker, 0, marker.Length);
+                leaseStream.Flush(flushToDisk: true);
+                return new TransactionLease(leaseStream);
+            }
+            catch
+            {
+                leaseStream.Dispose();
+                throw;
             }
         }
 
@@ -148,6 +323,7 @@ namespace BeMusicSeeker.Updater
             }
             catch (Exception exception)
             {
+                TryDiscardPreparedTransactionJournal(request.AppDirectory);
                 TryWriteFailureReceipt(request, exception);
                 TryRestartApplicationAfterFailure(request);
                 throw;
@@ -231,8 +407,15 @@ namespace BeMusicSeeker.Updater
 
         private static void ApplyUpdateAfterApplicationExit(UpdateRequest request)
         {
-
             string appDirectory = NormalizeExistingDirectory(request.AppDirectory);
+            string preparedJournalPath = Path.Combine(appDirectory, "update_work", TransactionJournalFileName);
+            TransactionJournalRecord journal = ReadTransactionJournal(preparedJournalPath);
+            ValidateTransactionJournal(journal, appDirectory);
+            if (!string.Equals(journal.Phase, TransactionPhase.Prepared, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("The updater did not find its prepared transaction journal before applying the package.");
+            }
+
             string packagePath = NormalizeExistingFile(request.PackagePath);
             string backupDirectory = NormalizeDirectoryPath(request.BackupDirectory);
             string restartExePath = NormalizeExistingFile(request.RestartExePath);
@@ -265,29 +448,57 @@ namespace BeMusicSeeker.Updater
             }
 
             ValidateExtractedPackageBeforeBackupRotation(extractDirectory, appDirectory);
-
-            if (UpdaterFileSystem.DirectoryExists(backupDirectory))
-            {
-                EnsureNoReparsePoint(backupDirectory);
-                UpdaterFileSystem.DeleteDirectory(backupDirectory, recursive: true);
-            }
-            EnsureNoReparsePointAncestors(appDirectory, "update_backup/previous");
-            UpdaterFileSystem.CreateDirectory(backupDirectory);
-
+            HashSet<string> newPackagePaths = EnumerateRelativePackagePaths(extractDirectory);
             string previousDirectory = Path.Combine(backupDirectory, "previous");
-            UpdaterFileSystem.CreateDirectory(previousDirectory);
-
+            journal.PackagePath = packagePath;
+            journal.BackupDirectory = backupDirectory;
+            journal.PreviousDirectory = previousDirectory;
+            journal.ExtractDirectory = extractDirectory;
+            journal.RestartExecutablePath = restartExePath;
+            journal.NewPackagePaths = [.. newPackagePaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
             bool restartStarted = false;
             var appliedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var backupEntries = new List<BackupEntry>();
             var createdDirectories = new List<string>();
+            bool applicationMutationStarted = false;
+            bool backupRotationStarted = false;
             try
             {
-                ApplyExtractedPackage(extractDirectory, appDirectory, previousDirectory, appliedPaths, backupEntries, createdDirectories);
+                journal.Phase = TransactionPhase.BackingUp;
+                WriteTransactionJournal(journal);
+                backupRotationStarted = true;
+                if (UpdaterFileSystem.DirectoryExists(backupDirectory))
+                {
+                    EnsureNoReparsePoint(backupDirectory);
+                    UpdaterFileSystem.DeleteDirectory(backupDirectory, recursive: true);
+                }
+                EnsureNoReparsePointAncestors(appDirectory, "update_backup/previous");
+                UpdaterFileSystem.CreateDirectory(backupDirectory);
+                UpdaterFileSystem.CreateDirectory(previousDirectory);
+
+                HashSet<string> previousManagedPaths = PrepareTransactionBackup(
+                    appDirectory,
+                    previousDirectory,
+                    newPackagePaths,
+                    backupEntries);
+                journal.BackupComplete = true;
+                journal.Phase = TransactionPhase.Applying;
+                WriteTransactionJournal(journal);
+                applicationMutationStarted = true;
+                ApplyExtractedPackage(
+                    extractDirectory,
+                    appDirectory,
+                    previousManagedPaths,
+                    newPackagePaths,
+                    appliedPaths,
+                    createdDirectories);
                 if (!UpdaterFileSystem.FileExists(restartExePath))
                 {
                     throw new FileNotFoundException("The restart executable was not included in the updated application.", restartExePath);
                 }
+
+                journal.Phase = TransactionPhase.Applied;
+                WriteTransactionJournal(journal);
 
                 try
                 {
@@ -299,6 +510,9 @@ namespace BeMusicSeeker.Updater
                     Console.Error.WriteLine("The update was applied, but temporary cleanup before restart failed; the restarted application will retry it: " + cleanupException);
                 }
 
+                journal.Phase = TransactionPhase.Restarting;
+                journal.RestartProcessId = -1;
+                WriteTransactionJournal(journal);
                 Process restartProcess = Process.Start(new ProcessStartInfo(restartExePath)
                 {
                     UseShellExecute = true,
@@ -309,6 +523,19 @@ namespace BeMusicSeeker.Updater
                     throw new InvalidOperationException("The updated application could not be restarted.");
                 }
                 restartStarted = true;
+                journal.RestartProcessId = restartProcess.Id;
+                try
+                {
+                    journal.Phase = TransactionPhase.Restarting;
+                    WriteTransactionJournal(journal);
+                    journal.Phase = TransactionPhase.Committed;
+                    WriteTransactionJournal(journal);
+                    TryCleanupCommittedTransactionArtifacts(journal);
+                }
+                catch (Exception cleanupException)
+                {
+                    Console.Error.WriteLine("The update restarted successfully, but durable transaction cleanup will be retried on the next updater startup: " + cleanupException);
+                }
             }
             catch (Exception updateException)
             {
@@ -316,8 +543,17 @@ namespace BeMusicSeeker.Updater
                 {
                     try
                     {
-                        TryRollback(appDirectory, previousDirectory, appliedPaths, backupEntries, createdDirectories);
+                        if (applicationMutationStarted)
+                        {
+                            TryRollback(appDirectory, previousDirectory, appliedPaths, backupEntries, createdDirectories);
+                            MarkTransactionRolledBack(journal);
+                        }
                         TryCleanupFailedUpdateArtifacts(packagePath, extractDirectory);
+                        if (backupRotationStarted)
+                        {
+                            SafeDeleteDirectory(backupDirectory);
+                        }
+                        DeleteTransactionJournal(journal);
                     }
                     catch (Exception rollbackException)
                     {
@@ -362,6 +598,433 @@ namespace BeMusicSeeker.Updater
             }
         }
 
+        private static void StartTransactionWatchdog(string appDirectory)
+        {
+            string updaterPath = NormalizeExistingFile(Environment.ProcessPath);
+            ProcessStartInfo startInfo = new(updaterPath)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? appDirectory
+            };
+            startInfo.ArgumentList.Add("--watch");
+            startInfo.ArgumentList.Add("--app-dir");
+            startInfo.ArgumentList.Add(NormalizeExistingDirectory(appDirectory));
+            startInfo.ArgumentList.Add("--pid");
+            startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+
+            Process watchdog = Process.Start(startInfo);
+            if (watchdog == null)
+            {
+                throw new InvalidOperationException("The updater transaction watchdog could not be started.");
+            }
+            watchdog.Dispose();
+        }
+
+        private static void RegisterRecoveryStartup(string appDirectory)
+        {
+            string normalizedAppDirectory = NormalizeExistingDirectory(appDirectory);
+            string updaterPath = NormalizeExistingFile(Environment.ProcessPath);
+            string command = QuoteWindowsArgument(updaterPath)
+                + " --recover --app-dir "
+                + QuoteWindowsArgument(normalizedAppDirectory);
+            using RegistryKey runOnce = Registry.CurrentUser.CreateSubKey(RecoveryRunOnceSubKey, writable: true)
+                ?? throw new InvalidOperationException("The updater recovery RunOnce key could not be opened.");
+            DeleteRecoveryRunOnceGenerations(runOnce, normalizedAppDirectory);
+            runOnce.SetValue(
+                GetRecoveryRunOnceValueName(normalizedAppDirectory)
+                    + "-"
+                    + Guid.NewGuid().ToString("N"),
+                command,
+                RegistryValueKind.String);
+            runOnce.Flush();
+
+            using RegistryKey run = Registry.CurrentUser.CreateSubKey(RecoveryRunSubKey, writable: true)
+                ?? throw new InvalidOperationException("The updater recovery supervisor Run key could not be opened.");
+            run.SetValue(
+                GetRecoverySupervisorValueName(normalizedAppDirectory),
+                command,
+                RegistryValueKind.String);
+            run.Flush();
+        }
+
+        private static void TryRearmRecoveryStartup(string appDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(appDirectory))
+            {
+                return;
+            }
+
+            try
+            {
+                RegisterRecoveryStartup(appDirectory);
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine("The updater could not re-arm its recovery RunOnce handoff: " + exception);
+            }
+        }
+
+        private static void ClearRecoveryStartup(string appDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(appDirectory))
+            {
+                return;
+            }
+
+            try
+            {
+                string normalizedAppDirectory = UpdaterFileSystem.NormalizePath(appDirectory);
+                using RegistryKey runOnce = Registry.CurrentUser.OpenSubKey(RecoveryRunOnceSubKey, writable: true);
+                if (runOnce != null)
+                {
+                    DeleteRecoveryRunOnceGenerations(runOnce, normalizedAppDirectory);
+                    runOnce.Flush();
+                }
+
+                using RegistryKey run = Registry.CurrentUser.OpenSubKey(RecoveryRunSubKey, writable: true);
+                if (run != null)
+                {
+                    foreach (string valueName in run.GetValueNames())
+                    {
+                        object value = run.GetValue(valueName, string.Empty, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                        if (IsRecoverySupervisorValueForApp(valueName, value, normalizedAppDirectory))
+                        {
+                            run.DeleteValue(valueName, throwOnMissingValue: false);
+                        }
+                    }
+                    run.Flush();
+                }
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine("The updater could not clear its recovery RunOnce handoff: " + exception);
+            }
+        }
+
+        private static string GetRecoveryRunOnceValueName(string appDirectory)
+        {
+            return RecoveryRunOnceValuePrefix + GetRecoveryRunOnceHash(appDirectory);
+        }
+
+        private static string GetRecoverySupervisorValueName(string appDirectory)
+        {
+            return RecoverySupervisorValuePrefix + GetRecoveryRunOnceHash(appDirectory);
+        }
+
+        private static bool IsRecoveryRunOnceValueForApp(string valueName, object value, string normalizedAppDirectory)
+        {
+            string recoveryHash = GetRecoveryRunOnceHash(normalizedAppDirectory);
+            string currentBaseName = RecoveryRunOnceValuePrefix + recoveryHash;
+            string legacyBaseName = LegacyRecoveryRunOnceValuePrefix + recoveryHash;
+            bool hasKnownPrefix = string.Equals(valueName, currentBaseName, StringComparison.Ordinal)
+                || valueName.StartsWith(currentBaseName + "-", StringComparison.Ordinal)
+                || string.Equals(valueName, legacyBaseName, StringComparison.Ordinal)
+                || valueName.StartsWith(legacyBaseName + "-", StringComparison.Ordinal);
+            return hasKnownPrefix
+                && value is string command
+                && command.Contains(normalizedAppDirectory, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void DeleteRecoveryRunOnceGenerations(RegistryKey runOnce, string normalizedAppDirectory)
+        {
+            foreach (string valueName in runOnce.GetValueNames())
+            {
+                object value = runOnce.GetValue(valueName, string.Empty, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                if (IsRecoveryRunOnceValueForApp(valueName, value, normalizedAppDirectory))
+                {
+                    runOnce.DeleteValue(valueName, throwOnMissingValue: false);
+                }
+            }
+        }
+
+        private static string GetRecoveryRunOnceHash(string appDirectory)
+        {
+            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(UpdaterFileSystem.NormalizePath(appDirectory)));
+            return Convert.ToHexString(digest.AsSpan(0, 8));
+        }
+
+        private static bool IsRecoverySupervisorValueForApp(string valueName, object value, string normalizedAppDirectory)
+        {
+            return string.Equals(
+                    valueName,
+                    GetRecoverySupervisorValueName(normalizedAppDirectory),
+                    StringComparison.Ordinal)
+                && value is string command
+                && command.Contains(normalizedAppDirectory, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string QuoteWindowsArgument(string value)
+        {
+            value ??= string.Empty;
+            if (value.Length == 0)
+            {
+                return "\"\"";
+            }
+
+            var builder = new StringBuilder();
+            builder.Append('"');
+            int backslashCount = 0;
+            foreach (char character in value)
+            {
+                if (character == '\\')
+                {
+                    backslashCount++;
+                    continue;
+                }
+
+                if (character == '"')
+                {
+                    builder.Append('\\', backslashCount * 2 + 1);
+                    builder.Append('"');
+                    backslashCount = 0;
+                    continue;
+                }
+
+                builder.Append('\\', backslashCount);
+                backslashCount = 0;
+                builder.Append(character);
+            }
+
+            builder.Append('\\', backslashCount * 2);
+            builder.Append('"');
+            return builder.ToString();
+        }
+
+        private static void WritePreparedTransactionJournal(UpdateRequest request)
+        {
+            string appDirectory = NormalizeExistingDirectory(request.AppDirectory);
+            string backupDirectory = NormalizeDirectoryPath(request.BackupDirectory);
+            var journal = new TransactionJournalRecord
+            {
+                Phase = TransactionPhase.Prepared,
+                AppDirectory = appDirectory,
+                PackagePath = NormalizeExistingFile(request.PackagePath),
+                ApplicationProcessId = request.ProcessId,
+                BackupDirectory = backupDirectory,
+                PreviousDirectory = Path.Combine(backupDirectory, "previous"),
+                ExtractDirectory = Path.Combine(appDirectory, "update_work", "extracted"),
+                RestartExecutablePath = NormalizeExistingFile(request.RestartExePath),
+                Preflight = true,
+                NewPackagePaths = []
+            };
+            WriteTransactionJournal(journal);
+        }
+
+        private static void PrepareFullTransactionJournal(UpdateRequest request)
+        {
+            string appDirectory = NormalizeExistingDirectory(request.AppDirectory);
+            string journalPath = Path.Combine(appDirectory, "update_work", TransactionJournalFileName);
+            TransactionJournalRecord journal = ReadTransactionJournal(journalPath);
+            ValidateTransactionJournal(journal, appDirectory);
+            if (!journal.Preflight || !string.Equals(journal.Phase, TransactionPhase.Prepared, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("The updater preflight transaction journal was not available before application shutdown.");
+            }
+
+            string packagePath = NormalizeExistingFile(request.PackagePath);
+            string backupDirectory = NormalizeDirectoryPath(request.BackupDirectory);
+            string restartExecutablePath = NormalizeExistingFile(request.RestartExePath);
+            EnsurePathUnderDirectory(appDirectory, restartExecutablePath, "restart executable");
+            journal.PackagePath = packagePath;
+            journal.BackupDirectory = backupDirectory;
+            journal.PreviousDirectory = Path.Combine(backupDirectory, "previous");
+            journal.ExtractDirectory = Path.Combine(appDirectory, "update_work", "extracted");
+            journal.RestartExecutablePath = restartExecutablePath;
+            journal.Preflight = false;
+            WriteTransactionJournal(journal);
+        }
+
+        private static void DiscardPreparedTransactionJournal(string appDirectory)
+        {
+            string normalizedAppDirectory = NormalizeExistingDirectory(appDirectory);
+            string journalPath = Path.Combine(normalizedAppDirectory, "update_work", TransactionJournalFileName);
+            EnsureNoReparsePointIfPresent(journalPath);
+            if (!UpdaterFileSystem.FileExists(journalPath))
+            {
+                return;
+            }
+
+            TransactionJournalRecord journal = ReadTransactionJournal(journalPath);
+            ValidateTransactionJournal(journal, normalizedAppDirectory);
+            if (!string.Equals(journal.Phase, TransactionPhase.Prepared, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("The updater cannot cancel a transaction after mutation has started.");
+            }
+
+            SafeDeleteDirectory(journal.ExtractDirectory);
+            DeleteTransactionJournal(journal);
+        }
+
+        private static void TryDiscardPreparedTransactionJournal(string appDirectory)
+        {
+            try
+            {
+                string normalizedAppDirectory = NormalizeExistingDirectory(appDirectory);
+                string journalPath = Path.Combine(normalizedAppDirectory, "update_work", TransactionJournalFileName);
+                EnsureNoReparsePointIfPresent(journalPath);
+                if (!UpdaterFileSystem.FileExists(journalPath))
+                {
+                    ClearRecoveryStartup(normalizedAppDirectory);
+                    return;
+                }
+
+                TransactionJournalRecord journal = ReadTransactionJournal(journalPath);
+                ValidateTransactionJournal(journal, normalizedAppDirectory);
+                if (string.Equals(journal.Phase, TransactionPhase.Prepared, StringComparison.Ordinal))
+                {
+                    SafeDeleteDirectory(journal.ExtractDirectory);
+                    DeleteTransactionJournal(journal);
+                    ClearRecoveryStartup(normalizedAppDirectory);
+                }
+            }
+            catch (Exception cleanupException)
+            {
+                Console.Error.WriteLine("The updater could not discard its prepared transaction after failure: " + cleanupException);
+            }
+        }
+
+        private static int WatchTransactionFromCommandLine(string[] args)
+        {
+            WatchdogRequest request = null;
+            try
+            {
+                request = WatchdogRequest.Parse(args);
+                WaitForParentExit(request.ProcessId);
+
+                string appDirectory = NormalizeExistingDirectory(request.AppDirectory);
+                while (true)
+                {
+                    try
+                    {
+                        using TransactionLease lease = AcquireTransactionLease(appDirectory);
+                        RegisterRecoveryStartup(appDirectory);
+                        string journalPath = Path.Combine(appDirectory, "update_work", TransactionJournalFileName);
+                        EnsureNoReparsePointIfPresent(journalPath);
+                        if (!UpdaterFileSystem.FileExists(journalPath))
+                        {
+                            ClearRecoveryStartup(appDirectory);
+                            return 0;
+                        }
+
+                        TransactionJournalRecord journal = ReadTransactionJournal(journalPath);
+                        ValidateTransactionJournal(journal, appDirectory);
+                        if (string.Equals(journal.Phase, TransactionPhase.Prepared, StringComparison.Ordinal)
+                            && IsProcessRunningForExecutable(journal.RestartExecutablePath))
+                        {
+                            DateTime deadline = DateTime.UtcNow.AddMilliseconds(WatchdogApplicationExitWaitMilliseconds);
+                            while (IsProcessRunningForExecutable(journal.RestartExecutablePath)
+                                && DateTime.UtcNow < deadline)
+                            {
+                                Thread.Sleep(100);
+                            }
+
+                            if (IsProcessRunningForExecutable(journal.RestartExecutablePath))
+                            {
+                                RecoverIncompleteTransaction(appDirectory, retainRolledBackJournal: true);
+                                ClearRecoveryStartup(appDirectory);
+                                return 0;
+                            }
+                        }
+
+                        bool restartApplication = !string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
+                            && !(string.Equals(journal.Phase, TransactionPhase.Restarting, StringComparison.Ordinal)
+                                && (journal.RestartProcessId > 0
+                                    || IsProcessRunningForExecutable(journal.RestartExecutablePath)));
+                        RecoverIncompleteTransaction(appDirectory, retainRolledBackJournal: true);
+                        if (restartApplication)
+                        {
+                            StartRecoveredApplication(journal);
+                        }
+                        CleanupRolledBackJournalIfPresent(appDirectory);
+                        ClearRecoveryStartup(appDirectory);
+                        return 0;
+                    }
+                    catch (TransactionLeaseUnavailableException)
+                    {
+                        Thread.Sleep(100);
+                    }
+                }
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                TryWriteFailureReceipt(request?.AppDirectory, exception);
+                TryRearmRecoveryStartup(request?.AppDirectory);
+                Console.Error.WriteLine(exception);
+                return 1;
+            }
+        }
+
+        private static void WaitForParentExit(int processId)
+        {
+            if (processId <= 0 || processId == Environment.ProcessId)
+            {
+                throw new ArgumentOutOfRangeException(nameof(processId), "The watched updater process id must identify another process.");
+            }
+
+            while (IsProcessRunning(processId))
+            {
+                Thread.Sleep(100);
+            }
+        }
+
+        private static void StartRecoveredApplication(TransactionJournalRecord journal)
+        {
+            string appDirectory = NormalizeExistingDirectory(journal.AppDirectory);
+            string restartExecutablePath = NormalizeExistingFile(journal.RestartExecutablePath);
+            EnsurePathUnderDirectory(appDirectory, restartExecutablePath, "restart executable");
+            Process restartProcess = Process.Start(new ProcessStartInfo(restartExecutablePath)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(restartExecutablePath) ?? appDirectory
+            });
+            if (restartProcess == null)
+            {
+                throw new InvalidOperationException("The recovered application could not be restarted.");
+            }
+            restartProcess.Dispose();
+        }
+
+        private static bool IsProcessRunningForExecutable(string executablePath, int excludedProcessId = 0)
+        {
+            string normalizedExecutablePath = NormalizeExistingFile(executablePath);
+            foreach (Process process in Process.GetProcesses())
+            {
+                try
+                {
+                    if (process.Id == Environment.ProcessId || process.Id == excludedProcessId)
+                    {
+                        continue;
+                    }
+
+                    string processPath = process.MainModule?.FileName;
+                    if (!string.IsNullOrWhiteSpace(processPath)
+                        && string.Equals(
+                            UpdaterFileSystem.NormalizePath(processPath),
+                            normalizedExecutablePath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // Processes that exit or deny module inspection cannot prove that
+                    // the restart executable is alive.
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            return false;
+        }
+
         private static void TryRestartApplicationAfterFailure(UpdateRequest request)
         {
             try
@@ -387,10 +1050,23 @@ namespace BeMusicSeeker.Updater
 
         private static void TryWriteFailureReceipt(UpdateRequest request, Exception exception)
         {
+            if (request != null)
+            {
+                TryWriteFailureReceipt(request.AppDirectory, exception);
+            }
+        }
+
+        private static void TryWriteFailureReceipt(string appDirectory, Exception exception)
+        {
+            if (string.IsNullOrWhiteSpace(appDirectory))
+            {
+                return;
+            }
+
             string temporaryReceiptPath = null;
             try
             {
-                string appDirectory = NormalizeExistingDirectory(request.AppDirectory);
+                appDirectory = NormalizeExistingDirectory(appDirectory);
                 string workDirectory = Path.Combine(appDirectory, "update_work");
                 string receiptPath = Path.Combine(workDirectory, UpdateFailureReceiptFileName);
                 temporaryReceiptPath = Path.Combine(workDirectory, UpdateFailureReceiptTemporaryFileName);
@@ -406,6 +1082,7 @@ namespace BeMusicSeeker.Updater
                     stream.Flush(flushToDisk: true);
                 }
                 UpdaterFileSystem.MoveFile(temporaryReceiptPath, receiptPath, overwrite: true);
+                UpdaterFileSystem.FlushFile(receiptPath);
             }
             catch (Exception receiptException)
             {
@@ -436,6 +1113,324 @@ namespace BeMusicSeeker.Updater
             catch (Exception cleanupException)
             {
                 Console.Error.WriteLine("The update was rolled back, but temporary cleanup failed; startup cleanup will retry it: " + cleanupException);
+            }
+        }
+
+        private static void DeferRecoveryIfApplicationIsRunning(string appDirectory)
+        {
+            string normalizedAppDirectory = NormalizeExistingDirectory(appDirectory);
+            string journalPath = Path.Combine(normalizedAppDirectory, "update_work", TransactionJournalFileName);
+            EnsureNoReparsePointIfPresent(journalPath);
+            if (!UpdaterFileSystem.FileExists(journalPath))
+            {
+                return;
+            }
+
+            TransactionJournalRecord journal = ReadTransactionJournal(journalPath);
+            ValidateTransactionJournal(journal, normalizedAppDirectory);
+            if (!string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
+                && IsProcessRunningForExecutable(journal.RestartExecutablePath))
+            {
+                TryRearmRecoveryStartup(normalizedAppDirectory);
+                throw new TransactionRecoveryDeferredException(
+                    "An incomplete update transaction belongs to a running application process; recovery was deferred.");
+            }
+        }
+
+        private static void RecoverIncompleteTransaction(string appDirectory, bool retainRolledBackJournal = false)
+        {
+            EnsureNoReparsePointIfPresent(appDirectory);
+            string journalPath = Path.Combine(appDirectory, "update_work", TransactionJournalFileName);
+            EnsureNoReparsePointAncestors(appDirectory, "update_work/update-transaction.json");
+            EnsureNoReparsePointIfPresent(journalPath);
+            if (!UpdaterFileSystem.FileExists(journalPath))
+            {
+                return;
+            }
+
+            TransactionJournalRecord journal = ReadTransactionJournal(journalPath);
+            ValidateTransactionJournal(journal, appDirectory);
+            switch (journal.Phase)
+            {
+                case TransactionPhase.Prepared:
+                    // No application path has been moved yet. Keep the downloaded package
+                    // available for the current invocation, but discard only extraction
+                    // state; the prior-generation backup is still authoritative until
+                    // backup rotation begins.
+                    SafeDeleteDirectory(journal.ExtractDirectory);
+                    DeleteTransactionJournal(journal);
+                    return;
+
+                case TransactionPhase.BackingUp:
+                    // Backup creation is copy-first. The application tree remains the
+                    // authoritative generation until the Applying phase is durably recorded;
+                    // never restore a possibly partial copy over it.
+                    SafeDeleteDirectory(journal.ExtractDirectory);
+                    SafeDeleteDirectory(journal.BackupDirectory);
+                    DeleteTransactionJournal(journal);
+                    return;
+
+                case TransactionPhase.Applying:
+                case TransactionPhase.Applied:
+                    TryRollbackFromJournal(journal, removeNewPackagePaths: journal.BackupComplete);
+                    MarkTransactionRolledBack(journal);
+                    if (!retainRolledBackJournal)
+                    {
+                        CleanupRolledBackTransactionArtifacts(journal, removePackage: false);
+                    }
+                    return;
+
+                case TransactionPhase.RolledBack:
+                    // The previous generation has already been restored and that fact is
+                    // durable. A restart during cleanup must never replay rollback and
+                    // delete the restored tree a second time.
+                    if (!retainRolledBackJournal)
+                    {
+                        CleanupRolledBackTransactionArtifacts(journal, removePackage: false);
+                    }
+                    return;
+
+                case TransactionPhase.Restarting:
+                    if (journal.RestartProcessId <= 0
+                        && !IsProcessRunningForExecutable(journal.RestartExecutablePath))
+                    {
+                        TryRollbackFromJournal(journal, removeNewPackagePaths: journal.BackupComplete);
+                        MarkTransactionRolledBack(journal);
+                        if (!retainRolledBackJournal)
+                        {
+                            CleanupRolledBackTransactionArtifacts(journal, removePackage: false);
+                        }
+                        return;
+                    }
+                    // A restart process is alive, so make the commit point durable before
+                    // removing the backup. If cleanup is interrupted, the next recovery
+                    // sees Committed and never attempts rollback against a missing backup.
+                    journal.Phase = TransactionPhase.Committed;
+                    WriteTransactionJournal(journal);
+                    TryCleanupCommittedTransactionArtifacts(journal);
+                    return;
+
+                case TransactionPhase.Committed:
+                    TryCleanupCommittedTransactionArtifacts(journal);
+                    return;
+
+                default:
+                    throw new InvalidOperationException("The updater transaction journal has an unknown phase: " + journal.Phase);
+            }
+        }
+
+        private static void TryRollbackFromJournal(TransactionJournalRecord journal, bool removeNewPackagePaths)
+        {
+            var failures = new List<Exception>();
+            if (removeNewPackagePaths)
+            {
+                foreach (string relativePath in (journal.NewPackagePaths ?? [])
+                    .OrderByDescending(path => path.Length))
+                {
+                    try
+                    {
+                        string normalizedRelativePath = NormalizeRelativePackagePath(relativePath);
+                        EnsureNoReparsePointAncestors(journal.AppDirectory, normalizedRelativePath);
+                        string path = Path.Combine(journal.AppDirectory, normalizedRelativePath);
+                        EnsureNoReparsePointIfPresent(path);
+                        if (UpdaterFileSystem.DirectoryExists(path))
+                        {
+                            EnsureNoReparsePoint(path);
+                        }
+                        SafeDeletePath(path);
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(exception);
+                    }
+                }
+            }
+
+            if (removeNewPackagePaths)
+            {
+                try
+                {
+                    RemoveEmptyDirectories(journal.AppDirectory);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
+            }
+
+            try
+            {
+                if (UpdaterFileSystem.DirectoryExists(journal.PreviousDirectory))
+                {
+                    EnsureNoReparsePoint(journal.PreviousDirectory);
+                    RestoreBackupDirectoryContents(journal.PreviousDirectory, journal.AppDirectory);
+                }
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            if (failures.Count > 0)
+            {
+                throw new RollbackFailureException(
+                    "The updater recovered an incomplete transaction, but rollback could not restore every managed path.",
+                    new AggregateException(failures));
+            }
+        }
+
+        private static void TryCleanupCommittedTransactionArtifacts(TransactionJournalRecord journal)
+        {
+            SafeDeleteFile(journal.PackagePath);
+            SafeDeleteDirectory(journal.ExtractDirectory);
+            SafeDeleteDirectory(journal.BackupDirectory);
+            DeleteTransactionJournal(journal);
+            ClearRecoveryStartup(journal.AppDirectory);
+        }
+
+        private static void MarkTransactionRolledBack(TransactionJournalRecord journal)
+        {
+            journal.Phase = TransactionPhase.RolledBack;
+            journal.RestartProcessId = 0;
+            WriteTransactionJournal(journal);
+        }
+
+        private static void CleanupRolledBackTransactionArtifacts(TransactionJournalRecord journal, bool removePackage)
+        {
+            if (removePackage)
+            {
+                SafeDeleteFile(journal.PackagePath);
+            }
+            SafeDeleteDirectory(journal.ExtractDirectory);
+            SafeDeleteDirectory(journal.BackupDirectory);
+            DeleteTransactionJournal(journal);
+        }
+
+        private static void CleanupRolledBackJournalIfPresent(string appDirectory)
+        {
+            string journalPath = Path.Combine(appDirectory, "update_work", TransactionJournalFileName);
+            if (!UpdaterFileSystem.FileExists(journalPath))
+            {
+                return;
+            }
+
+            TransactionJournalRecord journal = ReadTransactionJournal(journalPath);
+            ValidateTransactionJournal(journal, appDirectory);
+            if (string.Equals(journal.Phase, TransactionPhase.RolledBack, StringComparison.Ordinal))
+            {
+                CleanupRolledBackTransactionArtifacts(journal, removePackage: false);
+            }
+        }
+
+        private static void WriteTransactionJournal(TransactionJournalRecord journal)
+        {
+            if (journal == null)
+            {
+                throw new ArgumentNullException(nameof(journal));
+            }
+
+            string appDirectory = NormalizeExistingDirectory(journal.AppDirectory);
+            ValidateTransactionJournal(journal, appDirectory);
+            string workDirectory = Path.Combine(appDirectory, "update_work");
+            string journalPath = Path.Combine(workDirectory, TransactionJournalFileName);
+            string temporaryPath = Path.Combine(workDirectory, TransactionJournalTemporaryFileName);
+            EnsureNoReparsePointAncestors(appDirectory, "update_work/update-transaction.json");
+            EnsureNoReparsePointIfPresent(workDirectory);
+            UpdaterFileSystem.CreateDirectory(workDirectory);
+            EnsureNoReparsePointIfPresent(journalPath);
+            EnsureNoReparsePointIfPresent(temporaryPath);
+
+            byte[] payload = JsonSerializer.SerializeToUtf8Bytes(journal, new JsonSerializerOptions
+            {
+                WriteIndented = false
+            });
+            using (FileStream stream = UpdaterFileSystem.Open(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                stream.Write(payload, 0, payload.Length);
+                stream.Flush(flushToDisk: true);
+            }
+
+            UpdaterFileSystem.MoveFile(temporaryPath, journalPath, overwrite: true);
+            UpdaterFileSystem.FlushFile(journalPath);
+        }
+
+        private static TransactionJournalRecord ReadTransactionJournal(string journalPath)
+        {
+            try
+            {
+                using FileStream stream = UpdaterFileSystem.OpenRead(journalPath);
+                TransactionJournalRecord journal = JsonSerializer.Deserialize<TransactionJournalRecord>(stream);
+                return journal ?? throw new InvalidOperationException("The updater transaction journal was empty.");
+            }
+            catch (JsonException exception)
+            {
+                throw new InvalidOperationException("The updater transaction journal was not valid JSON.", exception);
+            }
+        }
+
+        private static void DeleteTransactionJournal(TransactionJournalRecord journal)
+        {
+            if (journal == null || string.IsNullOrWhiteSpace(journal.AppDirectory))
+            {
+                return;
+            }
+
+            string journalPath = Path.Combine(journal.AppDirectory, "update_work", TransactionJournalFileName);
+            string temporaryPath = Path.Combine(journal.AppDirectory, "update_work", TransactionJournalTemporaryFileName);
+            EnsureNoReparsePointIfPresent(journalPath);
+            EnsureNoReparsePointIfPresent(temporaryPath);
+            SafeDeleteFile(journalPath);
+            SafeDeleteFile(temporaryPath);
+        }
+
+        private static void ValidateTransactionJournal(TransactionJournalRecord journal, string appDirectory)
+        {
+            if (journal == null || journal.Version != 1)
+            {
+                throw new InvalidOperationException("The updater transaction journal version was not recognized.");
+            }
+
+            string normalizedAppDirectory = NormalizeDirectoryPath(appDirectory);
+            EnsureNoReparsePointIfPresent(normalizedAppDirectory);
+            if (!string.Equals(NormalizeDirectoryPath(journal.AppDirectory), normalizedAppDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("The updater transaction journal belongs to a different application directory.");
+            }
+
+            string normalizedRestartExecutablePath = NormalizeExistingFile(journal.RestartExecutablePath);
+            EnsurePathUnderDirectory(normalizedAppDirectory, normalizedRestartExecutablePath, "transaction restart executable");
+
+            string expectedBackupDirectory = NormalizeDirectoryPath(Path.Combine(normalizedAppDirectory, "update_backup"));
+            string expectedPreviousDirectory = NormalizeDirectoryPath(Path.Combine(expectedBackupDirectory, "previous"));
+            string expectedExtractDirectory = NormalizeDirectoryPath(Path.Combine(normalizedAppDirectory, "update_work", "extracted"));
+            if (!string.Equals(NormalizeDirectoryPath(journal.BackupDirectory), expectedBackupDirectory, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(NormalizeDirectoryPath(journal.PreviousDirectory), expectedPreviousDirectory, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(NormalizeDirectoryPath(journal.ExtractDirectory), expectedExtractDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("The updater transaction journal paths were not dedicated transaction paths.");
+            }
+
+            EnsureNoReparsePointAncestors(normalizedAppDirectory, "update_work/update-transaction.json");
+            EnsureNoReparsePointIfPresent(Path.Combine(normalizedAppDirectory, "update_work"));
+            EnsureNoReparsePointAncestors(normalizedAppDirectory, "update_backup/previous");
+            EnsureNoReparsePointIfPresent(journal.BackupDirectory);
+            EnsureNoReparsePointIfPresent(journal.PreviousDirectory);
+            EnsureNoReparsePointIfPresent(journal.ExtractDirectory);
+            if (UpdaterFileSystem.DirectoryExists(journal.BackupDirectory))
+            {
+                EnsureNoReparsePoint(journal.BackupDirectory);
+            }
+            if (UpdaterFileSystem.DirectoryExists(journal.ExtractDirectory))
+            {
+                EnsureNoReparsePoint(journal.ExtractDirectory);
+            }
+
+            string normalizedPackagePath = UpdaterFileSystem.NormalizePath(journal.PackagePath);
+            EnsurePackagePathUnderDownloads(normalizedAppDirectory, normalizedPackagePath);
+            EnsureNoReparsePointIfPresent(normalizedPackagePath);
+            foreach (string relativePath in journal.NewPackagePaths ?? [])
+            {
+                NormalizeRelativePackagePath(relativePath);
             }
         }
 
@@ -507,6 +1502,7 @@ namespace BeMusicSeeker.Updater
                 using Stream source = entry.Open();
                 using FileStream destinationStream = UpdaterFileSystem.Open(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
                 source.CopyTo(destinationStream);
+                destinationStream.Flush(flushToDisk: true);
             }
         }
 
@@ -525,24 +1521,89 @@ namespace BeMusicSeeker.Updater
         private static void ApplyExtractedPackage(
             string extractDirectory,
             string appDirectory,
-            string previousDirectory,
+            HashSet<string> previousManagedPaths,
+            HashSet<string> newPackagePaths,
             HashSet<string> appliedPaths,
-            ICollection<BackupEntry> backupEntries,
             ICollection<string> createdDirectories)
         {
-            HashSet<string> newPackagePaths = EnumerateRelativePackagePaths(extractDirectory);
+            foreach (string relativePath in newPackagePaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                if (string.Equals(relativePath, ManagedFilesManifestName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                EnsureNoReparsePointAncestors(appDirectory, relativePath);
+                appliedPaths.Add(relativePath);
+                string source = Path.Combine(extractDirectory, relativePath);
+                string destination = Path.Combine(appDirectory, relativePath);
+                RemoveBlockingManagedAncestors(appDirectory, relativePath, previousManagedPaths, newPackagePaths);
+                CreateDestinationDirectory(appDirectory, destination, createdDirectories);
+                ApplyFileAtomically(source, destination);
+            }
+
+            appliedPaths.Add(ManagedFilesManifestName);
+            WriteManagedFilesManifest(appDirectory, newPackagePaths);
+            foreach (string relativePath in previousManagedPaths.Except(newPackagePaths, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(path => path.Length))
+            {
+                EnsureNoReparsePointAncestors(appDirectory, relativePath);
+                string path = Path.Combine(appDirectory, relativePath);
+                EnsureNoReparsePointIfPresent(path);
+                if (UpdaterFileSystem.DirectoryExists(path))
+                {
+                    EnsureNoReparsePoint(path);
+                }
+                SafeDeletePath(path);
+            }
+            RemoveEmptyDirectories(appDirectory);
+        }
+
+        private static void RemoveBlockingManagedAncestors(
+            string appDirectory,
+            string relativePath,
+            HashSet<string> previousManagedPaths,
+            HashSet<string> newPackagePaths)
+        {
+            string[] segments = NormalizeRelativePackagePath(relativePath)
+                .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 1; i < segments.Length; i++)
+            {
+                string ancestor = string.Join(Path.DirectorySeparatorChar.ToString(), segments[..i]);
+                if (!previousManagedPaths.Contains(ancestor)
+                    || newPackagePaths.Contains(ancestor))
+                {
+                    continue;
+                }
+
+                EnsureNoReparsePointAncestors(appDirectory, ancestor);
+                string path = Path.Combine(appDirectory, ancestor);
+                EnsureNoReparsePointIfPresent(path);
+                if (UpdaterFileSystem.DirectoryExists(path))
+                {
+                    EnsureNoReparsePoint(path);
+                }
+                SafeDeletePath(path);
+            }
+        }
+
+        private static HashSet<string> PrepareTransactionBackup(
+            string appDirectory,
+            string previousDirectory,
+            HashSet<string> newPackagePaths,
+            ICollection<BackupEntry> backupEntries)
+        {
             bool hasManagedFilesManifest = UpdaterFileSystem.FileExists(Path.Combine(appDirectory, ManagedFilesManifestName));
             HashSet<string> previousManagedPaths = ReadManagedFilesManifest(appDirectory, newPackagePaths);
             AddLegacyManagedPaths(previousManagedPaths, appDirectory);
             AddAppManagedMetadataArtifactPaths(previousManagedPaths, appDirectory);
             ValidateExistingPackagePathsBeforeMutation(appDirectory, previousManagedPaths, newPackagePaths, hasManagedFilesManifest);
             ValidateFileToDirectoryTransitions(appDirectory, previousManagedPaths, newPackagePaths);
-            MoveExistingPathToBackup(appDirectory, previousDirectory, ManagedFilesManifestName, backupEntries);
-            appliedPaths.Add(ManagedFilesManifestName);
+            CopyExistingPathToBackup(appDirectory, previousDirectory, ManagedFilesManifestName, backupEntries);
             foreach (string relativePath in previousManagedPaths.Except(newPackagePaths, StringComparer.OrdinalIgnoreCase))
             {
                 EnsureNoReparsePointAncestors(appDirectory, relativePath);
-                MoveExistingPathToBackup(appDirectory, previousDirectory, relativePath, backupEntries);
+                CopyExistingPathToBackup(appDirectory, previousDirectory, relativePath, backupEntries);
             }
 
             foreach (string relativePath in newPackagePaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
@@ -553,17 +1614,10 @@ namespace BeMusicSeeker.Updater
                 }
 
                 EnsureNoReparsePointAncestors(appDirectory, relativePath);
-                MoveExistingPathToBackup(appDirectory, previousDirectory, relativePath, backupEntries);
-                appliedPaths.Add(relativePath);
-                string source = Path.Combine(extractDirectory, relativePath);
-                string destination = Path.Combine(appDirectory, relativePath);
-                CreateDestinationDirectory(appDirectory, destination, createdDirectories);
-                UpdaterFileSystem.CopyFile(source, destination, overwrite: false);
+                CopyExistingPathToBackup(appDirectory, previousDirectory, relativePath, backupEntries);
             }
 
-            appliedPaths.Add(ManagedFilesManifestName);
-            WriteManagedFilesManifest(appDirectory, newPackagePaths);
-            RemoveEmptyDirectories(appDirectory);
+            return previousManagedPaths;
         }
 
         private static void ValidateExtractedPackageBeforeBackupRotation(string extractDirectory, string appDirectory)
@@ -943,13 +1997,27 @@ namespace BeMusicSeeker.Updater
         private static void WriteManagedFilesManifest(string appDirectory, HashSet<string> managedPaths)
         {
             string manifestPath = Path.Combine(appDirectory, ManagedFilesManifestName);
+            string temporaryPath = Path.Combine(appDirectory, "update_work", ManagedFilesManifestName + ".tmp");
             string[] lines = [.. managedPaths
                 .Where(path => !string.Equals(path, ManagedFilesManifestName, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
-            UpdaterFileSystem.WriteAllLines(manifestPath, lines);
+            EnsureNoReparsePointAncestors(appDirectory, "update_work/update-managed-files.txt.tmp");
+            EnsureNoReparsePointIfPresent(temporaryPath);
+            UpdaterFileSystem.CreateDirectory(Path.GetDirectoryName(temporaryPath));
+            UpdaterFileSystem.WriteAllLines(temporaryPath, lines);
+            if (UpdaterFileSystem.FileExists(manifestPath))
+            {
+                EnsureNoReparsePointEntry(manifestPath);
+                UpdaterFileSystem.ReplaceFile(temporaryPath, manifestPath);
+            }
+            else
+            {
+                UpdaterFileSystem.MoveFile(temporaryPath, manifestPath);
+                UpdaterFileSystem.FlushFile(manifestPath);
+            }
         }
 
-        private static void MoveExistingPathToBackup(
+        private static void CopyExistingPathToBackup(
             string appDirectory,
             string previousDirectory,
             string relativePath,
@@ -970,64 +2038,42 @@ namespace BeMusicSeeker.Updater
 
             EnsureNoReparsePoint(source);
             string destination = Path.Combine(previousDirectory, relativePath);
-            UpdaterFileSystem.CreateDirectory(Path.GetDirectoryName(destination));
-            if (UpdaterFileSystem.FileExists(source))
-            {
-                UpdaterFileSystem.MoveFile(source, destination);
-                backupEntries.Add(new BackupEntry(relativePath, isDirectory: false));
-            }
-            else if (UpdaterFileSystem.DirectoryExists(source))
-            {
-                RemoveEmptyDirectoriesUnderPath(source);
-                if (UpdaterFileSystem.EntryExists(destination))
-                {
-                    if (!UpdaterFileSystem.DirectoryExists(destination)
-                        || UpdaterFileSystem.EnumerateFileSystemEntries(source).Any())
-                    {
-                        throw new IOException("Cannot replace an existing backup path with a non-empty directory: " + source);
-                    }
-
-                    UpdaterFileSystem.DeleteDirectory(source, recursive: false);
-                    return;
-                }
-
-                UpdaterFileSystem.MoveDirectory(source, destination);
-                backupEntries.Add(new BackupEntry(relativePath, isDirectory: true));
-            }
-        }
-
-        private static void RemoveEmptyDirectoriesUnderPath(string rootDirectory)
-        {
-            if (!UpdaterFileSystem.DirectoryExists(rootDirectory))
+            EnsureNoReparsePointIfPresent(destination);
+            if (UpdaterFileSystem.EntryExists(destination))
             {
                 return;
             }
 
-            var directories = new List<string>();
-            var pending = new Stack<string>();
-            pending.Push(rootDirectory);
-            while (pending.Count > 0)
+            if (UpdaterFileSystem.FileExists(source))
             {
-                string parent = pending.Pop();
-                foreach (string entry in UpdaterFileSystem.EnumerateFileSystemEntries(parent))
-                {
-                    if (!UpdaterFileSystem.DirectoryExists(entry))
-                    {
-                        continue;
-                    }
-
-                    EnsureNoReparsePointEntry(entry);
-                    directories.Add(entry);
-                    pending.Push(entry);
-                }
+                UpdaterFileSystem.CreateDirectory(Path.GetDirectoryName(destination));
+                UpdaterFileSystem.CopyFile(source, destination, overwrite: false);
+                backupEntries.Add(new BackupEntry(relativePath, isDirectory: false));
             }
-
-            foreach (string directory in directories.OrderByDescending(path => path.Length))
+            else if (UpdaterFileSystem.DirectoryExists(source))
             {
-                if (UpdaterFileSystem.DirectoryExists(directory)
-                    && !UpdaterFileSystem.EnumerateFileSystemEntries(directory).Any())
+                UpdaterFileSystem.CreateDirectory(destination);
+                CopyDirectoryContentsToBackup(source, destination);
+                backupEntries.Add(new BackupEntry(relativePath, isDirectory: true));
+            }
+        }
+
+        private static void CopyDirectoryContentsToBackup(string sourceDirectory, string destinationDirectory)
+        {
+            foreach (string sourceChild in UpdaterFileSystem.EnumerateFileSystemEntries(sourceDirectory))
+            {
+                EnsureNoReparsePointEntry(sourceChild);
+                string destinationChild = Path.Combine(destinationDirectory, Path.GetFileName(sourceChild));
+                if (UpdaterFileSystem.FileExists(sourceChild))
                 {
-                    UpdaterFileSystem.DeleteDirectory(directory, recursive: false);
+                    UpdaterFileSystem.CopyFile(sourceChild, destinationChild, overwrite: false);
+                    continue;
+                }
+
+                if (UpdaterFileSystem.DirectoryExists(sourceChild))
+                {
+                    UpdaterFileSystem.CreateDirectory(destinationChild);
+                    CopyDirectoryContentsToBackup(sourceChild, destinationChild);
                 }
             }
         }
@@ -1055,10 +2101,6 @@ namespace BeMusicSeeker.Updater
                 }
 
                 RestoreBackupDirectoryContents(source, destination);
-                if (!UpdaterFileSystem.EnumerateFileSystemEntries(source).Any())
-                {
-                    UpdaterFileSystem.DeleteDirectory(source, recursive: false);
-                }
                 return;
             }
 
@@ -1078,7 +2120,7 @@ namespace BeMusicSeeker.Updater
                 UpdaterFileSystem.DeleteDirectory(destination, recursive: false);
             }
 
-            UpdaterFileSystem.MoveFile(source, destination);
+            UpdaterFileSystem.CopyFile(source, destination, overwrite: true);
         }
 
         private static void RestoreBackupDirectoryContents(string source, string destination)
@@ -1104,7 +2146,7 @@ namespace BeMusicSeeker.Updater
                         UpdaterFileSystem.DeleteDirectory(destinationChild, recursive: false);
                     }
 
-                    UpdaterFileSystem.MoveFile(sourceChild, destinationChild);
+                    UpdaterFileSystem.CopyFile(sourceChild, destinationChild, overwrite: true);
                     continue;
                 }
 
@@ -1128,10 +2170,6 @@ namespace BeMusicSeeker.Updater
                 }
 
                 RestoreBackupDirectoryContents(sourceChild, destinationChild);
-                if (!UpdaterFileSystem.EnumerateFileSystemEntries(sourceChild).Any())
-                {
-                    UpdaterFileSystem.DeleteDirectory(sourceChild, recursive: false);
-                }
             }
         }
 
@@ -1350,6 +2388,70 @@ namespace BeMusicSeeker.Updater
             }
         }
 
+        private static void ApplyFileAtomically(string source, string destination)
+        {
+            if (UpdaterFileSystem.DirectoryExists(destination))
+            {
+                EnsureNoReparsePoint(destination);
+                UpdaterFileSystem.DeleteDirectory(destination, recursive: true);
+            }
+
+            if (UpdaterFileSystem.FileExists(destination))
+            {
+                EnsureNoReparsePointEntry(destination);
+                UpdaterFileSystem.ReplaceFile(source, destination);
+            }
+            else
+            {
+                UpdaterFileSystem.MoveFile(source, destination);
+                UpdaterFileSystem.FlushFile(destination);
+            }
+        }
+
+        private sealed class TransactionLease : IDisposable
+        {
+            private FileStream stream;
+
+            internal TransactionLease(FileStream stream)
+            {
+                this.stream = stream ?? throw new ArgumentNullException(nameof(stream));
+            }
+
+            public void Dispose()
+            {
+                Interlocked.Exchange(ref stream, null)?.Dispose();
+            }
+        }
+
+        private sealed class TransactionJournalRecord
+        {
+            public int Version { get; set; } = 1;
+
+            public string Phase { get; set; }
+
+            public string AppDirectory { get; set; }
+
+            public string PackagePath { get; set; }
+
+            public int ApplicationProcessId { get; set; }
+
+            public string BackupDirectory { get; set; }
+
+            public string PreviousDirectory { get; set; }
+
+            public string ExtractDirectory { get; set; }
+
+            public string RestartExecutablePath { get; set; }
+
+            public int RestartProcessId { get; set; }
+
+            public bool Preflight { get; set; }
+
+            public bool BackupComplete { get; set; }
+
+            public List<string> NewPackagePaths { get; set; } = [];
+        }
+
         private sealed class BackupEntry
         {
             public BackupEntry(string relativePath, bool isDirectory)
@@ -1370,6 +2472,77 @@ namespace BeMusicSeeker.Updater
                     "The update failed and rollback could not be completed.",
                     new AggregateException(updateException, rollbackException))
             {
+            }
+
+            public RollbackFailureException(string message, Exception rollbackException)
+                : base(message, rollbackException)
+            {
+            }
+        }
+
+        private sealed class TransactionLeaseUnavailableException : IOException
+        {
+            public TransactionLeaseUnavailableException(string message, Exception innerException)
+                : base(message, innerException)
+            {
+            }
+        }
+
+        private sealed class TransactionRecoveryDeferredException : Exception
+        {
+            public TransactionRecoveryDeferredException(string message)
+                : base(message)
+            {
+            }
+        }
+
+        private sealed class RecoveryRequest
+        {
+            private RecoveryRequest(string appDirectory)
+            {
+                AppDirectory = appDirectory;
+            }
+
+            public string AppDirectory { get; }
+
+            public static RecoveryRequest Parse(string[] args)
+            {
+                if (args.Length != 3
+                    || !string.Equals(args[1], "--app-dir", StringComparison.OrdinalIgnoreCase)
+                    || string.IsNullOrWhiteSpace(args[2]))
+                {
+                    throw new ArgumentException("Recovery requires exactly --recover --app-dir <path>.");
+                }
+
+                return new RecoveryRequest(args[2]);
+            }
+        }
+
+        private sealed class WatchdogRequest
+        {
+            private WatchdogRequest(string appDirectory, int processId)
+            {
+                AppDirectory = appDirectory;
+                ProcessId = processId;
+            }
+
+            public string AppDirectory { get; }
+
+            public int ProcessId { get; }
+
+            public static WatchdogRequest Parse(string[] args)
+            {
+                if (args.Length != 5
+                    || !string.Equals(args[1], "--app-dir", StringComparison.OrdinalIgnoreCase)
+                    || string.IsNullOrWhiteSpace(args[2])
+                    || !string.Equals(args[3], "--pid", StringComparison.OrdinalIgnoreCase)
+                    || !int.TryParse(args[4], out int processId)
+                    || processId <= 0)
+                {
+                    throw new ArgumentException("Watchdog requires exactly --watch --app-dir <path> --pid <id>.");
+                }
+
+                return new WatchdogRequest(args[2], processId);
             }
         }
 

@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
+using Microsoft.Win32;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -29,12 +32,381 @@ public sealed class UpdaterPackageSyncTests
                 backupDirectoryPath,
                 publishProceed: false);
             Assert.IsFalse(process.WaitForExit(250));
+            Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count, "The transaction must arm an independent recovery handoff.");
+            Assert.AreEqual(1, GetRecoverySupervisorValues(appDirectoryPath).Count, "The transaction must arm a persistent recovery supervisor.");
 
             string decisionFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
             File.WriteAllText(decisionFilePath, "cancel");
             Assert.IsTrue(process.WaitForExit(5000));
             Assert.AreEqual(0, process.ExitCode);
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count, "Cancellation must clear the recovery handoff.");
+            Assert.AreEqual(0, GetRecoverySupervisorValues(appDirectoryPath).Count, "Cancellation must clear the persistent recovery supervisor.");
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdateRecoversIncompleteDurableJournalBeforeNewMutation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
+            string extractDirectoryPath = Path.Combine(appDirectoryPath, "update_work", "extracted");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe");
+            WriteTextFile(appDirectoryPath, "update_backup/previous/BeMusicSeeker.exe", "old-app");
+            File.Copy(
+                FindUpdaterExecutable(),
+                Path.Combine(previousDirectoryPath, "restart.exe"),
+                overwrite: true);
+            WriteTextFile(previousDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe");
+            WriteTextFile(
+                appDirectoryPath,
+                "update_work/update-transaction.json",
+                JsonSerializer.Serialize(new
+                {
+                    Version = 1,
+                    Phase = "applying",
+                    AppDirectory = appDirectoryPath,
+                    PackagePath = packagePath,
+                    BackupDirectory = backupDirectoryPath,
+                    PreviousDirectory = previousDirectoryPath,
+                    ExtractDirectory = extractDirectoryPath,
+                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
+                    BackupComplete = true,
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe", "restart.exe", "update-managed-files.txt" }
+                }));
+
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            CopyRestartExecutable(packageSourceDirectoryPath);
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe");
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsFalse(File.Exists(journalPath), "A committed transaction must remove its durable journal.");
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath), "A committed transaction must remove its previous-generation backup.");
+        });
+    }
+
+    [TestMethod]
+    public void RecoverCommandRestoresPartialBackupWithoutDeletingUnmovedApplicationFiles()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
+            string extractDirectoryPath = Path.Combine(appDirectoryPath, "update_work", "extracted");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "docs/unmoved.txt", "still-old");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "partial-copy");
+            WriteTextFile(
+                appDirectoryPath,
+                "update_work/update-transaction.json",
+                JsonSerializer.Serialize(new
+                {
+                    Version = 1,
+                    Phase = "backing-up",
+                    AppDirectory = appDirectoryPath,
+                    PackagePath = packagePath,
+                    BackupDirectory = backupDirectoryPath,
+                    PreviousDirectory = previousDirectoryPath,
+                    ExtractDirectory = extractDirectoryPath,
+                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe", "docs/unmoved.txt" }
+                }));
+
+            RunUpdaterRecovery(appDirectoryPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.AreEqual("still-old", File.ReadAllText(Path.Combine(appDirectoryPath, "docs", "unmoved.txt")));
+            Assert.IsFalse(File.Exists(journalPath));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void WatchdogRecoversApplyingTransactionAndRestartsPreviousApplication()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
+            string extractDirectoryPath = Path.Combine(appDirectoryPath, "update_work", "extracted");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
+            WriteTextFile(appDirectoryPath, "restart.cmd", "@echo restarted>restart-marker.txt");
+            WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "package");
+            WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(
+                appDirectoryPath,
+                "update_work/update-transaction.json",
+                JsonSerializer.Serialize(new
+                {
+                    Version = 1,
+                    Phase = "applying",
+                    AppDirectory = appDirectoryPath,
+                    PackagePath = packagePath,
+                    ApplicationProcessId = 0,
+                    BackupDirectory = backupDirectoryPath,
+                    PreviousDirectory = previousDirectoryPath,
+                    ExtractDirectory = extractDirectoryPath,
+                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.cmd"),
+                    BackupComplete = true,
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe" }
+                }));
+
+            RunUpdaterWatchdogRecovery(appDirectoryPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            WaitForFile(Path.Combine(appDirectoryPath, "restart-marker.txt"));
+            Assert.IsFalse(File.Exists(journalPath));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void RecoverCommandDoesNotTrustReusedApplicationPidAfterRestart()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
+            string extractDirectoryPath = Path.Combine(appDirectoryPath, "update_work", "extracted");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
+            WriteTextFile(appDirectoryPath, "restart.cmd", "@echo restarted>restart-marker.txt");
+            WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(
+                appDirectoryPath,
+                "update_work/update-transaction.json",
+                JsonSerializer.Serialize(new
+                {
+                    Version = 1,
+                    Phase = "applying",
+                    AppDirectory = appDirectoryPath,
+                    PackagePath = packagePath,
+                    ApplicationProcessId = Environment.ProcessId,
+                    BackupDirectory = backupDirectoryPath,
+                    PreviousDirectory = previousDirectoryPath,
+                    ExtractDirectory = extractDirectoryPath,
+                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.cmd"),
+                    BackupComplete = true,
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe" }
+                }));
+
+            RunUpdaterRecovery(appDirectoryPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            WaitForFile(Path.Combine(appDirectoryPath, "restart-marker.txt"));
+            Assert.IsFalse(File.Exists(journalPath));
+        });
+    }
+
+    [TestMethod]
+    public void RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
+            string extractDirectoryPath = Path.Combine(appDirectoryPath, "update_work", "extracted");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+            string restartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
+            File.Copy(
+                Environment.GetEnvironmentVariable("ComSpec") ?? throw new InvalidOperationException("ComSpec was not available."),
+                restartExecutablePath,
+                overwrite: true);
+            WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(
+                appDirectoryPath,
+                "update_work/update-transaction.json",
+                JsonSerializer.Serialize(new
+                {
+                    Version = 1,
+                    Phase = "applying",
+                    AppDirectory = appDirectoryPath,
+                    PackagePath = packagePath,
+                    ApplicationProcessId = Environment.ProcessId,
+                    BackupDirectory = backupDirectoryPath,
+                    PreviousDirectory = previousDirectoryPath,
+                    ExtractDirectory = extractDirectoryPath,
+                    RestartExecutablePath = restartExecutablePath,
+                    BackupComplete = true,
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe" }
+                }));
+
+            using Process liveApplication = Process.Start(new ProcessStartInfo
+            {
+                FileName = restartExecutablePath,
+                ArgumentList =
+                {
+                    "/c",
+                    "ping 127.0.0.1 -n 30 >nul"
+                },
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = appDirectoryPath
+            }) ?? throw new InvalidOperationException("The live application fixture was not started.");
+            try
+            {
+                Thread.Sleep(250);
+
+                using Process normalUpdater = StartUpdater(
+                    appDirectoryPath,
+                    packagePath,
+                    backupDirectoryPath,
+                    restartExecutablePath,
+                    Environment.ProcessId.ToString());
+                Assert.IsTrue(normalUpdater.WaitForExit(5000), "The normal updater must defer while recovery sees a live application executable.");
+                Assert.AreEqual(2, normalUpdater.ExitCode);
+                Assert.AreEqual("partial-new", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+                Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count);
+                Assert.AreEqual(1, GetRecoverySupervisorValues(appDirectoryPath).Count);
+
+                using Process recovery = StartUpdaterRecoveryProcess(appDirectoryPath);
+                Assert.IsTrue(recovery.WaitForExit(5000), "Recovery must defer while the application executable is alive.");
+                Assert.AreEqual(2, recovery.ExitCode);
+                Assert.AreEqual("partial-new", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+                Assert.IsTrue(File.Exists(journalPath));
+                Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count);
+                Assert.AreEqual(1, GetRecoverySupervisorValues(appDirectoryPath).Count);
+            }
+            finally
+            {
+                if (!liveApplication.HasExited)
+                {
+                    liveApplication.Kill(entireProcessTree: true);
+                }
+                liveApplication.WaitForExit(5000);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void RolledBackJournalCleanupDoesNotReplayRestoreAfterBackupWasRemoved()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
+            string extractDirectoryPath = Path.Combine(appDirectoryPath, "update_work", "extracted");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "restored-old");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(
+                appDirectoryPath,
+                "update_work/update-transaction.json",
+                JsonSerializer.Serialize(new
+                {
+                    Version = 1,
+                    Phase = "rolled-back",
+                    AppDirectory = appDirectoryPath,
+                    PackagePath = packagePath,
+                    BackupDirectory = backupDirectoryPath,
+                    PreviousDirectory = previousDirectoryPath,
+                    ExtractDirectory = extractDirectoryPath,
+                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe" }
+                }));
+
+            RunUpdaterRecovery(appDirectoryPath);
+
+            Assert.AreEqual("restored-old", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsFalse(File.Exists(journalPath));
+        });
+    }
+
+    [TestMethod]
+    public void UpdaterRejectsConcurrentTransactionLeaseWithoutMutation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "not-used");
+
+            using Process firstUpdater = StartUpdater(
+                appDirectoryPath,
+                packagePath,
+                backupDirectoryPath,
+                publishProceed: false);
+            using Process secondUpdater = Process.Start(CreateUpdaterStartInfo(
+                appDirectoryPath,
+                packagePath,
+                backupDirectoryPath))
+                ?? throw new InvalidOperationException("The concurrent updater process was not started.");
+
+            Assert.IsTrue(secondUpdater.WaitForExit(5000), "The second updater must reject the held transaction lease promptly.");
+            Assert.AreNotEqual(0, secondUpdater.ExitCode);
+            File.WriteAllText(Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt"), "cancel");
+            Assert.IsTrue(firstUpdater.WaitForExit(5000), "The first updater must release the lease after cancellation.");
+            Assert.AreEqual(0, firstUpdater.ExitCode);
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+        });
+    }
+
+    [TestMethod]
+    public void RecoverCommandSerializesRunOnceConsumersWhenTransactionLeaseIsUnavailable()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "not-used");
+
+            using Process firstUpdater = StartUpdater(
+                appDirectoryPath,
+                packagePath,
+                backupDirectoryPath,
+                publishProceed: false);
+            Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count);
+            DeleteRecoveryRunOnceValues(appDirectoryPath);
+
+            using Process recovery = StartUpdaterRecoveryProcess(appDirectoryPath);
+            Thread.Sleep(250);
+            Assert.IsFalse(recovery.HasExited, "A competing recovery must wait for the transaction owner.");
+
+            File.WriteAllText(Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt"), "cancel");
+            Assert.IsTrue(firstUpdater.WaitForExit(5000));
+            Assert.AreEqual(0, firstUpdater.ExitCode);
+            Assert.IsTrue(recovery.WaitForExit(5000), "The competing recovery must finish after the owner releases the lease.");
+            Assert.AreEqual(0, recovery.ExitCode);
+            Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count);
+            Assert.AreEqual(0, GetRecoverySupervisorValues(appDirectoryPath).Count);
         });
     }
 
@@ -61,6 +433,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "libs/x86/user.dll", "user-libs-x86");
             WriteTextFile(appDirectoryPath, "x86/user.dll", "user-root-x86");
             WriteTextFile(appDirectoryPath, "x64/sqlite3.dll", "old-root-x64");
+            WriteTextFile(appDirectoryPath, "runtimes/win-x64/native/e_sqlite3.dll", "old-rid-e-sqlite3");
             foreach (string legacyManagedLibraryName in new[]
             {
                 "Bass.Net.dll",
@@ -119,7 +492,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "SevenZipExtractor.dll", "new-sevenzip");
             WriteTextFile(packageSourceDirectoryPath, "OggVorbis.NET64.dll", "new-ogv");
             WriteTextFile(packageSourceDirectoryPath, "libs/x64/7z.dll", "new-7z-native");
-            WriteTextFile(packageSourceDirectoryPath, "runtimes/win-x64/native/e_sqlite3.dll", "new-e-sqlite3");
+            WriteTextFile(packageSourceDirectoryPath, "e_sqlite3.dll", "new-e-sqlite3");
             WriteTextFile(packageSourceDirectoryPath, "native/EverythingBridge_x64.dll", "new-bridge");
             WriteTextFile(packageSourceDirectoryPath, "lang/ja-JP.json", "{}");
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
@@ -131,7 +504,7 @@ public sealed class UpdaterPackageSyncTests
                 "SevenZipExtractor.dll",
                 "OggVorbis.NET64.dll",
                 "libs/x64/7z.dll",
-                "runtimes/win-x64/native/e_sqlite3.dll",
+                "e_sqlite3.dll",
                 "native/EverythingBridge_x64.dll",
                 "lang/ja-JP.json"
             }));
@@ -142,7 +515,8 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.AreEqual("new-ogv", File.ReadAllText(Path.Combine(appDirectoryPath, "OggVorbis.NET64.dll")));
             Assert.AreEqual("new-7z-native", File.ReadAllText(Path.Combine(appDirectoryPath, "libs", "x64", "7z.dll")));
-            Assert.AreEqual("new-e-sqlite3", File.ReadAllText(Path.Combine(appDirectoryPath, "runtimes", "win-x64", "native", "e_sqlite3.dll")));
+            Assert.AreEqual("new-e-sqlite3", File.ReadAllText(Path.Combine(appDirectoryPath, "e_sqlite3.dll")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "runtimes", "win-x64", "native", "e_sqlite3.dll")));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "x64", "sqlite3.dll")));
             Assert.AreEqual("user-x64", File.ReadAllText(Path.Combine(appDirectoryPath, "x64", "user.dll")));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "libs", "SevenZipExtractor.dll")));
@@ -793,6 +1167,82 @@ public sealed class UpdaterPackageSyncTests
         }
     }
 
+    private static void RunUpdaterRecovery(string appDirectoryPath)
+    {
+        using Process process = StartUpdaterRecoveryProcess(appDirectoryPath);
+        if (!process.WaitForExit(30000))
+        {
+            process.Kill();
+            Assert.Fail("Updater recovery process timed out.");
+        }
+
+        if (process.ExitCode != 0)
+        {
+            Assert.Fail(
+                "Updater recovery failed with exit code "
+                + process.ExitCode
+                + Environment.NewLine
+                + process.StandardOutput.ReadToEnd()
+                + Environment.NewLine
+                + process.StandardError.ReadToEnd());
+        }
+    }
+
+    private static Process StartUpdaterRecoveryProcess(string appDirectoryPath)
+    {
+        return Process.Start(new ProcessStartInfo
+        {
+            FileName = FindUpdaterExecutable(),
+            Arguments = string.Join(" ", new[]
+            {
+                "--recover",
+                "--app-dir",
+                appDirectoryPath
+            }.Select(QuoteArgument)),
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = Path.GetDirectoryName(FindUpdaterExecutable()) ?? Environment.CurrentDirectory
+        }) ?? throw new InvalidOperationException("Updater recovery process was not started.");
+    }
+
+    private static void RunUpdaterWatchdogRecovery(string appDirectoryPath)
+    {
+        string updaterPath = FindUpdaterExecutable();
+        using Process process = Process.Start(new ProcessStartInfo
+        {
+            FileName = updaterPath,
+            Arguments = string.Join(" ", new[]
+            {
+                "--watch",
+                "--app-dir",
+                appDirectoryPath,
+                "--pid",
+                GetExitedProcessId().ToString()
+            }.Select(QuoteArgument)),
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? Environment.CurrentDirectory
+        }) ?? throw new InvalidOperationException("Updater watchdog process was not started.");
+        if (!process.WaitForExit(30000))
+        {
+            process.Kill();
+            Assert.Fail("Updater watchdog process timed out.");
+        }
+
+        if (process.ExitCode != 0)
+        {
+            Assert.Fail(
+                "Updater watchdog failed with exit code "
+                + process.ExitCode
+                + Environment.NewLine
+                + process.StandardOutput.ReadToEnd()
+                + Environment.NewLine
+                + process.StandardError.ReadToEnd());
+        }
+    }
+
     private static void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath, string restartExecutablePath = null, string processId = null)
     {
         string effectiveRestartExecutablePath = restartExecutablePath ?? Path.Combine(appDirectoryPath, "restart.exe");
@@ -815,7 +1265,6 @@ public sealed class UpdaterPackageSyncTests
 
     private static Process StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string restartExecutablePath = null, string processId = null, bool publishProceed = true)
     {
-        string updaterPath = FindUpdaterExecutable();
         restartExecutablePath ??= Path.Combine(appDirectoryPath, "restart.exe");
         processId ??= GetExitedProcessId().ToString();
         string readyFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt");
@@ -830,7 +1279,37 @@ public sealed class UpdaterPackageSyncTests
             File.Delete(decisionFilePath);
         }
 
-        var processStartInfo = new ProcessStartInfo
+        Process process = Process.Start(CreateUpdaterStartInfo(
+            appDirectoryPath,
+            packagePath,
+            backupDirectoryPath,
+            restartExecutablePath,
+            processId))
+            ?? throw new InvalidOperationException("Updater process was not started.");
+        bool validProcessId = int.TryParse(processId, out int parsedProcessId) && parsedProcessId > 0;
+        if (validProcessId)
+        {
+            if (WaitForReadyOrProcessExit(process, readyFilePath) && publishProceed)
+            {
+                File.WriteAllText(decisionFilePath, "proceed");
+            }
+        }
+        return process;
+    }
+
+    private static ProcessStartInfo CreateUpdaterStartInfo(
+        string appDirectoryPath,
+        string packagePath,
+        string backupDirectoryPath,
+        string restartExecutablePath = null,
+        string processId = null)
+    {
+        string updaterPath = FindUpdaterExecutable();
+        restartExecutablePath ??= Path.Combine(appDirectoryPath, "restart.exe");
+        processId ??= GetExitedProcessId().ToString();
+        string readyFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt");
+        string decisionFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
+        return new ProcessStartInfo
         {
             FileName = updaterPath,
             Arguments = string.Join(" ", new[]
@@ -855,18 +1334,6 @@ public sealed class UpdaterPackageSyncTests
             RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? Environment.CurrentDirectory
         };
-
-        Process process = Process.Start(processStartInfo) ?? throw new InvalidOperationException("Updater process was not started.");
-        bool validProcessId = int.TryParse(processId, out int parsedProcessId) && parsedProcessId > 0;
-        if (validProcessId)
-        {
-            WaitForFile(readyFilePath);
-            if (publishProceed)
-            {
-                File.WriteAllText(decisionFilePath, "proceed");
-            }
-        }
-        return process;
     }
 
     private static int GetExitedProcessId()
@@ -897,6 +1364,28 @@ public sealed class UpdaterPackageSyncTests
         }
 
         Assert.IsTrue(File.Exists(filePath), "Expected file was not created: " + filePath);
+    }
+
+    private static bool WaitForReadyOrProcessExit(Process process, string filePath)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!File.Exists(filePath) && DateTime.UtcNow < deadline)
+        {
+            if (process.HasExited)
+            {
+                return false;
+            }
+
+            Thread.Sleep(50);
+        }
+
+        if (File.Exists(filePath))
+        {
+            return true;
+        }
+
+        Assert.Fail("Expected file was not created: " + filePath);
+        return false;
     }
 
     private static void WaitForFileAvailable(string filePath)
@@ -949,6 +1438,79 @@ public sealed class UpdaterPackageSyncTests
         }
 
         throw new FileNotFoundException("Updater executable was not found.", candidates[0]);
+    }
+
+    private static IReadOnlyList<string> GetRecoveryRunOnceValues(string appDirectoryPath)
+    {
+        using RegistryKey? runOnce = Registry.CurrentUser.OpenSubKey(
+            @"Software\Microsoft\Windows\CurrentVersion\RunOnce",
+            writable: false);
+        if (runOnce == null)
+        {
+            return Array.Empty<string>();
+        }
+
+        return runOnce.GetValueNames()
+            .Where(valueName => valueName.StartsWith("!BeMusicSeeker.UpdateRecovery-", StringComparison.Ordinal)
+                || valueName.StartsWith("BeMusicSeeker.UpdateRecovery-", StringComparison.Ordinal))
+            .Where(valueName => (runOnce.GetValue(valueName) as string)?.Contains(
+                appDirectoryPath,
+                StringComparison.OrdinalIgnoreCase) == true)
+            .ToArray();
+    }
+
+    private static void DeleteRecoveryRunOnceValues(string appDirectoryPath)
+    {
+        using RegistryKey? runOnce = Registry.CurrentUser.OpenSubKey(
+            @"Software\Microsoft\Windows\CurrentVersion\RunOnce",
+            writable: true);
+        if (runOnce != null)
+        {
+            foreach (string valueName in GetRecoveryRunOnceValues(appDirectoryPath))
+            {
+                runOnce.DeleteValue(valueName, throwOnMissingValue: false);
+            }
+
+            runOnce.Flush();
+        }
+
+        using RegistryKey? run = Registry.CurrentUser.OpenSubKey(
+            @"Software\Microsoft\Windows\CurrentVersion\Run",
+            writable: true);
+        if (run == null)
+        {
+            return;
+        }
+
+        foreach (string valueName in run.GetValueNames()
+            .Where(valueName => valueName.StartsWith("BeMusicSeeker.UpdateRecoverySupervisor-", StringComparison.Ordinal))
+            .Where(valueName => (run.GetValue(valueName) as string)?.Contains(
+                appDirectoryPath,
+                StringComparison.OrdinalIgnoreCase) == true)
+            .ToArray())
+        {
+            run.DeleteValue(valueName, throwOnMissingValue: false);
+        }
+
+        run.Flush();
+    }
+
+    private static IReadOnlyList<string> GetRecoverySupervisorValues(string appDirectoryPath)
+    {
+        using RegistryKey? run = Registry.CurrentUser.OpenSubKey(
+            @"Software\Microsoft\Windows\CurrentVersion\Run",
+            writable: false);
+        if (run == null)
+        {
+            return Array.Empty<string>();
+        }
+
+        return run.GetValueNames()
+            .Where(valueName => valueName.StartsWith("BeMusicSeeker.UpdateRecoverySupervisor-", StringComparison.Ordinal))
+            .Where(valueName => (run.GetValue(valueName) as string)?.Contains(
+                appDirectoryPath,
+                StringComparison.OrdinalIgnoreCase) == true)
+            .ToArray();
     }
 
     private static string FindRepositoryRoot()
@@ -1038,6 +1600,7 @@ public sealed class UpdaterPackageSyncTests
         }
         finally
         {
+            DeleteRecoveryRunOnceValues(Path.Combine(tempDirectoryPath, "app"));
             if (Directory.Exists(tempDirectoryPath))
             {
                 DateTime deadline = DateTime.UtcNow.AddSeconds(5);

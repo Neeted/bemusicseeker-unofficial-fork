@@ -14,8 +14,10 @@ internal sealed class UpdateDownloadService
     private const int DownloadTimeoutMilliseconds = 300000;
     private const string UpdateFailureReceiptFileName = "update-failure.txt";
     private const string UpdateFailureReceiptTemporaryFileName = "update-failure.txt.tmp";
+    private const string TransactionJournalFileName = "update-transaction.json";
     private const string UpdaterReadyFileName = "updater-ready.txt";
     private const string UpdaterDecisionFileName = "updater-decision.txt";
+    private const string UpdaterExecutableFileName = "BeMusicSeeker.Updater.exe";
     private static readonly string[] UpdaterPayloadFileNames =
     [
         "BeMusicSeeker.Updater.exe"
@@ -182,6 +184,10 @@ internal sealed class UpdateDownloadService
         }
 
         EnsureNoReparsePointTree(workRoot);
+        if (!RecoverIncompleteTransaction(workRoot))
+        {
+            return;
+        }
         UpdateFailureReceiptException failureReceipt = ReadFailureReceipt(workRoot);
 
         foreach (string child in LongPathFileSystem.EnumerateFileSystemEntries(workRoot))
@@ -216,6 +222,35 @@ internal sealed class UpdateDownloadService
         {
             throw failureReceipt;
         }
+    }
+
+    private bool RecoverIncompleteTransaction(string workRoot)
+    {
+        string journalPath = Path.Combine(workRoot, TransactionJournalFileName);
+        EnsureNoReparsePointIfPresent(journalPath);
+        if (!LongPathFileSystem.FileExists(journalPath))
+        {
+            return true;
+        }
+
+        string currentUpdaterPath = Path.Combine(workRoot, "current", UpdaterExecutableFileName);
+        EnsureNoReparsePointIfPresent(currentUpdaterPath);
+        string updaterPath = currentUpdaterPath;
+        if (!LongPathFileSystem.FileExists(updaterPath))
+        {
+            updaterPath = Path.Combine(applicationPathSnapshot.BaseDirectory, UpdaterExecutableFileName);
+            EnsureNoReparsePointIfPresent(updaterPath);
+        }
+        if (!LongPathFileSystem.FileExists(updaterPath))
+        {
+            throw new FileNotFoundException(
+                "An updater executable is required to recover an incomplete update transaction.",
+                updaterPath);
+        }
+
+        return updaterProcessGateway.RecoverIncompleteTransaction(
+            updaterPath,
+            applicationPathSnapshot.BaseDirectory);
     }
 
     private UpdateFailureReceiptException ReadFailureReceipt(string workRoot)

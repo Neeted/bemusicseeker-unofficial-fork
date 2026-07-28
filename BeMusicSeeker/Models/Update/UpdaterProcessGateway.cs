@@ -85,6 +85,8 @@ internal sealed class UpdaterProcessLaunchRequest
 internal interface IUpdaterProcessGateway
 {
     IPreparedUpdaterLaunch Prepare(UpdaterProcessLaunchRequest request);
+
+    bool RecoverIncompleteTransaction(string executablePath, string applicationDirectory);
 }
 
 internal static class UpdaterProcessGatewayPolicy
@@ -173,6 +175,40 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
                     exception);
             }
         });
+    }
+
+    public bool RecoverIncompleteTransaction(string executablePath, string applicationDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            throw new ArgumentException("An updater executable path is required.", nameof(executablePath));
+        }
+        if (string.IsNullOrWhiteSpace(applicationDirectory))
+        {
+            throw new ArgumentException("An application directory is required.", nameof(applicationDirectory));
+        }
+
+        ProcessStartInfo startInfo = new(executablePath)
+        {
+            UseShellExecute = false,
+            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? applicationDirectory,
+            Arguments = JoinArguments("--recover", "--app-dir", applicationDirectory)
+        };
+        using Process process = startProcess(startInfo)
+            ?? throw new UpdaterLaunchFailureException("Updater recovery process did not start.");
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            if (process.ExitCode == 2)
+            {
+                return false;
+            }
+
+            throw new UpdaterLaunchFailureException(
+                "Updater transaction recovery failed (exit code " + process.ExitCode + ").");
+        }
+
+        return true;
     }
 
     private static void WaitForReady(Process process, string readyFilePath)

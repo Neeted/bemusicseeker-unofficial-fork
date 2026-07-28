@@ -140,6 +140,44 @@ public sealed class UpdateDownloadServiceTests
     }
 
     [TestMethod]
+    public void CleanupPreviousWorkDirectoryRecoversIncompleteTransactionThroughUpdaterGateway()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
+        string workRoot = Path.Combine(root, "update_work");
+        string currentDirectory = Path.Combine(workRoot, "current");
+        string journalPath = Path.Combine(workRoot, "update-transaction.json");
+        Directory.CreateDirectory(currentDirectory);
+        File.WriteAllText(applicationPath, string.Empty);
+        File.WriteAllText(Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe"), "recovery-updater");
+        File.WriteAllText(journalPath, "durable-transaction");
+        var gateway = new RecordingUpdaterProcessGateway();
+
+        try
+        {
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(applicationPath),
+                gateway);
+
+            service.CleanupPreviousWorkDirectory();
+
+            Assert.AreEqual(
+                Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe"),
+                gateway.RecoveryExecutablePath);
+            Assert.AreEqual(root, gateway.RecoveryApplicationDirectory);
+            Assert.IsTrue(File.Exists(Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe")));
+            Assert.IsFalse(File.Exists(journalPath));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void CleanupPreviousWorkDirectoryPublishesAndConsumesUpdaterFailureReceipt()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
@@ -399,12 +437,23 @@ public sealed class UpdateDownloadServiceTests
     {
         internal UpdaterProcessLaunchRequest Request { get; private set; } = null!;
 
+        internal string RecoveryExecutablePath { get; private set; }
+
+        internal string RecoveryApplicationDirectory { get; private set; }
+
         internal IPreparedUpdaterLaunch PreparedLaunch { get; } = new FakePreparedUpdaterLaunch();
 
         public IPreparedUpdaterLaunch Prepare(UpdaterProcessLaunchRequest request)
         {
             Request = request;
             return PreparedLaunch;
+        }
+
+        public bool RecoverIncompleteTransaction(string executablePath, string applicationDirectory)
+        {
+            RecoveryExecutablePath = executablePath;
+            RecoveryApplicationDirectory = applicationDirectory;
+            return true;
         }
     }
 
