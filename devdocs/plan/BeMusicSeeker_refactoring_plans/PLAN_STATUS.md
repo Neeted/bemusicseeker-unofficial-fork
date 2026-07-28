@@ -25,8 +25,8 @@ Full verificationは`3480 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 
 - active outcome: `NET10-08 Existing-data and clean-machine acceptance`
 - active execution package: `.NET 10 existing-data／clean-machine acceptance`
-- execution anchor: `planner required`
-- planner state: `E1 completed; E2 completed; planner required; NATIVE-01 external-gate`
+- execution anchor: `EXTERNAL_BLOCKER CLEAN-01: clean x64 Windows/VM without .NET Desktop Runtime + returned gate record`
+- planner state: `E1 completed; E2 completed; CLEAN-01 external-gate; NATIVE-01 external-gate`
 
 ## Active implementation batch
 
@@ -60,7 +60,7 @@ Full verificationは`3480 passed / 16 skipped / 0 failed`、Roslynatorは`0 diag
 | `E1 DATA-ROUNDTRIP` | completed | Existing-data SCD startup／shutdown／restart acceptance | isolated legacy settings／standalone DB／LR2 profile fixture、semantic receipt、two-start hydration、graceful shutdown／lock release |
 | `E2 UPDATE-ROUNDTRIP` | completed | pre-NET10 package to current SCD update／rollback acceptance | historical package provenance、legacy updater handoff、success restart、fault-package rollback、semantic data preservation |
 
-active／pending unitがある間はunit-plannerを再起動しない。E1／E2のacceptance runner、fixture、semantic receipt、update／rollback evidenceを完了し、次はclean-machine external gateのplannerへ進む。
+active／pending unitがある間はunit-plannerを再起動しない。E1／E2のacceptance runner、fixture、semantic receipt、update／rollback evidenceは完了している。CLEAN-01はruntime未導入のclean x64 Windows／VMとgate recordが必要なexternal-gateであり、NATIVE-01も別のexternal-gateとして維持する。
 
 ## Review evidence
 
