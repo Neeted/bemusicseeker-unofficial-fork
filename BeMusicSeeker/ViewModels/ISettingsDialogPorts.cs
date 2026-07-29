@@ -101,7 +101,7 @@ internal interface ISettingsDialogPlayerFactoryPort
 internal interface ISettingsDialogPlaybackRuntimePort : IAudioDeviceTestPlaybackPort
 {
 
-    void ApplyPlayerSettings(IBMSPlayer replacementPlayer);
+    Task ApplyPlayerSettingsAsync(IBMSPlayer replacementPlayer);
 
     void NotifySettingsChanged();
 }

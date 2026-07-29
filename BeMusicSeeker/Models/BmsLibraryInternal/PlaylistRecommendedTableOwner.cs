@@ -165,10 +165,12 @@ internal sealed class PlaylistRecommendedTableOwner
     private readonly IPlaylistRecommendedTableHttpClient httpClient;
 
     private readonly object insaneTableLock = new();
+    private readonly SemaphoreSlim insaneTableLoadGate = new(1, 1);
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> playlistSettingsProvider;
 
     private readonly object overjoyTableLock = new();
+    private readonly SemaphoreSlim overjoyTableLoadGate = new(1, 1);
 
     private readonly object estimationTableLock = new();
 
@@ -270,18 +272,39 @@ internal sealed class PlaylistRecommendedTableOwner
     {
         lock (insaneTableLock)
         {
-            if (insaneTableValue == null)
+            if (insaneTableValue != null)
             {
-                try
+                return insaneTableValue;
+            }
+        }
+        insaneTableLoadGate.Wait();
+        try
+        {
+            lock (insaneTableLock)
+            {
+                if (insaneTableValue != null)
                 {
-                    insaneTableValue = externalTableLoader(insaneUri);
-                }
-                catch
-                {
-                    insaneTableValue = null;
+                    return insaneTableValue;
                 }
             }
-            return insaneTableValue;
+            BMSTable loaded;
+            try
+            {
+                loaded = externalTableLoader(insaneUri);
+            }
+            catch
+            {
+                return null;
+            }
+            lock (insaneTableLock)
+            {
+                insaneTableValue ??= loaded;
+                return insaneTableValue;
+            }
+        }
+        finally
+        {
+            insaneTableLoadGate.Release();
         }
     }
 
@@ -289,18 +312,39 @@ internal sealed class PlaylistRecommendedTableOwner
     {
         lock (overjoyTableLock)
         {
-            if (overjoyTableValue == null)
+            if (overjoyTableValue != null)
             {
-                try
+                return overjoyTableValue;
+            }
+        }
+        overjoyTableLoadGate.Wait();
+        try
+        {
+            lock (overjoyTableLock)
+            {
+                if (overjoyTableValue != null)
                 {
-                    overjoyTableValue = externalTableLoader(overjoyUri);
-                }
-                catch
-                {
-                    overjoyTableValue = null;
+                    return overjoyTableValue;
                 }
             }
-            return overjoyTableValue;
+            BMSTable loaded;
+            try
+            {
+                loaded = externalTableLoader(overjoyUri);
+            }
+            catch
+            {
+                return null;
+            }
+            lock (overjoyTableLock)
+            {
+                overjoyTableValue ??= loaded;
+                return overjoyTableValue;
+            }
+        }
+        finally
+        {
+            overjoyTableLoadGate.Release();
         }
     }
 

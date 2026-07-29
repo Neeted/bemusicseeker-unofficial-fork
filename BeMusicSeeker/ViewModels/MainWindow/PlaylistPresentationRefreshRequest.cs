@@ -63,6 +63,8 @@ internal sealed class PlaylistHydrationCompletionReceipt
 
     private int state;
 
+    private int activeExecutions;
+
     internal bool TryBegin()
     {
         return Interlocked.CompareExchange(ref state, 2, 1) == 1
@@ -79,6 +81,10 @@ internal sealed class PlaylistHydrationCompletionReceipt
         lock (synchronizationRoot)
         {
             Interlocked.Exchange(ref state, 0);
+            while (activeExecutions != 0)
+            {
+                Monitor.Wait(synchronizationRoot);
+            }
         }
     }
 
@@ -107,8 +113,23 @@ internal sealed class PlaylistHydrationCompletionReceipt
             {
                 return false;
             }
+            activeExecutions++;
+        }
+        try
+        {
             action();
             return true;
+        }
+        finally
+        {
+            lock (synchronizationRoot)
+            {
+                activeExecutions--;
+                if (activeExecutions == 0)
+                {
+                    Monitor.PulseAll(synchronizationRoot);
+                }
+            }
         }
     }
 }

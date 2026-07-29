@@ -18,6 +18,8 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private readonly IExternalPlayerProcessGateway processGateway;
 
+    private readonly ExternalPlayerWaitPolicy waitPolicy;
+
     private enum KeyCode
     {
         NONE = 0,
@@ -197,6 +199,8 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private IExternalPlayerProcessSession uBMplayProcess;
 
+    private IExternalPlayerProcessSession uBMplayRequestProcess;
+
     private ExternalWindowHandle uBMplayHandleShowing;
 
     private ExternalWindowHandle foregroundWindowHandle;
@@ -359,12 +363,14 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     internal uBMplay(
         string exePath,
         IPlayerSettingsGateway playerSettingsGateway,
-        IExternalPlayerProcessGateway processGateway)
+        IExternalPlayerProcessGateway processGateway,
+        ExternalPlayerWaitPolicy waitPolicy = null)
     {
         ExePath = exePath;
         this.playerSettingsGateway = playerSettingsGateway
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         this.processGateway = processGateway ?? throw new ArgumentNullException(nameof(processGateway));
+        this.waitPolicy = waitPolicy ?? ExternalPlayerWaitPolicy.Default;
         onExitEventHandlerDefault = uBMplayExited;
     }
 
@@ -377,7 +383,41 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     {
         lock (lockThis)
         {
-            CloseProcessLocked(restoreSettings: true);
+            Exception requestFailure = null;
+            Exception playerFailure = null;
+            try
+            {
+                CloseRequestProcessLocked();
+            }
+            catch (Exception exception)
+            {
+                requestFailure = exception;
+            }
+            try
+            {
+                CloseProcessLocked(restoreSettings: true);
+            }
+            catch (Exception exception)
+            {
+                playerFailure = exception;
+            }
+            if (requestFailure != null && playerFailure != null)
+            {
+                throw new AggregateException(
+                    "uBMplay player and request processes could not be terminated.",
+                    requestFailure,
+                    playerFailure);
+            }
+            if (requestFailure != null)
+            {
+                throw new InvalidOperationException(
+                    "uBMplay request process could not be terminated.",
+                    requestFailure);
+            }
+            if (playerFailure != null)
+            {
+                throw playerFailure;
+            }
         }
     }
 
@@ -387,7 +427,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         {
             if (restoreSettings)
             {
-                RevertSettingsLocked();
+                TryRevertSettingsWhenNoOwnedProcessLocked();
             }
             return;
         }
@@ -400,36 +440,37 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         {
             uBMplayProcess.Exited -= onExitEventHandlerDefault;
         }
+        Exception closeFailure = null;
         try
         {
             uBMplayProcess.CloseMainWindow();
-            int num = 0;
-            while (!uBMplayProcess.HasExited)
+            waitPolicy.WaitForProcessExit(
+                () => uBMplayProcess.HasExited,
+                uBMplayProcess.Kill,
+                "uBMplay did not terminate after graceful close and kill.");
+        }
+        catch (Exception exception)
+        {
+            closeFailure = exception;
+        }
+        if (closeFailure != null)
+        {
+            if (onExitEventHandlerDefault != null)
             {
-                Thread.Sleep(100);
-                if (num == 50)
-                {
-                    try
-                    {
-                        uBMplayProcess.Kill();
-                    }
-                    catch
-                    {
-                    }
-                    num = 0;
-                }
-                num++;
+                uBMplayProcess.Exited += onExitEventHandlerDefault;
             }
-        }
-        catch
-        {
-        }
-        if (restoreSettings)
-        {
-            RevertSettingsLocked();
+            if (onExitEventHandlerRegstered != null)
+            {
+                uBMplayProcess.Exited += onExitEventHandlerRegstered;
+            }
+            throw new InvalidOperationException("uBMplay could not be terminated.", closeFailure);
         }
         uBMplayHandleShowing = default;
         uBMplayProcess = null;
+        if (restoreSettings)
+        {
+            TryRevertSettingsWhenNoOwnedProcessLocked();
+        }
     }
 
     public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
@@ -445,7 +486,12 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "ubm.ini");
         lock (lockThis)
         {
-            if (RevertSettingsLocked())
+            CloseExitedRequestProcessLocked();
+            if (uBMplayRequestProcess != null)
+            {
+                CloseRequestProcessLocked();
+            }
+            if (TryRevertSettingsWhenNoOwnedProcessLocked())
             {
                 iniFile = new TemporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
             }
@@ -459,9 +505,19 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 waitForLoading(bmsFilePath);
                 setParent();
             }
-            catch
+            catch (Exception startupFailure)
             {
-                RevertSettingsLocked();
+                try
+                {
+                    CloseProcess();
+                }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AggregateException(
+                        "uBMplay startup failed and its process cleanup could not be completed.",
+                        startupFailure,
+                        cleanupFailure);
+                }
                 throw;
             }
         }
@@ -480,6 +536,68 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
         iniFile = null;
         return true;
+    }
+
+    private bool TryRevertSettingsWhenNoOwnedProcessLocked()
+    {
+        CloseExitedRequestProcessLocked();
+        if (uBMplayProcess != null && !uBMplayProcess.HasExited)
+        {
+            return false;
+        }
+        if (uBMplayRequestProcess != null)
+        {
+            return false;
+        }
+        return RevertSettingsLocked();
+    }
+
+    private void CloseExitedRequestProcessLocked()
+    {
+        if (uBMplayRequestProcess?.HasExited == true)
+        {
+            CompleteRequestProcessExitLocked(uBMplayRequestProcess);
+        }
+    }
+
+    private void CloseRequestProcessLocked()
+    {
+        IExternalPlayerProcessSession process = uBMplayRequestProcess;
+        if (process == null)
+        {
+            return;
+        }
+        if (!process.HasExited)
+        {
+            process.CloseMainWindow();
+            waitPolicy.WaitForProcessExit(
+                () => process.HasExited,
+                process.Kill,
+                "uBMplay request process did not terminate after graceful close and kill.");
+        }
+        CompleteRequestProcessExitLocked(process);
+    }
+
+    private void CompleteRequestProcessExitLocked(IExternalPlayerProcessSession process)
+    {
+        if (!ReferenceEquals(uBMplayRequestProcess, process))
+        {
+            return;
+        }
+        process.Exited -= uBMplayRequestExited;
+        uBMplayRequestProcess = null;
+        TryRevertSettingsWhenNoOwnedProcessLocked();
+    }
+
+    private void uBMplayRequestExited(object sender, EventArgs e)
+    {
+        lock (lockThis)
+        {
+            if (sender is IExternalPlayerProcessSession process)
+            {
+                CompleteRequestProcessExitLocked(process);
+            }
+        }
     }
 
     private static void ThrowStartupFailed()
@@ -529,8 +647,9 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 onExitEventHandlerRegstered = null;
             }
             uBMplayProcess.Start();
-            while (!uBMplayProcess.HasExited)
-            {
+            waitPolicy.WaitUntil(
+                () =>
+                {
                 bool flag2 = uBMplayHandles().Any(delegate (ExternalWindowHandle wh)
                 {
                     if (RequireWindowHost().GetClassName(wh) == "ThunderRT6FormDC")
@@ -562,21 +681,52 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                     }
                     if (flag2)
                     {
-                        break;
+                        return true;
                     }
                 }
-            }
+                return false;
+                },
+                () => uBMplayProcess.HasExited,
+                () => { },
+                "uBMplayのメインウィンドウ待機がタイムアウトしました。",
+                pollMilliseconds: 0);
         }
         else
         {
             IExternalPlayerProcessSession process = processGateway.Prepare(launchRequest);
-            process.Start();
-            while (!process.HasExited)
+            uBMplayRequestProcess = process;
+            process.Exited += uBMplayRequestExited;
+            try
             {
-                if (RequireWindowHost().UsesLegacyWindowEmbedding)
+                process.Start();
+                waitPolicy.WaitUntil(
+                    () => process.HasExited,
+                    aborted: null,
+                    () =>
+                    {
+                        if (RequireWindowHost().UsesLegacyWindowEmbedding)
+                        {
+                            RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
+                        }
+                    },
+                    "uBMplayの再生request受付待機がタイムアウトしました。",
+                    pollMilliseconds: 0);
+                CompleteRequestProcessExitLocked(process);
+            }
+            catch (Exception requestFailure)
+            {
+                try
                 {
-                    RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
+                    CloseRequestProcessLocked();
                 }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AggregateException(
+                        "uBMplay playback request failed and its process cleanup could not be completed.",
+                        requestFailure,
+                        cleanupFailure);
+                }
+                throw;
             }
         }
         return !flag;
@@ -591,8 +741,9 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         var stringBuilder = new StringBuilder(4096);
         var regex = new Regex(Regex.Escape(bmsFilePath));
         bool loaded = false;
-        while (!uBMplayProcess.HasExited)
-        {
+        waitPolicy.WaitUntil(
+            () =>
+            {
             if (!RequireWindowHost().IsWindow(uBMplayHandleShowing))
             {
                 CloseProcess();
@@ -621,23 +772,24 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             if (regex.IsMatch(stringBuilder.ToString()))
             {
                 loaded = true;
-                break;
+                return true;
             }
-        }
+            return false;
+            },
+            () => uBMplayProcess.HasExited,
+            () => { },
+            "uBMplayの譜面読み込み待機がタイムアウトしました。",
+            pollMilliseconds: 0);
         if (!loaded)
         {
             ThrowStartupFailed();
         }
         if (!RequireWindowHost().UsesLegacyWindowEmbedding)
         {
-            while (!uBMplayProcess.HasExited && RequireWindowHost().GetForegroundWindow() != uBMplayHandleShowing)
-            {
-                RequireWindowHost().SetForegroundWindow(uBMplayHandleShowing);
-            }
-            while (!uBMplayProcess.HasExited && RequireWindowHost().GetForegroundWindow() != ((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle))
-            {
-                RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
-            }
+            FocusWindow(uBMplayHandleShowing, "uBMplayのforeground待機がタイムアウトしました。");
+            FocusWindow(
+                foregroundWindowHandle.IsEmpty ? RequireWindowHost().ParentHandle : foregroundWindowHandle,
+                "uBMplay起動後のforeground復元がタイムアウトしました。");
         }
     }
 
@@ -673,12 +825,11 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             }
             foregroundWindow = RequireWindowHost().GetForegroundWindow();
             NLogWrapper.DebuggerLogger?.Trace("3.5 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
-            while (foregroundWindowHandle != foregroundWindow)
-            {
-                RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
-                foregroundWindow = RequireWindowHost().GetForegroundWindow();
-                NLogWrapper.DebuggerLogger?.Trace("3.5 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
-            }
+            ExternalWindowHandle restoreWindow = foregroundWindowHandle.IsEmpty
+                ? RequireWindowHost().ParentHandle
+                : foregroundWindowHandle;
+            FocusWindow(restoreWindow, "uBMplay attach後のforeground復元がタイムアウトしました。");
+            foregroundWindow = RequireWindowHost().GetForegroundWindow();
             RequireWindowHost().SetFocus(foregroundWindowHandle);
             NLogWrapper.DebuggerLogger?.Trace("3.5 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
         }
@@ -687,6 +838,20 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     private IExternalPlayerWindowHost RequireWindowHost()
     {
         return windowHost ?? throw new InvalidOperationException("uBMplayの再生ホストが接続されていません。");
+    }
+
+    private void FocusWindow(ExternalWindowHandle window, string timeoutMessage)
+    {
+        if (window.IsEmpty || !RequireWindowHost().IsWindow(window))
+        {
+            return;
+        }
+        waitPolicy.WaitUntil(
+            () => RequireWindowHost().GetForegroundWindow() == window,
+            () => uBMplayProcess == null || uBMplayProcess.HasExited || !RequireWindowHost().IsWindow(window),
+            () => RequireWindowHost().SetForegroundWindow(window),
+            timeoutMessage,
+            pollMilliseconds: 0);
     }
 
     public void RestartPlayingBMSfile()
@@ -807,9 +972,22 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     {
         lock (lockThis)
         {
-            RevertSettingsLocked();
+            if (sender is IExternalPlayerProcessSession process
+                && !ReferenceEquals(uBMplayProcess, process))
+            {
+                return;
+            }
             uBMplayHandleShowing = default;
+            if (uBMplayProcess != null)
+            {
+                uBMplayProcess.Exited -= onExitEventHandlerDefault;
+                if (onExitEventHandlerRegstered != null)
+                {
+                    uBMplayProcess.Exited -= onExitEventHandlerRegstered;
+                }
+            }
             uBMplayProcess = null;
+            TryRevertSettingsWhenNoOwnedProcessLocked();
         }
     }
 }

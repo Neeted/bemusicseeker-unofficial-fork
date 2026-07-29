@@ -103,58 +103,58 @@ public sealed partial class PlaylistWorkspaceViewModel
     private void AttachPlaylistTreeStore(BMSPlaylist nextStore, BMSLibrary nextLibrary)
     {
         SetPlaylistExternalSyncReceiptSubscription(nextStore, nextLibrary);
-        PlaylistHydrationCompletionReceipt receiptToInvalidate;
-        lock (playlistTreeStoreSyncRoot)
+        bool changed = MutatePlaylistTreeAfterInvalidatingHydrationReceipt(
+            () => !ReferenceEquals(playlistTreeStore, nextStore)
+                || !ReferenceEquals(observedPlaylistTreeTables, nextStore?.BMSTables),
+            () =>
+            {
+                if (!ReferenceEquals(playlistTreeStore, nextStore))
+                {
+                    if (playlistTreeStore != null)
+                    {
+                        playlistTreeStore.PropertyChanged -= PlaylistTreeStorePropertyChanged;
+                        playlistTreeStore.PlaylistEntriesHydrationReceiptPublished -= PlaylistTreeStoreHydrationReceiptPublished;
+                    }
+                    if (observedPlaylistTreeTables != null)
+                    {
+                        observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
+                    }
+
+                    playlistTreeStore = nextStore;
+                    Interlocked.Increment(ref playlistTreeNotificationGeneration);
+                    observedPlaylistTreeTables = null;
+                    if (playlistTreeStore != null)
+                    {
+                        playlistTreeStore.PropertyChanged += PlaylistTreeStorePropertyChanged;
+                        playlistTreeStore.PlaylistEntriesHydrationReceiptPublished += PlaylistTreeStoreHydrationReceiptPublished;
+                    }
+                }
+                AttachObservedPlaylistTreeTablesUnsafe(nextStore?.BMSTables);
+                PlaylistReferenceApplyWorkflow.AttachContext(
+                    nextStore,
+                    nextLibrary,
+                    Volatile.Read(ref playlistTreeNotificationGeneration));
+            });
+        if (!changed)
         {
-            if (ReferenceEquals(playlistTreeStore, nextStore))
+            lock (playlistTreeStoreSyncRoot)
             {
-                receiptToInvalidate = AttachObservedPlaylistTreeTables(nextStore?.BMSTables);
                 PlaylistReferenceApplyWorkflow.AttachContext(
                     nextStore,
                     nextLibrary,
                     Volatile.Read(ref playlistTreeNotificationGeneration));
-            }
-            else
-            {
-                receiptToInvalidate = DetachPlaylistHydrationCompletionReceiptUnsafe();
-
-                if (playlistTreeStore != null)
-                {
-                    playlistTreeStore.PropertyChanged -= PlaylistTreeStorePropertyChanged;
-                    playlistTreeStore.PlaylistEntriesHydrationReceiptPublished -= PlaylistTreeStoreHydrationReceiptPublished;
-                }
-                if (observedPlaylistTreeTables != null)
-                {
-                    observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
-                }
-
-                playlistTreeStore = nextStore;
-                Interlocked.Increment(ref playlistTreeNotificationGeneration);
-                PlaylistReferenceApplyWorkflow.AttachContext(
-                    nextStore,
-                    nextLibrary,
-                    Volatile.Read(ref playlistTreeNotificationGeneration));
-                observedPlaylistTreeTables = null;
-                if (playlistTreeStore != null)
-                {
-                    playlistTreeStore.PropertyChanged += PlaylistTreeStorePropertyChanged;
-                    playlistTreeStore.PlaylistEntriesHydrationReceiptPublished += PlaylistTreeStoreHydrationReceiptPublished;
-                    AttachObservedPlaylistTreeTables(playlistTreeStore.BMSTables);
-                }
             }
         }
-        receiptToInvalidate?.Invalidate();
     }
 
-    private PlaylistHydrationCompletionReceipt AttachObservedPlaylistTreeTables(
+    private void AttachObservedPlaylistTreeTablesUnsafe(
         ObservableCollection<BMSTable> nextTables)
     {
         if (ReferenceEquals(observedPlaylistTreeTables, nextTables))
         {
-            return null;
+            return;
         }
 
-        PlaylistHydrationCompletionReceipt receiptToInvalidate = DetachPlaylistHydrationCompletionReceiptUnsafe();
         if (observedPlaylistTreeTables != null)
         {
             observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
@@ -169,7 +169,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             observedPlaylistTreeTables.CollectionChanged += PlaylistTreeTablesCollectionChanged;
         }
-        return receiptToInvalidate;
     }
 
     private PlaylistHydrationCompletionReceipt DetachPlaylistHydrationCompletionReceiptUnsafe()
@@ -182,26 +181,65 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void ApplyPlaylistTreeTablesSource(bool raiseWhenUnchanged = false)
     {
-        ObservableCollection<BMSTable> nextTables;
-        bool changed;
-        PlaylistHydrationCompletionReceipt receiptToInvalidate;
-        lock (playlistTreeStoreSyncRoot)
-        {
-            nextTables = playlistTreeStore == null
+        bool presentationChanged = false;
+        MutatePlaylistTreeAfterInvalidatingHydrationReceipt(
+            () =>
+            {
+                ObservableCollection<BMSTable> currentTables = playlistTreeStore == null
+                    ? emptyPlaylistTreeTables
+                        ?? throw new InvalidOperationException("Playlist tree source is not configured.")
+                    : playlistTreeStore.BMSTables;
+                return !ReferenceEquals(observedPlaylistTreeTables, currentTables)
+                    || !ReferenceEquals(playlistTreeTables, currentTables);
+            },
+            () =>
+            {
+                ObservableCollection<BMSTable> nextTables = playlistTreeStore == null
                 ? emptyPlaylistTreeTables
                     ?? throw new InvalidOperationException("Playlist tree source is not configured.")
                 : playlistTreeStore.BMSTables;
-            receiptToInvalidate = AttachObservedPlaylistTreeTables(nextTables);
-            changed = !ReferenceEquals(playlistTreeTables, nextTables);
-            if (changed)
-            {
+                AttachObservedPlaylistTreeTablesUnsafe(nextTables);
+                presentationChanged = !ReferenceEquals(playlistTreeTables, nextTables);
                 playlistTreeTables = nextTables;
-            }
-        }
-        receiptToInvalidate?.Invalidate();
-        if (changed || raiseWhenUnchanged)
+            });
+        if (presentationChanged || raiseWhenUnchanged)
         {
             RaisePropertyChanged(nameof(PlaylistTreeTables));
+        }
+    }
+
+    private bool MutatePlaylistTreeAfterInvalidatingHydrationReceipt(
+        Func<bool> mutationRequired,
+        Action mutation)
+    {
+        while (true)
+        {
+            PlaylistHydrationCompletionReceipt receipt;
+            lock (playlistTreeStoreSyncRoot)
+            {
+                if (!mutationRequired())
+                {
+                    return false;
+                }
+                receipt = playlistHydrationCompletionReceipt;
+            }
+
+            receipt?.Invalidate();
+
+            lock (playlistTreeStoreSyncRoot)
+            {
+                if (!ReferenceEquals(receipt, playlistHydrationCompletionReceipt))
+                {
+                    continue;
+                }
+                if (!mutationRequired())
+                {
+                    return false;
+                }
+                DetachPlaylistHydrationCompletionReceiptUnsafe();
+                mutation();
+                return true;
+            }
         }
     }
 
@@ -225,20 +263,36 @@ public sealed partial class PlaylistWorkspaceViewModel
         dispatchPresentation(
             () =>
             {
+                bool isCurrent;
+                lock (playlistDetailSelectionSyncRoot)
+                {
+                    isCurrent = IsCurrentPlaylistSummarySelectionWithoutLock(selectionRevision);
+                }
+                if (!isCurrent)
+                {
+                    return;
+                }
+                bool summaryModeChanged = SetPlaylistSummaryMode(enabled: true);
                 lock (playlistDetailSelectionSyncRoot)
                 {
                     if (!IsCurrentPlaylistSummarySelectionWithoutLock(selectionRevision))
                     {
                         return;
                     }
-                    bool summaryModeChanged = SetPlaylistSummaryMode(enabled: true);
-                    TreeSelectionActivated?.Invoke(
-                        this,
-                        PlaylistTreeSelectionActivatedEventArgs.Summary(
-                            selectionRevision,
-                            summaryModeChanged));
-                    RequestPlaylistSummaryPresentationRefresh();
                 }
+                TreeSelectionActivated?.Invoke(
+                    this,
+                    PlaylistTreeSelectionActivatedEventArgs.Summary(
+                        selectionRevision,
+                        summaryModeChanged));
+                lock (playlistDetailSelectionSyncRoot)
+                {
+                    if (!IsCurrentPlaylistSummarySelectionWithoutLock(selectionRevision))
+                    {
+                        return;
+                    }
+                }
+                RequestPlaylistSummaryPresentationRefresh();
             });
     }
 
@@ -269,20 +323,29 @@ public sealed partial class PlaylistWorkspaceViewModel
         dispatchPresentation(
             () =>
             {
+                bool isCurrent;
+                lock (playlistDetailSelectionSyncRoot)
+                {
+                    isCurrent = IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision);
+                }
+                if (!isCurrent)
+                {
+                    return;
+                }
+                bool summaryModeChanged = SetPlaylistSummaryMode(enabled: false);
                 lock (playlistDetailSelectionSyncRoot)
                 {
                     if (!IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision))
                     {
                         return;
                     }
-                    bool summaryModeChanged = SetPlaylistSummaryMode(enabled: false);
-                    TreeSelectionActivated?.Invoke(
-                        this,
-                        PlaylistTreeSelectionActivatedEventArgs.CreateDetail(
-                            selection,
-                            selectionRevision,
-                            summaryModeChanged));
                 }
+                TreeSelectionActivated?.Invoke(
+                    this,
+                    PlaylistTreeSelectionActivatedEventArgs.CreateDetail(
+                        selection,
+                        selectionRevision,
+                        summaryModeChanged));
             });
     }
 

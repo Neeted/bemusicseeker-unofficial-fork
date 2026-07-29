@@ -202,10 +202,62 @@ public sealed class PlaybackPanelViewModelTests
         first.Duration = TimeSpan.FromSeconds(30);
         panel.CloseProcess();
         var replacement = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(40) };
-        panel.ReplacePlayer(replacement);
+        Task replacementTask = panel.ReplacePlayerAsync(replacement);
+        Assert.IsTrue(SpinWait.SpinUntil(() => dispatcher.PendingCount >= 2, 5000));
         dispatcher.RunAll();
+        replacementTask.GetAwaiter().GetResult();
 
         Assert.AreEqual(TimeSpan.FromSeconds(40), panel.CurrentlyPlayingDuration);
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_StopDoesNotHoldSessionGuardAcrossPlayerClose()
+    {
+        var player = new FakeBmsPlayer();
+        PlaybackPanelViewModel panel = CreatePanel(player);
+        var replacementSession = new BMSFile();
+        bool sessionProbeCompleted = false;
+        player.BeforeClose = () =>
+        {
+            Task probe = Task.Run(() => panel.BeginPlayback(replacementSession, 7));
+            sessionProbeCompleted = probe.Wait(TimeSpan.FromSeconds(2));
+        };
+
+        panel.BeginPlayback(new BMSFile(), 3);
+        panel.StopPlayback(closeProcess: true);
+
+        Assert.IsTrue(sessionProbeCompleted);
+        Assert.AreSame(replacementSession, panel.NowPlayingBmsFile);
+        Assert.AreEqual(7, panel.NowPlayingRowIndex);
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_StopSerializesWithInFlightPlayerStartAndClosesItAfterward()
+    {
+        var player = new FakeBmsPlayer();
+        PlaybackPanelViewModel panel = CreatePanel(player);
+        var startEntered = new ManualResetEventSlim();
+        var releaseStart = new ManualResetEventSlim();
+        player.BeforePlayStart = () =>
+        {
+            startEntered.Set();
+            releaseStart.Wait(TimeSpan.FromSeconds(5));
+        };
+        long generation = panel.BeginPlayback(new BMSFile(), 0);
+
+        Task<bool> start = Task.Run(
+            () => panel.TryPlayStart(generation, "race.bms", null));
+        Assert.IsTrue(startEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task stop = Task.Run(() => panel.StopPlayback(closeProcess: true));
+        Assert.IsFalse(stop.Wait(TimeSpan.FromMilliseconds(100)));
+
+        releaseStart.Set();
+        Assert.IsTrue(stop.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(start.Wait(TimeSpan.FromSeconds(5)));
+        CollectionAssert.AreEqual(
+            new[] { "PlayStart:race.bms", "Close" },
+            player.Commands.ToArray());
+        Assert.IsNull(panel.NowPlayingBmsFile);
     }
 
     [TestMethod]
@@ -217,7 +269,7 @@ public sealed class PlaybackPanelViewModelTests
         IExternalPlayerWindowHost host = new Win32ExternalPlayerWindowHost(new IntPtr(42));
         panel.AttachWindowHost(host);
 
-        panel.ReplacePlayer(second);
+        panel.ReplacePlayerAsync(second).GetAwaiter().GetResult();
 
         Assert.AreEqual(1, first.CloseProcessCount);
         Assert.AreSame(host, second.WindowHost);
@@ -243,7 +295,7 @@ public sealed class PlaybackPanelViewModelTests
         panel.BeginPlayback(playingFile, 0);
 
         var settingsRuntime = (ISettingsDialogPlaybackRuntimePort)panel;
-        settingsRuntime.ApplyPlayerSettings(replacement);
+        settingsRuntime.ApplyPlayerSettingsAsync(replacement).GetAwaiter().GetResult();
 
         Assert.AreEqual(1, first.CloseProcessCount);
         Assert.AreSame(host, replacement.WindowHost);
@@ -257,6 +309,33 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    public void PlaybackPanel_SettingsReplacementReturnsTaskWhilePreviousPlayerClosesOffCallerLane()
+    {
+        using var closeEntered = new ManualResetEventSlim();
+        using var releaseClose = new ManualResetEventSlim();
+        var first = new FakeBmsPlayer
+        {
+            BeforeClose = () =>
+            {
+                closeEntered.Set();
+                releaseClose.Wait();
+            }
+        };
+        var replacement = new FakeBmsPlayer();
+        PlaybackPanelViewModel panel = CreatePanel(first);
+
+        Task replacementTask =
+            ((ISettingsDialogPlaybackRuntimePort)panel).ApplyPlayerSettingsAsync(replacement);
+
+        Assert.IsTrue(closeEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsFalse(replacementTask.IsCompleted);
+        releaseClose.Set();
+        Assert.IsTrue(replacementTask.Wait(TimeSpan.FromSeconds(5)));
+        Assert.AreEqual(1, first.CloseProcessCount);
+        Assert.AreEqual(replacement.Duration, panel.CurrentlyPlayingDuration);
+    }
+
+    [TestMethod]
     public void PlaybackPanel_SettingsRuntimeApplyFailurePreservesPreviousPlayerAndSession()
     {
         var first = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(10) };
@@ -267,7 +346,10 @@ public sealed class PlaybackPanelViewModelTests
 
         try
         {
-            ((ISettingsDialogPlaybackRuntimePort)panel).ApplyPlayerSettings(replacement);
+            ((ISettingsDialogPlaybackRuntimePort)panel)
+                .ApplyPlayerSettingsAsync(replacement)
+                .GetAwaiter()
+                .GetResult();
             Assert.Fail("Expected replacement preparation to fail.");
         }
         catch (InvalidOperationException)
@@ -430,7 +512,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.IsFalse(firstPlayer.Commands.Any(command => command == "PlayStart:stopped.bms"));
 
         long replacedGeneration = panel.BeginPlayback(new BMSFile(), 2);
-        panel.ReplacePlayer(replacementPlayer);
+        panel.ReplacePlayerAsync(replacementPlayer).GetAwaiter().GetResult();
         Assert.IsFalse(panel.TryPlayStart(replacedGeneration, "replaced.bms", null).GetAwaiter().GetResult());
         Assert.IsFalse(replacementPlayer.Commands.Any(command => command == "PlayStart:replaced.bms"));
 
@@ -775,7 +857,7 @@ public sealed class PlaybackPanelViewModelTests
         long secondGeneration = panel.BeginPlayback(secondFile, 1);
         firstPlayer.PlayStartTask = secondCompletion.Task;
         Task<bool> secondStart = panel.TryPlayStart(secondGeneration, "second.bms", null);
-        panel.ReplacePlayer(replacementPlayer);
+        panel.ReplacePlayerAsync(replacementPlayer).GetAwaiter().GetResult();
         secondCompletion.SetException(new IOException("stale after replacement"));
 
         Assert.IsTrue(SpinWait.SpinUntil(() => secondStart.IsCompleted, 3000));
@@ -918,10 +1000,12 @@ public sealed class PlaybackPanelViewModelTests
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
-        player.BeforePlayStart = () => panel.ReplacePlayer(replacement);
+        Task replacementTask = Task.CompletedTask;
+        player.BeforePlayStart = () => replacementTask = panel.ReplacePlayerAsync(replacement);
         try
         {
             panel.Start();
+            replacementTask.GetAwaiter().GetResult();
 
             Assert.IsNotNull(panel.NowPlayingBmsFile);
             Assert.AreEqual(0, replacement.CloseProcessCount);
@@ -956,10 +1040,12 @@ public sealed class PlaybackPanelViewModelTests
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
-        player.BeforePlayStart = () => panel.ReplacePlayer(replacement);
+        Task replacementTask = Task.CompletedTask;
+        player.BeforePlayStart = () => replacementTask = panel.ReplacePlayerAsync(replacement);
         try
         {
             panel.Start();
+            replacementTask.GetAwaiter().GetResult();
 
             Assert.IsNotNull(panel.NowPlayingBmsFile);
             Assert.AreEqual(0, replacement.CloseProcessCount);
@@ -1746,6 +1832,8 @@ public sealed class PlaybackPanelViewModelTests
 
         public Action? BeforePlayStart { get; set; }
 
+        public Action? BeforeClose { get; set; }
+
         public Action<object, EventArgs>? ExitHandler { get; private set; }
 
         public ConcurrentQueue<string> Commands { get; } = new();
@@ -1759,6 +1847,7 @@ public sealed class PlaybackPanelViewModelTests
         {
             CloseProcessCount++;
             Commands.Enqueue("Close");
+            BeforeClose?.Invoke();
         }
 
         public Task PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
@@ -1842,11 +1931,17 @@ public sealed class PlaybackPanelViewModelTests
         {
             action();
         }
+
+        public Task DispatchAsync(Action action)
+        {
+            action();
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class QueuedPlaybackUiDispatcher : IPlaybackUiDispatcher
     {
-        private readonly Queue<Action> actions = new();
+        private readonly ConcurrentQueue<Action> actions = new();
 
         internal int PendingCount => actions.Count;
 
@@ -1855,11 +1950,30 @@ public sealed class PlaybackPanelViewModelTests
             actions.Enqueue(action);
         }
 
+        public Task DispatchAsync(Action action)
+        {
+            var completion = new TaskCompletionSource<object?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            actions.Enqueue(() =>
+            {
+                try
+                {
+                    action();
+                    completion.TrySetResult(null);
+                }
+                catch (Exception exception)
+                {
+                    completion.TrySetException(exception);
+                }
+            });
+            return completion.Task;
+        }
+
         internal void RunAll()
         {
-            while (actions.Count > 0)
+            while (actions.TryDequeue(out Action action))
             {
-                actions.Dequeue()();
+                action();
             }
         }
     }

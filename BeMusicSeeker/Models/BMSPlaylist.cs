@@ -967,78 +967,85 @@ public partial class BMSPlaylist : ObservableObject
             return;
         }
 
-        using (receiptPublicationLease)
+        bool publicationReceiptIsCurrent;
+        try
         {
-            if (!playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt))
-            {
-                if (!IsShutdownRequested)
-                {
-                    eventArgs.CompositionFailure = new InvalidOperationException(
-                        "Playlist hydration receipt became stale while acquiring the publication reservation.");
-                    eventArgs.RetryContinuation = publishedReceipt.Continuation;
-                    eventArgs.RetryRequested = true;
-                }
-                return;
-            }
+            publicationReceiptIsCurrent = playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt);
+        }
+        finally
+        {
+            receiptPublicationLease?.Dispose();
+        }
 
-            PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent effectiveContinuation = publishedReceipt.Continuation;
-            if (effectiveContinuation?.RunCustomFolderOutputRepairAfterHydration == true)
-            {
-                try
-                {
-                    QueueCustomFolderOutputRepairAfterHydration(
-                        receipt.Reason,
-                        effectiveContinuation.VerifyRootOutputDirectoryRows);
-                }
-                catch (Exception ex)
-                {
-                    NLogWrapper.FileLogger?.Warn(
-                        ex,
-                        "playlist_entries_hydration_custom_folder_repair_failed reason=" + FormatTextForLog(receipt.Reason));
-                }
-            }
-            if (effectiveContinuation?.QueueBeatorajaBmtExportAfterHydration == true)
-            {
-                try
-                {
-                    BmtOutput.QueueBeatorajaBmtExportAll(receipt.Reason);
-                }
-                catch (Exception ex)
-                {
-                    NLogWrapper.FileLogger?.Warn(
-                        ex,
-                        "playlist_entries_hydration_bmt_export_failed reason=" + FormatTextForLog(receipt.Reason));
-                }
-            }
-
-            if (playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt))
-            {
-                try
-                {
-                    PlaylistEntriesHydrationReceiptPublished?.Invoke(
-                        this,
-                        new PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs(publishedReceipt));
-                }
-                catch (Exception ex)
-                {
-                    if (IsShutdownRequested)
-                    {
-                        return;
-                    }
-                    eventArgs.CompositionFailure = ex;
-                    eventArgs.RetryContinuation = publishedReceipt.Continuation;
-                    // A presentation consumer failure is deterministic for this receipt. Let the
-                    // hydration owner fault the operation instead of retrying an unchanged consumer.
-                    eventArgs.RetryRequested = false;
-                }
-            }
-            else if (!IsShutdownRequested)
+        if (!publicationReceiptIsCurrent)
+        {
+            if (!IsShutdownRequested)
             {
                 eventArgs.CompositionFailure = new InvalidOperationException(
-                    "Playlist hydration receipt became stale before presentation publication.");
+                    "Playlist hydration receipt became stale while acquiring the publication reservation.");
                 eventArgs.RetryContinuation = publishedReceipt.Continuation;
                 eventArgs.RetryRequested = true;
             }
+            return;
+        }
+
+        PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent effectiveContinuation = publishedReceipt.Continuation;
+        if (effectiveContinuation?.RunCustomFolderOutputRepairAfterHydration == true)
+        {
+            try
+            {
+                QueueCustomFolderOutputRepairAfterHydration(
+                    receipt.Reason,
+                    effectiveContinuation.VerifyRootOutputDirectoryRows);
+            }
+            catch (Exception ex)
+            {
+                NLogWrapper.FileLogger?.Warn(
+                    ex,
+                    "playlist_entries_hydration_custom_folder_repair_failed reason=" + FormatTextForLog(receipt.Reason));
+            }
+        }
+        if (effectiveContinuation?.QueueBeatorajaBmtExportAfterHydration == true)
+        {
+            try
+            {
+                BmtOutput.QueueBeatorajaBmtExportAll(receipt.Reason);
+            }
+            catch (Exception ex)
+            {
+                NLogWrapper.FileLogger?.Warn(
+                    ex,
+                    "playlist_entries_hydration_bmt_export_failed reason=" + FormatTextForLog(receipt.Reason));
+            }
+        }
+
+        if (playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt))
+        {
+            try
+            {
+                PlaylistEntriesHydrationReceiptPublished?.Invoke(
+                    this,
+                    new PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs(publishedReceipt));
+            }
+            catch (Exception ex)
+            {
+                if (IsShutdownRequested)
+                {
+                    return;
+                }
+                eventArgs.CompositionFailure = ex;
+                eventArgs.RetryContinuation = publishedReceipt.Continuation;
+                // A presentation consumer failure is deterministic for this receipt. Let the
+                // hydration owner fault the operation instead of retrying an unchanged consumer.
+                eventArgs.RetryRequested = false;
+            }
+        }
+        else if (!IsShutdownRequested)
+        {
+            eventArgs.CompositionFailure = new InvalidOperationException(
+                "Playlist hydration receipt became stale before presentation publication.");
+            eventArgs.RetryContinuation = publishedReceipt.Continuation;
+            eventArgs.RetryRequested = true;
         }
     }
 
@@ -1050,6 +1057,10 @@ public partial class BMSPlaylist : ObservableObject
                 GetCustomFolderOutputSettings());
         }
     }
+
+    internal bool IsPlaylistEntriesHydrationReceiptCurrent(
+        PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt receipt)
+        => playlistEntriesHydrationOwner.IsReceiptCurrent(receipt);
 
     /// <summary>
     /// 現在の custom-folder output base と root playlist output を LR2Config の search root へ同期します。

@@ -2723,7 +2723,28 @@ public partial class BMSLibrary : ObservableObject
 
     private void HandleLr2SynchronizationPropertyChanged(object sender, PropertyChangedEventArgs eventArgs)
     {
-        RaisePropertyChanged(eventArgs?.PropertyName);
+        string propertyName = eventArgs?.PropertyName;
+        IUiScheduledOperation publication = uiScheduler.Schedule(
+            () => RaisePropertyChanged(propertyName));
+        if (!publication.IsAccepted)
+        {
+            LogInstallPerformanceWarn(
+                "lr2_sync_property_publication_rejected property="
+                + (propertyName ?? "(null)")
+                + " reason="
+                + publication.RejectionReason);
+            return;
+        }
+        _ = publication.Completion.ContinueWith(
+            task => LogInstallPerformanceWarn(
+                task.IsCanceled || publication.IsAborted
+                    ? "lr2_sync_property_publication_canceled property=" + (propertyName ?? "(null)")
+                    : "lr2_sync_property_publication_failed property=" + (propertyName ?? "(null)")
+                        + " exception="
+                        + (task.Exception?.GetBaseException().GetType().Name ?? "unknown")),
+            CancellationToken.None,
+            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     /// <summary>
@@ -3206,18 +3227,27 @@ public partial class BMSLibrary : ObservableObject
         string currentDisplayName = request?.DisplayName ?? string.Empty;
         SetInstallEstimationProgress(ToInstallEstimationProgressSource(batchRequest.Source), batchRequest.PackageCount, completed, currentDisplayName);
         bool isLowConfidence = false;
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        List<Func<Action>> notificationDeferrals =
+            DeferPackageEntryNotifications(request?.Package?.ChartEntries);
+        try
         {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
+            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             {
-                using (rwlockBMSFiles.GetReaderGuard())
+                using (rwlockPendingInstallCharts.GetWriterGuard())
                 {
-                    using (rwlockSongDBInstall.GetWriterGuard())
+                    using (rwlockBMSFiles.GetReaderGuard())
                     {
-                        isLowConfidence = ApplyPendingInstallEstimateEvaluationResultUnsafe(evaluationResult);
+                        using (rwlockSongDBInstall.GetWriterGuard())
+                        {
+                            isLowConfidence = ApplyPendingInstallEstimateEvaluationResultUnsafe(evaluationResult);
+                        }
                     }
                 }
             }
+        }
+        finally
+        {
+            QueuePackageEntryNotificationPublication(notificationDeferrals);
         }
         completed++;
         if (isLowConfidence)
@@ -3335,16 +3365,94 @@ public partial class BMSLibrary : ObservableObject
 
     private void SetPendingInstallEstimateSearchingState(PendingInstallEstimateEvaluationRequest request, bool isSearching)
     {
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        List<Func<Action>> notificationDeferrals =
+            DeferPackageEntryNotifications(request?.MissingEntries);
+        try
         {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
+            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             {
-                using (rwlockBMSFiles.GetReaderGuard())
+                using (rwlockPendingInstallCharts.GetWriterGuard())
                 {
-                    SetPendingInstallEstimateSearchingStateUnsafe(request, isSearching);
+                    using (rwlockBMSFiles.GetReaderGuard())
+                    {
+                        SetPendingInstallEstimateSearchingStateUnsafe(request, isSearching);
+                    }
                 }
             }
         }
+        finally
+        {
+            QueuePackageEntryNotificationPublication(notificationDeferrals);
+        }
+    }
+
+    private static List<Func<Action>> DeferPackageEntryNotifications(
+        IEnumerable<PackageChartEntry> entries)
+    {
+        return [.. (entries ?? [])
+            .Where(entry => entry != null)
+            .Distinct()
+            .Select(entry => entry.DeferPropertyChangedNotificationPublication())];
+    }
+
+    private void QueuePackageEntryNotificationPublication(
+        IReadOnlyList<Func<Action>> notificationDeferrals)
+    {
+        if (notificationDeferrals == null || notificationDeferrals.Count == 0)
+        {
+            return;
+        }
+        List<Action> publications = [];
+        for (int index = notificationDeferrals.Count - 1; index >= 0; index--)
+        {
+            Action entryPublication = notificationDeferrals[index]?.Invoke();
+            if (entryPublication != null)
+            {
+                publications.Add(entryPublication);
+            }
+        }
+        if (publications.Count == 0)
+        {
+            return;
+        }
+        void Publish()
+        {
+            List<Exception> failures = [];
+            foreach (Action entryPublication in publications)
+            {
+                try
+                {
+                    entryPublication();
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
+            }
+            if (failures.Count > 0)
+            {
+                throw new AggregateException(
+                    "Package entry notification publication failed.",
+                    failures);
+            }
+        }
+        IUiScheduledOperation publication = uiScheduler.Schedule(Publish);
+        if (!publication.IsAccepted)
+        {
+            LogInstallPerformanceWarn(
+                "package_entry_notification_publication_rejected reason="
+                + publication.RejectionReason);
+            return;
+        }
+        _ = publication.Completion.ContinueWith(
+            task => LogInstallPerformanceWarn(
+                task.IsCanceled || publication.IsAborted
+                    ? "package_entry_notification_publication_canceled"
+                    : "package_entry_notification_publication_failed exception="
+                        + (task.Exception?.GetBaseException().GetType().Name ?? "unknown")),
+            CancellationToken.None,
+            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private static void SetPendingInstallEstimateSearchingStateUnsafe(PendingInstallEstimateEvaluationRequest request, bool isSearching)
@@ -3925,14 +4033,66 @@ public partial class BMSLibrary : ObservableObject
             }
         }
         Interlocked.Exchange(ref lastLibraryInitializationProgressReportTimestamp, now);
+        List<string> changedProperties = [];
         lock (lockLibraryInitializationProgress)
         {
-            LibraryInitializationProgress = stage;
-            LibraryInitializationProgressScannerLabel = scannerLabel ?? string.Empty;
-            LibraryInitializationProgressTotalCount = Math.Max(0, totalCount);
-            LibraryInitializationProgressProcessedCount = Math.Max(0, processedCount);
-            LibraryInitializationProgressCurrentPath = currentPath ?? string.Empty;
+            string normalizedScannerLabel = scannerLabel ?? string.Empty;
+            int normalizedTotalCount = Math.Max(0, totalCount);
+            int normalizedProcessedCount = Math.Max(0, processedCount);
+            string normalizedCurrentPath = currentPath ?? string.Empty;
+            if (_LibraryInitializationProgressStage != stage)
+            {
+                _LibraryInitializationProgressStage = stage;
+                changedProperties.Add(nameof(LibraryInitializationProgress));
+            }
+            if (_LibraryInitializationProgressScannerLabel != normalizedScannerLabel)
+            {
+                _LibraryInitializationProgressScannerLabel = normalizedScannerLabel;
+                changedProperties.Add(nameof(LibraryInitializationProgressScannerLabel));
+            }
+            if (_LibraryInitializationProgressTotalCount != normalizedTotalCount)
+            {
+                _LibraryInitializationProgressTotalCount = normalizedTotalCount;
+                changedProperties.Add(nameof(LibraryInitializationProgressTotalCount));
+            }
+            if (_LibraryInitializationProgressProcessedCount != normalizedProcessedCount)
+            {
+                _LibraryInitializationProgressProcessedCount = normalizedProcessedCount;
+                changedProperties.Add(nameof(LibraryInitializationProgressProcessedCount));
+            }
+            if (_LibraryInitializationProgressCurrentPath != normalizedCurrentPath)
+            {
+                _LibraryInitializationProgressCurrentPath = normalizedCurrentPath;
+                changedProperties.Add(nameof(LibraryInitializationProgressCurrentPath));
+            }
         }
+        if (changedProperties.Count == 0)
+        {
+            return;
+        }
+        IUiScheduledOperation publication = uiScheduler.Schedule(() =>
+        {
+            foreach (string propertyName in changedProperties)
+            {
+                RaisePropertyChanged(propertyName);
+            }
+        });
+        if (!publication.IsAccepted)
+        {
+            LogInstallPerformanceWarn(
+                "library_initialization_progress_publication_rejected reason="
+                + publication.RejectionReason);
+            return;
+        }
+        _ = publication.Completion.ContinueWith(
+            task => LogInstallPerformanceWarn(
+                task.IsCanceled || publication.IsAborted
+                    ? "library_initialization_progress_publication_canceled"
+                    : "library_initialization_progress_publication_failed exception="
+                        + (task.Exception?.GetBaseException().GetType().Name ?? "unknown")),
+            CancellationToken.None,
+            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private void CompleteLibraryDatabaseLoadProgress()
@@ -10550,9 +10710,20 @@ public partial class BMSLibrary : ObservableObject
         playlistReferenceOwner.SynchronizeReferenceBMSTables(SnapshotPlaylistReferenceTables(tables));
     }
 
-    internal void SynchronizeReferenceBMSTableSnapshots(IEnumerable<PlaylistReferenceTableSnapshot> tableSnapshots)
+    internal BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan
+        PrepareReferenceBMSTableSynchronization(IEnumerable<BMSTable> tables)
     {
-        playlistReferenceOwner.SynchronizeReferenceBMSTables(tableSnapshots);
+        long baseRevision = playlistReferenceOwner.CaptureReferenceIndexRevision();
+        List<PlaylistReferenceTableSnapshot> snapshots = SnapshotPlaylistReferenceTables(tables);
+        return playlistReferenceOwner.PrepareReferenceBMSTableSynchronization(
+            baseRevision,
+            snapshots);
+    }
+
+    internal bool TryCommitReferenceBMSTableSynchronization(
+        BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan plan)
+    {
+        return playlistReferenceOwner.TryCommitReferenceBMSTableSynchronization(plan);
     }
 
     /// <summary>

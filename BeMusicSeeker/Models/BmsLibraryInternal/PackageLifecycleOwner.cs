@@ -143,7 +143,7 @@ internal sealed partial class PackageLifecycleOwner
             installableMaintenanceRequestedVersion++;
             bool shouldStartWorker = !installableMaintenanceRunning;
             installableMaintenanceCriticalElapsedMs = criticalElapsedMs;
-            raisePropertyChanged("InstallableMaintenanceDeferredRequestedVersion");
+            QueuePropertyChanged("InstallableMaintenanceDeferredRequestedVersion");
             if (shouldStartWorker)
             {
                 SetInstallableMaintenanceRunning(true);
@@ -522,6 +522,53 @@ internal sealed partial class PackageLifecycleOwner
         }
     }
 
+    private void QueuePropertyChanged(string propertyName)
+    {
+        try
+        {
+            IUiScheduledOperation operation = uiScheduler.Schedule(
+                () =>
+                {
+                    try
+                    {
+                        raisePropertyChanged(propertyName);
+                    }
+                    catch (Exception exception)
+                    {
+                        collectionPublicationFailed(exception);
+                    }
+                });
+            if (!operation.IsAccepted)
+            {
+                collectionPublicationFailed(new InvalidOperationException(
+                    "Package lifecycle property publication was rejected: "
+                    + operation.RejectionReason));
+                return;
+            }
+            _ = operation.Completion.ContinueWith(
+                task =>
+                {
+                    if (task.IsFaulted)
+                    {
+                        collectionPublicationFailed(task.Exception?.GetBaseException()
+                            ?? new InvalidOperationException("Package lifecycle property publication failed."));
+                    }
+                    else if (task.IsCanceled || operation.IsAborted)
+                    {
+                        collectionPublicationFailed(new OperationCanceledException(
+                            "Package lifecycle property publication was canceled after scheduling."));
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+        catch (Exception exception)
+        {
+            collectionPublicationFailed(exception);
+        }
+    }
+
     private sealed class CollectionMutationDeferral
     {
         private readonly object syncRoot = new();
@@ -716,7 +763,7 @@ internal sealed partial class PackageLifecycleOwner
             latestPendingEstimateQueueStatusSequence = nextSnapshot.Sequence;
             pendingEstimateQueueStatus = nextSnapshot;
             pendingEstimateQueueStatusVersion++;
-            raisePropertyChanged("PendingEstimateQueueStatusVersion");
+            QueuePropertyChanged("PendingEstimateQueueStatusVersion");
         }
     }
 
@@ -726,7 +773,7 @@ internal sealed partial class PackageLifecycleOwner
         {
             installEstimationProgress = snapshot?.Clone() ?? new InstallEstimationProgressSnapshot();
             installEstimationProgressVersion++;
-            raisePropertyChanged("InstallEstimationProgressVersion");
+            QueuePropertyChanged("InstallEstimationProgressVersion");
         }
     }
 
@@ -737,7 +784,7 @@ internal sealed partial class PackageLifecycleOwner
             return;
         }
         installableMaintenanceRunning = value;
-        raisePropertyChanged("InstallableMaintenanceDeferredRunning");
+        QueuePropertyChanged("InstallableMaintenanceDeferredRunning");
     }
 
     private void SetInstallableMaintenanceCompletedVersion(int value)
@@ -747,6 +794,6 @@ internal sealed partial class PackageLifecycleOwner
             return;
         }
         installableMaintenanceCompletedVersion = value;
-        raisePropertyChanged("InstallableMaintenanceDeferredCompletedVersion");
+        QueuePropertyChanged("InstallableMaintenanceDeferredCompletedVersion");
     }
 }

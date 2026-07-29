@@ -462,6 +462,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.RequestShutdown("window_close");
         Assert.IsTrue(discarded.Wait(TimeSpan.FromSeconds(5)));
         shutdownRequested = false;
+        owner.Reset(startImmediately: true);
         owner.Queue("default_after_discard", "dependent", "default_a", () =>
         {
             dependentEntered.Set();

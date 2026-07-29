@@ -1497,6 +1497,42 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void PreparedReferenceSynchronizationCommitsAtomicallyAndRejectsStaleRevision()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var file = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms"
+            };
+            file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            BMSTable currentTable = CreateTable("Before", "A", file.hash);
+            BMSTable replacementTable = CreateTable("After", "B", file.hash);
+            SetLibraryFilesWithoutNotification(library, [file]);
+            library.AddReferenceBMSTables(currentTable);
+            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
+
+            var stalePlan = library.PrepareReferenceBMSTableSynchronization([replacementTable]);
+            Assert.AreEqual("A", library.GetPlaylistReferenceDisplay(chart).Symbols);
+
+            currentTable.symbol = "C";
+            currentTable.name = "Concurrent";
+            library.RefreshReferenceDisplayForTable(currentTable);
+
+            Assert.IsFalse(library.TryCommitReferenceBMSTableSynchronization(stalePlan));
+            Assert.AreEqual("C", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("Concurrent", library.GetPlaylistReferenceDisplay(chart).Names);
+
+            var currentPlan = library.PrepareReferenceBMSTableSynchronization([replacementTable]);
+            Assert.IsTrue(library.TryCommitReferenceBMSTableSynchronization(currentPlan));
+            Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
+        });
+    }
+
+    [TestMethod]
     public void AddReferenceBMSTables_DoesNotMaterializeUnmatchedPendingBmsonEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();

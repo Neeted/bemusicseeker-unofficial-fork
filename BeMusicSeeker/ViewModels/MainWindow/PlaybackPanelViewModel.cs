@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -36,6 +37,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private readonly ChartFileOperationSynchronizer chartFileOperations;
 
     private readonly object sessionGate = new();
+
+    private readonly object playerOperationGate = new();
+
+    private readonly SemaphoreSlim playerReplacementGate = new(1, 1);
 
     private readonly object workflowGate = new();
 
@@ -162,7 +167,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         this.playbackDialogs = playbackDialogs ?? throw new ArgumentNullException(nameof(playbackDialogs));
         this.warnInvalidChart = warnInvalidChart ?? throw new ArgumentNullException(nameof(warnInvalidChart));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
-        ReplacePlayer(player);
+        InitializePlayer(player);
     }
 
     public ViewModelCommand NextCommand => nextCommand ??= CreateBackgroundCommand(() => Next(), "PlaybackPanel.Next");
@@ -580,48 +585,123 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// <summary>
     /// Replaces the adapter after settings changes and rebinds its telemetry events.
     /// </summary>
-    internal void ReplacePlayer(IBMSPlayer player)
+    private void InitializePlayer(IBMSPlayer player)
     {
-        ReplacePlayerCore(player, clearPlaybackStatus: false);
+        if (player == null)
+        {
+            throw new ArgumentNullException(nameof(player));
+        }
+        PlayerStateSnapshot preparedState = PlayerStateSnapshot.Capture(player);
+        player.PropertyChanged += BmsPlayerPropertyChanged;
+        bmsPlayer = player;
+        ApplyPlayerState(preparedState);
+        RaisePropertyChanged(nameof(CurrentlyPlayingTime));
     }
 
-    private void ReplacePlayerCore(IBMSPlayer player, bool clearPlaybackStatus)
+    internal async Task ReplacePlayerAsync(IBMSPlayer player, bool clearPlaybackStatus = false)
     {
         if (player == null)
         {
             throw new ArgumentNullException(nameof(player));
         }
 
-        lock (sessionGate)
+        await playerReplacementGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            if (ReferenceEquals(bmsPlayer, player))
+            IBMSPlayer previousPlayer;
+            IExternalPlayerWindowHost currentWindowHost;
+            bool samePlayer;
+            lock (sessionGate)
             {
-                RefreshPlayerState(player);
+                samePlayer = ReferenceEquals(bmsPlayer, player);
+                previousPlayer = bmsPlayer;
+                currentWindowHost = windowHost;
+            }
+            if (samePlayer)
+            {
+                await uiDispatcher.DispatchAsync(() => RefreshPlayerState(player)).ConfigureAwait(false);
                 return;
             }
 
             PlayerStateSnapshot preparedState = PlayerStateSnapshot.Capture(player);
-            IBMSPlayer previousPlayer = bmsPlayer;
-            bool replacementSubscribed = false;
-            bool previousDetached = false;
-            try
+            if (currentWindowHost != null && player is IExternalWindowPlayer externalWindowPlayer)
             {
-                if (windowHost != null && player is IExternalWindowPlayer externalWindowPlayer)
-                {
-                    externalWindowPlayer.AttachWindowHost(windowHost);
-                }
-                player.PropertyChanged += BmsPlayerPropertyChanged;
-                replacementSubscribed = true;
+                externalWindowPlayer.AttachWindowHost(currentWindowHost);
+            }
+            player.PropertyChanged += BmsPlayerPropertyChanged;
 
-                if (previousPlayer != null)
+            long replacementGeneration;
+            lock (sessionGate)
+            {
+                if (!ReferenceEquals(bmsPlayer, previousPlayer))
                 {
-                    previousPlayer.PropertyChanged -= BmsPlayerPropertyChanged;
-                    previousDetached = true;
-                    previousPlayer.CloseProcess();
+                    player.PropertyChanged -= BmsPlayerPropertyChanged;
+                    throw new InvalidOperationException(
+                        "Playback player changed while a settings replacement was being prepared.");
                 }
+                replacementGeneration = ++playbackGeneration;
+            }
 
-                bmsPlayer = player;
-                playbackGeneration++;
+            await ReplacePlayerAfterPreparationAsync(
+                    player,
+                    previousPlayer,
+                    preparedState,
+                    clearPlaybackStatus,
+                    replacementGeneration)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            playerReplacementGate.Release();
+        }
+    }
+
+    private async Task ReplacePlayerAfterPreparationAsync(
+        IBMSPlayer player,
+        IBMSPlayer previousPlayer,
+        PlayerStateSnapshot preparedState,
+        bool clearPlaybackStatus,
+        long replacementGeneration)
+    {
+        try
+        {
+            await Task.Run(() =>
+            {
+                lock (playerOperationGate)
+                {
+                    previousPlayer?.CloseProcess();
+                    lock (sessionGate)
+                    {
+                        if (!ReferenceEquals(bmsPlayer, previousPlayer)
+                            || playbackGeneration != replacementGeneration)
+                        {
+                            throw new InvalidOperationException(
+                                "Playback player changed while a settings replacement was in progress.");
+                        }
+                        if (previousPlayer != null)
+                        {
+                            previousPlayer.PropertyChanged -= BmsPlayerPropertyChanged;
+                        }
+                        bmsPlayer = player;
+                    }
+                }
+            }).ConfigureAwait(false);
+        }
+        catch
+        {
+            player.PropertyChanged -= BmsPlayerPropertyChanged;
+            throw;
+        }
+
+        await uiDispatcher.DispatchAsync(() =>
+        {
+            lock (sessionGate)
+            {
+                if (!ReferenceEquals(bmsPlayer, player)
+                    || playbackGeneration != replacementGeneration)
+                {
+                    return;
+                }
                 if (clearPlaybackStatus)
                 {
                     ClearCurrentPlaybackStatus();
@@ -630,25 +710,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 }
                 ApplyPlayerState(preparedState);
                 RaisePropertyChanged(nameof(CurrentlyPlayingTime));
-                replacementSubscribed = false;
             }
-            catch
-            {
-                if (ReferenceEquals(bmsPlayer, player))
-                {
-                    bmsPlayer = previousPlayer;
-                }
-                if (replacementSubscribed)
-                {
-                    player.PropertyChanged -= BmsPlayerPropertyChanged;
-                }
-                if (previousDetached && previousPlayer != null)
-                {
-                    previousPlayer.PropertyChanged += BmsPlayerPropertyChanged;
-                }
-                throw;
-            }
-        }
+        }).ConfigureAwait(false);
     }
 
     internal void AttachWindowHost(IExternalPlayerWindowHost windowHost)
@@ -670,6 +733,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     internal void CloseProcess()
     {
+        IBMSPlayer player;
         lock (sessionGate)
         {
             if (bmsPlayer == null)
@@ -678,16 +742,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
 
             playbackGeneration++;
-            IBMSPlayer player = bmsPlayer;
-            player.CloseProcess();
-            DispatchToUi(() =>
-            {
-                if (ReferenceEquals(player, bmsPlayer))
-                {
-                    RefreshPlayerState(player);
-                }
-            });
+            player = bmsPlayer;
         }
+        CloseCapturedPlayer(player);
     }
 
     internal Task<bool> TryPlayStart(long expectedGeneration, string bmsFilePath, Action<object, EventArgs> onExitEventHandler)
@@ -706,10 +763,13 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         Action<object, EventArgs> onExitEventHandler,
         out PlaybackStartObservation observation)
     {
+        IBMSPlayer player;
+        BMSFile file;
+        PlaybackStartObservation currentObservation;
         lock (sessionGate)
         {
-            IBMSPlayer player = RequirePlayer();
-            BMSFile file = NowPlayingBmsFile;
+            player = RequirePlayer();
+            file = NowPlayingBmsFile;
             if (file == null || expectedGeneration != playbackGeneration)
             {
                 observation = null;
@@ -719,21 +779,36 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             file.status |= BMSFile.BMSFileStatus.LOADING;
             RaisePlaybackStatusPropertiesChanged();
 
-            PlaybackStartObservation currentObservation = new PlaybackStartObservation(
+            currentObservation = new PlaybackStartObservation(
                 expectedGeneration,
                 player,
                 file,
                 onExitEventHandler);
             observation = currentObservation;
-            Task playStartTask = player.PlayStart(
+        }
+
+        Task playStartTask;
+        lock (playerOperationGate)
+        {
+            lock (sessionGate)
+            {
+                if (!IsCurrentPlaybackObservation(currentObservation))
+                {
+                    return Task.FromResult(false);
+                }
+            }
+            playStartTask = player.PlayStart(
                 bmsFilePath,
                 (sender, e) => HandlePlaybackExit(currentObservation, sender, e));
-
-            if (playStartTask == null)
-            {
-                throw new InvalidOperationException("The playback player returned no start task.");
-            }
-
+        }
+        if (playStartTask == null)
+        {
+            throw new InvalidOperationException("The playback player returned no start task.");
+        }
+        bool completedSynchronously;
+        Task<bool> observedTask = null;
+        lock (sessionGate)
+        {
             if (!playStartTask.IsFaulted && !playStartTask.IsCanceled
                 && expectedGeneration == playbackGeneration
                 && ReferenceEquals(player, bmsPlayer)
@@ -744,19 +819,26 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 RaisePlaybackStatusPropertiesChanged();
             }
 
-            if (playStartTask.IsCompleted)
+            completedSynchronously = playStartTask.IsCompleted;
+            if (!completedSynchronously)
             {
-                if (!playStartTask.IsFaulted && !playStartTask.IsCanceled)
-                {
-                    CompletePlaybackStartObservation(currentObservation, succeeded: true, failure: null);
-                }
-                return AwaitPlaybackCompletionAsync(playStartTask);
+                observedTask = ObservePlaybackStartAsync(playStartTask, currentObservation);
             }
-
-            Task<bool> observedTask = ObservePlaybackStartAsync(playStartTask, currentObservation);
+        }
+        if (completedSynchronously)
+        {
+            if (!playStartTask.IsFaulted && !playStartTask.IsCanceled)
+            {
+                CompletePlaybackStartObservation(currentObservation, succeeded: true, failure: null);
+            }
+            return AwaitPlaybackCompletionAsync(playStartTask);
+        }
+        if (observedTask != null)
+        {
             TrackPlaybackStart(observedTask);
             return observedTask;
         }
+        throw new InvalidOperationException("Playback start observation was not created.");
     }
 
     private static async Task<bool> AwaitPlaybackCompletionAsync(Task playStartTask)
@@ -801,6 +883,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         object exitSender = null;
         EventArgs exitArgs = null;
         bool stoppedCurrentPlayback = false;
+        IBMSPlayer playerToClose = null;
         lock (sessionGate)
         {
             observation.StartCompleted = true;
@@ -809,7 +892,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 if (!succeeded)
                 {
-                    StopPlayback(closeProcess: true);
+                    playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess: true);
                     stoppedCurrentPlayback = true;
                 }
                 else if (observation.ExitRequested && !observation.ExitClaimed)
@@ -822,6 +905,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 }
             }
         }
+        CloseCapturedPlayer(playerToClose);
         if (stoppedCurrentPlayback && failure != null)
         {
             NotifyPlaybackFailureSafely(failure);
@@ -902,28 +986,32 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private bool TryStopPlaybackForStartObservation(PlaybackStartObservation observation)
     {
+        IBMSPlayer playerToClose;
         lock (sessionGate)
         {
             if (observation != null && !IsCurrentPlaybackObservation(observation))
             {
                 return false;
             }
-            StopPlayback(closeProcess: true);
-            return true;
+            playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess: true);
         }
+        CloseCapturedPlayer(playerToClose);
+        return true;
     }
 
     private bool TryStopPlaybackForGeneration(long generation, BMSFile file)
     {
+        IBMSPlayer playerToClose;
         lock (sessionGate)
         {
             if (generation != playbackGeneration || !ReferenceEquals(file, NowPlayingBmsFile))
             {
                 return false;
             }
-            StopPlayback(closeProcess: true);
-            return true;
+            playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess: true);
         }
+        CloseCapturedPlayer(playerToClose);
+        return true;
     }
 
     private void NotifyPlaybackFailureSafely(Exception failure, bool propagateNotificationFailure = false)
@@ -1483,17 +1571,47 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     internal void StopPlayback(bool closeProcess = false)
     {
+        IBMSPlayer playerToClose;
         lock (sessionGate)
         {
-            playbackGeneration++;
-            if (closeProcess)
-            {
-                CloseProcess();
-            }
-            ClearCurrentPlaybackStatus();
-            NowPlayingBmsFile = null;
-            nowPlayingRowIndex = -1;
+            playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess);
         }
+        CloseCapturedPlayer(playerToClose);
+    }
+
+    private IBMSPlayer ClearPlaybackStateWithoutExternalCall(bool closeProcess)
+    {
+        IBMSPlayer playerToClose = closeProcess ? bmsPlayer : null;
+        if (!closeProcess || playerToClose != null)
+        {
+            playbackGeneration++;
+        }
+        ClearCurrentPlaybackStatus();
+        NowPlayingBmsFile = null;
+        nowPlayingRowIndex = -1;
+        return playerToClose;
+    }
+
+    private void CloseCapturedPlayer(IBMSPlayer player)
+    {
+        if (player == null)
+        {
+            return;
+        }
+        lock (playerOperationGate)
+        {
+            player.CloseProcess();
+        }
+        DispatchToUi(() =>
+        {
+            lock (sessionGate)
+            {
+                if (ReferenceEquals(player, bmsPlayer))
+                {
+                    RefreshPlayerState(player);
+                }
+            }
+        });
     }
 
     internal void TogglePause()
@@ -1792,8 +1910,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         RaisePlayerHeaderPropertiesChanged();
     }
 
-    void ISettingsDialogPlaybackRuntimePort.ApplyPlayerSettings(IBMSPlayer replacementPlayer)
-        => ReplacePlayerCore(replacementPlayer, clearPlaybackStatus: true);
+    Task ISettingsDialogPlaybackRuntimePort.ApplyPlayerSettingsAsync(IBMSPlayer replacementPlayer)
+        => ReplacePlayerAsync(replacementPlayer, clearPlaybackStatus: true);
 
     void ISettingsDialogPlaybackRuntimePort.NotifySettingsChanged()
         => NotifySettingsChanged();

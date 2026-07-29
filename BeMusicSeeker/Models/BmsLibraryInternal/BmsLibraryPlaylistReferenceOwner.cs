@@ -112,6 +112,8 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
 
     private PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
 
+    private long indexRevision;
+
     internal BmsLibraryPlaylistReferenceOwner(int playlistReferenceApplyChunkSize)
     {
         service = new BmsLibraryPlaylistReferenceService(playlistReferenceApplyChunkSize);
@@ -431,6 +433,44 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
         Synchronize([.. (tables ?? []).Where(snapshot => snapshot?.Table != null).GroupBy(snapshot => snapshot.Table).Select(group => group.First())]);
     }
 
+    internal long CaptureReferenceIndexRevision()
+    {
+        lock (syncRoot)
+        {
+            return indexRevision;
+        }
+    }
+
+    internal PlaylistReferenceSynchronizationPlan PrepareReferenceBMSTableSynchronization(
+        long baseRevision,
+        IEnumerable<PlaylistReferenceTableSnapshot> tables)
+    {
+        PlaylistReferenceIndex preparedIndex = PlaylistReferenceIndex.FromSnapshots(
+            (tables ?? [])
+                .Where(snapshot => snapshot?.Table != null)
+                .GroupBy(snapshot => snapshot.Table)
+                .Select(group => group.First()));
+        return new PlaylistReferenceSynchronizationPlan(baseRevision, preparedIndex);
+    }
+
+    internal bool TryCommitReferenceBMSTableSynchronization(PlaylistReferenceSynchronizationPlan plan)
+    {
+        if (plan == null)
+        {
+            throw new ArgumentNullException(nameof(plan));
+        }
+        lock (syncRoot)
+        {
+            if (indexRevision != plan.BaseRevision)
+            {
+                return false;
+            }
+            index = plan.PreparedIndex;
+            indexRevision++;
+            return true;
+        }
+    }
+
     internal void RemoveReferenceBMSTables(PlaylistReferenceTableSnapshot tableSnapshot, bool removeTable)
     {
         BMSTable table = tableSnapshot?.Table;
@@ -462,6 +502,7 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
             {
                 index?.RemoveTable(table);
             }
+            indexRevision++;
         }
     }
 
@@ -475,6 +516,7 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
         {
             index ??= PlaylistReferenceIndex.Empty;
             index.ReplaceSnapshotTable(snapshot);
+            indexRevision++;
         }
     }
 
@@ -485,6 +527,7 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
             index ??= PlaylistReferenceIndex.Empty;
             index.RemoveTable(oldTable);
             index.ReplaceSnapshotTable(newSnapshot);
+            indexRevision++;
         }
     }
 
@@ -497,6 +540,7 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
         lock (syncRoot)
         {
             index?.RemoveTable(table);
+            indexRevision++;
         }
     }
 
@@ -506,7 +550,21 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
         {
             PlaylistReferenceIndex nextIndex = PlaylistReferenceIndex.FromSnapshots(tables);
             index = nextIndex;
+            indexRevision++;
         }
+    }
+
+    internal sealed class PlaylistReferenceSynchronizationPlan
+    {
+        internal PlaylistReferenceSynchronizationPlan(long baseRevision, PlaylistReferenceIndex preparedIndex)
+        {
+            BaseRevision = baseRevision;
+            PreparedIndex = preparedIndex ?? PlaylistReferenceIndex.Empty;
+        }
+
+        internal long BaseRevision { get; }
+
+        internal PlaylistReferenceIndex PreparedIndex { get; }
     }
 
     internal static bool HasPlaylistReferenceMatch(ChartFile chart, PlaylistReferenceLookupKeys lookupKeys)

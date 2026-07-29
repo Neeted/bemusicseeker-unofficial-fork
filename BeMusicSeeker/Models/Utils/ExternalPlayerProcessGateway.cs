@@ -141,6 +141,8 @@ internal sealed class WindowsExternalPlayerProcessSession : IExternalPlayerProce
 
     private bool raisingEventsEnabled;
 
+    private event EventHandler exited;
+
     internal WindowsExternalPlayerProcessSession(Process process, bool started)
     {
         this.process = process ?? throw new ArgumentNullException(nameof(process));
@@ -151,10 +153,18 @@ internal sealed class WindowsExternalPlayerProcessSession : IExternalPlayerProce
     {
         add
         {
-            EnsureRaisingEventsEnabled();
-            process.Exited += value;
+            exited += value;
+            try
+            {
+                EnsureRaisingEventsEnabled();
+            }
+            catch
+            {
+                exited -= value;
+                throw;
+            }
         }
-        remove => process.Exited -= value;
+        remove => exited -= value;
     }
 
     public bool HasExited => process.HasExited;
@@ -182,8 +192,14 @@ internal sealed class WindowsExternalPlayerProcessSession : IExternalPlayerProce
             return;
         }
 
+        process.Exited += ProcessExited;
         process.EnableRaisingEvents = true;
         raisingEventsEnabled = true;
+    }
+
+    private void ProcessExited(object sender, EventArgs e)
+    {
+        exited?.Invoke(this, e);
     }
 
     public void CloseMainWindow()

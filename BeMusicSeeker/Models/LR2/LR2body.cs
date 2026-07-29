@@ -15,6 +15,8 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private readonly IExternalPlayerProcessGateway processGateway;
 
+    private readonly ExternalPlayerWaitPolicy waitPolicy;
+
     private readonly LR2Config lr2Config;
 
     private string BMSFilePathPlaying;
@@ -111,13 +113,15 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         string exePath,
         LR2Config config,
         IPlayerSettingsGateway playerSettingsGateway,
-        IExternalPlayerProcessGateway processGateway)
+        IExternalPlayerProcessGateway processGateway,
+        ExternalPlayerWaitPolicy waitPolicy = null)
     {
         ExePath = exePath ?? throw new ArgumentNullException("exePath", "引数をnullに出来ません");
         lr2Config = config ?? throw new ArgumentNullException("config", "引数をnullに出来ません");
         this.playerSettingsGateway = playerSettingsGateway
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         this.processGateway = processGateway ?? throw new ArgumentNullException(nameof(processGateway));
+        this.waitPolicy = waitPolicy ?? ExternalPlayerWaitPolicy.Default;
         onExitEventHandlerDefault = LR2bodyExited;
     }
 
@@ -128,6 +132,8 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     public void CloseProcess()
     {
+        Exception closeFailure;
+        EventHandler exitHandler;
         lock (lockThis)
         {
             if (LR2bodyProcess == null)
@@ -143,32 +149,37 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 LR2bodyProcess.Exited -= onExitEventHandlerDefault;
             }
             storeWindowPosition();
+            closeFailure = null;
+            exitHandler = onExitEventHandlerDefault;
             try
             {
                 LR2bodyProcess.CloseMainWindow();
-                int num = 0;
-                while (!LR2bodyProcess.HasExited)
+                waitPolicy.WaitForProcessExit(
+                    () => LR2bodyProcess.HasExited,
+                    LR2bodyProcess.Kill,
+                    "LR2body did not terminate after graceful close and kill.");
+            }
+            catch (Exception exception)
+            {
+                closeFailure = exception;
+            }
+            if (closeFailure != null)
+            {
+                if (onExitEventHandlerDefault != null)
                 {
-                    Thread.Sleep(100);
-                    if (num == 50)
-                    {
-                        try
-                        {
-                            LR2bodyProcess.Kill();
-                        }
-                        catch
-                        {
-                        }
-                        num = 0;
-                    }
-                    num++;
+                    LR2bodyProcess.Exited += onExitEventHandlerDefault;
+                }
+                if (onExitEventHandlerRegstered != null)
+                {
+                    LR2bodyProcess.Exited += onExitEventHandlerRegstered;
                 }
             }
-            catch
-            {
-            }
-            onExitEventHandlerDefault?.Invoke(null, null);
         }
+        if (closeFailure != null)
+        {
+            throw new InvalidOperationException("LR2body could not be terminated.", closeFailure);
+        }
+        exitHandler?.Invoke(null, null);
     }
 
     public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
@@ -220,33 +231,26 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             setConfig((int)settings.LR2bodyResolution.Width, (int)settings.LR2bodyResolution.Height, isWinMode: true, settings.PlayerVolume);
             ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
             LR2bodyProcess.Start();
-            DateTime now = DateTime.Now;
-            while (!LR2bodyProcess.HasExited && LR2bodyProcess.MainWindowHandle.IsEmpty)
-            {
-                if (DateTime.Now - now > new TimeSpan(0, 0, 5))
-                {
-                    if (onExitEventHandlerRegstered != null)
-                    {
-                        LR2bodyProcess.Exited -= onExitEventHandlerRegstered;
-                    }
-                    if (onExitEventHandlerDefault != null)
-                    {
-                        LR2bodyProcess.Exited -= onExitEventHandlerDefault;
-                    }
-                    LR2bodyProcess.Kill();
-                    now = DateTime.Now;
-                }
-                Thread.Yield();
-            }
+            waitPolicy.WaitUntil(
+                () => !LR2bodyProcess.MainWindowHandle.IsEmpty,
+                () => LR2bodyProcess.HasExited,
+                () => { },
+                "LR2のメインウィンドウ待機がタイムアウトしました。",
+                pollMilliseconds: 0);
             if (!LR2bodyProcess.HasExited)
             {
                 LR2bodyHandleShowing = LR2bodyProcess.MainWindowHandle;
-                setWindowStyle();
-                restoreWindowPosition(settings);
-                while (!foregroundWindow.IsEmpty && RequireWindowHost().IsWindow(foregroundWindow) && !RequireWindowHost().SetForegroundWindow(foregroundWindow))
+                if (!setWindowStyle() || LR2bodyProcess == null || LR2bodyProcess.HasExited)
                 {
-                    Thread.Sleep(50);
+                    if (LR2bodyProcess != null)
+                    {
+                        LR2bodyExited(LR2bodyProcess, EventArgs.Empty);
+                    }
+                    throw new InvalidOperationException(
+                        "LR2 exited before its window style could be applied.");
                 }
+                restoreWindowPosition(settings);
+                RestoreForegroundWindow(foregroundWindow);
                 BMSFilePathPlaying = bmsFilePath;
                 restoreConfig(isTempClear: false);
                 return Task.CompletedTask;
@@ -511,16 +515,32 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
     }
 
-    private void setWindowStyle()
+    private bool setWindowStyle()
     {
-        if (!LR2bodyHandleShowing.IsEmpty)
+        if (LR2bodyHandleShowing.IsEmpty)
         {
-            while (!LR2bodyProcess.HasExited && !RequireWindowHost().IsLr2WindowStyleApplied(LR2bodyHandleShowing))
-            {
-                RequireWindowHost().ApplyLr2WindowStyle(LR2bodyHandleShowing);
-                Thread.Yield();
-            }
+            return false;
         }
+        return waitPolicy.WaitUntil(
+            () => RequireWindowHost().IsLr2WindowStyleApplied(LR2bodyHandleShowing),
+            () => LR2bodyProcess == null || LR2bodyProcess.HasExited,
+            () => RequireWindowHost().ApplyLr2WindowStyle(LR2bodyHandleShowing),
+            "LR2のwindow style適用がタイムアウトしました。",
+            pollMilliseconds: 0);
+    }
+
+    private void RestoreForegroundWindow(ExternalWindowHandle foregroundWindow)
+    {
+        if (foregroundWindow.IsEmpty || !RequireWindowHost().IsWindow(foregroundWindow))
+        {
+            return;
+        }
+        waitPolicy.WaitUntil(
+            () => RequireWindowHost().GetForegroundWindow() == foregroundWindow,
+            () => !RequireWindowHost().IsWindow(foregroundWindow),
+            () => RequireWindowHost().SetForegroundWindow(foregroundWindow),
+            "LR2起動後のforeground復元がタイムアウトしました.",
+            pollMilliseconds: 50);
     }
 
     private IExternalPlayerWindowHost RequireWindowHost()

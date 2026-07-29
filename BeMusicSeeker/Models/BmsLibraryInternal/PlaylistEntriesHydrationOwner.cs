@@ -466,11 +466,8 @@ internal sealed class PlaylistEntriesHydrationOwner
                             }
                             continue;
                         }
-                        if (mergedContinuation?.RunExternalSyncAfterHydration == true)
-                        {
-                            hydrationPublishLease.Dispose();
-                            hydrationPublishLease = null;
-                        }
+                        hydrationPublishLease.Dispose();
+                        hydrationPublishLease = null;
                         if (IsShutdownOrEpochChanged(workShutdownEpoch))
                         {
                             SetCompletedVersion(batchVersion);

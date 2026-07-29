@@ -2072,11 +2072,12 @@ public sealed class SettingDialogEditCompletionTests
 
         internal IBMSPlayer? LastReplacementPlayer { get; private set; }
 
-        public void ApplyPlayerSettings(IBMSPlayer replacementPlayer)
+        public Task ApplyPlayerSettingsAsync(IBMSPlayer replacementPlayer)
         {
             ApplyCount++;
             LastReplacementPlayer = replacementPlayer;
             sequence?.Add("apply");
+            return Task.CompletedTask;
         }
 
         public void NotifySettingsChanged()

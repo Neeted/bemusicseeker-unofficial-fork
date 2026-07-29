@@ -149,21 +149,29 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
                     context.Store.EnsureAllPlaylistEntriesLoadedAsync("playlist_ref_deferred")
                         .GetAwaiter()
                         .GetResult();
-                    List<BMSTable> tables;
-                    context.Store.AcquireReaderLockBMSTables();
-                    try
+                    while (true)
                     {
-                        tables = [.. (context.Store.BMSTables ?? Enumerable.Empty<BMSTable>())
-                            .Where(table => table != null)];
-                    }
-                    finally
-                    {
-                        context.Store.FreeReaderLockBMSTables();
-                    }
-                    lock (contextSyncRoot)
-                    {
-                        EnsureCurrentContext(context);
-                        context.Library.SynchronizeReferenceBMSTables(tables);
+                        List<BMSTable> tables;
+                        context.Store.AcquireReaderLockBMSTables();
+                        try
+                        {
+                            tables = [.. (context.Store.BMSTables ?? Enumerable.Empty<BMSTable>())
+                                .Where(table => table != null)];
+                        }
+                        finally
+                        {
+                            context.Store.FreeReaderLockBMSTables();
+                        }
+                        BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan synchronizationPlan =
+                            context.Library.PrepareReferenceBMSTableSynchronization(tables);
+                        lock (contextSyncRoot)
+                        {
+                            EnsureCurrentContext(context);
+                            if (context.Library.TryCommitReferenceBMSTableSynchronization(synchronizationPlan))
+                            {
+                                break;
+                            }
+                        }
                     }
 
                     PublishReferenceApplied(request.Reason, request.Version, request.OperationToken);
@@ -243,26 +251,16 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
             {
                 return;
             }
-            attachedLibrary.SynchronizeReferenceBMSTableSnapshots(
-                receipt.Tables
-                    .Where(fact => fact?.ReferenceSnapshot != null)
-                    .Select(fact => fact.ReferenceSnapshot));
+        }
+        if (!sourceStore.IsPlaylistEntriesHydrationReceiptCurrent(receipt))
+        {
+            return;
         }
 
-        PublishReferenceApplied(receipt.Reason, receipt.RequestVersion, operationToken: 0L);
-        dispatchPresentation(() =>
-        {
-            if (!IsCurrentContext(sourceStore, sourceContextGeneration))
-            {
-                return;
-            }
-            PresentationRequested?.Invoke(
-                this,
-                new PlaylistReferenceApplyPresentationRequestedEventArgs(
-                    receipt.Reason,
-                    receipt.RequestVersion,
-                    operationToken: 0L));
-        });
+        // The hydration receipt only wakes the canonical reference-apply worker. That worker
+        // snapshots the current store after it starts, so a reload/edit that races this
+        // notification cannot apply an older receipt after the newer playlist state.
+        Queue(receipt.Reason, operationToken: 0L);
     }
 
     internal bool IsIdle

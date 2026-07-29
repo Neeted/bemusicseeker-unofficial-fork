@@ -5,6 +5,8 @@ using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -18,6 +20,49 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmtTableExportServiceTests
 {
+    [TestMethod]
+    public void OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder()
+    {
+        using var firstEntered = new ManualResetEventSlim(false);
+        using var releaseFirst = new ManualResetEventSlim(false);
+        var observed = new List<int>();
+        int callbackConcurrency = 0;
+        int maximumCallbackConcurrency = 0;
+        var publisher = new PlaylistBmtOutputOwner.OrderedProjectionProgressPublisher(
+            2,
+            (completed, _, _) =>
+            {
+                int concurrency = Interlocked.Increment(ref callbackConcurrency);
+                maximumCallbackConcurrency = Math.Max(maximumCallbackConcurrency, concurrency);
+                try
+                {
+                    if (completed == 1)
+                    {
+                        firstEntered.Set();
+                        Assert.IsTrue(releaseFirst.Wait(TimeSpan.FromSeconds(5)));
+                    }
+                    lock (observed)
+                    {
+                        observed.Add(completed);
+                    }
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref callbackConcurrency);
+                }
+            });
+
+        Task first = Task.Run(() => publisher.PublishNext("first"));
+        Assert.IsTrue(firstEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task second = Task.Run(() => publisher.PublishNext("second"));
+        Assert.IsTrue(second.Wait(TimeSpan.FromSeconds(5)));
+        releaseFirst.Set();
+        Assert.IsTrue(first.Wait(TimeSpan.FromSeconds(5)));
+
+        CollectionAssert.AreEqual(new[] { 1, 2 }, observed);
+        Assert.AreEqual(1, maximumCallbackConcurrency);
+    }
+
     private const string Sha256A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private const string Sha256B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     private const string Md5A = "11111111111111111111111111111111";

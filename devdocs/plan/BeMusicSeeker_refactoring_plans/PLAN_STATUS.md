@@ -6,7 +6,7 @@
 
 ## Current checkpoint
 
-- reviewed HEAD: `874d6fb16d93e1e6ac4837c84f7852f3884a11ac`
+- reviewed production checkpoint: `c12f6e6ce3896e6d6235630401dfdbf199ed2bfc`
 - runtime evidence: `.tmp/推定先にインストールでハング_install-performance.log`
 - Release Freeze: active
 - `git push`／tag／署名／public release: ユーザーの明示指示まで禁止
@@ -35,7 +35,7 @@ single-file extractionやReadyToRunではなく、workerがcatalog writer lock�
 
 - active outcome: `CONC-01 Responsiveness closure`
 - active execution package: `H1-H4 minimal hardening batch`
-- execution anchor: `H3 application-wide wait audit`
+- execution anchor: `H4 responsiveness gate`
 - planner state: `not required; batch materialized`
 
 ## Active implementation batch
@@ -44,8 +44,8 @@ single-file extractionやReadyToRunではなく、workerがcatalog writer lock�
 |---|---|---|
 | `H1 NORMAL-REFRESH-DEADLOCK` | completed | version coalescing UI drain、explicit shutdown drain、held-writer／dedicated-UI-lane regression |
 | `H2 ESTIMATED-INSTALL-LOCK-SCOPE` | completed | snapshot／atomic apply leaseを分離し、semantic LR2 reservation内ではstate applyだけを行い、dialog、log、event、UI refreshを全guard解放後へpublish |
-| `H3 APPLICATION-WIDE-WAIT-AUDIT` | active | library／package、playlist、shell／externalの全candidate分類とgrouped fixes |
-| `H4 RESPONSIVENESS-GATE` | pending | full interaction smoke、selected publish、fresh review、Gate closure |
+| `H3 APPLICATION-WIDE-WAIT-AUDIT` | completed | library／package、playlist、shell／externalをactual wait graphで分類し、callback-under-lock、thread-affinity、unbounded external waitを3 familyで修正 |
+| `H4 RESPONSIVENESS-GATE` | active | full interaction smoke、selected publish、fresh review、Gate closure |
 
 active／pending unitがある間はunit-plannerを起動しない。各unitのstatus更新は対応code／test commitへ含める。
 
@@ -59,6 +59,9 @@ active／pending unitがある間はunit-plannerを起動しない。各unitのs
 6. worker writer→UI completion待ち、UI→reader待ちのcycleが成立する。
 7. `Settings.ScanBmsFilesOnStartup`の既定値は`true`で、startup initializationはfile diffを実行する。
 8. manual `ReloadFileDiff` routeと、same-MD5 moved-fileを新pathへcommitする既存behavior testがある。
+9. playlist hydration／selection／store receiptとpackage／LR2 progress通知は、owner guard解放後にpublishする。
+10. playback stopとupdater decision callbackはprivate guardを保持せず外部処理を呼ぶ。
+11. updater recoveryと外部playerのprocess／window待機は有限で、成立しなければvisible failureとなる。
 
 ## Scope guardrails
 

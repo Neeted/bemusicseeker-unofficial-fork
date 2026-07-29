@@ -3799,7 +3799,7 @@ public partial class MainWindowViewModel : ViewModel,
                 () => CreateLR2PlayerConfig(startupSettings));
             if (configuredBmsPlayer != null)
             {
-                PlaybackPanel.ReplacePlayer(configuredBmsPlayer);
+                await PlaybackPanel.ReplacePlayerAsync(configuredBmsPlayer);
             }
             operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         }

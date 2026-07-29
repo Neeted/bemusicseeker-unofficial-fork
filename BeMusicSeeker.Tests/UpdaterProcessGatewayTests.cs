@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.Update;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -136,8 +138,10 @@ public sealed class UpdaterProcessGatewayTests
         {
             UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
 
-            receipt.Abort();
+            UpdaterLaunchFailureException exception =
+                Assert.ThrowsException<UpdaterLaunchFailureException>(receipt.Abort);
 
+            StringAssert.Contains(exception.Message, "cancel handshake");
             Assert.IsTrue(updaterProcess.WaitForExit(5000), "Abort must stop the updater even when decision publication fails.");
         }
         finally
@@ -190,10 +194,12 @@ public sealed class UpdaterProcessGatewayTests
         {
             UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
 
-            UpdaterLaunchFailureException exception = Assert.ThrowsException<UpdaterLaunchFailureException>(
+            AggregateException exception = Assert.ThrowsException<AggregateException>(
                 () => receipt.Proceed());
 
-            StringAssert.Contains(exception.Message, "proceed handshake");
+            Assert.AreEqual(2, exception.InnerExceptions.Count);
+            Assert.IsTrue(exception.InnerExceptions.Any(failure => failure.Message.Contains("proceed handshake", StringComparison.Ordinal)));
+            Assert.IsTrue(exception.InnerExceptions.Any(failure => failure.Message.Contains("cancel handshake", StringComparison.Ordinal)));
             Assert.IsTrue(updaterProcess.WaitForExit(5000), "Proceed failure must stop the updater after aborting.");
         }
         finally
@@ -223,9 +229,81 @@ public sealed class UpdaterProcessGatewayTests
             }
         });
 
-        receipt.Abort();
+        Assert.ThrowsException<IOException>(receipt.Abort);
         receipt.Abort();
 
         Assert.AreEqual(2, abortAttempts);
     }
+
+    [TestMethod]
+    public void UpdaterLaunchReceipt_DoesNotHoldDecisionGuardAcrossProceedCallback()
+    {
+        using var callbackEntered = new ManualResetEventSlim();
+        using var releaseCallback = new ManualResetEventSlim();
+        var receipt = new UpdaterLaunchReceipt(
+            abort: () => { },
+            proceed: () =>
+            {
+                callbackEntered.Set();
+                releaseCallback.Wait();
+            });
+        Task proceedTask = Task.Run(receipt.Proceed);
+
+        Assert.IsTrue(callbackEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task competingAbort = Task.Run(receipt.Abort);
+        Assert.IsTrue(
+            competingAbort.Wait(TimeSpan.FromSeconds(1)),
+            "A competing decision must not wait for an external callback under the receipt guard.");
+        releaseCallback.Set();
+        Assert.IsTrue(proceedTask.Wait(TimeSpan.FromSeconds(5)));
+    }
+
+    [TestMethod]
+    public void WindowsGatewayRecoveryTerminatesHungProcessAndReportsVisibleFailure()
+    {
+        Process recoveryProcess = null!;
+        int recoveryProcessId = 0;
+        var gateway = new WindowsUpdaterProcessGateway(
+            _ =>
+            {
+                recoveryProcess = Process.Start(new ProcessStartInfo
+                {
+                    FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                    Arguments = "/c timeout /t 30 /nobreak > nul",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+                recoveryProcessId = recoveryProcess.Id;
+                return recoveryProcess;
+            },
+            recoveryTimeout: TimeSpan.FromMilliseconds(50));
+
+        try
+        {
+            UpdaterLaunchFailureException exception =
+                Assert.ThrowsException<UpdaterLaunchFailureException>(() =>
+                    gateway.RecoverIncompleteTransaction(
+                        @"C:\Be Music Seeker\BeMusicSeeker.Updater.exe",
+                        @"C:\Be Music Seeker"));
+
+            StringAssert.Contains(exception.Message, "did not finish");
+            Assert.ThrowsException<ArgumentException>(
+                () => Process.GetProcessById(recoveryProcessId),
+                "A hung recovery helper must be terminated before startup recovery fails.");
+        }
+        finally
+        {
+            try
+            {
+                using Process survivingProcess = Process.GetProcessById(recoveryProcessId);
+                survivingProcess.Kill(entireProcessTree: true);
+                survivingProcess.WaitForExit(5000);
+            }
+            catch (ArgumentException)
+            {
+            }
+            recoveryProcess?.Dispose();
+        }
+    }
+
 }

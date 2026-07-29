@@ -6224,7 +6224,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 IBMSPlayer replacementPlayer = forceInternalPlayerForStandaloneModeChange
                     ? playerFactoryPort.CreateDefaultBmsPlayer()
                     : playerFactoryPort.CreateBmsPlayerForSettings(StartupSettingsSnapshot.CreateCurrent(ApplicationSettings));
-                playbackRuntimePort.ApplyPlayerSettings(replacementPlayer);
+                await playbackRuntimePort.ApplyPlayerSettingsAsync(replacementPlayer);
             }
             playbackRuntimePort.NotifySettingsChanged();
             playerRuntimeMs = playerRuntimeStopwatch.ElapsedMilliseconds;

@@ -98,9 +98,28 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
 {
     private readonly Func<ProcessStartInfo, Process> startProcess;
 
-    internal WindowsUpdaterProcessGateway(Func<ProcessStartInfo, Process> startProcess = null)
+    private readonly TimeSpan recoveryTimeout;
+
+    private readonly TimeSpan terminationTimeout;
+
+    internal WindowsUpdaterProcessGateway(
+        Func<ProcessStartInfo, Process> startProcess = null,
+        TimeSpan? recoveryTimeout = null,
+        TimeSpan? terminationTimeout = null)
     {
         this.startProcess = startProcess ?? (startInfo => Process.Start(startInfo));
+        this.recoveryTimeout = recoveryTimeout ?? TimeSpan.FromMinutes(2);
+        this.terminationTimeout = terminationTimeout ?? TimeSpan.FromSeconds(10);
+        if (this.recoveryTimeout <= TimeSpan.Zero
+            || this.recoveryTimeout.TotalMilliseconds > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(recoveryTimeout));
+        }
+        if (this.terminationTimeout <= TimeSpan.Zero
+            || this.terminationTimeout.TotalMilliseconds > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(terminationTimeout));
+        }
     }
 
     public IPreparedUpdaterLaunch Prepare(UpdaterProcessLaunchRequest request)
@@ -132,17 +151,7 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
                     ?? throw new UpdaterLaunchFailureException("Updater process did not start.");
                 WaitForReady(process, request.ReadyFilePath);
                 return new UpdaterLaunchReceipt(
-                    abort: () =>
-                    {
-                        try
-                        {
-                            TryPublishDecision(request.DecisionFilePath, "cancel");
-                        }
-                        finally
-                        {
-                            StopProcess(process);
-                        }
-                    },
+                    abort: () => AbortUpdaterProcess(process, request.DecisionFilePath),
                     proceed: () =>
                     {
                         try
@@ -162,17 +171,18 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
                         }
                     });
             }
-            catch (UpdaterLaunchFailureException)
+            catch (UpdaterLaunchFailureException exception)
             {
-                StopProcess(process);
+                StopProcessAfterLaunchFailure(process, exception);
                 throw;
             }
             catch (Exception exception)
             {
-                StopProcess(process);
-                throw new UpdaterLaunchFailureException(
+                var launchFailure = new UpdaterLaunchFailureException(
                     "Updater process failed before its ready handshake.",
                     exception);
+                StopProcessAfterLaunchFailure(process, launchFailure);
+                throw launchFailure;
             }
         });
     }
@@ -196,7 +206,24 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         };
         using Process process = startProcess(startInfo)
             ?? throw new UpdaterLaunchFailureException("Updater recovery process did not start.");
-        process.WaitForExit();
+        if (!process.WaitForExit((int)recoveryTimeout.TotalMilliseconds))
+        {
+            try
+            {
+                StopProcess(process);
+            }
+            catch (Exception terminationFailure)
+            {
+                throw new UpdaterLaunchFailureException(
+                    "Updater transaction recovery timed out and process termination could not be confirmed. "
+                        + "Recovery will be retried on the next startup.",
+                    terminationFailure);
+            }
+            throw new UpdaterLaunchFailureException(
+                "Updater transaction recovery did not finish within "
+                    + recoveryTimeout.TotalSeconds
+                    + " seconds and was terminated. Recovery will be retried on the next startup.");
+        }
         if (process.ExitCode != 0)
         {
             if (process.ExitCode == 2)
@@ -257,26 +284,116 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
             Thread.Sleep(50);
         }
 
-        StopProcess(process);
         throw new UpdaterLaunchFailureException("Updater process did not publish its ready handshake within 10 seconds.");
     }
 
-    private static void StopProcess(Process process)
+    private void AbortUpdaterProcess(Process process, string decisionFilePath)
+    {
+        Exception decisionFailure = null;
+        try
+        {
+            TryPublishDecision(decisionFilePath, "cancel");
+        }
+        catch (Exception exception)
+        {
+            decisionFailure = exception;
+        }
+
+        Exception terminationFailure = null;
+        try
+        {
+            StopProcess(process);
+        }
+        catch (Exception exception)
+        {
+            terminationFailure = exception;
+        }
+
+        if (decisionFailure != null && terminationFailure != null)
+        {
+            throw new UpdaterLaunchFailureException(
+                "Updater cancel handshake failed and process termination could not be confirmed.",
+                new AggregateException(decisionFailure, terminationFailure));
+        }
+        if (terminationFailure != null)
+        {
+            throw new UpdaterLaunchFailureException(
+                "Updater process termination could not be confirmed after cancellation.",
+                terminationFailure);
+        }
+        if (decisionFailure != null)
+        {
+            throw new UpdaterLaunchFailureException(
+                "Updater cancel handshake could not be published.",
+                decisionFailure);
+        }
+    }
+
+    private void StopProcessAfterLaunchFailure(Process process, UpdaterLaunchFailureException launchFailure)
+    {
+        try
+        {
+            StopProcess(process);
+        }
+        catch (Exception terminationFailure)
+        {
+            throw new UpdaterLaunchFailureException(
+                launchFailure.Message + " Updater process termination could not be confirmed.",
+                new AggregateException(launchFailure, terminationFailure));
+        }
+    }
+
+    private void StopProcess(Process process)
     {
         if (process == null)
         {
             return;
         }
 
+        bool hasExited;
         try
         {
-            if (!process.HasExited)
+            hasExited = process.HasExited;
+        }
+        catch (Exception exception)
+        {
+            throw new UpdaterLaunchFailureException(
+                "Updater process state could not be observed before termination.",
+                exception);
+        }
+        if (hasExited)
+        {
+            return;
+        }
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (Exception exception)
+        {
+            throw new UpdaterLaunchFailureException(
+                "Updater process could not be terminated.",
+                exception);
+        }
+        try
+        {
+            if (!process.WaitForExit((int)terminationTimeout.TotalMilliseconds))
             {
-                process.Kill(entireProcessTree: true);
+                throw new UpdaterLaunchFailureException(
+                    "Updater process termination was requested but could not be confirmed within "
+                        + terminationTimeout.TotalSeconds
+                        + " seconds.");
             }
         }
-        catch
+        catch (UpdaterLaunchFailureException)
         {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw new UpdaterLaunchFailureException(
+                "Updater process termination could not be observed.",
+                exception);
         }
     }
 

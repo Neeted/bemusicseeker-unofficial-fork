@@ -404,16 +404,16 @@ internal sealed class StartupUpdateWorkflowOwner
         }
         catch (UpdaterLaunchFailureException exception)
         {
-            LogErrorSafely(exception, "startup_update updater launch failed");
-            launchReceipt?.Abort();
+            Exception terminalFailure = AbortLaunchOrCombine(launchReceipt, exception);
+            LogErrorSafely(terminalFailure, "startup_update updater launch failed");
             if (!IsCurrentForApply(run))
             {
                 Complete(run, StartupUpdateWorkflowOutcome.Closing);
                 return;
             }
             TryDeleteDownloadedPackage(packagePath);
-            RequestFailurePresentation(exception);
-            Complete(run, StartupUpdateWorkflowOutcome.Failed, exception, shutdownPrepared: shutdownPreparationCompleted);
+            RequestFailurePresentation(terminalFailure);
+            Complete(run, StartupUpdateWorkflowOutcome.Failed, terminalFailure, shutdownPrepared: shutdownPreparationCompleted);
             if (shutdownPreparationStarted)
             {
                 RequestApplicationShutdown();
@@ -421,8 +421,8 @@ internal sealed class StartupUpdateWorkflowOwner
         }
         catch (Exception exception)
         {
-            LogErrorSafely(exception, "startup_update apply failed");
-            launchReceipt?.Abort();
+            Exception terminalFailure = AbortLaunchOrCombine(launchReceipt, exception);
+            LogErrorSafely(terminalFailure, "startup_update apply failed");
             if (!IsCurrentForApply(run))
             {
                 Complete(run, StartupUpdateWorkflowOutcome.Closing);
@@ -431,14 +431,36 @@ internal sealed class StartupUpdateWorkflowOwner
             if (shutdownPreparationStarted)
             {
                 TryDeleteDownloadedPackage(packagePath);
-                RequestFailurePresentation(exception);
-                Complete(run, StartupUpdateWorkflowOutcome.Failed, exception, shutdownPrepared: shutdownPreparationCompleted);
+                RequestFailurePresentation(terminalFailure);
+                Complete(run, StartupUpdateWorkflowOutcome.Failed, terminalFailure, shutdownPrepared: shutdownPreparationCompleted);
                 RequestApplicationShutdown();
                 return;
             }
 
-            RequestFailurePresentation(exception);
-            Complete(run, StartupUpdateWorkflowOutcome.Failed, exception);
+            RequestFailurePresentation(terminalFailure);
+            Complete(run, StartupUpdateWorkflowOutcome.Failed, terminalFailure);
+        }
+    }
+
+    private static Exception AbortLaunchOrCombine(
+        UpdaterLaunchReceipt launchReceipt,
+        Exception primaryFailure)
+    {
+        if (launchReceipt == null)
+        {
+            return primaryFailure;
+        }
+        try
+        {
+            launchReceipt.Abort();
+            return primaryFailure;
+        }
+        catch (Exception abortFailure)
+        {
+            return new AggregateException(
+                "Updater workflow failed and the updater process abort also failed.",
+                primaryFailure,
+                abortFailure);
         }
     }
 

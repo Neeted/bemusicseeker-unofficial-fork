@@ -18,6 +18,8 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
 
     private readonly IExternalPlayerProcessGateway processGateway;
 
+    private readonly ExternalPlayerWaitPolicy waitPolicy;
+
     private enum KeyCode
     {
         NONE = 0,
@@ -135,12 +137,14 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
     internal BMIIDXView2015(
         string exePath,
         IPlayerSettingsGateway playerSettingsGateway,
-        IExternalPlayerProcessGateway processGateway)
+        IExternalPlayerProcessGateway processGateway,
+        ExternalPlayerWaitPolicy waitPolicy = null)
     {
         ExePath = exePath;
         this.playerSettingsGateway = playerSettingsGateway
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         this.processGateway = processGateway ?? throw new ArgumentNullException(nameof(processGateway));
+        this.waitPolicy = waitPolicy ?? ExternalPlayerWaitPolicy.Default;
         onExitEventHandlerDefault = BMIIDXView2015Exited;
     }
 
@@ -151,6 +155,8 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
 
     public void CloseProcess()
     {
+        Exception closeFailure;
+        EventHandler exitHandler;
         lock (lockThis)
         {
             if (BMIIDXView2015Process == null)
@@ -165,32 +171,37 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
             {
                 BMIIDXView2015Process.Exited -= onExitEventHandlerDefault;
             }
+            closeFailure = null;
+            exitHandler = onExitEventHandlerDefault;
             try
             {
                 BMIIDXView2015Process.CloseMainWindow();
-                int num = 0;
-                while (!BMIIDXView2015Process.HasExited)
+                waitPolicy.WaitForProcessExit(
+                    () => BMIIDXView2015Process.HasExited,
+                    BMIIDXView2015Process.Kill,
+                    "BMIIDXView2015 did not terminate after graceful close and kill.");
+            }
+            catch (Exception exception)
+            {
+                closeFailure = exception;
+            }
+            if (closeFailure != null)
+            {
+                if (onExitEventHandlerDefault != null)
                 {
-                    Thread.Sleep(100);
-                    if (num == 50)
-                    {
-                        try
-                        {
-                            BMIIDXView2015Process.Kill();
-                        }
-                        catch
-                        {
-                        }
-                        num = 0;
-                    }
-                    num++;
+                    BMIIDXView2015Process.Exited += onExitEventHandlerDefault;
+                }
+                if (onExitEventHandlerRegstered != null)
+                {
+                    BMIIDXView2015Process.Exited += onExitEventHandlerRegstered;
                 }
             }
-            catch
-            {
-            }
-            onExitEventHandlerDefault?.Invoke(null, null);
         }
+        if (closeFailure != null)
+        {
+            throw new InvalidOperationException("BMIIDXView2015 could not be terminated.", closeFailure);
+        }
+        exitHandler?.Invoke(null, null);
     }
 
     public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
@@ -240,14 +251,13 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
             string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "BMIIDXView2015.ini");
             temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
             BMIIDXView2015Process.Start();
-            while (!BMIIDXView2015Process.HasExited && BMIIDXView2015Process.MainWindowHandle.IsEmpty)
-            {
-                Thread.Sleep(50);
-            }
-            while (!foregroundWindow.IsEmpty && RequireWindowHost().IsWindow(foregroundWindow) && !RequireWindowHost().SetForegroundWindow(foregroundWindow))
-            {
-                Thread.Sleep(50);
-            }
+            waitPolicy.WaitUntil(
+                () => !BMIIDXView2015Process.MainWindowHandle.IsEmpty,
+                () => BMIIDXView2015Process.HasExited,
+                () => { },
+                "BMIIDXView2015のメインウィンドウ待機がタイムアウトしました。",
+                pollMilliseconds: 50);
+            RestoreForegroundWindow(foregroundWindow);
             if (BMIIDXView2015Process.HasExited)
             {
                 throw new InvalidOperationException("BMIIDXView2015の起動に失敗しました。");
@@ -256,10 +266,7 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
             RequireWindowHost().AttachBmiIdxWindow(BMIIDXView2015HandleShowing);
             Thread.Sleep(100);
             RequireWindowHost().NotifyBmiIdxPlaybackStarted(BMIIDXView2015HandleShowing);
-            while (!foregroundWindow.IsEmpty && RequireWindowHost().IsWindow(foregroundWindow) && !RequireWindowHost().SetForegroundWindow(foregroundWindow))
-            {
-                Thread.Sleep(50);
-            }
+            RestoreForegroundWindow(foregroundWindow);
             NLogWrapper.DebuggerLogger?.Trace("7 " + foregroundWindow + " " + RequireWindowHost().GetForegroundWindow());
             BMSFilePathPlaying = bmsFilePath;
             return Task.CompletedTask;
@@ -337,19 +344,35 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
         lock (lockThis)
         {
             ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
-            while (RequireWindowHost().IsWindow(BMIIDXView2015HandleShowing) && (!RequireWindowHost().SetForegroundWindow(BMIIDXView2015HandleShowing) || RequireWindowHost().GetForegroundWindow() != BMIIDXView2015HandleShowing))
-            {
-                Thread.Sleep(10);
-            }
+            FocusWindow(BMIIDXView2015HandleShowing, "BMIIDXView2015の操作対象windowへのfocus待機がタイムアウトしました。");
             RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: true);
             NLogWrapper.DebuggerLogger?.Trace("pushed");
             Thread.Sleep(40);
             RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: false);
-            while (RequireWindowHost().IsWindow(foregroundWindow) && (!RequireWindowHost().SetForegroundWindow(foregroundWindow) || RequireWindowHost().GetForegroundWindow() != foregroundWindow))
-            {
-                Thread.Sleep(10);
-            }
+            FocusWindow(foregroundWindow, "BMIIDXView2015操作後のforeground復元がタイムアウトしました。");
         }
+    }
+
+    private void RestoreForegroundWindow(ExternalWindowHandle foregroundWindow)
+    {
+        if (foregroundWindow.IsEmpty || !RequireWindowHost().IsWindow(foregroundWindow))
+        {
+            return;
+        }
+        FocusWindow(foregroundWindow, "BMIIDXView2015起動後のforeground復元がタイムアウトしました。");
+    }
+
+    private void FocusWindow(ExternalWindowHandle window, string timeoutMessage)
+    {
+        if (window.IsEmpty || !RequireWindowHost().IsWindow(window))
+        {
+            return;
+        }
+        waitPolicy.WaitUntil(
+            () => RequireWindowHost().GetForegroundWindow() == window,
+            () => !RequireWindowHost().IsWindow(window),
+            () => RequireWindowHost().SetForegroundWindow(window),
+            timeoutMessage);
     }
 
     private IExternalPlayerWindowHost RequireWindowHost()

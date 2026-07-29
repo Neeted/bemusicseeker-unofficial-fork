@@ -21,6 +21,81 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class PlaylistBmtOutputOwner
 {
+    internal sealed class OrderedProjectionProgressPublisher
+    {
+        private readonly object syncRoot = new();
+
+        private readonly Queue<(int Completed, int Total, string TableName)> pending = new();
+
+        private readonly int total;
+
+        private readonly Action<int, int, string> publish;
+
+        private int completed;
+
+        private bool draining;
+
+        private Exception publicationFailure;
+
+        internal OrderedProjectionProgressPublisher(int total, Action<int, int, string> publish)
+        {
+            this.total = total;
+            this.publish = publish ?? throw new ArgumentNullException(nameof(publish));
+        }
+
+        internal void PublishNext(string tableName)
+        {
+            bool shouldDrain;
+            lock (syncRoot)
+            {
+                if (publicationFailure != null)
+                {
+                    throw new InvalidOperationException(
+                        "Playlist BMT projection progress publication previously failed.",
+                        publicationFailure);
+                }
+                pending.Enqueue((++completed, total, tableName));
+                shouldDrain = !draining;
+                if (shouldDrain)
+                {
+                    draining = true;
+                }
+            }
+            if (!shouldDrain)
+            {
+                return;
+            }
+
+            while (true)
+            {
+                (int Completed, int Total, string TableName) fact;
+                lock (syncRoot)
+                {
+                    if (pending.Count == 0)
+                    {
+                        draining = false;
+                        return;
+                    }
+                    fact = pending.Dequeue();
+                }
+                try
+                {
+                    publish(fact.Completed, fact.Total, fact.TableName);
+                }
+                catch (Exception exception)
+                {
+                    lock (syncRoot)
+                    {
+                        publicationFailure = exception;
+                        pending.Clear();
+                        draining = false;
+                    }
+                    throw;
+                }
+            }
+        }
+    }
+
     private readonly PlaylistAggregatePersistenceOwner playlistAggregatePersistenceOwner;
 
     private readonly PlaylistEntriesHydrationOwner playlistEntriesHydrationOwner;
@@ -247,6 +322,8 @@ internal sealed class PlaylistBmtOutputOwner
                     var exportStopwatch = Stopwatch.StartNew();
                     int exportProgressTotal = projectionTablesSnapshot.Count + tableDataSet.Count;
                     BmtTableExportService.ExportResult exportResult;
+                    List<(int Completed, int Total, string TableName)> deferredExportProgress = [];
+                    long urlSyncMs;
                     lock (fileMutationLock)
                     {
                         if (!IsCurrentFullExportGeneration(generation))
@@ -258,27 +335,40 @@ internal sealed class PlaylistBmtOutputOwner
                             tableDataSet,
                             exportPlan,
                             shouldReportProgress
-                                ? (completed, total, tableName) => ReportProgress(progressOperationId, true, Math.Max(exportProgressTotal, 1), projectionTablesSnapshot.Count + completed, tableName)
+                                ? (completed, total, tableName) => deferredExportProgress.Add((
+                                    projectionTablesSnapshot.Count + completed,
+                                    Math.Max(exportProgressTotal, 1),
+                                    tableName))
                                 : null);
                         var urlSyncStopwatch = Stopwatch.StartNew();
                         SyncManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
                         urlSyncStopwatch.Stop();
+                        urlSyncMs = urlSyncStopwatch.ElapsedMilliseconds;
                         exportStopwatch.Stop();
                         totalStopwatch.Stop();
-                        Log("beatoraja_bmt_export_all completed reason=" + FormatTextForLog(reason)
-                            + " tableCount=" + tablesSnapshot.Count
-                            + " enabledOutputCount=" + outputTablesSnapshot.Count
-                            + " outputCount=" + tableDataSet.Count
-                            + " written=" + exportResult.WrittenCount
-                            + " skipped=" + exportResult.SkippedWriteCount
-                            + " removed=" + exportResult.RemovedCount
-                            + " snapshotMs=" + snapshotStopwatch.ElapsedMilliseconds
-                            + " resolverMs=" + resolverStopwatch.ElapsedMilliseconds
-                            + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
-                            + " exportMs=" + exportStopwatch.ElapsedMilliseconds
-                            + " urlSyncMs=" + urlSyncStopwatch.ElapsedMilliseconds
-                            + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
                     }
+                    foreach ((int completed, int total, string tableName) in deferredExportProgress)
+                    {
+                        ReportProgress(
+                            progressOperationId,
+                            true,
+                            total,
+                            completed,
+                            tableName);
+                    }
+                    Log("beatoraja_bmt_export_all completed reason=" + FormatTextForLog(reason)
+                        + " tableCount=" + tablesSnapshot.Count
+                        + " enabledOutputCount=" + outputTablesSnapshot.Count
+                        + " outputCount=" + tableDataSet.Count
+                        + " written=" + exportResult.WrittenCount
+                        + " skipped=" + exportResult.SkippedWriteCount
+                        + " removed=" + exportResult.RemovedCount
+                        + " snapshotMs=" + snapshotStopwatch.ElapsedMilliseconds
+                        + " resolverMs=" + resolverStopwatch.ElapsedMilliseconds
+                        + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
+                        + " exportMs=" + exportStopwatch.ElapsedMilliseconds
+                        + " urlSyncMs=" + urlSyncMs
+                        + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
                 }
                 finally
                 {
@@ -797,8 +887,10 @@ internal sealed class PlaylistBmtOutputOwner
             projectionInputs[index] = CreateProjectionInput(tablesSnapshot[index], reason, index);
         }
         var projectionResults = new Tuple<string, JObject>[projectionInputs.Length];
-        int projectedCount = 0;
-        object progressLock = new();
+        OrderedProjectionProgressPublisher orderedProgress =
+            progressReporter == null
+                ? null
+                : new OrderedProjectionProgressPublisher(projectionInputs.Length, progressReporter);
         Parallel.ForEach(
             projectionInputs,
             new ParallelOptions { MaxDegreeOfParallelism = ResolveProjectionDegree(projectionInputs.Length) },
@@ -813,11 +905,7 @@ internal sealed class PlaylistBmtOutputOwner
                         projectionResults[input.Index] = Tuple.Create(input.PlaylistIdentity, tableData);
                     }
                 }
-                lock (progressLock)
-                {
-                    projectedCount++;
-                    progressReporter?.Invoke(projectedCount, projectionInputs.Length, input?.TableName);
-                }
+                orderedProgress?.PublishNext(input?.TableName);
             });
         return [.. projectionResults.Where(result => result != null)];
     }

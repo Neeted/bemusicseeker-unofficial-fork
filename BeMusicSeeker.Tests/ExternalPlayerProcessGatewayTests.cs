@@ -19,6 +19,34 @@ namespace BeMusicSeeker.Tests;
 public sealed class ExternalPlayerProcessGatewayTests
 {
     [TestMethod]
+    public void WindowsProcessSessionPublishesItselfAsExitSender()
+    {
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                Arguments = "/c exit 0",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+        };
+        var session = new WindowsExternalPlayerProcessSession(process, started: false);
+        using var exited = new ManualResetEventSlim(false);
+        object? observedSender = null;
+        session.Exited += (sender, _) =>
+        {
+            observedSender = sender;
+            exited.Set();
+        };
+
+        session.Start();
+
+        Assert.IsTrue(exited.Wait(TimeSpan.FromSeconds(5)));
+        Assert.AreSame(session, observedSender);
+    }
+
+    [TestMethod]
     public void DiscoveryRequestNormalizesAndCopiesProcessNames()
     {
         ExternalPlayerProcessDiscoveryRequest request = ExternalPlayerProcessDiscoveryRequest.Create(
@@ -194,6 +222,25 @@ public sealed class ExternalPlayerProcessGatewayTests
     }
 
     [TestMethod]
+    public void ExternalPlayerWaitPolicyFailsInsteadOfWaitingIndefinitely()
+    {
+        var policy = new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(25));
+        var stopwatch = Stopwatch.StartNew();
+
+        TimeoutException exception = Assert.ThrowsException<TimeoutException>(
+            () => policy.WaitUntil(
+                completed: () => false,
+                aborted: () => false,
+                attempt: () => { },
+                timeoutMessage: "bounded wait expired",
+                pollMilliseconds: 1));
+
+        stopwatch.Stop();
+        Assert.AreEqual("bounded wait expired", exception.Message);
+        Assert.IsTrue(stopwatch.Elapsed < TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
     public void BmiIdxEmbedsReadyWindowThroughWindowHost()
     {
         WithTemporaryPlayerFiles("BMIIDXView2015_64.exe", (root, executablePath, chartPath) =>
@@ -216,6 +263,36 @@ public sealed class ExternalPlayerProcessGatewayTests
 
             gateway.Session.KeepRunning = false;
             player.CloseProcess();
+        });
+    }
+
+    [TestMethod]
+    public void BmiIdxCloseTimeoutRetainsProcessForAVisibleRetry()
+    {
+        WithTemporaryPlayerFiles("BMIIDXView2015_64.exe", (root, executablePath, chartPath) =>
+        {
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(17));
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)));
+            var player = new BMIIDXView2015(
+                executablePath,
+                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                gateway,
+                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+            player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
+            gateway.Session.KillException = new InvalidOperationException("kill rejected");
+
+            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+                player.CloseProcess);
+            StringAssert.Contains(failure.Message, "could not be terminated");
+            Assert.IsTrue(gateway.Session.KeepRunning);
+
+            gateway.Session.KillException = null;
+            player.CloseProcess();
+            Assert.IsFalse(gateway.Session.KeepRunning);
+            Assert.IsTrue(gateway.Session.KillCount >= 2);
         });
     }
 
@@ -254,6 +331,45 @@ public sealed class ExternalPlayerProcessGatewayTests
             gateway.Session.KeepRunning = false;
             player.CloseProcess();
             Assert.IsTrue(settingsGateway.SaveCalled);
+        });
+    }
+
+    [TestMethod]
+    public void Lr2ReportsFailureWhenProcessExitsDuringWindowStyleApply()
+    {
+        WithTemporaryPlayerFiles("LR2body.exe", (root, executablePath, chartPath) =>
+        {
+            string configDirectory = Path.Combine(root, "LR2files", "Config");
+            Directory.CreateDirectory(configDirectory);
+            string configPath = Path.Combine(configDirectory, "config.xml");
+            File.WriteAllText(
+                configPath,
+                "<config><system><windowsize_x>800</windowsize_x><windowsize_y>600</windowsize_y><screenmode>1</screenmode></system><sound><volumemaster>100</volumemaster></sound></config>");
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                Lr2WindowStyleApplied = false,
+                CompleteLr2WindowStyleApply = false,
+                Lr2WindowStyleApplyAttempt = () => gateway.Session.KeepRunning = false
+            };
+            var player = new LR2body(
+                executablePath,
+                new LR2Config(configPath),
+                new RecordingPlayerSettingsGateway(),
+                gateway,
+                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(100)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+
+            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+                () => player.PlayStart(chartPath, (EventHandler)null!));
+
+            StringAssert.Contains(exception.Message, "window style");
+            CollectionAssert.Contains(windowHost.Operations, "ApplyLr2WindowStyle");
+            CollectionAssert.DoesNotContain(windowHost.Operations, "ApplyWindowPlacement");
+            StringAssert.Contains(File.ReadAllText(configPath), "<screenmode>1</screenmode>");
+            StringAssert.Contains(File.ReadAllText(configPath), "<volumemaster>100</volumemaster>");
         });
     }
 
@@ -353,6 +469,94 @@ public sealed class ExternalPlayerProcessGatewayTests
 
             Assert.ThrowsException<InvalidOperationException>(
                 () => player.PlayStart(chartPath, (Action<object, EventArgs>)null!));
+            CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
+        });
+    }
+
+    [TestMethod]
+    public void UbmplayCloseTimeoutRetainsSettingsUntilOwnedProcessEventuallyExits()
+    {
+        WithTemporaryPlayerFiles("uBMplay.exe", (root, executablePath, chartPath) =>
+        {
+            const string original =
+                "[Main]\r\nAlwaysOnTop=True\r\nVSYNC=True\r\n"
+                + "[Option]\r\nBGA=1\r\nAutoSeparate=False\r\nSkinType=2\r\nVolume=12\r\n";
+            string iniPath = Path.Combine(root, "ubm.ini");
+            File.WriteAllText(iniPath, original, Encoding.GetEncoding("shift_jis"));
+            byte[] originalBytes = File.ReadAllBytes(iniPath);
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            var windowHandle = new ExternalWindowHandle(new IntPtr(31));
+            gateway.Session.MainWindowHandle = windowHandle;
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = new[] { windowHandle },
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chartPath
+            };
+            var player = new uBMplay(
+                executablePath,
+                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                gateway,
+                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+            player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
+            gateway.Session.KillException = new InvalidOperationException("kill rejected");
+
+            Assert.ThrowsException<InvalidOperationException>(player.CloseProcess);
+
+            File.WriteAllText(iniPath, "late process write", Encoding.GetEncoding("shift_jis"));
+            gateway.Session.KeepRunning = false;
+            gateway.Session.RaiseExited();
+            CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
+        });
+    }
+
+    [TestMethod]
+    public void UbmplayRequestTimeoutRetainsTransientProcessUntilEventualExit()
+    {
+        WithTemporaryPlayerFiles("uBMplay.exe", (root, executablePath, chartPath) =>
+        {
+            const string original =
+                "[Main]\r\nAlwaysOnTop=True\r\nVSYNC=True\r\n"
+                + "[Option]\r\nBGA=1\r\nAutoSeparate=False\r\nSkinType=2\r\nVolume=12\r\n";
+            string iniPath = Path.Combine(root, "ubm.ini");
+            File.WriteAllText(iniPath, original, Encoding.GetEncoding("shift_jis"));
+            byte[] originalBytes = File.ReadAllBytes(iniPath);
+            var mainSession = new RecordingExternalPlayerProcessSession
+            {
+                KeepRunning = true,
+                MainWindowHandle = new ExternalWindowHandle(new IntPtr(31))
+            };
+            var requestSession = new RecordingExternalPlayerProcessSession
+            {
+                KeepRunning = true,
+                KillException = new InvalidOperationException("request kill rejected")
+            };
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.EnqueuePreparedSession(mainSession);
+            gateway.EnqueuePreparedSession(requestSession);
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = new[] { mainSession.MainWindowHandle },
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chartPath
+            };
+            var player = new uBMplay(
+                executablePath,
+                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                gateway,
+                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+            player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
+
+            Assert.ThrowsException<AggregateException>(
+                () => player.PlayStart(chartPath, (Action<object, EventArgs>)null!));
+            Assert.IsTrue(requestSession.KillCount >= 1);
+
+            File.WriteAllText(iniPath, "late request write", Encoding.GetEncoding("shift_jis"));
+            requestSession.KeepRunning = false;
+            requestSession.RaiseExited();
             CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
         });
     }
@@ -475,6 +679,8 @@ public sealed class ExternalPlayerProcessGatewayTests
 
     private sealed class RecordingExternalPlayerProcessGateway : IExternalPlayerProcessGateway
     {
+        private readonly Queue<IExternalPlayerProcessSession> preparedSessions = new();
+
         internal ExternalPlayerProcessDiscoveryRequest DiscoveryRequest { get; private set; } = null!;
 
         internal ExternalPlayerProcessLaunchRequest LaunchRequest { get; private set; } = null!;
@@ -482,6 +688,11 @@ public sealed class ExternalPlayerProcessGatewayTests
         internal RecordingExternalPlayerProcessSession Session { get; } = new();
 
         internal IReadOnlyList<IExternalPlayerProcessSession> ExistingProcesses { get; set; } = Array.Empty<IExternalPlayerProcessSession>();
+
+        internal void EnqueuePreparedSession(IExternalPlayerProcessSession session)
+        {
+            preparedSessions.Enqueue(session);
+        }
 
         public IReadOnlyList<IExternalPlayerProcessSession> FindExisting(ExternalPlayerProcessDiscoveryRequest request)
         {
@@ -492,7 +703,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         public IExternalPlayerProcessSession Prepare(ExternalPlayerProcessLaunchRequest request)
         {
             LaunchRequest = request;
-            return Session;
+            return preparedSessions.Count > 0 ? preparedSessions.Dequeue() : Session;
         }
     }
 
@@ -503,6 +714,10 @@ public sealed class ExternalPlayerProcessGatewayTests
         internal bool Started { get; private set; }
 
         internal bool KeepRunning { get; set; }
+
+        internal Exception? KillException { get; set; }
+
+        internal int KillCount { get; private set; }
 
         public event EventHandler Exited
         {
@@ -532,6 +747,11 @@ public sealed class ExternalPlayerProcessGatewayTests
 
         public void Kill()
         {
+            KillCount++;
+            if (KillException != null)
+            {
+                throw KillException;
+            }
             KeepRunning = false;
             Started = true;
         }
@@ -559,6 +779,10 @@ public sealed class ExternalPlayerProcessGatewayTests
         internal string WindowTitle { get; set; } = string.Empty;
 
         internal bool Lr2WindowStyleApplied { get; set; }
+
+        internal bool CompleteLr2WindowStyleApply { get; set; } = true;
+
+        internal Action? Lr2WindowStyleApplyAttempt { get; set; }
 
         internal WindowPlacement? CapturedPlacement { get; private set; }
 
@@ -627,7 +851,11 @@ public sealed class ExternalPlayerProcessGatewayTests
         public void ApplyLr2WindowStyle(ExternalWindowHandle childWindow)
         {
             Operations.Add("ApplyLr2WindowStyle");
-            Lr2WindowStyleApplied = true;
+            Lr2WindowStyleApplyAttempt?.Invoke();
+            if (CompleteLr2WindowStyleApply)
+            {
+                Lr2WindowStyleApplied = true;
+            }
         }
 
         public void NotifyBmiIdxPlaybackStarted(ExternalWindowHandle childWindow)

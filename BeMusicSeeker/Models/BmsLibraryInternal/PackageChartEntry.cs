@@ -52,6 +52,18 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         return new PropertyChangedDeferralScope(this);
     }
 
+    internal Func<Action> DeferPropertyChangedNotificationPublication()
+    {
+        lock (propertyChangedDeferralGate)
+        {
+            propertyChangedDeferralDepth++;
+        }
+        int released = 0;
+        return () => Interlocked.Exchange(ref released, 1) == 0
+            ? CompletePropertyChangedDeferralWithoutPublishing()
+            : null;
+    }
+
     internal PackageChartEntry(ChartFile chart)
     {
         this.chart = chart ?? throw new ArgumentNullException(nameof(chart));
@@ -540,14 +552,14 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         RaiseChartPropertyChanged();
     }
 
-    private void CompletePropertyChangedDeferral()
+    private Action CompletePropertyChangedDeferralWithoutPublishing()
     {
         bool publishDeferredChange = false;
         lock (propertyChangedDeferralGate)
         {
             if (propertyChangedDeferralDepth <= 0)
             {
-                return;
+                return null;
             }
             propertyChangedDeferralDepth--;
             if (propertyChangedDeferralDepth == 0 && chartPropertyChangedDeferred)
@@ -556,10 +568,12 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                 publishDeferredChange = true;
             }
         }
-        if (publishDeferredChange)
-        {
-            RaiseChartPropertyChanged();
-        }
+        return publishDeferredChange ? RaiseChartPropertyChanged : null;
+    }
+
+    private void CompletePropertyChangedDeferral()
+    {
+        CompletePropertyChangedDeferralWithoutPublishing()?.Invoke();
     }
 
     private void RaiseChartPropertyChanged()

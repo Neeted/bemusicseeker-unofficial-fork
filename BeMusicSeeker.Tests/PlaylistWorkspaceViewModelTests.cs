@@ -275,7 +275,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, workspaceSource.IndexOf("QueuePlaylistReferenceApply(", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal PlaylistReferenceApplyWorkflowOwner PlaylistReferenceApplyWorkflow { get; }");
         StringAssert.Contains(referenceApplySource, "context.Store.EnsureAllPlaylistEntriesLoadedAsync(\"playlist_ref_deferred\")");
-        StringAssert.Contains(referenceApplySource, "context.Library.SynchronizeReferenceBMSTables(tables)");
+        StringAssert.Contains(referenceApplySource, "context.Library.PrepareReferenceBMSTableSynchronization(tables)");
+        StringAssert.Contains(referenceApplySource, "context.Library.TryCommitReferenceBMSTableSynchronization(synchronizationPlan)");
         Assert.AreEqual(-1, rootSource.IndexOf("deferredPlaylistRefRequestedVersion", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("lockDeferredPlaylistRef", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("private void ScheduleDeferredPlaylistReferenceApply(", StringComparison.Ordinal));
@@ -3497,6 +3498,39 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void TreeSelection_ReentrantDetailSelectionPreventsStaleSummaryRefresh()
+    {
+        int summaryRefreshCount = 0;
+        var workspace = CreateDetailWorkspace(
+            out _,
+            presentationRefreshDeferredProvider: request =>
+            {
+                if (request.Kind == PlaylistPresentationRefreshKind.SummaryPresentation)
+                {
+                    summaryRefreshCount++;
+                }
+                return false;
+            });
+        var detailTable = new BMSTable();
+        bool redirected = false;
+        workspace.TreeSelectionActivated += (_, request) =>
+        {
+            if (request.IsSummary && !redirected)
+            {
+                redirected = true;
+                workspace.RequestDetailSelection(detailTable);
+            }
+        };
+
+        workspace.RequestSummarySelection();
+
+        Assert.IsTrue(redirected);
+        Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+        Assert.AreEqual(0, summaryRefreshCount);
+        Assert.AreSame(detailTable, workspace.CapturePlaylistDetailSelection().Table);
+    }
+
+    [TestMethod]
     public void TreeSelection_CurrentDetailActivationIsRejectedAfterClear()
     {
         Queue<Action> pendingActions = new();
@@ -3946,6 +3980,87 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void PlaylistTreeStoreReplacement_WaitsForCurrentHydrationApplyBeforeChangingSource()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string firstDirectory = Path.Combine(tempDirectory, "first");
+            string secondDirectory = Path.Combine(tempDirectory, "second");
+            Directory.CreateDirectory(firstDirectory);
+            Directory.CreateDirectory(secondDirectory);
+            string firstSongDbPath = Path.Combine(firstDirectory, "song.db");
+            string secondSongDbPath = Path.Combine(secondDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(firstSongDbPath))
+            using (var __ = new LR2SongDBExtended(secondSongDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(firstSongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(secondSongDbPath);
+            var firstTables = new ObservableCollection<BMSTable>(
+                [new BMSTable { name = "first" }]);
+            var secondTables = new ObservableCollection<BMSTable>(
+                [new BMSTable { name = "second" }]);
+            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath) { BMSTables = firstTables };
+            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath) { BMSTables = secondTables };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => firstPlaylist);
+            workspace.RefreshPlaylistTreeTables(firstPlaylist);
+
+            var receipt = new PlaylistHydrationCompletionReceipt(requestAlreadyPublished: true);
+            Assert.IsTrue(receipt.TryBegin());
+            FieldInfo receiptField = typeof(PlaylistWorkspaceViewModel).GetField(
+                "playlistHydrationCompletionReceipt",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo generationField = typeof(PlaylistWorkspaceViewModel).GetField(
+                "playlistTreeNotificationGeneration",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(receiptField);
+            Assert.IsNotNull(generationField);
+            receiptField!.SetValue(workspace, receipt);
+            long generation = (long)generationField!.GetValue(workspace)!;
+
+            using var applyEntered = new ManualResetEventSlim();
+            using var releaseApply = new ManualResetEventSlim();
+            Task apply = Task.Run(() =>
+                workspace.ExecuteCurrentPlaylistHydrationNotification(
+                    firstPlaylist,
+                    firstTables,
+                    generation,
+                    receipt,
+                    () =>
+                    {
+                        applyEntered.Set();
+                        releaseApply.Wait();
+                    }));
+            Assert.IsTrue(applyEntered.Wait(TimeSpan.FromSeconds(5)));
+
+            Task replacement = Task.Run(() =>
+                workspace.RefreshPlaylistTreeTables(secondPlaylist));
+            Assert.IsFalse(
+                replacement.Wait(TimeSpan.FromMilliseconds(100)),
+                "Store replacement must wait for the current terminal hydration apply.");
+            Assert.AreSame(firstTables, workspace.PlaylistTreeTables);
+
+            releaseApply.Set();
+            Assert.IsTrue(Task.WaitAll([apply, replacement], TimeSpan.FromSeconds(5)));
+            Assert.AreSame(secondTables, workspace.PlaylistTreeTables);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void DiscardDeferredExternalPlaylistSyncForShutdown_PublishesSkippedLifecycle()
     {
         string tempDirectory = Path.Combine(
@@ -4257,10 +4372,16 @@ public sealed class PlaylistWorkspaceViewModelTests
                 return true;
             };
             var library = new TestBmsLibrary(songDbPath);
+            Func<Task>? referenceApplyWork = null;
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
-                playlistLibraryProvider: () => library);
+                playlistLibraryProvider: () => library,
+                referenceApplyScheduler: (_, work) =>
+                {
+                    referenceApplyWork = work;
+                    return true;
+                });
             var presentations = new List<PlaylistReferenceApplyPresentationRequestedEventArgs>();
             workspace.PlaylistReferenceApplyWorkflow.PresentationRequested += (_, request) => presentations.Add(request);
 
@@ -4269,10 +4390,81 @@ public sealed class PlaylistWorkspaceViewModelTests
 
             Assert.IsNotNull(scheduledWork);
             scheduledWork.GetAwaiter().GetResult();
+            Assert.IsNotNull(referenceApplyWork);
+            referenceApplyWork!().GetAwaiter().GetResult();
             Assert.AreEqual(1, presentations.Count);
             Assert.AreEqual("receipt_presentation", presentations[0].Reason);
             Assert.AreEqual(1, presentations[0].Version);
             Assert.AreEqual(0L, presentations[0].OperationToken);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistTreeHydrationReceipt_DoesNotApplySnapshotInvalidatedBeforeWorkspaceConsumption()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7054,
+                name = "StaleReceipt"
+            };
+            table.MarkEntriesNotLoaded();
+            var playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            Task hydrationWork = null!;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                hydrationWork = work();
+                return true;
+            };
+            playlist.PlaylistEntriesHydrationReceiptPublished += (_, _) =>
+            {
+                using (table.ReaderWriterLock.GetWriterGuard())
+                {
+                    table.MarkEntriesNotLoaded();
+                }
+            };
+            int referenceApplyScheduleCount = 0;
+            var library = new TestBmsLibrary(songDbPath);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                referenceApplyScheduler: (_, _) =>
+                {
+                    referenceApplyScheduleCount++;
+                    return true;
+                });
+            workspace.RefreshPlaylistTreeTables(playlist);
+
+            playlist.QueueDeferredPlaylistEntriesHydration("stale_receipt");
+
+            Assert.IsNotNull(hydrationWork);
+            hydrationWork.GetAwaiter().GetResult();
+            Assert.AreEqual(
+                0,
+                referenceApplyScheduleCount,
+                "An invalidated model receipt must not wake reference application with an old snapshot.");
         }
         finally
         {

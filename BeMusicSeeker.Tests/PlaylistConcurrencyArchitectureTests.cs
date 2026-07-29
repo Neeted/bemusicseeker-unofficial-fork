@@ -278,7 +278,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
-    public void PlaylistHydrationReceipt_UsesLockedImmutableReferenceSnapshots()
+    public void PlaylistHydrationReceipt_QueuesCurrentAtomicReferenceSynchronization()
     {
         string ownerSource = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -302,8 +302,10 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(ownerSource, "using (table.ReaderWriterLock.GetReaderGuard())");
         StringAssert.Contains(ownerSource, "new PlaylistReferenceTableSnapshot(");
         StringAssert.Contains(ownerSource, "internal PlaylistReferenceTableSnapshot ReferenceSnapshot { get; }");
-        StringAssert.Contains(referenceApplySource, "SynchronizeReferenceBMSTableSnapshots(");
         StringAssert.Contains(referenceApplySource, "ApplyHydrationReceipt(");
+        StringAssert.Contains(referenceApplySource, "Queue(receipt.Reason, operationToken: 0L)");
+        StringAssert.Contains(referenceApplySource, "PrepareReferenceBMSTableSynchronization(tables)");
+        StringAssert.Contains(referenceApplySource, "TryCommitReferenceBMSTableSynchronization(synchronizationPlan)");
         Assert.IsFalse(workspaceSource.Contains("SynchronizeReferenceBMSTableSnapshots("));
         Assert.IsFalse(workspaceSource.Contains("Select(fact => fact.Table)"));
     }

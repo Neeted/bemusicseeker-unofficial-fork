@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 
 namespace BeMusicSeeker.Models.Update;
@@ -8,7 +9,7 @@ internal sealed class UpdaterLaunchReceipt
     private readonly Action abort;
     private readonly Action proceed;
     private readonly object syncRoot = new();
-    private bool decisionPublished;
+    private DecisionState decisionState;
 
     internal UpdaterLaunchReceipt(Action abort = null, Action proceed = null)
     {
@@ -20,20 +21,27 @@ internal sealed class UpdaterLaunchReceipt
     {
         lock (syncRoot)
         {
-            if (decisionPublished)
+            if (decisionState != DecisionState.Available)
             {
                 return;
             }
-
-            try
+            decisionState = DecisionState.PublishingAbort;
+        }
+        try
+        {
+            abort?.Invoke();
+            lock (syncRoot)
             {
-                abort?.Invoke();
-                decisionPublished = true;
+                decisionState = DecisionState.Published;
             }
-            catch
+        }
+        catch
+        {
+            lock (syncRoot)
             {
-                // Keep the receipt unpublished so a later failure path can retry the abort.
+                decisionState = DecisionState.Available;
             }
+            throw;
         }
     }
 
@@ -41,30 +49,53 @@ internal sealed class UpdaterLaunchReceipt
     {
         lock (syncRoot)
         {
-            if (decisionPublished)
+            if (decisionState != DecisionState.Available)
             {
                 return;
             }
+            decisionState = DecisionState.PublishingProceed;
+        }
 
-            try
+        try
+        {
+            proceed?.Invoke();
+            lock (syncRoot)
             {
-                proceed?.Invoke();
-                decisionPublished = true;
-            }
-            catch
-            {
-                try
-                {
-                    abort?.Invoke();
-                    decisionPublished = true;
-                }
-                catch
-                {
-                    // Leave the receipt unpublished so the owning workflow can retry the abort.
-                }
-                throw;
+                decisionState = DecisionState.Published;
             }
         }
+        catch (Exception proceedFailure)
+        {
+            try
+            {
+                abort?.Invoke();
+                lock (syncRoot)
+                {
+                    decisionState = DecisionState.Published;
+                }
+            }
+            catch (Exception abortFailure)
+            {
+                lock (syncRoot)
+                {
+                    decisionState = DecisionState.Available;
+                }
+                throw new AggregateException(
+                    "Updater proceed failed and the compensating abort also failed.",
+                    proceedFailure,
+                    abortFailure);
+            }
+            ExceptionDispatchInfo.Capture(proceedFailure).Throw();
+            throw;
+        }
+    }
+
+    private enum DecisionState
+    {
+        Available,
+        PublishingAbort,
+        PublishingProceed,
+        Published
     }
 }
 

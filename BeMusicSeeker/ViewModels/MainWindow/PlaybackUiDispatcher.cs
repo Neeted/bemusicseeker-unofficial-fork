@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -8,4 +9,6 @@ namespace BeMusicSeeker.ViewModels;
 internal interface IPlaybackUiDispatcher
 {
     void Dispatch(Action action);
+
+    Task DispatchAsync(Action action);
 }

@@ -93,6 +93,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private int runningCount;
 
+    private bool shutdownRequested;
+
     private long version;
 
     private long generation;
@@ -187,52 +189,67 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         string normalizedDependency = string.IsNullOrWhiteSpace(dependency) ? null : dependency;
         string normalizedLane = GetLane(normalizedName);
         int priority = GetPriority(normalizedName);
-        bool shouldStartWorker;
+        bool shouldStartWorker = false;
+        bool skippedAfterLock = false;
+        string replacedLog = null;
+        string queuedLog = null;
         lock (progressSynchronization)
         {
             lock (syncRoot)
             {
-                if (isShutdownRequested())
+                if (shutdownRequested)
                 {
-                    logInfo("startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested_after_lock");
-                    return false;
-                }
-                RecordQueuedUnsafe(normalizedName, normalizedReason, normalizedDependency, normalizedLane);
-                idleRevision++;
-                long requestVersion = ++version;
-                latestRequestVersionByName[normalizedName] = requestVersion;
-                Request existing = queue.LastOrDefault(item => string.Equals(item.CoalesceKey, normalizedName, StringComparison.OrdinalIgnoreCase));
-                if (existing != null)
-                {
-                    existing.Reason = normalizedReason;
-                    existing.Dependency = normalizedDependency;
-                    existing.Lane = normalizedLane;
-                    existing.Priority = priority;
-                    existing.Version = requestVersion;
-                    existing.Work = work;
-                    existing.Discard = discard;
-                    logInfo("startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " coalesceKey=" + normalizedName + " replaced=true");
+                    skippedAfterLock = true;
                 }
                 else
                 {
-                    queue.Add(new Request
+                    RecordQueuedUnsafe(normalizedName, normalizedReason, normalizedDependency, normalizedLane);
+                    idleRevision++;
+                    long requestVersion = ++version;
+                    latestRequestVersionByName[normalizedName] = requestVersion;
+                    Request existing = queue.LastOrDefault(item => string.Equals(item.CoalesceKey, normalizedName, StringComparison.OrdinalIgnoreCase));
+                    if (existing != null)
                     {
-                        Name = normalizedName,
-                        Reason = normalizedReason,
-                        Dependency = normalizedDependency,
-                        Lane = normalizedLane,
-                        CoalesceKey = normalizedName,
-                        Priority = priority,
-                        Version = requestVersion,
-                        Generation = generation,
-                        Work = work,
-                        Discard = discard
-                    });
+                        existing.Reason = normalizedReason;
+                        existing.Dependency = normalizedDependency;
+                        existing.Lane = normalizedLane;
+                        existing.Priority = priority;
+                        existing.Version = requestVersion;
+                        existing.Work = work;
+                        existing.Discard = discard;
+                        replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " coalesceKey=" + normalizedName + " replaced=true";
+                    }
+                    else
+                    {
+                        queue.Add(new Request
+                        {
+                            Name = normalizedName,
+                            Reason = normalizedReason,
+                            Dependency = normalizedDependency,
+                            Lane = normalizedLane,
+                            CoalesceKey = normalizedName,
+                            Priority = priority,
+                            Version = requestVersion,
+                            Generation = generation,
+                            Work = work,
+                            Discard = discard
+                        });
+                    }
+                    queuedLog = "startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority;
+                    shouldStartWorker = started;
                 }
-                logInfo("startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority);
-                shouldStartWorker = started;
             }
         }
+        if (skippedAfterLock)
+        {
+            logInfo("startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested_after_lock");
+            return false;
+        }
+        if (replacedLog != null)
+        {
+            logInfo(replacedLog);
+        }
+        logInfo(queuedLog);
         if (shouldStartWorker)
         {
             TryStartWorkers();
@@ -274,6 +291,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         {
             lock (syncRoot)
             {
+                shutdownRequested = false;
                 generation++;
                 idleRevision++;
                 for (int i = 0; i < queue.Count; i++)
@@ -304,11 +322,13 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         int originalQueuedCount;
         int discardedCount = 0;
         int drainQueuedCount;
+        int activeRunningCount;
         List<Request> discardedRequests = null;
         lock (progressSynchronization)
         {
             lock (syncRoot)
             {
+                shutdownRequested = true;
                 originalQueuedCount = queue.Count;
                 for (int i = queue.Count - 1; i >= 0; i--)
                 {
@@ -330,17 +350,22 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 }
                 idleRevision++;
                 shouldStartWorker = drainQueuedCount > 0;
-                logShutdown("startup_background_task drain_queued reason=" + formatTextForLog(reason)
-                    + " queued=" + originalQueuedCount
-                    + " drainQueued=" + drainQueuedCount
-                    + " discarded=" + discardedCount
-                    + " running=" + runningCount);
+                activeRunningCount = runningCount;
             }
         }
+        logShutdown("startup_background_task drain_queued reason=" + formatTextForLog(reason)
+            + " queued=" + originalQueuedCount
+            + " drainQueued=" + drainQueuedCount
+            + " discarded=" + discardedCount
+            + " running=" + activeRunningCount);
         if (discardedRequests != null)
         {
             foreach (Request request in discardedRequests)
             {
+                logInfo("startup_background_task discarded name=" + request.Name
+                    + " version=" + request.Version
+                    + " reason=" + request.Reason
+                    + " shutdownReason=" + formatTextForLog(reason));
                 try
                 {
                     request.Discard?.Invoke(reason);
@@ -621,7 +646,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         metric.CompletedCount++;
         metric.LastStatus = "discarded";
         metric.LastElapsedMs = 0L;
-        metric.LastDetail = "shutdown_requested reason=" + formatTextForLog(reason);
+        metric.LastDetail = "shutdown_requested";
         if (string.IsNullOrWhiteSpace(metric.Reason))
         {
             metric.Reason = request.Reason ?? string.Empty;
@@ -634,10 +659,6 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         {
             metric.Lane = request.Lane ?? GetLane(request.Name);
         }
-        logInfo("startup_background_task discarded name=" + request.Name
-            + " version=" + request.Version
-            + " reason=" + request.Reason
-            + " shutdownReason=" + formatTextForLog(reason));
     }
 
     private Metric GetOrCreateMetricUnsafe(string name)
