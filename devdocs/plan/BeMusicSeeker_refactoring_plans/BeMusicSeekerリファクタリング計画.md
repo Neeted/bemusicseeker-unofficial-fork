@@ -1,55 +1,34 @@
-# BeMusicSeeker リファクタリング完了計画
+# BeMusicSeeker リファクタリング計画
 
-[現在地](./PLAN_STATUS.md) / [応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md) / [共通実行ルール](./00_Codex共通実行ルール.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md)
+[現在地](./PLAN_STATUS.md) / [性能計画](./BeMusicSeeker_性能回帰改善計画.md) / [応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md) / [共通実行ルール](./00_Codex共通実行ルール.md)
+
+## 目的
+
+目的は計画項目や行数目標の達成ではなく、WPFアプリをMVVMとして整理し、owner、dependency direction、testability、応答性、.NET 10移行可能性を改善することである。
 
 ## 現在の判定
 
-WPFアプリをMVVMとして整理し、.NET 10移行に必要なfeature owner、dependency direction、test boundaryを成立させる**構造的な整理は概ね完了**している。
+- shell、library、playlist、package、maintenance、LR2、configuration、platform boundaryのowner整理は完了している。
+- WPF固有のfocus、selection、scroll、hit-test、virtualization、typed presentationのterminal applyはView／view-hostに残す。
+- broad facade port、non-event `async void`、元のestimated-install deadlockは解消済みである。
+- 構造整理を全面的に再開せず、現在は[PERF-01](./BeMusicSeeker_性能回帰改善計画.md)でcurrent .NET 10の不要なcopy、queue、allocation、index rebuildを閉じる。
 
-ただし、`UI-05`で導入されたnormal-library refreshの同期terminal applyとlegacy mutation lockの組合せにより、推定先インストールで決定的なUI deadlockが成立する。strict Refactoring Completion Gateは[応答性・並行処理ハードニング計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md)を閉じるまで再開する。
+## 維持する境界
 
-## 維持するtarget architecture
-
-- root shellはcomposition、window lifecycle、typed presentation routingを担い、feature state／workflowはchild ownerへ置く。
-- View／view-hostはfocus、selection、scroll、hit-test、drag visual、virtualization、WPF event、typed requestのterminal applyを担ってよい。
-- library、package、LR2、playlist、maintenance、configuration、path、process、native interopは明示owner／adapterを持つ。
-- owner間はimmutable request／snapshot／version／event factを使い、相手ownerのlockやmutable collectionを公開しない。
-- setting、DB、file format、update protocol等のpersisted／external contractはmigration evidenceで保護する。
-
-## Temporal architecture
-
-- model mutationはmodel lockを保持したままUI completionを待たない。
-- mutation guard内ではpresentation callback、dialog、別owner callbackを同期実行しない。
-- UI applyはversion／immutable change factを非同期queueで消費する。
-- long-held guardは具体的なwait-edgeまたはlatency evidenceがある範囲だけ狭める。
-- physical lock occupancyをpresentationへ出す既存routeは、一律削除せず、実際にunsafe notificationまたは誤ったUI stateを作る場合だけ置換する。
-
-## 異常終了後の収束
-
-今回のpre-release deadlockを回復するための専用transaction journalやrecovery frameworkは作らない。
-
-- release contractはdeadlockを除去し、推定先インストールを正常完了させることである。
-- filesystemだけが先に変化した異常終了時は、既存の起動時file diff（既定有効）またはmanual `ReloadFileDiff`／full reinitializeでsong DBを収束させる。
-- startup scanを無効にしたユーザー設定は上書きしない。
-- 既存のmoved-file／same-MD5 relink behaviorをtestで保護し、専用の永続operation stateを追加しない。
-
-## Compatibilityの優先順位
-
-```text
-safety / data integrity / responsiveness
-  > documented user behavior
-  > accidental legacy timing / bug-compatible quirk
-```
-
-旧実装のdeadlock、無期限wait、lock中dialog、成功後の誤failureは互換性として保存しない。一方、すべてのcommandへprogress、cancel、retry、semantic stateを追加する全面的UX再設計は、このGateの目的に含めない。
+- stateとbehaviorを同じownerに置く。
+- facadeのprivate state、lock、mutable collection、private operationを列挙するhost／adapterを追加しない。
+- UIはimmutable request／snapshot／receiptを受け、terminalなWPF applyだけを行う。
+- model lock内からUI、dialog、event、別owner callbackを同期実行しない。
+- performance改善のためにfeature workflowをroot shellへ戻したり、global service locatorや共有mutable cacheを導入したりしない。
+- production data不在を理由にowner境界を崩したtest seamを追加しない。
 
 ## Completion Gate
 
-1. 推定先インストールのdeadlock cycleが構造的に消え、deterministic regression testが通る。
-2. estimated-install routeがfile move、catalog／package apply、operation end、UI suppression releaseまで正常完了する。
-3. estimated-installのlock区間から同期UI wait、dialog、owner外callbackが除去され、不要なlong-held writer guardが具体的evidenceに基づいて縮小される。
-4. app全体のsync wait／UI invoke／callback-under-lock inventoryが完了し、実際の`BLOCKING`が0。
-5. 起動時file diffまたはmanual file diffがmoved fileとstale DB pathを既存contractで収束させるevidenceがある。
-6. final Gateでfull tests、analyzer、selected publish smoke、fresh reviewが通る。
+strict Refactoring Completion Gateは構造／機能面で通過済みである。release engineeringでは次を追加確認する。
 
-forced interruption recovery、durable journal、全commandのUX刷新、行数／grep件数はCompletion Gateに含めない。過去のLIB／UI unit履歴はGit historyへ委ねる。
+1. current .NET 10のcritical routeに既知の不要な全件copy／重複apply／unbounded drainがない。
+2. synthetic corpusを構築できるcomponentで変更前よりelapsedまたはallocationが改善する。
+3. synthetic化できない実データ性能は低負荷instrumentationと`MANUAL-02`へhandoffされる。
+4. deadlock regression、data compatibility、update／rollbackを維持する。
+
+net472との厳密な再比較はCompletion Gateに含めない。

@@ -1,41 +1,29 @@
-# BeMusicSeeker .NET 10 Self-contained 移行計画
+# BeMusicSeeker .NET 10 移行計画
 
-[現在地](./PLAN_STATUS.md) / [応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md) / [依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md) / [手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)
+[現在地](./PLAN_STATUS.md) / [性能計画](./BeMusicSeeker_性能回帰改善計画.md) / [依存台帳](./DOTNET10_DEPENDENCY_REGISTER.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md) / [手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)
+
+## Target
+
+- main app／tests／updater: `.NET 10` Windows target
+- tools: `.NET 10`
+- language: C# 14
+- main app: win-x64 Self-contained、managed bundle、ReadyToRun、trimmingなし
+- updater: win-x64 Self-contained single-file
 
 ## 現在の判定
 
-全5 projectの.NET 10 retarget、managed／native dependency、SQLite、existing-data、update／rollback、Self-contained distribution engineeringは完了している。最終main-app profileは外部startup／working-set比較で選択した`managed bundle＋ReadyToRun`であり、native self-extractを使用しない。
+TFM、managed dependencies、SQLite、archive／audio、native interop、existing-data、updater success／rollback、distribution profileの機能移行は完了している。
 
-現在のhangはsingle-file extractionや.NET 10 hostではなく、MVVM整理中に成立したmodel-lock／synchronous UI applyのwait cycleである。selected distribution profileは維持し、応答性修正がpublish path、startup code、bundle／R2R設定へ触れない限りprofile選定を再実行しない。
+残るEngineering作業は、現在の.NET 10 codeにある不要なworkを減らし、実データなしでも検証できるcomponentをsynthetic corpusで改善する[PERF-01](./BeMusicSeeker_性能回帰改善計画.md)である。
 
-## Target matrix
+## Performance migration rule
 
-| Project | Target | Current release contract |
-|---|---|---|
-| `BeMusicSeeker.csproj` | `net10.0-windows`, x64 | win-x64 Self-contained managed bundle＋ReadyToRun、native runtimeはexe隣接 |
-| `BeMusicSeeker.Tests` | `net10.0-windows`, x64 | full test／architecture／interaction behavior |
-| `BeMusicSeeker.Updater` | `net10.0-windows`, x64 | win-x64 Self-contained single-file |
-| `chart-info-compare` | `net10.0`, x64 | locked restore／Release build／DB behavior |
-| `chart-info-export` | `net10.0`, x64 | locked restore／Release build／DB behavior |
+- net472は再instrument／再build／再計測しない。既存logはhistorical symptom evidenceだけに使う。
+- selected publish profileは固定し、current .NET 10 evidenceでprofile自体が原因と確認された場合だけ再検討する。
+- C# 14／.NET 10の新機能は、golden behaviorを持つsynthetic hot pathへ限定して採用する。
+- full startup、actual WPF render、Everything／disk等はcurrent .NET 10 markerを用意し、全engineering完了後のユーザー実機確認へ渡す。
+- legacy data／settings／playlist／package／update protocolを性能目的で変更しない。
 
-trimming、NativeAOT、Composite ReadyToRun、single-file compressionは対象外。
+## Exit
 
-## Selected layout
-
-- managed assembliesは公式single-file bundleから読み込む。
-- `IncludeNativeLibrariesForSelfExtract=false`とし、SDK／SQLite／WPF native runtimeはexe隣接に置く。
-- BASS／7zは`libs/x64`、Everythingは`native`、language catalogは`lang`に置く。
-- managed DLLを`libs`へ移すcustom loader、probing、deps rewrite、post-publish relocation、wrapper launcherを作らない。
-- updaterの単一payload handoffを維持する。
-
-current performance evidenceは`devdocs/acceptance/net10-distribution-performance.md`、dependency detailsは[依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md)を正本とする。過去の移行unitとbenchmark runはGit historyへ委ねる。
-
-## Engineering Gateの再開範囲
-
-.NET 10 migration自体を再開しない。release-candidate操作で見つかったruntime behavioral regressionだけを応答性Gateで閉じる。
-
-応答性Gate後に、全5 projectのlocked restore／Release build／full tests／analyzer、selected app／updater publish、startup／shutdown、existing-data、update success／rollback、package install interactionを再確認する。
-
-pre-release deadlockの中途状態を対象にしたdurable recovery frameworkは.NET 10 migration taskへ追加しない。filesystem／song DBの差分は既存startup／manual file diff contractで収束させる。
-
-`.NET Desktop Runtime`未導入machine／VM、署名、公開、BASS.NET entitlementは引き続き[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoffする。
+PERF-01 Engineering Gateを通過し、`PLAN_STATUS.md`が`engineering migration: complete`へ戻った時点でCodexの.NET 10移行工程を完了とする。実データ性能とruntime-free clean-machineはpost-engineering manual acceptanceであり、Codexは結果を待たない。

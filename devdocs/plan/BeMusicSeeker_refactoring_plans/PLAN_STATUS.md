@@ -1,81 +1,76 @@
 # PLAN_STATUS
 
-[応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md) / [risk register](./RESPONSIVENESS_RISK_REGISTER.md) / [リファクタリング計画](./BeMusicSeekerリファクタリング計画.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md) / [共通実行ルール](./00_Codex共通実行ルール.md)
+[性能計画](./BeMusicSeeker_性能回帰改善計画.md) / [性能register](./PERFORMANCE_REGRESSION_REGISTER.md) / [current evidence](../../acceptance/net10-performance-engineering.md) / [応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md) / [共通実行ルール](./00_Codex共通実行ルール.md)
 
 最終計画レビュー日: 2026-07-30
 
 ## Current checkpoint
 
-- reviewed production scope: `5d51990e`＋H4 frozen worktree
-- H4 verification evidence: Full verification、selected publish、existing-data、update success／rollback、3,523 tests passed／16 skipped、format、Roslynator 0 diagnostics
-- H4 repository publish UI smoke: startup operable、Stella一覧表示、normal shutdown
-- H4 fresh outcome review: 重大指摘なし
-- runtime evidence: `.tmp/推定先にインストールでハング_install-performance.log`
+- current HEAD reviewed: `ab9d97ed3f53dab80fb2894f20f44abdfb6fed32`
+- historical symptom evidence: `.tmp/net472_log`、`.tmp/.NET 10_log`
+- historical comparison commit: `3c000ec2e7a6e619c60d0f8c9e48ad12bd06d4f5`（再build／再計測対象ではない）
+- last recorded functional Gate: 3,523 passed／16 skipped、Roslynator 0 diagnostics、selected publish／existing-data／update success／rollback／fresh review passed
+- selected distribution: managed bundle＋ReadyToRun。active performance outcome中もpublish propertyは固定する
 - Release Freeze: active
-- `git push`／tag／署名／public release: ユーザーの明示指示まで禁止
 
 ## Completion decision
 
-- MVVM／ownerの構造整理: **complete**
-- strict Refactoring Completion Gate: **met**
-- .NET 10 code／dependency／data／updater migration: **complete**
-- selected distribution: **managed bundle＋ReadyToRun; retain**
-- concurrency／responsiveness acceptance: **met**
-- engineering migration: **complete**
-- post-engineering clean-machine acceptance: **user-owned; non-blocking**
-
-single-file extractionやReadyToRunではなく、workerがcatalog writer lockを保持したままUIへ同期通知し、UIが同lockのreaderを要求する循環待機が原因である。
-
-## Recovery decision
-
-- release buildではdeadlockを残さず、estimated-installを正常完了させる。
-- pre-release hangの中途状態を救済するdurable journal、operation marker、recovery coordinator、専用reconciliation stateは追加しない。
-- filesystem／song DB差分は、既存のstartup file diff（`ScanBmsFilesOnStartup`既定`true`）またはmanual `ReloadFileDiff`／full reinitializeで収束させる。
-- startup scanを無効にしたユーザー設定は上書きしない。
-- existing same-MD5 moved-file relink behaviorをtest evidenceとして維持する。
+- MVVM／owner structural reorganization: **complete**
+- known deadlock／responsiveness closure: **met; invariant protected**
+- .NET 10 functional／dependency／data migration: **complete**
+- .NET 10 engineering performance readiness: **not met**
+- net472 parity experiment: **not required**
+- production-data performance measurement: **post-engineering user action; non-blocking**
+- engineering migration overall: **reopened only for current .NET 10 performance engineering**
 
 ## Active outcome
 
-- active outcome: none
-- active execution package: none
-- execution anchor: none
-- planner state: not required
+- active outcome: `PERF-01 .NET 10 performance engineering closure`
+- active execution package: `PERF-01 Current-runtime performance closure`
+- execution anchor: `P1 OBSERVABILITY-AND-CORPUS`
+- planner state: not required; batch materialized
 
 ## Active implementation batch
 
-empty
+| Unit | State | Scope |
+|---|---|---|
+| `P1 OBSERVABILITY-AND-CORPUS` | active | current .NET 10 marker、corpus feasibility、fixed-seed generators、manual classification |
+| `P2 LIST-TRANSITION-CRITICAL-PATH` | pending | full-library copy、playlist summary／detail、queue／generation／drain |
+| `P3 STARTUP-INDEX-GC-COMPONENTS` | pending | synthetic可能なsong-table／resource-health、GC／startup instrumentation |
+| `P4 ESTIMATION-SCAN-PARSE-COMPONENTS` | pending | install estimation、managed diff／parse、C# 14 hot path |
+| `P5 ENGINEERING-PERFORMANCE-GATE` | pending | full verification、synthetic suite、publish、current report、fresh review |
+| `HANDOFF` | pending | `MANUAL-02` real-data performance acceptanceへhandoff |
 
-## Confirmed evidence
+## Evidence decision
 
-1. UI commandは`PendingPackageWorkflowOwner.ExecuteInstallAsync`からmutationをbackground executionへ渡す。
-2. estimated-install aggregate transitionは`BMSLibrary`が所有し、snapshot readerとatomic apply writerをboundedに取得する。pending／installed collection mutationは`PackageLifecycleOwner`が一括適用する。
-3. 10件のfile move後、catalog、LR2、resource health、installed lookupまで完了する。
-4. normal-library refreshはlatest versionをsingle pending UI drainへqueueし、producerはUI terminal applyを待たない。
-5. LR2 progress propertyはproperty-name集合をsingle pending operationへcoalesceし、1 UI turnで1 snapshotだけpublishする。
-6. manual downloadとstartup／deferred ranking refreshは、network、cache列挙、XML parse、offline lookup準備をmodel guard外で実行する。score-source generation一致時だけparse済みcache promotion／score applyをbounded guard内でcommitし、score通知とdialogはguard外のUI laneで行う。parse失敗したstaging fileは既存cacheを置換しない。
-7. optionalな外部テーブル一覧HTTPはcore startup continuationと`rwlockBMSFilesInitializedAll`から分離し、`startup_ready_operable`後のcancel可能なbackground requestとして実行する。catalogとloading stateはgeneration一致時だけUI laneへpublishし、shutdownはactive requestをcancelする。
-8. `Settings.ScanBmsFilesOnStartup`の既定値は`true`で、startup initializationはfile diffを実行する。
-9. manual `ReloadFileDiff` routeと、same-MD5 moved-fileを新pathへcommitする既存behavior testがある。
-10. playlist hydration／selection／store receiptとpackage／LR2 progress通知は、owner guard解放後にpublishする。
-11. playback stopとupdater decision callbackはprivate guardを保持せず外部処理を呼ぶ。
-12. updater recoveryと外部playerのprocess／window待機は有限で、成立しなければvisible failureとなる。
+| Evidence | Decision |
+|---|---|
+| existing net472／.NET 10 logs | priority／source correlationだけに使用。新しいA/B Gateなし |
+| list／playlist compute | synthetic corpusを構築する |
+| queue／generation／drain | fake scheduler／STA harnessでdeterministicに検証する |
+| install estimation | existing temp-directory helperをcorpus化する |
+| managed scan／parser | generated BMS／BMSONとfixtureをcorpus化する |
+| full startup／WPF first render／Everything／disk | current .NET 10 markerを用意し、MANUAL-02で一度確認する |
+| production data | Codex／CI prerequisiteにしない |
 
 ## Scope guardrails
 
-- timeout、retry、`TryEnter`、notification skip、追加`Task.Run`をfinal fixにしない。
-- incident専用のjournal、marker、recovery DB、persistent operation state machineを作らない。
-- すべてのsync wait、raw lock binding、progress／cancelを機械的に置換しない。
-- selected .NET 10 profile、dependency graph、updater contractはactive outcomeで変更しない。
-- forced process terminationとその自動回復はH4 Gateへ含めない。
+- net472 code、logging、script、buildに新しい作業を追加しない。
+- production DB、playlist、chart tree、private packageをtest dataとして要求しない。
+- synthetic corpusを作れないrouteを無理にbenchmark化しない。
+- deadlock修正を戻すsync wait、callback-under-lock、UI model-lock reacquireを導入しない。
+- selected distributionはcurrent evidenceで原因が確認されない限り再検討しない。
+- runtime未導入clean machine、実データ性能、署名、公開、license証跡をactive outcomeへ入れない。
 
 ## Exit
 
 ```text
 strict Refactoring Completion Gate: met
 concurrency / responsiveness acceptance: met
+.NET 10 engineering performance readiness: met
 engineering migration: complete
 active outcome: none
 active implementation batch: empty
 selected distribution: managed bundle + ReadyToRun
-post-engineering manual acceptance: pending user action; non-blocking
+post-engineering real-data performance acceptance: pending user action; non-blocking
 ```
