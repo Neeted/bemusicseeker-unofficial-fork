@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
@@ -333,7 +334,10 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                     {
                         ClearDeferredRefreshQueue();
                     }
-                }, TaskScheduler.Default);
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
                 if (!operation.IsAccepted || operation.IsAborted)
                 {
                     ClearDeferredRefreshQueue();

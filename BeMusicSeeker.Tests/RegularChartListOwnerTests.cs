@@ -665,17 +665,8 @@ public sealed class RegularChartListOwnerTests
         {
             var library = new TestBmsLibrary(songDbPath);
             var uiScheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
-            using var uiLaneEntered = new ManualResetEventSlim();
-            using var releaseUiLane = new ManualResetEventSlim();
             using var notificationPublished = new ManualResetEventSlim();
-            using var releaseWriter = new ManualResetEventSlim();
             using var applied = new ManualResetEventSlim();
-            IUiScheduledOperation laneBlocker = uiScheduler.Schedule(() =>
-            {
-                uiLaneEntered.Set();
-                Assert.IsTrue(releaseUiLane.Wait(TimeSpan.FromSeconds(10)));
-            });
-            Assert.IsTrue(uiLaneEntered.Wait(TimeSpan.FromSeconds(10)));
 
             RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
@@ -692,39 +683,40 @@ public sealed class RegularChartListOwnerTests
             };
 
             ReaderWriterLockSlimWrapper catalogWriteGate = GetCatalogStorageRowsWriteGate(library);
-            Task producer = Task.Run(() =>
+            Task producer;
+            bool notificationPublishedWhileWriterHeld;
+            bool uiReachedCatalogReader;
+            using (catalogWriteGate.GetWriterGuard())
             {
-                using (catalogWriteGate.GetWriterGuard())
+                producer = Task.Run(() =>
                 {
                     PublishNormalLibraryRefreshResetNotification(
                         library,
                         notifiesBmsFiles: true,
                         notifiesBmsonSongs: false);
                     notificationPublished.Set();
-                    Assert.IsTrue(releaseWriter.Wait(TimeSpan.FromSeconds(10)));
-                }
-            });
+                });
+                notificationPublishedWhileWriterHeld =
+                    notificationPublished.Wait(TimeSpan.FromSeconds(10));
+                uiReachedCatalogReader = SpinWait.SpinUntil(
+                    () => catalogWriteGate.WaitingReadCount > 0,
+                    TimeSpan.FromSeconds(10));
+            }
             try
             {
-                Assert.IsTrue(notificationPublished.Wait(TimeSpan.FromSeconds(10)));
-                releaseUiLane.Set();
+                Assert.IsTrue(producer.Wait(TimeSpan.FromSeconds(10)));
                 Assert.IsTrue(
-                    SpinWait.SpinUntil(
-                        () => catalogWriteGate.WaitingReadCount > 0,
-                        TimeSpan.FromSeconds(10)),
+                    notificationPublishedWhileWriterHeld,
+                    "The producer waited synchronously for the UI lane while a catalog writer was held.");
+                Assert.IsTrue(
+                    uiReachedCatalogReader,
                     "The dedicated UI lane did not reach the catalog snapshot reader.");
-                Assert.IsFalse(producer.IsCompleted);
-
-                releaseWriter.Set();
                 producer.GetAwaiter().GetResult();
-                laneBlocker.Completion.GetAwaiter().GetResult();
                 Assert.IsTrue(applied.Wait(TimeSpan.FromSeconds(10)));
                 owner.StopAsync().GetAwaiter().GetResult();
             }
             finally
             {
-                releaseWriter.Set();
-                releaseUiLane.Set();
                 owner.Dispose();
             }
         });

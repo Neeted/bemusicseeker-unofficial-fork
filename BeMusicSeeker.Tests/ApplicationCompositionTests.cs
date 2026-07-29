@@ -1481,7 +1481,6 @@ public sealed class ApplicationCompositionTests
     {
         return new RankingCacheDownloadWorkflowOwner(
             new BmsRankingCacheDownloadRuntime(() => null!),
-            new ChartFileOperationSynchronizer(),
             new TestUiDialogService());
     }
 

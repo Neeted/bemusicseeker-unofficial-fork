@@ -1324,6 +1324,81 @@ public partial class BMSLibrary
         }
     }
 
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> CapturePackageComponentFiles(
+        IEnumerable<ChartPackage> packages)
+    {
+        var snapshots = new Dictionary<string, IReadOnlyList<string>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (ChartPackage package in (packages ?? []).Where(package => package != null).Distinct())
+        {
+            try
+            {
+                string path = package.path;
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    continue;
+                }
+                if (LongPathFileSystem.FileExists(path))
+                {
+                    snapshots[path] = [path];
+                }
+                else if (LongPathFileSystem.DirectoryExists(path))
+                {
+                    snapshots[path] =
+                    [
+                        .. LongPathFileSystem.EnumerateFiles(
+                            path,
+                            "*",
+                            SearchOption.AllDirectories)
+                    ];
+                }
+                else
+                {
+                    snapshots[path] = [];
+                }
+            }
+            catch
+            {
+                if (!string.IsNullOrWhiteSpace(package.path))
+                {
+                    snapshots[package.path] = [];
+                }
+            }
+        }
+        return snapshots;
+    }
+
+    private static int CountComponentMoveTargetsFromSnapshot(
+        ChartPackage package,
+        string destinationDirectory,
+        ISet<string> excludedComponentPaths,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> componentFilesByPackage)
+    {
+        if (package == null
+            || string.IsNullOrWhiteSpace(destinationDirectory)
+            || componentFilesByPackage == null
+            || string.IsNullOrWhiteSpace(package.path)
+            || !componentFilesByPackage.TryGetValue(
+                package.path,
+                out IReadOnlyList<string> componentFiles))
+        {
+            return 0;
+        }
+        var excludedPathSet = new HashSet<string>(
+            excludedComponentPaths ?? Enumerable.Empty<string>(),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (PackageChartEntry entry in package.ChartEntries ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(entry?.Chart?.Path))
+            {
+                excludedPathSet.Add(entry.Chart.Path);
+            }
+        }
+        return componentFiles.Count(path =>
+            !string.IsNullOrWhiteSpace(path)
+            && !excludedPathSet.Contains(path));
+    }
+
     private ChartPackage CreateInstalledDisplayPackageForResourceOnlyMerge(ChartPackage originalPackage, string destinationDirectory)
     {
         if (originalPackage == null || string.IsNullOrWhiteSpace(destinationDirectory))
@@ -1369,6 +1444,383 @@ public partial class BMSLibrary
         return displayPackage;
     }
 
+    private PendingEstimatedInstallExecutionReceipt ExecutePendingEstimatedInstall(
+        IEnumerable<ChartPackage> packages,
+        PendingEstimatedInstallExecutionContext executionContext,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> componentFilesByPackage)
+    {
+        if (packages == null)
+        {
+            throw new ArgumentNullException(nameof(packages));
+        }
+        if (executionContext == null)
+        {
+            throw new ArgumentNullException(nameof(executionContext));
+        }
+
+        var totalStopwatch = Stopwatch.StartNew();
+        EstimatedInstallDeferredFeedback deferredFeedback = executionContext.DeferredFeedback;
+        BmsLibraryOptionsSnapshot options;
+        PendingInstallBatchPlan installPlan;
+        using (PendingEstimatedInstallMutationLease.Acquire(
+            rwlockBMSFilesInitializedAll.GetReaderGuard,
+            rwlockPendingInstallCharts.GetReaderGuard,
+            rwlockBMSFiles.GetReaderGuard))
+        {
+            options = CurrentOptionsSnapshot;
+            installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(
+                packages,
+                [.. ChartPackagesPending.Where(package => package != null)],
+                CreateInstalledChartKeySnapshotExcludingChartsUnsafe(
+                    [],
+                    "install_pending_estimated_filter",
+                    0L,
+                    deferredFeedback.LogInstallPerformance),
+                options.DeletePendingPackageSourceAfterInstall,
+                (package, destinationDirectory, excludedComponentPaths) =>
+                    CountComponentMoveTargetsFromSnapshot(
+                        package,
+                        destinationDirectory,
+                        excludedComponentPaths,
+                        componentFilesByPackage));
+        }
+
+        bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
+        if (installPlan.SelectedPendingPackages.Count == 0)
+        {
+            totalStopwatch.Stop();
+            deferredFeedback.LogInstallPerformance(
+                "install_pending_packages_to_estimated_destinations skipped reason=no_pending_target filterMs="
+                + installPlan.FilterMs
+                + " totalMs="
+                + totalStopwatch.ElapsedMilliseconds);
+            return CreateSkippedPendingEstimatedInstallReceipt(
+                totalStopwatch,
+                installPlan,
+                deletePendingPackageSourceAfterInstall);
+        }
+        if (installPlan.Groups.Count == 0 && installPlan.DeferredManualHoldCount > 0)
+        {
+            totalStopwatch.Stop();
+            deferredFeedback.LogInstallPerformance(
+                "install_pending_packages_to_estimated_destinations skipped reason=deferred_manual_merge_hold deferredManualHold="
+                + installPlan.DeferredManualHoldCount
+                + " selected="
+                + installPlan.SelectedPendingCount
+                + " filterMs="
+                + installPlan.FilterMs
+                + " totalMs="
+                + totalStopwatch.ElapsedMilliseconds);
+            return CreateSkippedPendingEstimatedInstallReceipt(
+                totalStopwatch,
+                installPlan,
+                deletePendingPackageSourceAfterInstall);
+        }
+
+        deferredFeedback.LogInstallPerformance(
+            "install_pending_packages_to_estimated_destinations start selected="
+            + installPlan.SelectedPendingCount
+            + " groups="
+            + installPlan.Groups.Count
+            + " groupedPackages="
+            + installPlan.GroupedPackageCount
+            + " installTargets="
+            + installPlan.InstallTargetFileCount
+            + " deferredManualHold="
+            + installPlan.DeferredManualHoldCount
+            + " deleteSourceContents="
+            + deletePendingPackageSourceAfterInstall
+            + " filterMs="
+            + installPlan.FilterMs
+            + " groupBuildMs="
+            + installPlan.GroupBuildMs
+            + " planBuildMs="
+            + installPlan.PlanBuildMs);
+
+        var batchApplyContext = new EstimatedInstallBatchApplyContext();
+        PendingInstallBatchResult batchResult = packageInstallService.ExecuteEstimatedInstallBatchPlan(
+            installPlan,
+            deletePendingPackageSourceAfterInstall,
+            (
+                installPackages,
+                destinationDirectory,
+                deferredMaintenanceCharts,
+                deferredInstalledPackages,
+                excludedComponentPathsByPackage,
+                existingHashes,
+                skipInstalledPackageWhenNoBms,
+                deleteSourceContentsAfterSuccessfulInstall) => installChartPackages(
+                    installPackages,
+                    destinationDirectory,
+                    deferredMaintenanceCharts,
+                    deferredInstalledPackages,
+                    excludedComponentPathsByPackage,
+                    existingHashes,
+                    skipInstalledPackageWhenNoBms,
+                    deleteSourceContentsAfterSuccessfulInstall,
+                    batchApplyContext,
+                    deferredFeedback),
+            CreateInstalledDisplayPackageForResourceOnlyMerge,
+            package =>
+            {
+                bool success = TryCleanupPendingPackageSourceForEstimatedInstall(
+                    package,
+                    out CleanupSourceKind sourceKind,
+                    deferredFeedback);
+                return (success, sourceKind);
+            },
+            deferredFeedback.LogInstallPerformance);
+
+        PendingEstimatedInstallCatalogPreparation catalogPreparation =
+            PrepareEstimatedInstallBatchLibraryState(batchApplyContext, deferredFeedback);
+        long libraryStateApplyMs;
+        long pendingApplyMs;
+        long installedApplyMs;
+        PendingEstimatedInstallCollectionApplyResult pendingApplyResult;
+        PendingEstimatedInstallCollectionApplyResult installedApplyResult;
+        PendingEstimatedInstallCatalogApplyReceipt catalogApplyReceipt;
+        using (PendingEstimatedInstallMutationLease.Acquire(
+            rwlockBMSFilesInitializedAll.GetReaderGuard,
+            rwlockPendingInstallCharts.GetWriterGuard,
+            rwlockBMSFiles.GetWriterGuard,
+            rwlockSongDBInstall.GetWriterGuard))
+        {
+            var libraryStateApplyStopwatch = Stopwatch.StartNew();
+            bool canUseResourceHealthIndexDelta = resourceHealthOwner.IsCurrent();
+            using (canUseResourceHealthIndexDelta ? resourceHealthOwner.SuppressInvalidation() : null)
+            {
+                catalogApplyReceipt = ApplyEstimatedInstallBatchLibraryState(
+                    batchApplyContext,
+                    catalogPreparation,
+                    deferredFeedback);
+                executionContext.CatalogApplyReceipt = catalogApplyReceipt;
+            }
+            libraryStateApplyStopwatch.Stop();
+            libraryStateApplyMs = libraryStateApplyStopwatch.ElapsedMilliseconds;
+
+            if (catalogApplyReceipt.HasFailure)
+            {
+                pendingApplyResult = new PendingEstimatedInstallCollectionApplyResult();
+                installedApplyResult = new PendingEstimatedInstallCollectionApplyResult();
+                pendingApplyMs = 0L;
+                installedApplyMs = 0L;
+            }
+            else
+            {
+                PendingPackageMutationDelta pendingDelta = packageInstallService.BuildPendingPackageMutationDelta(
+                    packageLifecycleOwner.PendingPackages,
+                    packagesToRemove: batchResult.PendingPackagesToRemove);
+                List<string> installPathsToDelete = [.. pendingDelta.InstallPathsToDelete
+                    .Concat(batchResult.InstallRowsToDelete ?? [])
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Distinct(StringComparer.Ordinal)];
+                pendingDelta.InstallPathsToDelete = installPathsToDelete;
+                pendingDelta.HasChanges = pendingDelta.HasChanges || installPathsToDelete.Count > 0;
+                (
+                    pendingApplyResult,
+                    installedApplyResult,
+                    pendingApplyMs,
+                    installedApplyMs) = packageLifecycleOwner.ApplyEstimatedInstallCollections(
+                        pendingDelta,
+                        batchResult.PendingPackagesToRemove?.Count ?? 0,
+                        batchResult.DeferredInstalledPackages);
+            }
+        }
+
+        return new PendingEstimatedInstallExecutionReceipt
+        {
+            TotalStopwatch = totalStopwatch,
+            InstallPlan = installPlan,
+            BatchResult = batchResult,
+            BatchApplyContext = batchApplyContext,
+            PendingApplyResult = pendingApplyResult,
+            InstalledApplyResult = installedApplyResult,
+            CatalogApplyReceipt = catalogApplyReceipt,
+            LibraryStateApplyMs = libraryStateApplyMs,
+            PendingApplyMs = pendingApplyMs,
+            InstalledApplyMs = installedApplyMs,
+            DeletePendingPackageSourceAfterInstall = deletePendingPackageSourceAfterInstall
+        };
+    }
+
+    private void CompletePendingEstimatedInstallUnderGuard(
+        PendingEstimatedInstallExecutionReceipt receipt,
+        EstimatedInstallDeferredFeedback deferredFeedback)
+    {
+        if (receipt == null)
+        {
+            throw new ArgumentNullException(nameof(receipt));
+        }
+        if (receipt.IsSkipped)
+        {
+            return;
+        }
+
+        receipt.CatalogApplyReceipt?.CompleteUnderGuard();
+        var maintenanceStopwatch = Stopwatch.StartNew();
+        receipt.MaintenanceReceipt = ApplyEstimatedInstallMaintenanceForDeferredDispatch(
+            receipt.BatchResult.DeferredMaintenanceCharts,
+            deferredFeedback);
+        receipt.MaintenanceReceipt.ThrowIfFailed();
+        List<ChartFile> targets =
+            BuildEstimatedInstallMaintenanceTargets(receipt.BatchResult.DeferredMaintenanceCharts);
+        List<ChartFile> inlineTargets = BuildEstimatedInstallMaintenanceTargets(
+            targets.Concat(CreateAddedBmsonChartProjections(receipt.BatchApplyContext.AddedCharts)));
+        receipt.InlineChartInfoReceipt = BuildEstimatedInstallInlineChartInfoForDeferredDispatch(
+            "install_package_estimated_inline",
+            inlineTargets,
+            deferredFeedback);
+        receipt.InlineChartInfoReceipt.ThrowIfFailed();
+        maintenanceStopwatch.Stop();
+
+        if (receipt.DeletePendingPackageSourceAfterInstall && receipt.BatchResult.CleanupOnlySucceeded > 0)
+        {
+            deferredFeedback.ShowEstimatedCleanupOnlyCompletedWarning(
+                receipt.BatchResult.CleanupOnlySucceeded);
+        }
+
+        receipt.TotalStopwatch.Stop();
+        deferredFeedback.LogInstallPerformance(
+            "install_pending_packages_to_estimated_destinations end libraryStateApplyMs="
+            + receipt.LibraryStateApplyMs
+            + " pendingApplyMs="
+            + receipt.PendingApplyMs
+            + " pendingBeforeApply="
+            + receipt.PendingApplyResult.Before
+            + " pendingRemovedTotal="
+            + receipt.PendingApplyResult.Changed
+            + " pendingAfterApply="
+            + receipt.PendingApplyResult.After
+            + " installedApplyMs="
+            + receipt.InstalledApplyMs
+            + " installedBeforeApply="
+            + receipt.InstalledApplyResult.Before
+            + " installedAddedTotal="
+            + receipt.InstalledApplyResult.Changed
+            + " installedAfterApply="
+            + receipt.InstalledApplyResult.After
+            + " maintenanceTargets="
+            + receipt.MaintenanceReceipt.AffectedCount
+            + " maintenanceMs="
+            + maintenanceStopwatch.ElapsedMilliseconds
+            + " cleanupOnlyCandidates="
+            + receipt.InstallPlan.CleanupOnlyCandidates.Count
+            + " cleanupOnlySucceeded="
+            + receipt.BatchResult.CleanupOnlySucceeded
+            + " cleanupOnlyFailed="
+            + receipt.BatchResult.CleanupOnlyFailed
+            + " cleanupOnlyMissingSource="
+            + receipt.BatchResult.CleanupOnlyMissingSource
+            + " deferredManualHold="
+            + receipt.InstallPlan.DeferredManualHoldCount
+            + " totalMs="
+            + receipt.TotalStopwatch.ElapsedMilliseconds);
+    }
+
+    private static PendingEstimatedInstallExecutionReceipt CreateSkippedPendingEstimatedInstallReceipt(
+        Stopwatch totalStopwatch,
+        PendingInstallBatchPlan installPlan,
+        bool deletePendingPackageSourceAfterInstall)
+    {
+        return new PendingEstimatedInstallExecutionReceipt
+        {
+            TotalStopwatch = totalStopwatch,
+            InstallPlan = installPlan,
+            DeletePendingPackageSourceAfterInstall = deletePendingPackageSourceAfterInstall
+        };
+    }
+
+    private void CompletePendingEstimatedInstallCatalogUnderGuard(
+        PendingEstimatedInstallExecutionContext executionContext)
+    {
+        executionContext?.CatalogApplyReceipt?.CompleteUnderGuard();
+    }
+
+    private static void PublishPendingEstimatedInstallPostGuardEffects(
+        PendingEstimatedInstallExecutionReceipt receipt,
+        PendingEstimatedInstallExecutionContext executionContext)
+    {
+        List<Exception> failures = [];
+        PublishPendingEstimatedInstallEffect(
+            () => executionContext?.CatalogApplyReceipt?.PublishAfterGuard(),
+            failures);
+        PublishPendingEstimatedInstallEffect(() => receipt?.MaintenanceReceipt?.Publish(), failures);
+        PublishPendingEstimatedInstallEffect(() => receipt?.InlineChartInfoReceipt?.Publish(), failures);
+        PublishPendingEstimatedInstallEffect(
+            () => executionContext?.PublishDeferredPackageEntryNotifications(),
+            failures);
+        if (failures.Count > 0)
+        {
+            throw new AggregateException("Estimated-install post-guard publication failed.", failures);
+        }
+    }
+
+    private void PublishPendingEstimatedInstallFeedback(EstimatedInstallDeferredFeedback deferredFeedback)
+    {
+        List<Exception> failures = [];
+        foreach (EstimatedInstallFeedbackNotification notification
+            in deferredFeedback?.DrainNotifications() ?? [])
+        {
+            try
+            {
+                switch (notification.Kind)
+                {
+                    case EstimatedInstallFeedbackKind.Dialog:
+                        ShowOperationDialog(
+                            notification.Message,
+                            notification.Caption,
+                            notification.Button,
+                            notification.Icon,
+                            notification.DefaultResult);
+                        break;
+                    case EstimatedInstallFeedbackKind.CleanupOnlyWarning:
+                        ShowOperationDialog(
+                            string.Format(
+                                Resources.Warn_estimated_install_cleanup_only_completed,
+                                notification.CleanupOnlySucceeded),
+                            Resources.MessageBoxTitle_Warning,
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Exclamation,
+                            MessageBoxResult.OK);
+                        break;
+                    case EstimatedInstallFeedbackKind.PerformanceLog:
+                        LogInstallPerformance(notification.Message);
+                        break;
+                    case EstimatedInstallFeedbackKind.WarningLog:
+                        NLogWrapper.FileLogger?.Warn(notification.Exception, notification.Message);
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            "Unsupported estimated-install feedback kind: " + notification.Kind);
+                }
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+        }
+        if (failures.Count > 0)
+        {
+            throw new AggregateException(
+                "Deferred estimated-install feedback publication failed.",
+                failures);
+        }
+    }
+
+    private static void PublishPendingEstimatedInstallEffect(
+        Action publish,
+        ICollection<Exception> failures)
+    {
+        try
+        {
+            publish();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
     /// <summary>
     /// 指定された pending package 群を推定されたインストール先ディレクトリへインストールします。
     /// SmartOverwrite ロジックによるコンポーネント移動計画を構築して実行します。
@@ -1383,7 +1835,12 @@ public partial class BMSLibrary
         {
             return;
         }
+        List<ChartPackage> requestedPackages =
+            [.. packages.Where(package => package != null)];
+        IReadOnlyDictionary<string, IReadOnlyList<string>> componentFilesByPackage =
+            CapturePackageComponentFiles(requestedPackages);
         var executionContext = new PendingEstimatedInstallExecutionContext();
+        executionContext.DeferPackageEntryNotifications(requestedPackages);
         PendingEstimatedInstallExecutionReceipt receipt = null;
         Exception operationFailure = null;
         try
@@ -1402,10 +1859,11 @@ public partial class BMSLibrary
                     }
                     try
                     {
-                        receipt = pendingEstimatedInstallOwner.InstallPendingPackagesToEstimatedDestinations(
-                            packages,
-                            executionContext);
-                        pendingEstimatedInstallOwner.CompletePendingPackagesToEstimatedDestinationsUnderGuard(
+                        receipt = ExecutePendingEstimatedInstall(
+                            requestedPackages,
+                            executionContext,
+                            componentFilesByPackage);
+                        CompletePendingEstimatedInstallUnderGuard(
                             receipt,
                             executionContext.DeferredFeedback);
                     }
@@ -1414,7 +1872,7 @@ public partial class BMSLibrary
                         operationFailure = exception;
                         try
                         {
-                            pendingEstimatedInstallOwner.CompleteCatalogApplyUnderGuard(executionContext);
+                            CompletePendingEstimatedInstallCatalogUnderGuard(executionContext);
                         }
                         catch (Exception completionException)
                         {
@@ -1440,7 +1898,7 @@ public partial class BMSLibrary
         Exception publicationFailure = null;
         try
         {
-            pendingEstimatedInstallOwner.PublishPostGuardEffects(receipt, executionContext);
+            PublishPendingEstimatedInstallPostGuardEffects(receipt, executionContext);
         }
         catch (Exception publicationException)
         {
@@ -1449,7 +1907,7 @@ public partial class BMSLibrary
 
         try
         {
-            pendingEstimatedInstallOwner.PublishDeferredFeedback(executionContext.DeferredFeedback);
+            PublishPendingEstimatedInstallFeedback(executionContext.DeferredFeedback);
         }
         catch (Exception feedbackException)
         {

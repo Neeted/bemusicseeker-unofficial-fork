@@ -716,6 +716,11 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    internal void PublishScoreAttachmentChanged()
+    {
+        RaisePropertyChanged(nameof(bmsScore));
+    }
+
     private void registrateBMSScorePropertyChangedEventHandlers()
     {
         DisposeBmsScoreListener();

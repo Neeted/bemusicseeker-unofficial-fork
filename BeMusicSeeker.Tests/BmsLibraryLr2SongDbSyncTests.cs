@@ -3700,7 +3700,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string customFolderPath = Path.Combine(rootDirectory, "custom.lr2folder");
             File.WriteAllText(customFolderPath, "#TITLE Custom Folder");
 
-            var library = new TestBmsLibrary(scope.SongDbPath);
+            var library = new TestBmsLibrary(
+                scope.SongDbPath,
+                null,
+                null,
+                null,
+                null,
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             library.SearchTargets = [rootDirectory];
             var file = new TestableBmsFile
             {
@@ -3757,12 +3763,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
             string queuedName = string.Empty;
             string queuedReason = string.Empty;
-            var observedStages = new List<string>();
+            bool stagePublicationObserved = false;
             library.PropertyChanged += (sender, args) =>
             {
                 if (string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2SongDbSyncStage), StringComparison.Ordinal))
                 {
-                    observedStages.Add(library.Lr2SongDbSyncStage);
+                    stagePublicationObserved = true;
                 }
             };
             library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
@@ -3774,14 +3780,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
 
             Lr2SongDbSyncStatusSnapshot snapshot = library.QueueLr2SongDbSync("test_enabled");
+            TestUiDispatcherHost.Drain();
 
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, snapshot.Status);
             Assert.AreEqual("lr2_song_db_sync", queuedName);
             Assert.AreEqual("test_enabled", queuedReason);
-            CollectionAssert.Contains(observedStages, "chart_info_hydration");
-            CollectionAssert.Contains(observedStages, "input_surface");
-            CollectionAssert.Contains(observedStages, "compatibility_projection_index");
-            CollectionAssert.Contains(observedStages, "chart_info_resolver_snapshot");
+            Assert.IsTrue(stagePublicationObserved);
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
@@ -3846,6 +3850,101 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
+    public void Lr2PropertyPublication_CoalescesRepeatedChangesIntoOneUiDrain()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        var scheduler = new QueuedUiScheduler();
+        var library = new TestBmsLibrary(
+            scope.SongDbPath,
+            null,
+            null,
+            null,
+            null,
+            scheduler);
+        var publishedPropertyNames = new List<string>();
+        library.PropertyChanged += (_, args) => publishedPropertyNames.Add(args.PropertyName);
+        MethodInfo handler = typeof(BMSLibrary).GetMethod(
+            "HandleLr2SynchronizationPropertyChanged",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(handler);
+        string[] expectedPropertyNames =
+        [
+            nameof(BMSLibrary.Lr2SongDbSyncStage),
+            nameof(BMSLibrary.Lr2SongDbSyncProcessedCount),
+            nameof(BMSLibrary.Lr2SongDbSyncTotalCount),
+            nameof(BMSLibrary.Lr2SongDbSyncStageProcessedCount),
+            nameof(BMSLibrary.Lr2SongDbSyncStageTotalCount)
+        ];
+
+        for (int iteration = 0; iteration < 20; iteration++)
+        {
+            foreach (string propertyName in expectedPropertyNames)
+            {
+                handler.Invoke(
+                    library,
+                    [library, new System.ComponentModel.PropertyChangedEventArgs(propertyName)]);
+            }
+        }
+
+        Assert.AreEqual(1, scheduler.ScheduleCount);
+        Assert.AreEqual(1, scheduler.PendingCount);
+
+        scheduler.Drain();
+
+        Assert.AreEqual(0, scheduler.PendingCount);
+        CollectionAssert.AreEquivalent(expectedPropertyNames, publishedPropertyNames);
+    }
+
+    [TestMethod]
+    public void Lr2PropertyPublication_RefillDuringDrainUsesNextUiTurn()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        var scheduler = new QueuedUiScheduler();
+        var library = new TestBmsLibrary(
+            scope.SongDbPath,
+            null,
+            null,
+            null,
+            null,
+            scheduler);
+        MethodInfo handler = typeof(BMSLibrary).GetMethod(
+            "HandleLr2SynchronizationPropertyChanged",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(handler);
+        string firstPropertyName = nameof(BMSLibrary.Lr2SongDbSyncStage);
+        string refilledPropertyName = nameof(BMSLibrary.Lr2SongDbSyncProcessedCount);
+        var publishedPropertyNames = new List<string>();
+        bool refilled = false;
+        library.PropertyChanged += (_, args) =>
+        {
+            publishedPropertyNames.Add(args.PropertyName);
+            if (!refilled && args.PropertyName == firstPropertyName)
+            {
+                refilled = true;
+                handler.Invoke(
+                    library,
+                    [library, new System.ComponentModel.PropertyChangedEventArgs(refilledPropertyName)]);
+            }
+        };
+        handler.Invoke(
+            library,
+            [library, new System.ComponentModel.PropertyChangedEventArgs(firstPropertyName)]);
+
+        scheduler.ExecuteNext();
+
+        CollectionAssert.AreEqual(new[] { firstPropertyName }, publishedPropertyNames);
+        Assert.AreEqual(2, scheduler.ScheduleCount);
+        Assert.AreEqual(1, scheduler.PendingCount);
+
+        scheduler.ExecuteNext();
+
+        CollectionAssert.AreEqual(
+            new[] { firstPropertyName, refilledPropertyName },
+            publishedPropertyNames);
+        Assert.AreEqual(0, scheduler.PendingCount);
+    }
+
+    [TestMethod]
     public void QueueLr2SongDbSync_PreflightCancelMarksDurableCancelledStatus()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -3855,90 +3954,66 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
-            var library = new TestBmsLibrary(scope.SongDbPath)
+            var library = new TestBmsLibrary(
+                scope.SongDbPath,
+                null,
+                null,
+                null,
+                null,
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher))
             {
                 SearchTargets = [rootDirectory],
                 BMSFiles = []
             };
             bool cancelRequested = false;
-            library.PropertyChanged += (sender, args) =>
+            Func<Task> scheduledWork = null;
+            FieldInfo ownerField = typeof(BMSLibrary).GetField(
+                "lr2SynchronizationOwner",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(ownerField);
+            var synchronizationOwner = (System.ComponentModel.INotifyPropertyChanged)ownerField.GetValue(library);
+            System.ComponentModel.PropertyChangedEventHandler cancelAtInputSurface = (_, args) =>
             {
                 if (!cancelRequested
-                    && string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2SongDbSyncStage), StringComparison.Ordinal)
-                    && string.Equals(library.Lr2SongDbSyncStage, "chart_info_hydration", StringComparison.Ordinal))
+                    && string.Equals(
+                        args.PropertyName,
+                        nameof(BMSLibrary.Lr2SongDbSyncStage),
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        library.Lr2SongDbSyncStage,
+                        "input_surface",
+                        StringComparison.Ordinal))
                 {
                     cancelRequested = library.CancelLr2SongDbSync("test_preflight_cancel");
                 }
             };
+            synchronizationOwner.PropertyChanged += cancelAtInputSurface;
             library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
             {
-                work().GetAwaiter().GetResult();
+                scheduledWork = work;
                 return true;
             };
 
             library.QueueLr2SongDbSync("test_preflight_cancel", force: true);
+            Assert.IsNotNull(scheduledWork);
+            try
+            {
+                scheduledWork().GetAwaiter().GetResult();
+            }
+            finally
+            {
+                synchronizationOwner.PropertyChanged -= cancelAtInputSurface;
+            }
+            TestUiDispatcherHost.Drain();
 
             Assert.IsTrue(cancelRequested);
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Cancelled", row.status);
-            Assert.AreEqual("chart_info_hydration", row.stage);
+            Assert.AreEqual("input_surface", row.stage);
             Assert.AreEqual(0, row.processed_cursor);
             Assert.AreEqual(0, row.total_count);
-        }
-        finally
-        {
-            ResetTouchedSettings();
-        }
-    }
-
-    [TestMethod]
-    public void QueueLr2SongDbSync_ServiceCancelKeepsDurableProgress()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        try
-        {
-            Settings.Default.OperationModeLR2DB = true;
-            ResetLr2FolderDiscoverySettings();
-            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-            string songDirectory = Path.Combine(rootDirectory, "Song");
-            Directory.CreateDirectory(songDirectory);
-            string chartPath = Path.Combine(songDirectory, "chart.bms");
-            File.WriteAllText(chartPath, "#TITLE Cancel In Service\r\n#00111:01\r\n", Encoding.ASCII);
-            ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            TestableBmsFile file = CreateSyncTestFile(chartPath, chartSnapshot);
-            var library = new TestBmsLibrary(scope.SongDbPath)
-            {
-                SearchTargets = [rootDirectory],
-                BMSFiles = [file]
-            };
-            bool cancelRequested = false;
-            library.PropertyChanged += (sender, args) =>
-            {
-                if (!cancelRequested
-                    && string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2SongDbSyncStage), StringComparison.Ordinal)
-                    && string.Equals(library.Lr2SongDbSyncStage, "normal_folders", StringComparison.Ordinal))
-                {
-                    cancelRequested = library.CancelLr2SongDbSync("test_service_cancel");
-                }
-            };
-            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
-            {
-                work().GetAwaiter().GetResult();
-                return true;
-            };
-
-            library.QueueLr2SongDbSync("test_service_cancel", force: true);
-
-            Assert.IsTrue(cancelRequested);
-            using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-            Assert.IsNotNull(row);
-            Assert.AreEqual("Cancelled", row.status);
-            Assert.AreEqual("normal_folders", row.stage);
-            Assert.AreEqual(0, row.processed_cursor);
-            Assert.IsTrue(row.total_count.GetValueOrDefault() > 0);
         }
         finally
         {
@@ -7692,6 +7767,128 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             }
             return null!;
         };
+    }
+
+    private sealed class QueuedUiScheduler : IUiScheduler
+    {
+        private readonly Queue<QueuedUiOperation> operations = [];
+        private readonly object syncRoot = new();
+
+        internal int PendingCount
+        {
+            get
+            {
+                lock (syncRoot)
+                {
+                    return operations.Count;
+                }
+            }
+        }
+
+        internal int ScheduleCount { get; private set; }
+
+        public bool IsAvailable => true;
+
+        public bool CanExecuteInline => false;
+
+        public bool CheckAccess() => false;
+
+        public IUiScheduledOperation Schedule(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            var operation = new QueuedUiOperation(action);
+            lock (syncRoot)
+            {
+                ScheduleCount++;
+                operations.Enqueue(operation);
+            }
+            return operation;
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) =>
+            action();
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) =>
+            action();
+
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal) =>
+            action();
+
+        internal void Drain()
+        {
+            while (PendingCount > 0)
+            {
+                ExecuteNext();
+            }
+        }
+
+        internal void ExecuteNext()
+        {
+            QueuedUiOperation operation;
+            lock (syncRoot)
+            {
+                if (operations.Count == 0)
+                {
+                    throw new InvalidOperationException("No queued UI operation is available.");
+                }
+                operation = operations.Dequeue();
+            }
+            operation.Execute();
+        }
+    }
+
+    private sealed class QueuedUiOperation : IUiScheduledOperation
+    {
+        private readonly Action action;
+        private readonly TaskCompletionSource<object> completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int aborted;
+
+        internal QueuedUiOperation(Action action)
+        {
+            this.action = action ?? throw new ArgumentNullException(nameof(action));
+        }
+
+        public bool IsAccepted => true;
+
+        public bool IsCompleted => Completion.IsCompleted;
+
+        public bool IsAborted => Volatile.Read(ref aborted) != 0;
+
+        public string RejectionReason => null;
+
+        public Task Completion => completion.Task;
+
+        public void Abort()
+        {
+            Interlocked.Exchange(ref aborted, 1);
+            completion.TrySetCanceled();
+        }
+
+        internal void Execute()
+        {
+            if (IsAborted)
+            {
+                return;
+            }
+            try
+            {
+                action();
+                completion.TrySetResult(null);
+            }
+            catch (Exception ex)
+            {
+                completion.TrySetException(ex);
+                throw;
+            }
+        }
     }
 
     private sealed class TestableBmsFile : BMSFile

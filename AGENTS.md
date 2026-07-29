@@ -19,6 +19,8 @@
 - `NO_SAFE_UNIT`は無効。内部複雑性はowner、wait graph、behavior corridorへ分解する。
 - method、callback、lock、wait、property一件だけをunitにしない。同じowner、待機graph、invariant、verification scopeを持つ残件をまとめる。
 - active batchの状態更新は対応code／test unitと同じcommitに含め、status-only progress commitを作らない。
+- Windows UI smokeでは対象作業の直前にComputer Useを開始し、repository内の検証対象exeとそのwindowを一意に選択する。smoke終了時は対象appを閉じ、Computer Use runtimeも終了する。次のUI検証時は新しいruntimeとして再開する。
+- Computer UseがEscape等のユーザー操作でcancelされた場合は、古いwindow／element stateを破棄し、対象appとwindowを再列挙して同じsmokeを再試行する。cancel自体を応答境界やunit停止条件にしない。
 
 ## Concurrency の非交渉条件
 

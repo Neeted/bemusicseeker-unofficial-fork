@@ -4571,6 +4571,7 @@ createTempDirectory);
                 null,
                 false,
                 false,
+                null,
                 null
             ]);
     }

@@ -115,6 +115,14 @@ forced interruption用のproduction recovery codeやjournal testは要求しな�
 
 selected publish layoutを変更しない限り、distribution benchmarkを再実行しない。
 
+### Windows UI smoke
+
+1. UI smokeの直前にComputer Use runtimeを開始し、repositoryでbuild／publishした検証対象exeを明示して起動する。
+2. `list_windows`が返したapp pathとtitleから対象windowを一意に選択し、観測ごとに最新のwindow／element stateを使う。
+3. Escape等のユーザー操作でComputer Useがcancelされた場合は、その操作stateを破棄してruntimeを再開し、対象windowを再列挙して同じsmokeを再試行する。cancelはverification failure、応答境界、unit停止条件にはしない。
+4. smokeの成功、失敗、cancelの各試行後に対象appを正常終了し、Computer Use runtimeを`close`する。次のUI作業ではruntimeを改めて初期化する。
+5. desktop lock、permission prompt、またはdocumented recovery後もhelperが対象windowを取得できない場合は、具体的な状態をverification blockerとして記録する。
+
 ## 7. 手動受入れとRelease Freeze
 
 `.NET Desktop Runtime`未導入clean machine／VM、署名、公開、BASS.NET entitlementは[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoffする。これらをCodexのactive outcome、Engineering Gate、planner停止条件、`EXTERNAL_BLOCKER`にしない。

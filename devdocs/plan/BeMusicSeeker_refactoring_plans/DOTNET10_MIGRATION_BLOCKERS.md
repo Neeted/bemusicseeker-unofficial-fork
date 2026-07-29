@@ -4,18 +4,18 @@
 
 ## Current decision
 
-.NET 10 retarget、dependency、data、updater、distribution profileは完了している。release-candidate操作で決定的なmodel-lock／UI wait cycleが見つかったため、strict Refactoring／Engineering Gateを`CONC-01`で再開する。
+.NET 10 retarget、dependency、data、updater、distribution profileは完了している。release-candidate操作で見つかったmodel-lock／UI wait cycleとstartup HTTP stallはH4で解消し、Full verification、repository publish UI smoke、fresh reviewを通過した。
 
-pre-release deadlockの中途状態を救済するdurable recovery frameworkはblockerにしない。release operationを正常完了させ、filesystem／song DB差分は既存startup／manual file diff contractで収束させる。
+pre-release deadlockの中途状態を救済するdurable recovery frameworkは導入しない。release operationを正常完了させ、filesystem／song DB差分は既存startup／manual file diff contractで収束させる。
 
-## Active engineering blockers
+## Concurrency closure
 
 | ID | State | Work | Exit |
 |---|---|---|---|
-| `CONC-01` | active | normal-library refreshのworker→UI synchronous waitとUI→catalog lock取得のdeadlock | H1、deterministic regression、producer non-blocking |
-| `CONC-02` | pending | estimated-install broad lease内のUI／dialog／callbackと不要なlong-held writer guard | H2、normal completion、lock scope evidence、専用recovery surfaceなし |
-| `CONC-03` | pending | app-wide sync wait／UI invoke／callback-under-lock candidate | H3、全candidate分類、`BLOCKING=0` |
-| `GATE-03` | pending | full responsiveness interaction smoke、selected publish、fresh review | H4通過 |
+| `CONC-01` | completed | normal-library refreshのworker→UI synchronous waitとUI→catalog lock取得のdeadlock | deterministic regression、versioned non-blocking UI drain |
+| `CONC-02` | completed | estimated-install broad lease内のUI／dialog／callbackと不要なlong-held writer guard | normal completion、post-guard publication、既存file-diff収束 |
+| `CONC-03` | completed | app-wide sync wait／UI invoke／callback-under-lock candidate | current wait inventoryで`P0 active`／`P1 active`が0 |
+| `GATE-03` | completed | full responsiveness interaction smoke、selected publish、fresh review | H4 Engineering Gate通過 |
 
 ## Completed migration corridors
 

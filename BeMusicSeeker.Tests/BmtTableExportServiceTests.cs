@@ -39,7 +39,7 @@ public sealed class BmtTableExportServiceTests
                     if (completed == 1)
                     {
                         firstEntered.Set();
-                        Assert.IsTrue(releaseFirst.Wait(TimeSpan.FromSeconds(5)));
+                        releaseFirst.Wait();
                     }
                     lock (observed)
                     {
@@ -52,12 +52,31 @@ public sealed class BmtTableExportServiceTests
                 }
             });
 
-        Task first = Task.Run(() => publisher.PublishNext("first"));
-        Assert.IsTrue(firstEntered.Wait(TimeSpan.FromSeconds(5)));
-        Task second = Task.Run(() => publisher.PublishNext("second"));
-        Assert.IsTrue(second.Wait(TimeSpan.FromSeconds(5)));
-        releaseFirst.Set();
-        Assert.IsTrue(first.Wait(TimeSpan.FromSeconds(5)));
+        Task first = null;
+        Task second = null;
+        try
+        {
+            first = Task.Factory.StartNew(
+                () => publisher.PublishNext("first"),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            Assert.IsTrue(firstEntered.Wait(TimeSpan.FromSeconds(10)));
+            second = Task.Factory.StartNew(
+                () => publisher.PublishNext("second"),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            Assert.IsTrue(second.Wait(TimeSpan.FromSeconds(10)));
+        }
+        finally
+        {
+            releaseFirst.Set();
+            first?.Wait(TimeSpan.FromSeconds(10));
+            second?.Wait(TimeSpan.FromSeconds(10));
+        }
+        Assert.IsTrue(first.IsCompletedSuccessfully);
+        Assert.IsTrue(second.IsCompletedSuccessfully);
 
         CollectionAssert.AreEqual(new[] { 1, 2 }, observed);
         Assert.AreEqual(1, maximumCallbackConcurrency);

@@ -151,7 +151,6 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         Action deferred = null!;
         var owner = new RankingCacheDownloadWorkflowOwner(
             runtime,
-            new ChartFileOperationSynchronizer(),
             dialogs,
             action =>
             {
@@ -195,7 +194,6 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         Action deferred = null!;
         var owner = new RankingCacheDownloadWorkflowOwner(
             runtime,
-            new ChartFileOperationSynchronizer(),
             dialogs,
             action =>
             {
@@ -254,7 +252,6 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
     {
         return new RankingCacheDownloadWorkflowOwner(
             runtime,
-            new ChartFileOperationSynchronizer(),
             dialogs,
             action =>
             {

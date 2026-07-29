@@ -2533,11 +2533,9 @@ public sealed class OwnedChartCollectionStateTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [bmsFile],
-                BmsonSongs = []
-            };
+            var library = new TestBmsLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
             string oldInstallDestination = Path.Combine("C:\\Install", "Old");
             string newInstallDestination = Path.Combine("C:\\Install", "New");
             ApplyInstallDestinationChange(library, bmsFile, oldInstallDestination);

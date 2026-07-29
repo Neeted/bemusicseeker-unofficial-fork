@@ -207,6 +207,60 @@ internal sealed partial class PackageLifecycleOwner
         stateMutationApplier.ApplyPendingPackageMutationDelta(delta, packagesToAdd, installRowsToUpsert);
     }
 
+    internal (
+        PendingEstimatedInstallCollectionApplyResult Pending,
+        PendingEstimatedInstallCollectionApplyResult Installed,
+        long PendingApplyMs,
+        long InstalledApplyMs)
+        ApplyEstimatedInstallCollections(
+            PendingPackageMutationDelta pendingDelta,
+            int pendingRemovedCount,
+            IReadOnlyCollection<ChartPackage> deferredInstalledPackages)
+    {
+        var pendingStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        int pendingCountBeforeApply = pendingPackages.Count;
+        if (pendingDelta?.HasChanges == true)
+        {
+            ApplyPendingPackageMutationDelta(pendingDelta);
+        }
+        var pendingResult = new PendingEstimatedInstallCollectionApplyResult
+        {
+            Before = pendingCountBeforeApply,
+            Changed = pendingRemovedCount,
+            After = pendingPackages.Count
+        };
+        pendingStopwatch.Stop();
+
+        var installedStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        int installedCountBeforeApply = installedPackages.Count;
+        int installedAddedCount = deferredInstalledPackages?.Count ?? 0;
+        if (installedAddedCount > 0)
+        {
+            List<ChartPackage> mergedInstalled = [.. installedPackages.Where(package => package != null)];
+            var installedSet = new HashSet<ChartPackage>(mergedInstalled);
+            foreach (ChartPackage installedPackage in deferredInstalledPackages)
+            {
+                if (installedPackage != null && installedSet.Add(installedPackage))
+                {
+                    mergedInstalled.Add(installedPackage);
+                }
+            }
+            ReplaceInstalledPackages(mergedInstalled);
+        }
+        installedStopwatch.Stop();
+
+        return (
+            pendingResult,
+            new PendingEstimatedInstallCollectionApplyResult
+            {
+                Before = installedCountBeforeApply,
+                Changed = installedAddedCount,
+                After = installedPackages.Count
+            },
+            pendingStopwatch.ElapsedMilliseconds,
+            installedStopwatch.ElapsedMilliseconds);
+    }
+
     internal BmsLibraryStateApplyResult ApplyLibraryMutationDelta(
         LibraryMutationDelta delta,
         IEnumerable<CatalogChartMutationFact> committedRemovalFacts = null,

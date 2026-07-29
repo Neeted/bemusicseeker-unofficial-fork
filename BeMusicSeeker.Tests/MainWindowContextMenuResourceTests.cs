@@ -2340,8 +2340,14 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "PlaylistWorkspace.QueueExternalPlaylistSync(");
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
-        StringAssert.Contains(initialize, "PlaylistWorkspace.LoadExternalTableCollection(startupSettings.TableListURL);");
-        Assert.IsFalse(initialize.Contains("BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)"));
+        StringAssert.Contains(initialize, "files.InitializeStartup([taskAdd1], semaphore);");
+        StringAssert.Contains(initialize, "\"external_table_catalog\"");
+        StringAssert.Contains(initialize, "PlaylistWorkspace.LoadExternalTableCollectionAsync(");
+        StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfoAsync");
+        Assert.IsTrue(
+            initialize.IndexOf("_semaphore.Release();", StringComparison.Ordinal)
+            < initialize.IndexOf("\"external_table_catalog\"", StringComparison.Ordinal));
+        Assert.IsFalse(initialize.Contains("void taskAdd2()"));
         StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver(),");
         StringAssert.Contains(initialize, "files.Lr2PlaylistFolderSynchronization);");
         StringAssert.Contains(compositionCode, "playlistUrlCompletionOptionsProvider,");

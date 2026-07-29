@@ -883,6 +883,65 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     [TestMethod]
+    public void PreparedRankingRefresh_DoesNotReadFallbackXmlDuringGuardedApply()
+    {
+        using var env = TempIrEnvironment.Create();
+        var service = new BmsLibraryIrService(1);
+        string hash = "37373737373737373737373737373737";
+        var cacheUpdate = new DateTime(2026, 4, 7, 13, 0, 0);
+        env.WriteCacheXml(
+            hash,
+            cacheUpdate,
+            cacheUpdate,
+            lr2Id: 123,
+            pg: 300,
+            gr: 0);
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        gateway.UpsertIrData(
+        [
+            new LR2IRData(hash)
+            {
+                lr2id = 123,
+                clear = ClearType.CLEAR,
+                pg = 300,
+                gr = 0,
+                rank = 5,
+                players_num = 1,
+                lastupdate = cacheUpdate,
+                lastcacheupdate = cacheUpdate
+            }
+        ]);
+        var score = new BMSScore
+        {
+            hash = hash,
+            perfect = 500,
+            great = 0
+        };
+
+        BmsLibraryIrService.IrCacheRefreshPlan plan =
+            service.PrepareRankingScoresRefreshPlanForLibrary(
+                123,
+                env.ScoreDbPath,
+                gateway,
+                estimateOfflineScoreRanking: true);
+        File.Delete(Path.Combine(env.IrDirectoryPath, hash + ".xml"));
+        using (BMSScore.SuppressPropertyChangedScope())
+        using (BMSFile.SuppressPropertyChangedScope())
+        {
+            service.ApplyPreparedRankingScoresRefreshPlanForLibrary(
+                plan,
+                env.ScoreDbPath,
+                [score],
+                [],
+                estimateOfflineScoreRanking: true);
+        }
+
+        Assert.AreEqual(1, plan.Result.OfflineEstimateXmlLoadCount);
+        Assert.AreEqual(1, score.ranking);
+        CollectionAssert.Contains(plan.ChangedScores.ToList(), score);
+    }
+
+    [TestMethod]
     public void RefreshRankingScoresFromCache_EstimateDisabledAvoidsXmlLoadForHigherLocalScore()
     {
         using var env = TempIrEnvironment.Create();
@@ -942,28 +1001,97 @@ public sealed class BmsLibraryIrServiceTests
         BmsLibraryDbGateway gateway = env.CreateGateway();
         List<BMSScore> scores = [];
         TestableBmsFile file = CreateFile(hash);
+        int fileScoreNotifications = 0;
+        file.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSFile.bmsScore))
+            {
+                fileScoreNotifications++;
+            }
+        };
         List<BMSLibrary.IRDataCacheInfo> cacheInfo =
         [
             CreateCacheInfo(hash, lastUpdate)
         ];
 
-        List<BMSLibrary.IRDataCacheInfo> failed = service.DownloadIRData(
-            123,
+        string stagingDirectoryPath = Path.Combine(env.RootDirectoryPath, "ranking-download-staging");
+        BmsLibraryIrService.RankingCacheDownloadBatch downloadBatch = service.DownloadRankingCacheFiles(
             cacheInfo,
-            env.IrDirectoryPath,
-            gateway,
+            stagingDirectoryPath,
             irClient,
-            new Uri("https://example.invalid/ranking"),
-            scores,
-            [file],
-            estimateOfflineScoreRanking: true);
+            new Uri("https://example.invalid/ranking"));
+
+        Assert.AreEqual(0, scores.Count);
+        Assert.AreEqual(0, gateway.LoadIrData(123).Count(data => data.hash == hash));
+        Assert.IsFalse(File.Exists(Path.Combine(env.IrDirectoryPath, hash + ".xml")));
+
+        BmsLibraryIrService.RankingCacheApplyPlan applyPlan =
+            service.PrepareDownloadedRankingCache(123, downloadBatch);
+        service.PromoteDownloadedRankingCache(applyPlan, env.IrDirectoryPath);
+        BmsLibraryIrService.RankingCacheApplyResult applyResult;
+        using (BMSScore.SuppressPropertyChangedScope())
+        using (BMSFile.SuppressPropertyChangedScope())
+        {
+            applyResult = service.ApplyPreparedDownloadedRankingCache(
+                applyPlan,
+                gateway,
+                scores,
+                [file],
+                estimateOfflineScoreRanking: true);
+        }
+        List<BMSLibrary.IRDataCacheInfo> failed = applyResult.Failed;
 
         Assert.AreEqual(0, failed.Count);
         Assert.AreEqual(1, scores.Count);
         Assert.AreSame(scores[0], file.bmsScore);
+        Assert.AreEqual(0, fileScoreNotifications);
+        int scoreNotifications = 0;
+        scores[0].PropertyChanged += (_, _) => scoreNotifications++;
+
+        scores[0].PublishRankingDataChanged();
+
+        Assert.AreEqual(5, scoreNotifications);
+        Assert.IsTrue(fileScoreNotifications > 0);
         Assert.AreEqual(1, scores[0].ranking);
         Assert.AreEqual(1, scores[0].rankingNum);
         Assert.AreEqual(1, gateway.LoadIrData(123).Count(data => data.hash == hash));
+    }
+
+    [TestMethod]
+    public void DownloadIRData_MalformedStagingPreservesExistingCache()
+    {
+        using var env = TempIrEnvironment.Create();
+        var service = new BmsLibraryIrService(1);
+        string hash = "38383838383838383838383838383838";
+        string existingCachePath = Path.Combine(env.IrDirectoryPath, hash + ".xml");
+        const string existingXml = "<ranking>known-good</ranking>";
+        File.WriteAllText(existingCachePath, existingXml, Encoding.GetEncoding("shift_jis"));
+        var irClient = new FakeIrClient(string.Empty);
+        irClient.SetRankingXml(hash, "<ranking><score>truncated");
+        BMSLibrary.IRDataCacheInfo cacheInfo = CreateCacheInfo(
+            hash,
+            new DateTime(2026, 4, 8, 13, 0, 0));
+        string stagingDirectoryPath = Path.Combine(
+            env.RootDirectoryPath,
+            "malformed-ranking-download-staging");
+
+        BmsLibraryIrService.RankingCacheDownloadBatch downloadBatch =
+            service.DownloadRankingCacheFiles(
+                [cacheInfo],
+                stagingDirectoryPath,
+                irClient,
+                new Uri("https://example.invalid/ranking"));
+        BmsLibraryIrService.RankingCacheApplyPlan applyPlan =
+            service.PrepareDownloadedRankingCache(123, downloadBatch);
+        service.PromoteDownloadedRankingCache(
+            applyPlan,
+            env.IrDirectoryPath);
+
+        Assert.AreEqual(existingXml, File.ReadAllText(
+            existingCachePath,
+            Encoding.GetEncoding("shift_jis")));
+        Assert.AreEqual(0, applyPlan.PromotedStagedPaths.Count);
+        CollectionAssert.Contains(applyPlan.Failed, cacheInfo);
     }
 
     [TestMethod]

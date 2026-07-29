@@ -1116,20 +1116,28 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void ExternalTableListCatalog_IsOwnedByWorkspace()
+    public void ExternalTableListCatalog_IsOwnedByWorkspaceAndRunsAfterCoreStartup()
     {
         string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
         string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
 
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.LoadExternalTableCollection(startupSettings.TableListURL);");
-        Assert.AreEqual(-1, rootSource.IndexOf("BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)", StringComparison.Ordinal));
+        StringAssert.Contains(rootSource, "files.InitializeStartup([taskAdd1], semaphore);");
+        StringAssert.Contains(rootSource, "\"external_table_catalog\"");
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.LoadExternalTableCollectionAsync(");
+        StringAssert.Contains(rootSource, "BMSPlaylist.GetBMSTableInfoAsync");
+        Assert.IsTrue(
+            rootSource.IndexOf("_semaphore.Release();", StringComparison.Ordinal)
+            < rootSource.IndexOf("\"external_table_catalog\"", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("void taskAdd2()", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("files.InitializeStartup([taskAdd1, taskAdd2]", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BMSExternalTableListExt", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("IsLoadingExternalCollectionBMSTables", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal void LoadExternalTableCollection(Uri tableListUrl)");
+        StringAssert.Contains(workspaceSource, "internal async Task LoadExternalTableCollectionAsync(");
+        StringAssert.Contains(workspaceSource, "CancellationTokenSource externalTableListLoadCancellation");
         StringAssert.Contains(workspaceSource, "internal PlaylistRootContextMenuAvailability CapturePlaylistRootContextMenuAvailability()");
-        StringAssert.Contains(workspaceSource, "BMSPlaylist.GetBMSTableInfo(tableListUrl)");
+        StringAssert.Contains(workspaceSource, "await fetchTableInfoAsync(");
         StringAssert.Contains(workspaceSource, "BuildExternalTableListCatalog(tableInfo)");
         StringAssert.Contains(mainWindowXaml, "ItemsSource=\"{Binding PlaylistWorkspace.BMSExternalTableListExt.Children}\"");
         Assert.AreEqual(-1, mainWindowXaml.IndexOf("ItemsSource=\"{Binding BMSExternalTableListExt.Children}\"", StringComparison.Ordinal));
@@ -1146,6 +1154,123 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootMenuHandler.IndexOf("CanOpenPlaylistEditDialog", StringComparison.Ordinal));
         StringAssert.Contains(loadUriHandler, "CapturePlaylistRootContextMenuAvailability().CanLoadPlaylistUri");
         Assert.AreEqual(-1, loadUriHandler.IndexOf("IsWriteLockHeldBMSTablesInitializeMin", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task ExternalTableListCatalog_SlowFetchDoesNotBlockCallerAndPublishesAfterCompletion()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var fetchGate = new TaskCompletionSource<IReadOnlyList<BMSTableSimple>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var table = new BMSTableSimple
+        {
+            tag1 = "Deferred",
+            name = "Loaded",
+            url = new Uri("https://example.test/table")
+        };
+
+        Task loadTask = workspace.LoadExternalTableCollectionAsync(
+            new Uri("https://example.test/catalog"),
+            (_, _) => fetchGate.Task);
+
+        Assert.IsFalse(loadTask.IsCompleted);
+        Assert.IsTrue(IsExternalTableListLoading(workspace));
+        fetchGate.SetResult([table]);
+        await loadTask.ConfigureAwait(false);
+
+        Assert.IsFalse(IsExternalTableListLoading(workspace));
+        Assert.IsNotNull(workspace.BMSExternalTableListExt);
+        Assert.AreEqual("Deferred", workspace.BMSExternalTableListExt.Children[0].name);
+        Assert.AreEqual("Loaded", workspace.BMSExternalTableListExt.Children[0].Children[0].name);
+    }
+
+    [TestMethod]
+    public async Task ExternalTableListCatalog_ShutdownCancelsAndDoesNotPublishStaleCatalog()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var cancellationObserved = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var staleCatalog = new[]
+        {
+            new BMSTableSimple
+            {
+                tag1 = "Stale",
+                name = "Must not publish",
+                url = new Uri("https://example.test/stale")
+            }
+        };
+
+        Task loadTask = workspace.LoadExternalTableCollectionAsync(
+            new Uri("https://example.test/catalog"),
+            async (_, cancellationToken) =>
+            {
+                using CancellationTokenRegistration registration = cancellationToken.Register(
+                    () => cancellationObserved.TrySetResult(true));
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+                return staleCatalog;
+            });
+
+        Assert.IsFalse(loadTask.IsCompleted);
+        workspace.CancelExternalTableCollectionLoadForShutdown();
+        Task cancellationTask = await Task.WhenAny(
+            cancellationObserved.Task,
+            Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+        Assert.AreSame(cancellationObserved.Task, cancellationTask);
+        await loadTask.ConfigureAwait(false);
+
+        Assert.IsFalse(IsExternalTableListLoading(workspace));
+        Assert.IsNull(workspace.BMSExternalTableListExt);
+    }
+
+    [TestMethod]
+    public async Task ExternalTableListCatalog_NewRequestCancelsAndRejectsStaleCompletion()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var firstGate = new TaskCompletionSource<IReadOnlyList<BMSTableSimple>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondGate = new TaskCompletionSource<IReadOnlyList<BMSTableSimple>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Task firstLoad = workspace.LoadExternalTableCollectionAsync(
+            new Uri("https://example.test/first"),
+            (_, _) => firstGate.Task);
+        Task secondLoad = workspace.LoadExternalTableCollectionAsync(
+            new Uri("https://example.test/second"),
+            (_, _) => secondGate.Task);
+
+        secondGate.SetResult(
+        [
+            new BMSTableSimple
+            {
+                tag1 = "Current",
+                name = "Second",
+                url = new Uri("https://example.test/current")
+            }
+        ]);
+        await secondLoad.ConfigureAwait(false);
+        firstGate.SetResult(
+        [
+            new BMSTableSimple
+            {
+                tag1 = "Stale",
+                name = "First",
+                url = new Uri("https://example.test/stale")
+            }
+        ]);
+        await firstLoad.ConfigureAwait(false);
+
+        Assert.AreEqual("Current", workspace.BMSExternalTableListExt.Children[0].name);
+        Assert.AreEqual("Second", workspace.BMSExternalTableListExt.Children[0].Children[0].name);
+        Assert.IsFalse(IsExternalTableListLoading(workspace));
+    }
+
+    private static bool IsExternalTableListLoading(PlaylistWorkspaceViewModel workspace)
+    {
+        FieldInfo field = typeof(PlaylistWorkspaceViewModel).GetField(
+            "isLoadingExternalTableList",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(field);
+        return (bool)field.GetValue(workspace);
     }
 
     [TestMethod]

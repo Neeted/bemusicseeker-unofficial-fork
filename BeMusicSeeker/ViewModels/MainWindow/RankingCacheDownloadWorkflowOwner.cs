@@ -54,8 +54,6 @@ internal sealed class RankingCacheDownloadWorkflowOwner
 {
     private readonly IRankingCacheDownloadRuntime runtime;
 
-    private readonly ChartFileOperationSynchronizer chartFileOperations;
-
     private readonly IUiDialogService dialogs;
 
     private readonly Func<Action, Task> backgroundScheduler;
@@ -64,13 +62,11 @@ internal sealed class RankingCacheDownloadWorkflowOwner
 
     internal RankingCacheDownloadWorkflowOwner(
         IRankingCacheDownloadRuntime runtime,
-        ChartFileOperationSynchronizer chartFileOperations,
         IUiDialogService dialogs,
         Func<Action, Task> backgroundScheduler = null,
         Action<Task, string> taskLogger = null)
     {
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
-        this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.backgroundScheduler = backgroundScheduler ?? (action => Task.Run(action));
         this.taskLogger = taskLogger ?? new Action<Task, string>((task, routeName) => task.Logging(routeName));
@@ -118,88 +114,85 @@ internal sealed class RankingCacheDownloadWorkflowOwner
 
     private void Execute(IReadOnlyList<string> hashes)
     {
-        using (chartFileOperations.Enter())
+        try
         {
-            try
+            List<string> normalizedHashes = [.. hashes
+                .Where(hash => !string.IsNullOrWhiteSpace(hash))
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+            if (normalizedHashes.Count == 0)
             {
-                List<string> normalizedHashes = [.. hashes
-                    .Where(hash => !string.IsNullOrWhiteSpace(hash))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)];
-                if (normalizedHashes.Count == 0)
-                {
-                    return;
-                }
-
-                List<BMSLibrary.IRDataCacheInfo> cacheInfo = runtime.GetIRDataNeedUpdates(normalizedHashes);
-                if (cacheInfo.Count == 0)
-                {
-                    ShowMessage(
-                        BeMusicSeeker.Properties.Resources.Msg_ranking_cache_notfound,
-                        BeMusicSeeker.Properties.Resources.Confirm,
-                        MessageBoxImage.Hand,
-                        "Ranking cache not found notification");
-                    return;
-                }
-
-                if (!ShowConfirmation(
-                    BeMusicSeeker.Properties.Resources.Msg_download_ranking_cache
-                        + Environment.NewLine
-                        + Environment.NewLine
-                        + BeMusicSeeker.Properties.Resources.Download
-                        + ": "
-                        + cacheInfo.Count
-                        + Environment.NewLine
-                        + BeMusicSeeker.Properties.Resources.Skip
-                        + ": "
-                        + (normalizedHashes.Count - cacheInfo.Count)
-                        + Environment.NewLine
-                        + BeMusicSeeker.Properties.Resources.Size
-                        + ": "
-                        + FileSizeHelper.GetReadableFileSize(cacheInfo.Sum(cache => (long)cache.size)),
-                    BeMusicSeeker.Properties.Resources.Confirm,
-                    MessageBoxImage.Asterisk,
-                    MessageBoxButton.OKCancel,
-                    "Ranking cache download confirmation",
-                    MessageBoxResult.OK))
-                {
-                    return;
-                }
-
-                List<BMSLibrary.IRDataCacheInfo> failed = runtime.DownloadIRData(cacheInfo);
-                ShowMessage(
-                    BeMusicSeeker.Properties.Resources.Msg_download_completed
-                        + Environment.NewLine
-                        + Environment.NewLine
-                        + BeMusicSeeker.Properties.Resources.Success
-                        + ": "
-                        + (cacheInfo.Count - failed.Count)
-                        + Environment.NewLine
-                        + BeMusicSeeker.Properties.Resources.Failure
-                        + ": "
-                        + failed.Count,
-                    BeMusicSeeker.Properties.Resources.Confirm,
-                    MessageBoxImage.Asterisk,
-                    "Ranking cache download completion notification");
+                return;
             }
-            catch (InvalidOperationException ex) when (ex is not RankingCacheDialogDisplayException)
+
+            List<BMSLibrary.IRDataCacheInfo> cacheInfo = runtime.GetIRDataNeedUpdates(normalizedHashes);
+            if (cacheInfo.Count == 0)
             {
                 ShowMessage(
-                    BeMusicSeeker.Properties.Resources.Msg_warn_cache_download,
-                    BeMusicSeeker.Properties.Resources.Warning,
-                    MessageBoxImage.Exclamation,
-                    "Ranking cache download warning notification");
-            }
-            catch (Exception ex) when (ex is not RankingCacheDialogDisplayException)
-            {
-                ShowMessage(
-                    BeMusicSeeker.Properties.Resources.Msg_error_cache_download
-                        + Environment.NewLine
-                        + Environment.NewLine
-                        + ex.Message,
-                    BeMusicSeeker.Properties.Resources.Error,
+                    BeMusicSeeker.Properties.Resources.Msg_ranking_cache_notfound,
+                    BeMusicSeeker.Properties.Resources.Confirm,
                     MessageBoxImage.Hand,
-                    "Ranking cache download failure notification");
+                    "Ranking cache not found notification");
+                return;
             }
+
+            if (!ShowConfirmation(
+                BeMusicSeeker.Properties.Resources.Msg_download_ranking_cache
+                    + Environment.NewLine
+                    + Environment.NewLine
+                    + BeMusicSeeker.Properties.Resources.Download
+                    + ": "
+                    + cacheInfo.Count
+                    + Environment.NewLine
+                    + BeMusicSeeker.Properties.Resources.Skip
+                    + ": "
+                    + (normalizedHashes.Count - cacheInfo.Count)
+                    + Environment.NewLine
+                    + BeMusicSeeker.Properties.Resources.Size
+                    + ": "
+                    + FileSizeHelper.GetReadableFileSize(cacheInfo.Sum(cache => (long)cache.size)),
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxImage.Asterisk,
+                MessageBoxButton.OKCancel,
+                "Ranking cache download confirmation",
+                MessageBoxResult.OK))
+            {
+                return;
+            }
+
+            List<BMSLibrary.IRDataCacheInfo> failed = runtime.DownloadIRData(cacheInfo);
+            ShowMessage(
+                BeMusicSeeker.Properties.Resources.Msg_download_completed
+                    + Environment.NewLine
+                    + Environment.NewLine
+                    + BeMusicSeeker.Properties.Resources.Success
+                    + ": "
+                    + (cacheInfo.Count - failed.Count)
+                    + Environment.NewLine
+                    + BeMusicSeeker.Properties.Resources.Failure
+                    + ": "
+                    + failed.Count,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxImage.Asterisk,
+                "Ranking cache download completion notification");
+        }
+        catch (InvalidOperationException ex) when (ex is not RankingCacheDialogDisplayException)
+        {
+            ShowMessage(
+                BeMusicSeeker.Properties.Resources.Msg_warn_cache_download,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxImage.Exclamation,
+                "Ranking cache download warning notification");
+        }
+        catch (Exception ex) when (ex is not RankingCacheDialogDisplayException)
+        {
+            ShowMessage(
+                BeMusicSeeker.Properties.Resources.Msg_error_cache_download
+                    + Environment.NewLine
+                    + Environment.NewLine
+                    + ex.Message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxImage.Hand,
+                "Ranking cache download failure notification");
         }
     }
 

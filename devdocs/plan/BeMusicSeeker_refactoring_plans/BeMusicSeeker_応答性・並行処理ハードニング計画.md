@@ -100,7 +100,7 @@ progress／cancelがない短時間operation、問題を起こさないraw lock 
 
 ## 6. Finite implementation batch
 
-このbatchは`PLAN_STATUS.md`へmaterialize済みのためplannerを起動しない。
+このbatchはactive中だけ`PLAN_STATUS.md`へmaterializeし、H1からH4を順に実行する。H4完了後はactive batchをemptyへ遷移する。
 
 ### `H1 NORMAL-REFRESH-DEADLOCK`
 
@@ -152,6 +152,7 @@ Exit: inventoryの全candidateが分類済み、`BLOCKING=0`、representative op
 - H1 deterministic regression。
 - estimated-install end-to-endとstartup／manual file diff convergence evidence。
 - library、package、playlist、shellのrepresentative interaction smoke。
+- optional external catalog HTTPがcore startup／initialization guard／shutdownを遅延させず、generation一致時だけUIへ反映されるbehavior evidence。
 - 全5 projectのlocked restore、Release build、full tests、analyzer／warning gate。
 - selected main-app／updater publishからstartup／shutdown、existing-data、update success／rollback。
 - frozen snapshotのfresh outcome review、重大指摘修正後の再検証／fresh review。

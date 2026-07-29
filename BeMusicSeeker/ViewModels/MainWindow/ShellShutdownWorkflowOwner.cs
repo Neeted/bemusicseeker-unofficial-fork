@@ -731,6 +731,7 @@ internal sealed class ShellShutdownWorkflowOwner
         });
         TryShutdownStep("playlist_build", playlistWorkspace.CancelDetailBuilds);
         TryShutdownStep("playlist_summary", playlistWorkspace.StopPlaylistSummaryDataBuild);
+        TryShutdownStep("external_table_catalog", playlistWorkspace.CancelExternalTableCollectionLoadForShutdown);
         TryShutdownStep("play_history", () =>
         {
             playHistoryWorkflowOwner.Deactivate();

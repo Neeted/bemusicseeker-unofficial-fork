@@ -6,6 +6,26 @@ namespace BeMusicSeeker.Models;
 
 public class BMSScore : LR2ScoreDB.score
 {
+    private sealed class PropertyChangedSuppressionScope : IDisposable
+    {
+        private bool disposed;
+
+        public void Dispose()
+        {
+            if (!disposed)
+            {
+                disposed = true;
+                if (suppressPropertyChangedDepth > 0)
+                {
+                    suppressPropertyChangedDepth--;
+                }
+            }
+        }
+    }
+
+    [ThreadStatic]
+    private static int suppressPropertyChangedDepth;
+
     private int _ranking;
 
     private int _rankingNum;
@@ -17,6 +37,34 @@ public class BMSScore : LR2ScoreDB.score
     private double? _scoreDifficulty;
 
     private bool isLr2IrScoreUnsent;
+
+    internal static IDisposable SuppressPropertyChangedScope()
+    {
+        suppressPropertyChangedDepth++;
+        return new PropertyChangedSuppressionScope();
+    }
+
+    protected new void RaisePropertyChanged(string propertyName)
+    {
+        if (suppressPropertyChangedDepth == 0)
+        {
+            base.RaisePropertyChanged(propertyName);
+        }
+    }
+
+    internal void PublishRankingDataChanged()
+    {
+        base.RaisePropertyChanged(nameof(ranking));
+        base.RaisePropertyChanged(nameof(rankingNum));
+        base.RaisePropertyChanged(nameof(rankingLastupdate));
+        base.RaisePropertyChanged(nameof(stddevVal));
+        base.RaisePropertyChanged(nameof(scoreDifficulty));
+    }
+
+    internal void PublishLr2IrScoreUnsentChanged()
+    {
+        base.RaisePropertyChanged(nameof(IsLr2IrScoreUnsent));
+    }
 
     public int score => base.perfect * 2 + base.great;
 

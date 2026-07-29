@@ -2741,7 +2741,6 @@ public partial class MainWindowViewModel : ViewModel,
                 new UiDialogCoordinator()),
             rankingCacheDownloadWorkflow: new RankingCacheDownloadWorkflowOwner(
                 new BmsRankingCacheDownloadRuntime(() => files),
-                chartFileOperations,
                 new UiDialogCoordinator()),
             libraryFolderTreeLog: LogUiSuppression,
             libraryFolderTreeLogWarning: LogUiSuppressionWarning);
@@ -4107,10 +4106,6 @@ public partial class MainWindowViewModel : ViewModel,
                 semaphore: semaphore,
                 queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad);
         }
-        void taskAdd2()
-        {
-            PlaylistWorkspace.LoadExternalTableCollection(startupSettings.TableListURL);
-        }
         Thread.Yield();
         startupReadyInstallStopwatch = Stopwatch.StartNew();
         startupReadyOperableStopwatch = Stopwatch.StartNew();
@@ -4124,7 +4119,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             await Task.Run(delegate
             {
-                files.InitializeStartup([taskAdd1, taskAdd2], semaphore);
+                files.InitializeStartup([taskAdd1], semaphore);
             }).Logging("Initialize");
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
             RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);
@@ -4161,6 +4156,14 @@ public partial class MainWindowViewModel : ViewModel,
         RaiseLibraryOperationAvailabilityChanged();
         PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
         _semaphore.Release();
+        startupBackgroundTaskScheduler.Queue(
+            "external_table_catalog",
+            "Initialize",
+            null,
+            () => PlaylistWorkspace.LoadExternalTableCollectionAsync(
+                startupSettings.TableListURL,
+                BMSPlaylist.GetBMSTableInfoAsync),
+            _ => PlaylistWorkspace.CancelExternalTableCollectionLoadForShutdown());
         LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");
         if (!startupSettings.SkipInitPlaylistLoad)
         {

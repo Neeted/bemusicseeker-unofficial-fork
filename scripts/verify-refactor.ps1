@@ -23,6 +23,36 @@ $scdUpdaterPublishOutput = Join-Path $scdPublishRoot 'updater'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
 $testTimeoutSeconds = 180
+$isolatedFullTestClassShards = @(
+    [pscustomobject]@{
+        Name = 'library-sync'
+        RunSeparately = $true
+        Classes = @(
+            'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests',
+            'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests',
+            'BeMusicSeeker.Tests.ChartInfoMetadataTests',
+            'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests')
+    },
+    [pscustomobject]@{
+        Name = 'presentation-workspace'
+        RunSeparately = $false
+        Classes = @(
+            'BeMusicSeeker.Tests.BmsPlaylistUpdateTests',
+            'BeMusicSeeker.Tests.PlaybackPanelViewModelTests',
+            'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests',
+            'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests')
+    },
+    [pscustomobject]@{
+        Name = 'catalog-maintenance'
+        RunSeparately = $false
+        Classes = @(
+            'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
+            'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
+            'BeMusicSeeker.Tests.OwnedChartCollectionStateTests',
+            'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
+            'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests',
+            'BeMusicSeeker.Tests.BmsLibraryIrServiceTests')
+    })
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
 
 function Invoke-CheckedCommand {
@@ -117,6 +147,176 @@ function Invoke-MonitoredTestCommand {
 
     if ($exitCode -ne 0) {
         throw "dotnet test failed with exit code $exitCode. Test output: $DiagnosticsDirectory"
+    }
+}
+
+function Invoke-MonitoredFullTestCommands {
+    param(
+        [Parameter(Mandatory)]
+        [string]$CommandPath,
+
+        [Parameter(Mandatory)]
+        [string[]]$CommonArguments,
+
+        [Parameter(Mandatory)]
+        [string]$WorkingDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory
+    )
+
+    $isolatedFullTestClasses = @(
+        $isolatedFullTestClassShards |
+            ForEach-Object { $_.Classes })
+    $remainingFilter = ($isolatedFullTestClasses |
+        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
+
+    foreach ($shard in ($isolatedFullTestClassShards |
+        Where-Object { $_.RunSeparately })) {
+        $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
+        [void](New-Item -ItemType Directory -Path $shardDirectory -Force)
+        $arguments = $CommonArguments + @(
+            '--results-directory',
+            $shardDirectory,
+            '--filter',
+            (($shard.Classes |
+                ForEach-Object { "FullyQualifiedName~$_" }) -join '|'))
+        Write-Host "Test shard: $($shard.Name) (dedicated)"
+        Invoke-MonitoredTestCommand `
+            -CommandPath $CommandPath `
+            -Arguments $arguments `
+            -WorkingDirectory $WorkingDirectory `
+            -DiagnosticsDirectory $shardDirectory
+    }
+
+    $shards = @(
+        [pscustomobject]@{ Name = 'remaining'; Filter = $remainingFilter })
+    $shards += @(
+        $isolatedFullTestClassShards |
+            Where-Object { -not $_.RunSeparately } |
+            ForEach-Object {
+                [pscustomobject]@{
+                    Name = $_.Name
+                    Filter = ($_.Classes |
+                        ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+                }
+            })
+    $processes = @()
+    $timedOut = $false
+    $launchFailure = $null
+    $failedShard = $null
+    $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+
+    try {
+        foreach ($shard in $shards) {
+            $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
+            [void](New-Item -ItemType Directory -Path $shardDirectory -Force)
+            $standardOutputPath = Join-Path $shardDirectory 'stdout.log'
+            $standardErrorPath = Join-Path $shardDirectory 'stderr.log'
+            $arguments = $CommonArguments + @(
+                '--results-directory',
+                $shardDirectory,
+                '--filter',
+                $shard.Filter)
+            $process = Start-Process `
+                -FilePath $CommandPath `
+                -ArgumentList $arguments `
+                -WorkingDirectory $WorkingDirectory `
+                -RedirectStandardOutput $standardOutputPath `
+                -RedirectStandardError $standardErrorPath `
+                -PassThru
+            $processes += [pscustomobject]@{
+                Name = $shard.Name
+                Process = $process
+                StandardOutputPath = $standardOutputPath
+                StandardErrorPath = $standardErrorPath
+            }
+        }
+
+        $waitTasks = [System.Threading.Tasks.Task[]]@(
+            $processes | ForEach-Object { $_.Process.WaitForExitAsync() })
+        if (-not [System.Threading.Tasks.Task]::WaitAll(
+            $waitTasks,
+            $testTimeoutSeconds * 1000)) {
+            $timedOut = $true
+            $timedOutShardNames = @(
+                $processes |
+                    Where-Object { -not $_.Process.HasExited } |
+                    ForEach-Object { $_.Name })
+            $timeoutMessage =
+                "dotnet test shards did not return within $testTimeoutSeconds seconds. " +
+                "Stopping: " +
+                ($timedOutShardNames -join ', ')
+            Write-Warning $timeoutMessage
+        }
+    }
+    catch {
+        $launchFailure = $_
+    }
+    finally {
+        foreach ($entry in $processes) {
+            try {
+                if (($timedOut -or $null -ne $launchFailure) -and
+                    -not $entry.Process.HasExited) {
+                    try {
+                        $entry.Process.Kill($true)
+                    }
+                    catch {
+                        $cleanupFailures.Add(
+                            "$($entry.Name): process-tree termination failed: $($_.Exception.Message)")
+                    }
+                }
+                try {
+                    if (-not $entry.Process.WaitForExit(10000)) {
+                        $cleanupFailures.Add(
+                            "$($entry.Name): process did not exit within the 10-second cleanup window")
+                    }
+                }
+                catch {
+                    $cleanupFailures.Add(
+                        "$($entry.Name): exit observation failed: $($_.Exception.Message)")
+                }
+                Write-Host "Test shard: $($entry.Name)"
+                Write-TestProcessOutput `
+                    -StandardOutputPath $entry.StandardOutputPath `
+                    -StandardErrorPath $entry.StandardErrorPath
+                if (-not $timedOut -and
+                    $null -eq $launchFailure -and
+                    $null -eq $failedShard -and
+                    $entry.Process.HasExited -and
+                    $entry.Process.ExitCode -ne 0) {
+                    $failedShard = [pscustomobject]@{
+                        Name = $entry.Name
+                        ExitCode = $entry.Process.ExitCode
+                    }
+                }
+            }
+            catch {
+                $cleanupFailures.Add(
+                    "$($entry.Name): cleanup/output collection failed: $($_.Exception.Message)")
+            }
+            finally {
+                try {
+                    $entry.Process.Dispose()
+                }
+                catch {
+                    $cleanupFailures.Add(
+                        "$($entry.Name): process disposal failed: $($_.Exception.Message)")
+                }
+            }
+        }
+    }
+    if ($cleanupFailures.Count -gt 0) {
+        throw "Test shard cleanup failed: $($cleanupFailures -join '; ')"
+    }
+    if ($null -ne $launchFailure) {
+        throw $launchFailure
+    }
+    if ($timedOut) {
+        throw "dotnet test exceeded the $testTimeoutSeconds-second response timeout. Test output: $DiagnosticsDirectory"
+    }
+    if ($null -ne $failedShard) {
+        throw "dotnet test shard '$($failedShard.Name)' failed with exit code $($failedShard.ExitCode). Test output: $DiagnosticsDirectory"
     }
 }
 
@@ -293,18 +493,28 @@ try {
         '/p:Platform=x64',
         '--no-build',
         '--no-restore',
-        '--results-directory',
-        $testDiagnosticsDirectory,
         '--blame')
     if ($Mode -eq 'Quick' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
         $testArguments += @('--filter', $TestFilter)
     }
 
-    Invoke-MonitoredTestCommand `
-        -CommandPath 'dotnet' `
-        -Arguments $testArguments `
-        -WorkingDirectory $repoRoot `
-        -DiagnosticsDirectory $testDiagnosticsDirectory
+    if ([string]::IsNullOrWhiteSpace($TestFilter)) {
+        Invoke-MonitoredFullTestCommands `
+            -CommandPath 'dotnet' `
+            -CommonArguments $testArguments `
+            -WorkingDirectory $repoRoot `
+            -DiagnosticsDirectory $testDiagnosticsDirectory
+    }
+    else {
+        $testArguments += @(
+            '--results-directory',
+            $testDiagnosticsDirectory)
+        Invoke-MonitoredTestCommand `
+            -CommandPath 'dotnet' `
+            -Arguments $testArguments `
+            -WorkingDirectory $repoRoot `
+            -DiagnosticsDirectory $testDiagnosticsDirectory
+    }
 
     Remove-Item Env:BMS_SCD_APP_PUBLISH_ROOT -ErrorAction SilentlyContinue
     Remove-Item Env:BMS_SCD_UPDATER_PUBLISH_ROOT -ErrorAction SilentlyContinue
@@ -344,6 +554,10 @@ try {
                 if ($checkExitCode -gt 1) {
                     throw "Unable to inspect untracked file '$untrackedFile' (exit code $checkExitCode)."
                 }
+                # `git diff --no-index` returns 1 when the expected comparison
+                # contains differences. Do not leak that success-path code to
+                # callers that invoke this script in the current pwsh process.
+                $global:LASTEXITCODE = 0
             }
         }
         finally {

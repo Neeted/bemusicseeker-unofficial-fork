@@ -4519,13 +4519,16 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// テーブル一覧 API から簡易プレイリスト情報を取得します。
+    /// テーブル一覧 API から簡易プレイリスト情報を非同期に取得します。
     /// </summary>
     /// <param name="tableinfoUri">一覧 API の絶対 URI。</param>
+    /// <param name="cancellationToken">取得を中断するトークン。</param>
     /// <returns>簡易プレイリスト情報の一覧。</returns>
     /// <exception cref="InvalidOperationException">URI が絶対 URI でない場合。</exception>
     /// <exception cref="ArgumentException">JSON の解釈に失敗した場合。</exception>
-    public static List<BMSTableSimple> GetBMSTableInfo(Uri tableinfoUri)
+    internal static async Task<IReadOnlyList<BMSTableSimple>> GetBMSTableInfoAsync(
+        Uri tableinfoUri,
+        CancellationToken cancellationToken)
     {
         if (!tableinfoUri.IsAbsoluteUri)
         {
@@ -4534,7 +4537,9 @@ public partial class BMSPlaylist : ObservableObject
         string json;
         try
         {
-            json = playlistHttpClient.GetString(tableinfoUri);
+            json = await playlistHttpClient
+                .GetStringAsync(tableinfoUri, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
         }
         catch
         {

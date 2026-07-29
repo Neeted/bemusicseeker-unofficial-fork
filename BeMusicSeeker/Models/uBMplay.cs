@@ -650,41 +650,41 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             waitPolicy.WaitUntil(
                 () =>
                 {
-                bool flag2 = uBMplayHandles().Any(delegate (ExternalWindowHandle wh)
-                {
-                    if (RequireWindowHost().GetClassName(wh) == "ThunderRT6FormDC")
+                    bool flag2 = uBMplayHandles().Any(delegate (ExternalWindowHandle wh)
                     {
-                        uBMplayHandleShowing = wh;
-                        if (RequireWindowHost().UsesLegacyWindowEmbedding)
+                        if (RequireWindowHost().GetClassName(wh) == "ThunderRT6FormDC")
                         {
-                            RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
+                            uBMplayHandleShowing = wh;
+                            if (RequireWindowHost().UsesLegacyWindowEmbedding)
+                            {
+                                RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
+                            }
+                            return true;
                         }
-                        return true;
+                        return false;
+                    });
+                    if (!uBMplayHandleShowing.IsEmpty)
+                    {
+                        ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
+                        NLogWrapper.DebuggerLogger?.Trace("1 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
+                        if (uBMplayHandles().Contains(foregroundWindow))
+                        {
+                            RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
+                        }
+                        else if (!foregroundWindow.IsEmpty && foregroundWindow != uBMplayHandleShowing)
+                        {
+                            foregroundWindowHandle = foregroundWindow;
+                        }
+                        else
+                        {
+                            NLogWrapper.DebuggerLogger?.Trace("1 invalid!");
+                        }
+                        if (flag2)
+                        {
+                            return true;
+                        }
                     }
                     return false;
-                });
-                if (!uBMplayHandleShowing.IsEmpty)
-                {
-                    ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
-                    NLogWrapper.DebuggerLogger?.Trace("1 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
-                    if (uBMplayHandles().Contains(foregroundWindow))
-                    {
-                        RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
-                    }
-                    else if (!foregroundWindow.IsEmpty && foregroundWindow != uBMplayHandleShowing)
-                    {
-                        foregroundWindowHandle = foregroundWindow;
-                    }
-                    else
-                    {
-                        NLogWrapper.DebuggerLogger?.Trace("1 invalid!");
-                    }
-                    if (flag2)
-                    {
-                        return true;
-                    }
-                }
-                return false;
                 },
                 () => uBMplayProcess.HasExited,
                 () => { },
@@ -744,37 +744,37 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         waitPolicy.WaitUntil(
             () =>
             {
-            if (!RequireWindowHost().IsWindow(uBMplayHandleShowing))
-            {
-                CloseProcess();
-                ThrowStartupFailed();
-            }
-            stringBuilder.Clear();
-            stringBuilder.Append(RequireWindowHost().GetWindowText(uBMplayHandleShowing));
-            if (RequireWindowHost().UsesLegacyWindowEmbedding)
-            {
-                RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
-            }
-            ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
-            NLogWrapper.DebuggerLogger?.Trace("2 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
-            if (uBMplayHandles().Contains(foregroundWindow))
-            {
-                RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
-            }
-            else if (!foregroundWindow.IsEmpty && foregroundWindow != uBMplayHandleShowing)
-            {
-                foregroundWindowHandle = foregroundWindow;
-            }
-            else
-            {
-                NLogWrapper.DebuggerLogger?.Trace("2 invalid!");
-            }
-            if (regex.IsMatch(stringBuilder.ToString()))
-            {
-                loaded = true;
-                return true;
-            }
-            return false;
+                if (!RequireWindowHost().IsWindow(uBMplayHandleShowing))
+                {
+                    CloseProcess();
+                    ThrowStartupFailed();
+                }
+                stringBuilder.Clear();
+                stringBuilder.Append(RequireWindowHost().GetWindowText(uBMplayHandleShowing));
+                if (RequireWindowHost().UsesLegacyWindowEmbedding)
+                {
+                    RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
+                }
+                ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
+                NLogWrapper.DebuggerLogger?.Trace("2 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
+                if (uBMplayHandles().Contains(foregroundWindow))
+                {
+                    RequireWindowHost().SetForegroundWindow((foregroundWindowHandle.IsEmpty) ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
+                }
+                else if (!foregroundWindow.IsEmpty && foregroundWindow != uBMplayHandleShowing)
+                {
+                    foregroundWindowHandle = foregroundWindow;
+                }
+                else
+                {
+                    NLogWrapper.DebuggerLogger?.Trace("2 invalid!");
+                }
+                if (regex.IsMatch(stringBuilder.ToString()))
+                {
+                    loaded = true;
+                    return true;
+                }
+                return false;
             },
             () => uBMplayProcess.HasExited,
             () => { },

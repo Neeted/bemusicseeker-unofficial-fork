@@ -293,6 +293,15 @@ public partial class BMSLibrary : ObservableObject
         internal ActiveScoreSource ActiveScoreSource { get; set; }
     }
 
+    private sealed class RankingDownloadContext
+    {
+        internal long ScoreSourceGeneration { get; init; }
+
+        internal int Lr2Id { get; init; }
+
+        internal string ScoreDbPath { get; init; }
+    }
+
     /// <summary>
     /// playlist detail resolve index の runtime cache 状態です。
     /// </summary>
@@ -566,6 +575,14 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly IUiScheduler uiScheduler;
 
+    private readonly object lr2PropertyPublicationGate = new();
+
+    private readonly HashSet<string> pendingLr2PropertyNames = new(StringComparer.Ordinal);
+
+    private long lr2PropertyPublicationVersion;
+
+    private bool lr2PropertyPublicationScheduled;
+
     private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
     private readonly EverythingNative everythingNative;
@@ -575,6 +592,8 @@ public partial class BMSLibrary : ObservableObject
     private Dictionary<string, BMSScore> beatorajaScoresBySha256 = new(StringComparer.OrdinalIgnoreCase);
 
     private ActiveScoreSource activeScoreSource;
+
+    private long scoreSourceGeneration;
 
     private Lr2PlayHistorySchemaCheckResult lr2PlayHistorySchemaCheckResult;
 
@@ -2330,8 +2349,6 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly BmsLibraryPackageInstallService packageInstallService = new();
 
-    private readonly PendingEstimatedInstallOwner pendingEstimatedInstallOwner;
-
     private readonly BmsLibraryLibraryFileOperationsService libraryFileOperationsService = new();
 
     private readonly LibraryFileOperationSynchronization libraryFileOperationSynchronization;
@@ -2639,14 +2656,6 @@ public partial class BMSLibrary : ObservableObject
             exception => NLogWrapper.FileLogger?.Warn(
                 exception,
                 "package_collection_post_guard_publication_failed"));
-        pendingEstimatedInstallOwner = new(
-            packageInstallService,
-            CreatePendingEstimatedInstallPreparationCapability(),
-            CreatePendingEstimatedInstallCatalogCapability(),
-            packageLifecycleOwner,
-            CreatePendingEstimatedInstallMaintenanceCapability(),
-            CreatePendingEstimatedInstallNotificationCapability(),
-            resourceHealthOwner);
         libraryFileOperationSynchronization = new(
             new LibraryFileOperationMutationBoundary(lr2SynchronizationOwner, packageLifecycleOwner),
             rwlockBMSFilesInitializedAll,
@@ -2724,27 +2733,122 @@ public partial class BMSLibrary : ObservableObject
     private void HandleLr2SynchronizationPropertyChanged(object sender, PropertyChangedEventArgs eventArgs)
     {
         string propertyName = eventArgs?.PropertyName;
-        IUiScheduledOperation publication = uiScheduler.Schedule(
-            () => RaisePropertyChanged(propertyName));
+        long publicationVersion;
+        lock (lr2PropertyPublicationGate)
+        {
+            pendingLr2PropertyNames.Add(propertyName);
+            publicationVersion = ++lr2PropertyPublicationVersion;
+            if (lr2PropertyPublicationScheduled)
+            {
+                return;
+            }
+            lr2PropertyPublicationScheduled = true;
+        }
+
+        ScheduleLr2PropertyChanges(publicationVersion);
+    }
+
+    private void ScheduleLr2PropertyChanges(long publicationVersion)
+    {
+        IUiScheduledOperation publication;
+        try
+        {
+            publication = uiScheduler.Schedule(DrainLr2PropertyChanges);
+        }
+        catch (Exception ex)
+        {
+            DiscardPendingLr2PropertyChanges();
+            LogInstallPerformanceWarn(
+                "lr2_sync_property_publication_schedule_failed version="
+                + publicationVersion
+                + " exception="
+                + ex.GetType().Name);
+            return;
+        }
         if (!publication.IsAccepted)
         {
+            DiscardPendingLr2PropertyChanges();
             LogInstallPerformanceWarn(
-                "lr2_sync_property_publication_rejected property="
-                + (propertyName ?? "(null)")
+                "lr2_sync_property_publication_rejected version="
+                + publicationVersion
                 + " reason="
                 + publication.RejectionReason);
             return;
         }
         _ = publication.Completion.ContinueWith(
-            task => LogInstallPerformanceWarn(
-                task.IsCanceled || publication.IsAborted
-                    ? "lr2_sync_property_publication_canceled property=" + (propertyName ?? "(null)")
-                    : "lr2_sync_property_publication_failed property=" + (propertyName ?? "(null)")
-                        + " exception="
-                        + (task.Exception?.GetBaseException().GetType().Name ?? "unknown")),
+            task =>
+            {
+                if (task.IsCanceled || publication.IsAborted)
+                {
+                    DiscardPendingLr2PropertyChanges();
+                    LogInstallPerformanceWarn(
+                        "lr2_sync_property_publication_canceled version=" + publicationVersion);
+                    return;
+                }
+                LogInstallPerformanceWarn(
+                    "lr2_sync_property_publication_failed version="
+                    + publicationVersion
+                    + " exception="
+                    + (task.Exception?.GetBaseException().GetType().Name ?? "unknown"));
+            },
             CancellationToken.None,
             TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+    }
+
+    private void DrainLr2PropertyChanges()
+    {
+        List<Exception> failures = null;
+        string[] propertyNames;
+        lock (lr2PropertyPublicationGate)
+        {
+            propertyNames = [.. pendingLr2PropertyNames];
+            pendingLr2PropertyNames.Clear();
+        }
+
+        foreach (string propertyName in propertyNames)
+        {
+            try
+            {
+                RaisePropertyChanged(propertyName);
+            }
+            catch (Exception ex)
+            {
+                failures ??= [];
+                failures.Add(ex);
+            }
+        }
+
+        long nextPublicationVersion = 0;
+        lock (lr2PropertyPublicationGate)
+        {
+            if (pendingLr2PropertyNames.Count == 0)
+            {
+                lr2PropertyPublicationScheduled = false;
+            }
+            else
+            {
+                nextPublicationVersion = lr2PropertyPublicationVersion;
+            }
+        }
+        if (nextPublicationVersion != 0)
+        {
+            ScheduleLr2PropertyChanges(nextPublicationVersion);
+        }
+
+        if (failures?.Count > 0)
+        {
+            throw new AggregateException("One or more LR2 synchronization property subscribers failed.", failures);
+        }
+    }
+
+    private void DiscardPendingLr2PropertyChanges()
+    {
+        lock (lr2PropertyPublicationGate)
+        {
+            pendingLr2PropertyNames.Clear();
+            lr2PropertyPublicationScheduled = false;
+        }
     }
 
     /// <summary>
@@ -4572,6 +4676,7 @@ public partial class BMSLibrary : ObservableObject
                     beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
                     BMSScores = [];
                 }
+                scoreSourceGeneration++;
             }
             RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
             if (scoreOnlyLoad || activeScoreSource == ActiveScoreSource.None)
@@ -6040,12 +6145,16 @@ public partial class BMSLibrary : ObservableObject
         {
             return result;
         }
+        RankingDownloadContext rankingContext = CaptureRankingDownloadContext();
         var irScoreStopwatch = Stopwatch.StartNew();
         BmsLibraryOptionsSnapshot optionsSnapshot = CurrentOptionsSnapshot;
         if (optionsSnapshot.EnableDownloadLr2IrScoreAndDetectUnsent)
         {
             IrScorePrefetchResult prefetchedScore = TryConsumeIrScorePrefetch(requestVersion, optionsSnapshot, out long prefetchWaitMs, out string prefetchStatus);
-            IrScoreTableUpdateResult irScoreUpdateResult = updateLR2IRScoreTableWithMetrics(prefetchedScore);
+            IrScoreTableUpdateResult irScoreUpdateResult =
+                updateLR2IRScoreTableWithMetrics(
+                    prefetchedScore,
+                    rankingContext.Lr2Id);
             List<LR2IRScore> scoreTable = irScoreUpdateResult.ScoreTable;
             result.IrScoreXmlFetchMs = irScoreUpdateResult.XmlFetchMs;
             result.IrScoreXmlParseMs = irScoreUpdateResult.XmlParseMs;
@@ -6069,8 +6178,10 @@ public partial class BMSLibrary : ObservableObject
                 throw new OperationCanceledException();
             }
             var mergeStopwatch = Stopwatch.StartNew();
-            updateBMSScores(scoreTable, detectUnsentScores: true);
-            RefreshScoreSnapshotFromCurrentScores("deferred_ranking_refresh_ir_score");
+            updateBMSScores(
+                scoreTable,
+                detectUnsentScores: true,
+                rankingContext);
             mergeStopwatch.Stop();
             result.IrScoreMergeMs = mergeStopwatch.ElapsedMilliseconds;
         }
@@ -6088,7 +6199,7 @@ public partial class BMSLibrary : ObservableObject
         if (optionsSnapshot.UpdateLr2IrRankingCacheOnStartup)
         {
             var cacheStopwatch = Stopwatch.StartNew();
-            setRankingScore();
+            setRankingScore(rankingContext);
             cacheStopwatch.Stop();
             result.CacheMs = cacheStopwatch.ElapsedMilliseconds;
         }
@@ -9073,32 +9184,96 @@ public partial class BMSLibrary : ObservableObject
 
     private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics(IrScorePrefetchResult prefetchedScore)
     {
-        return irService.UpdateIrScoreTableWithMetrics(LR2ID, dbGateway, irClient, lr2IRScoreRegex, prefetchedScore);
+        return updateLR2IRScoreTableWithMetrics(prefetchedScore, LR2ID);
+    }
+
+    private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics(
+        IrScorePrefetchResult prefetchedScore,
+        int lr2Id)
+    {
+        return irService.UpdateIrScoreTableWithMetrics(
+            lr2Id,
+            dbGateway,
+            irClient,
+            lr2IRScoreRegex,
+            prefetchedScore);
     }
 
     private void updateBMSScores(List<LR2IRScore> scoreTable)
     {
-        updateBMSScores(scoreTable, detectUnsentScores: true);
+        updateBMSScores(
+            scoreTable,
+            detectUnsentScores: true,
+            CaptureRankingDownloadContext());
     }
 
-    private void updateBMSScores(List<LR2IRScore> scoreTable, bool detectUnsentScores)
+    private void updateBMSScores(
+        List<LR2IRScore> scoreTable,
+        bool detectUnsentScores,
+        RankingDownloadContext context)
     {
-        if (activeScoreSource != ActiveScoreSource.Lr2 || lr2ScoreDBPath == null || LR2ID == 0 || scoreTable == null)
+        if (scoreTable == null)
         {
             return;
         }
+        List<BMSFile> filesSnapshot;
+        List<BMSScore> mergedScores;
+        var priorUnsentByScore = new Dictionary<BMSScore, bool>();
+        var priorScoreByFile = new Dictionary<BMSFile, BMSScore>();
         using (rwlockBMSScores.GetWriterGuard())
         {
+            EnsureCurrentRankingDownloadContext(context);
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                BMSScores = irService.UpdateBmsScores(scoreTable, BMSScores, BMSFiles, detectUnsentScores);
+                filesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
+                foreach (BMSScore score in BMSScores ?? [])
+                {
+                    if (score != null)
+                    {
+                        priorUnsentByScore[score] = score.IsLr2IrScoreUnsent;
+                    }
+                }
+                foreach (BMSFile file in filesSnapshot)
+                {
+                    priorScoreByFile[file] = file.bmsScore;
+                }
+                using (BMSScore.SuppressPropertyChangedScope())
+                using (BMSFile.SuppressPropertyChangedScope())
+                {
+                    mergedScores = irService.UpdateBmsScores(
+                        scoreTable,
+                        BMSScores,
+                        filesSnapshot,
+                        detectUnsentScores);
+                    BMSScores = mergedScores;
+                }
             }
         }
-        RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
-        using (rwlockBMSFiles.GetReaderGuard())
+        List<BMSScore> changedUnsentScores =
+        [
+            .. mergedScores.Where(score =>
+                score != null
+                && priorUnsentByScore.TryGetValue(score, out bool priorUnsent)
+                && priorUnsent != score.IsLr2IrScoreUnsent)
+        ];
+        List<BMSFile> changedScoreAttachments =
+        [
+            .. filesSnapshot.Where(file =>
+                priorScoreByFile.TryGetValue(file, out BMSScore priorScore)
+                && !ReferenceEquals(priorScore, file.bmsScore))
+        ];
+        uiScheduler.Invoke(() =>
         {
-            ApplyCurrentScoreSnapshotToFiles(BMSFiles);
-        }
+            foreach (BMSFile file in changedScoreAttachments)
+            {
+                file.PublishScoreAttachmentChanged();
+            }
+            foreach (BMSScore score in changedUnsentScores)
+            {
+                score.PublishLr2IrScoreUnsentChanged();
+            }
+            RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
+        });
     }
 
     private void ClearScoreUnsentStatus()
@@ -9125,24 +9300,39 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private IrCacheRefreshResult setRankingScore()
+    private IrCacheRefreshResult setRankingScore(RankingDownloadContext context)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        var result = new IrCacheRefreshResult();
-        if (activeScoreSource != ActiveScoreSource.Lr2 || lr2ScoreDBPath == null || LR2ID == 0)
+        if (context == null)
         {
-            return result;
+            throw new ArgumentNullException(nameof(context));
         }
-        LogInstallPerformance("ranking_cache_refresh start lr2Id=" + LR2ID);
+        LogInstallPerformance("ranking_cache_refresh start lr2Id=" + context.Lr2Id);
         var stopwatch = Stopwatch.StartNew();
+        BmsLibraryIrService.IrCacheRefreshPlan preparedPlan =
+            irService.PrepareRankingScoresRefreshPlanForLibrary(
+                context.Lr2Id,
+                context.ScoreDbPath,
+                dbGateway,
+                options.EstimateOfflineScoreRanking);
+        IrCacheRefreshResult result;
         using (rwlockLR2IrDir.GetWriterGuard())
         {
-            BmsLibraryIrService.IrCacheRefreshPlan preparedPlan = irService.PrepareRankingScoresRefreshPlanForLibrary(LR2ID, lr2ScoreDBPath, dbGateway);
             using (rwlockBMSScores.GetWriterGuard())
             {
+                EnsureCurrentRankingDownloadContext(context);
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    result = irService.ApplyPreparedRankingScoresRefreshPlanForLibrary(preparedPlan, lr2ScoreDBPath, BMSScores, BMSFiles, options.EstimateOfflineScoreRanking);
+                    using (BMSScore.SuppressPropertyChangedScope())
+                    using (BMSFile.SuppressPropertyChangedScope())
+                    {
+                        result = irService.ApplyPreparedRankingScoresRefreshPlanForLibrary(
+                            preparedPlan,
+                            context.ScoreDbPath,
+                            BMSScores,
+                            BMSFiles,
+                            options.EstimateOfflineScoreRanking);
+                    }
                 }
             }
         }
@@ -9169,59 +9359,166 @@ public partial class BMSLibrary : ObservableObject
             + " upsertMs=" + result.UpsertMs
             + " bulkInsertUsed=" + result.BulkInsertUsed
             + " offlineEstimateXmlLoads=" + result.OfflineEstimateXmlLoadCount);
-        RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache");
-        using (rwlockBMSFiles.GetReaderGuard())
+        uiScheduler.Invoke(() =>
         {
-            ApplyCurrentScoreSnapshotToFiles(BMSFiles);
-        }
+            foreach (BMSScore changedScore in preparedPlan.ChangedScores)
+            {
+                changedScore.PublishRankingDataChanged();
+            }
+            RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache");
+        });
         return result;
     }
 
     public List<IRDataCacheInfo> GetIRDataNeedUpdates(IEnumerable<string> md5s)
     {
-        if (activeScoreSource != ActiveScoreSource.Lr2 || lr2ScoreDBPath == null || LR2ID == 0)
-        {
-            throw new InvalidOperationException(Resources.Error_LR2ScoreDBNotConnected);
-        }
+        RankingDownloadContext context = CaptureRankingDownloadContext();
+        List<IRDataCacheInfo> rankingInfo = irClient.GetRankingInfo(rankingInfoUrl, md5s);
         using (rwlockLR2IrDir.GetReaderGuard())
         {
-            return irService.GetIRDataNeedUpdates(LR2ID, md5s, dbGateway, irClient, rankingInfoUrl);
+            using (rwlockBMSScores.GetReaderGuard())
+            {
+                EnsureCurrentRankingDownloadContext(context);
+                return irService.GetIRDataNeedUpdatesFromRankingInfo(
+                    context.Lr2Id,
+                    rankingInfo,
+                    dbGateway);
+            }
         }
     }
 
     public List<IRDataCacheInfo> DownloadIRData(IEnumerable<IRDataCacheInfo> cacheInfo)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        if (activeScoreSource != ActiveScoreSource.Lr2 || lr2ScoreDBPath == null || LR2ID == 0)
-        {
-            throw new InvalidOperationException(Resources.Error_LR2ScoreDBNotConnected);
-        }
+        RankingDownloadContext context = CaptureRankingDownloadContext();
         if (cacheInfo == null)
         {
             throw new ArgumentNullException("cacheInfo");
         }
-        string irCacheDirPath = Path.Combine(Path.GetDirectoryName(lr2ScoreDBPath), "..\\..\\Ir");
+        string irCacheDirPath = Path.Combine(
+            Path.GetDirectoryName(context.ScoreDbPath),
+            "..\\..\\Ir");
         if (!LongPathFileSystem.DirectoryExists(irCacheDirPath))
         {
             throw new DirectoryNotFoundException(string.Format(Resources.Error_IRCacheDirNotFound, irCacheDirPath));
         }
-        List<IRDataCacheInfo> failed;
-        using (rwlockLR2IrDir.GetWriterGuard())
+        string stagingDirectoryPath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_RankingCache_" + Guid.NewGuid().ToString("N"));
+        try
         {
-            using (rwlockBMSScores.GetWriterGuard())
+            BmsLibraryIrService.RankingCacheDownloadBatch downloadBatch =
+                irService.DownloadRankingCacheFiles(
+                    cacheInfo,
+                    stagingDirectoryPath,
+                    irClient,
+                    rankingDataUrl);
+            BmsLibraryIrService.RankingCacheApplyPlan applyPlan =
+                irService.PrepareDownloadedRankingCache(
+                    context.Lr2Id,
+                    downloadBatch);
+            BmsLibraryIrService.RankingCacheApplyResult applyResult;
+            using (rwlockLR2IrDir.GetWriterGuard())
             {
-                using (rwlockBMSFiles.GetReaderGuard())
+                using (rwlockBMSScores.GetWriterGuard())
                 {
-                    failed = irService.DownloadIRData(LR2ID, cacheInfo, irCacheDirPath, dbGateway, irClient, rankingDataUrl, BMSScores, BMSFiles, options.EstimateOfflineScoreRanking);
+                    EnsureCurrentRankingDownloadContext(context);
+                    using (rwlockBMSFiles.GetReaderGuard())
+                    {
+                        irService.PromoteDownloadedRankingCache(
+                            applyPlan,
+                            irCacheDirPath);
+                        using (BMSScore.SuppressPropertyChangedScope())
+                        using (BMSFile.SuppressPropertyChangedScope())
+                        {
+                            applyResult = irService.ApplyPreparedDownloadedRankingCache(
+                                applyPlan,
+                                dbGateway,
+                                BMSScores,
+                                BMSFiles,
+                                options.EstimateOfflineScoreRanking);
+                        }
+                    }
                 }
             }
+            uiScheduler.Invoke(() =>
+            {
+                List<Exception> publicationFailures = null;
+                foreach (BMSScore changedScore in applyResult.ChangedScores)
+                {
+                    try
+                    {
+                        changedScore.PublishRankingDataChanged();
+                    }
+                    catch (Exception ex)
+                    {
+                        publicationFailures ??= [];
+                        publicationFailures.Add(ex);
+                    }
+                }
+                RefreshScoreSnapshotFromCurrentScores("download_ir_data");
+                if (publicationFailures?.Count > 0)
+                {
+                    throw new AggregateException(
+                        "One or more ranking score subscribers failed.",
+                        publicationFailures);
+                }
+            });
+            return applyResult.Failed;
         }
-        RefreshScoreSnapshotFromCurrentScores("download_ir_data");
-        using (rwlockBMSFiles.GetReaderGuard())
+        finally
         {
-            ApplyCurrentScoreSnapshotToFiles(BMSFiles);
+            try
+            {
+                if (LongPathFileSystem.DirectoryExists(stagingDirectoryPath))
+                {
+                    LongPathFileSystem.DeleteDirectory(stagingDirectoryPath, recursive: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogInstallPerformanceWarn(
+                    "ranking_cache_download staging_cleanup_failed path=\""
+                    + stagingDirectoryPath
+                    + "\" exception="
+                    + ex.GetType().Name);
+            }
         }
-        return failed;
+    }
+
+    private RankingDownloadContext CaptureRankingDownloadContext()
+    {
+        using (rwlockBMSScores.GetReaderGuard())
+        {
+            if (activeScoreSource != ActiveScoreSource.Lr2
+                || lr2ScoreDBPath == null
+                || LR2ID == 0)
+            {
+                throw new InvalidOperationException(Resources.Error_LR2ScoreDBNotConnected);
+            }
+            return new RankingDownloadContext
+            {
+                ScoreSourceGeneration = scoreSourceGeneration,
+                Lr2Id = LR2ID,
+                ScoreDbPath = lr2ScoreDBPath
+            };
+        }
+    }
+
+    private void EnsureCurrentRankingDownloadContext(RankingDownloadContext context)
+    {
+        if (context == null
+            || activeScoreSource != ActiveScoreSource.Lr2
+            || scoreSourceGeneration != context.ScoreSourceGeneration
+            || LR2ID != context.Lr2Id
+            || !string.Equals(
+                lr2ScoreDBPath,
+                context.ScoreDbPath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The LR2 score source changed while ranking cache data was being downloaded.");
+        }
     }
 
     private static List<ChartFile> CreateBmsChartSubsetSnapshot(IEnumerable<BMSFile> bmsFiles)
