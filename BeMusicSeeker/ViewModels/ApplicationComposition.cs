@@ -364,7 +364,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         Func<string, bool> selectedChartExternalActionFileExists = null,
         Action<string> libraryFolderTreeLog = null,
         Action<string> libraryFolderTreeLogWarning = null,
-        Func<Action, Task> regularChartListTerminalApplyScheduler = null,
         IExternalShellGateway externalShellGateway = null)
     {
         externalShellGateway ??= this.externalShellGateway;
@@ -425,7 +424,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             selectedChartExternalActionFileExists,
             libraryFolderTreeLog,
             libraryFolderTreeLogWarning,
-            regularChartListTerminalApplyScheduler,
             externalShellGateway,
             this.applicationPathSnapshot,
             this.updaterProcessGateway);
@@ -614,7 +612,6 @@ internal sealed class MainWindowChildComposition
         Func<string, bool> selectedChartExternalActionFileExists = null,
         Action<string> libraryFolderTreeLog = null,
         Action<string> libraryFolderTreeLogWarning = null,
-        Func<Action, Task> regularChartListTerminalApplyScheduler = null,
         IExternalShellGateway externalShellGateway = null,
         ApplicationPathSnapshot applicationPathSnapshot = null,
         IUpdaterProcessGateway updaterProcessGateway = null)
@@ -664,7 +661,7 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             ChartMutationActivity,
             (IFolderAutoRenamePlaybackPort)PlaybackPanel,
-            regularChartListTerminalApplyScheduler);
+            uiScheduler);
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
             chartFileOperations,
             ChartMutationActivity,

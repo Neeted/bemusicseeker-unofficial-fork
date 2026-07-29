@@ -58,7 +58,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly Action<string> log;
     private readonly Action<string> logWarning;
     private readonly Action<Action> dispatchToUi;
-    private readonly Func<Action, Task> terminalApplyToUiAsync;
+    private readonly IUiScheduler normalLibraryRefreshUiScheduler;
     private readonly PendingPackageWorkflowOwner pendingPackageWorkflow;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
     private readonly ChartMutationActivityOwner chartMutationActivity;
@@ -101,7 +101,12 @@ internal sealed class RegularChartListOwner : IDisposable
     private PropertyChangedEventListener normalLibraryRefreshListener;
     private BMSLibrary normalLibraryRefreshSource;
     private int normalLibraryRefreshHandledNotificationVersion;
+    private int normalLibraryRefreshRequestedNotificationVersion;
+    private string normalLibraryRefreshRequestedReason;
     private bool normalLibraryRefreshApplySuppressed;
+    private bool normalLibraryRefreshDrainScheduled;
+    private TaskCompletionSource<bool> normalLibraryRefreshDrainCompletionSource;
+    private Task normalLibraryRefreshDrainCompletion = Task.CompletedTask;
     private bool duplicateChartGroupsRefreshRunning;
     private int virtualSummaryCacheVersion;
     private int virtualSummaryRunId;
@@ -122,7 +127,7 @@ internal sealed class RegularChartListOwner : IDisposable
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
         IFolderAutoRenamePlaybackPort playback,
-        Func<Action, Task> terminalApplyToUiAsync)
+        IUiScheduler normalLibraryRefreshUiScheduler)
     {
         this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -133,8 +138,8 @@ internal sealed class RegularChartListOwner : IDisposable
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
-        this.terminalApplyToUiAsync = terminalApplyToUiAsync
-            ?? throw new ArgumentNullException(nameof(terminalApplyToUiAsync));
+        this.normalLibraryRefreshUiScheduler = normalLibraryRefreshUiScheduler
+            ?? throw new ArgumentNullException(nameof(normalLibraryRefreshUiScheduler));
         this.mainChartList.AppliedColumnModeCommitted += MainChartListAppliedColumnModeCommitted;
     }
 
@@ -143,9 +148,9 @@ internal sealed class RegularChartListOwner : IDisposable
         PropertyChangedEventListener previousListener = null;
         using (chartFileOperations.Enter())
         {
+            PropertyChangedEventListener nextListener = null;
             lock (normalLibraryRefreshApplyLock)
             {
-                PropertyChangedEventListener nextListener = null;
                 lock (syncRoot)
                 {
                     if (ReferenceEquals(normalLibraryRefreshSource, library))
@@ -157,52 +162,245 @@ internal sealed class RegularChartListOwner : IDisposable
                     normalLibraryRefreshListener = null;
                     normalLibraryRefreshSource = library;
                     normalLibraryRefreshHandledNotificationVersion = 0;
+                    normalLibraryRefreshRequestedNotificationVersion = 0;
+                    normalLibraryRefreshRequestedReason = null;
                     if (!disposed && library != null)
                     {
                         nextListener = new PropertyChangedEventListener(library);
                         normalLibraryRefreshListener = nextListener;
                     }
                 }
+            }
 
-                if (nextListener != null)
-                {
-                    BMSLibrary attachedLibrary = library;
-                    nextListener.RegisterHandler(
-                        () => attachedLibrary.NormalLibraryRefreshNotificationVersion,
-                        delegate
-                        {
-                            ApplyLatestNormalLibraryRefreshNotification("normal_library_refresh");
-                        });
-                    ApplyLatestNormalLibraryRefreshNotification("normal_library_refresh");
-                }
+            if (nextListener != null)
+            {
+                BMSLibrary attachedLibrary = library;
+                nextListener.RegisterHandler(
+                    () => attachedLibrary.NormalLibraryRefreshNotificationVersion,
+                    delegate
+                    {
+                        QueueLatestNormalLibraryRefreshNotification(
+                            "normal_library_refresh",
+                            attachedLibrary);
+                    });
+                QueueLatestNormalLibraryRefreshNotification(
+                    "normal_library_refresh",
+                    attachedLibrary);
             }
         }
         previousListener?.Dispose();
     }
 
-    internal bool ApplyLatestNormalLibraryRefreshNotification(
+    internal void QueueLatestNormalLibraryRefreshNotification(
         string reason,
         BMSLibrary expectedLibrary = null)
     {
+        TaskCompletionSource<bool> completionSource;
+        BMSLibrary library;
         lock (syncRoot)
         {
-            if (normalLibraryRefreshApplySuppressed
-                && (expectedLibrary == null || ReferenceEquals(normalLibraryRefreshSource, expectedLibrary)))
+            library = normalLibraryRefreshSource;
+            if (disposed
+                || library == null
+                || (expectedLibrary != null && !ReferenceEquals(library, expectedLibrary)))
             {
-                return false;
+                return;
+            }
+
+            int requestedVersion = library.NormalLibraryRefreshNotificationVersion;
+            if (requestedVersion <= normalLibraryRefreshHandledNotificationVersion)
+            {
+                return;
+            }
+
+            normalLibraryRefreshRequestedNotificationVersion = Math.Max(
+                normalLibraryRefreshRequestedNotificationVersion,
+                requestedVersion);
+            normalLibraryRefreshRequestedReason = reason;
+            if (normalLibraryRefreshApplySuppressed || normalLibraryRefreshDrainScheduled)
+            {
+                return;
+            }
+
+            normalLibraryRefreshDrainScheduled = true;
+            completionSource = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            normalLibraryRefreshDrainCompletionSource = completionSource;
+            normalLibraryRefreshDrainCompletion = completionSource.Task;
+        }
+
+        IUiScheduledOperation operation;
+        try
+        {
+            operation = normalLibraryRefreshUiScheduler.Schedule(
+                () => DrainNormalLibraryRefreshNotifications(completionSource),
+                UiSchedulePriority.Normal);
+        }
+        catch (Exception exception)
+        {
+            RejectNormalLibraryRefreshDrain(completionSource, exception.Message);
+            return;
+        }
+
+        if (operation?.IsAccepted != true)
+        {
+            RejectNormalLibraryRefreshDrain(
+                completionSource,
+                operation?.RejectionReason ?? "UI scheduler rejected the refresh drain.");
+            return;
+        }
+        _ = ObserveNormalLibraryRefreshUiOperationAsync(operation, completionSource);
+    }
+
+    private void DrainNormalLibraryRefreshNotifications(TaskCompletionSource<bool> completionSource)
+    {
+        int attemptedVersion = 0;
+        try
+        {
+            while (TryCaptureNormalLibraryRefreshDrainRequest(
+                out BMSLibrary library,
+                out string reason,
+                out int requestedVersion))
+            {
+                attemptedVersion = requestedVersion;
+                bool applied = ApplyLatestNormalLibraryRefreshNotificationOnExecutionLane(reason, library);
+                if (!applied)
+                {
+                    AdvanceMissingNormalLibraryRefreshNotification(library, requestedVersion);
+                }
             }
         }
-        bool appliedSynchronously = false;
-        bool installDestinationStateChanged = false;
-        Task applyTask = terminalApplyToUiAsync(() =>
+        catch (Exception exception)
         {
-            installDestinationStateChanged = ApplyLatestNormalLibraryRefreshNotificationOnExecutionLane(
-                reason,
-                expectedLibrary);
-            appliedSynchronously = true;
-        });
-        applyTask?.GetAwaiter().GetResult();
-        return appliedSynchronously && installDestinationStateChanged;
+            logWarning(
+                "normal_library_refresh drain_failed exception="
+                + exception.GetType().Name
+                + " message="
+                + exception.Message);
+        }
+        finally
+        {
+            BMSLibrary rescheduleLibrary = null;
+            string rescheduleReason = null;
+            lock (syncRoot)
+            {
+                if (ReferenceEquals(normalLibraryRefreshDrainCompletionSource, completionSource))
+                {
+                    normalLibraryRefreshDrainScheduled = false;
+                    if (!disposed
+                        && !normalLibraryRefreshApplySuppressed
+                        && normalLibraryRefreshSource != null
+                        && normalLibraryRefreshRequestedNotificationVersion > attemptedVersion)
+                    {
+                        rescheduleLibrary = normalLibraryRefreshSource;
+                        rescheduleReason = normalLibraryRefreshRequestedReason;
+                    }
+                }
+            }
+            completionSource.TrySetResult(true);
+            if (rescheduleLibrary != null)
+            {
+                QueueLatestNormalLibraryRefreshNotification(
+                    rescheduleReason ?? "normal_library_refresh",
+                    rescheduleLibrary);
+            }
+        }
+    }
+
+    private async Task ObserveNormalLibraryRefreshUiOperationAsync(
+        IUiScheduledOperation operation,
+        TaskCompletionSource<bool> completionSource)
+    {
+        try
+        {
+            await operation.Completion.ConfigureAwait(false);
+            if (!completionSource.Task.IsCompleted)
+            {
+                RejectNormalLibraryRefreshDrain(
+                    completionSource,
+                    operation.IsAborted
+                        ? "UI scheduler aborted the refresh drain."
+                        : "UI scheduler completed without running the refresh drain.");
+            }
+        }
+        catch (Exception exception)
+        {
+            RejectNormalLibraryRefreshDrain(completionSource, exception.Message);
+        }
+    }
+
+    private bool TryCaptureNormalLibraryRefreshDrainRequest(
+        out BMSLibrary library,
+        out string reason,
+        out int requestedVersion)
+    {
+        lock (syncRoot)
+        {
+            if (disposed
+                || normalLibraryRefreshApplySuppressed
+                || normalLibraryRefreshSource == null
+                || normalLibraryRefreshRequestedNotificationVersion
+                    <= normalLibraryRefreshHandledNotificationVersion)
+            {
+                normalLibraryRefreshDrainScheduled = false;
+                library = null;
+                reason = null;
+                requestedVersion = 0;
+                return false;
+            }
+
+            library = normalLibraryRefreshSource;
+            reason = normalLibraryRefreshRequestedReason ?? "normal_library_refresh";
+            requestedVersion = normalLibraryRefreshRequestedNotificationVersion;
+            return true;
+        }
+    }
+
+    private void AdvanceMissingNormalLibraryRefreshNotification(
+        BMSLibrary library,
+        int requestedVersion)
+    {
+        bool missingNotification = false;
+        lock (syncRoot)
+        {
+            if (!disposed
+                && !normalLibraryRefreshApplySuppressed
+                && ReferenceEquals(normalLibraryRefreshSource, library)
+                && normalLibraryRefreshHandledNotificationVersion < requestedVersion)
+            {
+                normalLibraryRefreshHandledNotificationVersion = requestedVersion;
+                missingNotification = true;
+            }
+        }
+        if (missingNotification)
+        {
+            logWarning(
+                "normal_library_refresh notification_missing requestedVersion="
+                + requestedVersion);
+        }
+    }
+
+    private void RejectNormalLibraryRefreshDrain(
+        TaskCompletionSource<bool> completionSource,
+        string rejectionReason)
+    {
+        bool rejected = false;
+        lock (syncRoot)
+        {
+            if (ReferenceEquals(normalLibraryRefreshDrainCompletionSource, completionSource)
+                && !completionSource.Task.IsCompleted)
+            {
+                normalLibraryRefreshDrainScheduled = false;
+                rejected = true;
+            }
+        }
+        if (rejected)
+        {
+            logWarning(
+                "normal_library_refresh drain_rejected reason="
+                + (rejectionReason ?? string.Empty));
+            completionSource.TrySetResult(true);
+        }
     }
 
     private bool ApplyLatestNormalLibraryRefreshNotificationOnExecutionLane(
@@ -234,7 +432,17 @@ internal sealed class RegularChartListOwner : IDisposable
             }
 
             ApplyNormalLibraryRefreshNotificationBatch(library, notificationBatch, reason);
-            return notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
+            lock (syncRoot)
+            {
+                if (!disposed && ReferenceEquals(normalLibraryRefreshSource, library))
+                {
+                    normalLibraryRefreshHandledNotificationVersion = Math.Max(
+                        normalLibraryRefreshHandledNotificationVersion,
+                        notificationBatch.LatestVersion);
+                }
+            }
+
+            return true;
         }
     }
 
@@ -772,7 +980,7 @@ internal sealed class RegularChartListOwner : IDisposable
                     }
                     CaptureCleanupFailure(operationGate.Dispose, failures);
                     operationGate = null;
-                    ApplyLatestNormalLibraryRefreshNotification(
+                    QueueLatestNormalLibraryRefreshNotification(
                         "library_charts_changed",
                         expectedLibrary: library);
                     InvalidatePathMutationCaches(library);
@@ -791,6 +999,9 @@ internal sealed class RegularChartListOwner : IDisposable
                 {
                     normalLibraryRefreshApplySuppressed = false;
                 }
+                QueueLatestNormalLibraryRefreshNotification(
+                    "library_charts_changed",
+                    expectedLibrary: library);
             }
             if (suppressionStarted)
             {
@@ -1023,7 +1234,6 @@ internal sealed class RegularChartListOwner : IDisposable
             {
                 return NormalLibraryRefreshNotificationBatch.Empty;
             }
-            normalLibraryRefreshHandledNotificationVersion = notificationBatch.LatestVersion;
         }
         return notificationBatch;
     }
@@ -3531,6 +3741,7 @@ internal sealed class RegularChartListOwner : IDisposable
         CancellationTokenSource requestCancellation;
         CancellationTokenSource prewarmCancellation;
         Task prewarmCompletion;
+        Task normalLibraryRefreshCompletion;
         Task[] folderRenameTasksToDrain;
         PropertyChangedEventListener normalLibraryRefreshListenerToDispose;
         lock (normalLibraryRefreshApplyLock)
@@ -3550,12 +3761,16 @@ internal sealed class RegularChartListOwner : IDisposable
                 normalLibraryRefreshListener = null;
                 normalLibraryRefreshSource = null;
                 normalLibraryRefreshHandledNotificationVersion = 0;
+                normalLibraryRefreshRequestedNotificationVersion = 0;
+                normalLibraryRefreshRequestedReason = null;
+                normalLibraryRefreshCompletion = normalLibraryRefreshDrainCompletion;
                 prewarmCancellation = virtualOrderPrewarmCancellation;
                 prewarmCompletion = virtualOrderPrewarmCompletion;
                 folderRenameTasksToDrain = [.. folderRenameTasks];
                 shutdownCompletion = DrainShutdownAsync(
                     prewarmCompletion,
                     prewarmCancellation,
+                    normalLibraryRefreshCompletion,
                     folderRenameTasksToDrain);
             }
         }
@@ -3921,11 +4136,13 @@ internal sealed class RegularChartListOwner : IDisposable
     private static async Task DrainShutdownAsync(
         Task prewarmCompletion,
         CancellationTokenSource prewarmCancellation,
+        Task normalLibraryRefreshCompletion,
         IReadOnlyList<Task> folderRenameTasks)
     {
         try
         {
             await (prewarmCompletion ?? Task.CompletedTask).ConfigureAwait(false);
+            await (normalLibraryRefreshCompletion ?? Task.CompletedTask).ConfigureAwait(false);
             await Task.WhenAll(folderRenameTasks ?? []).ConfigureAwait(false);
         }
         finally

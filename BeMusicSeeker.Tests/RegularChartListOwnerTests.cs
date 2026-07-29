@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -287,7 +288,6 @@ public sealed class RegularChartListOwnerTests
                         && !applied[0].NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged),
                     owner.InstallDestinationGeneration > 0);
                 Assert.IsFalse(owner.HasFolderRows);
-                Assert.IsFalse(owner.ApplyLatestNormalLibraryRefreshNotification("duplicate"));
                 Assert.AreEqual(1, applied.Count);
             }
             finally
@@ -321,7 +321,6 @@ public sealed class RegularChartListOwnerTests
 
                 Assert.IsTrue(applied.Wait(TimeSpan.FromSeconds(10)));
                 Assert.AreEqual(1, Volatile.Read(ref appliedCount));
-                Assert.IsFalse(owner.ApplyLatestNormalLibraryRefreshNotification("duplicate"));
                 Assert.AreEqual(1, Volatile.Read(ref appliedCount));
             }
             finally
@@ -402,17 +401,19 @@ public sealed class RegularChartListOwnerTests
                 ChartOperationCapabilities.MoveInLibrary);
             Assert.IsTrue(RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request));
 
-            int dispatchCount = 0;
+            int appliedCount = 0;
             using RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
-                action =>
-                {
-                    Interlocked.Increment(ref dispatchCount);
-                    action();
-                });
+                action => action());
             owner.AttachNormalLibraryRefreshSource(library);
-            Volatile.Write(ref dispatchCount, 0);
+            owner.NormalLibraryRefreshApplied += (_, args) =>
+            {
+                if (args.NotificationBatch.HasRefreshNotification)
+                {
+                    Interlocked.Increment(ref appliedCount);
+                }
+            };
             using var suppressionEntered = new ManualResetEventSlim();
             using var releaseSuppression = new ManualResetEventSlim();
             owner.RefreshSuppressionChanged += (_, args) =>
@@ -440,12 +441,12 @@ public sealed class RegularChartListOwnerTests
             stopTask.GetAwaiter().GetResult();
             Assert.IsFalse(Directory.Exists(sourceDirectory));
             Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "rename-destination")));
-            Assert.AreEqual(1, Volatile.Read(ref dispatchCount), "The mutation notification must dispatch once after the gate is released.");
+            Assert.AreEqual(1, Volatile.Read(ref appliedCount), "The mutation notification must apply once after the gate is released.");
         });
     }
 
     [TestMethod]
-    public void FolderRenames_SerializeTerminalApplyBeforeNextMutation()
+    public void FolderRenames_SerializeMutationsWithoutWaitingForRefreshDrain()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -467,83 +468,55 @@ public sealed class RegularChartListOwnerTests
             RenameChartFolderRequest firstRequest = CreateRenameRequest(firstFile);
             RenameChartFolderRequest secondRequest = CreateRenameRequest(secondFile);
             var pendingActions = new Queue<Action>();
-            using var firstApplyQueued = new ManualResetEventSlim();
-            using var secondApplyQueued = new ManualResetEventSlim();
-            int schedulerCalls = 0;
-            Func<Action, Task> terminalApplyScheduler = action =>
-            {
-                int call = Interlocked.Increment(ref schedulerCalls);
-                if (call == 1)
-                {
-                    action();
-                    return Task.CompletedTask;
-                }
-
-                var completion = new TaskCompletionSource<object>();
-                lock (pendingActions)
-                {
-                    pendingActions.Enqueue(() =>
-                    {
-                        try
-                        {
-                            action();
-                            completion.SetResult(new object());
-                        }
-                        catch (Exception exception)
-                        {
-                            completion.SetException(exception);
-                        }
-                    });
-                    if (call == 2)
-                    {
-                        firstApplyQueued.Set();
-                    }
-                    else
-                    {
-                        secondApplyQueued.Set();
-                    }
-                }
-                return completion.Task;
-            };
             using RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
                 action => action(),
-                terminalApplyScheduler);
+                new ActionQueueUiScheduler(action =>
+                {
+                    lock (pendingActions)
+                    {
+                        pendingActions.Enqueue(action);
+                    }
+                }));
             owner.AttachNormalLibraryRefreshSource(library);
+            Action catchUp;
+            lock (pendingActions)
+            {
+                Assert.AreEqual(1, pendingActions.Count);
+                catchUp = pendingActions.Dequeue();
+            }
+            catchUp();
 
             owner.RenameChartFolderAsync(firstRequest, "first-destination");
-            Assert.IsTrue(firstApplyQueued.Wait(TimeSpan.FromSeconds(10)));
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () =>
+                {
+                    lock (pendingActions)
+                    {
+                        return pendingActions.Count == 1;
+                    }
+                },
+                TimeSpan.FromSeconds(10)));
             owner.RenameChartFolderAsync(secondRequest, "second-destination");
 
-            Thread.Sleep(250);
-            Assert.IsTrue(Directory.Exists(secondSourceDirectory));
-            Assert.IsFalse(Directory.Exists(Path.Combine(libraryRoot, "second-destination")));
-
-            Action firstApply;
-            lock (pendingActions)
-            {
-                Assert.AreEqual(1, pendingActions.Count);
-                firstApply = pendingActions.Dequeue();
-            }
-            firstApply();
-            Assert.IsTrue(secondApplyQueued.Wait(TimeSpan.FromSeconds(10)));
-            Action secondApply;
-            lock (pendingActions)
-            {
-                Assert.AreEqual(1, pendingActions.Count);
-                secondApply = pendingActions.Dequeue();
-            }
-            secondApply();
             Assert.IsTrue(SpinWait.SpinUntil(
-                () => Directory.Exists(Path.Combine(libraryRoot, "second-destination")),
-                10000));
+                () => Directory.Exists(Path.Combine(libraryRoot, "first-destination"))
+                    && Directory.Exists(Path.Combine(libraryRoot, "second-destination")),
+                TimeSpan.FromSeconds(10)));
+            Action coalescedRefresh;
+            lock (pendingActions)
+            {
+                Assert.AreEqual(1, pendingActions.Count);
+                coalescedRefresh = pendingActions.Dequeue();
+            }
+            coalescedRefresh();
             owner.StopAsync().GetAwaiter().GetResult();
         });
     }
 
     [TestMethod]
-    public void FolderRename_WaitsForAsynchronousTerminalApply()
+    public void FolderRename_StopAsyncDrainsQueuedRefresh()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -559,44 +532,36 @@ public sealed class RegularChartListOwnerTests
             };
             RenameChartFolderRequest request = CreateRenameRequest(file);
             var pendingActions = new Queue<Action>();
-            using var terminalApplyQueued = new ManualResetEventSlim();
-            int schedulerCalls = 0;
-            Func<Action, Task> terminalApplyScheduler = action =>
-            {
-                if (Interlocked.Increment(ref schedulerCalls) == 1)
-                {
-                    action();
-                    return Task.CompletedTask;
-                }
-
-                var completion = new TaskCompletionSource<object>();
-                lock (pendingActions)
-                {
-                    pendingActions.Enqueue(() =>
-                    {
-                        try
-                        {
-                            action();
-                            completion.SetResult(new object());
-                        }
-                        catch (Exception exception)
-                        {
-                            completion.SetException(exception);
-                        }
-                    });
-                }
-                terminalApplyQueued.Set();
-                return completion.Task;
-            };
             using RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
                 action => action(),
-                terminalApplyScheduler);
+                new ActionQueueUiScheduler(action =>
+                {
+                    lock (pendingActions)
+                    {
+                        pendingActions.Enqueue(action);
+                    }
+                }));
             owner.AttachNormalLibraryRefreshSource(library);
+            Action catchUp;
+            lock (pendingActions)
+            {
+                Assert.AreEqual(1, pendingActions.Count);
+                catchUp = pendingActions.Dequeue();
+            }
+            catchUp();
 
             owner.RenameChartFolderAsync(request, "queued-destination");
-            Assert.IsTrue(terminalApplyQueued.Wait(TimeSpan.FromSeconds(10)));
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () =>
+                {
+                    lock (pendingActions)
+                    {
+                        return pendingActions.Count == 1;
+                    }
+                },
+                TimeSpan.FromSeconds(10)));
             Task stopTask = owner.StopAsync();
             Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
 
@@ -669,7 +634,8 @@ public sealed class RegularChartListOwnerTests
             RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
-                pendingActions.Enqueue);
+                action => action(),
+                new ActionQueueUiScheduler(pendingActions.Enqueue));
             int appliedCount = 0;
             owner.NormalLibraryRefreshApplied += (_, _) => appliedCount++;
             try
@@ -693,6 +659,78 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void AttachedNormalLibraryRefreshSource_DoesNotWaitForUiWhileCatalogWriterHeld()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            var uiScheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+            using var uiLaneEntered = new ManualResetEventSlim();
+            using var releaseUiLane = new ManualResetEventSlim();
+            using var notificationPublished = new ManualResetEventSlim();
+            using var releaseWriter = new ManualResetEventSlim();
+            using var applied = new ManualResetEventSlim();
+            IUiScheduledOperation laneBlocker = uiScheduler.Schedule(() =>
+            {
+                uiLaneEntered.Set();
+                Assert.IsTrue(releaseUiLane.Wait(TimeSpan.FromSeconds(10)));
+            });
+            Assert.IsTrue(uiLaneEntered.Wait(TimeSpan.FromSeconds(10)));
+
+            RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(),
+                CreateWorkspaceForOwner(),
+                action => action(),
+                uiScheduler);
+            owner.AttachNormalLibraryRefreshSource(library);
+            owner.NormalLibraryRefreshApplied += (_, args) =>
+            {
+                if (args.NotificationBatch.NotifiesBmsFiles)
+                {
+                    applied.Set();
+                }
+            };
+
+            ReaderWriterLockSlimWrapper catalogWriteGate = GetCatalogStorageRowsWriteGate(library);
+            Task producer = Task.Run(() =>
+            {
+                using (catalogWriteGate.GetWriterGuard())
+                {
+                    PublishNormalLibraryRefreshResetNotification(
+                        library,
+                        notifiesBmsFiles: true,
+                        notifiesBmsonSongs: false);
+                    notificationPublished.Set();
+                    Assert.IsTrue(releaseWriter.Wait(TimeSpan.FromSeconds(10)));
+                }
+            });
+            try
+            {
+                Assert.IsTrue(notificationPublished.Wait(TimeSpan.FromSeconds(10)));
+                releaseUiLane.Set();
+                Assert.IsTrue(
+                    SpinWait.SpinUntil(
+                        () => catalogWriteGate.WaitingReadCount > 0,
+                        TimeSpan.FromSeconds(10)),
+                    "The dedicated UI lane did not reach the catalog snapshot reader.");
+                Assert.IsFalse(producer.IsCompleted);
+
+                releaseWriter.Set();
+                producer.GetAwaiter().GetResult();
+                laneBlocker.Completion.GetAwaiter().GetResult();
+                Assert.IsTrue(applied.Wait(TimeSpan.FromSeconds(10)));
+                owner.StopAsync().GetAwaiter().GetResult();
+            }
+            finally
+            {
+                releaseWriter.Set();
+                releaseUiLane.Set();
+                owner.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
     public void StopAsync_QueuedNormalLibraryRefreshBecomesNoOp()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -703,18 +741,73 @@ public sealed class RegularChartListOwnerTests
             RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
-                pendingActions.Enqueue);
+                action => action(),
+                new ActionQueueUiScheduler(pendingActions.Enqueue));
             int appliedCount = 0;
             owner.NormalLibraryRefreshApplied += (_, _) => appliedCount++;
 
             owner.AttachNormalLibraryRefreshSource(library);
             Assert.AreEqual(1, pendingActions.Count);
 
-            owner.StopAsync().GetAwaiter().GetResult();
+            Task stopTask = owner.StopAsync();
+            Assert.IsFalse(stopTask.IsCompleted);
             pendingActions.Dequeue()();
+            stopTask.GetAwaiter().GetResult();
 
             Assert.AreEqual(0, appliedCount);
             Assert.AreEqual(0L, owner.SourceGeneration);
+        });
+    }
+
+    [TestMethod]
+    public void StopAsync_AcceptedButAbortedNormalLibraryRefreshDoesNotHang()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                BMSFiles = [CreateTestableBmsFile("C:\\Charts\\aborted-refresh.bms")]
+            };
+            RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(),
+                CreateWorkspaceForOwner(),
+                action => action(),
+                new AbortingUiScheduler());
+
+            owner.AttachNormalLibraryRefreshSource(library);
+
+            Assert.IsTrue(owner.StopAsync().Wait(TimeSpan.FromSeconds(10)));
+        });
+    }
+
+    [TestMethod]
+    public void AttachedNormalLibraryRefreshSource_ApplyFailureDoesNotBlockLaterVersion()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            using RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(),
+                CreateWorkspaceForOwner());
+            owner.AttachNormalLibraryRefreshSource(library);
+            EventHandler<NormalLibraryRefreshAppliedEventArgs> failingHandler =
+                (_, _) => throw new InvalidOperationException("injected refresh apply failure");
+            owner.NormalLibraryRefreshApplied += failingHandler;
+
+            library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\failed-refresh.bms")];
+            owner.NormalLibraryRefreshApplied -= failingHandler;
+
+            int appliedCount = 0;
+            owner.NormalLibraryRefreshApplied += (_, args) =>
+            {
+                if (args.NotificationBatch.NotifiesBmsFiles)
+                {
+                    appliedCount++;
+                }
+            };
+            library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\recovered-refresh.bms")];
+
+            Assert.AreEqual(1, appliedCount);
         });
     }
 
@@ -782,7 +875,7 @@ public sealed class RegularChartListOwnerTests
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new NoOpFolderAutoRenamePlaybackPort(),
-            action => Task.CompletedTask);
+            new TestUiScheduler(() => null!));
         int? sourceClearVersionAtRowsNotification = null;
         bool? detailActiveAtRowsNotification = null;
         bool? asyncBindingAtRowsNotification = null;
@@ -2565,7 +2658,7 @@ public sealed class RegularChartListOwnerTests
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new NoOpFolderAutoRenamePlaybackPort(),
-            action => Task.CompletedTask);
+            new TestUiScheduler(() => null!));
         RegularChartListRequestLease lease = owner.BeginRequest();
         var rows = new List<object> { new(), new() };
         Assert.IsTrue(owner.TryCommitVirtual(lease, CreateVirtualTerminalInput(rows)).WasCommitted);
@@ -2637,7 +2730,7 @@ public sealed class RegularChartListOwnerTests
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new NoOpFolderAutoRenamePlaybackPort(),
-            action => Task.CompletedTask);
+            new TestUiScheduler(() => null!));
         RegularChartListRequestLease staleLease = owner.BeginRequest();
         var staleRows = new List<object> { new(), new() };
         Assert.IsTrue(owner.TryCommitVirtual(staleLease, CreateVirtualTerminalInput(staleRows)).WasCommitted);
@@ -3742,7 +3835,7 @@ public sealed class RegularChartListOwnerTests
         MainChartListViewModel table,
         PlaylistWorkspaceViewModel workspace,
         Action<Action> dispatchToUi,
-        Func<Action, Task>? terminalApplyToUiAsync = null)
+        IUiScheduler? normalLibraryRefreshUiScheduler = null)
     {
         return new RegularChartListOwner(
             table,
@@ -3754,11 +3847,27 @@ public sealed class RegularChartListOwnerTests
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new NoOpFolderAutoRenamePlaybackPort(),
-            terminalApplyToUiAsync ?? (action =>
-            {
-                dispatchToUi(action);
-                return Task.CompletedTask;
-            }));
+            normalLibraryRefreshUiScheduler ?? new TestUiScheduler(() => null!));
+    }
+
+    private static ReaderWriterLockSlimWrapper GetCatalogStorageRowsWriteGate(BMSLibrary library)
+    {
+        FieldInfo storageOwnerField = typeof(BMSLibrary).GetField(
+            "catalogStorageRowsOwner",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var storageOwner = (CatalogStorageRowsOwner)storageOwnerField.GetValue(library)!;
+        return storageOwner.WriteGate;
+    }
+
+    private static void PublishNormalLibraryRefreshResetNotification(
+        BMSLibrary library,
+        bool notifiesBmsFiles,
+        bool notifiesBmsonSongs)
+    {
+        MethodInfo publishMethod = typeof(BMSLibrary).GetMethod(
+            "PublishNormalLibraryRefreshResetNotification",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        publishMethod.Invoke(library, [notifiesBmsFiles, notifiesBmsonSongs]);
     }
 
     private static PendingPackageWorkflowOwner CreatePendingPackageWorkflowOwner()
@@ -4054,6 +4163,149 @@ public sealed class RegularChartListOwnerTests
                 new PlaylistSummaryColumnSettings()),
             MainViewUpdateMode.FolderFilterSelected,
             stopwatch);
+    }
+
+    private sealed class ActionQueueUiScheduler : IUiScheduler
+    {
+        private readonly Action<Action> enqueue;
+
+        internal ActionQueueUiScheduler(Action<Action> enqueue)
+        {
+            this.enqueue = enqueue ?? throw new ArgumentNullException(nameof(enqueue));
+        }
+
+        public bool IsAvailable => true;
+
+        public bool CanExecuteInline => false;
+
+        public bool CheckAccess() => false;
+
+        public IUiScheduledOperation Schedule(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            var operation = new ActionQueueUiScheduledOperation();
+            enqueue(() => operation.Execute(action));
+            return operation;
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            action();
+        }
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            return action();
+        }
+
+        public async Task InvokeAsync(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            await Schedule(action, priority).Completion.ConfigureAwait(false);
+        }
+
+        public async Task InvokeAsync(
+            Func<Task> action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            await action().ConfigureAwait(false);
+        }
+    }
+
+    private sealed class ActionQueueUiScheduledOperation : IUiScheduledOperation
+    {
+        private readonly TaskCompletionSource<bool> completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool IsAccepted => true;
+
+        public bool IsCompleted => completion.Task.IsCompleted;
+
+        public bool IsAborted => false;
+
+        public string RejectionReason => string.Empty;
+
+        public Task Completion => completion.Task;
+
+        public void Abort()
+        {
+        }
+
+        internal void Execute(Action action)
+        {
+            try
+            {
+                action();
+                completion.TrySetResult(true);
+            }
+            catch (Exception exception)
+            {
+                completion.TrySetException(exception);
+                throw;
+            }
+        }
+    }
+
+    private sealed class AbortingUiScheduler : IUiScheduler
+    {
+        public bool IsAvailable => true;
+
+        public bool CanExecuteInline => false;
+
+        public bool CheckAccess() => false;
+
+        public IUiScheduledOperation Schedule(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            return new AbortedUiScheduledOperation();
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            throw new InvalidOperationException("Synchronous invoke is not supported.");
+        }
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            throw new InvalidOperationException("Synchronous invoke is not supported.");
+        }
+
+        public Task InvokeAsync(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            return Task.FromException(new InvalidOperationException("UI operation was aborted."));
+        }
+
+        public Task InvokeAsync(
+            Func<Task> action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            return Task.FromException(new InvalidOperationException("UI operation was aborted."));
+        }
+    }
+
+    private sealed class AbortedUiScheduledOperation : IUiScheduledOperation
+    {
+        private static readonly Task AbortedCompletion = Task.FromCanceled(
+            new CancellationToken(canceled: true));
+
+        public bool IsAccepted => true;
+
+        public bool IsCompleted => true;
+
+        public bool IsAborted => true;
+
+        public string RejectionReason => "UI operation was aborted.";
+
+        public Task Completion => AbortedCompletion;
+
+        public void Abort()
+        {
+        }
     }
 
     private sealed class BlockingSourceRows : IReadOnlyList<ChartListSourceRow>, IDisposable

@@ -3117,8 +3117,8 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(regularOwnerCode, "AttachNormalLibraryRefreshSource(BMSLibrary library)");
         StringAssert.Contains(regularOwnerCode, "RegisterHandler(");
-        StringAssert.Contains(regularOwnerCode, "ApplyLatestNormalLibraryRefreshNotification(\"normal_library_refresh\")");
-        StringAssert.Contains(viewModelCode, "regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification(\"library_charts_changed\")");
+        StringAssert.Contains(regularOwnerCode, "QueueLatestNormalLibraryRefreshNotification(");
+        StringAssert.Contains(viewModelCode, "regularChartListOwner.QueueLatestNormalLibraryRefreshNotification(\"library_charts_changed\")");
         Assert.IsFalse(viewModelCode.Contains("fallbackToCurrentOwnedCollectionVersion"));
         Assert.IsFalse(viewModelCode.Contains("NotifiesInstallDestinationOverlayProperties"));
         Assert.IsFalse(libraryCode.Contains("NotifiesInstallDestinationOverlayProperties"));

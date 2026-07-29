@@ -1923,7 +1923,7 @@ public partial class MainWindowViewModel : ViewModel,
             case SelectedChartMutationAppliedEventArgs mutationApplied:
                 if (mutationApplied.LibraryPathChanged)
                 {
-                    regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
+                    regularChartListOwner.QueueLatestNormalLibraryRefreshNotification("library_charts_changed");
                     InvalidateNormalLibrarySortKeysAfterPathMutation(
                         hasBmsPathMutation: true,
                         hasBmsonPathMutation: true);
@@ -2744,8 +2744,7 @@ public partial class MainWindowViewModel : ViewModel,
                 chartFileOperations,
                 new UiDialogCoordinator()),
             libraryFolderTreeLog: LogUiSuppression,
-            libraryFolderTreeLogWarning: LogUiSuppressionWarning,
-            regularChartListTerminalApplyScheduler: ApplyMainChartListPresentationActionAsync);
+            libraryFolderTreeLogWarning: LogUiSuppressionWarning);
         ProgressHub = childComposition.ProgressHub;
         ChartMutationActivity = childComposition.ChartMutationActivity;
         ChartMutationActivity.ActivityChanged += ChartMutationActivityChanged;
@@ -5134,7 +5133,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
+        regularChartListOwner.QueueLatestNormalLibraryRefreshNotification("library_charts_changed");
         InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
     }
 

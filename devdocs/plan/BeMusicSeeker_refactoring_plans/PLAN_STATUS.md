@@ -35,15 +35,15 @@ single-file extractionやReadyToRunではなく、workerがcatalog writer lock�
 
 - active outcome: `CONC-01 Responsiveness closure`
 - active execution package: `H1-H4 minimal hardening batch`
-- execution anchor: `H1 normal-refresh deadlock closure`
+- execution anchor: `H2 estimated-install lock-scope closure`
 - planner state: `not required; batch materialized`
 
 ## Active implementation batch
 
 | Unit | State | Closure |
 |---|---|---|
-| `H1 NORMAL-REFRESH-DEADLOCK` | active | non-blocking coalesced UI drain、explicit shutdown drain、deterministic regression |
-| `H2 ESTIMATED-INSTALL-LOCK-SCOPE` | pending | guard内UI／dialog／callback除去、evidenceに基づくlock scope縮小、normal completion、既存file-diff収束確認 |
+| `H1 NORMAL-REFRESH-DEADLOCK` | completed | version coalescing UI drain、explicit shutdown drain、held-writer／dedicated-UI-lane regression |
+| `H2 ESTIMATED-INSTALL-LOCK-SCOPE` | active | guard内UI／dialog／callback除去、evidenceに基づくlock scope縮小、normal completion、既存file-diff収束確認 |
 | `H3 APPLICATION-WIDE-WAIT-AUDIT` | pending | library／package、playlist、shell／externalの全candidate分類とgrouped fixes |
 | `H4 RESPONSIVENESS-GATE` | pending | full interaction smoke、selected publish、fresh review、Gate closure |
 
