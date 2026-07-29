@@ -9,7 +9,7 @@
 | Item | Current | Final target | Owner |
 |---|---|---|---|
 | .NET SDK | `10.0.302`, `rollForward: latestPatch` | retain; release候補は同servicing baselineで再publish | `NET10-10 P4` |
-| Main app | win-x64 SCD、single-file、native self-extract、R2R無効 | candidate matrixから選択し、中立profile `WinX64SelfContained`へ固定 | `NET10-10 P1/P2/P3` |
+| Main app | win-x64 SCD、managed bundle、native runtime隣接、R2R有効 | 中立profile `WinX64SelfContained`をretain | `NET10-10 P1/P2/P3` |
 | Updater | win-x64 SCD single-file | retain | `NET10-07/10` |
 | Main app content | `lang`、config、`libs/x64`、`native` | owner directoryを維持 | `NET10-10 P3` |
 
@@ -34,7 +34,7 @@ Version authorityは`Directory.Packages.props`、resolved graphは各`packages.l
 
 | Asset | Version / identity | Runtime owner / layout | Status |
 |---|---|---|---|
-| SQLite `e_sqlite3.dll` | SourceGear.sqlite3 3.53.3 | SQLitePCLRaw provider。profileに応じSDK bundle／standard root | verified |
+| SQLite `e_sqlite3.dll` | SourceGear.sqlite3 3.53.3 | SQLitePCLRaw provider。selected profileではSDK-owned root native file | verified |
 | `7z.dll` | 24.07 x64、SHA-256 `3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129` | `libs/x64/7z.dll` | verified |
 | BASS six-file family | bass 2.4.12系 | `BassNativeRuntime`、`libs/x64`、x64 only | technical verification complete; entitlement pending |
 | Everything SDK／bridge | SDK 3.0.0.9＋first-party x64 bridge | `native`、explicit load／shutdown owner | verified |
@@ -47,9 +47,9 @@ Version authorityは`Directory.Packages.props`、resolved graphは各`packages.l
 | managed bundle | bundle | exe隣接 | なし | managed DLLを減らしつつstandard bundlerを使用 |
 | native self-extract bundle | bundle | bundle→temporary extraction | fresh install／cache missであり | root fileは最少 |
 
-各familyでReadyToRun有無を比較する。`EnableCompressionInSingleFile=false`、trimming／Composite R2R／NativeAOTは使わない。
+比較結果は[distribution performance acceptance](../../acceptance/net10-distribution-performance.md)を正本とし、managed bundle＋ReadyToRunを選択した。`EnableCompressionInSingleFile=false`、trimming／Composite R2R／NativeAOTは使わない。
 
-file数はselection metricではない。standard host fileを`libs`へ移すcustom loader、probing、deps rewrite、post-publish relocation、wrapper launcherは禁止する。application-owned native／contentだけを`libs/x64`、`native`、`lang`へ整理する。
+file数はprimary performance metricではなく、実用上同等な候補のlayout判断に使う。selected profileが隣接配置する`D3DCompiler_47_cor3.dll`、`e_sqlite3.dll`、`PenImc_cor3.dll`、`PresentationNative_cor3.dll`、`vcruntime140_cor3.dll`、`wpfgfx_cor3.dll`はSDK-owned native payloadとして許可する。これらを`libs`へ移すcustom loader、probing、deps rewrite、post-publish relocation、wrapper launcherは追加しない。application-owned native／contentだけを`libs/x64`、`native`、`lang`へ整理する。
 
 ## Retired legacy dependencies
 

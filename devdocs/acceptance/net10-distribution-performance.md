@@ -10,7 +10,7 @@ main appの最終候補は`bundle-r2r`とする。
 
 同じbundle familyの`bundle-il`に対しては、warm-cache中央値が約713 ms速く、fresh-installやworking setに実用上の退行がない。ReadyToRunの採用根拠も満たす。
 
-選択profileは次とする。
+選択profileは`Properties/PublishProfiles/WinX64SelfContained.pubxml`とし、次のpropertyを固定する。
 
 | Property | Value |
 |---|---|

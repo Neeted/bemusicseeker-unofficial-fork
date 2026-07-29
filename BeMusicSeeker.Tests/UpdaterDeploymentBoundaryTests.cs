@@ -62,19 +62,28 @@ public sealed class UpdaterDeploymentBoundaryTests
         AssertProfileValue(updaterProfile, "PublishTrimmed", "false");
         AssertProfileValue(updaterProfile, "PublishReadyToRun", "false");
 
-        string singleFileAppProfilePath = Path.Combine(
+        string selectedAppProfilePath = Path.Combine(
             repositoryRoot,
             "Properties",
             "PublishProfiles",
-            "WinX64SelfContainedSingleFile.pubxml");
-        XDocument singleFileAppProfile = XDocument.Load(singleFileAppProfilePath);
-        AssertProfileValue(singleFileAppProfile, "RuntimeIdentifier", "win-x64");
-        AssertProfileValue(singleFileAppProfile, "SelfContained", "true");
-        AssertProfileValue(singleFileAppProfile, "PublishSingleFile", "true");
-        AssertProfileValue(singleFileAppProfile, "IncludeNativeLibrariesForSelfExtract", "true");
-        AssertProfileValue(singleFileAppProfile, "IncludeAllContentForSelfExtract", "false");
-        AssertProfileValue(singleFileAppProfile, "PublishTrimmed", "false");
-        AssertProfileValue(singleFileAppProfile, "PublishReadyToRun", "false");
+            "WinX64SelfContained.pubxml");
+        XDocument selectedAppProfile = XDocument.Load(selectedAppProfilePath);
+        AssertProfileValue(selectedAppProfile, "RuntimeIdentifier", "win-x64");
+        AssertProfileValue(selectedAppProfile, "SelfContained", "true");
+        AssertProfileValue(selectedAppProfile, "PublishSingleFile", "true");
+        AssertProfileValue(selectedAppProfile, "IncludeNativeLibrariesForSelfExtract", "false");
+        AssertProfileValue(selectedAppProfile, "IncludeAllContentForSelfExtract", "false");
+        AssertProfileValue(selectedAppProfile, "PublishTrimmed", "false");
+        AssertProfileValue(selectedAppProfile, "PublishReadyToRun", "true");
+        AssertProfileValue(selectedAppProfile, "PublishReadyToRunComposite", "false");
+        AssertProfileValue(selectedAppProfile, "EnableCompressionInSingleFile", "false");
+        Assert.IsFalse(
+            File.Exists(Path.Combine(
+                repositoryRoot,
+                "Properties",
+                "PublishProfiles",
+                "WinX64SelfContainedSingleFile.pubxml")),
+            "The superseded main-app profile must not remain.");
     }
 
     [TestMethod]
@@ -194,7 +203,6 @@ public sealed class UpdaterDeploymentBoundaryTests
                 "libs/x86/bassenc.dll",
                 "libs/x86/bassmix.dll",
                 "libs/x86/basswasapi.dll",
-                "e_sqlite3.dll",
                 "Bass.Net.dll",
                 "x64/OggVorbis.NET64.dll",
                 "x64/7z.dll",

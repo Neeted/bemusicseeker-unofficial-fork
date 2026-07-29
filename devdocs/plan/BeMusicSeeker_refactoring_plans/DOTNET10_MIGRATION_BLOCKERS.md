@@ -4,17 +4,17 @@
 
 ## Current decision
 
-現行checkpointに`EXTERNAL_BLOCKER`はない。MVVM整理と.NET 10機能移行は完了しているが、main-app distribution profileは性能evidence不足のため`NET10-10`で再確定する。
+現行checkpointに`EXTERNAL_BLOCKER`はない。MVVM整理と.NET 10機能移行は完了し、main-app distribution profileは`bundle-r2r`へ確定した。selected layoutのpackage closureとfinal gateを進める。
 
 ## Active engineering work
 
 | ID | State | Work | Owner / exit |
 |---|---|---|---|
-| `PERF-01` | active | folder／managed bundle／native self-extractとReadyToRun有無を、fresh install／warm cacheの外部startup、working set、機能受入れで比較 | `NET10-10 P1/P2` |
-| `LAYOUT-02` | pending | 性能winnerをpublish、validator、update contract、specへ一貫適用。custom relocationなし | `NET10-10 P3` |
-| `GATE-02` | pending | selected profileでfull verification、publish、existing-data、update／rollback、performance rerun、fresh review | `NET10-10 P4` |
+| `PERF-01` | completed | folder／managed bundle／native self-extractとReadyToRun有無を、fresh install／warm cacheの外部startup、working set、機能受入れで比較 | `bundle-r2r`; current evidenceはperformance acceptance |
+| `LAYOUT-02` | completed | 性能winnerをpublish、validator、update contract、specへ一貫適用。custom relocationなし | managed bundle＋R2R、SDK native root allowlist |
+| `GATE-02` | active | selected profileでfull verification、publish、existing-data、update／rollback、startup smoke、fresh review | `NET10-10 P4` |
 
-`PERF-01`はsingle-fileを失敗扱いするための作業ではない。current profileを含む全candidateを同条件で測り、決定規則で一つを選ぶ。
+`PERF-01`のcurrent evidenceは[distribution performance acceptance](../../acceptance/net10-distribution-performance.md)とignored raw artifactである。
 
 ## Post-engineering / release follow-up
 

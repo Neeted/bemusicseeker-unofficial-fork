@@ -64,14 +64,14 @@ function Invoke-SelfContainedPublish {
     if (Test-Path $updaterPublishOutput) { Remove-Item $updaterPublishOutput -Recurse -Force }
     New-Item -ItemType Directory -Path $appPublishOutput, $updaterPublishOutput -Force | Out-Null
 
-    Write-Host "  main app の single-file SCD を publish 中..."
+    Write-Host "  main app の managed-bundle ReadyToRun SCD を publish 中..."
     & dotnet publish $appProject `
         --configuration $configuration `
         --runtime win-x64 `
         --self-contained true `
         --no-restore `
         --property:Platform=$platform `
-        --property:PublishProfile=WinX64SelfContainedSingleFile `
+        --property:PublishProfile=WinX64SelfContained `
         --property:PublishDir=$appPublishOutput
     if ($LASTEXITCODE -ne 0) { throw "main app の Self-contained publish に失敗しました" }
 
@@ -90,20 +90,7 @@ function Invoke-SelfContainedPublish {
 }
 
 function Assert-SelfContainedPublishLayout($appOutput, $updaterOutput) {
-    foreach ($required in @(
-        "BeMusicSeeker.exe",
-        "BeMusicSeeker.dll.config",
-        "test.mp3",
-        "lang\en-US.json",
-        "native\Everything3_x64.dll",
-        "native\EverythingBridge_x64.dll",
-        "libs\x64\7z.dll",
-        "libs\x64\bass.dll",
-        "libs\x64\bassasio.dll",
-        "libs\x64\bassenc.dll",
-        "libs\x64\bassmix.dll",
-        "libs\x64\basswasapi.dll",
-        "libs\x64\bass_fx.dll")) {
+    foreach ($required in Get-PortableMainAppRequiredFiles) {
         if (-not (Test-Path (Join-Path $appOutput $required) -PathType Leaf)) {
             throw "Self-contained app publish output is missing: $required"
         }
@@ -118,9 +105,15 @@ function Assert-SelfContainedPublishLayout($appOutput, $updaterOutput) {
         }
     }
 
-    $rootManagedPayloads = @(Get-ChildItem $appOutput -File -Filter "*.dll")
-    if ($rootManagedPayloads.Count -gt 0) {
-        throw "Single-file app publish output contains root DLL payloads: $($rootManagedPayloads.Name -join ', ')"
+    $requiredSdkNativeRootFiles = [System.Collections.Generic.HashSet[string]]::new(
+        [string[]](Get-PortableRequiredSdkNativeRootFiles),
+        [System.StringComparer]::OrdinalIgnoreCase)
+    $unexpectedRootDlls = @(
+        Get-ChildItem $appOutput -File -Filter "*.dll" |
+            Where-Object { -not $requiredSdkNativeRootFiles.Contains($_.Name) }
+    )
+    if ($unexpectedRootDlls.Count -gt 0) {
+        throw "Self-contained app publish output contains an unknown root DLL: $($unexpectedRootDlls.Name -join ', ')"
     }
 
     $updaterExecutable = Join-Path $updaterOutput "BeMusicSeeker.Updater.exe"
@@ -244,7 +237,7 @@ function Copy-AppFilesToStaging($targetStagingDir) {
         Copy-Item $sourcePath $destinationPath -Force
     }
 
-    # app single-file SCD の application content と native owner をコピーし、mutable data、debug symbol、updater payload は除外する。
+    # app managed-bundle SCD と隣接native runtimeをコピーし、mutable data、debug symbol、updater payload は除外する。
     $mutableTopLevelNames = @("config", "data", "log", "logs", "update_backup", "update_work", "imported_metadata")
     foreach ($sourceFile in Get-ChildItem $appPublishOutput -File -Recurse) {
         $relativePath = [System.IO.Path]::GetRelativePath($appPublishOutput, $sourceFile.FullName)

@@ -6,22 +6,21 @@
 
 MVVM／owner整理、全5 projectの.NET 10 retarget、managed／native dependency、SQLite、existing-data、update／rollbackのengineeringは完了している。
 
-一方、main appの現行profileは「配布物を一つのexeへ寄せる」機能受入れで選ばれており、end-to-end startup／working setの比較evidenceを持たない。性能最優先という最終要件に対しては完了判定を一度だけ再開し、`NET10-10 Performance-first distribution closure`で配布profileを確定する。
+`NET10-10 P1/P2`の外部比較では、`folder-r2r`と`bundle-r2r`のstartup／working setに実用差がなく、managed bundleはpublish file数を505から24へ減らした。最終main-app profileは`bundle-r2r`を採用する。
 
-現在のsingle-file profileは次の性質を持つ。
+選択profileは次の性質を持つ。
 
-- managed assembliesはbundleから読み込まれ、通常のfolderへ全展開されない。
-- `IncludeNativeLibrariesForSelfExtract=true`のため、CoreCLR、JIT、SQLite等のbundled native payloadはcache miss時の起動前にWindowsのbundle extraction directoryへ展開される。
-- `PublishReadyToRun=false`であり、startup時のJIT削減効果は比較していない。
-- production logの`startup_ready_operable elapsedMs`はViewModel初期化途中からのphase計測で、process launch、host初期化、native extractionを含まない。
-
-したがって「全DLLを毎回folderへ解凍している」わけではないが、現行profileにはfresh install／cache miss時のnative extractionとsingle-file host costがある。warm cacheでは再利用され得るため、最終判断はfresh installとwarm cacheを分けた外部benchmarkで行う。
+- managed assembliesは公式single-file bundleから読み込まれる。
+- `IncludeNativeLibrariesForSelfExtract=false`とし、SDK／SQLite／WPFのnative runtimeはexe隣接に置く。起動前のbundle extractionを必要としない。
+- `PublishReadyToRun=true`、Composite ReadyToRun／compression／trimmingは無効とする。
+- application-owned BASS／7zは`libs/x64`、Everythingは`native`、language catalogは`lang`を維持する。
+- production logの`startup_ready_operable elapsedMs`ではなく、外部harnessのprocess startからの値をperformance evidenceとする。
 
 ## 2. Target matrix
 
 | Project | Target | 方針 |
 |---|---|---|
-| `BeMusicSeeker.csproj` | `net10.0-windows`, x64 | win-x64 Self-contained。最終profileは`NET10-10`で性能選択 |
+| `BeMusicSeeker.csproj` | `net10.0-windows`, x64 | win-x64 Self-contained managed bundle＋ReadyToRun、native runtimeはexe隣接 |
 | `BeMusicSeeker.Tests` | `net10.0-windows`, x64 | full test／architecture／publish behavior |
 | `BeMusicSeeker.Updater` | `net10.0-windows`, x64 | win-x64 Self-contained single-fileを維持 |
 | `chart-info-compare` | `net10.0`, x64 | locked restore／Release build／DB behavior |

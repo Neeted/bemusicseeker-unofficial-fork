@@ -1,6 +1,13 @@
 Set-StrictMode -Version Latest
 
-$script:RequiredManagedRootFiles = @()
+$script:RequiredSdkNativeRootFiles = @(
+    "D3DCompiler_47_cor3.dll",
+    "e_sqlite3.dll",
+    "PenImc_cor3.dll",
+    "PresentationNative_cor3.dll",
+    "vcruntime140_cor3.dll",
+    "wpfgfx_cor3.dll"
+)
 
 $script:RequiredBassNativeFiles = @(
     "libs/x64/bass.dll",
@@ -24,16 +31,23 @@ function Join-PortablePackageRelativePath($root, $relativePath) {
     return Join-Path $root ($relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
 }
 
-function Get-PortableRequiredFiles {
+function Get-PortableRequiredSdkNativeRootFiles {
+    return @($script:RequiredSdkNativeRootFiles)
+}
+
+function Get-PortableMainAppRequiredFiles {
     return @(
         "BeMusicSeeker.exe",
         "BeMusicSeeker.dll.config",
-        "BeMusicSeeker.Updater.exe",
         "test.mp3",
         "libs/x64/7z.dll",
         "native/Everything3_x64.dll",
         "native/EverythingBridge_x64.dll"
-    ) + $script:RequiredBassNativeFiles + $script:RequiredLanguageFiles + $script:RequiredManagedRootFiles
+    ) + $script:RequiredBassNativeFiles + $script:RequiredLanguageFiles + $script:RequiredSdkNativeRootFiles
+}
+
+function Get-PortableRequiredFiles {
+    return @(Get-PortableMainAppRequiredFiles) + "BeMusicSeeker.Updater.exe"
 }
 
 function Get-PortableForbiddenPaths {
@@ -96,7 +110,6 @@ function Get-PortableForbiddenPaths {
         "BeMusicSeeker.dll",
         "BeMusicSeeker.deps.json",
         "BeMusicSeeker.runtimeconfig.json",
-        "e_sqlite3.dll",
         "Bass.Net.dll",
         "Livet.Core.dll",
         "Livet.EventListeners.dll",
@@ -176,9 +189,15 @@ function Assert-PortableSingleFilePayloadLayout($targetDirectory) {
         }
     }
 
-    $rootDlls = @(Get-ChildItem -LiteralPath $targetDirectory -File -Filter '*.dll')
-    if ($rootDlls.Count -gt 0) {
-        throw "single-file release package にroot DLLが含まれています: $($rootDlls.Name -join ', ')"
+    $requiredSdkNativeRootFiles = [System.Collections.Generic.HashSet[string]]::new(
+        [string[]](Get-PortableRequiredSdkNativeRootFiles),
+        [System.StringComparer]::OrdinalIgnoreCase)
+    $unexpectedRootDlls = @(
+        Get-ChildItem -LiteralPath $targetDirectory -File -Filter '*.dll' |
+            Where-Object { -not $requiredSdkNativeRootFiles.Contains($_.Name) }
+    )
+    if ($unexpectedRootDlls.Count -gt 0) {
+        throw "release package に未知のroot DLLが含まれています: $($unexpectedRootDlls.Name -join ', ')"
     }
 
     $languageDirectory = Join-PortablePackageRelativePath $targetDirectory "lang"
@@ -256,11 +275,16 @@ function Assert-PortableReleasePackageLayout($assetPath) {
         }
     }
 
+    $requiredSdkNativeRootFiles = [System.Collections.Generic.HashSet[string]]::new(
+        [string[]](Get-PortableRequiredSdkNativeRootFiles),
+        [System.StringComparer]::OrdinalIgnoreCase)
     $rootDllEntries = @($entryNames | Where-Object {
-        -not $_.Contains('/') -and $_ -like '*.dll'
+        -not $_.Contains('/') -and
+        $_ -like '*.dll' -and
+        -not $requiredSdkNativeRootFiles.Contains($_)
     })
     if ($rootDllEntries.Count -gt 0) {
-        throw "single-file release asset にroot DLLが含まれています: $($asset.Name): $($rootDllEntries -join ', ')"
+        throw "release asset に未知のroot DLLが含まれています: $($asset.Name): $($rootDllEntries -join ', ')"
     }
 
     foreach ($entryName in $entryNames) {

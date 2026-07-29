@@ -74,9 +74,9 @@ public sealed class WpfChromeBoundaryTests
         string repositoryRoot = FindRepositoryRoot();
         string project = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
         string layout = File.ReadAllText(Path.Combine(repositoryRoot, "scripts", "portable-package-layout.ps1"));
-        int managedRootStart = layout.IndexOf("$script:RequiredManagedRootFiles = @(", StringComparison.Ordinal);
-        int managedRootEnd = layout.IndexOf(")", managedRootStart, StringComparison.Ordinal);
-        string requiredManagedRoot = layout.Substring(managedRootStart, managedRootEnd - managedRootStart);
+        int sdkNativeRootStart = layout.IndexOf("$script:RequiredSdkNativeRootFiles = @(", StringComparison.Ordinal);
+        int sdkNativeRootEnd = layout.IndexOf(")", sdkNativeRootStart, StringComparison.Ordinal);
+        string requiredSdkNativeRoot = layout.Substring(sdkNativeRootStart, sdkNativeRootEnd - sdkNativeRootStart);
         string notices = File.ReadAllText(Path.Combine(repositoryRoot, "ThirdPartyNotices.txt"));
         string japaneseNotices = File.ReadAllText(Path.Combine(repositoryRoot, "ThirdPartyNotices.ja.txt"));
 
@@ -92,13 +92,13 @@ public sealed class WpfChromeBoundaryTests
         })
         {
             Assert.IsFalse(project.Contains(assemblyName, StringComparison.Ordinal), assemblyName);
-            Assert.IsFalse(requiredManagedRoot.Contains("\"" + assemblyName + "\"", StringComparison.Ordinal), assemblyName);
+            Assert.IsFalse(requiredSdkNativeRoot.Contains("\"" + assemblyName + "\"", StringComparison.Ordinal), assemblyName);
             Assert.IsFalse(notices.Contains(assemblyName, StringComparison.Ordinal), assemblyName);
             Assert.IsFalse(japaneseNotices.Contains(assemblyName, StringComparison.Ordinal), assemblyName);
             Assert.IsFalse(File.Exists(Path.Combine(repositoryRoot, "libs", assemblyName)), assemblyName);
         }
 
-        Assert.IsFalse(requiredManagedRoot.Contains("\"Microsoft.Xaml.Behaviors.dll\"", StringComparison.Ordinal));
+        Assert.IsFalse(requiredSdkNativeRoot.Contains("\"Microsoft.Xaml.Behaviors.dll\"", StringComparison.Ordinal));
     }
 
     private static string FindRepositoryRoot()
