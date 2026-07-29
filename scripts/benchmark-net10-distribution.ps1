@@ -171,6 +171,24 @@ function ConvertTo-Ms {
     return [Math]::Round($Elapsed.TotalMilliseconds, 3)
 }
 
+function Get-MainWindowReadyMilliseconds {
+    param(
+        $MainWindowHandleMilliseconds,
+        $InputIdleMilliseconds
+    )
+
+    $observed = @(
+        @(
+            $MainWindowHandleMilliseconds
+            $InputIdleMilliseconds
+        ) | Where-Object { $null -ne $_ }
+    )
+    if ($observed.Count -eq 0) {
+        return $null
+    }
+    return [double](($observed | Measure-Object -Maximum).Maximum)
+}
+
 function Get-DirectoryMetrics {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -826,7 +844,9 @@ function Invoke-MeasuredStartup {
     return [ordered]@{
         mainWindowHandleMs = $mainWindowHandleMs
         inputIdleMs = $inputIdleMs
-        mainWindowReadyMs = if ($null -ne $inputIdleMs) { $inputIdleMs } else { $mainWindowHandleMs }
+        mainWindowReadyMs = Get-MainWindowReadyMilliseconds `
+            -MainWindowHandleMilliseconds $mainWindowHandleMs `
+            -InputIdleMilliseconds $inputIdleMs
         startupReadyOperableMs = $startupReadyMs
         peakWorkingSetAtReadyBytes = $peakWorkingSetAtReady
         processorTimeAtReadyMs = $processorTimeAtReadyMs

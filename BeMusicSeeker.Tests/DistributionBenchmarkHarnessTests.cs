@@ -406,6 +406,38 @@ public sealed class DistributionBenchmarkHarnessTests
         StringAssert.Contains(result.Output, "passed");
     }
 
+    [TestMethod]
+    public void MainWindowReadyUsesTheLaterHandleOrInputIdleObservation()
+    {
+        string scriptPath = Path.Combine(
+                FindRepositoryRoot(),
+                "scripts",
+                "benchmark-net10-distribution.ps1")
+            .Replace("'", "''", StringComparison.Ordinal);
+        string command = $$"""
+            . '{{scriptPath}}' -ImportFunctionsOnly
+            [ordered]@{
+                handleLater = Get-MainWindowReadyMilliseconds `
+                    -MainWindowHandleMilliseconds 2631.693 `
+                    -InputIdleMilliseconds 2600.642
+                idleLater = Get-MainWindowReadyMilliseconds `
+                    -MainWindowHandleMilliseconds 2500.0 `
+                    -InputIdleMilliseconds 2700.0
+                handleOnly = Get-MainWindowReadyMilliseconds `
+                    -MainWindowHandleMilliseconds 2500.0 `
+                    -InputIdleMilliseconds $null
+            } | ConvertTo-Json -Compress
+            """;
+
+        ProcessResult result = RunProcess("pwsh", "-NoProfile", "-NonInteractive", "-Command", command);
+
+        Assert.AreEqual(0, result.ExitCode, result.Output + Environment.NewLine + result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.AreEqual(2631.693, document.RootElement.GetProperty("handleLater").GetDouble(), 0.001);
+        Assert.AreEqual(2700.0, document.RootElement.GetProperty("idleLater").GetDouble(), 0.001);
+        Assert.AreEqual(2500.0, document.RootElement.GetProperty("handleOnly").GetDouble(), 0.001);
+    }
+
     private static ProcessResult RunProcess(string fileName, params string[] arguments)
     {
         var startInfo = new ProcessStartInfo
