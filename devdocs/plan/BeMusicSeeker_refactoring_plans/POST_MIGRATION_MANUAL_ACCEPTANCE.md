@@ -1,12 +1,12 @@
 # Post-migration Manual Acceptance
 
-[現在地](./PLAN_STATUS.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md)
+[現在地](./PLAN_STATUS.md) / [応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md)
 
 ## Scope
 
 このchecklistはCodexのEngineering Gate完了後にユーザーが実施する。active implementation batch、planner停止条件、`EXTERNAL_BLOCKER`、Engineering Gateには含めない。
 
-Engineering完了時点でbuild、tests、selected Self-contained publish、performance acceptance、existing-data、update／rollback acceptanceが完了している前提とする。ここでは実配布環境と公開権限だけを確認する。
+応答性Gateを含むEngineering完了時点でbuild、tests、selected Self-contained publish、performance acceptance、existing-data、update／rollback、interaction acceptanceが完了している前提とする。ここでは実配布環境と公開権限だけを確認する。
 
 ## `MANUAL-01 Runtime-free clean-machine acceptance`
 

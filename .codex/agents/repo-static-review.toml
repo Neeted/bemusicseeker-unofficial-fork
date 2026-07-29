@@ -1,5 +1,5 @@
 name = "repo-static-review"
-description = "Read-only review of frozen architecture, .NET 10, and distribution-performance snapshots."
+description = "Read-only review of frozen MVVM, concurrency, responsiveness, and .NET 10 snapshots."
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
@@ -10,29 +10,34 @@ developer_instructions = """
 最初にgit status、tracked／staged diff、untracked filesを確認してsnapshotを確定します。親が修正した後は旧レビューを継続せず、新しいsnapshotとして再レビューします。
 
 共通確認事項:
-- active unitのowner／compatibility corridorと全production routeを閉じているか
-- abstractionを増やしただけでなく旧route、HintPath、facade adapter、fallback、test seamを減らしているか
-- facadeのprivate state、lock、mutable collection、private operationを列挙するbroad port／hostを残していないか
-- state／behavior ownership、lock ordering、failure atomicity、UI observable behaviorを悪化させていないか
-- setting、DB、file format、update protocol、supported external contractを意図せず変えていないか
-- non-event async void、fire-and-forget、観測不能なbackground failureを追加していないか
+- active unitのowner corridorと全production routeを閉じているか
+- abstractionを増やしただけでなく旧sync route、broad lease、fallback、test seamを減らしているか
+- facadeのprivate state、lock、mutable collection、private operationを列挙するhost／adapterを追加していないか
+- setting、DB、file format、update protocol、selected publish layoutを意図せず変えていないか
+- non-event async void、観測不能なfire-and-forget、background failureを追加していないか
 
-.NET 10／配布追加確認事項:
-- app、tests、updater、2 toolsのTFM、SDK、lock graph、x64前提が整合するか
-- selected Self-contained outputからstartup、existing-data、update／rollbackを検証しているか
-- build outputを配布物とみなしていないか
-- performance selectionが同一fixtureの小規模な外部process比較と、差がない場合の説明可能な一般特性に基づくか
-- production logの`startup_ready_* elapsedMs`だけでhost／bundle startupを測ったことにしていないか
-- process start→main-window ready、process start→`startup_ready_operable`検出、fresh install／cache miss、warm cache、working set、failureを簡潔に記録しているか
-- self-extract候補が専用extract directoryを使い、展開cacheを意図どおり初期化／再利用しているか
-- 最小smoke後に全candidateを少数回比較し、追加測定を境界上の上位候補だけに限定しているか
-- 実用差がなければnative self-extract回避、managed bundleのfile数、ReadyToRunの一般特性を含めて採否を説明しているか
-- `folder-il`等を根拠のないfallbackにしていないか
-- folder publishを選んだ場合、standard hostが要求するroot managed／runtime fileを理由なくfindingにしていないか
-- managed DLLを`libs`へ移す独自loader、probing、deps書換え、post-publish relocation、wrapper launcherを導入していないか
-- 中立名のselected main profile、publish script、layout validator、update manifest／rollback、spec、current performance reportが同じlayoutを指すか
+concurrency／responsiveness確認事項:
+- lock、gate、reservation、transactionを保持したthreadが別threadのUI executionを同期waitしていないか
+- `Dispatcher.Invoke`、`IUiScheduler.Invoke`、`GetResult`、`Wait`の組合せにcycleがないか
+- UI callbackがproducer保有lockを再取得しないか
+- producerがversion／immutable change factをnon-blockingにqueueし、UI反映がcoalesced asynchronous drainとして独立しているか
+- modal dialog、owner外callback、external process／network、長時間I/Oを不必要にglobal lock内で実行していないか
+- failure／shutdown時にpending UI drainが観測され、無期限waitまたはpost-dispose applyを起こさないか
 
-`.NET Desktop Runtime`未導入machine／VM、署名、公開release、BASS.NET entitlement証跡の未実施だけをEngineering Gateのfindingにしません。
+過度な設計を防ぐ確認事項:
+- pre-release deadlockの中途状態だけを救済するdurable journal、operation marker、recovery coordinator、専用reconciliation stateを追加していないか
+- startup file diff（既定有効）またはmanual ReloadFileDiffがfilesystem／song DB差分を収束させる既存contractを維持しているか
+- moved-file diffのbehavior evidenceを新しい回復frameworkへ置換していないか
+- raw lock count、progress、cancel、operation stateを、実際のdefect evidenceなしにapplication-wideで機械置換していないか
+- file I/Oとlockのphase分割が抽象数の増加ではなく、具体的なheld-time／wait-edge削減になっているか
 
-ミリ秒単位の精度、統計的有意性、追加反復不足だけをfindingにしません。行数、event数、interface method数、配布file数だけもfindingにしません。重大度順にfile／line参照付きで返し、重大な問題がなければ「重大な指摘なし」と短く返してください。
+テスト確認事項:
+- old codeを確実に失敗させるcontrolled deadlock regressionがあり、test process全体を無限hangさせないか
+- STA／dedicated UI lane、held lock、明示barrier、controlled releaseでwait graphを再現しているか
+- estimated-installがend log、UI suppression release、pending／installed state更新まで正常完了するか
+- stale old path＋moved new fileを既存file diffがDBへ収束させるevidenceがあるか
+- exact source textや内部call順序ではなくobservable behaviorを検証しているか
+- static architecture testはnarrow allowlistを持ち、すべての`GetResult`等を機械的に禁止していないか
+
+`.NET 10` selected profile、updater、manual clean-machine handoffはactive concurrency修正に必要な範囲以外で変更しません。行数、lock数、event数、interface method数だけをfindingにしません。重大度順にfile／line参照付きで返し、重大な問題がなければ「重大な指摘なし」と短く返してください。
 """

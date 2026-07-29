@@ -1,6 +1,6 @@
 # Codex 共通実行ルール
 
-[現在地](./PLAN_STATUS.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md) / [依存関係台帳](./DOTNET10_DEPENDENCY_REGISTER.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md)
+[現在地](./PLAN_STATUS.md) / [応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md) / [risk register](./RESPONSIVENESS_RISK_REGISTER.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md)
 
 ## 1. 正本と現在地
 
@@ -16,86 +16,107 @@
 - サブエージェント実行中、rootはrepositoryの読み取り、検索、編集、build、test、format、analyzer、stage、commitを凍結する。
 - rootは同scopeを独立再調査しない。planner後は指定symbol、route、testのbounded feasibility checkだけを行う。
 - active batchが空、batch完了後もanchor未達、または具体的evidenceでbatch前提が崩れた場合だけplannerを起動する。
-- `NO_SAFE_UNIT`は無効。内部複雑性はowner、transaction、compatibility、publish、performance corridorへ分解する。
+- `NO_SAFE_UNIT`は無効。内部複雑性はowner、wait graph、behavior corridorへ分解する。
 
 ## 3. Unit
 
-一つのunitで次を閉じる。
+一つのunitでproduction route、actual wait graph、normal／failure／shutdown behavior、旧sync routeの退役、targeted verification、fresh review、status／risk register更新を閉じる。
 
-- production routeとowner boundary
-- behavior／compatibility evidence
-- 旧route、fallback、adapter、test seamの退役
-- targeted verification
-- frozen snapshotのfresh review
-- 重大指摘修正後の再検証
-- 対応する`PLAN_STATUS.md`の状態遷移
+method、callback、lock、property、static finding一件だけをunitにしない。同じwait cycle、owner、invariant、fixture、verification scopeを持つ変更をまとめる。status-only progress commitを作らない。
 
-method、callback、property、package、DLL、candidate profile一件だけをunitにしない。同じowner、invariant、fixture、verification scopeを持つ変更をまとめる。status-only progress commitを作らない。
+## 4. Concurrency invariants
 
-## 4. Architecture regression
+### 4.1 Callback-under-lock禁止
 
-- feature state、domain decision、durable write、retry／fallback、複数serviceの順序制御をroot View／facadeへ戻さない。
-- facade private state、lock、mutable collection、private operationを列挙するbroad host／portを作らない。
-- non-event `async void`、unobserved Task、通常経路の意味を変えるfallbackを作らない。
-- WPF terminal mappingを理由なくserviceへ隠さず、platform dependencyをfeature ownerへ漏らさない。
-- setting、DB、file／update contractをmigration evidenceなしに変えない。
+catalog／playlist／package lock、DB transaction、file-operation serializer、collection lock、initialization／shutdown gateを保持したまま、別execution laneまたはowner外コードを同期実行しない。
 
-行数、file数、type数は調査signalにだけ使い、合否値にしない。
+対象には`PropertyChanged`、event、dialog、UI scheduler、View callback、別owner callback、plugin／native callbackを含む。通知に必要な値はguard内でversion／immutable change factへ固定し、guard解放後にqueueする。
 
-## 5. Performance-first distribution
+### 4.2 UI boundary
 
-- main appの最終配布profileは、公式SDK機構だけを使った小規模な外部起動比較で、実用上有意な性能差の有無を確認して決める。
-- end-to-end startupはharness側のStopwatchでprocess startからmain-window ready／`startup_ready_operable`検出まで測る。production log内の`elapsedMs`はphase内訳にだけ使う。
-- self-extract profileは専用`DOTNET_BUNDLE_EXTRACT_BASE_DIR`を使い、fresh install／cache missとwarm cacheを分ける。
-- candidateは同じSDK、fixture、settings、native assetで比較し、実行順をrotationする。HEAD、dirty有無、SDK、OS、candidate設定、実行順、raw timingを結果へ記録する。
-- harnessの作成・変更後は、最も複雑な一candidateをfresh／warm各1回だけ動かし、起動、ready検出、graceful shutdown、集計出力を確認する。次に全candidateをwarm-up 1回、warm-cache 3回、fresh-install 3回で比較する。
-- 起動中央値の差が`max(500 ms, 10%)`付近にあり結論が変わり得る場合だけ、上位2候補の曖昧なphaseを各2回追加する。それでも曖昧なら実用上同等として測定を終了する。p90、変動係数、統計的有意性のために反復を増やさない。
-- 実用差があれば測定結果を優先する。明確な差がなければnative self-extractを避け、同等性能ならmanaged bundleで配布file数を減らし、ReadyToRunによる初期JIT軽減を加味する。`folder-il`を固定fallbackにしない。
-- steady-state workloadを測っていない起動比較から、アプリ実行中の処理速度差を断定しない。layoutによる定常時の追加処理がなく、tiered compilationを妨げない構成を選ぶ。
-- compression、trimming、Composite ReadyToRun、NativeAOTを性能推測だけで有効化しない。
-- standard folder hostのmanaged／runtime fileはexe隣接を許可する。application-owned native／contentは`libs/x64`、`native`、`lang`等へ整理する。
-- managed DLLを見た目のために`libs`へ移す独自loader、probing、deps rewrite、post-publish relocation、wrapper launcherを追加しない。
-- updaterはtransaction handoffの単一payloadとしてsingle-fileを維持し、main appのprofile変更と不必要に連動させない。
+- workerから`Dispatcher.Invoke`／`IUiScheduler.Invoke`してUI完了を待たない。
+- UI反映は`Schedule`／`InvokeAsync`相当へqueueし、同じsourceの更新はversionでcoalesceする。
+- producer event handlerはqueue登録だけで戻る。
+- apply完了が必要なshutdown／testは、全model guard解放後に明示`DrainAsync`をawaitする。
+- UI境界を越える`.GetAwaiter().GetResult()`、`.Wait()`、`.Result`、`Task.WaitAll`は原則禁止する。残す場合はworker-localまたは短いUI-terminalであるwait graph、上限、shutdown behaviorを台帳へ記録する。
 
-## 6. Compatibility
+### 4.3 Lock scope
 
-次を変更するunitはbefore／after evidenceとrollbackまたはmigrationを持つ。
+- dialog、UI callback、外部process／network、別owner callbackをglobal mutation lock内で実行しない。
+- file I/O中のcatalog／package writer lockは、実際の整合性要件を保ったまま短縮できる場合にだけ短縮する。
+- phase数や抽象数を増やすこと自体を目的にしない。既存owner／serializerを使い、同じ責務を新しいcoordinatorへ複製しない。
+- UI通知のdeadlock除去にmulti-store atomicityや異常終了回復を持ち込まない。
 
-- setting key、type、default、serialized value、save timing
-- DB schema、existing rows、DateTime／enum／null mapping、transaction／lock ordering
-- chart、playlist、package、LR2、external document format
-- UI observable behavior、selection／focus、failure／cancel timing
-- updater manifest、folder layout、managed-file manifest、restart／rollback
-- external player、Everything、native ABI、CLI／IPC／COM contract
+### 4.4 収束方針
 
-## 7. Verification
+今回のpre-release hangで生じた中途状態はrelease contractの通常状態として扱わない。
+
+- release版では対象operationがdeadlockせず正常完了することを第一条件とする。
+- incident専用のdurable operation journal、marker、recovery coordinator、専用reconciliation stateを追加しない。
+- filesystemとsong DBの差分は、既存の起動時file diffまたはmanual `ReloadFileDiff`／full reinitializeで収束させる。
+- `ScanBmsFilesOnStartup`は既定`true`だが、ユーザーが無効にした設定を強制変更しない。
+- file diffが旧path削除＋新path追加／同一MD5 relinkを正しくcommitするbehavior testを維持する。
+- forced process termination、crash-only recovery、複数store journalはEngineering Gateへ含めない。
+
+in-memoryのversion／change factはUI decoupling用であり、永続回復基盤ではない。
+
+### 4.5 禁止する場当たり修正
+
+- timeout後に成功扱い／lock強制解放
+- `Task.Run`を一層追加するだけ
+- route固有のrefresh suppressionを増やす
+- `TryEnter`失敗時にstale stateを表示する
+- lock recursion policyを変える
+- exception／Task failureを握りつぶす
+- UIを全面disableして循環を隠す
+
+watchdogはstage、logical guard、thread／laneを記録し、testをfailさせる診断用途に限る。
+
+## 5. Behavior compatibility
+
+| Classification | 方針 |
+|---|---|
+| persisted data／external protocol | migration／golden evidenceなしに変えない |
+| documented user workflow | behavior testで維持または意図的に改善 |
+| accidental legacy quirk | deadlock、無期限wait、lock中dialog、誤failureなら正規化する |
+| cosmetic／workflow preference | active outcomeのblockerにしない |
+
+すべてのoperationへ新しいprogress、cancel、retry、semantic stateを一律導入しない。実測上長時間で、UIが固まる、操作が無言で失われる、結果が誤表示されるrouteだけを修正する。
+
+raw lock countのUI bindingは調査signalであり、それ自体を違反にしない。lock内通知や誤ったcommand availabilityを作る場合に限りownerのsemantic stateへ置換する。
+
+## 6. Verification
 
 ### Planning／agent docs only
 
-UTF-8、LF、末尾改行、TOML／Markdown構文、相対link、table、whitespace、`git diff --check`を確認する。production／test／build／resource差分がなければbuild、test、code reviewは不要。
+UTF-8、LF、末尾改行、TOML／Markdown構文、相対link、table、whitespace、`git diff --check`を確認する。production／test／build差分がなければbuild、test、code reviewは不要。
 
-### Engineering unit
+### Concurrency unit
 
 - affected projectのlocked restore／Release build／targeted test
-- `dotnet test` commandは180秒以内の応答を期待する。超過時は長時間化したtest構造を調査し、正当なtest量が原因と確認できた場合だけ閾値を見直す
-- behavior／golden／layout／performance evidence
-- publish変更時は実際のwin-x64 Self-contained outputからruntime smoke
+- 二execution laneと明示barrierを使うdeterministic deadlock regression
+- dispatcher heartbeatまたはequivalent response probe
+- estimated-installのoperation end、UI suppression release、pending／installed state更新
+- stale old path＋moved new fileを既存file diffがDBへ収束させるbehavior evidence
+- source wait inventoryとruntime interaction evidence
 - frozen snapshotのfresh read-only review
 
-### Final Engineering Gate
+forced interruption用のproduction recovery codeやjournal testは要求しない。
 
-- clean checkout相当のlocked restore
-- app、tests、updater、2 toolsのRelease buildとfull tests
-- analyzer／format gate
-- selected main-app profileとupdater profileのSelf-contained publish
-- package／layout validator、publish-folder startup
-- automated existing-data acceptance
-- automated old-to-new update／rollback acceptance
-- `devdocs/acceptance/net10-distribution-performance.md`のcurrent report、raw result、実行command
+### Final responsiveness Gate
+
+- full tests、analyzer／warning gate
+- selected Self-contained publishからのstartup／shutdown
+- [応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md)のinteraction matrix
+- app-wide wait inventoryの全candidateが分類済みで、`BLOCKING`が0
+- estimated installのnormal completionとUI heartbeat
+- startup／manual file diffの既存収束contract
 - fresh outcome review
 
-## 8. 手動受入れとRelease Freeze
+selected publish layoutを変更しない限り、distribution benchmarkを再実行しない。
 
-`.NET Desktop Runtime`未導入clean machine／VM、署名、公開、BASS.NET licensee／registration証跡は[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoffする。これらをCodexのactive outcome、Engineering Gate、planner停止条件、`EXTERNAL_BLOCKER`にしない。
+## 7. 手動受入れとRelease Freeze
+
+`.NET Desktop Runtime`未導入clean machine／VM、署名、公開、BASS.NET entitlementは[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoffする。これらをCodexのactive outcome、Engineering Gate、planner停止条件、`EXTERNAL_BLOCKER`にしない。
 
 rootだけがwrite、stage、commitする。`git push`、tag、署名、公開release／publish、version／release notes変更はユーザーの明示指示まで行わない。

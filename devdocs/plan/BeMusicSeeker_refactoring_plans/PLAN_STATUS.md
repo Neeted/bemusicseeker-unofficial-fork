@@ -1,51 +1,81 @@
 # PLAN_STATUS
 
-[リファクタリング完了記録](./BeMusicSeekerリファクタリング計画.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md) / [共通実行ルール](./00_Codex共通実行ルール.md) / [手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)
+[応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md) / [risk register](./RESPONSIVENESS_RISK_REGISTER.md) / [リファクタリング計画](./BeMusicSeekerリファクタリング計画.md) / [.NET 10移行計画](./BeMusicSeeker_NET10移行計画.md) / [共通実行ルール](./00_Codex共通実行ルール.md)
 
 最終計画レビュー日: 2026-07-29
 
 ## Current checkpoint
 
-- reviewed scope: `cfedc5fd..760d47da` plus frozen `P4/HANDOFF` worktree
-- resulting tree: final Engineering closure
+- reviewed HEAD: `874d6fb16d93e1e6ac4837c84f7852f3884a11ac`
+- runtime evidence: `.tmp/推定先にインストールでハング_install-performance.log`
 - Release Freeze: active
 - `git push`／tag／署名／public release: ユーザーの明示指示まで禁止
 
 ## Completion decision
 
-- MVVM／owner整理: **complete**
-- strict Refactoring Completion Gate: **met**
+- MVVM／ownerの構造整理: **substantially complete**
+- strict Refactoring Completion Gate: **reopened; not met**
 - .NET 10 code／dependency／data／updater migration: **complete**
-- engineering migration: **complete**
-- performance-first distribution closure: **met**
-- performance acceptance: **met**
-- selected main-app layout: **managed bundle＋ReadyToRun**
-- post-engineering clean-machine acceptance: **user-owned; not a Codex blocker**
+- selected distribution: **managed bundle＋ReadyToRun; retain**
+- concurrency／responsiveness acceptance: **not met**
+- engineering migration: **reopened only for final responsiveness closure**
+- post-engineering clean-machine acceptance: **user-owned; non-blocking**
 
-main appは外部startup／working set比較により、native self-extractなしのmanaged bundle＋ReadyToRunへ確定した。CodexのEngineering Gateは完了しており、残るclean-machine／release prerequisiteは[手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)へhandoff済み。
+single-file extractionやReadyToRunではなく、workerがcatalog writer lockを保持したままUIへ同期通知し、UIが同lockのreaderを要求する循環待機が原因である。
+
+## Recovery decision
+
+- release buildではdeadlockを残さず、estimated-installを正常完了させる。
+- pre-release hangの中途状態を救済するdurable journal、operation marker、recovery coordinator、専用reconciliation stateは追加しない。
+- filesystem／song DB差分は、既存のstartup file diff（`ScanBmsFilesOnStartup`既定`true`）またはmanual `ReloadFileDiff`／full reinitializeで収束させる。
+- startup scanを無効にしたユーザー設定は上書きしない。
+- existing same-MD5 moved-file relink behaviorをtest evidenceとして維持する。
 
 ## Active outcome
 
-- active outcome: `none`
-- active execution package: `none`
-- execution anchor: `none`
-- planner state: `not required`
+- active outcome: `CONC-01 Responsiveness closure`
+- active execution package: `H1-H4 minimal hardening batch`
+- execution anchor: `H1 normal-refresh deadlock closure`
+- planner state: `not required; batch materialized`
 
 ## Active implementation batch
 
-empty
+| Unit | State | Closure |
+|---|---|---|
+| `H1 NORMAL-REFRESH-DEADLOCK` | active | non-blocking coalesced UI drain、explicit shutdown drain、deterministic regression |
+| `H2 ESTIMATED-INSTALL-LOCK-SCOPE` | pending | guard内UI／dialog／callback除去、evidenceに基づくlock scope縮小、normal completion、既存file-diff収束確認 |
+| `H3 APPLICATION-WIDE-WAIT-AUDIT` | pending | library／package、playlist、shell／externalの全candidate分類とgrouped fixes |
+| `H4 RESPONSIVENESS-GATE` | pending | full interaction smoke、selected publish、fresh review、Gate closure |
 
-## Current evidence and constraints
+active／pending unitがある間はunit-plannerを起動しない。各unitのstatus更新は対応code／test commitへ含める。
 
-- HEADは全5 projectを.NET 10へ移行済み。SDKは`10.0.302`／`latestPatch`。
-- main appのselected profileは`Properties/PublishProfiles/WinX64SelfContained.pubxml`。win-x64 Self-contained managed bundle、native self-extract無効、ReadyToRun有効、trimming／compression／Composite R2R無効。
-- practical comparisonは42起動、failure 0。`folder-r2r`と`bundle-r2r`は通常起動中央値`3.30 s`／`3.28 s`、fresh中央値`4.65 s`／`4.67 s`で実用上同等。`bundle-r2r`は24 files、folder候補は505 filesであり、追加測定なしで`bundle-r2r`を選択候補とした。旧`folder-il`固定fallbackは採用しない。
-- current-only selection evidenceは`devdocs/acceptance/net10-distribution-performance.md`。benchmark harnessの最小smokeを再実行し、selected profileはFull publish／startup acceptanceで整合を確認済み。
-- final Full verificationは`3493 passed / 16 skipped / 0 failed`、Roslynator `0 diagnostics`。全5 projectのlocked restore／Release build、selected app／updater publish、existing-data、old-to-new update success／fault rollbackを通過。
-- `dotnet test`の最終command responseは164秒。deployment validatorの禁止path membershipとdirectory／descendant behaviorを単一process内で検証し、180秒閾値を維持した。
-- managed assembliesはbundleから読み込む。SDK／SQLite／WPF native runtimeの6 DLLはexe隣接とし、temporary extractionを使用しない。application-owned BASS／7z／Everythingはowner directoryを維持する。
-- `startup_ready_operable elapsedMs`のStopwatchはViewModel初期化途中で開始されるため、process launch、apphost、native extractionを含むend-to-end指標ではない。
-- BASS／7zは`libs/x64`、Everythingは`native`、language catalogは`lang`に既に整理されている。
-- standard host fileを`libs`へ移すcustom loader、probing、deps rewrite、post-publish relocation、wrapperは作らない。
-- updaterはsingle-fileのまま維持する。
-- `.NET Desktop Runtime`未導入machine／VMは`MANUAL-01`、BASS entitlementは`RELEASE-01`として非blocking handoffする。
+## Confirmed evidence
+
+1. UI commandは`PendingPackageWorkflowOwner.ExecuteInstallAsync`からmutationをbackground executionへ渡す。
+2. `PendingEstimatedInstallOwner`はinit reader、pending writer、BMS files writer、install DB writerを含むleaseをworkflowの広い範囲で保持する。
+3. 10件のfile move後、catalog、LR2、resource health、installed lookupまで完了する。
+4. normal-library refresh subscriberがUI terminal applyを同期waitする。
+5. UI applyはsource snapshot取得時に`rwlockBMSFiles` readerへ入る。
+6. worker writer→UI completion待ち、UI→reader待ちのcycleが成立する。
+7. `Settings.ScanBmsFilesOnStartup`の既定値は`true`で、startup initializationはfile diffを実行する。
+8. manual `ReloadFileDiff` routeと、same-MD5 moved-fileを新pathへcommitする既存behavior testがある。
+
+## Scope guardrails
+
+- timeout、retry、`TryEnter`、notification skip、追加`Task.Run`をfinal fixにしない。
+- incident専用のjournal、marker、recovery DB、persistent operation state machineを作らない。
+- すべてのsync wait、raw lock binding、progress／cancelを機械的に置換しない。
+- selected .NET 10 profile、dependency graph、updater contractはactive outcomeで変更しない。
+- forced process terminationとその自動回復はH4 Gateへ含めない。
+
+## Exit
+
+```text
+strict Refactoring Completion Gate: met
+concurrency / responsiveness acceptance: met
+engineering migration: complete
+active outcome: none
+active implementation batch: empty
+selected distribution: managed bundle + ReadyToRun
+post-engineering manual acceptance: pending user action; non-blocking
+```

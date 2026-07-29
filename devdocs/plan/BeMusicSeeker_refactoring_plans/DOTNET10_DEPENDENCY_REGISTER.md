@@ -1,17 +1,17 @@
 # .NET 10 Dependency Register
 
-[移行計画](./BeMusicSeeker_NET10移行計画.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md) / [手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)
+[移行計画](./BeMusicSeeker_NET10移行計画.md) / [応答性計画](./BeMusicSeeker_応答性・並行処理ハードニング計画.md) / [blocker台帳](./DOTNET10_MIGRATION_BLOCKERS.md) / [手動受入れ](./POST_MIGRATION_MANUAL_ACCEPTANCE.md)
 
 調査基準日: 2026-07-29
 
 ## Toolchain／deployment
 
-| Item | Current | Final target | Owner |
-|---|---|---|---|
-| .NET SDK | `10.0.302`, `rollForward: latestPatch` | retain; release候補は同servicing baselineで再publish | release owner |
-| Main app | win-x64 SCD、managed bundle、native runtime隣接、R2R有効 | 中立profile `WinX64SelfContained`をretain | `NET10-10 P1/P2/P3` |
-| Updater | win-x64 SCD single-file | retain | `NET10-07/10` |
-| Main app content | `lang`、config、`libs/x64`、`native` | owner directoryを維持 | `NET10-10 P3` |
+| Item | Current | Decision |
+|---|---|---|
+| .NET SDK | `10.0.302`, `rollForward: latestPatch` | retain。release候補は同servicing baselineで再publish |
+| Main app | win-x64 SCD、managed bundle、native runtime隣接、R2R有効 | retain。応答性修正と無関係なprofile再選定をしない |
+| Updater | win-x64 SCD single-file | retain |
+| Main app content | `lang`、config、`libs/x64`、`native` | owner directoryを維持 |
 
 Self-contained artifactはmachine-installed runtimeのservicingへ自動追随しないため、公開候補は選択SDKで再publishする。
 
@@ -34,26 +34,20 @@ Version authorityは`Directory.Packages.props`、resolved graphは各`packages.l
 
 | Asset | Version / identity | Runtime owner / layout | Status |
 |---|---|---|---|
-| SQLite `e_sqlite3.dll` | SourceGear.sqlite3 3.53.3 | SQLitePCLRaw provider。selected profileではSDK-owned root native file | verified |
+| SQLite `e_sqlite3.dll` | SourceGear.sqlite3 3.53.3 | SDK-owned root native file | verified |
 | `7z.dll` | 24.07 x64、SHA-256 `3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129` | `libs/x64/7z.dll` | verified |
 | BASS six-file family | bass 2.4.12系 | `BassNativeRuntime`、`libs/x64`、x64 only | technical verification complete; entitlement pending |
 | Everything SDK／bridge | SDK 3.0.0.9＋first-party x64 bridge | `native`、explicit load／shutdown owner | verified |
 
-## Performance candidate policy
+## Selected distribution
 
-| Family | Managed assemblies | Runtime native | Extraction | Directory characteristic |
-|---|---|---|---|---|
-| folder SCD | exe隣接 | exe隣接 | なし | standard host fileがrootに並ぶ |
-| managed bundle | bundle | exe隣接 | なし | managed DLLを減らしつつstandard bundlerを使用 |
-| native self-extract bundle | bundle | bundle→temporary extraction | fresh install／cache missであり | root fileは最少 |
+`devdocs/acceptance/net10-distribution-performance.md`を正本とし、managed bundle＋ReadyToRunを選択済み。`IncludeNativeLibrariesForSelfExtract=false`、compression／trimming／Composite R2R／NativeAOTは無効。
 
-比較結果は[distribution performance acceptance](../../acceptance/net10-distribution-performance.md)を正本とし、managed bundle＋ReadyToRunを選択した。`EnableCompressionInSingleFile=false`、trimming／Composite R2R／NativeAOTは使わない。
-
-file数はprimary performance metricではなく、実用上同等な候補のlayout判断に使う。selected profileが隣接配置する`D3DCompiler_47_cor3.dll`、`e_sqlite3.dll`、`PenImc_cor3.dll`、`PresentationNative_cor3.dll`、`vcruntime140_cor3.dll`、`wpfgfx_cor3.dll`はSDK-owned native payloadとして許可する。これらを`libs`へ移すcustom loader、probing、deps rewrite、post-publish relocation、wrapper launcherは追加しない。application-owned native／contentだけを`libs/x64`、`native`、`lang`へ整理する。
+SDK／SQLite／WPF native runtimeのexe隣接fileは標準host layoutとして許可する。これらを`libs`へ移すcustom loader、probing、deps rewrite、post-publish relocation、wrapper launcherは追加しない。
 
 ## Retired legacy dependencies
 
-legacy Livet、Expression／MetroRadiance、Windows API Code Pack、QuickConverter、DynamicJson、IniLibrary、sqlite.net HintPath、hand-placed sqlite3、OggVorbis.NET64等は移行済みであり再導入しない。詳細はGit historyとlock graphを正本とする。
+legacy Livet、Expression／MetroRadiance、Windows API Code Pack、QuickConverter、DynamicJson、IniLibrary、sqlite.net HintPath、hand-placed sqlite3、OggVorbis.NET64等は再導入しない。詳細はGit historyとlock graphを正本とする。
 
 ## Release prerequisite
 
