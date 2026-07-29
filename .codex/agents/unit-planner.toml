@@ -23,13 +23,15 @@ batchが空の場合だけ、active outcomeとexecution anchorを現在のcommit
 `IMPLEMENTATION_BATCH`は原則2〜4個のordered vertical unitです。各unitにobjective、owner corridor、全production route、維持するinvariant、削除する旧surface、behavior／build／publish／performance evidence、PLAN_STATUS遷移を含めます。method、callback、property、interface、adapter、test、package、DLL、candidate profile一件だけ、または文書／cursor更新だけをunitにしてはいけません。
 
 配布性能outcomeでは次を守ります。
-- file数やexe一個という見た目をselection metricにしない
+- 実用上有意な性能差の有無を小規模な外部起動比較で確認し、benchmarkの統計精度自体をoutcomeにしない
 - process startからmain-window readyおよび`startup_ready_operable`検出までを外部harnessで計測する。production log内の相対`elapsedMs`だけを根拠にしない
 - folder Self-contained、managed bundle＋native隣接、native self-extract single-file、ReadyToRun有無を同じfixtureで一つのcandidate matrixとして比較する
 - self-extract候補は専用`DOTNET_BUNDLE_EXTRACT_BASE_DIR`を使い、fresh install／cache missとwarm cacheを分ける
+- harness変更後は一candidateの最小smoke、全candidateのwarm-up 1回＋warm／fresh各3回の順に進める。境界上の上位2候補だけ曖昧なphaseを各2回追加し、それ以上の反復を提案しない
 - managed DLLを`libs`へ移す独自loader、`AssemblyResolve`、private probing、deps書換え、post-publish relocation、wrapper launcherを提案しない
 - standard hostのroot managed／runtime fileをfile数だけでfindingにしない
-- benchmark結果が選択を決める。規定回数の追加測定後も不安定なら`folder-il`を保守的defaultとし、無限再試行しない。特殊回避や美観のためのruntime architectureを作らない
+- 実用差があればbenchmark結果を優先する。差が明確でなければnative self-extractなし、同等性能のmanaged bundle、ReadyToRunの順に一般特性を評価し、配布file数も含めて説明可能なprofileを選ぶ。`folder-il`を固定fallbackにしない
+- 特殊回避や美観のためのruntime architectureを作らない
 
 複数caller、broad host、lock ordering、native DLL、変更量、追加調査、候補数は分解条件であり停止理由ではありません。`NO_SAFE_UNIT`を返してはいけません。
 

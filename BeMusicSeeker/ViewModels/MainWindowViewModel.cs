@@ -1680,17 +1680,29 @@ public partial class MainWindowViewModel : ViewModel,
         RefreshLibraryMainViewForDataDependency(libraryDependency, "chart_info_dependent_views");
     }
 
-    private void LibraryFolderTreeCacheRefreshRequested(object sender, EventArgs e)
+    private void LibraryFolderTreeCacheRefreshRequested(
+        object sender,
+        LibraryFolderTreeRefreshRequestedEventArgs e)
     {
         if (TrySuppress(UiRefreshChannel.LibraryFolderTree))
         {
             return;
         }
-        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryFolderTree, "parent_folder_cache_changed"))
+        long activeOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+        bool startupOperationActive = startupProgressWorkflowOwner.IsOperationActive
+            && startupProgressWorkflowOwner.CurrentOperationKind == StartupProgressOperationKind.Startup;
+        if (StartupPresentationPolicy.ShouldDeferLibraryFolderRefresh(
+                e.Origin == LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
+                e.OperationToken,
+                activeOperationToken,
+                startupOperationActive)
+            && TryDeferStartupPresentationRefresh(
+                UiRefreshChannel.LibraryFolderTree,
+                "parent_folder_cache_changed"))
         {
             return;
         }
-        LibraryFolderTree.ScheduleDeferredRefresh(startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
+        LibraryFolderTree.ScheduleDeferredRefresh(activeOperationToken);
     }
 
     private void LibraryFolderTreeDeferredRefreshCompleted(

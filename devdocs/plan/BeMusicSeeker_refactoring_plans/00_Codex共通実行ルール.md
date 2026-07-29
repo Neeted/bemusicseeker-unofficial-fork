@@ -44,12 +44,15 @@ method、callback、property、package、DLL、candidate profile一件だけをu
 
 ## 5. Performance-first distribution
 
-- main appの最終配布profileは、公式SDK機構だけを使った再現可能なbenchmarkで決める。
-- file数、exe一個、zipの見た目はsecondary metricであり、startup、working set、runtime failureより優先しない。
+- main appの最終配布profileは、公式SDK機構だけを使った小規模な外部起動比較で、実用上有意な性能差の有無を確認して決める。
 - end-to-end startupはharness側のStopwatchでprocess startからmain-window ready／`startup_ready_operable`検出まで測る。production log内の`elapsedMs`はphase内訳にだけ使う。
 - self-extract profileは専用`DOTNET_BUNDLE_EXTRACT_BASE_DIR`を使い、fresh install／cache missとwarm cacheを分ける。
-- candidateは同じHEAD、SDK、fixture、settings、native asset、acceptance routeで比較し、実行順を交互またはrotationする。
-- compression、trimming、Composite ReadyToRun、NativeAOTを性能推測だけで有効化しない。ReadyToRunも実測で採否を決める。
+- candidateは同じSDK、fixture、settings、native assetで比較し、実行順をrotationする。HEAD、dirty有無、SDK、OS、candidate設定、実行順、raw timingを結果へ記録する。
+- harnessの作成・変更後は、最も複雑な一candidateをfresh／warm各1回だけ動かし、起動、ready検出、graceful shutdown、集計出力を確認する。次に全candidateをwarm-up 1回、warm-cache 3回、fresh-install 3回で比較する。
+- 起動中央値の差が`max(500 ms, 10%)`付近にあり結論が変わり得る場合だけ、上位2候補の曖昧なphaseを各2回追加する。それでも曖昧なら実用上同等として測定を終了する。p90、変動係数、統計的有意性のために反復を増やさない。
+- 実用差があれば測定結果を優先する。明確な差がなければnative self-extractを避け、同等性能ならmanaged bundleで配布file数を減らし、ReadyToRunによる初期JIT軽減を加味する。`folder-il`を固定fallbackにしない。
+- steady-state workloadを測っていない起動比較から、アプリ実行中の処理速度差を断定しない。layoutによる定常時の追加処理がなく、tiered compilationを妨げない構成を選ぶ。
+- compression、trimming、Composite ReadyToRun、NativeAOTを性能推測だけで有効化しない。
 - standard folder hostのmanaged／runtime fileはexe隣接を許可する。application-owned native／contentは`libs/x64`、`native`、`lang`等へ整理する。
 - managed DLLを見た目のために`libs`へ移す独自loader、probing、deps rewrite、post-publish relocation、wrapper launcherを追加しない。
 - updaterはtransaction handoffの単一payloadとしてsingle-fileを維持し、main appのprofile変更と不必要に連動させない。
@@ -87,7 +90,7 @@ UTF-8、LF、末尾改行、TOML／Markdown構文、相対link、table、whitesp
 - package／layout validator、publish-folder startup
 - automated existing-data acceptance
 - automated old-to-new update／rollback acceptance
-- `devdocs/acceptance/net10-distribution-performance.md`のcurrent report、raw report hash、再現command
+- `devdocs/acceptance/net10-distribution-performance.md`のcurrent report、raw result、実行command
 - fresh outcome review
 
 ## 8. 手動受入れとRelease Freeze

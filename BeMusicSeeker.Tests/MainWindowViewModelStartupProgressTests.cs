@@ -436,10 +436,37 @@ public sealed class MainWindowViewModelStartupProgressTests
     {
         Assert.IsFalse(StartupPresentationPolicy.IsPresentationDeferred(
             MainViewUpdateMode.FolderFilterSelected, true, true, false, false, false));
+        Assert.IsFalse(StartupPresentationPolicy.IsPresentationDeferred(
+            MainViewUpdateMode.FolderFilterSelected, true, false, true, false, false));
         Assert.IsTrue(StartupPresentationPolicy.IsPresentationDeferred(
             MainViewUpdateMode.FolderFilterSelected, true, false, false, false, true));
         Assert.IsTrue(StartupPresentationPolicy.IsPresentationDeferred(
             MainViewUpdateMode.FileMissingFilterSelected, true, true, false, false, false));
+    }
+
+    [TestMethod]
+    public void LibraryFolderContinuation_ReusesOnlyCurrentStartupAdmission()
+    {
+        Assert.IsFalse(StartupPresentationPolicy.ShouldDeferLibraryFolderRefresh(
+            deferredContinuation: true,
+            continuationOperationToken: 42,
+            activeOperationToken: 42,
+            startupOperationActive: true));
+        Assert.IsTrue(StartupPresentationPolicy.ShouldDeferLibraryFolderRefresh(
+            deferredContinuation: true,
+            continuationOperationToken: 0,
+            activeOperationToken: 42,
+            startupOperationActive: true));
+        Assert.IsTrue(StartupPresentationPolicy.ShouldDeferLibraryFolderRefresh(
+            deferredContinuation: true,
+            continuationOperationToken: 41,
+            activeOperationToken: 42,
+            startupOperationActive: true));
+        Assert.IsTrue(StartupPresentationPolicy.ShouldDeferLibraryFolderRefresh(
+            deferredContinuation: false,
+            continuationOperationToken: 42,
+            activeOperationToken: 42,
+            startupOperationActive: true));
     }
 
     private static StartupProgressWorkflowOwner Start(StartupProgressOperationKind operationKind)

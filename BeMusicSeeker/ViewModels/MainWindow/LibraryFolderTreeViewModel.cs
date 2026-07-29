@@ -38,6 +38,8 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
 
     private long refreshRequestVersion;
 
+    private long deferredRefreshOperationToken;
+
     internal LibraryFolderTreeViewModel(
         Func<string, bool> directoryExists,
         Func<string, ExplorerOpenResult> openDirectory,
@@ -75,7 +77,7 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     /// Raised when the attached library invalidates its parent-folder cache.
     /// The shell decides whether suppression or startup deferral applies.
     /// </summary>
-    internal event EventHandler CacheRefreshRequested;
+    internal event EventHandler<LibraryFolderTreeRefreshRequestedEventArgs> CacheRefreshRequested;
 
     /// <summary>
     /// Raised after a deferred refresh has reached an observable UI completion point.
@@ -121,7 +123,11 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
             refreshRequestVersion++;
         }
         RaisePropertyChanged(nameof(IsWriteLockHeldInitializeBMSFiles));
-        CacheRefreshRequested?.Invoke(this, EventArgs.Empty);
+        CacheRefreshRequested?.Invoke(
+            this,
+            new LibraryFolderTreeRefreshRequestedEventArgs(
+                LibraryFolderTreeRefreshRequestOrigin.SourceInvalidation,
+                operationToken: 0));
     }
 
     /// <summary>
@@ -190,10 +196,9 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     internal void ScheduleDeferredRefresh(long operationToken)
     {
         bool shouldSchedule = false;
-        long requestVersion;
         lock (refreshLock)
         {
-            requestVersion = ++refreshRequestVersion;
+            deferredRefreshOperationToken = operationToken;
             if (!deferredRefreshQueued)
             {
                 deferredRefreshQueued = true;
@@ -205,9 +210,25 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
             return;
         }
 
-        BMSLibrary refreshLibrary = library;
+        QueueDeferredRefresh();
+    }
+
+    private void QueueDeferredRefresh()
+    {
         Task.Run(delegate
         {
+            BMSLibrary refreshLibrary;
+            long requestVersion;
+            lock (refreshLock)
+            {
+                if (!deferredRefreshQueued)
+                {
+                    return;
+                }
+                refreshLibrary = library;
+                requestVersion = refreshRequestVersion;
+            }
+
             BMSLibrary.ParentFolderListCacheSnapshot snapshot = null;
             Exception prepareException = null;
             try
@@ -273,17 +294,30 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                     stopwatch.Stop();
                     log("ui_suppress flush_library_folder_tree_deferred_ms=" + stopwatch.ElapsedMilliseconds);
                     bool requestAnotherRefresh;
+                    long operationToken;
                     lock (refreshLock)
                     {
                         requestAnotherRefresh = shouldReschedule
                             || requestVersion != refreshRequestVersion
                             || !ReferenceEquals(library, refreshLibrary);
+                        operationToken = deferredRefreshOperationToken;
                         deferredRefreshQueued = false;
                     }
                     bool dispatcherShuttingDown = !uiScheduler.IsAvailable;
-                    if (requestAnotherRefresh && !dispatcherShuttingDown)
+                    if (requestAnotherRefresh)
                     {
-                        CacheRefreshRequested?.Invoke(this, EventArgs.Empty);
+                        if (dispatcherShuttingDown)
+                        {
+                            ClearDeferredRefreshQueue();
+                        }
+                        else
+                        {
+                            CacheRefreshRequested?.Invoke(
+                                this,
+                                new LibraryFolderTreeRefreshRequestedEventArgs(
+                                    LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
+                                    operationToken));
+                        }
                     }
                     else if (prepareException == null)
                     {
@@ -326,7 +360,11 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
         {
             parentFolderListViewInitialized = false;
             MarkRefreshRequested();
-            CacheRefreshRequested?.Invoke(this, EventArgs.Empty);
+            CacheRefreshRequested?.Invoke(
+                this,
+                new LibraryFolderTreeRefreshRequestedEventArgs(
+                    LibraryFolderTreeRefreshRequestOrigin.SourceInvalidation,
+                    operationToken: 0));
         }
         else if (e.PropertyName == nameof(BMSLibrary.IsWriteLockHeldInitializeBMSFiles))
         {
@@ -380,6 +418,30 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
         }
         return true;
     }
+}
+
+internal enum LibraryFolderTreeRefreshRequestOrigin
+{
+    SourceInvalidation,
+    DeferredContinuation
+}
+
+/// <summary>
+/// Requests shell admission for a folder-tree refresh.
+/// </summary>
+internal sealed class LibraryFolderTreeRefreshRequestedEventArgs : EventArgs
+{
+    internal LibraryFolderTreeRefreshRequestedEventArgs(
+        LibraryFolderTreeRefreshRequestOrigin origin,
+        long operationToken)
+    {
+        Origin = origin;
+        OperationToken = operationToken;
+    }
+
+    internal LibraryFolderTreeRefreshRequestOrigin Origin { get; }
+
+    internal long OperationToken { get; }
 }
 
 /// <summary>

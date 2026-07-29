@@ -4,7 +4,9 @@ param(
     [string]$FixtureRoot,
     [string]$OutputDirectory,
     [string]$SqliteAssemblyRoot,
-    [switch]$KeepSandbox
+    [string]$UpdateManifestUrl,
+    [switch]$KeepSandbox,
+    [switch]$ImportFunctionsOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -151,7 +153,7 @@ function Write-Lr2Config {
     $document.Save($Path)
 }
 
-$sqliteRuntimeLoaded = $false
+$script:sqliteRuntimeLoaded = $false
 function Initialize-SqliteRuntime {
     if ($script:sqliteRuntimeLoaded) {
         return
@@ -340,6 +342,9 @@ function Invoke-ProfileRun {
     $startInfo.Environment['USERPROFILE'] = $userProfile
     $startInfo.Environment['TEMP'] = Join-Path $ProfileRoot 'temp'
     $startInfo.Environment['TMP'] = Join-Path $ProfileRoot 'temp'
+    if (-not [string]::IsNullOrWhiteSpace($UpdateManifestUrl)) {
+        $startInfo.ArgumentList.Add("--update-manifest-url=$UpdateManifestUrl")
+    }
     New-Item -ItemType Directory -Path $startInfo.Environment['TEMP'] -Force | Out-Null
     $process.StartInfo = $startInfo
     if (-not $process.Start()) {
@@ -436,6 +441,10 @@ function Assert-ProfileSettings {
     }
 }
 
+if ($ImportFunctionsOnly) {
+    return
+}
+
 $AppPublishRoot = Resolve-FullPath $AppPublishRoot
 $FixtureRoot = Resolve-FullPath $FixtureRoot
 $OutputDirectory = Resolve-FullPath $OutputDirectory
@@ -481,9 +490,11 @@ try {
         New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
         Copy-Item -LiteralPath $AppPublishRoot -Destination $appRoot -Recurse -Force
 
-        $bmsRoot = Join-Path $profileRoot ([string]$profile.bmsRootDirectory)
-        if ([bool]$profile.operationModeLr2Db) {
-            $bmsRoot = Join-Path $profileRoot 'lr2\bms'
+        $bmsRoot = if ([bool]$profile.operationModeLr2Db) {
+            Join-Path $profileRoot 'lr2\bms'
+        }
+        else {
+            Join-Path $profileRoot ([string]$profile.bmsRootDirectory)
         }
         New-Item -ItemType Directory -Path (Join-Path $bmsRoot 'Fixture') -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $FixtureRoot 'fixture.bms') -Destination (Join-Path $bmsRoot $script:manifest.database.songRelativePath) -Force
@@ -504,6 +515,7 @@ try {
             EnablePlaylistUrlCompletion = 'False'
             EnableStellaFullPlaylistUrlCompletion = 'False'
             SkipInitPlaylistLoad = 'True'
+            ScanBmsFilesOnStartup = 'False'
         }
         if ([bool]$profile.operationModeLr2Db) {
             $lr2Root = Join-Path $profileRoot ([string]$profile.lr2RootDirectory)

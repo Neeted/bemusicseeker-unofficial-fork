@@ -59,12 +59,13 @@ active batchは[PLAN_STATUS](./PLAN_STATUS.md)にmaterialize済みであり、pl
 harness要件:
 
 1. existing-data acceptanceと同じisolated profile／fixtureを使う。
-2. harness側Stopwatchを`Process.Start()`前に開始し、process start→main window handle／input idle、process start→`startup_ready_operable`ログ検出を測る。log pollingは測定誤差がselection thresholdを支配しない間隔またはevent通知で行い、ログ本文の`elapsedMs`はphase内訳にだけ使う。
+2. harness側Stopwatchを`Process.Start()`前に開始し、process start→main window handle／input idle、process start→`startup_ready_operable`ログ検出を測る。ログ本文の`elapsedMs`はphase内訳にだけ使う。
 3. `fresh-install`はimmutable candidateを毎回新しいinstall directoryへcopyする。`extract-*`には毎回空の専用`DOTNET_BUNDLE_EXTRACT_BASE_DIR`を与える。`warm-cache`は同じinstall directoryとextract directoryを再利用する。これはOS page cacheを強制消去するcold benchmarkとは呼ばない。
-4. 各candidateについて3回warm-up後に20回の`warm-cache`を測り、別に10回の`fresh-install`を測る。上位差が3%未満、または変動係数が5%を超える場合は、上位candidateだけ各20回を一度追加する。追加測定後も不安定なら再試行を反復せず、no-extractの`folder-il`を保守的defaultとして選ぶ。
-5. candidate順序をround-robinで入れ替え、同じsettings、data、native asset、network／Defender条件を使う。
-6. p50／p90、failure、peak working set at ready、process CPU time、publish byte数、file数、extract byte数／file数、artifact hash、Windows build、SDKをmachine-readable reportへ出す。
-7. appをgraceful shutdownし、設定／DBのsemantic snapshotが測定前後で一致することを確認する。startup phase logとmain-view build等の既存内部metricsは診断用に保存するが、外部end-to-end metricを置き換えない。
+4. harnessの作成・変更後は、最も複雑な`extract-r2r`をfresh／warm各1回だけ動かし、publish、起動、ready検出、graceful shutdown、集計、JSON／CSV出力を確認する。
+5. smokeが通った後、各candidateを1回warm-upし、`warm-cache`と`fresh-install`を各3回測る。candidate順序はround-robinで入れ替え、同じsettings、data、native asset、network／Defender条件を使う。
+6. 起動中央値の差が`max(500 ms, 10%)`付近にあり結論が変わり得る場合だけ、上位2候補の曖昧なphaseを各2回追加する。それでも曖昧なら実用上同等として終了し、それ以上の再測定を行わない。
+7. median／min／max、failure、peak working set at ready、process CPU time、publish byte数、file数、extract byte数／file数、Windows build、SDK、HEADとdirty有無をmachine-readable reportへ出す。p90、変動係数、source tree全体のfingerprint、resume receiptは選択に使わない。
+8. appをgraceful shutdownする。semantic snapshotと詳細な機能受入れはsmokeおよび最終選択profileのacceptanceで確認し、各timed runの前にfixtureを読み込んでcacheを温めない。startup phase logとmain-view build等の既存内部metricsは診断用に保存するが、外部end-to-end metricを置き換えない。
 
 benchmark専用のproduction fallback、loader、startup short-cutを追加しない。
 
@@ -72,14 +73,17 @@ benchmark専用のproduction fallback、loader、startup short-cutを追加し�
 
 機能受入れを通らないcandidateは失格とする。残候補を次の順で決める。
 
-1. `max(fresh-install p90, warm-cache p90)`のprocess start→`startup_ready_operable`が最小のcandidateを基準にする。
-2. 基準との差が`max(100 ms, 3%)`以内を同率候補とする。
-3. 同率候補ではpeak working set p90が小さいものを選ぶ。差が5%以内ならprocess start→main-window ready p90が小さいものを選ぶ。
-4. なお同率なら、native self-extractなし、次にfolder profileを選ぶ。
+1. `warm-cache`と`fresh-install`のprocess start→`startup_ready_operable`中央値を比較する。一方が`max(500 ms, 10%)`以上速く、もう一方のphaseやready時working setを同程度以上悪化させないcandidateを実用上優位とする。
+2. freshとwarmが逆方向に実用差を持つ場合は一つの総合scoreへ潰さず、初回／通常起動のtrade-offとして記録する。この集合へ同等時のlayout preferenceを適用して自動選定せず、P2で利用頻度等のproduct判断を明示して決める。
+3. 実用上優位なcandidateがなければnative self-extractなしを選ぶ。
+4. folderとmanaged bundleが同等なら、custom loaderなしで配布file数を減らせるmanaged bundleを選ぶ。
+5. 同じlayout familyでReadyToRunが起動を悪化させず、working set増加が`max(16 MiB, 10%)`未満なら、初期JITを減らすReadyToRunを選ぶ。
 
-file数、exe一個、zip sizeはtie-breakerより下位であり、性能selectionを覆さない。ReadyToRunは公式説明上startup改善の可能性がある一方、size／working setを増やし得るため、実測結果だけで採否を決める。
+以上から、明確な反証がない場合の基準候補は`bundle-r2r`とする。これはnative extractionを避け、folderより配布file数を減らし、ReadyToRunで初期JITを軽減するためであり、根拠のないfallbackではない。ReadyToRunによるsize／working set増加が実用差を持つ場合は`bundle-il`、folderが起動で実用上優位なら対応するfolder候補を選ぶ。
 
-選択結果は`devdocs/acceptance/net10-distribution-performance.md`へcurrent-onlyのperformance acceptance reportとして、command、environment、candidate summary、selected profile、理由、raw report hashを記録する。raw JSON／CSVはartifactとして保持し、過去runの逐次logを計画文書へ追記しない。
+起動benchmarkはsteady-state workloadを測らないため、アプリ実行中の処理速度差を断定しない。bundleは起動後の継続的な展開処理を持たず、ReadyToRun codeもtiered compilationの対象になるという一般特性を選択理由へ含める。
+
+選択結果は`devdocs/acceptance/net10-distribution-performance.md`へcurrent-onlyのperformance acceptance reportとして、command、environment、candidate summary、selected profile、理由を記録する。raw JSON／CSVはartifactとして保持し、過去runの逐次logを計画文書へ追記しない。
 
 ### `P3 PACKAGE-CLOSURE`
 
@@ -112,7 +116,7 @@ layout規則:
 4. package／layout validator、hash／managed／native／license inventory。
 5. publish outputからのstartup／shutdown、existing-data acceptance。
 6. pre-NET10 packageからのupdate success／fault rollback acceptance。
-7. performance reportの再現runとselected profileの閾値再確認。
+7. current performance reportとselected profileの設定整合、publish outputからのstartup smoke。
 8. frozen snapshotのfresh outcome review、重大指摘修正後の再検証／fresh review。
 
 P4完了後、`engineering migration: complete`へ戻し、manual clean-machine／release prerequisiteへhandoffする。

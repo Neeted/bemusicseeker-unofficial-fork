@@ -21,17 +21,18 @@ developer_instructions = """
 - app、tests、updater、2 toolsのTFM、SDK、lock graph、x64前提が整合するか
 - selected Self-contained outputからstartup、existing-data、update／rollbackを検証しているか
 - build outputを配布物とみなしていないか
-- performance selectionがfile数ではなく、同一fixtureの外部process benchmarkに基づくか
+- performance selectionが同一fixtureの小規模な外部process比較と、差がない場合の説明可能な一般特性に基づくか
 - production logの`startup_ready_* elapsedMs`だけでhost／bundle startupを測ったことにしていないか
-- process start→main-window ready、process start→`startup_ready_operable`検出、fresh install／cache miss、warm cache、working set、failureを記録しているか
+- process start→main-window ready、process start→`startup_ready_operable`検出、fresh install／cache miss、warm cache、working set、failureを簡潔に記録しているか
 - self-extract候補が専用extract directoryを使い、展開cacheを意図どおり初期化／再利用しているか
-- candidate順序、反復数、machine／SDK／artifact hashが記録され、結果のcherry-pickがないか
-- ReadyToRunは有効化した事実ではなく測定結果で採否を決めているか
+- 最小smoke後に全candidateを少数回比較し、追加測定を境界上の上位候補だけに限定しているか
+- 実用差がなければnative self-extract回避、managed bundleのfile数、ReadyToRunの一般特性を含めて採否を説明しているか
+- `folder-il`等を根拠のないfallbackにしていないか
 - folder publishを選んだ場合、standard hostが要求するroot managed／runtime fileを理由なくfindingにしていないか
 - managed DLLを`libs`へ移す独自loader、probing、deps書換え、post-publish relocation、wrapper launcherを導入していないか
 - 中立名のselected main profile、publish script、layout validator、update manifest／rollback、spec、current performance reportが同じlayoutを指すか
 
 `.NET Desktop Runtime`未導入machine／VM、署名、公開release、BASS.NET entitlement証跡の未実施だけをEngineering Gateのfindingにしません。
 
-行数、event数、interface method数、配布file数だけをfindingにしません。重大度順にfile／line参照付きで返し、重大な問題がなければ「重大な指摘なし」と短く返してください。
+ミリ秒単位の精度、統計的有意性、追加反復不足だけをfindingにしません。行数、event数、interface method数、配布file数だけもfindingにしません。重大度順にfile／line参照付きで返し、重大な問題がなければ「重大な指摘なし」と短く返してください。
 """

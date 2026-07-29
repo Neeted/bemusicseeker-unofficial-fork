@@ -28,9 +28,11 @@
 
 ## 配布性能
 
-- main appの最終profileは、公式publish機構だけを使った再現可能な外部起動benchmarkで決める。file数や見た目を性能より優先しない。
+- main appの最終profileは、公式publish機構だけを使った小規模な外部起動比較で、実用上有意な性能差の有無を確認して決める。
 - production log内の`startup_ready_* elapsedMs`だけでend-to-end startupを判定しない。process startからmain-window ready／`startup_ready_operable`検出までをharness側で計測する。
 - folder Self-contained、managed bundle＋native隣接、native self-extract single-file、ReadyToRun有無は同じfixtureでfresh install／warm cacheを分けて比較する。
+- harness変更後は一candidateの最小smoke、全candidateの少数回比較の順に進める。実用差の境界にある上位候補だけを少数追加測定し、統計精度のための反復を目的化しない。
+- 明確な性能優位がなければ、native self-extractを避け、同等性能ならmanaged bundleで配布file数を減らし、ReadyToRunの起動特性を加味して選ぶ。`folder-il`を根拠のないfallbackにしない。
 - standard hostが要求するexe隣接managed／runtime fileを、数だけを理由にfindingにしない。
 - managed DLLを`libs`へ移す独自`AssemblyLoadContext`／`AssemblyResolve`、private probing、deps書換え、post-publish relocation、wrapper launcherを追加しない。
 - application-owned assetは`libs/x64`、`native`、`lang`等のowner directoryへ置く。updaterは低頻度かつtransaction handoff用なので、updater固有の問題がない限りsingle-fileを維持する。

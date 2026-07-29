@@ -119,6 +119,166 @@ public sealed class LibraryFolderTreeViewModelTests
     }
 
     [TestMethod]
+    public void DeferredRefresh_CoalescesToLatestOperationWithoutShellRetry()
+    {
+        Dispatcher dispatcher = null!;
+        LibraryFolderTreeViewModel owner = null!;
+        using var dispatcherReady = new ManualResetEventSlim();
+        using var blockerEntered = new ManualResetEventSlim();
+        using var releaseBlocker = new ManualResetEventSlim();
+        using var firstRefreshPosted = new ManualResetEventSlim();
+        using var latestRefreshCompleted = new ManualResetEventSlim();
+        Thread dispatcherThread = new(() =>
+        {
+            dispatcher = Dispatcher.CurrentDispatcher;
+            owner = new LibraryFolderTreeViewModel(
+                _ => true,
+                _ => new ExplorerOpenResult(),
+                new WpfUiScheduler(() => dispatcher));
+            dispatcherReady.Set();
+            Dispatcher.Run();
+        });
+        dispatcherThread.SetApartmentState(ApartmentState.STA);
+        dispatcherThread.Start();
+        Assert.IsTrue(dispatcherReady.Wait(TimeSpan.FromSeconds(5)));
+
+        int refreshRequests = 0;
+        int refreshCompletions = 0;
+        long completedOperationToken = -1;
+        owner.CacheRefreshRequested += (_, _) => Interlocked.Increment(ref refreshRequests);
+        owner.DeferredRefreshCompleted += (_, args) =>
+        {
+            completedOperationToken = args.OperationToken;
+            Interlocked.Increment(ref refreshCompletions);
+            latestRefreshCompleted.Set();
+        };
+
+        dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
+        {
+            blockerEntered.Set();
+            releaseBlocker.Wait();
+        }));
+        Assert.IsTrue(blockerEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        DispatcherHookEventHandler operationPosted = (_, args) =>
+        {
+            if (args.Operation.Priority == DispatcherPriority.Background)
+            {
+                firstRefreshPosted.Set();
+            }
+        };
+        dispatcher.Hooks.OperationPosted += operationPosted;
+
+        try
+        {
+            owner.ScheduleDeferredRefresh(operationToken: 0);
+            Assert.IsTrue(firstRefreshPosted.Wait(TimeSpan.FromSeconds(5)));
+            owner.ScheduleDeferredRefresh(operationToken: 42);
+            releaseBlocker.Set();
+
+            Assert.IsTrue(latestRefreshCompleted.Wait(TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(42, completedOperationToken);
+            Assert.AreEqual(1, refreshCompletions);
+            Assert.AreEqual(0, refreshRequests);
+        }
+        finally
+        {
+            dispatcher.Hooks.OperationPosted -= operationPosted;
+            releaseBlocker.Set();
+            dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
+            Assert.IsTrue(dispatcherThread.Join(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [TestMethod]
+    public void DeferredRefresh_StaleSourceRequestsShellReadmissionBeforeRetry()
+    {
+        Dispatcher dispatcher = null!;
+        LibraryFolderTreeViewModel owner = null!;
+        using var dispatcherReady = new ManualResetEventSlim();
+        using var blockerEntered = new ManualResetEventSlim();
+        using var releaseBlocker = new ManualResetEventSlim();
+        using var firstRefreshPosted = new ManualResetEventSlim();
+        using var readmissionRequested = new ManualResetEventSlim();
+        using var latestRefreshCompleted = new ManualResetEventSlim();
+        Thread dispatcherThread = new(() =>
+        {
+            dispatcher = Dispatcher.CurrentDispatcher;
+            owner = new LibraryFolderTreeViewModel(
+                _ => true,
+                _ => new ExplorerOpenResult(),
+                new WpfUiScheduler(() => dispatcher));
+            dispatcherReady.Set();
+            Dispatcher.Run();
+        });
+        dispatcherThread.SetApartmentState(ApartmentState.STA);
+        dispatcherThread.Start();
+        Assert.IsTrue(dispatcherReady.Wait(TimeSpan.FromSeconds(5)));
+
+        LibraryFolderTreeRefreshRequestedEventArgs? request = null;
+        int refreshCompletions = 0;
+        long completedOperationToken = -1;
+        owner.CacheRefreshRequested += (_, args) =>
+        {
+            request = args;
+            readmissionRequested.Set();
+        };
+        owner.DeferredRefreshCompleted += (_, args) =>
+        {
+            completedOperationToken = args.OperationToken;
+            Interlocked.Increment(ref refreshCompletions);
+            latestRefreshCompleted.Set();
+        };
+
+        dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
+        {
+            blockerEntered.Set();
+            releaseBlocker.Wait();
+        }));
+        Assert.IsTrue(blockerEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        DispatcherHookEventHandler operationPosted = (_, args) =>
+        {
+            if (args.Operation.Priority == DispatcherPriority.Background)
+            {
+                firstRefreshPosted.Set();
+            }
+        };
+        dispatcher.Hooks.OperationPosted += operationPosted;
+
+        try
+        {
+            owner.ScheduleDeferredRefresh(operationToken: 7);
+            Assert.IsTrue(firstRefreshPosted.Wait(TimeSpan.FromSeconds(5)));
+            typeof(LibraryFolderTreeViewModel)
+                .GetMethod("MarkRefreshRequested", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(owner, null);
+            releaseBlocker.Set();
+
+            Assert.IsTrue(readmissionRequested.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsNotNull(request);
+            Assert.AreEqual(
+                LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
+                request.Origin);
+            Assert.AreEqual(7, request.OperationToken);
+            Assert.AreEqual(0, refreshCompletions);
+
+            owner.ScheduleDeferredRefresh(operationToken: 42);
+
+            Assert.IsTrue(latestRefreshCompleted.Wait(TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(42, completedOperationToken);
+            Assert.AreEqual(1, refreshCompletions);
+        }
+        finally
+        {
+            dispatcher.Hooks.OperationPosted -= operationPosted;
+            releaseBlocker.Set();
+            dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
+            Assert.IsTrue(dispatcherThread.Join(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [TestMethod]
     public void AttachedLibrary_ExposesSortedDistinctFoldersAndInvalidatesAfterSearchRootChange()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_LibraryFolderTree_" + Guid.NewGuid().ToString("N"));

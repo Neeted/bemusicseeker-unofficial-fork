@@ -123,7 +123,7 @@
            Text="SevenZipExtractor x64 native asset is missing: $(PkgSevenZipExtractor)\build\x64\7z.dll" />
   </Target>
 
-  <Target Name="CopySingleFileNativeAssets" AfterTargets="Publish" Condition="'$(PublishSingleFile)' == 'true'">
+  <Target Name="CopyPublishedNativeAssets" AfterTargets="Publish">
     <MakeDir Directories="$(PublishDir)native;$(PublishDir)libs\x64" />
     <Copy SourceFiles="native\Everything3_x64.dll"
           DestinationFiles="$(PublishDir)native\Everything3_x64.dll"

@@ -81,6 +81,18 @@ internal static class StartupPresentationPolicy
         return (int)deferred;
     }
 
+    internal static bool ShouldDeferLibraryFolderRefresh(
+        bool deferredContinuation,
+        long continuationOperationToken,
+        long activeOperationToken,
+        bool startupOperationActive)
+    {
+        return !deferredContinuation
+            || !startupOperationActive
+            || continuationOperationToken == 0L
+            || continuationOperationToken != activeOperationToken;
+    }
+
     private static bool CanShowBasicLibraryMainView(MainViewUpdateMode currentTreeMode)
     {
         return currentTreeMode == MainViewUpdateMode.FolderFilterSelected
