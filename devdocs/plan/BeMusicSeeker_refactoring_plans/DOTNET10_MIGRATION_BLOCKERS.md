@@ -4,15 +4,15 @@
 
 ## Current decision
 
-現行checkpointに`EXTERNAL_BLOCKER`はない。MVVM整理と.NET 10機能移行は完了し、main-app distribution profileは`bundle-r2r`へ確定した。selected layoutのpackage closureとfinal gateを進める。
+現行checkpointにactive Engineering blockerまたは`EXTERNAL_BLOCKER`はない。MVVM整理、.NET 10機能移行、`bundle-r2r` distribution closure、final Engineering Gateは完了した。
 
-## Active engineering work
+## Engineering closure
 
 | ID | State | Work | Owner / exit |
 |---|---|---|---|
 | `PERF-01` | completed | folder／managed bundle／native self-extractとReadyToRun有無を、fresh install／warm cacheの外部startup、working set、機能受入れで比較 | `bundle-r2r`; current evidenceはperformance acceptance |
 | `LAYOUT-02` | completed | 性能winnerをpublish、validator、update contract、specへ一貫適用。custom relocationなし | managed bundle＋R2R、SDK native root allowlist |
-| `GATE-02` | active | selected profileでfull verification、publish、existing-data、update／rollback、startup smoke、fresh review | `NET10-10 P4` |
+| `GATE-02` | completed | selected profileでfull verification、publish、existing-data、update／rollback、startup smoke、fresh review | Engineering complete |
 
 `PERF-01`のcurrent evidenceは[distribution performance acceptance](../../acceptance/net10-distribution-performance.md)とignored raw artifactである。
 

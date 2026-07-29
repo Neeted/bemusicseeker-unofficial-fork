@@ -77,6 +77,7 @@ UTF-8、LF、末尾改行、TOML／Markdown構文、相対link、table、whitesp
 ### Engineering unit
 
 - affected projectのlocked restore／Release build／targeted test
+- `dotnet test` commandは180秒以内の応答を期待する。超過時は長時間化したtest構造を調査し、正当なtest量が原因と確認できた場合だけ閾値を見直す
 - behavior／golden／layout／performance evidence
 - publish変更時は実際のwin-x64 Self-contained outputからruntime smoke
 - frozen snapshotのfresh read-only review

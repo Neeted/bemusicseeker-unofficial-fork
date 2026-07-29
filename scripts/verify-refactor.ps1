@@ -22,7 +22,7 @@ $scdAppPublishOutput = Join-Path $scdPublishRoot 'app'
 $scdUpdaterPublishOutput = Join-Path $scdPublishRoot 'updater'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
-$testTimeoutSeconds = 300
+$testTimeoutSeconds = 180
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
 
 function Invoke-CheckedCommand {
@@ -250,7 +250,7 @@ try {
     }
 
     # Build, format, and analyzer commands run to completion. Only dotnet test
-    # has the simple 300-second command-response timeout described above.
+    # has the simple 180-second command-response timeout described above.
     Invoke-CheckedCommand dotnet build $solution '/p:Configuration=Release' '/p:Platform=x64' '--no-restore'
 
     foreach ($toolProject in $toolProjects) {

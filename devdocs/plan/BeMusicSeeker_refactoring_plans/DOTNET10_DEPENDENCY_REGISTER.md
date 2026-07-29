@@ -8,7 +8,7 @@
 
 | Item | Current | Final target | Owner |
 |---|---|---|---|
-| .NET SDK | `10.0.302`, `rollForward: latestPatch` | retain; release候補は同servicing baselineで再publish | `NET10-10 P4` |
+| .NET SDK | `10.0.302`, `rollForward: latestPatch` | retain; release候補は同servicing baselineで再publish | release owner |
 | Main app | win-x64 SCD、managed bundle、native runtime隣接、R2R有効 | 中立profile `WinX64SelfContained`をretain | `NET10-10 P1/P2/P3` |
 | Updater | win-x64 SCD single-file | retain | `NET10-07/10` |
 | Main app content | `lang`、config、`libs/x64`、`native` | owner directoryを維持 | `NET10-10 P3` |

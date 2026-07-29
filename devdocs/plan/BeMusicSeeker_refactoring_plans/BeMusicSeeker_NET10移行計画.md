@@ -28,9 +28,9 @@ MVVM／owner整理、全5 projectの.NET 10 retarget、managed／native dependen
 
 trimming、NativeAOT、Composite ReadyToRunは対象外。single-file compressionは明示的に無効とする。
 
-## 3. Active outcome: `NET10-10 Performance-first distribution closure`
+## 3. Completed outcome: `NET10-10 Performance-first distribution closure`
 
-active batchは[PLAN_STATUS](./PLAN_STATUS.md)にmaterialize済みであり、plannerを起動しない。
+`P1`〜`P4`とmanual handoffは完了した。現在地とcurrent evidenceは[PLAN_STATUS](./PLAN_STATUS.md)を正本とする。
 
 ### `P1 BENCHMARK-HARNESS`
 
@@ -118,7 +118,7 @@ layout規則:
 7. current performance reportとselected profileの設定整合、publish outputからのstartup smoke。
 8. frozen snapshotのfresh outcome review、重大指摘修正後の再検証／fresh review。
 
-P4完了後、`engineering migration: complete`へ戻し、manual clean-machine／release prerequisiteへhandoffする。
+P4完了後、`engineering migration: complete`とし、manual clean-machine／release prerequisiteへhandoffした。
 
 ## 4. Engineering Completion Gate
 

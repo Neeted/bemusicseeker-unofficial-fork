@@ -122,7 +122,7 @@ public sealed class UpdaterDeploymentBoundaryTests
         Assert.IsTrue(File.Exists(updaterPath), "The self-contained updater publish output must exist.");
         File.Copy(updaterPath, Path.Combine(stagingDirectory, "BeMusicSeeker.Updater.exe"));
 
-        ProcessStartInfo CreateValidatorStartInfo()
+        ProcessStartInfo CreateValidatorStartInfo(string? command = null)
         {
             var startInfo = new ProcessStartInfo
             {
@@ -135,9 +135,9 @@ public sealed class UpdaterDeploymentBoundaryTests
             startInfo.ArgumentList.Add("-NoProfile");
             startInfo.ArgumentList.Add("-NonInteractive");
             startInfo.ArgumentList.Add("-Command");
-            startInfo.ArgumentList.Add(
-                $". '{EscapePowerShellLiteral(validatorPath)}'; "
-                + $"Assert-PortableStagingLayout -targetStagingDirectory '{EscapePowerShellLiteral(stagingDirectory)}' -requiresMetadataArchive:$false");
+            startInfo.ArgumentList.Add(command
+                ?? $". '{EscapePowerShellLiteral(validatorPath)}'; "
+                    + $"Assert-PortableStagingLayout -targetStagingDirectory '{EscapePowerShellLiteral(stagingDirectory)}' -requiresMetadataArchive:$false");
             return startInfo;
         }
 
@@ -150,7 +150,7 @@ public sealed class UpdaterDeploymentBoundaryTests
             process.WaitForExit();
             Assert.AreEqual(0, process.ExitCode, output + Environment.NewLine + error);
 
-            foreach (string forbiddenPath in new[]
+            string[] forbiddenPaths =
             {
                 "config",
                 "log",
@@ -186,7 +186,6 @@ public sealed class UpdaterDeploymentBoundaryTests
                 "libs/System.Windows.Interactivity.dll",
                 "libs/sqlite.net.dll",
                 "x86/sqlite3.dll",
-                "x86/user-added.dll",
                 "x86/7z.dll",
                 "x86/bass.dll",
                 "x86/bass_fx.dll",
@@ -195,7 +194,6 @@ public sealed class UpdaterDeploymentBoundaryTests
                 "x86/bassmix.dll",
                 "x86/basswasapi.dll",
                 "libs/x86/sqlite3.dll",
-                "libs/x86/user-added.dll",
                 "libs/x86/7z.dll",
                 "libs/x86/bass.dll",
                 "libs/x86/bass_fx.dll",
@@ -213,52 +211,64 @@ public sealed class UpdaterDeploymentBoundaryTests
                 "x64/bassmix.dll",
                 "x64/basswasapi.dll",
                 "OggVorbis.NET.dll"
-            })
-            {
-                string normalizedPath = forbiddenPath.Replace('/', Path.DirectorySeparatorChar);
-                string fullPath = Path.Combine(stagingDirectory, normalizedPath);
-                bool isDirectory = forbiddenPath is "config" or "log";
-                if (isDirectory)
+            };
+            var forbiddenCases = forbiddenPaths
+                .Select(path => (
+                    Path: path,
+                    IsDirectory: path is "config" or "log",
+                    MembershipPath: path,
+                    FailurePath: path.StartsWith("libs/x86/", StringComparison.OrdinalIgnoreCase)
+                        ? "libs/x86"
+                        : path.StartsWith("x86/", StringComparison.OrdinalIgnoreCase)
+                            ? "x86"
+                            : path))
+                .Concat(new[]
                 {
-                    Directory.CreateDirectory(fullPath);
-                }
-                else
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-                    File.WriteAllText(fullPath, "forbidden-layout-entry");
-                }
+                    (Path: "x86/user-added.dll", IsDirectory: false, MembershipPath: "x86", FailurePath: "x86"),
+                    (Path: "libs/x86/user-added.dll", IsDirectory: false, MembershipPath: "libs/x86", FailurePath: "libs/x86")
+                })
+                .ToArray();
+            string forbiddenCaseExpression = "@("
+                + string.Join(
+                    ",",
+                    forbiddenCases.Select(testCase =>
+                        "[pscustomobject]@{"
+                        + "Path='" + EscapePowerShellLiteral(testCase.Path) + "';"
+                        + "IsDirectory=$" + testCase.IsDirectory.ToString().ToLowerInvariant() + ";"
+                        + "MembershipPath='" + EscapePowerShellLiteral(testCase.MembershipPath) + "';"
+                        + "FailurePath='" + EscapePowerShellLiteral(testCase.FailurePath) + "'"
+                        + "}"))
+                + ")";
+            string negativeValidatorCommand =
+                $". '{EscapePowerShellLiteral(validatorPath)}'; "
+                + $"$root = '{EscapePowerShellLiteral(stagingDirectory)}'; "
+                + $"$forbiddenCases = {forbiddenCaseExpression}; "
+                + "$policyPaths = @(Get-PortableForbiddenPaths); "
+                + "foreach ($case in $forbiddenCases) { "
+                + "if ($policyPaths -notcontains $case.MembershipPath) { throw \"Forbidden path is missing from policy: $($case.MembershipPath)\" }; "
+                + "$fullPath = Join-PortablePackageRelativePath $root $case.Path; "
+                + "$parentPath = Split-Path -Parent $fullPath; "
+                + "if ($case.IsDirectory) { [IO.Directory]::CreateDirectory($fullPath) | Out-Null } "
+                + "else { [IO.Directory]::CreateDirectory($parentPath) | Out-Null; [IO.File]::WriteAllText($fullPath, 'forbidden-layout-entry') }; "
+                + "$failureMessage = $null; "
+                + "try { Assert-PortableStagingLayout -targetStagingDirectory $root -requiresMetadataArchive:$false } catch { $failureMessage = $_.Exception.Message }; "
+                + "if ([string]::IsNullOrWhiteSpace($failureMessage)) { throw \"Validator accepted forbidden path: $($case.Path)\" }; "
+                + "if ($failureMessage.IndexOf($case.FailurePath, [StringComparison]::OrdinalIgnoreCase) -lt 0) { "
+                + "throw \"Validator rejected $($case.Path) for an unexpected reason: $failureMessage\" "
+                + "}; "
+                + "if ($case.IsDirectory) { [IO.Directory]::Delete($fullPath, $true) } else { [IO.File]::Delete($fullPath) }; "
+                + "while ($parentPath -ne $root -and [IO.Directory]::Exists($parentPath) -and [IO.Directory]::GetFileSystemEntries($parentPath).Length -eq 0) { "
+                + "[IO.Directory]::Delete($parentPath); "
+                + "$parentPath = Split-Path -Parent $parentPath "
+                + "} "
+                + "}";
 
-                using Process rejectedProcess = Process.Start(CreateValidatorStartInfo())
-                    ?? throw new AssertFailedException("pwsh could not be started for the negative package layout validation.");
-                string rejectedOutput = rejectedProcess.StandardOutput.ReadToEnd();
-                string rejectedError = rejectedProcess.StandardError.ReadToEnd();
-                rejectedProcess.WaitForExit();
-                Assert.AreNotEqual(0, rejectedProcess.ExitCode, rejectedOutput + Environment.NewLine + rejectedError);
-                string expectedForbiddenPath = forbiddenPath switch
-                {
-                    _ when forbiddenPath.StartsWith("x86/", StringComparison.OrdinalIgnoreCase) => "x86",
-                    _ when forbiddenPath.StartsWith("libs/x86/", StringComparison.OrdinalIgnoreCase) => "libs/x86",
-                    _ => forbiddenPath
-                };
-                StringAssert.Contains(rejectedError, expectedForbiddenPath);
-                if (isDirectory)
-                {
-                    Directory.Delete(fullPath, recursive: true);
-                }
-                else
-                {
-                    File.Delete(fullPath);
-                }
-
-                string emptyParentPath = Path.GetDirectoryName(fullPath)!;
-                while (!string.Equals(emptyParentPath, stagingDirectory, StringComparison.OrdinalIgnoreCase)
-                    && Directory.Exists(emptyParentPath)
-                    && !Directory.EnumerateFileSystemEntries(emptyParentPath).Any())
-                {
-                    Directory.Delete(emptyParentPath);
-                    emptyParentPath = Path.GetDirectoryName(emptyParentPath)!;
-                }
-            }
+            using Process rejectedProcess = Process.Start(CreateValidatorStartInfo(negativeValidatorCommand))
+                ?? throw new AssertFailedException("pwsh could not be started for the negative package layout validation.");
+            string rejectedOutput = rejectedProcess.StandardOutput.ReadToEnd();
+            string rejectedError = rejectedProcess.StandardError.ReadToEnd();
+            rejectedProcess.WaitForExit();
+            Assert.AreEqual(0, rejectedProcess.ExitCode, rejectedOutput + Environment.NewLine + rejectedError);
         }
         finally
         {

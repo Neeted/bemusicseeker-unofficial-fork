@@ -323,6 +323,13 @@ function Prepare-LogDirectoryForRun {
     }
 }
 
+function Assert-NoCompetingApplication {
+    $runningProcesses = @(Get-Process -Name 'BeMusicSeeker' -ErrorAction SilentlyContinue)
+    if ($runningProcesses.Count -gt 0) {
+        throw "Existing-data acceptance requires no other BeMusicSeeker process to be running. PIDs: $($runningProcesses.Id -join ', ')"
+    }
+}
+
 function Invoke-ProfileRun {
     param(
         [Parameter(Mandatory)][string]$ProfileRoot,
@@ -332,6 +339,7 @@ function Invoke-ProfileRun {
     )
 
     Prepare-LogDirectoryForRun -LogDirectory $LogDirectory
+    Assert-NoCompetingApplication
     $process = [Diagnostics.Process]::new()
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $AppExecutable
@@ -351,12 +359,6 @@ function Invoke-ProfileRun {
         throw "Unable to start acceptance app: $AppExecutable"
     }
     try {
-        try {
-            [void]$process.WaitForInputIdle(30000)
-        }
-        catch {
-            # WPF startup may not expose an input queue until after composition.
-        }
         $readyLog = Wait-ForStartupReady -Process $process -LogDirectory $LogDirectory
         Wait-ForMainWindowHandle -Process $process
         $closeRequested = $process.CloseMainWindow()
