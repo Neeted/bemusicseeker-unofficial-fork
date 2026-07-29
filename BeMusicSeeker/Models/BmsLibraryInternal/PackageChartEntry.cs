@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
@@ -32,9 +33,24 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private int projectionVersion;
 
+    private readonly object propertyChangedDeferralGate = new();
+
+    private int propertyChangedDeferralDepth;
+
+    private bool chartPropertyChangedDeferred;
+
     private bool? searchingStatusProjection;
 
     public event PropertyChangedEventHandler PropertyChanged;
+
+    internal IDisposable DeferPropertyChangedNotifications()
+    {
+        lock (propertyChangedDeferralGate)
+        {
+            propertyChangedDeferralDepth++;
+        }
+        return new PropertyChangedDeferralScope(this);
+    }
 
     internal PackageChartEntry(ChartFile chart)
     {
@@ -512,8 +528,53 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private void RaiseChartChanged()
     {
-        projectionVersion++;
+        Interlocked.Increment(ref projectionVersion);
+        lock (propertyChangedDeferralGate)
+        {
+            if (propertyChangedDeferralDepth > 0)
+            {
+                chartPropertyChangedDeferred = true;
+                return;
+            }
+        }
+        RaiseChartPropertyChanged();
+    }
+
+    private void CompletePropertyChangedDeferral()
+    {
+        bool publishDeferredChange = false;
+        lock (propertyChangedDeferralGate)
+        {
+            if (propertyChangedDeferralDepth <= 0)
+            {
+                return;
+            }
+            propertyChangedDeferralDepth--;
+            if (propertyChangedDeferralDepth == 0 && chartPropertyChangedDeferred)
+            {
+                chartPropertyChangedDeferred = false;
+                publishDeferredChange = true;
+            }
+        }
+        if (publishDeferredChange)
+        {
+            RaiseChartPropertyChanged();
+        }
+    }
+
+    private void RaiseChartPropertyChanged()
+    {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Chart)));
+    }
+
+    private sealed class PropertyChangedDeferralScope(PackageChartEntry owner) : IDisposable
+    {
+        private PackageChartEntry owner = owner;
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref owner, null)?.CompletePropertyChangedDeferral();
+        }
     }
 
     private BMSFile GetBmsStorageOwner()

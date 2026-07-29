@@ -10,6 +10,7 @@ using System.Linq;
 using System.Net;
 using System.Security;
 using System.Security.Cryptography;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -2634,7 +2635,10 @@ public partial class BMSLibrary : ObservableObject
             HandlePendingEstimateBatchException,
             propertyName => RaisePropertyChanged(propertyName),
             packages => new ObservableCollection<ChartPackage>(packages),
-            () => RaisePropertyChanged(() => ChartPackagesInstalled));
+            () => RaisePropertyChanged(() => ChartPackagesInstalled),
+            exception => NLogWrapper.FileLogger?.Warn(
+                exception,
+                "package_collection_post_guard_publication_failed"));
         pendingEstimatedInstallOwner = new(
             packageInstallService,
             CreatePendingEstimatedInstallPreparationCapability(),
@@ -5272,7 +5276,7 @@ public partial class BMSLibrary : ObservableObject
             showMessage: false);
         if (mutationReservation == null)
         {
-            return new ChartInfoInlineBuildResult();
+            return new ChartInfoInlineBuildResult { Canceled = true };
         }
         using (BeginOwnedDigestMutationWindow())
         {
@@ -6154,9 +6158,21 @@ public partial class BMSLibrary : ObservableObject
 
         public CatalogDigestMutationRequest DigestMutationRequest { get; set; }
 
+        public bool DigestMutationApplied { get; set; }
+
         public InstalledChartLookupMutation InstalledLookupMutation { get; set; } = new();
 
+        public bool InstalledLookupMutationApplied { get; set; }
+
+        public bool InstalledHashIndexInvalidated { get; set; }
+
+        public bool PlaylistResolveIndexInvalidated { get; set; }
+
+        public bool InstallMetadataCacheInvalidated { get; set; }
+
         public InstallDestinationRuntimeStateMutation InstallDestinationRuntimeStateMutation { get; } = new();
+
+        public bool InstallDestinationRuntimeStateApplied { get; set; }
 
         public IReadOnlyList<ChartFile> InstallDestinationChangedCharts => InstallDestinationRuntimeStateMutation.AppliedCharts;
 
@@ -7220,7 +7236,8 @@ public partial class BMSLibrary : ObservableObject
                 resourceHealthMutation.Dispose();
             }
 
-            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= resourceHealthMutation.TargetInputVersion;
+            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??=
+                resourceHealthMutation.TargetInputVersion;
             if (mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion.Value < 0)
             {
                 mutationResult.ResourceHealthMutation.Invalidate = true;
@@ -7242,6 +7259,255 @@ public partial class BMSLibrary : ObservableObject
                 ApplyInstalledChartStorageTargetsFailureFallback(mutationResult);
             }
             throw;
+        }
+    }
+
+    private InstalledChartStorageTargetsApplyReceipt ApplyInstalledChartStorageTargetsForDeferredDispatch(
+        ChartStorageTargetSet addedTargets,
+        string lookupReason,
+        Action<string> logOverride = null)
+    {
+        if (addedTargets == null)
+        {
+            return InstalledChartStorageTargetsApplyReceipt.Empty;
+        }
+
+        using IDisposable mutationSequence = lr2SynchronizationOwner.EnterLr2MutationSequence();
+        using IDisposable mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
+            "ApplyInstalledChartStorageTargets",
+            showMessage: false);
+        if (mutationReservation == null)
+        {
+            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+        }
+
+        OwnedChartCollectionMutationResult mutationResult = null;
+        CatalogInstalledTargetUpsertReceipt installedTargetReceipt = null;
+        CatalogWriteFailureFact deferredFailureFact = null;
+        ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = null;
+        StorageRowsVersionSnapshot storageRowsBefore = catalogStorageRowsOwner.CaptureVersionSnapshot();
+        bool catalogValidationPassed = false;
+        try
+        {
+            resourceHealthMutation = resourceHealthOwner.BeginInputMutation();
+            try
+            {
+                mutationResult = BuildOwnedChartCollectionUpsertMutationResult(
+                    addedTargets,
+                    resourceHealthMutation.BaseInputVersion,
+                    resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
+                using (mutationResult.ResourceHealthIndexInvalidated
+                    ? resourceHealthOwner.SuppressInvalidation()
+                    : null)
+                {
+                    installedTargetReceipt = catalogMutationOwner.ApplyInstalledTargetUpsertWithDeferredFailurePublication(
+                        addedTargets.BmsFiles,
+                        addedTargets.BmsonSongs,
+                        out deferredFailureFact,
+                        () => catalogValidationPassed = true);
+                    mutationResult.OwnedCollectionVersion = installedTargetReceipt.OwnedCollectionVersion;
+                    mutationResult.OwnedCollectionVersionAlreadyAdvanced = installedTargetReceipt.OwnedCollectionApplied;
+                }
+            }
+            finally
+            {
+                resourceHealthMutation.Dispose();
+            }
+
+            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= resourceHealthMutation.TargetInputVersion;
+            if (mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion.Value < 0)
+            {
+                mutationResult.ResourceHealthMutation.Invalidate = true;
+            }
+            return new InstalledChartStorageTargetsApplyReceipt(
+                mutationResult,
+                installedTargetReceipt,
+                deferredFailureFact,
+                lookupReason,
+                logOverride,
+                failureFallbackRequired: false,
+                failure: null);
+        }
+        catch (Exception exception)
+        {
+            StorageRowsVersionSnapshot storageRowsAfter = catalogStorageRowsOwner.CaptureVersionSnapshot();
+            bool failureFallbackRequired = !catalogValidationPassed
+                || storageRowsBefore.BmsRowsVersion != storageRowsAfter.BmsRowsVersion
+                || storageRowsBefore.BmsonRowsVersion != storageRowsAfter.BmsonRowsVersion;
+            return new InstalledChartStorageTargetsApplyReceipt(
+                mutationResult,
+                installedTargetReceipt,
+                deferredFailureFact,
+                lookupReason,
+                logOverride,
+                failureFallbackRequired,
+                ExceptionDispatchInfo.Capture(exception));
+        }
+    }
+
+    private void CompleteInstalledChartStorageTargetsUnderGuard(
+        InstalledChartStorageTargetsApplyReceipt receipt)
+    {
+        if (receipt == null || ReferenceEquals(receipt, InstalledChartStorageTargetsApplyReceipt.Empty))
+        {
+            return;
+        }
+        if (receipt.Failure != null)
+        {
+            receipt.Failure.Throw();
+        }
+
+        try
+        {
+            using (lr2SynchronizationOwner.EnterLr2MutationSequence())
+            using (IDisposable mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
+                "complete_installed_chart_storage_targets",
+                showMessage: false))
+            {
+                if (mutationReservation == null)
+                {
+                    throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                }
+                lr2SynchronizationOwner.SyncLr2NormalFoldersForCatalogMutation(
+                    CreateLr2NormalFolderCatalogMutationReceipt(
+                        receipt.InstalledTargetReceipt,
+                        receipt.MutationResult.OwnedCollectionVersion),
+                    receipt.LookupReason ?? "install_package",
+                    receipt.DeferPublication);
+                ApplyInstalledChartStorageTargetsSemanticStateUnderGuard(receipt);
+            }
+        }
+        catch (Exception exception)
+        {
+            receipt.RecordCompletionFailure(exception);
+            throw;
+        }
+    }
+
+    private void ApplyInstalledChartStorageTargetsSemanticStateUnderGuard(
+        InstalledChartStorageTargetsApplyReceipt receipt)
+    {
+        ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
+            receipt.MutationResult,
+            receipt.LookupReason,
+            receipt.LogOverride);
+    }
+
+    private void ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
+        OwnedChartCollectionMutationResult result,
+        string reason,
+        Action<string> logOverride)
+    {
+        if (result.InstallDestinationRuntimeStateMutation.HasStateChanges)
+        {
+            installDestinationStateOwner.Apply(result.InstallDestinationRuntimeStateMutation);
+        }
+        if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
+        {
+            installDestinationStateOwner.PruneToCurrentOwnedCharts();
+        }
+        result.InstallDestinationRuntimeStateApplied = true;
+        if (HasOwnedHashSetChanges(result))
+        {
+            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
+            result.InstalledHashIndexInvalidated = true;
+        }
+        if (result.OwnedCollectionChanged)
+        {
+            InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
+            result.PlaylistResolveIndexInvalidated = true;
+        }
+        if (result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup)
+        {
+            InvalidateInstallEstimationMetadataProfileCache();
+            result.InstallMetadataCacheInvalidated = true;
+        }
+        if (result.ShouldDispatchInstalledLookup)
+        {
+            ApplyInstalledChartLookupMutation(
+                result.InstalledLookupMutation,
+                reason,
+                logOverride);
+            result.InstalledLookupMutationApplied = true;
+        }
+    }
+
+    private void PublishInstalledChartStorageTargetsAfterGuard(
+        InstalledChartStorageTargetsApplyReceipt receipt)
+    {
+        if (receipt == null || ReferenceEquals(receipt, InstalledChartStorageTargetsApplyReceipt.Empty))
+        {
+            return;
+        }
+        catalogMutationOwner.PublishCatalogWriteFailureFactBestEffort(receipt.DeferredFailureFact);
+        receipt.PublishDeferredEffects();
+        if (receipt.Failure != null)
+        {
+            if (receipt.FailureFallbackRequired)
+            {
+                ApplyInstalledChartStorageTargetsFailureFallback(receipt.MutationResult);
+            }
+            return;
+        }
+        PublishOwnedCollectionChangeNotification(receipt.MutationResult);
+        DispatchOwnedChartCollectionMutation(receipt.MutationResult, receipt.LookupReason);
+    }
+
+    private sealed class InstalledChartStorageTargetsApplyReceipt(
+        OwnedChartCollectionMutationResult mutationResult,
+        CatalogInstalledTargetUpsertReceipt installedTargetReceipt,
+        CatalogWriteFailureFact deferredFailureFact,
+        string lookupReason,
+        Action<string> logOverride,
+        bool failureFallbackRequired,
+        ExceptionDispatchInfo failure)
+    {
+        private readonly List<Action> deferredEffects = [];
+
+        internal static InstalledChartStorageTargetsApplyReceipt Empty { get; } = new(
+            null,
+            null,
+            null,
+            null,
+            null,
+            failureFallbackRequired: false,
+            failure: null);
+
+        internal OwnedChartCollectionMutationResult MutationResult { get; } = mutationResult;
+
+        internal CatalogInstalledTargetUpsertReceipt InstalledTargetReceipt { get; } = installedTargetReceipt;
+
+        internal CatalogWriteFailureFact DeferredFailureFact { get; } = deferredFailureFact;
+
+        internal string LookupReason { get; } = lookupReason;
+
+        internal Action<string> LogOverride { get; } = logOverride;
+
+        internal bool FailureFallbackRequired { get; private set; } = failureFallbackRequired;
+
+        internal ExceptionDispatchInfo Failure { get; private set; } = failure;
+
+        internal void DeferPublication(Action publication)
+        {
+            if (publication != null)
+            {
+                deferredEffects.Add(publication);
+            }
+        }
+
+        internal void PublishDeferredEffects()
+        {
+            foreach (Action publication in deferredEffects)
+            {
+                publication();
+            }
+            deferredEffects.Clear();
+        }
+
+        internal void RecordCompletionFailure(Exception exception)
+        {
+            FailureFallbackRequired = true;
+            Failure ??= ExceptionDispatchInfo.Capture(exception);
         }
     }
 
@@ -7727,19 +7993,21 @@ public partial class BMSLibrary : ObservableObject
         long installMetadataMs = 0;
         long installedLookupMs = 0;
         long normalRefreshMs = 0;
-        if (result.InstallDestinationRuntimeStateMutation.HasStateChanges)
+        if (result.InstallDestinationRuntimeStateMutation.HasStateChanges
+            && !result.InstallDestinationRuntimeStateApplied)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             installDestinationStateOwner.Apply(result.InstallDestinationRuntimeStateMutation);
             installDestinationMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
+        if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts
+            && !result.InstallDestinationRuntimeStateApplied)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             installDestinationStateOwner.PruneToCurrentOwnedCharts();
             installDestinationMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        if (result.DigestChangedCount > 0)
+        if (result.DigestChangedCount > 0 && !result.DigestMutationApplied)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             if (result.DigestMutationRequest != null)
@@ -7760,7 +8028,7 @@ public partial class BMSLibrary : ObservableObject
             InvalidateDuplicateChartGroupsCache();
             duplicateMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        if (HasOwnedHashSetChanges(result))
+        if (HasOwnedHashSetChanges(result) && !result.InstalledHashIndexInvalidated)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
@@ -7769,11 +8037,14 @@ public partial class BMSLibrary : ObservableObject
         if (result.OwnedCollectionChanged)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            InvalidatePlaylistLibraryResolveIndexSnapshot();
+            if (!result.PlaylistResolveIndexInvalidated)
+            {
+                InvalidatePlaylistLibraryResolveIndexSnapshot();
+            }
             PublishOwnedCollectionChangeNotification(result);
             ownedCollectionNotifyMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        if (HasOwnedHashSetChanges(result))
+        if (HasOwnedHashSetChanges(result) && !result.InstalledHashIndexInvalidated)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
@@ -7782,7 +8053,10 @@ public partial class BMSLibrary : ObservableObject
         if (result.OwnedCollectionChanged)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
+            if (!result.PlaylistResolveIndexInvalidated)
+            {
+                InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
+            }
             ownedCollectionNotifyMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         {
@@ -7799,13 +8073,13 @@ public partial class BMSLibrary : ObservableObject
             resourceHealthOwner.RebaseCurrentVersion(GetCurrentResourceHealthIndexVersion());
         }
         bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
-        if (installMetadataProfileCacheInvalidated)
+        if (installMetadataProfileCacheInvalidated && !result.InstallMetadataCacheInvalidated)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             InvalidateInstallEstimationMetadataProfileCache();
             installMetadataMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        if (result.ShouldDispatchInstalledLookup)
+        if (result.ShouldDispatchInstalledLookup && !result.InstalledLookupMutationApplied)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
@@ -8167,13 +8441,16 @@ public partial class BMSLibrary : ObservableObject
         return mutation;
     }
 
-    private void ApplyInstalledChartLookupMutation(InstalledChartLookupMutation mutation, string reason)
+    private void ApplyInstalledChartLookupMutation(
+        InstalledChartLookupMutation mutation,
+        string reason,
+        Action<string> logOverride = null)
     {
         if (mutation == null || !mutation.HasChanges)
         {
             return;
         }
-        ApplyInstalledPrimaryHashLookupMutation(mutation, reason);
+        ApplyInstalledPrimaryHashLookupMutation(mutation, reason, logOverride);
         lock (lockInstalledChartLookupIndex)
         {
             if (!installedChartLookupIndexInitialized)
@@ -8184,7 +8461,7 @@ public partial class BMSLibrary : ObservableObject
             {
                 installedChartLookupIndex = new InstalledChartLookupIndexState();
                 installedChartLookupIndexInitialized = false;
-                LogInstallPerformance("installed_chart_lookup_index update mode=full_invalidate reason=" + reason);
+                (logOverride ?? LogInstallPerformance)("installed_chart_lookup_index update mode=full_invalidate reason=" + reason);
                 return;
             }
             var stopwatch = Stopwatch.StartNew();
@@ -8201,11 +8478,14 @@ public partial class BMSLibrary : ObservableObject
                 installedChartLookupIndex.AddChart(entry.Path, entry.Md5, entry.Sha256);
             }
             stopwatch.Stop();
-            LogInstallPerformance("installed_chart_lookup_index update mode=incremental reason=" + reason + " removed=" + mutation.Removed.Count + " moved=" + mutation.Moved.Count + " added=" + mutation.Added.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + installedChartLookupIndex.HashCount + " primaryHashes=" + installedChartLookupIndex.DistinctPrimaryHashCount + " dirRefs=" + installedChartLookupIndex.DirectoryReferenceCount);
+            (logOverride ?? LogInstallPerformance)("installed_chart_lookup_index update mode=incremental reason=" + reason + " removed=" + mutation.Removed.Count + " moved=" + mutation.Moved.Count + " added=" + mutation.Added.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + installedChartLookupIndex.HashCount + " primaryHashes=" + installedChartLookupIndex.DistinctPrimaryHashCount + " dirRefs=" + installedChartLookupIndex.DirectoryReferenceCount);
         }
     }
 
-    private void ApplyInstalledPrimaryHashLookupMutation(InstalledChartLookupMutation mutation, string reason)
+    private void ApplyInstalledPrimaryHashLookupMutation(
+        InstalledChartLookupMutation mutation,
+        string reason,
+        Action<string> logOverride = null)
     {
         if (mutation == null || !mutation.HasChanges)
         {
@@ -8221,7 +8501,7 @@ public partial class BMSLibrary : ObservableObject
             {
                 installedPrimaryHashLookup = new PrimaryHashLookupState();
                 installedPrimaryHashLookupInitialized = false;
-                LogInstallPerformance("installed_primary_hash_lookup update mode=full_invalidate reason=" + reason);
+                (logOverride ?? LogInstallPerformance)("installed_primary_hash_lookup update mode=full_invalidate reason=" + reason);
                 return;
             }
             var stopwatch = Stopwatch.StartNew();
@@ -8234,7 +8514,7 @@ public partial class BMSLibrary : ObservableObject
                 installedPrimaryHashLookup.AddPrimaryHash(entry.Md5);
             }
             stopwatch.Stop();
-            LogInstallPerformance("installed_primary_hash_lookup update mode=incremental reason=" + reason + " removed=" + mutation.Removed.Count + " moved=" + mutation.Moved.Count + " added=" + mutation.Added.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " primaryHashes=" + installedPrimaryHashLookup.DistinctPrimaryHashCount);
+            (logOverride ?? LogInstallPerformance)("installed_primary_hash_lookup update mode=incremental reason=" + reason + " removed=" + mutation.Removed.Count + " moved=" + mutation.Moved.Count + " added=" + mutation.Added.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " primaryHashes=" + installedPrimaryHashLookup.DistinctPrimaryHashCount);
         }
     }
 
@@ -8263,7 +8543,11 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private bool EnsureInstalledPrimaryHashLookupBuiltUnsafe(out long buildMs, out int bmsCount, out int bmsonCount)
+    private bool EnsureInstalledPrimaryHashLookupBuiltUnsafe(
+        out long buildMs,
+        out int bmsCount,
+        out int bmsonCount,
+        Action<string> logOverride = null)
     {
         lock (lockInstalledPrimaryHashLookup)
         {
@@ -8280,7 +8564,7 @@ public partial class BMSLibrary : ObservableObject
             installedPrimaryHashLookupInitialized = true;
             stopwatch.Stop();
             buildMs = stopwatch.ElapsedMilliseconds;
-            LogInstallPerformance("installed_primary_hash_lookup build mode=full buildMs=" + buildMs + " primaryHashes=" + installedPrimaryHashLookup.DistinctPrimaryHashCount + " files=" + bmsCount + " bmson=" + bmsonCount + " rows=" + (bmsCount + bmsonCount) + " source=owned_collection_primary singleFlight=true");
+            (logOverride ?? LogInstallPerformance)("installed_primary_hash_lookup build mode=full buildMs=" + buildMs + " primaryHashes=" + installedPrimaryHashLookup.DistinctPrimaryHashCount + " files=" + bmsCount + " bmson=" + bmsonCount + " rows=" + (bmsCount + bmsonCount) + " source=owned_collection_primary singleFlight=true");
             return true;
         }
     }
@@ -8445,7 +8729,23 @@ public partial class BMSLibrary : ObservableObject
         return CreateInstalledChartKeySnapshotExcludingChartsUnsafe(excluded);
     }
 
-    private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded, string reason, long operationId)
+    private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(
+        IEnumerable<ChartFile> excluded,
+        string reason,
+        long operationId)
+    {
+        return CreateInstalledChartKeySnapshotExcludingChartsUnsafe(
+            excluded,
+            reason,
+            operationId,
+            null);
+    }
+
+    private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(
+        IEnumerable<ChartFile> excluded,
+        string reason,
+        long operationId,
+        Action<string> logOverride)
     {
         var stopwatch = Stopwatch.StartNew();
         var excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -8462,7 +8762,11 @@ public partial class BMSLibrary : ObservableObject
                 }
             }
         }
-        bool coldBuild = EnsureInstalledPrimaryHashLookupBuiltUnsafe(out long buildMs, out int bmsCount, out int bmsonCount);
+        bool coldBuild = EnsureInstalledPrimaryHashLookupBuiltUnsafe(
+            out long buildMs,
+            out int bmsCount,
+            out int bmsonCount,
+            logOverride);
         IPrimaryHashLookup result;
         lock (lockInstalledPrimaryHashLookup)
         {
@@ -8471,7 +8775,7 @@ public partial class BMSLibrary : ObservableObject
         stopwatch.Stop();
         if (!string.IsNullOrWhiteSpace(reason))
         {
-            LogInstallPerformance("installed_primary_hash_lookup excluding_snapshot reason=" + reason
+            (logOverride ?? LogInstallPerformance)("installed_primary_hash_lookup excluding_snapshot reason=" + reason
                 + " op=" + operationId
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " coldBuild=" + coldBuild
@@ -8885,6 +9189,167 @@ public partial class BMSLibrary : ObservableObject
     internal ResourceHealthIndexSnapshot TryGetCurrentResourceHealthIndexSnapshotForView()
     {
         return resourceHealthOwner.TryGetCurrentSnapshot();
+    }
+
+    private PendingEstimatedInstallPostGuardReceipt ApplyEstimatedInstallMaintenanceForDeferredDispatch(
+        IEnumerable<ChartFile> charts,
+        EstimatedInstallDeferredFeedback deferredFeedback)
+    {
+        List<ChartFile> targets = BuildEstimatedInstallMaintenanceTargets(charts);
+        if (targets.Count == 0)
+        {
+            return new PendingEstimatedInstallPostGuardReceipt(0, () => { });
+        }
+
+        CatalogWriteFailureFact deferredFailureFact = null;
+        try
+        {
+            CatalogMaintenanceOperationReceipt ownerReceipt;
+            using (rwlockBMSFiles.GetWriterGuard())
+            {
+                ownerReceipt = catalogMaintenanceOwner.ApplyMaintenance(
+                    CreateResourceMaintenanceTargetSet(targets),
+                    forceUpdate: true,
+                    progressReporter: null,
+                    cancellationToken: CancellationToken.None,
+                    resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates,
+                    reason: "install_package_estimated",
+                    dialogServiceOverride: deferredFeedback.DialogService,
+                    logPerformanceOverride: deferredFeedback.LogInstallPerformance,
+                    captureFailureFact: fact => deferredFailureFact = fact,
+                    deferPostCommitEffects: true);
+            }
+            MaintenanceWorkflowResult workflowResult = ownerReceipt.WorkflowResult.ToMutable();
+            ResourceHealthIndexMutation resourceHealthMutation = ownerReceipt.ResourceHealthMutation.ToMutation();
+            OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
+                ownerReceipt.ResourceHealthMutation,
+                workflowResult.HasUpdates);
+            return new PendingEstimatedInstallPostGuardReceipt(
+                targets.Count,
+                () =>
+                {
+                    catalogMutationOwner.PublishCatalogWriteFailureFactBestEffort(deferredFailureFact);
+                    ownerReceipt.PublishPostCommitEffects();
+                    try
+                    {
+                        DispatchOwnedChartCollectionMutation(mutationResult, ownerReceipt.Reason);
+                    }
+                    catch
+                    {
+                        InvalidateOwnedChartCollection();
+                        InvalidateInstalledDirectoryIndex();
+                        resourceHealthOwner.ForceInvalidate("maintenance_dispatch_failed");
+                        throw;
+                    }
+                    ResourceHealthIndexDispatchResult resourceHealthDispatch =
+                        mutationResult.ResourceHealthDispatchResult ?? new ResourceHealthIndexDispatchResult();
+                    workflowResult.ResourceHealthIndexMs =
+                        resourceHealthMutation.HasChanges && !resourceHealthDispatch.Deferred
+                            ? resourceHealthDispatch.IndexMs
+                            : 0L;
+                    workflowResult.WarningReapplyTargets = 0;
+                    workflowResult.WarningChangedCount = 0;
+                    LogAndReturnMaintenanceWorkflowResult(
+                        workflowResult,
+                        resourceHealthDispatch.Snapshot ?? ResourceHealthIndexSnapshot.Empty,
+                        resourceHealthDispatch.DeltaApplied,
+                        resourceHealthDispatch.Deferred,
+                        resourceHealthDispatch.FullRebuilt);
+                });
+        }
+        catch (Exception exception)
+        {
+            return new PendingEstimatedInstallPostGuardReceipt(
+                targets.Count,
+                () =>
+                {
+                    catalogMutationOwner.PublishCatalogWriteFailureFactBestEffort(deferredFailureFact);
+                    InvalidateOwnedChartCollection();
+                    InvalidateInstalledDirectoryIndex();
+                    resourceHealthOwner.ForceInvalidate("maintenance_apply_failed");
+                },
+                ExceptionDispatchInfo.Capture(exception));
+        }
+    }
+
+    private PendingEstimatedInstallPostGuardReceipt BuildEstimatedInstallInlineChartInfoForDeferredDispatch(
+        string reason,
+        IEnumerable<ChartFile> charts,
+        EstimatedInstallDeferredFeedback deferredFeedback)
+    {
+        List<ChartFile> targets = [.. (charts ?? []).Where(chart => chart != null)];
+        List<Action> ownerPublicationEffects = [];
+        ChartInfoInlineBuildResult result = null;
+        OwnedChartCollectionMutationResult digestMutationResult = null;
+        ExceptionDispatchInfo failure = null;
+        using (BeginOwnedDigestMutationWindow())
+        {
+            try
+            {
+                result = catalogChartInfoOwner.BuildInline(
+                    reason,
+                    targets,
+                    ownerPublicationEffects.Add,
+                    deferredFeedback.LogInstallPerformance,
+                    message => deferredFeedback.LogInstallWarning(null, message));
+                CatalogDigestMutationRequest digestRequest =
+                    catalogMutationOwner.CreateDigestMutationRequest(result.DigestChanges);
+                digestMutationResult = CreateOwnedChartCollectionDigestMutationResult(
+                    digestRequest.DigestChanges);
+                digestMutationResult.DigestMutationRequest = digestRequest;
+                CatalogDigestMutationReceipt digestReceipt =
+                    catalogMutationOwner.ApplyDigestMutation(digestRequest);
+                digestMutationResult.DigestMutationApplied = true;
+                digestMutationResult.OwnedCollectionVersion = digestReceipt.OwnedCollectionVersion;
+                ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
+                    digestMutationResult,
+                    reason ?? "install_package_inline",
+                    deferredFeedback.LogInstallPerformance);
+            }
+            catch (Exception exception)
+            {
+                string displayedMessage = GetDisplayedExceptionMessage(exception).Replace(Environment.NewLine, " | ");
+                BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+                ownerPublicationEffects.Add(() =>
+                    lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
+                        options,
+                        stage: "lr2_song_db_chart_info_inline_upsert_failed",
+                        detail: "lr2_song_db_chart_info_inline_upsert_failed: " + displayedMessage,
+                        logReason: reason ?? "chart_info_inline_install"));
+                deferredFeedback.LogInstallWarning(exception, "lr2_song_db_chart_info_inline_upsert failed"
+                    + " reason=" + (reason ?? "chart_info_inline_install")
+                    + " exception=" + exception.GetType().Name
+                    + " message=" + displayedMessage);
+                failure = ExceptionDispatchInfo.Capture(exception);
+            }
+        }
+
+        return new PendingEstimatedInstallPostGuardReceipt(
+            targets.Count,
+            () =>
+            {
+                foreach (Action publishOwnerEffect in ownerPublicationEffects)
+                {
+                    publishOwnerEffect();
+                }
+                if (failure == null)
+                {
+                    if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
+                    {
+                        DispatchWarningPresentationChanged("install_package_inline_chart_info_parse_failure");
+                    }
+                    DispatchOwnedChartCollectionMutationWithResourceHealthLease(
+                        digestMutationResult,
+                        reason ?? "install_package_inline");
+                }
+                else
+                {
+                    DispatchOwnedPotentialDigestChanges(
+                        targets,
+                        (reason ?? "install_package_inline") + "_failed");
+                }
+            },
+            failure);
     }
 
     private MaintenanceWorkflowResult ApplyCatalogMaintenance(

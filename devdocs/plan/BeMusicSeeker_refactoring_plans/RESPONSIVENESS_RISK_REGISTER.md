@@ -20,7 +20,7 @@
 | ID | State | Wait edge | Closure |
 |---|---|---|---|
 | `RSP-001` | `Closed` | estimated-install workerが`rwlockBMSFiles` writerを保持しUI completionを待つ。UI applyは同lock readerを要求 | producerはlatest versionだけをqueueし、UI laneがcoalesceしてapplyする。held writer／dedicated UI lane regressionとshutdown drainで固定 |
-| `RSP-002` | `P1 active` | estimated-install broad lease内にfile I/O、catalog／package apply、maintenance、dialog、notificationが混在 | H2でcallback／dialogをguard外へ移し、evidenceがある範囲だけlock scopeを縮小 |
+| `RSP-002` | `Closed` | estimated-install broad lease内にfile I/O、catalog／package apply、maintenance、dialog、notificationが混在 | snapshot readerとatomic apply writerをboundedに分離し、estimate／LR2 reservation内はsemantic state applyだけに限定する。package-entry／catalog／maintenance event、failure fact、dialog、log、collection UI flushは全guard解放後にpublish |
 
 ## Existing convergence contract
 

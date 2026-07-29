@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -178,15 +179,152 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 ChartPackagesPending = CreatePackageCollection([pendingPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
+            bool packageEntryNotificationObserved = false;
+            pendingEntry.PropertyChanged += (_, _) =>
+            {
+                Assert.IsFalse(library.IsWriteLockHeldPendingInstallCharts);
+                Assert.IsFalse(library.IsWriteLockHeldInitializeBMSFiles);
+                packageEntryNotificationObserved = true;
+            };
 
             library.InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
 
+            Assert.IsTrue(packageEntryNotificationObserved);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
             ChartPackage displayPackage = library.ChartPackagesInstalled.Single();
             Assert.AreEqual(destinationDirectoryPath, displayPackage.path);
             ChartFile displayChart = displayPackage.ChartEntries.Single().Chart;
             Assert.AreSame(installedBmson, displayChart.GetBmsonStorageOwner());
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
+        });
+    }
+
+    [TestMethod]
+    public void OverwritePendingInstalledOnlyPackagesResources_ReleasesOuterWritersBeforeEstimatedInstallPublication()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "installed-overwrite");
+            string pendingDirectoryPath = Path.Combine(tempRootPath, "pending-overwrite");
+            Directory.CreateDirectory(destinationDirectoryPath);
+            Directory.CreateDirectory(pendingDirectoryPath);
+            string installedBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            string pendingBmsonPath = Path.Combine(pendingDirectoryPath, "chart.bmson");
+            string pendingResourcePath = Path.Combine(pendingDirectoryPath, "sound.wav");
+            File.WriteAllText(installedBmsonPath, "{}");
+            File.WriteAllText(pendingBmsonPath, "{}");
+            File.WriteAllText(pendingResourcePath, "resource");
+            var installedBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = installedBmsonPath,
+                folder = destinationDirectoryPath,
+                title = "Installed",
+                md5 = "cccccccccccccccccccccccccccccccc",
+                sha256 = new string('d', 64)
+            };
+            var pendingBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = pendingBmsonPath,
+                folder = pendingDirectoryPath,
+                title = "Pending",
+                md5 = installedBmson.md5,
+                sha256 = installedBmson.sha256
+            };
+            PackageChartEntry pendingEntry = PackageChartEntry.FromChart(
+                ChartFileProjection.FromBmsonSong(
+                    pendingBmson,
+                    includeWarningSnapshot: false,
+                    includeResourceReferences: false));
+            ChartPackage pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
+            pendingPackage.path = pendingDirectoryPath;
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                BMSFiles = null,
+                BmsonSongs = [installedBmson],
+                ChartPackagesPending = CreatePackageCollection([pendingPackage]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            bool packageEntryNotificationObserved = false;
+            pendingEntry.PropertyChanged += (_, _) =>
+            {
+                Assert.IsFalse(library.IsWriteLockHeldPendingInstallCharts);
+                Assert.IsFalse(library.IsWriteLockHeldInitializeBMSFiles);
+                packageEntryNotificationObserved = true;
+            };
+
+            PendingInstalledOnlyResourceOverwriteResult result =
+                library.OverwritePendingInstalledOnlyPackagesResources([pendingPackage]);
+
+            Assert.AreEqual(1, result.SucceededInstall);
+            Assert.AreEqual(0, result.Failed);
+            Assert.IsTrue(packageEntryNotificationObserved);
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
+        });
+    }
+
+    [TestMethod]
+    public void InstallPendingPackagesToEstimatedDestinations_SubscriberFailureDoesNotReclassifyCommittedInstall()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "installed-subscriber-failure");
+            string pendingDirectoryPath = Path.Combine(tempRootPath, "pending-subscriber-failure");
+            Directory.CreateDirectory(destinationDirectoryPath);
+            Directory.CreateDirectory(pendingDirectoryPath);
+            string installedBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            string pendingBmsonPath = Path.Combine(pendingDirectoryPath, "chart.bmson");
+            string pendingResourcePath = Path.Combine(pendingDirectoryPath, "sound.wav");
+            File.WriteAllText(installedBmsonPath, "{}");
+            File.WriteAllText(pendingBmsonPath, "{}");
+            File.WriteAllText(pendingResourcePath, "resource");
+            var installedBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = installedBmsonPath,
+                folder = destinationDirectoryPath,
+                title = "Installed",
+                md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                sha256 = new string('f', 64)
+            };
+            var pendingBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = pendingBmsonPath,
+                folder = pendingDirectoryPath,
+                title = "Pending",
+                md5 = installedBmson.md5,
+                sha256 = installedBmson.sha256
+            };
+            PackageChartEntry pendingEntry = PackageChartEntry.FromChart(
+                ChartFileProjection.FromBmsonSong(
+                    pendingBmson,
+                    includeWarningSnapshot: false,
+                    includeResourceReferences: false));
+            pendingEntry.ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
+            ChartPackage pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
+            pendingPackage.path = pendingDirectoryPath;
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                BMSFiles = null,
+                BmsonSongs = [installedBmson],
+                ChartPackagesPending = CreatePackageCollection([pendingPackage]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            pendingEntry.PropertyChanged += (_, _) =>
+            {
+                if (File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")))
+                {
+                    throw new InvalidOperationException("subscriber publication failed");
+                }
+            };
+
+            library.InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
+
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
         });
     }
@@ -270,6 +408,343 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.ThrowsException<AggregateException>(() => lease.Dispose());
         Assert.AreEqual(1, throwingGuard.DisposeCount);
         Assert.AreEqual(1, releasedGuard.DisposeCount);
+    }
+
+    [TestMethod]
+    public void PendingEstimatedInstallOwner_ReleasesRawLeasesBeforeFileMoveMaintenanceAndNotifications()
+    {
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+            }
+
+            string sourceDirectory = Path.Combine(tempRootPath, "pending-lock-scope");
+            string destinationDirectory = Path.Combine(tempRootPath, "installed-lock-scope");
+            Directory.CreateDirectory(sourceDirectory);
+            Directory.CreateDirectory(destinationDirectory);
+            string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE lock scope");
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage(
+                [CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath)]);
+            pendingPackage.path = sourceDirectory;
+            pendingPackage.ChartEntries.Single().ApplyInstallDestination(
+                destinationDirectory,
+                "Installed",
+                "Artist");
+
+            bool snapshotLeaseHeld = false;
+            bool applyLeaseHeld = false;
+            bool fileMoveObserved = false;
+            bool catalogApplyObserved = false;
+            bool maintenanceObserved = false;
+            bool notificationObserved = false;
+            bool deferredDialogObserved = false;
+            bool semanticGuardHeld = true;
+            bool packageEntryNotificationObserved = false;
+            bool inlineSemanticStateApplied = false;
+            pendingPackage.ChartEntries.Single().PropertyChanged += (_, _) =>
+            {
+                Assert.IsFalse(semanticGuardHeld);
+                packageEntryNotificationObserved = true;
+            };
+
+            PendingEstimatedInstallMutationGate snapshotGate = new(() =>
+            {
+                Assert.IsFalse(snapshotLeaseHeld);
+                Assert.IsFalse(applyLeaseHeld);
+                snapshotLeaseHeld = true;
+                return new CallbackDisposable(() => snapshotLeaseHeld = false);
+            });
+            PendingEstimatedInstallMutationGate applyGate = new(() =>
+            {
+                Assert.IsFalse(snapshotLeaseHeld);
+                Assert.IsFalse(applyLeaseHeld);
+                applyLeaseHeld = true;
+                return new CallbackDisposable(() => applyLeaseHeld = false);
+            });
+            var preparation = new PendingEstimatedInstallPreparationCapability(
+                () => new BmsLibraryOptionsSnapshot(),
+                () => [pendingPackage],
+                snapshotGate,
+                applyGate,
+                _ => EmptyPrimaryHashLookup.Instance,
+                (_, _, _) => 1,
+                (installPackages, _, deferredMaintenanceCharts, deferredInstalledPackages, _, _, _, _, _, deferredFeedback) =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsFalse(applyLeaseHeld);
+                    fileMoveObserved = true;
+                    installPackages.Single().ChartEntries.Single().ApplyInstalledPath(
+                        Path.Combine(destinationDirectory, "chart.bms"));
+                    deferredFeedback.DialogService.Show(
+                        "deferred install failure detail",
+                        "test",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Hand,
+                        MessageBoxResult.OK);
+                    deferredInstalledPackages.AddRange(installPackages);
+                    return [];
+                },
+                (package, _) => package,
+                (_, _) => (true, CleanupSourceKind.Directory));
+            var catalog = new PendingEstimatedInstallCatalogCapability(
+                (_, _) =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsFalse(applyLeaseHeld);
+                    return new PendingEstimatedInstallCatalogPreparation();
+                },
+                (_, _, _) =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsTrue(applyLeaseHeld);
+                    catalogApplyObserved = true;
+                    return new PendingEstimatedInstallCatalogApplyReceipt(
+                        hasFailure: false,
+                        () =>
+                        {
+                            Assert.IsTrue(semanticGuardHeld);
+                        },
+                        () =>
+                        {
+                            Assert.IsFalse(semanticGuardHeld);
+                            Assert.IsTrue(
+                                inlineSemanticStateApplied,
+                                "A following operation can enter from catalog publication, so inline semantic state must already be complete.");
+                        });
+                },
+                receipt => receipt.CompleteUnderGuard(),
+                receipt => receipt.PublishAfterGuard());
+            var maintenance = new PendingEstimatedInstallMaintenanceCapability(
+                (_, _) =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsFalse(applyLeaseHeld);
+                    Assert.IsTrue(semanticGuardHeld);
+                    maintenanceObserved = true;
+                    return new PendingEstimatedInstallPostGuardReceipt(
+                        0,
+                        () => Assert.IsFalse(semanticGuardHeld));
+                },
+                (_, _, _) =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsFalse(applyLeaseHeld);
+                    Assert.IsTrue(semanticGuardHeld);
+                    inlineSemanticStateApplied = true;
+                    return new PendingEstimatedInstallPostGuardReceipt(
+                        0,
+                        () => Assert.IsFalse(semanticGuardHeld));
+                });
+            var notification = new PendingEstimatedInstallNotificationCapability(
+                (_, _, _, _, defaultResult) =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsFalse(applyLeaseHeld);
+                    notificationObserved = true;
+                    deferredDialogObserved = true;
+                    return defaultResult;
+                },
+                _ =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsFalse(applyLeaseHeld);
+                    notificationObserved = true;
+                },
+                _ =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsFalse(applyLeaseHeld);
+                    notificationObserved = true;
+                },
+                (_, _) => notificationObserved = true);
+            var packageLifecycleOwner = new PackageLifecycleOwner(
+                new BmsLibraryDbGateway(songDbPath),
+                new TestUiScheduler(() => Dispatcher.CurrentDispatcher),
+                (_, _) => { },
+                _ => { },
+                _ => { },
+                packages => CreatePackageCollection(packages),
+                () => { },
+                _ => { });
+            packageLifecycleOwner.SetPendingPackages(CreatePackageCollection([pendingPackage]));
+            var owner = new PendingEstimatedInstallOwner(
+                new BmsLibraryPackageInstallService(),
+                preparation,
+                catalog,
+                packageLifecycleOwner,
+                maintenance,
+                notification,
+                new ResourceHealthIndexOwner(
+                    new BmsLibraryMaintenanceService(),
+                    _ => { },
+                    () => new ResourceHealthIndexCurrentVersion()));
+
+            var executionContext = new PendingEstimatedInstallExecutionContext();
+            PendingEstimatedInstallExecutionReceipt receipt;
+            using (packageLifecycleOwner.BeginCollectionMutationScope())
+            {
+                receipt = owner.InstallPendingPackagesToEstimatedDestinations(
+                    [pendingPackage],
+                    executionContext);
+                owner.CompletePendingPackagesToEstimatedDestinationsUnderGuard(
+                    receipt,
+                    executionContext.DeferredFeedback);
+
+                Assert.IsFalse(snapshotLeaseHeld);
+                Assert.IsFalse(applyLeaseHeld);
+            }
+            semanticGuardHeld = false;
+            owner.PublishPostGuardEffects(receipt, executionContext);
+            owner.PublishDeferredFeedback(executionContext.DeferredFeedback);
+
+            Assert.IsTrue(fileMoveObserved);
+            Assert.IsTrue(catalogApplyObserved);
+            Assert.IsTrue(maintenanceObserved);
+            Assert.IsTrue(notificationObserved);
+            Assert.IsTrue(deferredDialogObserved);
+            Assert.IsTrue(packageEntryNotificationObserved);
+            Assert.AreEqual(0, packageLifecycleOwner.PendingPackages.Count);
+            Assert.AreEqual(1, packageLifecycleOwner.InstalledPackages.Count);
+        });
+    }
+
+    [TestMethod]
+    public void PendingEstimatedInstallOwner_CatalogFailurePreservesPendingStateAndPublishesDeferredFeedbackAfterLeaseRelease()
+    {
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+            }
+
+            string sourceDirectory = Path.Combine(tempRootPath, "pending-catalog-failure");
+            string destinationDirectory = Path.Combine(tempRootPath, "installed-catalog-failure");
+            Directory.CreateDirectory(sourceDirectory);
+            Directory.CreateDirectory(destinationDirectory);
+            string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE catalog failure");
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage(
+                [CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", chartPath)]);
+            pendingPackage.path = sourceDirectory;
+            pendingPackage.ChartEntries.Single().ApplyInstallDestination(
+                destinationDirectory,
+                "Installed",
+                "Artist");
+
+            bool snapshotLeaseHeld = false;
+            bool applyLeaseHeld = false;
+            bool catalogCompletionObserved = false;
+            bool deferredDialogObserved = false;
+            bool semanticGuardHeld = true;
+            var preparation = new PendingEstimatedInstallPreparationCapability(
+                () => new BmsLibraryOptionsSnapshot(),
+                () => [pendingPackage],
+                new PendingEstimatedInstallMutationGate(() =>
+                {
+                    snapshotLeaseHeld = true;
+                    return new CallbackDisposable(() => snapshotLeaseHeld = false);
+                }),
+                new PendingEstimatedInstallMutationGate(() =>
+                {
+                    applyLeaseHeld = true;
+                    return new CallbackDisposable(() => applyLeaseHeld = false);
+                }),
+                _ => EmptyPrimaryHashLookup.Instance,
+                (_, _, _) => 1,
+                (installPackages, _, deferredMaintenanceCharts, deferredInstalledPackages, _, _, _, _, _, deferredFeedback) =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsFalse(applyLeaseHeld);
+                    deferredFeedback.DialogService.Show(
+                        "catalog failure detail",
+                        "test",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Hand,
+                        MessageBoxResult.OK);
+                    deferredInstalledPackages.AddRange(installPackages);
+                    return [];
+                },
+                (package, _) => package,
+                (_, _) => (true, CleanupSourceKind.Directory));
+            var catalog = new PendingEstimatedInstallCatalogCapability(
+                (_, _) => new PendingEstimatedInstallCatalogPreparation(),
+                (_, _, _) =>
+                {
+                    Assert.IsTrue(applyLeaseHeld);
+                    return new PendingEstimatedInstallCatalogApplyReceipt(
+                        hasFailure: true,
+                        () =>
+                        {
+                            Assert.IsFalse(snapshotLeaseHeld);
+                            Assert.IsFalse(applyLeaseHeld);
+                            Assert.IsTrue(semanticGuardHeld);
+                            catalogCompletionObserved = true;
+                            throw new InvalidOperationException("catalog apply failed");
+                        },
+                        () => Assert.IsFalse(semanticGuardHeld));
+                },
+                receipt => receipt.CompleteUnderGuard(),
+                receipt => receipt.PublishAfterGuard());
+            var maintenance = new PendingEstimatedInstallMaintenanceCapability(
+                (_, _) => throw new InvalidOperationException("Maintenance must not run after catalog completion failure."),
+                (_, _, _) => throw new InvalidOperationException("Inline chart-info build must not run after catalog completion failure."));
+            var notification = new PendingEstimatedInstallNotificationCapability(
+                (_, _, _, _, defaultResult) =>
+                {
+                    Assert.IsFalse(snapshotLeaseHeld);
+                    Assert.IsFalse(applyLeaseHeld);
+                    deferredDialogObserved = true;
+                    return defaultResult;
+                },
+                _ => Assert.Fail("Cleanup-only warning is not expected."),
+                _ => { },
+                (_, _) => { });
+            var packageLifecycleOwner = new PackageLifecycleOwner(
+                new BmsLibraryDbGateway(songDbPath),
+                new TestUiScheduler(() => Dispatcher.CurrentDispatcher),
+                (_, _) => { },
+                _ => { },
+                _ => { },
+                packages => CreatePackageCollection(packages),
+                () => { },
+                _ => { });
+            packageLifecycleOwner.SetPendingPackages(CreatePackageCollection([pendingPackage]));
+            var owner = new PendingEstimatedInstallOwner(
+                new BmsLibraryPackageInstallService(),
+                preparation,
+                catalog,
+                packageLifecycleOwner,
+                maintenance,
+                notification,
+                new ResourceHealthIndexOwner(
+                    new BmsLibraryMaintenanceService(),
+                    _ => { },
+                    () => new ResourceHealthIndexCurrentVersion()));
+
+            var executionContext = new PendingEstimatedInstallExecutionContext();
+            PendingEstimatedInstallExecutionReceipt receipt =
+                owner.InstallPendingPackagesToEstimatedDestinations([pendingPackage], executionContext);
+
+            Assert.AreEqual(1, packageLifecycleOwner.PendingPackages.Count);
+            Assert.AreEqual(0, packageLifecycleOwner.InstalledPackages.Count);
+            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+                () => owner.CompletePendingPackagesToEstimatedDestinationsUnderGuard(
+                    receipt,
+                    executionContext.DeferredFeedback));
+            Assert.AreEqual("catalog apply failed", failure.Message);
+            semanticGuardHeld = false;
+            owner.PublishPostGuardEffects(receipt, executionContext);
+            owner.PublishDeferredFeedback(executionContext.DeferredFeedback);
+
+            Assert.IsTrue(catalogCompletionObserved);
+            Assert.IsTrue(deferredDialogObserved);
+            Assert.AreEqual(1, packageLifecycleOwner.PendingPackages.Count);
+            Assert.AreEqual(0, packageLifecycleOwner.InstalledPackages.Count);
+        });
     }
 
     [TestMethod]
@@ -3770,6 +4245,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 throw new InvalidOperationException("dispose-failed");
             }
+        }
+    }
+
+    private sealed class CallbackDisposable(Action dispose) : IDisposable
+    {
+        private Action dispose = dispose;
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref dispose, null)?.Invoke();
         }
     }
 

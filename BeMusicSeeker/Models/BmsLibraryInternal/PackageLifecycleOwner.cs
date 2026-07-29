@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -40,6 +41,8 @@ internal sealed partial class PackageLifecycleOwner
 
     private readonly Action<string> raisePropertyChanged;
 
+    private readonly Action<Exception> collectionPublicationFailed;
+
     private ObservableCollection<ChartPackage> pendingPackages;
 
     private ObservableCollection<ChartPackage> installedPackages;
@@ -71,11 +74,14 @@ internal sealed partial class PackageLifecycleOwner
         Action<Exception> pendingEstimateBatchFailed,
         Action<string> raisePropertyChanged,
         Func<IEnumerable<ChartPackage>, ObservableCollection<ChartPackage>> packageCollectionFactory,
-        Action raiseInstalledPackagesChanged)
+        Action raiseInstalledPackagesChanged,
+        Action<Exception> collectionPublicationFailed)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.raisePropertyChanged = raisePropertyChanged ?? throw new ArgumentNullException(nameof(raisePropertyChanged));
+        this.collectionPublicationFailed = collectionPublicationFailed
+            ?? throw new ArgumentNullException(nameof(collectionPublicationFailed));
         this.packageCollectionFactory = packageCollectionFactory ?? throw new ArgumentNullException(nameof(packageCollectionFactory));
         pendingPackages = this.packageCollectionFactory([]);
         installedPackages = this.packageCollectionFactory([]);
@@ -104,7 +110,7 @@ internal sealed partial class PackageLifecycleOwner
 
     internal ObservableCollection<ChartPackage> InstalledPackages => installedPackages;
 
-    internal IDisposable BeginCollectionMutationScope()
+    internal IDisposable BeginCollectionMutationScope(bool queuePublication = false)
     {
         CollectionMutationDeferral previous = collectionMutationDeferral.Value;
         if (previous?.IsCompleted == true)
@@ -113,7 +119,7 @@ internal sealed partial class PackageLifecycleOwner
         }
         CollectionMutationDeferral current = new();
         collectionMutationDeferral.Value = current;
-        return new CollectionMutationScopeLease(this, current, previous);
+        return new CollectionMutationScopeLease(this, current, previous, queuePublication);
     }
 
     internal StartupInstallReadinessState StartupReadiness => startupReadiness;
@@ -440,7 +446,8 @@ internal sealed partial class PackageLifecycleOwner
 
     private void CompleteCollectionMutationScope(
         CollectionMutationDeferral current,
-        CollectionMutationDeferral previous)
+        CollectionMutationDeferral previous,
+        bool queuePublication)
     {
         if (!ReferenceEquals(collectionMutationDeferral.Value, current))
         {
@@ -459,9 +466,59 @@ internal sealed partial class PackageLifecycleOwner
             }
             return;
         }
-        foreach (Action mutation in mutations)
+        if (!queuePublication)
         {
-            InvokeOnUi(mutation);
+            foreach (Action mutation in mutations)
+            {
+                InvokeOnUi(mutation);
+            }
+            return;
+        }
+
+        try
+        {
+            IUiScheduledOperation operation = uiScheduler.Schedule(
+                () =>
+                {
+                    try
+                    {
+                        foreach (Action mutation in mutations)
+                        {
+                            mutation();
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        collectionPublicationFailed(exception);
+                    }
+                });
+            if (!operation.IsAccepted)
+            {
+                collectionPublicationFailed(new InvalidOperationException(
+                    "Package collection publication was rejected: " + operation.RejectionReason));
+                return;
+            }
+            _ = operation.Completion.ContinueWith(
+                task =>
+                {
+                    if (task.IsFaulted)
+                    {
+                        collectionPublicationFailed(task.Exception?.GetBaseException()
+                            ?? new InvalidOperationException("Package collection publication failed."));
+                    }
+                    else if (task.IsCanceled || operation.IsAborted)
+                    {
+                        collectionPublicationFailed(new OperationCanceledException(
+                            "Package collection publication was canceled after scheduling."));
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+        catch (Exception exception)
+        {
+            collectionPublicationFailed(exception);
         }
     }
 
@@ -518,24 +575,38 @@ internal sealed partial class PackageLifecycleOwner
         private readonly PackageLifecycleOwner owner;
         private readonly CollectionMutationDeferral current;
         private readonly CollectionMutationDeferral previous;
+
+        private readonly bool queuePublication;
         private int disposed;
 
         internal CollectionMutationScopeLease(
             PackageLifecycleOwner owner,
             CollectionMutationDeferral current,
-            CollectionMutationDeferral previous)
+            CollectionMutationDeferral previous,
+            bool queuePublication)
         {
             this.owner = owner;
             this.current = current;
             this.previous = previous;
+            this.queuePublication = queuePublication;
         }
 
         public void Dispose()
         {
             if (Interlocked.Exchange(ref disposed, 1) == 0)
             {
-                owner.CompleteCollectionMutationScope(current, previous);
+                owner.CompleteCollectionMutationScope(current, previous, queuePublication);
             }
+        }
+    }
+
+    private sealed class PendingEstimateExecutionScope(SemaphoreSlim gate) : IDisposable
+    {
+        private SemaphoreSlim gate = gate;
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref gate, null)?.Release();
         }
     }
 
@@ -620,15 +691,16 @@ internal sealed partial class PackageLifecycleOwner
 
     internal void RunPendingEstimateExclusive(Action action)
     {
-        estimationExecutionGate.Wait();
-        try
+        using (EnterPendingEstimateExecutionScope())
         {
             action?.Invoke();
         }
-        finally
-        {
-            estimationExecutionGate.Release();
-        }
+    }
+
+    internal IDisposable EnterPendingEstimateExecutionScope()
+    {
+        estimationExecutionGate.Wait();
+        return new PendingEstimateExecutionScope(estimationExecutionGate);
     }
 
     private void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)

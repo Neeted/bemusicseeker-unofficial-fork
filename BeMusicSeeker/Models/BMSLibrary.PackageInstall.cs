@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -206,7 +207,10 @@ public partial class BMSLibrary
         }
     }
 
-    private bool TryCleanupPendingPackageSourceForEstimatedInstall(ChartPackage package, out CleanupSourceKind sourceKind)
+    private bool TryCleanupPendingPackageSourceForEstimatedInstall(
+        ChartPackage package,
+        out CleanupSourceKind sourceKind,
+        EstimatedInstallDeferredFeedback deferredFeedback = null)
     {
         sourceKind = CleanupSourceKind.MissingSource;
         if (package == null || string.IsNullOrWhiteSpace(package.path))
@@ -239,14 +243,23 @@ public partial class BMSLibrary
         catch (Exception ex)
         {
             string displayedMessage = GetDisplayedExceptionMessage(ex);
-            NLogWrapper.FileLogger?.Warn(ex, "estimated_install_cleanup_only_failed path=" + packagePath + " kind=" + sourceKind.ToString().ToLowerInvariant() + " error=" + displayedMessage);
-            if (sourceKind == CleanupSourceKind.Directory)
+            string warningMessage = "estimated_install_cleanup_only_failed path=" + packagePath + " kind=" + sourceKind.ToString().ToLowerInvariant() + " error=" + displayedMessage;
+            if (deferredFeedback == null)
             {
-                ShowOperationDialog(string.Format(Resources.Error_FolderDeleteFailed, packagePath, displayedMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                NLogWrapper.FileLogger?.Warn(ex, warningMessage);
             }
             else
             {
-                ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, packagePath, displayedMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                deferredFeedback.LogInstallWarning(ex, warningMessage);
+            }
+            IBmsLibraryDialogService feedbackDialogService = deferredFeedback?.DialogService ?? dialogService;
+            if (sourceKind == CleanupSourceKind.Directory)
+            {
+                feedbackDialogService.Show(string.Format(Resources.Error_FolderDeleteFailed, packagePath, displayedMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            }
+            else
+            {
+                feedbackDialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, packagePath, displayedMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             }
             return false;
         }
@@ -263,7 +276,15 @@ public partial class BMSLibrary
     /// <param name="existingHashes">既存譜面ハッシュの lookup（重複スキップ用）</param>
     /// <param name="excludedComponentPaths">移動対象外のコンポーネントパス</param>
     /// <returns>移動成功時true</returns>
-    private bool MoveChartPackageFiles(ChartPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, IPrimaryHashLookup existingHashes = null, ISet<string> excludedComponentPaths = null)
+    private bool MoveChartPackageFiles(
+        ChartPackage pkg,
+        string installationDirectory,
+        bool showMessageBoxOnInstallFail = true,
+        bool deleteAllContents = false,
+        IPrimaryHashLookup existingHashes = null,
+        ISet<string> excludedComponentPaths = null,
+        IBmsLibraryDialogService dialogService = null,
+        Action<string> logInstallPerformance = null)
     {
         return packageInstallService.MovePackageFiles(
             pkg,
@@ -272,21 +293,25 @@ public partial class BMSLibrary
             CreateChartFolderPathFromCharts,
             GetDisplayedExceptionMessage,
             fileMutationService,
-            scopedOperationDialogService,
+            dialogService ?? scopedOperationDialogService,
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions,
-            LogInstallPerformance,
+            logInstallPerformance ?? LogInstallPerformance,
             showMessageBoxOnInstallFail,
             deleteAllContents,
             existingHashes,
             excludedComponentPaths);
     }
 
-    private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
+    private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null, EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null)
     {
         lr2SynchronizationOwner.ThrowIfLr2SongDbSyncMutationBlocked("installChartPackages");
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
         List<ChartFile> addedChartsForChartInfo = [];
+        IBmsLibraryDialogService installDialogService = estimatedInstallDeferredFeedback?.DialogService;
+        Action<string> installPerformanceLogger = estimatedInstallDeferredFeedback == null
+            ? LogInstallPerformance
+            : estimatedInstallDeferredFeedback.LogInstallPerformance;
 
         static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)
         {
@@ -366,7 +391,15 @@ public partial class BMSLibrary
         PackageInstallExecutionResult result = packageInstallService.InstallPackages(
             installPackageList,
             installationDirectory,
-            (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths) => MoveChartPackageFiles(package, destinationDirectory, true, deleteAllContents, hashSnapshot, excludedComponentPaths),
+            (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths) => MoveChartPackageFiles(
+                package,
+                destinationDirectory,
+                true,
+                deleteAllContents,
+                hashSnapshot,
+                excludedComponentPaths,
+                installDialogService,
+                installPerformanceLogger),
             ApplyInstalledTargetCatalogMutation,
             UpdateInstalledChartMaintenance,
             ApplyInstalledChartScores,
@@ -390,7 +423,7 @@ public partial class BMSLibrary
                 packageLifecycleOwner.AddInstalledPackages(result.InstalledPackagesToRegister);
             }
         }
-        LogInstallPerformance("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
+        installPerformanceLogger("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
         if (deferredMaintenanceCharts == null)
         {
             BuildAndPersistInlineChartInfoForInstalledCharts("install_package_inline", addedChartsForChartInfo);
@@ -398,30 +431,104 @@ public partial class BMSLibrary
         return result.FailedPackages;
     }
 
-    private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context)
+    private PendingEstimatedInstallCatalogPreparation PrepareEstimatedInstallBatchLibraryState(
+        EstimatedInstallBatchApplyContext context,
+        EstimatedInstallDeferredFeedback deferredFeedback)
     {
-        if (context == null)
-        {
-            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        }
-        ApplyInstalledChartStorageTargets(ChartStorageTargetSet.FromCharts(context.AddedCharts), "install_package");
-        SetBMSScore(context.AddedBmsFiles);
-        List<string> affectedDirectories = [.. context.AffectedDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> affectedDirectories = [.. (context?.AffectedDirectories ?? [])
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (affectedDirectories.Count == 0)
         {
+            return new PendingEstimatedInstallCatalogPreparation();
+        }
+        if (!ChartDirectoryScanBuilder.TryBuildFromRoots(
+            affectedDirectories,
+            out ChartScanResult addedDirectoryScan,
+            out string scanFailureReason))
+        {
+            deferredFeedback.LogInstallPerformance(
+                "install_package_batch resource_cache_update skipped reason=incomplete_scan detail="
+                + (scanFailureReason ?? "unknown")
+                + " dirs="
+                + affectedDirectories.Count);
+            return new PendingEstimatedInstallCatalogPreparation
+            {
+                AffectedDirectories = affectedDirectories
+            };
+        }
+
+        return new PendingEstimatedInstallCatalogPreparation
+        {
+            AffectedDirectories = affectedDirectories,
+            DirectoryScan = addedDirectoryScan
+        };
+    }
+
+    private PendingEstimatedInstallCatalogApplyReceipt ApplyEstimatedInstallBatchLibraryState(
+        EstimatedInstallBatchApplyContext context,
+        PendingEstimatedInstallCatalogPreparation preparation,
+        EstimatedInstallDeferredFeedback deferredFeedback)
+    {
+        InstalledChartStorageTargetsApplyReceipt storageReceipt =
+            ApplyInstalledChartStorageTargetsForDeferredDispatch(
+                ChartStorageTargetSet.FromCharts(context?.AddedCharts),
+                "install_package",
+                deferredFeedback.LogInstallPerformance);
+        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+            DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        ExceptionDispatchInfo scoreFailure = null;
+        if (storageReceipt.Failure == null)
+        {
+            try
+            {
+                using (BMSFile.SuppressPropertyChangedScope())
+                {
+                    SetBMSScore(context?.AddedBmsFiles);
+                }
+            }
+            catch (Exception exception)
+            {
+                scoreFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+        }
+
+        bool hasFailure = storageReceipt.Failure != null || scoreFailure != null;
+        return new PendingEstimatedInstallCatalogApplyReceipt(
+            hasFailure,
+            () =>
+            {
+                CompleteInstalledChartStorageTargetsUnderGuard(storageReceipt);
+                scoreFailure?.Throw();
+                reverseLookupMutation = ApplyEstimatedInstallReverseLookupPreparationUnderGuard(preparation);
+            },
+            () =>
+            {
+                PublishInstalledChartStorageTargetsAfterGuard(storageReceipt);
+                if (scoreFailure == null)
+                {
+                    LogReverseLookupMutationAndQueueWarmupIfNeeded(
+                        "install_package",
+                        reverseLookupMutation);
+                }
+            });
+    }
+
+    private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallReverseLookupPreparationUnderGuard(
+        PendingEstimatedInstallCatalogPreparation preparation)
+    {
+        if (preparation?.DirectoryScan == null
+            || preparation.AffectedDirectories.Count == 0)
+        {
             return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
-        if (!ChartDirectoryScanBuilder.TryBuildFromRoots(affectedDirectories, out ChartScanResult addedDirectoryScan, out string scanFailureReason))
+        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+            DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        foreach (string dir in preparation.AffectedDirectories)
         {
-            LogInstallPerformanceWarn("install_package_batch resource_cache_update skipped reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown") + " dirs=" + affectedDirectories.Count);
-            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            reverseLookupMutation = reverseLookupMutation.Combine(
+                directoryResourceLookupCache.AddDir(dir, preparation.DirectoryScan));
         }
-        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        foreach (string dir in affectedDirectories)
-        {
-            reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
-        }
-        LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
         return reverseLookupMutation;
     }
 
@@ -1276,17 +1383,99 @@ public partial class BMSLibrary
         {
             return;
         }
-        using IDisposable mutationSequence = lr2SynchronizationOwner.EnterLr2MutationSequence();
-        using IDisposable mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(InstallPendingPackagesToEstimatedDestinations),
-            showMessage: false);
-        if (mutationReservation == null)
+        var executionContext = new PendingEstimatedInstallExecutionContext();
+        PendingEstimatedInstallExecutionReceipt receipt = null;
+        Exception operationFailure = null;
+        try
         {
-            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+            using (packageLifecycleOwner.BeginCollectionMutationScope(queuePublication: true))
+            using (packageLifecycleOwner.EnterPendingEstimateExecutionScope())
+            {
+                using (lr2SynchronizationOwner.EnterLr2MutationSequence())
+                using (IDisposable mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
+                    nameof(InstallPendingPackagesToEstimatedDestinations),
+                    showMessage: false))
+                {
+                    if (mutationReservation == null)
+                    {
+                        throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                    }
+                    try
+                    {
+                        receipt = pendingEstimatedInstallOwner.InstallPendingPackagesToEstimatedDestinations(
+                            packages,
+                            executionContext);
+                        pendingEstimatedInstallOwner.CompletePendingPackagesToEstimatedDestinationsUnderGuard(
+                            receipt,
+                            executionContext.DeferredFeedback);
+                    }
+                    catch (Exception exception)
+                    {
+                        operationFailure = exception;
+                        try
+                        {
+                            pendingEstimatedInstallOwner.CompleteCatalogApplyUnderGuard(executionContext);
+                        }
+                        catch (Exception completionException)
+                        {
+                            operationFailure = new AggregateException(
+                                "Estimated install mutation and guarded catalog completion failed.",
+                                operationFailure,
+                                completionException);
+                        }
+                    }
+                }
+            }
         }
-        using (packageLifecycleOwner.BeginCollectionMutationScope())
+        catch (Exception scopeException)
         {
-            pendingEstimatedInstallOwner.InstallPendingPackagesToEstimatedDestinations(packages);
+            operationFailure = operationFailure == null
+                ? scopeException
+                : new AggregateException(
+                    "Estimated install operation and guard disposal failed.",
+                    operationFailure,
+                    scopeException);
+        }
+
+        Exception publicationFailure = null;
+        try
+        {
+            pendingEstimatedInstallOwner.PublishPostGuardEffects(receipt, executionContext);
+        }
+        catch (Exception publicationException)
+        {
+            publicationFailure = publicationException;
+        }
+
+        try
+        {
+            pendingEstimatedInstallOwner.PublishDeferredFeedback(executionContext.DeferredFeedback);
+        }
+        catch (Exception feedbackException)
+        {
+            publicationFailure = publicationFailure == null
+                ? feedbackException
+                : new AggregateException(
+                    "Estimated install post-guard effect and deferred feedback publication failed.",
+                    publicationFailure,
+                    feedbackException);
+        }
+        if (operationFailure != null)
+        {
+            if (publicationFailure != null)
+            {
+                operationFailure = new AggregateException(
+                    "Estimated install operation and post-guard publication failed.",
+                    operationFailure,
+                    publicationFailure);
+            }
+            ExceptionDispatchInfo.Capture(operationFailure).Throw();
+        }
+        if (publicationFailure != null)
+        {
+            NLogWrapper.FileLogger?.Warn(
+                publicationFailure,
+                "estimated_install_post_guard_publication_failed_after_semantic_commit");
         }
     }
 
@@ -1663,7 +1852,10 @@ public partial class BMSLibrary
         {
             return false;
         }
-        return ChartPackagesPending.Any(pendingPkg => pendingPkg != null && (ReferenceEquals(pendingPkg, package) || (!string.IsNullOrWhiteSpace(pendingPkg.path) && !string.IsNullOrWhiteSpace(package.path) && pendingPkg.path.Equals(package.path, StringComparison.OrdinalIgnoreCase))));
+        using (rwlockPendingInstallCharts.GetReaderGuard())
+        {
+            return ChartPackagesPending.Any(pendingPkg => pendingPkg != null && (ReferenceEquals(pendingPkg, package) || (!string.IsNullOrWhiteSpace(pendingPkg.path) && !string.IsNullOrWhiteSpace(package.path) && pendingPkg.path.Equals(package.path, StringComparison.OrdinalIgnoreCase))));
+        }
     }
 
     public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token = default, Action onEachProcessed = null)
@@ -1677,14 +1869,17 @@ public partial class BMSLibrary
         Action<string> logInfo = info => NLogWrapper.FileLogger?.Info(info);
         try
         {
-            using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
+            InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot;
+            List<ChartPackage> pendingPackageSnapshot;
             using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            using (rwlockBMSFiles.GetWriterGuard())
-            using (rwlockSongDBInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetReaderGuard())
+            using (rwlockBMSFiles.GetReaderGuard())
             {
-                bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
-                InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledChartLookupSnapshotUnsafe();
+                installedDirectoryIndexSnapshot = CreateInstalledChartLookupSnapshotUnsafe();
+                pendingPackageSnapshot = [.. ChartPackagesPending.Where(package => package != null)];
+            }
+            bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
+            {
                 string DescribeSkipDetail(InstalledOnlyPackageResolutionResult resolution, ChartPackage pendingPackage)
                 {
                     if (pendingPackage == null)
@@ -1703,11 +1898,11 @@ public partial class BMSLibrary
                             return "advanced_pending_resource_overwrite skip_missing_instl_dst path=" + pendingPackage.path + " chartPath=" + (missingDirectoryChart?.Path ?? "(null)") + " hash=" + (ChartLookupKey.GetPrimaryHash(missingDirectoryChart) ?? "(null)");
                     }
                 }
-                logInfo("advanced_pending_resource_overwrite scan pendingTotal=" + ChartPackagesPending.Count + " eligible=" + packageInstallService.DeduplicatePackagesByPathOrReference(packages).Count);
+                logInfo("advanced_pending_resource_overwrite scan pendingTotal=" + pendingPackageSnapshot.Count + " eligible=" + packageInstallService.DeduplicatePackagesByPathOrReference(packages).Count);
                 logInfo("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.HashCount);
                 PendingResourceOverwriteExecutionResult executionResult = packageInstallService.ExecuteInstalledOnlyResourceOverwrite(
                     packages,
-                    ChartPackagesPending,
+                    pendingPackageSnapshot,
                     deletePendingPackageSourceAfterInstall,
                     pendingPackage => CreateInstallEstimationService().TryPrepareInstalledOnlyPackageDestination(pendingPackage, installedDirectoryIndexSnapshot),
                     DescribeSkipDetail,
@@ -1744,7 +1939,13 @@ public partial class BMSLibrary
                     });
                 if (executionResult.PendingPackagesToRemove.Count > 0)
                 {
-                    RemovePendingPackagesFromPendingListAndInstallRows(executionResult.PendingPackagesToRemove);
+                    using (packageLifecycleOwner.BeginCollectionMutationScope())
+                    using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+                    using (rwlockPendingInstallCharts.GetWriterGuard())
+                    using (rwlockSongDBInstall.GetWriterGuard())
+                    {
+                        RemovePendingPackagesFromPendingListAndInstallRows(executionResult.PendingPackagesToRemove);
+                    }
                 }
                 PendingInstalledOnlyResourceOverwriteResult publicResult = executionResult.ToPublicResult();
                 logInfo("advanced_pending_resource_overwrite summary requested=" + publicResult.Requested + " processed=" + publicResult.Processed + " succeededInstall=" + publicResult.SucceededInstall + " succeededCleanupOnly=" + publicResult.SucceededCleanupOnly + " skippedNotPending=" + publicResult.SkippedNotPending + " skippedMissingInstlDst=" + publicResult.SkippedMissingInstlDst + " skippedMultiDst=" + publicResult.SkippedMultiDestination + " skippedNoComponentTarget=" + publicResult.SkippedNoComponentTarget + " failed=" + publicResult.Failed + " canceled=" + publicResult.Canceled);

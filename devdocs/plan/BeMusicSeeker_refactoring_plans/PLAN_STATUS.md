@@ -35,7 +35,7 @@ single-file extractionやReadyToRunではなく、workerがcatalog writer lock�
 
 - active outcome: `CONC-01 Responsiveness closure`
 - active execution package: `H1-H4 minimal hardening batch`
-- execution anchor: `H2 estimated-install lock-scope closure`
+- execution anchor: `H3 application-wide wait audit`
 - planner state: `not required; batch materialized`
 
 ## Active implementation batch
@@ -43,8 +43,8 @@ single-file extractionやReadyToRunではなく、workerがcatalog writer lock�
 | Unit | State | Closure |
 |---|---|---|
 | `H1 NORMAL-REFRESH-DEADLOCK` | completed | version coalescing UI drain、explicit shutdown drain、held-writer／dedicated-UI-lane regression |
-| `H2 ESTIMATED-INSTALL-LOCK-SCOPE` | active | guard内UI／dialog／callback除去、evidenceに基づくlock scope縮小、normal completion、既存file-diff収束確認 |
-| `H3 APPLICATION-WIDE-WAIT-AUDIT` | pending | library／package、playlist、shell／externalの全candidate分類とgrouped fixes |
+| `H2 ESTIMATED-INSTALL-LOCK-SCOPE` | completed | snapshot／atomic apply leaseを分離し、semantic LR2 reservation内ではstate applyだけを行い、dialog、log、event、UI refreshを全guard解放後へpublish |
+| `H3 APPLICATION-WIDE-WAIT-AUDIT` | active | library／package、playlist、shell／externalの全candidate分類とgrouped fixes |
 | `H4 RESPONSIVENESS-GATE` | pending | full interaction smoke、selected publish、fresh review、Gate closure |
 
 active／pending unitがある間はunit-plannerを起動しない。各unitのstatus更新は対応code／test commitへ含める。
@@ -52,7 +52,7 @@ active／pending unitがある間はunit-plannerを起動しない。各unitのs
 ## Confirmed evidence
 
 1. UI commandは`PendingPackageWorkflowOwner.ExecuteInstallAsync`からmutationをbackground executionへ渡す。
-2. `PendingEstimatedInstallOwner`はinit reader、pending writer、BMS files writer、install DB writerを含むleaseをworkflowの広い範囲で保持する。
+2. `PendingEstimatedInstallOwner`はsnapshot readerとatomic apply writerをboundedに取得し、file moveからmaintenanceまでのsemantic operationはestimate／LR2 reservationで直列化する。
 3. 10件のfile move後、catalog、LR2、resource health、installed lookupまで完了する。
 4. normal-library refresh subscriberがUI terminal applyを同期waitする。
 5. UI applyはsource snapshot取得時に`rwlockBMSFiles` readerへ入る。

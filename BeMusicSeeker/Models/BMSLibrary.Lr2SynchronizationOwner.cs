@@ -785,7 +785,8 @@ public partial class BMSLibrary
 
         internal void SyncLr2NormalFoldersForCatalogMutation(
             Lr2NormalFolderCatalogMutationReceipt receipt,
-            string reason)
+            string reason,
+            Action<Action> deferPublication = null)
         {
             if (receipt?.HasBmsMutation != true)
             {
@@ -846,7 +847,7 @@ public partial class BMSLibrary
                                     UseScopedExistingRows = true
                                 });
                             stopwatch.Stop();
-                            BMSLibrary.LogInstallPerformance("lr2_normal_folder_catalog_sync done"
+                            string successLog = "lr2_normal_folder_catalog_sync done"
                                 + " reason=" + (reason ?? "unknown")
                                 + " ownedVersion=" + receipt.OwnedCollectionVersion
                                 + " paths=" + syncInput.ChartPaths.Count
@@ -857,7 +858,10 @@ public partial class BMSLibrary
                                 + " generated=" + syncResult.GeneratedCount
                                 + " upserted=" + syncResult.UpsertedCount
                                 + " deleted=" + syncResult.DeletedCount
-                                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                                + " elapsedMs=" + stopwatch.ElapsedMilliseconds;
+                            PublishOrDefer(
+                                () => BMSLibrary.LogInstallPerformance(successLog),
+                                deferPublication);
                         }
                     }
                 }
@@ -873,26 +877,44 @@ public partial class BMSLibrary
             }
 
             stopwatch.Stop();
-            MarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure(
-                options,
-                stage: "lr2_normal_folder_mutation_sync_failed",
-                detail: "lr2_normal_folder_mutation_sync_failed: " + BMSLibrary.GetDisplayedExceptionMessage(failure),
-                logReason: "lr2_normal_folder_mutation_sync_failed");
-            try
+            string failureDetail = BMSLibrary.GetDisplayedExceptionMessage(failure);
+            PublishOrDefer(
+                () =>
+                {
+                    MarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure(
+                        options,
+                        stage: "lr2_normal_folder_mutation_sync_failed",
+                        detail: "lr2_normal_folder_mutation_sync_failed: " + failureDetail,
+                        logReason: "lr2_normal_folder_mutation_sync_failed");
+                    try
+                    {
+                        BMSLibrary.LogInstallPerformanceWarn("lr2_normal_folder_catalog_sync failed"
+                            + " reason=" + (reason ?? "unknown")
+                            + " paths=" + syncInput.ChartPaths.Count
+                            + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
+                            + " exactPrunes=" + syncInput.PruneExactDirectories.Count
+                            + " roots=" + roots.Count
+                            + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                            + " exception=" + failure.GetType().Name
+                            + " message=" + failureDetail.Replace(Environment.NewLine, " | "));
+                    }
+                    catch
+                    {
+                        // Failure diagnostics must never replace the catalog mutation result.
+                    }
+                },
+                deferPublication);
+        }
+
+        private static void PublishOrDefer(Action publication, Action<Action> deferPublication)
+        {
+            if (deferPublication == null)
             {
-                BMSLibrary.LogInstallPerformanceWarn("lr2_normal_folder_catalog_sync failed"
-                    + " reason=" + (reason ?? "unknown")
-                    + " paths=" + syncInput.ChartPaths.Count
-                    + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
-                    + " exactPrunes=" + syncInput.PruneExactDirectories.Count
-                    + " roots=" + roots.Count
-                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                    + " exception=" + failure.GetType().Name
-                    + " message=" + BMSLibrary.GetDisplayedExceptionMessage(failure).Replace(Environment.NewLine, " | "));
+                publication();
             }
-            catch
+            else
             {
-                // Failure diagnostics must never replace the catalog mutation result.
+                deferPublication(publication);
             }
         }
 

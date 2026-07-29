@@ -1430,7 +1430,8 @@ internal sealed class CatalogChartInfoOwner
     internal ChartInfoIndexUpdateResult UpsertIndex(
         IEnumerable<LR2SongDBExtended.chart_info> rows,
         string reason,
-        bool dispatchPresentation = true)
+        bool dispatchPresentation = true,
+        bool publishEffects = true)
     {
         List<LR2SongDBExtended.chart_info> rowList = [.. (rows ?? [])
             .Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
@@ -1459,17 +1460,29 @@ internal sealed class CatalogChartInfoOwner
             result.BySha256Count = indexBySha256.Count;
             result.ByMd5Count = indexByMd5.Count;
         }
+        if (publishEffects)
+        {
+            PublishIndexUpsertEffects(result, rowList.Count, reason, dispatchPresentation);
+        }
+        return result;
+    }
+
+    internal void PublishIndexUpsertEffects(
+        ChartInfoIndexUpdateResult result,
+        int upsertedRowCount,
+        string reason,
+        bool dispatchPresentation)
+    {
         propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoIndexVersion));
         if (dispatchPresentation)
         {
             PublishWorkflowEvent(CatalogChartInfoOwnerEvent.IndexChanged("chart_info_index_delta"));
         }
-        logPerformance?.Invoke("chart_info_index_delta upserted=" + rowList.Count
+        logPerformance?.Invoke("chart_info_index_delta upserted=" + upsertedRowCount
             + " bySha256=" + result.BySha256Count
             + " byMd5=" + result.ByMd5Count
             + " version=" + result.Version
             + " reason=" + (reason ?? "unknown"));
-        return result;
     }
 
     internal Dictionary<string, LR2SongDBExtended.chart_info> CreateSha256Snapshot()
@@ -1727,15 +1740,22 @@ internal sealed class CatalogChartInfoOwner
             ?? new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
     }
 
-    internal ChartInfoInlineBuildResult BuildInline(string reason, IEnumerable<ChartFile> charts)
+    internal ChartInfoInlineBuildResult BuildInline(
+        string reason,
+        IEnumerable<ChartFile> charts,
+        Action<Action> deferPublication = null,
+        Action<string> logOverride = null,
+        Action<string> warningLogOverride = null)
     {
         EnsureWorkflowConfigured();
+        Action<string> effectiveLog = logOverride ?? LogPerformance;
+        Action<string> effectiveWarningLog = warningLogOverride ?? workflowLogWarning;
         List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart != null)];
         var storageTargets = ChartStorageTargetSet.FromCharts(targetCharts);
         var result = new ChartInfoInlineBuildResult();
         if (targetCharts.Count == 0)
         {
-            LogPerformance?.Invoke("chart_info_inline_install reason=" + (reason ?? "unknown")
+            effectiveLog?.Invoke("chart_info_inline_install reason=" + (reason ?? "unknown")
                 + " target=0 success=0 currentSkipped=0 failureSkipped=0 parseFailed=0 failurePersisted=0 failureCleared=0 readFailed=0 parseMs=0");
             return result;
         }
@@ -1743,8 +1763,8 @@ internal sealed class CatalogChartInfoOwner
         result = inlineBuildService.BuildForExistingCharts(
             workflowDbGateway,
             targetCharts,
-            LogPerformance,
-            workflowLogWarning);
+            effectiveLog,
+            effectiveWarningLog);
         int songRowChartInfoApplied = ApplyChartInfoRowsToBmsStorageRows(
             storageTargets.BmsFiles,
             result.AppliedRows);
@@ -1767,9 +1787,22 @@ internal sealed class CatalogChartInfoOwner
         }
         if (result.AppliedRows.Count > 0)
         {
-            UpsertIndex(result.AppliedRows, reason ?? "install_package_inline");
+            string indexReason = reason ?? "install_package_inline";
+            ChartInfoIndexUpdateResult indexResult = UpsertIndex(
+                result.AppliedRows,
+                indexReason,
+                publishEffects: deferPublication == null);
+            if (deferPublication != null)
+            {
+                int upsertedRowCount = result.AppliedRows.Count;
+                deferPublication(() => PublishIndexUpsertEffects(
+                    indexResult,
+                    upsertedRowCount,
+                    indexReason,
+                    dispatchPresentation: true));
+            }
         }
-        LogPerformance?.Invoke(
+        effectiveLog?.Invoke(
             "chart_info_inline_install owner_applied=" + songRowChartInfoApplied
             + " target=" + result.TargetCount
             + " success=" + result.SuccessCount

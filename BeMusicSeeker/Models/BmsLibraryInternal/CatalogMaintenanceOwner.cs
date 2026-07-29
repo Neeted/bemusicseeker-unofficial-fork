@@ -156,7 +156,11 @@ internal sealed class CatalogMaintenanceOwner
         Action<MaintenanceWorkflowProgress> progressReporter,
         CancellationToken cancellationToken,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
-        string reason)
+        string reason,
+        IBmsLibraryDialogService dialogServiceOverride = null,
+        Action<string> logPerformanceOverride = null,
+        Action<CatalogWriteFailureFact> captureFailureFact = null,
+        bool deferPostCommitEffects = false)
     {
         List<ChartFile> targetCharts = [.. (targetSet.Charts ?? [])
             .Where(chart => chart != null)];
@@ -187,9 +191,9 @@ internal sealed class CatalogMaintenanceOwner
                         targetCharts,
                         forceUpdate,
                         catalogMutationOwner.ApplyMaintenanceWriteUnderGuard,
-                        dialogService,
+                        dialogServiceOverride ?? dialogService,
                         new ResourceHealthLookupContext(resourceLookupCache),
-                        logPerformance,
+                        logPerformanceOverride ?? logPerformance,
                         progressReporter,
                         cancellationToken,
                         () => durableCommitBoundaryReached = true,
@@ -220,13 +224,24 @@ internal sealed class CatalogMaintenanceOwner
         }
         catch
         {
-            PublishCatalogWriteFailureFactBestEffort(failureFact);
+            if (captureFailureFact == null)
+            {
+                PublishCatalogWriteFailureFactBestEffort(failureFact);
+            }
+            else
+            {
+                captureFailureFact(failureFact);
+            }
             throw;
         }
 
         // Publish property changes and terminal progress after the catalog write
         // guard and the resource-health input mutation have both been released.
-        postCommitEffects?.Invoke();
+        if (!deferPostCommitEffects)
+        {
+            postCommitEffects?.Invoke();
+            postCommitEffects = null;
+        }
 
         ResourceHealthIndexMutation mutation = ResourceHealthIndexMutationPlanner.BuildMaintenanceMutation(
             currentTargetSet.WithResourceHealthInputVersion(targetInputVersion),
@@ -238,7 +253,8 @@ internal sealed class CatalogMaintenanceOwner
         return new CatalogMaintenanceOperationReceipt(
             workflowResult ?? new MaintenanceWorkflowResult(),
             mutation,
-            mutationReason);
+            mutationReason,
+            postCommitEffects);
     }
 
     internal CatalogMaintenanceOperationReceipt ApplyWarningIgnore(
@@ -737,16 +753,18 @@ internal sealed class CatalogMaintenanceOwner
 internal sealed class CatalogMaintenanceOperationReceipt
 {
     internal static CatalogMaintenanceOperationReceipt NotApplied { get; } =
-        new(new MaintenanceWorkflowResult(), new ResourceHealthIndexMutation(), "maintenance");
+        new(new MaintenanceWorkflowResult(), new ResourceHealthIndexMutation(), "maintenance", null);
 
     internal CatalogMaintenanceOperationReceipt(
         MaintenanceWorkflowResult workflowResult,
         ResourceHealthIndexMutation resourceHealthMutation,
-        string reason)
+        string reason,
+        Action postCommitEffects = null)
     {
         WorkflowResult = MaintenanceWorkflowResultFacts.From(workflowResult);
         ResourceHealthMutation = (resourceHealthMutation ?? new ResourceHealthIndexMutation()).ToFacts();
         Reason = reason ?? "maintenance";
+        PostCommitEffects = postCommitEffects;
     }
 
     internal MaintenanceWorkflowResultFacts WorkflowResult { get; }
@@ -754,6 +772,13 @@ internal sealed class CatalogMaintenanceOperationReceipt
     internal ResourceHealthIndexMutationFacts ResourceHealthMutation { get; }
 
     internal string Reason { get; }
+
+    private Action PostCommitEffects { get; }
+
+    internal void PublishPostCommitEffects()
+    {
+        PostCommitEffects?.Invoke();
+    }
 }
 
 internal sealed class CatalogMaintenanceHydrationReceipt

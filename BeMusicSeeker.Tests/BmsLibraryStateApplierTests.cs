@@ -1,8 +1,11 @@
 using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using PackageStateMutationApplier = BeMusicSeeker.Models.BmsLibraryInternal.PackageLifecycleOwner.PackageStateMutationApplier;
@@ -27,7 +30,8 @@ public sealed class BmsLibraryStateApplierTests
                 _ => { },
                 _ => propertyChangedCount++,
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
-                () => { });
+                () => { },
+                _ => { });
             ObservableCollection<ChartPackage> replacement = CreatePackageCollection([
                 new ChartPackage { path = "C:\\Pending\\Replacement", delete_parent = false }
             ]);
@@ -42,6 +46,86 @@ public sealed class BmsLibraryStateApplierTests
 
             Assert.AreEqual(1, propertyChangedCount);
             Assert.AreSame(replacement, owner.PendingPackages);
+        });
+    }
+
+    [TestMethod]
+    public void PackageLifecycleOwner_QueuedScopeReturnsBeforeUiPublicationAndObservesSubscriberFailure()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var laneEntered = new ManualResetEventSlim();
+            using var releaseLane = new ManualResetEventSlim();
+            using var publicationFailed = new ManualResetEventSlim();
+            Exception observedFailure = null;
+            int propertyChangedCount = 0;
+            var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+            scheduler.Schedule(() =>
+            {
+                laneEntered.Set();
+                releaseLane.Wait();
+            });
+            Assert.IsTrue(laneEntered.Wait(TimeSpan.FromSeconds(5)));
+            var owner = new PackageLifecycleOwner(
+                new BmsLibraryDbGateway(songDbPath),
+                scheduler,
+                (_, _) => { },
+                _ => { },
+                _ =>
+                {
+                    propertyChangedCount++;
+                    throw new InvalidOperationException("collection subscriber failed");
+                },
+                packages => new ObservableCollection<ChartPackage>(packages ?? []),
+                () => { },
+                exception =>
+                {
+                    observedFailure = exception;
+                    publicationFailed.Set();
+                });
+            ObservableCollection<ChartPackage> replacement = CreatePackageCollection([
+                new ChartPackage { path = "C:\\Pending\\Queued", delete_parent = false }
+            ]);
+
+            using (owner.BeginCollectionMutationScope(queuePublication: true))
+            {
+                owner.SetPendingPackages(replacement);
+            }
+
+            Assert.AreSame(replacement, owner.PendingPackages);
+            Assert.AreEqual(0, propertyChangedCount);
+            releaseLane.Set();
+            Assert.IsTrue(publicationFailed.Wait(TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(1, propertyChangedCount);
+            Assert.IsInstanceOfType<InvalidOperationException>(observedFailure);
+            Assert.AreEqual("collection subscriber failed", observedFailure.Message);
+        });
+    }
+
+    [TestMethod]
+    public void PackageLifecycleOwner_QueuedScopeReportsAcceptedPublicationCancellation()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            Exception observedFailure = null;
+            var owner = new PackageLifecycleOwner(
+                new BmsLibraryDbGateway(songDbPath),
+                new CanceledScheduleUiScheduler(),
+                (_, _) => { },
+                _ => { },
+                _ => Assert.Fail("Canceled publication must not invoke the subscriber."),
+                packages => new ObservableCollection<ChartPackage>(packages ?? []),
+                () => { },
+                exception => observedFailure = exception);
+
+            using (owner.BeginCollectionMutationScope(queuePublication: true))
+            {
+                owner.SetPendingPackages(CreatePackageCollection([
+                    new ChartPackage { path = "C:\\Pending\\Canceled", delete_parent = false }
+                ]));
+            }
+
+            Assert.IsInstanceOfType<OperationCanceledException>(observedFailure);
         });
     }
 
@@ -1444,6 +1528,53 @@ public sealed class BmsLibraryStateApplierTests
         public string LastSongDbWriteFailureStage { get; set; } = string.Empty;
 
         public Exception LastSongDbWriteFailure { get; set; } = null!;
+    }
+
+    private sealed class CanceledScheduleUiScheduler : IUiScheduler
+    {
+        public bool IsAvailable => true;
+
+        public bool CanExecuteInline => false;
+
+        public bool CheckAccess() => false;
+
+        public IUiScheduledOperation Schedule(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => CanceledUiScheduledOperation.Instance;
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => throw new NotSupportedException();
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => throw new NotSupportedException();
+
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => throw new NotSupportedException();
+
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class CanceledUiScheduledOperation : IUiScheduledOperation
+    {
+        private static readonly CancellationToken CanceledToken = new(canceled: true);
+
+        internal static CanceledUiScheduledOperation Instance { get; } = new();
+
+        public bool IsAccepted => true;
+
+        public bool IsCompleted => true;
+
+        public bool IsAborted => true;
+
+        public string RejectionReason => string.Empty;
+
+        public Task Completion { get; } = Task.FromCanceled(CanceledToken);
+
+        public void Abort()
+        {
+        }
     }
 
     private sealed class TestableBmsFile : BMSFile

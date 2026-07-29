@@ -1151,6 +1151,33 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    internal CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertWithDeferredFailurePublication(
+        IEnumerable<BMSFile> bmsRows,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
+        out CatalogWriteFailureFact failureFact,
+        Action onValidationPassed = null)
+    {
+        CatalogWriteFailureFact capturedFailureFact = null;
+        try
+        {
+            using (storageRowsOwner.WriteGate.GetWriterGuard())
+            using (maintenanceWriteGate.GetWriterGuard())
+            {
+                CatalogInstalledTargetUpsertReceipt receipt = ApplyInstalledTargetUpsertUnsafe(
+                    CreateInstalledTargetUpsertRequestUnsafe(bmsRows, bmsonRows),
+                    onValidationPassed,
+                    fact => capturedFailureFact = fact);
+                failureFact = null;
+                return receipt;
+            }
+        }
+        catch
+        {
+            failureFact = capturedFailureFact;
+            throw;
+        }
+    }
+
     internal CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsert(
         CatalogInstalledTargetUpsertRequest request,
         Action onValidationPassed = null)
