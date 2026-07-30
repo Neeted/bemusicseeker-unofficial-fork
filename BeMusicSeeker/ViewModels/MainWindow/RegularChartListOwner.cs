@@ -10,6 +10,7 @@ using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -759,6 +760,15 @@ internal sealed class RegularChartListOwner : IDisposable
             lease = new RegularChartListRequestLease(currentRequestId, currentCancellation.Token);
         }
         CancelAndDispose(previous);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            PerformanceInteraction performanceInteraction =
+                PerformanceInteraction.Existing("normal_library", lease.RequestId);
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "input_accepted");
+            Net10PerformanceLog.Write(performanceInteraction, "owner_queued");
+        }
         return true;
     }
 
@@ -790,6 +800,19 @@ internal sealed class RegularChartListOwner : IDisposable
         }
         CancelAndDispose(previousRequest);
         Cancel(prewarmCancellation);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            PerformanceInteraction performanceInteraction =
+                PerformanceInteraction.Existing("normal_library", lease.RequestId);
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "input_accepted",
+                "presentation=virtual");
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "owner_queued",
+                "presentation=virtual");
+        }
         return true;
     }
 
@@ -2936,6 +2959,12 @@ internal sealed class RegularChartListOwner : IDisposable
         }
 
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
+        PerformanceInteraction performanceInteraction =
+            PerformanceInteraction.Existing("normal_library", lease.RequestId);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(performanceInteraction, "owner_started");
+        }
         mainChartList.RowProjection.CaptureVersions(request.Library);
 
         long stageStartMs = stopwatch.ElapsedMilliseconds;
@@ -2950,6 +2979,15 @@ internal sealed class RegularChartListOwner : IDisposable
             return RegularVirtualNormalLibraryApplyResult.NotCommitted();
         }
         long sourceRowsMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "snapshot_projection",
+                "sourceRows=" + sourceRows.Count
+                + " sourceRowsMs=" + sourceRowsMs
+                + " cacheHit=" + sourceRowsCacheHit.ToString().ToLowerInvariant());
+        }
 
         string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(
             request.TreeFilter?.Identity,
@@ -3628,6 +3666,12 @@ internal sealed class RegularChartListOwner : IDisposable
         MainChartListPresentationApplyResult applied;
         try
         {
+            if (Net10PerformanceLog.IsEnabled)
+            {
+                Net10PerformanceLog.Write(
+                    PerformanceInteraction.Existing("normal_library", lease.RequestId),
+                    "ui_started");
+            }
             applied = mainChartList.ApplyPresentation(
                 presentation.CreateRowsRequest(),
                 CommitRegularPresentation,
@@ -3636,6 +3680,15 @@ internal sealed class RegularChartListOwner : IDisposable
         catch (MainChartListPresentationPublishException ex)
         {
             throw new RegularChartListTerminalPublishException(ex.InnerException ?? ex);
+        }
+        if (applied.WasApplied && Net10PerformanceLog.IsEnabled)
+        {
+            MainChartListRowsApplyRequest rowsRequest = presentation.CreateRowsRequest();
+            Net10PerformanceLog.Write(
+                PerformanceInteraction.Existing("normal_library", lease.RequestId),
+                "ui_applied",
+                "rows=" + (rowsRequest.Rows?.Count ?? 0)
+                + " totalMs=" + presentation.Stopwatch.ElapsedMilliseconds);
         }
         return applied.WasApplied
             ? RegularChartListTerminalResult.Committed(applied.RowsApply)

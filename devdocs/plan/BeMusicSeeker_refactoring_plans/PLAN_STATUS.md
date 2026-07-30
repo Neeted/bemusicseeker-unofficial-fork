@@ -27,15 +27,15 @@
 
 - active outcome: `PERF-01 .NET 10 performance engineering closure`
 - active execution package: `PERF-01 Current-runtime performance closure`
-- execution anchor: `P1 OBSERVABILITY-AND-CORPUS`
+- execution anchor: `P2 LIST-TRANSITION-CRITICAL-PATH`
 - planner state: not required; batch materialized
 
 ## Active implementation batch
 
 | Unit | State | Scope |
 |---|---|---|
-| `P1 OBSERVABILITY-AND-CORPUS` | active | current .NET 10 marker、corpus feasibility、fixed-seed generators、manual classification |
-| `P2 LIST-TRANSITION-CRITICAL-PATH` | pending | full-library copy、playlist summary／detail、queue／generation／drain |
+| `P1 OBSERVABILITY-AND-CORPUS` | completed | current .NET 10 marker、corpus feasibility、fixed-seed generators、manual classification |
+| `P2 LIST-TRANSITION-CRITICAL-PATH` | active | full-library copy、playlist summary／detail、queue／generation／drain |
 | `P3 STARTUP-INDEX-GC-COMPONENTS` | pending | synthetic可能なsong-table／resource-health、GC／startup instrumentation |
 | `P4 ESTIMATION-SCAN-PARSE-COMPONENTS` | pending | install estimation、managed diff／parse、C# 14 hot path |
 | `P5 ENGINEERING-PERFORMANCE-GATE` | pending | full verification、synthetic suite、publish、current report、fresh review |
@@ -52,6 +52,7 @@
 | managed scan／parser | generated BMS／BMSONとfixtureをcorpus化する |
 | full startup／WPF first render／Everything／disk | current .NET 10 markerを用意し、MANUAL-02で一度確認する |
 | production data | Codex／CI prerequisiteにしない |
+| song-table／resource-health | existing ownerへtemporary SQLite／immutable snapshotを入力できるためsynthetic componentとして測定する |
 
 ## Scope guardrails
 

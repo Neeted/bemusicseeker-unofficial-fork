@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -90,6 +91,15 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return 0L;
         }
+        PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+            "playlist_summary",
+            buildRequest.Generation,
+            buildRequest.Generation);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(performanceInteraction, "input_accepted");
+            Net10PerformanceLog.Write(performanceInteraction, "owner_queued");
+        }
 
         BMSLibrary library;
         BMSPlaylist playlists;
@@ -110,6 +120,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         void Execute()
         {
             var stopwatch = Stopwatch.StartNew();
+            if (Net10PerformanceLog.IsEnabled)
+            {
+                Net10PerformanceLog.Write(performanceInteraction, "owner_started");
+            }
             PlaylistSummaryRowsBuildResult buildResult;
             try
             {
@@ -128,6 +142,16 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
 
             long buildMs = stopwatch.ElapsedMilliseconds;
+            if (Net10PerformanceLog.IsEnabled)
+            {
+                Net10PerformanceLog.Write(
+                    performanceInteraction,
+                    "snapshot_query_projection",
+                    "tables=" + buildResult.TableCount
+                    + " rows=" + buildResult.Rows.Count
+                    + " entryScans=" + buildResult.EntryScanCount
+                    + " elapsedMs=" + buildMs);
+            }
             if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
             {
                 LogBuild("playlist_summary_build_stale rawCount=" + buildResult.Rows.Count
@@ -227,7 +251,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             0L,
             presentationGeneration,
             dataRebuildGeneration: dataRebuildGeneration,
-            cacheGeneration: cacheGeneration);
+            cacheGeneration: cacheGeneration,
+            isCacheHit: true);
     }
 
     private PlaylistSummaryRowsBuildResult BuildPlaylistSummaryRows(
@@ -343,15 +368,47 @@ public sealed partial class PlaylistWorkspaceViewModel
         long buildMs,
         long presentationGeneration,
         long? dataRebuildGeneration = null,
-        long? cacheGeneration = null)
+        long? cacheGeneration = null,
+        bool isCacheHit = false)
     {
         List<PlaylistSummaryRow> safeRawRows = rawRows ?? [];
+        long interactionId = dataRebuildGeneration ?? presentationGeneration;
+        PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+            "playlist_summary",
+            interactionId,
+            presentationGeneration);
+        if (Net10PerformanceLog.IsEnabled && isCacheHit)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "input_accepted",
+                "source=summary_cache");
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "owner_queued",
+                "source=summary_cache");
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "owner_started",
+                "source=summary_cache");
+        }
         PlaylistSummaryPresentationResult presentationResult = BuildPlaylistSummaryPresentationRows(
             safeRawRows,
             PlaylistSummaryKeywordFilter,
             PlaylistSummaryOwnedFilter,
             PlaylistSummarySortParameters,
             useLegacySort: false);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "snapshot_query_projection",
+                "phase=presentation"
+                + " inputRows=" + safeRawRows.Count
+                + " outputRows=" + presentationResult.Rows.Count
+                + " filterMs=" + presentationResult.FilterElapsedMs
+                + " sortMs=" + presentationResult.SortElapsedMs);
+        }
         if (!CanApplyPlaylistSummaryPresentation(presentationGeneration, dataRebuildGeneration, cacheGeneration))
         {
             LogStalePresentation(safeRawRows.Count, presentationGeneration, dataRebuildGeneration, cacheGeneration);
@@ -364,7 +421,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return;
             }
-            TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+            if (Net10PerformanceLog.IsEnabled)
+            {
+                Net10PerformanceLog.Write(
+                    performanceInteraction,
+                    "ui_started");
+            }
+            bool applied = TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
             {
                 Rows = new ObservableCollection<PlaylistSummaryRow>(presentationResult.Rows),
                 SummaryText = string.Format(
@@ -375,8 +438,24 @@ public sealed partial class PlaylistWorkspaceViewModel
                 DataRebuildGeneration = dataRebuildGeneration,
                 CacheGeneration = cacheGeneration
             });
+            if (applied && Net10PerformanceLog.IsEnabled)
+            {
+                Net10PerformanceLog.Write(
+                    performanceInteraction,
+                    "ui_applied",
+                    "rows=" + presentationResult.Rows.Count
+                    + " dataGeneration=" + (dataRebuildGeneration ?? 0L)
+                    + " cacheGeneration=" + (cacheGeneration ?? 0L));
+            }
         }
 
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "ui_queued",
+                "rows=" + presentationResult.Rows.Count);
+        }
         dispatchPresentation(Reflect);
 
         Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);

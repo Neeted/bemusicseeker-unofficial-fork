@@ -15,6 +15,7 @@ using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using NLog;
 using Ribbit.Logging;
@@ -809,20 +810,16 @@ public sealed class CustomTableView : Grid
     {
         CommitActiveEdit();
         currentCellHit = null;
-        RebuildColumns(!string.Equals(e.PropertyName, nameof(ICustomTableColumnLayout.Width), StringComparison.Ordinal));
+        RebuildColumns();
     }
 
-    private void RebuildColumns(bool markItemsApplied = true)
+    private void RebuildColumns()
     {
         Columns = PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnsSettings).ToArray()
             : [.. CustomTableColumnFactory.CreateMainColumns(ColumnsSettings)];
         InvalidateColumnLayoutSnapshot();
         InvalidateColumnCellValues();
-        if (markItemsApplied && !suppressColumnRedrawUntilItemsSourceChanged)
-        {
-            MarkItemsApplied();
-        }
     }
 
     private void CoerceSelectionToCurrentRows()
@@ -1760,7 +1757,7 @@ public sealed class CustomTableView : Grid
         bool insertAfter = targetColumn != null && tableX >= targetColumnX + targetColumn.Width / 2d;
         if (CustomTableDataTransfer.TryReorderVisibleColumns(VisibleColumns, sourceColumn, targetColumn, insertAfter))
         {
-            RebuildColumns(markItemsApplied: false);
+            RebuildColumns();
         }
     }
 
@@ -2499,6 +2496,11 @@ public sealed class CustomTableView : Grid
         int textCacheHits,
         int textCacheMisses)
     {
+        if (!CommandLineSwitches.IsInfoLoggingEnabled
+            || installPerformanceLogger?.IsInfoEnabled != true)
+        {
+            return;
+        }
         string reason = NormalizeRedrawReason(redrawReason);
         bool firstForReason = loggedRenderReasons.Add(reason);
         if (renderWorkMs < RenderSlowLogThresholdMs && !firstForReason && !IsAlwaysLoggedRenderReason(reason))

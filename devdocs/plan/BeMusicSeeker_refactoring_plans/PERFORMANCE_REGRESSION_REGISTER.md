@@ -7,10 +7,10 @@ current-only inventory。net472／.NET 10の一回ログはpriorityを決めたh
 | ID | State | Evidence class | Scope | Current finding | Owner / exit |
 |---|---|---|---|---|---|
 | `PRF-001` | active | `STRUCTURAL_PERF_DEFECT` + `SYNTHETIC_MEASURABLE` | full library list | UI laneでbackground summary用ordered rowsを全件materializeするrouteがある | `P2`: copy 0、output一致、synthetic large corpus改善 |
-| `PRF-002` | active | `OBSERVABILITY_REQUIRED` + partial synthetic | playlist summary | compute後のUI queue／apply／first-visibleが現行marker外 | `P1/P2`: current marker、duplicate／stale applyのdeterministic closure、実時間はMANUAL-02 |
-| `PRF-003` | active | `OBSERVABILITY_REQUIRED` + partial synthetic | playlist detail transition | owner request前のselection／mode preparationにblind interval | `P1/P2`: stage相関、不要turnの除去、actual renderはMANUAL-02 |
-| `PRF-004` | feasibility | `FEASIBILITY_REQUIRED` | resource-health | full buildのkey／warning／allocation stageが不透明 | `P1/P3`: synthetic snapshotでowner分離できる場合のみcomponent測定 |
-| `PRF-005` | feasibility | `FEASIBILITY_REQUIRED` | song-table materialization | SQLite readとmanaged object／index publicationを分離要 | `P1/P3`: temporary SQLite corpusが成立する場合のみ測定 |
+| `PRF-002` | active | `OBSERVABILITY_REQUIRED` + partial synthetic | playlist summary | current interaction／generation markerを追加済み | `P2`: duplicate／stale applyのdeterministic closure、実時間はMANUAL-02 |
+| `PRF-003` | active | `OBSERVABILITY_REQUIRED` + partial synthetic | playlist detail transition | selectionからfirst-visibleまでcurrent request versionで相関済み | `P2`: 不要turnの除去、actual renderはMANUAL-02 |
+| `PRF-004` | active | `SYNTHETIC_MEASURABLE` | resource-health | immutable synthetic snapshotを既存ownerへ入力可能。aggregate marker追加済み | `P3`: output／allocation component evidence |
+| `PRF-005` | active | `SYNTHETIC_MEASURABLE` | song-table materialization | temporary SQLiteを既存load ownerへ接続可能。aggregate marker追加済み | `P3`: query／managed publication component evidence |
 | `PRF-006` | active | `OBSERVABILITY_REQUIRED` | post-init forced GC | pauseとretained-memory benefitの関係が不明 | `P3`: component evidence。full startup判断はMANUAL-02 |
 | `PRF-007` | split | synthetic managed + `MANUAL_REAL_DATA` native | scan／construction | managed decode／diff／parseはfixture化可能。Everything／diskは実環境依存 | `P4`: managed component改善、nativeはmarker／manual |
 | `PRF-008` | active | `SYNTHETIC_MEASURABLE` | install destination estimation | existing testsに71／100／399 resource生成がありcorpus化可能 | `P4`: fixed-seed scale、index／allocation／parallel crossover |

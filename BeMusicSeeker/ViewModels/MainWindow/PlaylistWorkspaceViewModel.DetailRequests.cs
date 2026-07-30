@@ -465,6 +465,19 @@ public sealed partial class PlaylistWorkspaceViewModel
             + " table=" + FormatDetailTableNameForLog(request.Identity.Table)
             + " folder=" + FormatDetailFolderNameForLog(request.Identity.FolderName)
             + " filterType=" + request.Identity.FilterType);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+                "playlist_detail",
+                request.RequestVersion,
+                request.RequestVersion);
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "input_accepted",
+                "mode=" + request.Mode
+                + " requestedMode=" + request.RequestedMode);
+            Net10PerformanceLog.Write(performanceInteraction, "owner_queued");
+        }
     }
 
     private void MarkDetailOpenBuildStarted(PlaylistBuildRequest request)
@@ -481,6 +494,15 @@ public sealed partial class PlaylistWorkspaceViewModel
                 DetailViewState.CurrentOpenInteraction.BuildStartedAtUtc = DateTime.UtcNow;
             }
         }
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                PerformanceInteraction.Existing(
+                    "playlist_detail",
+                    request.RequestVersion,
+                    request.RequestVersion),
+                "owner_started");
+        }
     }
 
     private void MarkDetailOpenBuildCompleted(PlaylistBuildRequest request, int viewCount)
@@ -490,6 +512,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
         DateTime completedAtUtc = DateTime.UtcNow;
+        long sourceGeneration;
+        long viewGeneration;
         lock (DetailViewState.SyncRoot)
         {
             if (DetailViewState.CurrentOpenInteraction?.RequestVersion != request.RequestVersion)
@@ -502,6 +526,45 @@ public sealed partial class PlaylistWorkspaceViewModel
             DetailViewState.CurrentOpenInteraction.ExpectedViewGenerationId = DetailViewState.View.GenerationId;
             DetailViewState.CurrentOpenInteraction.ViewCount = viewCount;
             DetailViewState.CurrentOpenInteraction.VisibleCompletedLogged = false;
+            sourceGeneration = DetailViewState.Source.GenerationId;
+            viewGeneration = DetailViewState.View.GenerationId;
+        }
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+                "playlist_detail",
+                request.RequestVersion,
+                request.RequestVersion);
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "view_applied",
+                "rows=" + viewCount
+                + " sourceGeneration=" + sourceGeneration
+                + " viewGeneration=" + viewGeneration);
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "ui_queued",
+                "rows=" + viewCount);
+            dispatchPresentation(() =>
+            {
+                lock (DetailViewState.SyncRoot)
+                {
+                    if (DetailViewState.CurrentOpenInteraction?.RequestVersion != request.RequestVersion
+                        || DetailViewState.Source.GenerationId != sourceGeneration
+                        || DetailViewState.View.GenerationId != viewGeneration)
+                    {
+                        return;
+                    }
+                }
+                Net10PerformanceLog.Write(
+                    performanceInteraction,
+                    "ui_started",
+                    "rows=" + viewCount);
+                Net10PerformanceLog.Write(
+                    performanceInteraction,
+                    "ui_applied",
+                    "rows=" + viewCount);
+            });
         }
     }
 
@@ -538,6 +601,19 @@ public sealed partial class PlaylistWorkspaceViewModel
             + " requestToVisibleRenderMs=" + requestToVisibleRenderMs
             + " buildToVisibleRenderMs=" + buildToVisibleRenderMs
             + " viewCount=" + interaction.ViewCount);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+                "playlist_detail",
+                interaction.RequestVersion,
+                interaction.RequestVersion);
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "first_useful_visible",
+                "checkpoint=" + checkpoint
+                + " requestToVisibleMs=" + requestToVisibleRenderMs
+                + " rows=" + interaction.ViewCount);
+        }
         if (requestToVisibleRenderMs >= DetailOpenSlowLogThresholdMs)
         {
             detailRetentionLog("playlist_open_stage_detail requestVersion=" + interaction.RequestVersion

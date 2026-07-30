@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -5682,6 +5683,18 @@ public sealed class PlaylistWorkspaceViewModelTests
             notifications);
         Assert.AreSame(rows, workspace.PlaylistSummaryView);
         Assert.AreEqual("3 charts / 1 playlist", workspace.PlaylistSummaryText);
+        Assert.IsTrue(
+            workspace.TryGetAppliedPlaylistSummaryPerformanceInteraction(
+                out PerformanceInteraction interaction));
+        Assert.AreEqual(dataGeneration, interaction.InteractionId);
+        Assert.AreEqual(presentationGeneration, interaction.Generation);
+
+        workspace.BeginPlaylistSummaryPresentationGeneration();
+
+        Assert.IsTrue(
+            workspace.TryGetAppliedPlaylistSummaryPerformanceInteraction(
+                out PerformanceInteraction retainedInteraction));
+        Assert.AreEqual(interaction, retainedInteraction);
     }
 
     [TestMethod]

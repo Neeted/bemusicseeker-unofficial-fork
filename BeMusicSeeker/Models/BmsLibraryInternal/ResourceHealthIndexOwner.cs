@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -133,6 +134,19 @@ internal sealed class ResourceHealthIndexOwner
         }
 
         LogBuild(reason, snapshot);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                PerformanceInteraction.Existing(
+                    "resource_health",
+                    snapshot.Version,
+                    currentVersion.InputVersion),
+                "snapshot_projection_applied",
+                "targets=" + snapshot.TargetCount
+                + " needFix=" + snapshot.NeedFixCount
+                + " ignored=" + snapshot.IgnoredCount
+                + " buildMs=" + snapshot.BuildMs);
+        }
         return snapshot;
     }
 

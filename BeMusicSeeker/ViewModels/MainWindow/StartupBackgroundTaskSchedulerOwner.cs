@@ -217,7 +217,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                         existing.Version = requestVersion;
                         existing.Work = work;
                         existing.Discard = discard;
-                        replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " coalesceKey=" + normalizedName + " replaced=true";
+                        replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " generation=" + existing.Generation + " reason=" + normalizedReason + " coalesceKey=" + normalizedName + " replaced=true";
                     }
                     else
                     {
@@ -235,7 +235,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             Discard = discard
                         });
                     }
-                    queuedLog = "startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " reason=" + normalizedReason + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority;
+                    queuedLog = "startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " generation=" + generation + " reason=" + normalizedReason + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority;
                     shouldStartWorker = started;
                 }
             }
@@ -535,20 +535,20 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         Task.Run(async delegate
         {
             var stopwatch = Stopwatch.StartNew();
-            logInfo("startup_background_task start name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
+            logInfo("startup_background_task start name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
             RecordStarted(request);
             try
             {
                 await request.Work().ConfigureAwait(false);
                 stopwatch.Stop();
-                logInfo("startup_background_task done name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                logInfo("startup_background_task done name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 RecordCompleted(request, "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=" + request.Reason);
                 StartupMemoryPressureService.LogCheckpoint(logInfo, "startup_background_task", request.Name + "_done");
             }
             catch (Exception exception)
             {
                 stopwatch.Stop();
-                logWarning("startup_background_task failed name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + exception.Message);
+                logWarning("startup_background_task failed name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + exception.Message);
                 RecordCompleted(request, "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: exception.Message);
                 StartupMemoryPressureService.LogCheckpoint(logInfo, "startup_background_task", request.Name + "_failed");
             }

@@ -14,17 +14,24 @@
 
 ## Corpus matrix
 
-P1で次をcurrent codeに対して確定する。
-
 | Corridor | State | Generator / fixture | Scale | Golden behavior | Command |
 |---|---|---|---|---|---|
-| normal library projection | planned | fixed-seed `LibraryChartRow`／index generator | small／medium／large | row、sort、filter、folder summary | pending |
-| playlist summary／detail compute | planned | generated tables／entries／rows | small／medium／large | count、sort、filter、selection | pending |
-| UI queue／generation | planned | fake scheduler／STA harness | burst／rapid reentry | coalescing、latest generation、bounded turn | pending |
-| install destination estimation | planned | existing temp-directory helper | chart／candidate／resource matrix | selected path、confidence、warning | pending |
-| managed scan／parse | planned | generated BMS／BMSON＋repository fixture | no-diff／small／large | diff、DB rows、parse output | pending |
-| song-table／resource-health | feasibility | temporary SQLite／resource snapshots | pending | output／index equivalence | pending |
-| full startup／WPF render／native scan | manual | final artifact＋real data | one final session | log completeness／no unexplained stall | `MANUAL-02` |
+| normal library projection | `SYNTHETIC_MEASURABLE` | fixed-seed rows／immutable index、既存owner helper | 1,000／25,000／200,000 rows | row、sort、filter、folder summary | `P2` |
+| playlist summary／detail compute | `SYNTHETIC_MEASURABLE` | generated tables／entries／rows、既存aggregation helper | small／medium／large | count、sort、filter、selection | `P2` |
+| UI queue／generation | `SYNTHETIC_MEASURABLE` | fake scheduler／dedicated STA harness | burst／rapid reentry | coalescing、latest generation、bounded turn | `P2` |
+| install destination estimation | `SYNTHETIC_MEASURABLE` | existing temp-directory helper | 71／100／399 resources | selected path、confidence、warning | `P4` |
+| managed scan／parse | `SYNTHETIC_MEASURABLE` | generated BMS／BMSON＋repository fixture | no-diff／120／160 charts | diff、DB rows、parse output | `P4` |
+| song-table materialization | `SYNTHETIC_MEASURABLE` | temporary SQLiteと既存load owner | small／medium／large rows | loaded rows、index publication | `P3` |
+| resource-health component | `SYNTHETIC_MEASURABLE` | immutable synthetic resource snapshotと既存owner | small／medium／large targets | warning／ignored／index output | `P3` |
+| post-initialize GC | `OBSERVABILITY_REQUIRED` | aggregate startup marker | one aggregate event | pause／retained-memory component fields | `P3` |
+| full startup／WPF render／Everything／disk | `MANUAL_REAL_DATA` | final artifact＋real data | one final session | log completeness／no unexplained stall | `MANUAL-02` |
+
+共通generatorはseed `0xBEE501`から再構築し、一時workspaceを実行後に削除する。
+corpus contractは次で確認する。
+
+```powershell
+pwsh -NoProfile -File .\scripts\benchmark-net10-performance.ps1 -Corpus contract
+```
 
 ## Instrumentation schema
 
@@ -63,7 +70,7 @@ per-row／per-file logは行わない。diagnostic logging無効時のallocation
 
 | Unit | Commit | Corpus / classification | Before | After | Structural result | Raw artifact hash | Decision |
 |---|---|---|---|---|---|---|---|
-| P1 | pending | pending | — | — | — | — | pending |
+| P1 | same unit commit | fixed-seed corpus contract＋全corridor分類 | — | deterministic fingerprint／disabled-path formatter 0 calls | interaction／generation schema、aggregate marker、manual boundaryを固定 | ignored command receipt | accepted |
 | P2 | pending | pending | — | — | — | — | pending |
 | P3 | pending | pending | — | — | — | — | pending |
 | P4 | pending | pending | — | — | — | — | pending |

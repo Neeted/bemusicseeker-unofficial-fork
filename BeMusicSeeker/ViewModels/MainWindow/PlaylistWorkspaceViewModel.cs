@@ -8,6 +8,7 @@ using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -721,6 +722,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     private readonly object playlistSummaryTransitionLock = new();
 
     private long playlistSummaryPresentationGeneration;
+
+    private PerformanceInteraction appliedPlaylistSummaryPerformanceInteraction;
 
     private long playlistSummaryDataRebuildGeneration;
 
@@ -1496,6 +1499,16 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         }
     }
 
+    internal bool TryGetAppliedPlaylistSummaryPerformanceInteraction(
+        out PerformanceInteraction interaction)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            interaction = appliedPlaylistSummaryPerformanceInteraction;
+            return interaction.InteractionId > 0L;
+        }
+    }
+
     internal long CurrentPlaylistSummaryDataRebuildGeneration
     {
         get
@@ -1603,6 +1616,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 Interlocked.Exchange(ref lastPlaylistSummaryBuildCompletedTimestamp, Stopwatch.GetTimestamp());
             }
             playlistSummaryText = nextSummaryText;
+            appliedPlaylistSummaryPerformanceInteraction = PerformanceInteraction.Existing(
+                "playlist_summary",
+                request.DataRebuildGeneration ?? request.PresentationGeneration,
+                request.PresentationGeneration);
             if (request.DataRebuildGeneration is long appliedDataGeneration)
             {
                 lastPlaylistSummaryAppliedDataGeneration = Math.Max(

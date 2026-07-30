@@ -16,6 +16,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using BeMusicSeeker.Diagnostics;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -3013,6 +3014,17 @@ public partial class BMSLibrary : ObservableObject
         int lowConfidenceCount = 0;
         int completed = 0;
         var executionPolicy = InstallEstimationExecutionPolicy.ForPendingBatch(ResolvePendingInstallEstimateParallelPackageDegree());
+        PerformanceInteraction performanceInteraction =
+            PerformanceInteraction.Start("install_estimation");
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "owner_started",
+                "source=" + source
+                + " packages=" + request.PackageCount
+                + " packageDegree=" + executionPolicy.WorkItemDegree);
+        }
         LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " display=" + (request.DisplayName ?? string.Empty));
         try
         {
@@ -3039,6 +3051,16 @@ public partial class BMSLibrary : ObservableObject
             });
             stopwatch.Stop();
             LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
+            if (Net10PerformanceLog.IsEnabled)
+            {
+                Net10PerformanceLog.Write(
+                    performanceInteraction,
+                    "result_applied",
+                    "estimated=" + completed
+                    + " deferred=" + request.DeferredPackageCount
+                    + " lowConfidence=" + lowConfidenceCount
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            }
         }
         finally
         {
@@ -4256,6 +4278,19 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="mode">初期化 mode。</param>
     public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore, LibraryInitializeMode mode)
     {
+        PerformanceInteraction performanceInteraction =
+            PerformanceInteraction.Start("startup_library", (long)mode);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "input_accepted",
+                "mode=" + mode);
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "owner_started",
+                "mode=" + mode);
+        }
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool scheduleDeferredInstallableMaintenance = false;
         string deferredMaintenanceReason = mode == LibraryInitializeMode.FullReinitialize ? "full_reinitialize" : "initialize";
@@ -4508,6 +4543,16 @@ public partial class BMSLibrary : ObservableObject
         }
         QueuePostInitializeGarbageCollection(mode.ToString());
         LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " wait_continuation_start_ms=" + initializeResult.WaitBeforeContinuationStartMs + " wait_continuation_signal_ms=" + initializeResult.WaitForContinuationSignalMs + " wait_continuation_tasks_ms=" + initializeResult.WaitForContinuationTasksMs + " total_ms=" + initializeResult.TotalMs + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "data_ready",
+                "mode=" + mode
+                + " catalogRows=" + catalogRowCount
+                + " bmsonRows=" + bmsonRowCount
+                + " totalMs=" + initializeResult.TotalMs);
+        }
     }
 
     private void QueuePostInitializeGarbageCollection(string reason)
@@ -4617,6 +4662,19 @@ public partial class BMSLibrary : ObservableObject
             stopwatchBmsFilesAssign.Stop();
             songTableLoadResult.BmsFilesAssignMs = stopwatchBmsFilesAssign.ElapsedMilliseconds;
             LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadResult.SongTableLoadMs + " song_normalize_loop_ms=" + songTableLoadResult.SongNormalizeLoopMs + " folder_table_load_ms=" + songTableLoadResult.FolderTableLoadMs + " folder_normalize_loop_ms=" + songTableLoadResult.FolderNormalizeLoopMs + " fix_apply_ms=" + songTableLoadResult.FixApplyMs + " storage_rows_assign_ms=" + songTableLoadResult.BmsFilesAssignMs + " commit_ms=" + songTableLoadResult.CommitMs);
+            if (Net10PerformanceLog.IsEnabled)
+            {
+                PerformanceInteraction songTableInteraction =
+                    PerformanceInteraction.Start("song_table", fileScanGeneration);
+                Net10PerformanceLog.Write(
+                    songTableInteraction,
+                    "snapshot_query_projection",
+                    "songs=" + songTableLoadResult.LoadedFiles.Count
+                    + " bmson=" + songTableLoadResult.LoadedBmsonSongs.Count
+                    + " queryMs=" + songTableLoadResult.SongTableLoadMs
+                    + " normalizeMs=" + songTableLoadResult.SongNormalizeLoopMs
+                    + " publishMs=" + songTableLoadResult.BmsFilesAssignMs);
+            }
             stopwatchSongTblLoad.Stop();
             songTblLoadMs = stopwatchSongTblLoad.ElapsedMilliseconds;
             if (trackLibraryDatabaseProgress)
@@ -4770,6 +4828,19 @@ public partial class BMSLibrary : ObservableObject
         ResetEverythingFallbackWarningQueue();
         long fileScanGeneration = 0L;
         var stopwatch = Stopwatch.StartNew();
+        PerformanceInteraction performanceInteraction =
+            PerformanceInteraction.Start("managed_file_diff");
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "input_accepted",
+                "directories=" + bmsDirectories.Count);
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "owner_started",
+                "directories=" + bmsDirectories.Count);
+        }
         LogBmsSearchRootNormalization("reload_file_diff", options, rootNormalization, bmsDirectories);
         LogInstallPerformance("library_file_diff_reload start directories=" + bmsDirectories.Count);
         try
@@ -4796,6 +4867,17 @@ public partial class BMSLibrary : ObservableObject
                     + " bmsonDeleted=" + result.BmsonDeletedTargetCount
                     + " dbCommitChunks=" + result.DbCommitChunks
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                if (Net10PerformanceLog.IsEnabled)
+                {
+                    Net10PerformanceLog.Write(
+                        performanceInteraction,
+                        "db_applied",
+                        "added=" + result.BmsAddedTargetCount
+                        + " deleted=" + result.BmsDeletedTargetCount
+                        + " bmsonUpserted=" + result.BmsonUpsertTargetCount
+                        + " commitChunks=" + result.DbCommitChunks
+                        + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                }
                 return;
             }
         }

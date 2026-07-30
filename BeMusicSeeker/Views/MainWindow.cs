@@ -67,6 +67,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private MainWindowViewModel subscribedViewModel;
 
+    private long lastNormalLibraryFirstVisibleRequestId;
+
+    private PerformanceInteraction lastPlaylistSummaryFirstVisibleInteraction;
+
     public Visibility PlaybackOverlayVisibility
     {
         get => (Visibility)GetValue(PlaybackOverlayVisibilityProperty);
@@ -1240,6 +1244,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             timing,
             e.IsPreparationRender);
         installPerformanceLogger.Info(TableFirstVisibleLogFormatter.Format(metrics));
+        if (Net10PerformanceLog.IsEnabled
+            && !hasPlaylistTiming
+            && viewModel?.MainChartList.LastCompletion.RequestId > 0L)
+        {
+            MainChartListCompletion completion = viewModel.MainChartList.LastCompletion;
+            if (completion.RequestId == lastNormalLibraryFirstVisibleRequestId)
+            {
+                return;
+            }
+            lastNormalLibraryFirstVisibleRequestId = completion.RequestId;
+            Net10PerformanceLog.Write(
+                PerformanceInteraction.Existing("normal_library", completion.RequestId),
+                "first_useful_visible",
+                "rows=" + e.RowCount
+                + " visibleRows=" + e.VisibleRowCount
+                + " firstRenderMs=" + e.FirstRenderMs);
+        }
         if (hasPlaylistTiming && !(e.IsPreparationRender && timing.ViewCount > 0))
         {
             viewModel.PlaylistWorkspace.TryLogDetailOpenVisibleCompleted(
@@ -1247,6 +1268,34 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 sourceGenerationId,
                 viewGenerationId);
         }
+    }
+
+    private void customTablePlaylistSummary_FirstRenderCompleted(
+        object sender,
+        CustomTableFirstRenderCompletedEventArgs e)
+    {
+        if (!Net10PerformanceLog.IsEnabled
+            || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        if (!viewModel.PlaylistWorkspace.TryGetAppliedPlaylistSummaryPerformanceInteraction(
+                out PerformanceInteraction interaction))
+        {
+            return;
+        }
+        if (interaction == lastPlaylistSummaryFirstVisibleInteraction)
+        {
+            return;
+        }
+        lastPlaylistSummaryFirstVisibleInteraction = interaction;
+        Net10PerformanceLog.Write(
+            interaction,
+            "first_useful_visible",
+            "rows=" + e.RowCount
+            + " visibleRows=" + e.VisibleRowCount
+            + " firstRenderMs=" + e.FirstRenderMs
+            + " preparation=" + e.IsPreparationRender.ToString().ToLowerInvariant());
     }
 
     private void customTableView_SortRequested(object sender, CustomTableSortRequestedEventArgs e)

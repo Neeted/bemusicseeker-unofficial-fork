@@ -45,10 +45,12 @@
 | install destination estimation | `SYNTHETIC_MEASURABLE` | `BmsLibraryInstallEstimationServiceTests.cs`が71／100／399 resource規模をtemp directoryで生成済み | real package distributionはmanual |
 | BMS／BMSON parse | `SYNTHETIC_MEASURABLE` | `BmsLibraryInitializationServiceTests.cs`／`BmsonSongParserTests.cs`のgenerated BMS／BMSONとrepository fixtures | unknown real chart distributionはmanual |
 | managed file diff／DB apply | `SYNTHETIC_MEASURABLE` | `BmsLibraryInitializationServiceTests.cs`が120／160 chart corpusを生成済み | Everything native enumerationはmanual |
-| song-table／resource-health component | `FEASIBILITY_REQUIRED` | temporary SQLite／synthetic chart-resource snapshotでownerを分離できる場合のみ測定 | ownerを安全に分離できなければinstrumentation-only |
+| song-table materialization | `SYNTHETIC_MEASURABLE` | existing load ownerをtemporary SQLiteへ接続し、managed row／index publicationを分離して測定 | full startup、user DB分布はmanual |
+| resource-health component | `SYNTHETIC_MEASURABLE` | existing ownerへimmutable synthetic chart-resource snapshotを入力 | production chart tree分布はmanual |
+| post-initialize GC | `OBSERVABILITY_REQUIRED` | aggregate current-runtime markerでpause／memory fieldsを相関 | full startupでの削除判断はmanual |
 | full startup／first render／Everything／disk | `MANUAL_REAL_DATA` | final artifactの.NET 10 logで確認 | Codex Gateへ入れない |
 
-corpus feasibilityはP1でcurrent codeに対して確定する。`FEASIBILITY_REQUIRED`が成立しない場合、test-only seamやproduction-like mock architectureを増やさず`OBSERVABILITY_REQUIRED`へ移す。
+corpus feasibilityはP1でcurrent codeに対して確定済みである。fixed seedは`0xBEE501`、共通row scaleは1,000／25,000／200,000とし、corridor固有fixtureは既存test helperを再利用する。
 
 ## Active implementation batch
 

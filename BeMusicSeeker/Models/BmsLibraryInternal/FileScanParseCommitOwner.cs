@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -304,6 +305,17 @@ internal sealed class FileScanParseCommitOwner
         if (parseTargetCount <= 0)
         {
             return pipelineResult;
+        }
+        PerformanceInteraction performanceInteraction =
+            PerformanceInteraction.Start("managed_scan_parse");
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "owner_started",
+                "targets=" + parseTargetCount
+                + " bmsTargets=" + (bmsTargets?.Count ?? 0)
+                + " bmsonTargets=" + (bmsonPaths?.Count ?? 0));
         }
 
         List<FileDiffParseTarget> parseTargets = [.. EnumerateFileDiffTargets(bmsTargets, bmsonPaths)];
@@ -670,6 +682,19 @@ internal sealed class FileScanParseCommitOwner
         result.InlineMaintenanceWallMs = TicksToMilliseconds(inlineMaintenanceWallTicks);
         result.InlineBmsMaintenanceWallMs = TicksToMilliseconds(inlineBmsMaintenanceWallTicks);
         result.InlineBmsonMaintenanceWallMs = TicksToMilliseconds(inlineBmsonMaintenanceWallTicks);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "snapshot_query_projection",
+                "targets=" + parseTargetCount
+                + " readMs=" + pipelineResult.ReadMs
+                + " digestMs=" + pipelineResult.DigestMs
+                + " bmsParseMs=" + pipelineResult.BmsParseMs
+                + " bmsonParseMs=" + pipelineResult.BmsonParseMs
+                + " postParseMs=" + result.PostParseWallMs
+                + " commitChunks=" + result.DbCommitChunks);
+        }
         return pipelineResult;
     }
 

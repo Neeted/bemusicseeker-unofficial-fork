@@ -546,6 +546,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private Stopwatch startupReadyOperableStopwatch;
 
+    private PerformanceInteraction startupPerformanceInteraction;
+
     private bool startupReadyDataLogged;
 
     private bool startupReadyUiLogged;
@@ -1481,6 +1483,13 @@ public partial class MainWindowViewModel : ViewModel,
             return;
         }
         LogUiSuppression("startup_ready_data elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds);
+        if (Net10PerformanceLog.IsEnabled && startupPerformanceInteraction.InteractionId > 0L)
+        {
+            Net10PerformanceLog.Write(
+                startupPerformanceInteraction,
+                "snapshot_query_projection",
+                "checkpoint=data_ready elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds);
+        }
         startupReadyDataLogged = true;
         startupReadyDataReached = true;
         startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyData, operationToken);
@@ -1507,6 +1516,14 @@ public partial class MainWindowViewModel : ViewModel,
         }
         bool flag = (mask & UiRefreshChannel.PlaylistTree) != 0;
         LogUiSuppression("startup_ready_ui elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds + " playlistRefreshed=" + flag.ToString().ToLowerInvariant());
+        if (Net10PerformanceLog.IsEnabled && startupPerformanceInteraction.InteractionId > 0L)
+        {
+            Net10PerformanceLog.Write(
+                startupPerformanceInteraction,
+                "ui_applied",
+                "checkpoint=ready_ui elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds
+                + " playlistRefreshed=" + flag.ToString().ToLowerInvariant());
+        }
         startupReadyUiLogged = true;
         startupReadyUiReached = true;
         startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyUi, operationToken);
@@ -1566,6 +1583,13 @@ public partial class MainWindowViewModel : ViewModel,
             return;
         }
         LogUiSuppression("startup_ready_operable elapsedMs=" + startupReadyOperableStopwatch.ElapsedMilliseconds);
+        if (Net10PerformanceLog.IsEnabled && startupPerformanceInteraction.InteractionId > 0L)
+        {
+            Net10PerformanceLog.Write(
+                startupPerformanceInteraction,
+                "first_useful_visible",
+                "checkpoint=startup_ready_operable elapsedMs=" + startupReadyOperableStopwatch.ElapsedMilliseconds);
+        }
         startupReadyOperableStopwatch = null;
         startupReadyOperableReached = true;
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
@@ -4109,6 +4133,20 @@ public partial class MainWindowViewModel : ViewModel,
         Thread.Yield();
         startupReadyInstallStopwatch = Stopwatch.StartNew();
         startupReadyOperableStopwatch = Stopwatch.StartNew();
+        startupPerformanceInteraction = PerformanceInteraction.Start(
+            "startup",
+            operationToken);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                startupPerformanceInteraction,
+                "input_accepted",
+                "operationToken=" + operationToken);
+            Net10PerformanceLog.Write(
+                startupPerformanceInteraction,
+                "owner_queued",
+                "operationToken=" + operationToken);
+        }
         startupReadyDataLogged = false;
         startupReadyUiLogged = false;
         startupReadyDataReached = false;

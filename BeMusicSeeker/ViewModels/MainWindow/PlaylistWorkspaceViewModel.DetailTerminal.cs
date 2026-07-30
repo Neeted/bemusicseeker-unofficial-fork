@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -104,6 +105,21 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistDetailFilter currentFilterType)
     {
         long stageStartMs = request.Stopwatch.ElapsedMilliseconds;
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                PerformanceInteraction.Existing(
+                    "playlist_detail",
+                    request.BuildRequest.RequestVersion,
+                    request.BuildRequest.RequestVersion),
+                "snapshot_query_projection",
+                "sourceRows=" + viewApply.SourceCount
+                + " viewRows=" + viewApply.ViewCount
+                + " keywordMs=" + viewApply.KeywordStageMs
+                + " modeMs=" + viewApply.ModeStageMs
+                + " sortMs=" + viewApply.SortStageMs
+                + " materializeMs=" + viewApply.ViewMaterializeMs);
+        }
         MainChartListColumnSelection columnSelection = detailMainChartList.LoadColumnSetting(
             request.ColumnSettingMode,
             request.CurrentTreeMode);
