@@ -54,8 +54,8 @@ user DB、user playlist、user chart tree、private package archiveのコピー�
 input / selection accepted
 → owner request queued / started
 → snapshot / query / projection
-→ UI presentation queued / started
-→ view / ItemsSource applied
+→ terminal apply started / applied
+→ UI presentation queued / started / applied（dispatcher queueが実在するrouteだけ）
 → first useful visible
 ```
 

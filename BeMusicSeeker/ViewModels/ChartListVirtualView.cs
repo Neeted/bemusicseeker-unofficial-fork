@@ -8,7 +8,7 @@ namespace BeMusicSeeker.ViewModels;
 internal sealed class ChartListVirtualView : IList, IChartListViewMetadata
 {
     private readonly IReadOnlyList<ChartListSourceRow> sourceRows;
-    private readonly int[] orderedIndexes;
+    private readonly IReadOnlyList<int> orderedIndexes;
     private readonly Func<ChartListSourceRow, LibraryChartRow> rowFactory;
     private readonly LibraryChartRow[] realizedRows;
     private readonly int distinctFolderCount;
@@ -22,11 +22,11 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata
         this.sourceRows = sourceRows ?? [];
         orderedIndexes = order?.Indexes ?? [];
         this.rowFactory = rowFactory ?? throw new ArgumentNullException(nameof(rowFactory));
-        realizedRows = new LibraryChartRow[orderedIndexes.Length];
+        realizedRows = new LibraryChartRow[orderedIndexes.Count];
         this.distinctFolderCount = distinctFolderCount;
     }
 
-    public int Count => orderedIndexes.Length;
+    public int Count => orderedIndexes.Count;
 
     public int RowCount => Count;
 
@@ -144,7 +144,7 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata
 
     private LibraryChartRow GetOrCreate(int index)
     {
-        if (index < 0 || index >= orderedIndexes.Length)
+        if (index < 0 || index >= orderedIndexes.Count)
         {
             throw new ArgumentOutOfRangeException(nameof(index));
         }

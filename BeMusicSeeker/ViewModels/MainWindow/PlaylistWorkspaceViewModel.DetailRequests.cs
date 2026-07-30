@@ -541,30 +541,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 "rows=" + viewCount
                 + " sourceGeneration=" + sourceGeneration
                 + " viewGeneration=" + viewGeneration);
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "ui_queued",
-                "rows=" + viewCount);
-            dispatchPresentation(() =>
-            {
-                lock (DetailViewState.SyncRoot)
-                {
-                    if (DetailViewState.CurrentOpenInteraction?.RequestVersion != request.RequestVersion
-                        || DetailViewState.Source.GenerationId != sourceGeneration
-                        || DetailViewState.View.GenerationId != viewGeneration)
-                    {
-                        return;
-                    }
-                }
-                Net10PerformanceLog.Write(
-                    performanceInteraction,
-                    "ui_started",
-                    "rows=" + viewCount);
-                Net10PerformanceLog.Write(
-                    performanceInteraction,
-                    "ui_applied",
-                    "rows=" + viewCount);
-            });
         }
     }
 

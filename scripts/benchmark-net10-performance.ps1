@@ -4,7 +4,6 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
     [int]$Seed = 0xBEE501,
-    [ValidateSet('small', 'medium', 'large')]
     [string[]]$Scale = @('small', 'medium', 'large'),
     [string]$Output = 'artifacts/performance/net10-engineering'
 )
@@ -13,6 +12,17 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $outputRoot = Join-Path $repositoryRoot $Output
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+$normalizedScale = @(
+    $Scale |
+        ForEach-Object { $_ -split ',' } |
+        ForEach-Object { $_.Trim().ToLowerInvariant() } |
+        Where-Object { $_ } |
+        Select-Object -Unique
+)
+$invalidScale = @($normalizedScale | Where-Object { $_ -notin @('small', 'medium', 'large') })
+if ($normalizedScale.Count -eq 0 -or $invalidScale.Count -gt 0) {
+    throw "Scale must contain only small, medium, or large."
+}
 
 $filter = if ($Corpus -eq 'all') {
     'TestCategory=Net10Performance'
@@ -26,7 +36,7 @@ $commandReceipt = [ordered]@{
     corpus = $Corpus
     configuration = $Configuration
     seed = $Seed
-    scale = @($Scale)
+    scale = @($normalizedScale)
     filter = $filter
     generatedAtUtc = [DateTime]::UtcNow.ToString('O')
 }
@@ -37,7 +47,7 @@ $previousSeed = $env:BMS_NET10_PERF_SEED
 $previousScales = $env:BMS_NET10_PERF_SCALES
 try {
     $env:BMS_NET10_PERF_SEED = $Seed.ToString([Globalization.CultureInfo]::InvariantCulture)
-    $env:BMS_NET10_PERF_SCALES = $Scale -join ','
+    $env:BMS_NET10_PERF_SCALES = $normalizedScale -join ','
     & dotnet test (Join-Path $repositoryRoot 'BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj') `
         --no-restore `
         --configuration $Configuration `

@@ -29,7 +29,7 @@
 - 実データを使う起動・一覧遷移・導入先推定・scanの計測は全engineering作業後にユーザーが一度行う。Codexのactive outcome、planner停止条件、`EXTERNAL_BLOCKER`へ入れない。
 - synthetic benchmarkは同じ.NET 10 code pathの変更前後を同じmachine、fixture、configurationで比較する。wall-clockだけでなくallocation、materialization count、queue count、algorithmic scaleを記録する。
 - normal test suiteへ不安定な短時間thresholdを入れない。timing-sensitive benchmarkは明示commandで実行し、deterministic invariantは通常testで固定する。
-- .NET 10 performance logはroute ID／generation IDを持ち、input accepted、owner start、UI queued／started／applied、first visibleを同じinteractionとして追跡する。per-row／per-file logを追加しない。
+- .NET 10 performance logはroute ID／generation IDを持ち、input accepted、owner start、terminal apply、実在するdispatcher queueのUI apply、first visibleを同じinteractionとして追跡する。background terminal stageをUI queueとは記録しない。per-row／per-file logを追加しない。
 
 ## Concurrency の非交渉条件
 

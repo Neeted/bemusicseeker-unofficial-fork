@@ -124,8 +124,19 @@ public sealed partial class PlaylistWorkspaceViewModel
             request.ColumnSettingMode,
             request.CurrentTreeMode);
         PlaylistDetailTerminalCommitResult commit;
+        PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+            "playlist_detail",
+            request.BuildRequest.RequestVersion,
+            request.BuildRequest.RequestVersion);
         try
         {
+            if (Net10PerformanceLog.IsEnabled)
+            {
+                Net10PerformanceLog.Write(
+                    performanceInteraction,
+                    "terminal_apply_started",
+                    "rows=" + viewApply.ViewCount);
+            }
             commit = ApplyDetailTerminal(new PlaylistDetailTerminalRequest
             {
                 BuildRequest = request.BuildRequest,
@@ -170,6 +181,14 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             MainChartListViewModel.DisposeRows(viewApply.FinalRows);
             return new PlaylistDetailTerminalApplyResult(false, viewApply, null, 0);
+        }
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "terminal_applied",
+                "rows=" + viewApply.ViewCount
+                + " sourceGeneration=" + commit.SourceGenerationId);
         }
         try
         {

@@ -326,7 +326,8 @@ internal sealed class ChartListOrder
         string propertyTypeName,
         string stringSortKind)
     {
-        Indexes = indexes ?? [];
+        int[] ownedIndexes = indexes?.ToArray() ?? [];
+        Indexes = Array.AsReadOnly(ownedIndexes);
         ColumnName = columnName ?? string.Empty;
         Direction = direction;
         SortProfile = sortProfile ?? string.Empty;
@@ -334,7 +335,7 @@ internal sealed class ChartListOrder
         StringSortKind = stringSortKind ?? string.Empty;
     }
 
-    internal int[] Indexes { get; }
+    internal IReadOnlyList<int> Indexes { get; }
 
     internal string ColumnName { get; }
 
@@ -346,7 +347,7 @@ internal sealed class ChartListOrder
 
     internal string StringSortKind { get; }
 
-    internal int Count => Indexes.Length;
+    internal int Count => Indexes.Count;
 
     internal static ChartListOrder CreateTitleAscending(IReadOnlyList<ChartListSourceRow> rows)
     {

@@ -3079,7 +3079,8 @@ internal sealed class RegularChartListOwner : IDisposable
             ScheduleVirtualSummary(
                 lease,
                 summaryKey,
-                SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes),
+                sourceRows,
+                order.Indexes,
                 rowsView,
                 request.Reason);
         }
@@ -3538,10 +3539,14 @@ internal sealed class RegularChartListOwner : IDisposable
         RegularChartListRequestLease lease,
         MainViewSummaryCacheKey key,
         IReadOnlyList<ChartListSourceRow> sourceRows,
+        IReadOnlyList<int> orderedIndexes,
         IList expectedRows,
         string reason)
     {
-        if (lease == null || sourceRows == null || expectedRows == null)
+        if (lease == null
+            || sourceRows == null
+            || orderedIndexes == null
+            || expectedRows == null)
         {
             return;
         }
@@ -3566,7 +3571,10 @@ internal sealed class RegularChartListOwner : IDisposable
             else
             {
                 runId = ++virtualSummaryRunId;
-                work = new VirtualSummaryWork(lease, expectedRows, virtualSummaryCacheVersion);
+                work = new VirtualSummaryWork(
+                    lease,
+                    expectedRows,
+                    virtualSummaryCacheVersion);
                 virtualSummaryRunning[key] = work;
             }
         }
@@ -3582,7 +3590,29 @@ internal sealed class RegularChartListOwner : IDisposable
             + " runId=" + runId
             + " rowCount=" + key.RowCount
             + " cacheHit=False");
-        Task.Run(() => RunVirtualSummary(runId, key, sourceRows, reason, work));
+        try
+        {
+            Task.Run(() => RunVirtualSummary(
+                runId,
+                key,
+                sourceRows,
+                orderedIndexes,
+                reason,
+                work));
+        }
+        catch
+        {
+            lock (syncRoot)
+            {
+                if (virtualSummaryRunning.TryGetValue(key, out VirtualSummaryWork currentWork)
+                    && ReferenceEquals(currentWork, work))
+                {
+                    virtualSummaryRunning.Remove(key);
+                }
+            }
+            work.Complete();
+            throw;
+        }
     }
 
     internal static IReadOnlyList<ChartListSourceRow> SelectSourceRowsByOrder(
@@ -3609,6 +3639,45 @@ internal sealed class RegularChartListOwner : IDisposable
             .Where(folder => !string.IsNullOrWhiteSpace(folder))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
+    }
+
+    internal static int CountDistinctFoldersByIndex(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        IReadOnlyList<int> orderedIndexes,
+        Func<bool> shouldStop,
+        out int scannedIndexCount,
+        out bool stopped)
+    {
+        scannedIndexCount = 0;
+        stopped = false;
+        if (sourceRows == null || orderedIndexes == null)
+        {
+            return -1;
+        }
+
+        var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int position = 0; position < orderedIndexes.Count; position++)
+        {
+            if (position > 0
+                && (position & 1023) == 0
+                && shouldStop?.Invoke() == true)
+            {
+                stopped = true;
+                break;
+            }
+            int sourceIndex = orderedIndexes[position];
+            scannedIndexCount++;
+            if (sourceIndex < 0 || sourceIndex >= sourceRows.Count)
+            {
+                continue;
+            }
+            string folder = sourceRows[sourceIndex]?.Folder;
+            if (!string.IsNullOrWhiteSpace(folder))
+            {
+                folders.Add(folder);
+            }
+        }
+        return folders.Count;
     }
 
     private RegularChartListTerminalResult TryCommitCore(
@@ -3699,17 +3768,60 @@ internal sealed class RegularChartListOwner : IDisposable
         int runId,
         MainViewSummaryCacheKey key,
         IReadOnlyList<ChartListSourceRow> sourceRows,
+        IReadOnlyList<int> orderedIndexes,
         string reason,
         VirtualSummaryWork work)
     {
         var stopwatch = Stopwatch.StartNew();
+        bool retired = false;
         try
         {
             log("main_summary_folder_count start reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
                 + " rowCount=" + key.RowCount);
-            int distinctFolderCount = CountDistinctFolders(sourceRows);
+            int distinctFolderCount = CountDistinctFoldersByIndex(
+                sourceRows,
+                orderedIndexes,
+                () => IsVirtualSummaryWorkObsolete(work),
+                out int scannedIndexCount,
+                out bool stopped);
             stopwatch.Stop();
+            if (stopped)
+            {
+                RegularChartListRequestLease restartLease;
+                IList restartRows;
+                bool restartLatest;
+                lock (syncRoot)
+                {
+                    if (virtualSummaryRunning.TryGetValue(key, out VirtualSummaryWork currentWork)
+                        && ReferenceEquals(currentWork, work))
+                    {
+                        virtualSummaryRunning.Remove(key);
+                    }
+                    retired = true;
+                    restartLease = work.Lease;
+                    restartRows = work.ExpectedRows;
+                    restartLatest = !disposed
+                        && work.CacheVersion == virtualSummaryCacheVersion
+                        && IsCurrentUnsafe(restartLease);
+                }
+                log("main_summary_folder_count stale_stopped reason=" + (reason ?? string.Empty)
+                    + " runId=" + runId
+                    + " rowCount=" + key.RowCount
+                    + " scannedIndexCount=" + scannedIndexCount
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                if (restartLatest)
+                {
+                    ScheduleVirtualSummary(
+                        restartLease,
+                        key,
+                        sourceRows,
+                        orderedIndexes,
+                        restartRows,
+                        (reason ?? string.Empty) + "_latest");
+                }
+                return;
+            }
             bool isCurrent;
             IList expectedRows;
             lock (syncRoot)
@@ -3719,6 +3831,7 @@ internal sealed class RegularChartListOwner : IDisposable
                 {
                     virtualSummaryRunning.Remove(key);
                 }
+                retired = true;
                 isCurrent = work.CacheVersion == virtualSummaryCacheVersion
                     && IsCurrentUnsafe(work.Lease);
                 expectedRows = work.ExpectedRows;
@@ -3741,6 +3854,7 @@ internal sealed class RegularChartListOwner : IDisposable
                 + " runId=" + runId
                 + " rowCount=" + key.RowCount
                 + " distinctFolderCount=" + distinctFolderCount
+                + " scannedIndexCount=" + scannedIndexCount
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " cacheHit=False");
             dispatchToUi(() =>
@@ -3754,24 +3868,44 @@ internal sealed class RegularChartListOwner : IDisposable
         catch (Exception ex)
         {
             stopwatch.Stop();
-            lock (syncRoot)
-            {
-                if (virtualSummaryRunning.TryGetValue(key, out VirtualSummaryWork currentWork)
-                    && ReferenceEquals(currentWork, work))
-                {
-                    virtualSummaryRunning.Remove(key);
-                }
-            }
             log("main_summary_folder_count failed reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
                 + " rowCount=" + key.RowCount
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name);
         }
+        finally
+        {
+            if (!retired)
+            {
+                lock (syncRoot)
+                {
+                    if (virtualSummaryRunning.TryGetValue(key, out VirtualSummaryWork currentWork)
+                        && ReferenceEquals(currentWork, work))
+                    {
+                        virtualSummaryRunning.Remove(key);
+                    }
+                }
+            }
+            work.Complete();
+        }
+    }
+
+    private bool IsVirtualSummaryWorkObsolete(VirtualSummaryWork work)
+    {
+        lock (syncRoot)
+        {
+            return disposed
+                || work.CacheVersion != virtualSummaryCacheVersion
+                || !IsCurrentUnsafe(work.Lease);
+        }
     }
 
     private sealed class VirtualSummaryWork
     {
+        private readonly TaskCompletionSource<bool> completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         internal VirtualSummaryWork(
             RegularChartListRequestLease lease,
             IList expectedRows,
@@ -3787,6 +3921,13 @@ internal sealed class RegularChartListOwner : IDisposable
         internal IList ExpectedRows { get; set; }
 
         internal int CacheVersion { get; }
+
+        internal Task Completion => completion.Task;
+
+        internal void Complete()
+        {
+            completion.TrySetResult(true);
+        }
     }
 
     internal Task StopAsync()
@@ -3795,6 +3936,7 @@ internal sealed class RegularChartListOwner : IDisposable
         CancellationTokenSource prewarmCancellation;
         Task prewarmCompletion;
         Task normalLibraryRefreshCompletion;
+        Task[] virtualSummaryCompletions;
         Task[] folderRenameTasksToDrain;
         PropertyChangedEventListener normalLibraryRefreshListenerToDispose;
         lock (normalLibraryRefreshApplyLock)
@@ -3817,6 +3959,9 @@ internal sealed class RegularChartListOwner : IDisposable
                 normalLibraryRefreshRequestedNotificationVersion = 0;
                 normalLibraryRefreshRequestedReason = null;
                 normalLibraryRefreshCompletion = normalLibraryRefreshDrainCompletion;
+                virtualSummaryCompletions = virtualSummaryRunning.Values
+                    .Select(work => work.Completion)
+                    .ToArray();
                 prewarmCancellation = virtualOrderPrewarmCancellation;
                 prewarmCompletion = virtualOrderPrewarmCompletion;
                 folderRenameTasksToDrain = [.. folderRenameTasks];
@@ -3824,6 +3969,7 @@ internal sealed class RegularChartListOwner : IDisposable
                     prewarmCompletion,
                     prewarmCancellation,
                     normalLibraryRefreshCompletion,
+                    virtualSummaryCompletions,
                     folderRenameTasksToDrain);
             }
         }
@@ -4190,12 +4336,14 @@ internal sealed class RegularChartListOwner : IDisposable
         Task prewarmCompletion,
         CancellationTokenSource prewarmCancellation,
         Task normalLibraryRefreshCompletion,
+        IReadOnlyList<Task> virtualSummaryCompletions,
         IReadOnlyList<Task> folderRenameTasks)
     {
         try
         {
             await (prewarmCompletion ?? Task.CompletedTask).ConfigureAwait(false);
             await (normalLibraryRefreshCompletion ?? Task.CompletedTask).ConfigureAwait(false);
+            await Task.WhenAll(virtualSummaryCompletions ?? []).ConfigureAwait(false);
             await Task.WhenAll(folderRenameTasks ?? []).ConfigureAwait(false);
         }
         finally

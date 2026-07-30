@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using BeMusicSeeker.Diagnostics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -15,8 +14,8 @@ public sealed class Net10PerformanceCorpusContractTests
     [TestMethod]
     public void ConfiguredCorpus_UsesRequestedSeedAndScaleWithStableGolden()
     {
-        int seed = GetConfiguredSeed();
-        foreach (Net10PerformanceCorpusScale scale in GetConfiguredScales())
+        int seed = Net10PerformanceCorpus.GetConfiguredSeed();
+        foreach (Net10PerformanceCorpusScale scale in Net10PerformanceCorpus.GetConfiguredScales())
         {
             IReadOnlyList<Net10PerformanceCorpusRow> rows =
                 Net10PerformanceCorpus.CreateRows(scale, seed);
@@ -99,31 +98,6 @@ public sealed class Net10PerformanceCorpusContractTests
                 "net10_perf route=playlist_summary interactionId=19 generation=23 stage=ui_applied rows=100"
             },
             messages);
-    }
-
-    private static int GetConfiguredSeed()
-    {
-        string value = Environment.GetEnvironmentVariable("BMS_NET10_PERF_SEED");
-        return int.TryParse(value, out int seed)
-            ? seed
-            : Net10PerformanceCorpus.DefaultSeed;
-    }
-
-    private static IReadOnlyList<Net10PerformanceCorpusScale> GetConfiguredScales()
-    {
-        string value = Environment.GetEnvironmentVariable("BMS_NET10_PERF_SCALES");
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return Enum.GetValues<Net10PerformanceCorpusScale>();
-        }
-
-        Net10PerformanceCorpusScale[] scales = value
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(item => Enum.Parse<Net10PerformanceCorpusScale>(item, ignoreCase: true))
-            .Distinct()
-            .ToArray();
-        Assert.IsTrue(scales.Length > 0, "At least one performance corpus scale is required.");
-        return scales;
     }
 
     private static string GetDefaultGoldenFingerprint(Net10PerformanceCorpusScale scale) => scale switch

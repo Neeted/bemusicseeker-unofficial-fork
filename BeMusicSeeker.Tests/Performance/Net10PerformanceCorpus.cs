@@ -74,6 +74,34 @@ internal static class Net10PerformanceCorpus
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
     }
 
+    internal static int GetConfiguredSeed()
+    {
+        string value = Environment.GetEnvironmentVariable("BMS_NET10_PERF_SEED");
+        return int.TryParse(value, out int seed)
+            ? seed
+            : DefaultSeed;
+    }
+
+    internal static IReadOnlyList<Net10PerformanceCorpusScale> GetConfiguredScales()
+    {
+        string value = Environment.GetEnvironmentVariable("BMS_NET10_PERF_SCALES");
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Enum.GetValues<Net10PerformanceCorpusScale>();
+        }
+
+        Net10PerformanceCorpusScale[] scales = value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(item => Enum.Parse<Net10PerformanceCorpusScale>(item, ignoreCase: true))
+            .Distinct()
+            .ToArray();
+        if (scales.Length == 0)
+        {
+            throw new InvalidOperationException("At least one performance corpus scale is required.");
+        }
+        return scales;
+    }
+
     internal static T WithTemporaryWorkspace<T>(Func<string, T> action)
     {
         string path = Path.Combine(

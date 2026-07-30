@@ -42,9 +42,8 @@ input accepted
 owner queued
 owner started
 snapshot / query / projection complete
-UI queued
-UI started
-view applied
+terminal apply started / applied
+UI queued / started / applied（dispatcher queueが実在するrouteだけ）
 first useful visible
 ```
 
@@ -71,7 +70,7 @@ per-row／per-file logは行わない。diagnostic logging無効時のallocation
 | Unit | Commit | Corpus / classification | Before | After | Structural result | Raw artifact hash | Decision |
 |---|---|---|---|---|---|---|---|
 | P1 | same unit commit | fixed-seed corpus contract＋全corridor分類 | — | deterministic fingerprint／disabled-path formatter 0 calls | interaction／generation schema、aggregate marker、manual boundaryを固定 | ignored command receipt | accepted |
-| P2 | pending | pending | — | — | — | — | pending |
+| P2 | same unit commit | fixed-seed normal-library list＋existing playlist queue／generation fixtures | source-reference materializations 1,000／25,000／200,000、allocated bytes 20,536／598,328／4,517,880 | materializations 0、owned index snapshot込みallocated bytes 7,496／173,264／1,122,728、folder output一致 | immutable source＋owned read-only index snapshot、1,024-row cancellation boundary、guard外shutdown drain。playlistのstale／dedupe／latest-generation／selection behaviorを維持 | `8417F007771BA673BD61E6CE7A46B0284BEFC76BF48FE76A68C8A660A85F2377` | accepted。playlist detailはbackground terminal applyを明示し、actual WPF first-visibleは`MANUAL-02` |
 | P3 | pending | pending | — | — | — | — | pending |
 | P4 | pending | pending | — | — | — | — | pending |
 | P5 | pending | engineering Gate | — | — | — | — | pending |

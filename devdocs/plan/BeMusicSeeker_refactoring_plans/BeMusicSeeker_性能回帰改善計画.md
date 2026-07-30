@@ -27,7 +27,7 @@
 
 既存logとcurrent sourceから、次の優先候補がある。
 
-- 通常ライブラリでは、UI lane上でbackground summary用のordered rowsを約21万件materializeするrouteがある。
+- 通常ライブラリのbackground summaryはimmutable sourceとindex snapshotを受け取り、UI lane上のordered-row materializationを行わない。
 - playlist summaryはcompute後のUI queue、ItemsSource apply、first renderが現行markerの外にある。
 - playlist detailはowner request以前のmode transition／preparation renderにblind intervalがある。
 - resource-health、song-table materialization、post-init forced GCはstage別のallocation／retention evidenceが不足している。
@@ -62,7 +62,8 @@ corpus feasibilityはP1でcurrent codeに対して確定済みである。fixed 
 input accepted
 owner queued / started
 snapshot / query / projection
-UI queued / started / applied
+terminal apply started / applied
+UI queued / started / applied（dispatcher queueが実在するrouteだけ）
 first useful visible
 ```
 

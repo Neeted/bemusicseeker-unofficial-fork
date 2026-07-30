@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Concurrent;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -2661,7 +2662,13 @@ public sealed class RegularChartListOwnerTests
             CreateSourceRow("Folder B", "b.bms")
         ];
 
-        owner.ScheduleVirtualSummary(lease, key, sourceRows, rows, "test");
+        owner.ScheduleVirtualSummary(
+            lease,
+            key,
+            sourceRows,
+            Enumerable.Range(0, sourceRows.Length).ToArray(),
+            rows,
+            "test");
 
         Assert.IsTrue(uiActionQueued.Wait(TimeSpan.FromSeconds(5)));
         pendingUiAction();
@@ -2731,6 +2738,7 @@ public sealed class RegularChartListOwnerTests
             staleLease,
             key,
             [CreateSourceRow("Folder A", "a.bms"), CreateSourceRow("Folder B", "b.bms")],
+            [0, 1],
             staleRows,
             "test");
         Assert.IsTrue(uiActionQueued.Wait(TimeSpan.FromSeconds(5)));
@@ -2784,7 +2792,7 @@ public sealed class RegularChartListOwnerTests
             () => { },
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
-        var sourceRows = new BlockingSourceRows(
+        var sourceRows = new BlockingIndexedSourceRows(
             CreateSourceRow("Folder A", "a.bms"),
             CreateSourceRow("Folder B", "b.bms"));
         try
@@ -2793,25 +2801,185 @@ public sealed class RegularChartListOwnerTests
             RegularChartListRequestLease firstLease = owner.BeginRequest();
             var firstRows = new List<object> { new(), new() };
             Assert.IsTrue(owner.TryCommitVirtual(firstLease, CreateVirtualTerminalInput(firstRows)).WasCommitted);
-            owner.ScheduleVirtualSummary(firstLease, key, sourceRows, firstRows, "first");
-            Assert.IsTrue(sourceRows.EnumerationStarted.Wait(TimeSpan.FromSeconds(5)));
+            owner.ScheduleVirtualSummary(firstLease, key, sourceRows, [0, 1], firstRows, "first");
+            Assert.IsTrue(sourceRows.IndexReadStarted.Wait(TimeSpan.FromSeconds(5)));
 
             RegularChartListRequestLease currentLease = owner.BeginRequest();
             var currentRows = new List<object> { new(), new() };
             Assert.IsTrue(owner.TryCommitVirtual(currentLease, CreateVirtualTerminalInput(currentRows)).WasCommitted);
-            owner.ScheduleVirtualSummary(currentLease, key, sourceRows, currentRows, "current");
-            sourceRows.ReleaseEnumeration.Set();
+            owner.ScheduleVirtualSummary(currentLease, key, sourceRows, [0, 1], currentRows, "current");
+            sourceRows.ReleaseIndexRead.Set();
 
             string expectedSummary = "[2" + BeMusicSeeker.Properties.Resources.Num_songs + " / 2" + BeMusicSeeker.Properties.Resources.Num_folders + "]";
             Assert.IsTrue(SpinWait.SpinUntil(
                 () => string.Equals(table.SummaryText, expectedSummary, StringComparison.Ordinal),
                 TimeSpan.FromSeconds(5)));
             Assert.AreSame(currentRows, table.Rows);
-            Assert.AreEqual(1, sourceRows.EnumerationCount);
+            Assert.AreEqual(2, sourceRows.IndexReadCount);
         }
         finally
         {
-            sourceRows.ReleaseEnumeration.Set();
+            sourceRows.ReleaseIndexRead.Set();
+            sourceRows.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public void VirtualSummary_StaleStopRetiresWorkBeforeLatestSameKeyRequestJoins()
+    {
+        var table = new MainChartListViewModel();
+        var sourceRows = new BlockingIndexedSourceRows(
+            CreateSourceRow("Folder A", "a.bms"),
+            CreateSourceRow("Folder B", "b.bms"));
+        RegularChartListOwner owner = null!;
+        RegularChartListRequestLease latestLease = null!;
+        IList latestRows = null!;
+        IReadOnlyList<int> indexes = Enumerable.Range(0, 5_000)
+            .Select(index => index & 1)
+            .ToArray();
+        var key = new MainViewSummaryCacheKey(1, 1, indexes.Count, includeBmsonRows: false, "terminal-race");
+        int rescheduleCount = 0;
+        var messages = new ConcurrentQueue<string>();
+        owner = CreateOwner(
+            table,
+            CreateWorkspaceForOwner(),
+            action => action(),
+            log: message =>
+            {
+                messages.Enqueue(message);
+                if (message.Contains("stale_stopped", StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref rescheduleCount);
+                    owner.ScheduleVirtualSummary(
+                        latestLease,
+                        key,
+                        sourceRows,
+                        indexes,
+                        latestRows,
+                        "latest_from_terminal");
+                }
+            });
+        try
+        {
+            RegularChartListRequestLease staleLease = owner.BeginRequest();
+            var staleRows = new List<object> { new() };
+            Assert.IsTrue(owner.TryCommitVirtual(staleLease, CreateVirtualTerminalInput(staleRows)).WasCommitted);
+            owner.ScheduleVirtualSummary(staleLease, key, sourceRows, indexes, staleRows, "stale");
+            Assert.IsTrue(sourceRows.IndexReadStarted.Wait(TimeSpan.FromSeconds(5)));
+
+            latestLease = owner.BeginRequest();
+            latestRows = Enumerable.Repeat<object>(new(), indexes.Count).ToList();
+            Assert.IsTrue(owner.TryCommitVirtual(latestLease, CreateVirtualTerminalInput(latestRows)).WasCommitted);
+            sourceRows.ReleaseIndexRead.Set();
+
+            string expectedSummary = "[" + indexes.Count + BeMusicSeeker.Properties.Resources.Num_songs
+                + " / 2" + BeMusicSeeker.Properties.Resources.Num_folders + "]";
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => string.Equals(table.SummaryText, expectedSummary, StringComparison.Ordinal),
+                TimeSpan.FromSeconds(5)),
+                "Actual summary: " + table.SummaryText
+                + Environment.NewLine + string.Join(Environment.NewLine, messages));
+            Assert.AreEqual(1, Volatile.Read(ref rescheduleCount));
+            Assert.AreSame(latestRows, table.Rows);
+        }
+        finally
+        {
+            sourceRows.ReleaseIndexRead.Set();
+            sourceRows.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public void VirtualSummary_IndexedSnapshotMatchesLegacyOutputAndStopsAtChunkBoundary()
+    {
+        ChartListSourceRow[] sourceRows =
+        [
+            CreateSourceRow("Folder A", "a.bms"),
+            CreateSourceRow("folder a", "b.bms"),
+            CreateSourceRow("Folder B", "c.bms"),
+            CreateSourceRow(string.Empty, "d.bms")
+        ];
+        int[] indexes = [2, 0, 1, 3, -1, sourceRows.Length];
+        int legacy = RegularChartListOwner.CountDistinctFolders(
+            RegularChartListOwner.SelectSourceRowsByOrder(sourceRows, indexes));
+
+        int indexed = RegularChartListOwner.CountDistinctFoldersByIndex(
+            sourceRows,
+            indexes,
+            shouldStop: null,
+            out int scanned,
+            out bool stopped);
+
+        Assert.AreEqual(legacy, indexed);
+        Assert.AreEqual(indexes.Length, scanned);
+        Assert.IsFalse(stopped);
+
+        int[] largeIndexes = Enumerable.Repeat(0, 5_000).ToArray();
+        _ = RegularChartListOwner.CountDistinctFoldersByIndex(
+            sourceRows,
+            largeIndexes,
+            () => true,
+            out int cancelledScanCount,
+            out bool cancelled);
+
+        Assert.IsTrue(cancelled);
+        Assert.AreEqual(1_024, cancelledScanCount);
+    }
+
+    [TestMethod]
+    public void VirtualSummary_OrderExposesReadOnlyIndexSnapshot()
+    {
+        ChartListOrder order = CreateOrder(
+            CreateSourceRow("Folder A", "a.bms"),
+            CreateSourceRow("Folder B", "b.bms"));
+
+        Assert.IsFalse(order.Indexes is int[]);
+        Assert.IsTrue(order.Indexes is IList<int> { IsReadOnly: true });
+        Assert.ThrowsException<NotSupportedException>(
+            () => ((IList<int>)order.Indexes)[0] = 1);
+    }
+
+    [TestMethod]
+    public void VirtualSummary_OrderOwnsIndexSnapshotIndependentOfProducerArray()
+    {
+        int[] producerIndexes = [1, 0];
+        ChartListOrder order = CreateOrder(
+                CreateSourceRow("Folder A", "a.bms"),
+                CreateSourceRow("Folder B", "b.bms"))
+            .WithIndexes(producerIndexes);
+
+        producerIndexes[0] = 0;
+        producerIndexes[1] = 1;
+
+        CollectionAssert.AreEqual(new[] { 1, 0 }, order.Indexes.ToArray());
+    }
+
+    [TestMethod]
+    public async Task StopAsync_CancelsAndDrainsVirtualSummaryWithoutWaitingForUi()
+    {
+        var table = new MainChartListViewModel();
+        var owner = CreateOwner(table, CreateWorkspaceForOwner());
+        var sourceRows = new BlockingIndexedSourceRows(
+            CreateSourceRow("Folder A", "a.bms"),
+            CreateSourceRow("Folder B", "b.bms"));
+        try
+        {
+            RegularChartListRequestLease lease = owner.BeginRequest();
+            var rows = new List<object> { new(), new() };
+            Assert.IsTrue(owner.TryCommitVirtual(lease, CreateVirtualTerminalInput(rows)).WasCommitted);
+            var key = new MainViewSummaryCacheKey(1, 1, 2, includeBmsonRows: false, "shutdown");
+            owner.ScheduleVirtualSummary(lease, key, sourceRows, [0, 1], rows, "shutdown");
+            Assert.IsTrue(sourceRows.IndexReadStarted.Wait(TimeSpan.FromSeconds(5)));
+
+            Task stop = owner.StopAsync();
+
+            Assert.IsFalse(stop.IsCompleted);
+            sourceRows.ReleaseIndexRead.Set();
+            await stop.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            sourceRows.ReleaseIndexRead.Set();
             sourceRows.Dispose();
         }
     }
@@ -3827,12 +3995,13 @@ public sealed class RegularChartListOwnerTests
         MainChartListViewModel table,
         PlaylistWorkspaceViewModel workspace,
         Action<Action> dispatchToUi,
-        IUiScheduler? normalLibraryRefreshUiScheduler = null)
+        IUiScheduler? normalLibraryRefreshUiScheduler = null,
+        Action<string>? log = null)
     {
         return new RegularChartListOwner(
             table,
             workspace,
-            _ => { },
+            log ?? (_ => { }),
             dispatchToUi,
             _ => { },
             CreatePendingPackageWorkflowOwner(),
@@ -4300,34 +4469,40 @@ public sealed class RegularChartListOwnerTests
         }
     }
 
-    private sealed class BlockingSourceRows : IReadOnlyList<ChartListSourceRow>, IDisposable
+    private sealed class BlockingIndexedSourceRows : IReadOnlyList<ChartListSourceRow>, IDisposable
     {
         private readonly IReadOnlyList<ChartListSourceRow> rows;
-        private int enumerationCount;
+        private int indexReadCount;
 
-        internal BlockingSourceRows(params ChartListSourceRow[] rows)
+        internal BlockingIndexedSourceRows(params ChartListSourceRow[] rows)
         {
             this.rows = rows;
         }
 
-        internal ManualResetEventSlim EnumerationStarted { get; } = new();
+        internal ManualResetEventSlim IndexReadStarted { get; } = new();
 
-        internal ManualResetEventSlim ReleaseEnumeration { get; } = new();
+        internal ManualResetEventSlim ReleaseIndexRead { get; } = new();
 
-        internal int EnumerationCount => Volatile.Read(ref enumerationCount);
+        internal int IndexReadCount => Volatile.Read(ref indexReadCount);
 
         public int Count => rows.Count;
 
-        public ChartListSourceRow this[int index] => rows[index];
+        public ChartListSourceRow this[int index]
+        {
+            get
+            {
+                Interlocked.Increment(ref indexReadCount);
+                IndexReadStarted.Set();
+                if (!ReleaseIndexRead.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    throw new TimeoutException("Summary index read was not released.");
+                }
+                return rows[index];
+            }
+        }
 
         public IEnumerator<ChartListSourceRow> GetEnumerator()
         {
-            Interlocked.Increment(ref enumerationCount);
-            EnumerationStarted.Set();
-            if (!ReleaseEnumeration.Wait(TimeSpan.FromSeconds(5)))
-            {
-                throw new TimeoutException("Summary enumeration was not released.");
-            }
             return rows.GetEnumerator();
         }
 
@@ -4338,8 +4513,8 @@ public sealed class RegularChartListOwnerTests
 
         public void Dispose()
         {
-            EnumerationStarted.Dispose();
-            ReleaseEnumeration.Dispose();
+            IndexReadStarted.Dispose();
+            ReleaseIndexRead.Dispose();
         }
     }
 }
