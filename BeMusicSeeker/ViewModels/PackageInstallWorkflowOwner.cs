@@ -99,6 +99,14 @@ internal sealed class PackageInstallWorkflowOwner
 
     private int shutdownState;
 
+    private readonly object statusPublicationGate = new();
+
+    private ActiveStatusPublication activeStatusPublication;
+
+    private long latestStatusSequenceGeneration = long.MinValue;
+
+    private long latestStatusSequence;
+
     internal PackageInstallWorkflowOwner(
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
@@ -391,13 +399,100 @@ internal sealed class PackageInstallWorkflowOwner
         {
             return;
         }
-        DispatchNotification(() =>
+        bool schedule;
+        ActiveStatusPublication publication = null;
+        lock (statusPublicationGate)
         {
-            if (IsCurrentGeneration(context.Generation, null, allowNullLibrary: true))
+            if (latestStatusSequenceGeneration != context.Generation)
             {
-                StatusChanged?.Invoke(copy);
+                latestStatusSequenceGeneration = context.Generation;
+                latestStatusSequence = 0L;
             }
-        });
+            if (copy.Sequence <= latestStatusSequence)
+            {
+                return;
+            }
+            latestStatusSequence = copy.Sequence;
+
+            if (!copy.IsActive)
+            {
+                activeStatusPublication = null;
+                schedule = false;
+            }
+            else
+            {
+                publication = activeStatusPublication;
+                if (publication == null || publication.Generation != context.Generation)
+                {
+                    publication = new ActiveStatusPublication(context.Generation, copy);
+                    activeStatusPublication = publication;
+                    schedule = true;
+                }
+                else
+                {
+                    publication.Snapshot = copy;
+                    schedule = false;
+                }
+            }
+        }
+        if (!copy.IsActive)
+        {
+            DispatchNotification(() =>
+            {
+                if (IsCurrentGeneration(context.Generation, null, allowNullLibrary: true))
+                {
+                    StatusChanged?.Invoke(copy);
+                }
+            });
+            return;
+        }
+        if (!schedule)
+        {
+            return;
+        }
+        if (!DispatchNotification(() => DrainActiveQueueStatus(publication)))
+        {
+            lock (statusPublicationGate)
+            {
+                if (ReferenceEquals(activeStatusPublication, publication))
+                {
+                    activeStatusPublication = null;
+                }
+            }
+        }
+    }
+
+    private void DrainActiveQueueStatus(ActiveStatusPublication publication)
+    {
+        DropInstallQueueStatusSnapshot snapshot;
+        lock (statusPublicationGate)
+        {
+            snapshot = publication.Snapshot;
+            if (ReferenceEquals(activeStatusPublication, publication))
+            {
+                activeStatusPublication = null;
+            }
+        }
+        if (snapshot != null
+            && IsCurrentGeneration(publication.Generation, null, allowNullLibrary: true))
+        {
+            StatusChanged?.Invoke(snapshot);
+        }
+    }
+
+    private sealed class ActiveStatusPublication
+    {
+        internal ActiveStatusPublication(
+            long generation,
+            DropInstallQueueStatusSnapshot snapshot)
+        {
+            Generation = generation;
+            Snapshot = snapshot;
+        }
+
+        internal long Generation { get; }
+
+        internal DropInstallQueueStatusSnapshot Snapshot { get; set; }
     }
 
     private void PublishBatchFailure(QueueProcessorContext context, Exception exception)
@@ -430,11 +525,11 @@ internal sealed class PackageInstallWorkflowOwner
         }, exception);
     }
 
-    private void DispatchNotification(Action notification, Exception dispatchFailure = null)
+    private bool DispatchNotification(Action notification, Exception dispatchFailure = null)
     {
         if (notification == null)
         {
-            return;
+            return false;
         }
         try
         {
@@ -458,6 +553,7 @@ internal sealed class PackageInstallWorkflowOwner
                 ReportNotificationFailure(dispatchFailure
                     ?? new InvalidOperationException("The UI dispatcher is shutting down."));
             }
+            return dispatched;
         }
         catch (Exception exception)
         {
@@ -466,6 +562,7 @@ internal sealed class PackageInstallWorkflowOwner
             {
                 ReportNotificationFailure(exception);
             }
+            return false;
         }
     }
 

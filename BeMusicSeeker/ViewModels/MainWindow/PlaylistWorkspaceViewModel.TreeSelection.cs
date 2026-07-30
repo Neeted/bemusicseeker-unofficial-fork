@@ -182,7 +182,9 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     if (playlistTreeStore != null)
                     {
-                        playlistTreeStore.PropertyChanged -= PlaylistTreeStorePropertyChanged;
+                        playlistTreeStore.PlaylistTablesReplaced -= PlaylistTreeStoreTablesReplaced;
+                        playlistTreeStore.PlaylistEntriesHydrationRequested -= PlaylistTreeStoreHydrationRequested;
+                        playlistTreeStore.PlaylistEntriesHydrationCompleted -= PlaylistTreeStoreHydrationCompleted;
                         playlistTreeStore.PlaylistEntriesHydrationReceiptPublished -= PlaylistTreeStoreHydrationReceiptPublished;
                     }
                     if (observedPlaylistTreeTables != null)
@@ -195,7 +197,9 @@ public sealed partial class PlaylistWorkspaceViewModel
                     observedPlaylistTreeTables = null;
                     if (playlistTreeStore != null)
                     {
-                        playlistTreeStore.PropertyChanged += PlaylistTreeStorePropertyChanged;
+                        playlistTreeStore.PlaylistTablesReplaced += PlaylistTreeStoreTablesReplaced;
+                        playlistTreeStore.PlaylistEntriesHydrationRequested += PlaylistTreeStoreHydrationRequested;
+                        playlistTreeStore.PlaylistEntriesHydrationCompleted += PlaylistTreeStoreHydrationCompleted;
                         playlistTreeStore.PlaylistEntriesHydrationReceiptPublished += PlaylistTreeStoreHydrationReceiptPublished;
                     }
                 }

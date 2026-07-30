@@ -36,6 +36,8 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
 
     private string activeCurrentWorkDisplayName = string.Empty;
 
+    private long statusSequence;
+
     public bool IsIdle
     {
         get
@@ -219,6 +221,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
         int pendingCount = (activeBatch != null) ? pendingBatches.Count : Math.Max(0, pendingBatches.Count - 1);
         return new DropInstallQueueStatusSnapshot
         {
+            Sequence = ++statusSequence,
             IsActive = displayedBatch != null,
             CanCancel = displayedBatch != null && !cancelRequested,
             IsCancellationRequested = cancelRequested,

@@ -597,6 +597,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "LogPlaylistRetention,");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("private void PlaylistWorkspacePropertyChanged(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("playlistTreeStore.PropertyChanged", StringComparison.Ordinal));
+        StringAssert.Contains(logicalSource, "playlistTreeStore.PlaylistTablesReplaced += PlaylistTreeStoreTablesReplaced;");
+        StringAssert.Contains(logicalSource, "playlistTreeStore.PlaylistEntriesHydrationRequested += PlaylistTreeStoreHydrationRequested;");
+        StringAssert.Contains(logicalSource, "playlistTreeStore.PlaylistEntriesHydrationCompleted += PlaylistTreeStoreHydrationCompleted;");
         Assert.AreEqual(-1, rootSource.IndexOf("lockPlaylistSyncStatuses", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("playlistSyncStatuses", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("UpdatePlaylistSyncRuntimeStatus", StringComparison.Ordinal));

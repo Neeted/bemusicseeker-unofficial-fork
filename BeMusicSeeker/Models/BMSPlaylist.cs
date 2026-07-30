@@ -296,6 +296,12 @@ public partial class BMSPlaylist : ObservableObject
 
     public int PlaylistEntriesHydrationCompletedVersion => playlistEntriesHydrationOwner.PlaylistEntriesHydrationCompletedVersion;
 
+    internal event EventHandler PlaylistTablesReplaced;
+
+    internal event EventHandler<PlaylistHydrationVersionEventArgs> PlaylistEntriesHydrationRequested;
+
+    internal event EventHandler<PlaylistHydrationVersionEventArgs> PlaylistEntriesHydrationCompleted;
+
     internal event EventHandler<PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs> PlaylistEntriesHydrationReceiptPublished;
 
     /// <summary>
@@ -320,6 +326,7 @@ public partial class BMSPlaylist : ObservableObject
                 _BMSTables = value;
                 playlistAggregatePersistenceOwner.SetActiveCollection(previousTables, value);
                 RaisePropertyChanged("BMSTables");
+                PlaylistTablesReplaced?.Invoke(this, EventArgs.Empty);
             });
         }
     }
@@ -642,8 +649,22 @@ public partial class BMSPlaylist : ObservableObject
             LogPlaylistPerformance,
             operationNotificationOwner);
         playlistAggregatePersistenceOwner.AttachEntriesHydrationOwner(playlistEntriesHydrationOwner);
-        playlistEntriesHydrationOwner.PropertyChanged += (_, eventArgs) =>
-            RaisePropertyChanged(eventArgs.PropertyName);
+        playlistEntriesHydrationOwner.RunningChanged += _ =>
+            RaisePropertyChanged(nameof(PlaylistEntriesHydrationRunning));
+        playlistEntriesHydrationOwner.HydrationRequested += version =>
+        {
+            RaisePropertyChanged(nameof(PlaylistEntriesHydrationRequestedVersion));
+            PlaylistEntriesHydrationRequested?.Invoke(
+                this,
+                new PlaylistHydrationVersionEventArgs(version));
+        };
+        playlistEntriesHydrationOwner.HydrationCompleted += version =>
+        {
+            RaisePropertyChanged(nameof(PlaylistEntriesHydrationCompletedVersion));
+            PlaylistEntriesHydrationCompleted?.Invoke(
+                this,
+                new PlaylistHydrationVersionEventArgs(version));
+        };
         playlistEntriesHydrationOwner.HydrationReceiptPublished += PlaylistEntriesHydrationReceiptPublishedHandler;
         listenerForRwlockBMSTablesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSTablesInitializeMin);
@@ -4639,4 +4660,14 @@ public partial class BMSPlaylist : ObservableObject
                 serializedAdditionalOutputBaseDirectories);
         return Path.Combine(outputBaseDirectory, bmsTable.Output_dir);
     }
+}
+
+internal sealed class PlaylistHydrationVersionEventArgs : EventArgs
+{
+    internal PlaylistHydrationVersionEventArgs(int version)
+    {
+        Version = version;
+    }
+
+    internal int Version { get; }
 }

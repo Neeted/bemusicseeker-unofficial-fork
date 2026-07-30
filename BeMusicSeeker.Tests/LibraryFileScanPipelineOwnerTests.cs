@@ -257,8 +257,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
         CollectionAssert.AreEqual(new[] { firstBmson, secondBmson }, captured.BmsonRows.ToArray());
 
         CatalogStorageRowsSnapshot current = owner.CaptureSnapshot();
+        CatalogStorageRowsStateSnapshot state = owner.CaptureStateSnapshot();
         Assert.AreEqual(2, current.BmsRowsVersion);
         Assert.AreEqual(2, current.BmsonRowsVersion);
+        Assert.AreEqual(current.BmsRowsVersion, state.BmsRowsVersion);
+        Assert.AreEqual(current.BmsonRowsVersion, state.BmsonRowsVersion);
+        Assert.AreEqual(current.BmsRows.Count, state.BmsRowCount);
+        Assert.AreEqual(current.BmsonRows.Count, state.BmsonRowCount);
         CollectionAssert.AreEqual(new[] { replacementBms }, current.BmsRows.ToArray());
         CollectionAssert.AreEqual(new[] { replacementBmson }, current.BmsonRows.ToArray());
     }

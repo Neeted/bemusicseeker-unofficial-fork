@@ -2,6 +2,8 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class DropInstallQueueStatusSnapshot
 {
+    public long Sequence { get; set; }
+
     public bool IsActive { get; set; }
 
     public bool CanCancel { get; set; }

@@ -46,6 +46,9 @@ reviewed HEAD:
 6. main table の binding は `MainChartList.Rows` と mode 別 virtual source の contract に統合され、consumer のない binding-policy state は持たない。
 7. library initializationはcritical path直前のfull GCを行わず、進捗をlatest immutable snapshotとしてcoalesceし、一つのUI notificationで適用する。
 8. install destination estimationはcandidate evaluation degreeが1の場合にPLINQを構築しない。scan hash canonicalizationとBMSON continuation探索は既存のsingle-pass contractを維持する。
+9. catalog derived collectionはstorage versionを先に確認し、same-version routeではrow snapshotを作らない。rebuild時もdetached row snapshotを再copyしない。
+10. drop-install active progressはlatest statusを一つのUI operationへcoalesceし、completion／inactive terminal orderingを維持する。
+11. playlist workspaceはtable identityとhydration requested／completedのtyped lifecycle eventだけを購読し、lock／running／presentation propertyのgeneric fan-outを受けない。
 
 これらはproduction benchmarkを待たずに修正する。
 
@@ -71,4 +74,5 @@ reviewed HEAD:
 | table invalidation contract | data reset and cross-mode data-only source apply met |
 | diagnostic logging hot-path cost | met; bounded non-blocking producer |
 | startup／estimation／scan／parse second-wave optimization | met; forced GC、progress fan-out、degree=1 PLINQ overheadを除去し、既存single-pass scan／parser contractを検証 |
+| application-wide copy／queue／event fan-out | met; catalog version-first、drop progress coalescing、typed playlist lifecycle |
 | final user real-data check | pending after `F6`; non-blocking |

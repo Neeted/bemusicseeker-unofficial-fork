@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
@@ -243,7 +242,11 @@ internal sealed class PlaylistEntriesHydrationOwner
         this.logCompletionFailure = logCompletionFailure ?? throw new ArgumentNullException(nameof(logCompletionFailure));
     }
 
-    internal event PropertyChangedEventHandler PropertyChanged;
+    internal event Action<bool> RunningChanged;
+
+    internal event Action<int> HydrationRequested;
+
+    internal event Action<int> HydrationCompleted;
 
     internal event EventHandler<PlaylistEntriesHydrationReceiptEventArgs> HydrationReceiptPublished;
 
@@ -324,7 +327,7 @@ internal sealed class PlaylistEntriesHydrationOwner
             shouldSchedule = queued == 0;
             queued = 1;
         }
-        RaisePropertyChanged(nameof(PlaylistEntriesHydrationRequestedVersion));
+        HydrationRequested?.Invoke(version);
         logPerformance("playlist_entries_hydration queue reason=" + requestReason
             + " version=" + version
             + " runExternalSyncAfterHydration="
@@ -815,7 +818,7 @@ internal sealed class PlaylistEntriesHydrationOwner
     {
         if (Interlocked.Exchange(ref running, value ? 1 : 0) != (value ? 1 : 0))
         {
-            RaisePropertyChanged(nameof(PlaylistEntriesHydrationRunning));
+            RunningChanged?.Invoke(value);
         }
     }
 
@@ -830,7 +833,7 @@ internal sealed class PlaylistEntriesHydrationOwner
             }
             if (Interlocked.CompareExchange(ref completedVersion, value, current) == current)
             {
-                RaisePropertyChanged(nameof(PlaylistEntriesHydrationCompletedVersion));
+                HydrationCompleted?.Invoke(value);
                 return;
             }
         }
@@ -987,8 +990,4 @@ internal sealed class PlaylistEntriesHydrationOwner
         SetCompletedVersion(completionVersion);
     }
 
-    private void RaisePropertyChanged(string propertyName)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
 }

@@ -7656,38 +7656,39 @@ public partial class BMSLibrary : ObservableObject
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CaptureStorageRowsForOwnedCollectionUnsafe(
-                out List<BMSFile> bmsFiles,
-                out List<LR2SongDBExtended.bmson_song> bmsonSongs,
-                out int bmsRowsVersion,
-                out int bmsonRowsVersion);
-            if (catalogOwnedCollectionOwner.IsCurrent(bmsRowsVersion, bmsonRowsVersion))
+            StorageRowsVersionSnapshot versions = catalogStorageRowsOwner.CaptureVersionSnapshot();
+            if (catalogOwnedCollectionOwner.IsCurrent(
+                versions.BmsRowsVersion,
+                versions.BmsonRowsVersion))
             {
                 return;
             }
 
+            CatalogStorageRowsSnapshot storageRows = catalogStorageRowsOwner.CaptureSnapshot();
             OwnedChartCollectionState rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
-                bmsFiles,
-                bmsonSongs,
+                storageRows.BmsRows,
+                storageRows.BmsonRows,
                 cancellationToken,
                 out OwnedChartStorageRowFilterSummary filterSummary);
             cancellationToken.ThrowIfCancellationRequested();
             LogOwnedChartCollectionSkippedRows("build", filterSummary);
             lock (lockStorageRowsVersion)
             {
-                if (bmsRowsVersion != bmsStorageRowsVersion
-                    || bmsonRowsVersion != bmsonStorageRowsVersion)
+                if (storageRows.BmsRowsVersion != bmsStorageRowsVersion
+                    || storageRows.BmsonRowsVersion != bmsonStorageRowsVersion)
                 {
                     continue;
                 }
-                if (catalogOwnedCollectionOwner.IsCurrent(bmsRowsVersion, bmsonRowsVersion))
+                if (catalogOwnedCollectionOwner.IsCurrent(
+                    storageRows.BmsRowsVersion,
+                    storageRows.BmsonRowsVersion))
                 {
                     return;
                 }
                 catalogOwnedCollectionOwner.ApplyBuiltCollection(
                     rebuiltCollection,
-                    bmsRowsVersion,
-                    bmsonRowsVersion);
+                    storageRows.BmsRowsVersion,
+                    storageRows.BmsonRowsVersion);
                 return;
             }
         }
@@ -8272,19 +8273,6 @@ public partial class BMSLibrary : ObservableObject
 
     private static string CreateOwnedPathKey(string path)
         => OwnedChartCollectionState.CreateOwnedPathKey(path);
-
-    private void CaptureStorageRowsForOwnedCollectionUnsafe(
-        out List<BMSFile> bmsFiles,
-        out List<LR2SongDBExtended.bmson_song> bmsonSongs,
-        out int bmsRowsVersion,
-        out int bmsonRowsVersion)
-    {
-        CatalogStorageRowsSnapshot snapshot = catalogStorageRowsOwner.CaptureSnapshot();
-        bmsFiles = [.. snapshot.BmsRows];
-        bmsonSongs = [.. snapshot.BmsonRows];
-        bmsRowsVersion = snapshot.BmsRowsVersion;
-        bmsonRowsVersion = snapshot.BmsonRowsVersion;
-    }
 
     private StorageRowsVersionSnapshot CaptureStorageRowsVersionUnsafe()
     {

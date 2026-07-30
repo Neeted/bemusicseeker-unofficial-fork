@@ -1,7 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -10,17 +9,46 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private void PlaylistTreeStorePropertyChanged(object sender, PropertyChangedEventArgs e)
+    private void PlaylistTreeStoreTablesReplaced(object sender, EventArgs e)
     {
         lock (playlistHydrationNotificationDispatchLock)
         {
-            PlaylistTreeStorePropertyChangedCore(sender, e);
+            PlaylistTreeStoreChangedCore(sender, nameof(BMSPlaylist.BMSTables), 0);
         }
     }
 
-    private void PlaylistTreeStorePropertyChangedCore(object sender, PropertyChangedEventArgs e)
+    private void PlaylistTreeStoreHydrationRequested(
+        object sender,
+        PlaylistHydrationVersionEventArgs e)
     {
-        if (string.Equals(e?.PropertyName, nameof(BMSPlaylist.BMSTables), StringComparison.Ordinal))
+        lock (playlistHydrationNotificationDispatchLock)
+        {
+            PlaylistTreeStoreChangedCore(
+                sender,
+                nameof(BMSPlaylist.PlaylistEntriesHydrationRequestedVersion),
+                e?.Version ?? 0);
+        }
+    }
+
+    private void PlaylistTreeStoreHydrationCompleted(
+        object sender,
+        PlaylistHydrationVersionEventArgs e)
+    {
+        lock (playlistHydrationNotificationDispatchLock)
+        {
+            PlaylistTreeStoreChangedCore(
+                sender,
+                nameof(BMSPlaylist.PlaylistEntriesHydrationCompletedVersion),
+                e?.Version ?? 0);
+        }
+    }
+
+    private void PlaylistTreeStoreChangedCore(
+        object sender,
+        string change,
+        int hydrationVersion)
+    {
+        if (string.Equals(change, nameof(BMSPlaylist.BMSTables), StringComparison.Ordinal))
         {
             BMSPlaylist tablesSourceStore = null;
             ObservableCollection<BMSTable> tablesSourceTables = null;
@@ -61,7 +89,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
         if (string.Equals(
-            e?.PropertyName,
+            change,
             nameof(BMSPlaylist.PlaylistEntriesHydrationRequestedVersion),
             StringComparison.Ordinal))
         {
@@ -77,8 +105,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     requestSourceStore = playlistTreeStore;
                     requestSourceTables = observedPlaylistTreeTables;
                     requestGeneration = Volatile.Read(ref playlistTreeNotificationGeneration);
-                    requestedHydrationVersion =
-                        playlistTreeStore?.PlaylistEntriesHydrationRequestedVersion ?? 0;
+                    requestedHydrationVersion = hydrationVersion;
                     requestReceipt = new PlaylistHydrationCompletionReceipt();
                     playlistHydrationCompletionReceipt = requestReceipt;
                 });
@@ -114,7 +141,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         if (!string.Equals(
-            e?.PropertyName,
+            change,
             nameof(BMSPlaylist.PlaylistEntriesHydrationCompletedVersion),
             StringComparison.Ordinal))
         {
@@ -133,7 +160,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     && !playlistHydrationCompletionReceipt.IsRequestPublished)
                 {
                     pendingPlaylistHydrationCompletion = new PlaylistEntriesHydrationVersionChangedEventArgs(
-                        playlistTreeStore?.PlaylistEntriesHydrationCompletedVersion ?? 0,
+                        hydrationVersion,
                         playlistTreeStore,
                         observedPlaylistTreeTables,
                         Volatile.Read(ref playlistTreeNotificationGeneration),
@@ -156,8 +183,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     completedSourceStore = playlistTreeStore;
                     completedSourceTables = observedPlaylistTreeTables;
                     completedGeneration = Volatile.Read(ref playlistTreeNotificationGeneration);
-                    completedHydrationVersion =
-                        playlistTreeStore?.PlaylistEntriesHydrationCompletedVersion ?? 0;
+                    completedHydrationVersion = hydrationVersion;
                     completionReceipt =
                         new PlaylistHydrationCompletionReceipt(requestAlreadyPublished: true);
                     playlistHydrationCompletionReceipt = completionReceipt;

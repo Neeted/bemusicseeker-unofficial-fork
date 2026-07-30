@@ -23,13 +23,15 @@ The remaining problem is not primarily summary／detail compute. F1 closed the g
 
 F4 removed the forced full GC immediately before startup catalog allocation、coalesced initialization progress into one latest-snapshot UI commit、and bypassed PLINQ when install estimation is configured sequentially. Existing scan hash canonicalization and indexed BMSON continuation parsing remain covered by synthetic／golden tests.
 
-The remaining high-confidence work is an application-wide audit for the same generic fan-out、snapshot-copy、queue、and invalidation defects. This is grouped by owner and invalidation contract rather than individual property or method.
+F5 completed the application-wide grouped audit. Catalog derived state now performs a lightweight version check before detached row materialization、drop-install active progress has one latest-status UI operation while terminal ordering remains explicit、and playlist aggregate lifecycle uses typed table／hydration facts instead of a generic property bus.
+
+The remaining work is the final engineering verification、selected publish／data-update acceptance、fresh outcome review、and user handoff.
 
 ## Active outcome
 
 - active outcome: `PERF-02 .NET 10 user-visible performance acceleration`
 - active execution package: `F1-F6 Performance-first closure`
-- execution anchor: `F5 APPLICATION-WIDE-PERF-AUDIT`
+- execution anchor: `F6 FINAL-PERFORMANCE-GATE`
 - planner state: not required; batch materialized
 
 ## Active implementation batch
@@ -40,8 +42,8 @@ The remaining high-confidence work is an application-wide audit for the same gen
 | `F2 PLAYLIST-SUMMARY-APPLY` | completed | stable source、single presentation apply、summary table invalidation削減 |
 | `F3 MAIN-LIST-TRANSITION` | completed | detail／summary／library atomic mode transition、CustomTableView fast path |
 | `F4 STARTUP-ESTIMATION-SCAN-PARSE` | completed | forced GC、progress fan-out、sequential estimation overheadを除去しsingle-pass scan／parser contractを維持 |
-| `F5 APPLICATION-WIDE-PERF-AUDIT` | active | generic event bus、copy、queue、invalidationの横断grouped fix |
-| `F6 FINAL-PERFORMANCE-GATE` | pending | full verification、publish、review、manual handoff |
+| `F5 APPLICATION-WIDE-PERF-AUDIT` | completed | catalog version-first、drop progress coalescing、typed playlist lifecycle |
+| `F6 FINAL-PERFORMANCE-GATE` | active | full verification、publish、review、manual handoff |
 | `HANDOFF` | pending | final artifactの一回実データ確認へhandoff |
 
 ## Execution rules

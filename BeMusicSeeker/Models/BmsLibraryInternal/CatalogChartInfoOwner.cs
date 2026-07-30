@@ -917,7 +917,7 @@ internal sealed class CatalogChartInfoOwner
             result.CurrentParseFailureOwnerCount = ownerSummary.CurrentParseFailureOwnerCount;
             result.BackfillCandidateOwnerCount = ownerSummary.BackfillCandidateOwnerCount;
             result.OwnerApplySkippedCount = ownerSummary.OwnerApplySkippedCount;
-            CatalogStorageRowsSnapshot rowsSnapshot = workflowStorageRowsOwner.CaptureSnapshot();
+            StorageRowsVersionSnapshot rowsSnapshot = workflowStorageRowsOwner.CaptureVersionSnapshot();
             ownedCollectionVersionAtSummary = workflowOwnedCollectionOwner.CollectionVersion;
             bmsRowsVersionAtSummary = rowsSnapshot.BmsRowsVersion;
             bmsonRowsVersionAtSummary = rowsSnapshot.BmsonRowsVersion;
@@ -1195,7 +1195,7 @@ internal sealed class CatalogChartInfoOwner
         {
             snapshot = hydrationAllCurrentSnapshot;
         }
-        CatalogStorageRowsSnapshot rows = workflowStorageRowsOwner.CaptureSnapshot();
+        StorageRowsVersionSnapshot rows = workflowStorageRowsOwner.CaptureVersionSnapshot();
         if (snapshot == null
             || snapshot.OwnedCollectionVersion != workflowOwnedCollectionOwner.CollectionVersion
             || snapshot.BmsRowsVersion != rows.BmsRowsVersion
@@ -1370,7 +1370,7 @@ internal sealed class CatalogChartInfoOwner
         EnsureWorkflowConfigured();
         using (workflowStorageRowsOwner.WriteGate.GetReaderGuard())
         {
-            CatalogStorageRowsSnapshot rows = workflowStorageRowsOwner.CaptureSnapshot();
+            CatalogStorageRowsStateSnapshot rows = workflowStorageRowsOwner.CaptureStateSnapshot();
             lock (workflowOwnedCollectionOwner.Gate)
             {
                 return new ChartInfoOwnerVersionSnapshot
@@ -1378,8 +1378,8 @@ internal sealed class CatalogChartInfoOwner
                     OwnedCollectionVersion = workflowOwnedCollectionOwner.CollectionVersion,
                     BmsRowsVersion = rows.BmsRowsVersion,
                     BmsonRowsVersion = rows.BmsonRowsVersion,
-                    BmsOwnerCount = rows.BmsRows.Count,
-                    BmsonOwnerCount = rows.BmsonRows.Count
+                    BmsOwnerCount = rows.BmsRowCount,
+                    BmsonOwnerCount = rows.BmsonRowCount
                 };
             }
         }

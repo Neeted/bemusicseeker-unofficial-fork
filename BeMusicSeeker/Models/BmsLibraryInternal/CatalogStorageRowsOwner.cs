@@ -255,6 +255,18 @@ internal sealed class CatalogStorageRowsOwner
         }
     }
 
+    internal CatalogStorageRowsStateSnapshot CaptureStateSnapshot()
+    {
+        lock (versionGate)
+        {
+            return new CatalogStorageRowsStateSnapshot(
+                bmsRowsVersion,
+                bmsonRowsVersion,
+                bmsRows?.Count ?? 0,
+                bmsonRows?.Count ?? 0);
+        }
+    }
+
     internal CatalogStorageRowsSnapshot CaptureSnapshot()
     {
         using IDisposable readGuard = writeGate.IsWriteLockHeld
@@ -356,4 +368,27 @@ internal sealed class CatalogStorageRowsSnapshot
     internal int BmsRowsVersion { get; }
 
     internal int BmsonRowsVersion { get; }
+}
+
+internal readonly struct CatalogStorageRowsStateSnapshot
+{
+    internal CatalogStorageRowsStateSnapshot(
+        int bmsRowsVersion,
+        int bmsonRowsVersion,
+        int bmsRowCount,
+        int bmsonRowCount)
+    {
+        BmsRowsVersion = bmsRowsVersion;
+        BmsonRowsVersion = bmsonRowsVersion;
+        BmsRowCount = bmsRowCount;
+        BmsonRowCount = bmsonRowCount;
+    }
+
+    internal int BmsRowsVersion { get; }
+
+    internal int BmsonRowsVersion { get; }
+
+    internal int BmsRowCount { get; }
+
+    internal int BmsonRowCount { get; }
 }

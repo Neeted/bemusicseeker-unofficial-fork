@@ -1,7 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -13,6 +15,221 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PackageInstallWorkflowOwnerTests
 {
+    [TestMethod]
+    public void ProductionPackageInstallDispatcher_QueuesWithoutSynchronousUiWait()
+    {
+        string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string method = SourceTextTestHelper.ExtractMethodBody(
+            source,
+            "private bool TryDispatchPackageInstallUi(Action action)");
+
+        StringAssert.Contains(method, "uiScheduler.Schedule(");
+        Assert.IsFalse(method.Contains("uiScheduler.Invoke(", StringComparison.Ordinal));
+        Assert.IsFalse(method.Contains("InvokeMainChartListPresentationAction(", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ActiveProgressBurst_QueuesOneLatestStatusBeforeCompletionAndInactive()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PackageInstallWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        var notifications = new Queue<Action>();
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var published = new List<string>();
+            var owner = CreateOwner(
+                (current, paths, token, onPath, onArchive) =>
+                {
+                    for (int index = 1; index <= 20; index++)
+                    {
+                        onArchive("archive-" + index + ".zip", index, 20);
+                        onPath();
+                    }
+                    return [new ChartPackage()];
+                },
+                action =>
+                {
+                    lock (notifications)
+                    {
+                        notifications.Enqueue(action);
+                    }
+                    return true;
+                });
+            owner.StatusChanged += snapshot => published.Add(
+                snapshot.IsActive
+                    ? "active:" + snapshot.CompletedPathCount
+                    : "inactive");
+            owner.CompletionPublished += _ => published.Add("completed");
+            owner.AttachLibrary(library);
+            DrainNotifications(notifications);
+            published.Clear();
+
+            owner.Enqueue(Enumerable.Range(1, 20).Select(index => "batch-" + index + ".zip"));
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            lock (notifications)
+            {
+                Assert.AreEqual(
+                    3,
+                    notifications.Count,
+                    "One coalesced active status, completion, and inactive terminal status are expected.");
+            }
+            DrainNotifications(notifications);
+
+            Assert.AreEqual(
+                "active:20|completed|inactive",
+                string.Join("|", published));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void GenerationReplacement_OldDrainCannotConsumeNewActiveStatus()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PackageInstallWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        string firstRoot = Path.Combine(root, "first");
+        string secondRoot = Path.Combine(root, "second");
+        Directory.CreateDirectory(firstRoot);
+        Directory.CreateDirectory(secondRoot);
+        string firstDb = Path.Combine(firstRoot, "song.db");
+        string secondDb = Path.Combine(secondRoot, "song.db");
+        File.WriteAllBytes(firstDb, []);
+        File.WriteAllBytes(secondDb, []);
+        var notifications = new Queue<Action>();
+        using var firstStarted = new ManualResetEventSlim(false);
+        using var secondStarted = new ManualResetEventSlim(false);
+        using var releaseFirst = new ManualResetEventSlim(false);
+        using var releaseSecond = new ManualResetEventSlim(false);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
+            {
+            }
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(secondDb))
+            {
+            }
+            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
+            var published = new List<string>();
+            var owner = CreateOwner(
+                (library, paths, token, onPath, onArchive) =>
+                {
+                    if (ReferenceEquals(library, first))
+                    {
+                        firstStarted.Set();
+                        releaseFirst.Wait(5000);
+                    }
+                    else
+                    {
+                        secondStarted.Set();
+                        releaseSecond.Wait(5000);
+                    }
+                    return [];
+                },
+                action =>
+                {
+                    lock (notifications)
+                    {
+                        notifications.Enqueue(action);
+                    }
+                    return true;
+                });
+            owner.StatusChanged += snapshot =>
+                published.Add(snapshot.IsActive ? "active" : "inactive");
+            owner.AttachLibrary(first);
+            DrainNotifications(notifications);
+            published.Clear();
+
+            owner.Enqueue(["first.zip"]);
+            Assert.IsTrue(firstStarted.Wait(5000));
+            owner.AttachLibrary(second);
+            owner.Enqueue(["second.zip"]);
+            releaseFirst.Set();
+            Assert.IsTrue(secondStarted.Wait(5000));
+            Assert.IsTrue(SpinWait.SpinUntil(() =>
+            {
+                lock (notifications)
+                {
+                    return notifications.Count >= 3;
+                }
+            }, 5000));
+
+            DrainNotifications(notifications);
+
+            Assert.AreEqual(
+                "inactive|active",
+                string.Join("|", published),
+                "The old drain must be stale; replacement inactive must precede the new generation's active status.");
+
+            releaseFirst.Set();
+            releaseSecond.Set();
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            DrainNotifications(notifications);
+        }
+        finally
+        {
+            releaseFirst.Set();
+            releaseSecond.Set();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SameGenerationStatusSequence_DropsLateTerminalAndSegmentsRapidReentry()
+    {
+        var notifications = new Queue<Action>();
+        var published = new List<string>();
+        var owner = CreateOwner(
+            (_, _, _, _, _) => [],
+            action =>
+            {
+                notifications.Enqueue(action);
+                return true;
+            });
+        owner.StatusChanged += snapshot =>
+            published.Add(snapshot.IsActive ? "active" : "inactive");
+        FieldInfo queuesField = typeof(PackageInstallWorkflowOwner).GetField(
+            "queueProcessors",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        object context = ((IList)queuesField.GetValue(owner)!)[0]!;
+        MethodInfo publish = typeof(PackageInstallWorkflowOwner).GetMethod(
+            "PublishQueueStatus",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        publish.Invoke(owner, [context, new DropInstallQueueStatusSnapshot { Sequence = 1, IsActive = true }]);
+        publish.Invoke(owner, [context, new DropInstallQueueStatusSnapshot { Sequence = 3, IsActive = false }]);
+        publish.Invoke(owner, [context, new DropInstallQueueStatusSnapshot { Sequence = 4, IsActive = true }]);
+        publish.Invoke(owner, [context, new DropInstallQueueStatusSnapshot { Sequence = 2, IsActive = false }]);
+
+        Assert.AreEqual(3, notifications.Count);
+        DrainNotifications(notifications);
+
+        Assert.AreEqual("active|inactive|active", string.Join("|", published));
+    }
+
     [TestMethod]
     public void EnqueueBeforeLibraryAttach_ReportsDiagnosticFailure()
     {

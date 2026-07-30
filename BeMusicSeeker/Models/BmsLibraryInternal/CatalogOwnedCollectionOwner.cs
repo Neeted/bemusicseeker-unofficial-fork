@@ -222,6 +222,11 @@ internal sealed class CatalogOwnedCollectionOwner
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            StorageRowsVersionSnapshot versions = storageRowsOwner.CaptureVersionSnapshot();
+            if (IsCurrent(versions.BmsRowsVersion, versions.BmsonRowsVersion))
+            {
+                return;
+            }
             CatalogStorageRowsSnapshot snapshot;
             using (storageRowsOwner.WriteGate.GetReaderGuard())
             {

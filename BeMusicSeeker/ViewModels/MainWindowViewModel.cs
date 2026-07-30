@@ -5325,7 +5325,35 @@ public partial class MainWindowViewModel : ViewModel,
 
     private bool TryDispatchPackageInstallUi(Action action)
     {
-        return InvokeMainChartListPresentationAction(action);
+        if (action == null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+        if (uiScheduler.CanExecuteInline)
+        {
+            action();
+            return true;
+        }
+        if (!uiScheduler.IsAvailable)
+        {
+            return false;
+        }
+        IUiScheduledOperation operation = uiScheduler.Schedule(
+            action,
+            UiSchedulePriority.Normal);
+        if (!operation.IsAccepted)
+        {
+            return false;
+        }
+        _ = operation.Completion.ContinueWith(
+            task => ReportPackageInstallWorkflowNotificationFailure(
+                task.Exception?.GetBaseException()
+                    ?? new OperationCanceledException(
+                        "Package-install UI publication was canceled.")),
+            CancellationToken.None,
+            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return true;
     }
 
     private void PackageInstallWorkflowCompletionPublished(PackageInstallCompletionReceipt receipt)
