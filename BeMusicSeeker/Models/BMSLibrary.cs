@@ -221,6 +221,8 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    internal Func<StartupBackgroundWorkSnapshot> StartupBackgroundWorkSnapshotProvider { get; set; }
+
     private int shutdownRequested;
 
     public enum LibraryInitializeMode
@@ -2987,7 +2989,10 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
-        bool queued = packageLifecycleOwner.TryEnqueuePendingEstimateBatch(request, TrySkipForShutdown);
+        bool queued = packageLifecycleOwner.TryEnqueuePendingEstimateBatch(
+            request,
+            TrySkipForShutdown,
+            () => LogPendingInstallEstimateAccepted(request));
         if (queued)
         {
             PendingInstallEstimateQueueStatusSnapshot snapshot = packageLifecycleOwner.GetPendingEstimateQueueStatusSnapshot();
@@ -3003,6 +3008,26 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    private static void LogPendingInstallEstimateAccepted(
+        PendingInstallEstimateBatchRequest request)
+    {
+        if (!Net10PerformanceLog.IsEnabled)
+        {
+            return;
+        }
+        string details =
+            "source=" + ToPendingEstimateBatchSourceLogValue(request.Source)
+            + " packages=" + request.PackageCount;
+        Net10PerformanceLog.Write(
+            request.PerformanceInteraction,
+            "input_accepted",
+            details);
+        Net10PerformanceLog.Write(
+            request.PerformanceInteraction,
+            "owner_queued",
+            details);
+    }
+
     private void ProcessPendingInstallEstimateBatch(PendingInstallEstimateBatchRequest request, CancellationToken token)
     {
         if (request == null || request.PackageCount == 0)
@@ -3014,8 +3039,8 @@ public partial class BMSLibrary : ObservableObject
         int lowConfidenceCount = 0;
         int completed = 0;
         var executionPolicy = InstallEstimationExecutionPolicy.ForPendingBatch(ResolvePendingInstallEstimateParallelPackageDegree());
-        PerformanceInteraction performanceInteraction =
-            PerformanceInteraction.Start("install_estimation");
+        PerformanceInteraction performanceInteraction = request.PerformanceInteraction;
+        PerformanceInteraction? firstVisibleInteraction = performanceInteraction;
         if (Net10PerformanceLog.IsEnabled)
         {
             Net10PerformanceLog.Write(
@@ -3033,7 +3058,16 @@ public partial class BMSLibrary : ObservableObject
                 SetInstallEstimationProgress(ToInstallEstimationProgressSource(request.Source), request.PackageCount, 0, request.DisplayName ?? string.Empty);
                 PendingInstallEstimateEvaluationContext evaluationContext = CreatePendingInstallEstimateEvaluationContext();
                 List<PendingInstallEstimateEvaluationRequest> evaluationRequests = PreparePendingInstallEstimateEvaluationRequests(request);
-                ProcessPendingInstallEstimateEvaluationPipeline(request, source, token, evaluationContext, evaluationRequests, executionPolicy, ref completed, ref lowConfidenceCount);
+                ProcessPendingInstallEstimateEvaluationPipeline(
+                    request,
+                    source,
+                    token,
+                    evaluationContext,
+                    evaluationRequests,
+                    executionPolicy,
+                    ref completed,
+                    ref lowConfidenceCount,
+                    ref firstVisibleInteraction);
                 if (!token.IsCancellationRequested && request.RegroupEligibleSourceDirectories.Length > 0)
                 {
                     using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
@@ -3205,7 +3239,16 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void ProcessPendingInstallEstimateEvaluationPipeline(PendingInstallEstimateBatchRequest request, string source, CancellationToken token, PendingInstallEstimateEvaluationContext evaluationContext, List<PendingInstallEstimateEvaluationRequest> evaluationRequests, InstallEstimationExecutionPolicy executionPolicy, ref int completed, ref int lowConfidenceCount)
+    private void ProcessPendingInstallEstimateEvaluationPipeline(
+        PendingInstallEstimateBatchRequest request,
+        string source,
+        CancellationToken token,
+        PendingInstallEstimateEvaluationContext evaluationContext,
+        List<PendingInstallEstimateEvaluationRequest> evaluationRequests,
+        InstallEstimationExecutionPolicy executionPolicy,
+        ref int completed,
+        ref int lowConfidenceCount,
+        ref PerformanceInteraction? firstVisibleInteraction)
     {
         executionPolicy ??= InstallEstimationExecutionPolicy.ForSingleWorkItem();
         List<(PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task)> inFlight = [];
@@ -3235,14 +3278,28 @@ public partial class BMSLibrary : ObservableObject
             (PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) applySlot = inFlight[applySlotIndex];
             PendingInstallEstimateEvaluationResult evaluationResult = applySlot.Task.GetAwaiter().GetResult();
             inFlight.RemoveAt(applySlotIndex);
-            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, executionPolicy.WorkItemDegree, ref completed, ref lowConfidenceCount);
+            ApplyPendingInstallEstimateEvaluationResult(
+                request,
+                source,
+                evaluationResult,
+                executionPolicy.WorkItemDegree,
+                ref completed,
+                ref lowConfidenceCount,
+                ref firstVisibleInteraction);
             nextApplyIndex++;
         }
 
         foreach ((PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) item in inFlight)
         {
             PendingInstallEstimateEvaluationResult evaluationResult = item.Task.GetAwaiter().GetResult();
-            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, executionPolicy.WorkItemDegree, ref completed, ref lowConfidenceCount);
+            ApplyPendingInstallEstimateEvaluationResult(
+                request,
+                source,
+                evaluationResult,
+                executionPolicy.WorkItemDegree,
+                ref completed,
+                ref lowConfidenceCount,
+                ref firstVisibleInteraction);
         }
     }
 
@@ -3347,7 +3404,14 @@ public partial class BMSLibrary : ObservableObject
         return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingEntries, evaluationContext?.InstalledChartLookupIndex ?? new InstalledChartLookupIndexSnapshot());
     }
 
-    private void ApplyPendingInstallEstimateEvaluationResult(PendingInstallEstimateBatchRequest batchRequest, string source, PendingInstallEstimateEvaluationResult evaluationResult, int packageDegree, ref int completed, ref int lowConfidenceCount)
+    private void ApplyPendingInstallEstimateEvaluationResult(
+        PendingInstallEstimateBatchRequest batchRequest,
+        string source,
+        PendingInstallEstimateEvaluationResult evaluationResult,
+        int packageDegree,
+        ref int completed,
+        ref int lowConfidenceCount,
+        ref PerformanceInteraction? firstVisibleInteraction)
     {
         PendingInstallEstimateEvaluationRequest request = evaluationResult?.Request;
         string currentDisplayName = request?.DisplayName ?? string.Empty;
@@ -3373,7 +3437,12 @@ public partial class BMSLibrary : ObservableObject
         }
         finally
         {
-            QueuePackageEntryNotificationPublication(notificationDeferrals);
+            if (QueuePackageEntryNotificationPublication(
+                notificationDeferrals,
+                firstVisibleInteraction))
+            {
+                firstVisibleInteraction = null;
+            }
         }
         completed++;
         if (isLowConfidence)
@@ -3521,12 +3590,13 @@ public partial class BMSLibrary : ObservableObject
             .Select(entry => entry.DeferPropertyChangedNotificationPublication())];
     }
 
-    private void QueuePackageEntryNotificationPublication(
-        IReadOnlyList<Func<Action>> notificationDeferrals)
+    private bool QueuePackageEntryNotificationPublication(
+        IReadOnlyList<Func<Action>> notificationDeferrals,
+        PerformanceInteraction? firstVisibleInteraction = null)
     {
         if (notificationDeferrals == null || notificationDeferrals.Count == 0)
         {
-            return;
+            return false;
         }
         List<Action> publications = [];
         for (int index = notificationDeferrals.Count - 1; index >= 0; index--)
@@ -3539,10 +3609,17 @@ public partial class BMSLibrary : ObservableObject
         }
         if (publications.Count == 0)
         {
-            return;
+            return false;
         }
         void Publish()
         {
+            if (firstVisibleInteraction.HasValue && Net10PerformanceLog.IsEnabled)
+            {
+                Net10PerformanceLog.Write(
+                    firstVisibleInteraction.Value,
+                    "ui_started",
+                    "surface=package_entries publications=" + publications.Count);
+            }
             List<Exception> failures = [];
             foreach (Action entryPublication in publications)
             {
@@ -3561,14 +3638,35 @@ public partial class BMSLibrary : ObservableObject
                     "Package entry notification publication failed.",
                     failures);
             }
+            if (firstVisibleInteraction.HasValue && Net10PerformanceLog.IsEnabled)
+            {
+                Net10PerformanceLog.Write(
+                    firstVisibleInteraction.Value,
+                    "ui_applied",
+                    "surface=package_entries publications=" + publications.Count);
+                Net10PerformanceLog.Write(
+                    firstVisibleInteraction.Value,
+                    "first_useful_visible",
+                    "surface=package_entries");
+            }
         }
+        bool schedulesDispatcherWork = uiScheduler.IsAvailable;
         IUiScheduledOperation publication = uiScheduler.Schedule(Publish);
         if (!publication.IsAccepted)
         {
             LogInstallPerformanceWarn(
                 "package_entry_notification_publication_rejected reason="
                 + publication.RejectionReason);
-            return;
+            return false;
+        }
+        if (firstVisibleInteraction.HasValue
+            && schedulesDispatcherWork
+            && Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                firstVisibleInteraction.Value,
+                "ui_queued",
+                "surface=package_entries publications=" + publications.Count);
         }
         _ = publication.Completion.ContinueWith(
             task => LogInstallPerformanceWarn(
@@ -3579,6 +3677,7 @@ public partial class BMSLibrary : ObservableObject
             CancellationToken.None,
             TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+        return true;
     }
 
     private static void SetPendingInstallEstimateSearchingStateUnsafe(PendingInstallEstimateEvaluationRequest request, bool isSearching)
@@ -4259,6 +4358,18 @@ public partial class BMSLibrary : ObservableObject
         Initialize(tasksContinuation, semaphore, LibraryInitializeMode.Startup);
     }
 
+    internal void InitializeStartup(
+        List<Action> tasksContinuation,
+        SemaphoreSlim semaphore,
+        in PerformanceInteraction performanceInteraction)
+    {
+        InitializeCore(
+            tasksContinuation,
+            semaphore,
+            LibraryInitializeMode.Startup,
+            performanceInteraction);
+    }
+
     public void Reinitialize(List<Action> tasksContinuation = null, SemaphoreSlim semaphore = null)
     {
         Initialize(tasksContinuation, semaphore, LibraryInitializeMode.FullReinitialize);
@@ -4278,14 +4389,27 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="mode">初期化 mode。</param>
     public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore, LibraryInitializeMode mode)
     {
+        InitializeCore(tasksContinuation, semaphore, mode, null);
+    }
+
+    private void InitializeCore(
+        List<Action> tasksContinuation,
+        SemaphoreSlim semaphore,
+        LibraryInitializeMode mode,
+        PerformanceInteraction? parentPerformanceInteraction)
+    {
         PerformanceInteraction performanceInteraction =
-            PerformanceInteraction.Start("startup_library", (long)mode);
+            parentPerformanceInteraction?.ForRoute("startup_library")
+            ?? PerformanceInteraction.Start("startup_library", (long)mode);
         if (Net10PerformanceLog.IsEnabled)
         {
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "input_accepted",
-                "mode=" + mode);
+            if (!parentPerformanceInteraction.HasValue)
+            {
+                Net10PerformanceLog.Write(
+                    performanceInteraction,
+                    "input_accepted",
+                    "mode=" + mode);
+            }
             Net10PerformanceLog.Write(
                 performanceInteraction,
                 "owner_started",
@@ -4465,7 +4589,8 @@ public partial class BMSLibrary : ObservableObject
                         startupEstimatePreparation.EstimablePackages,
                         Resources.Pending_estimate_queue_startup_display_name,
                         deferredPackageCount: startupEstimatePreparation.DeferredPackages.Count,
-                        batchSourceSnapshot: startupEstimatePreparation.BatchSourceSnapshot));
+                        batchSourceSnapshot: startupEstimatePreparation.BatchSourceSnapshot,
+                        performanceInteraction: performanceInteraction.ForRoute("install_estimation")));
                 }
             }
             else
@@ -4557,7 +4682,7 @@ public partial class BMSLibrary : ObservableObject
 
     private long postInitializeGcGeneration;
 
-    private int postInitializeGcQueuedCount;
+    private int postInitializeGcOutstandingCount;
 
     private void QueuePostInitializeGarbageCollection(string reason)
     {
@@ -4567,7 +4692,7 @@ public partial class BMSLibrary : ObservableObject
         }
         const int delayMs = 30000;
         long generation = Interlocked.Increment(ref postInitializeGcGeneration);
-        int queueDepth = Interlocked.Increment(ref postInitializeGcQueuedCount);
+        int gcRequestsOutstanding = Interlocked.Increment(ref postInitializeGcOutstandingCount);
         PerformanceInteraction performanceInteraction =
             PerformanceInteraction.Existing("post_initialize_gc", generation, generation);
         if (Net10PerformanceLog.IsEnabled)
@@ -4577,7 +4702,8 @@ public partial class BMSLibrary : ObservableObject
                 "owner_queued",
                 "reason=" + (reason ?? "unknown")
                 + " delayMs=" + delayMs
-                + " queueDepth=" + queueDepth);
+                + " gcRequestsOutstanding=" + gcRequestsOutstanding
+                + FormatStartupBackgroundWorkSnapshot());
         }
         Task.Run(async delegate
         {
@@ -4602,7 +4728,8 @@ public partial class BMSLibrary : ObservableObject
                     Net10PerformanceLog.Write(
                         performanceInteraction,
                         "owner_started",
-                        "queueDepth=" + Volatile.Read(ref postInitializeGcQueuedCount)
+                        "gcRequestsOutstanding=" + Volatile.Read(ref postInitializeGcOutstandingCount)
+                        + FormatStartupBackgroundWorkSnapshot()
                         + " managedBytesBefore=" + managedBytesBefore
                         + " gen0Before=" + gen0Before
                         + " gen1Before=" + gen1Before
@@ -4637,16 +4764,31 @@ public partial class BMSLibrary : ObservableObject
             }
             finally
             {
-                int queueDepthAfter = Interlocked.Decrement(ref postInitializeGcQueuedCount);
+                int gcRequestsOutstandingAfter = Interlocked.Decrement(ref postInitializeGcOutstandingCount);
                 if (Net10PerformanceLog.IsEnabled && terminalStage != null)
                 {
                     Net10PerformanceLog.Write(
                         performanceInteraction,
                         terminalStage,
-                        terminalFields + " queueDepthAfter=" + queueDepthAfter);
+                        terminalFields
+                        + " gcRequestsOutstandingAfter=" + gcRequestsOutstandingAfter
+                        + FormatStartupBackgroundWorkSnapshot());
                 }
             }
         }).Logging("PostInitializeGarbageCollection");
+    }
+
+    private string FormatStartupBackgroundWorkSnapshot()
+    {
+        Func<StartupBackgroundWorkSnapshot> provider = StartupBackgroundWorkSnapshotProvider;
+        if (provider == null)
+        {
+            return " startupBacklogState=unavailable";
+        }
+        StartupBackgroundWorkSnapshot snapshot = provider();
+        return " startupQueued=" + snapshot.QueuedCount
+            + " startupRunning=" + snapshot.RunningCount
+            + " startupBacklog=" + snapshot.BacklogCount;
     }
 
     private void TryImportChartInfoMetadataBundleAtStartup()

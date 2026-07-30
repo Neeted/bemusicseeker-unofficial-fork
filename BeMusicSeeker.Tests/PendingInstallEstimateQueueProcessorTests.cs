@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -117,6 +119,67 @@ public sealed class PendingInstallEstimateQueueProcessorTests
         Assert.AreEqual(0, snapshot.PendingBatchCount);
         Assert.AreEqual(0, snapshot.CurrentPackageCount);
         Assert.AreEqual(0, snapshot.CompletedPackageCount);
+    }
+
+    [TestMethod]
+    public void Enqueue_PreservesPerformanceInteractionForProcessor()
+    {
+        var completed = new ManualResetEventSlim(initialState: false);
+        PerformanceInteraction expected = PerformanceInteraction.Existing(
+            "install_estimation",
+            interactionId: 73,
+            generation: 9);
+        PerformanceInteraction observed = default;
+        var processor = new PendingInstallEstimateQueueProcessor(
+            delegate (PendingInstallEstimateBatchRequest request, CancellationToken token)
+            {
+                observed = request.PerformanceInteraction;
+                completed.Set();
+            },
+            delegate (PendingInstallEstimateQueueStatusSnapshot snapshot)
+            {
+            });
+
+        processor.Enqueue(new PendingInstallEstimateBatchRequest(
+            PendingInstallEstimateBatchSource.StartupRestore,
+            [CreatePackage(@"C:\pending\startup\a")],
+            "startup",
+            performanceInteraction: expected));
+
+        Assert.IsTrue(completed.Wait(3000), "The batch did not complete.");
+        Assert.AreEqual(expected, observed);
+    }
+
+    [TestMethod]
+    public void Enqueue_RecordsAcceptanceBeforeWorkerCanStart()
+    {
+        var acceptanceEntered = new ManualResetEventSlim(initialState: false);
+        var releaseAcceptance = new ManualResetEventSlim(initialState: false);
+        var workerEntered = new ManualResetEventSlim(initialState: false);
+        var processor = new PendingInstallEstimateQueueProcessor(
+            delegate (PendingInstallEstimateBatchRequest request, CancellationToken token)
+            {
+                workerEntered.Set();
+            },
+            delegate (PendingInstallEstimateQueueStatusSnapshot snapshot)
+            {
+            });
+        PendingInstallEstimateBatchRequest request = new(
+            PendingInstallEstimateBatchSource.StartupRestore,
+            [CreatePackage(@"C:\pending\startup\a")],
+            "startup");
+
+        Task enqueueTask = Task.Run(() => processor.Enqueue(request, () =>
+        {
+            acceptanceEntered.Set();
+            releaseAcceptance.Wait();
+        }));
+
+        Assert.IsTrue(acceptanceEntered.Wait(3000));
+        Assert.IsFalse(workerEntered.IsSet);
+        releaseAcceptance.Set();
+        Assert.IsTrue(enqueueTask.Wait(3000));
+        Assert.IsTrue(workerEntered.Wait(3000));
     }
 
     private static ChartPackage CreatePackage(string path)

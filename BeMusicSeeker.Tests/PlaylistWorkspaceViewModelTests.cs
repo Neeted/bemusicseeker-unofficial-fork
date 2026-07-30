@@ -1124,7 +1124,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
         string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
 
-        StringAssert.Contains(rootSource, "files.InitializeStartup([taskAdd1], semaphore);");
+        StringAssert.Contains(rootSource, "files.InitializeStartup(");
+        StringAssert.Contains(rootSource, "startupPerformanceInteraction);");
         StringAssert.Contains(rootSource, "\"external_table_catalog\"");
         StringAssert.Contains(rootSource, "PlaylistWorkspace.LoadExternalTableCollectionAsync(");
         StringAssert.Contains(rootSource, "BMSPlaylist.GetBMSTableInfoAsync");

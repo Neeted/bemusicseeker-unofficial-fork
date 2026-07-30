@@ -2340,7 +2340,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "PlaylistWorkspace.QueueExternalPlaylistSync(");
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
-        StringAssert.Contains(initialize, "files.InitializeStartup([taskAdd1], semaphore);");
+        StringAssert.Contains(initialize, "files.InitializeStartup(");
+        StringAssert.Contains(initialize, "startupPerformanceInteraction);");
         StringAssert.Contains(initialize, "\"external_table_catalog\"");
         StringAssert.Contains(initialize, "PlaylistWorkspace.LoadExternalTableCollectionAsync(");
         StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfoAsync");
@@ -5473,8 +5474,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "private sealed class InstallEstimationExecutionPolicy");
         StringAssert.Contains(libraryCode, "internal static InstallEstimationExecutionPolicy ForManualBatch()");
         StringAssert.Contains(libraryCode, "internal static InstallEstimationExecutionPolicy ForPendingBatch(int workItemDegree)");
-        StringAssert.Contains(libraryCode, "ProcessPendingInstallEstimateEvaluationPipeline(request, source, token, evaluationContext, evaluationRequests, executionPolicy");
-        StringAssert.Contains(libraryCode, "ProcessPendingInstallEstimateEvaluationPipeline(request, source, CancellationToken.None, evaluationContext, evaluationRequests, executionPolicy");
+        StringAssert.Contains(libraryCode, "ProcessPendingInstallEstimateEvaluationPipeline(");
+        StringAssert.Contains(libraryCode, "CancellationToken.None,");
+        StringAssert.Contains(libraryCode, "ref firstVisibleInteraction);");
         StringAssert.Contains(libraryCode, "EvaluatePendingInstallEstimateRequest(dispatchRequest, evaluationContext, executionPolicy, token)");
         StringAssert.Contains(libraryCode, "executionPolicy.CandidateEvaluationDegree");
         StringAssert.Contains(libraryCode, "BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel)");

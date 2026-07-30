@@ -6,10 +6,10 @@
 
 ## Current checkpoint
 
-- current HEAD reviewed: `ab9d97ed3f53dab80fb2894f20f44abdfb6fed32`
+- current HEAD reviewed: PERF-01 closure commit（base `ab9d97ed3f53dab80fb2894f20f44abdfb6fed32` through this commit）
 - historical symptom evidence: `.tmp/net472_log`、`.tmp/.NET 10_log`
 - historical comparison commit: `3c000ec2e7a6e619c60d0f8c9e48ad12bd06d4f5`（再build／再計測対象ではない）
-- last recorded functional Gate: 3,523 passed／16 skipped、Roslynator 0 diagnostics、selected publish／existing-data／update success／rollback／fresh review passed
+- last recorded functional Gate: 3,547 passed／16 skipped、Roslynator 0 diagnostics、selected publish／existing-data／baseline-to-current update success／rollback passed
 - selected distribution: managed bundle＋ReadyToRun。active performance outcome中もpublish propertyは固定する
 - Release Freeze: active
 
@@ -18,17 +18,17 @@
 - MVVM／owner structural reorganization: **complete**
 - known deadlock／responsiveness closure: **met; invariant protected**
 - .NET 10 functional／dependency／data migration: **complete**
-- .NET 10 engineering performance readiness: **not met**
+- .NET 10 engineering performance readiness: **met**
 - net472 parity experiment: **not required**
 - production-data performance measurement: **post-engineering user action; non-blocking**
-- engineering migration overall: **reopened only for current .NET 10 performance engineering**
+- engineering migration overall: **complete**
 
 ## Active outcome
 
-- active outcome: `PERF-01 .NET 10 performance engineering closure`
-- active execution package: `PERF-01 Current-runtime performance closure`
-- execution anchor: `P5 ENGINEERING-PERFORMANCE-GATE`
-- planner state: not required; batch materialized
+- active outcome: none
+- active execution package: none
+- execution anchor: none
+- planner state: not required
 
 ## Active implementation batch
 
@@ -38,8 +38,8 @@
 | `P2 LIST-TRANSITION-CRITICAL-PATH` | completed | full-library copy、playlist summary／detail、queue／generation／drain |
 | `P3 STARTUP-INDEX-GC-COMPONENTS` | completed | synthetic可能なsong-table／resource-health、GC／startup instrumentation |
 | `P4 ESTIMATION-SCAN-PARSE-COMPONENTS` | completed | install estimation、managed diff／parse、C# 14 hot path |
-| `P5 ENGINEERING-PERFORMANCE-GATE` | active | full verification、synthetic suite、publish、current report、fresh review |
-| `HANDOFF` | pending | `MANUAL-02` real-data performance acceptanceへhandoff |
+| `P5 ENGINEERING-PERFORMANCE-GATE` | completed | full verification、synthetic suite、publish、current report、fresh review |
+| `HANDOFF` | completed | `MANUAL-02` real-data performance acceptanceへhandoff |
 
 ## Evidence decision
 

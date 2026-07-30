@@ -40,4 +40,9 @@ internal readonly record struct PerformanceInteraction(
         }
         return new PerformanceInteraction(route, interactionId, generation);
     }
+
+    internal PerformanceInteraction ForRoute(string route, long? generation = null)
+    {
+        return Existing(route, InteractionId, generation ?? Generation);
+    }
 }

@@ -73,6 +73,10 @@ internal sealed class ExternalPlayerWaitPolicy
                 try
                 {
                     forceTerminate();
+                    if (hasExited())
+                    {
+                        return;
+                    }
                 }
                 catch
                 {

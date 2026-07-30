@@ -44,12 +44,15 @@ internal sealed class PendingInstallEstimateQueueProcessor(
         }
     }
 
-    public void Enqueue(PendingInstallEstimateBatchRequest request)
+    public void Enqueue(
+        PendingInstallEstimateBatchRequest request,
+        Action requestAccepted = null)
     {
         if (request == null || request.PackageCount == 0)
         {
             return;
         }
+        requestAccepted?.Invoke();
         bool startWorker = false;
         PendingInstallEstimateQueueStatusSnapshot snapshot;
         lock (syncRoot)

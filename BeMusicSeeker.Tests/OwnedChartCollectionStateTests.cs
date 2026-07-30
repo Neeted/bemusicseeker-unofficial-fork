@@ -2560,11 +2560,8 @@ public sealed class OwnedChartCollectionStateTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [bmsFile],
-                BmsonSongs = []
-            };
+            var library = new TestBmsLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
             string installDestination = Path.Combine("C:\\Install", "WarmOverlay");
             ApplyInstallDestinationChange(library, bmsFile, installDestination);
 
@@ -2647,11 +2644,8 @@ public sealed class OwnedChartCollectionStateTests
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, new string('b', 64));
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [bmsFile],
-                BmsonSongs = []
-            };
+            var library = new TestBmsLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             Assert.IsTrue(initialLookup.ContainsPrimaryHash(bmsFile.hash));
             Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
@@ -2691,6 +2685,7 @@ public sealed class OwnedChartCollectionStateTests
 
             Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
             Assert.IsTrue(updatedLookup.ContainsPrimaryHash(bmsFile.hash));
+            Assert.AreSame(initialLookup, updatedLookup);
             CollectionAssert.AreEqual(initialLookup.Md5Directories[bmsFile.hash].ToArray(), updatedLookup.Md5Directories[bmsFile.hash].ToArray());
             Assert.AreEqual(0, GetInstallEstimationMetadataProfileCacheCount(library));
             Assert.AreEqual(0, bmsFilesChanged);

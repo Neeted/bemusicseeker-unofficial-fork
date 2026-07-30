@@ -449,7 +449,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
         }
 
-        if (Net10PerformanceLog.IsEnabled)
+        if (!playlistRestoreUiThreadCheck() && Net10PerformanceLog.IsEnabled)
         {
             Net10PerformanceLog.Write(
                 performanceInteraction,

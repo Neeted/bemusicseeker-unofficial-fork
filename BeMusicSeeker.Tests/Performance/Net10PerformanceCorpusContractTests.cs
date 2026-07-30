@@ -100,6 +100,25 @@ public sealed class Net10PerformanceCorpusContractTests
             messages);
     }
 
+    [TestMethod]
+    public void InteractionRouteTransition_PreservesCorrelationIdentity()
+    {
+        PerformanceInteraction startup = PerformanceInteraction.Existing(
+            "startup",
+            interactionId: 31,
+            generation: 4);
+
+        PerformanceInteraction library = startup.ForRoute("startup_library");
+        PerformanceInteraction estimation = library.ForRoute("install_estimation");
+
+        Assert.AreEqual("startup_library", library.Route);
+        Assert.AreEqual(31L, library.InteractionId);
+        Assert.AreEqual(4L, library.Generation);
+        Assert.AreEqual("install_estimation", estimation.Route);
+        Assert.AreEqual(31L, estimation.InteractionId);
+        Assert.AreEqual(4L, estimation.Generation);
+    }
+
     private static string GetDefaultGoldenFingerprint(Net10PerformanceCorpusScale scale) => scale switch
     {
         Net10PerformanceCorpusScale.Small =>

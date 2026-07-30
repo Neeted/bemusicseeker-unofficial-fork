@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -28,6 +29,38 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
         release.SetResult(true);
         await WaitForIdleAsync(owner);
+    }
+
+    [TestMethod]
+    public async Task CaptureWorkSnapshot_ReportsQueuedRunningAndIdleBacklog()
+    {
+        var entered = new ManualResetEventSlim();
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        Assert.IsTrue(owner.Queue("playlist_library_index_prewarm", "startup", null, async () =>
+        {
+            entered.Set();
+            await release.Task.ConfigureAwait(false);
+        }));
+
+        StartupBackgroundWorkSnapshot queued = owner.CaptureWorkSnapshot();
+        Assert.AreEqual(1, queued.QueuedCount);
+        Assert.AreEqual(0, queued.RunningCount);
+        Assert.AreEqual(1, queued.BacklogCount);
+
+        owner.Start();
+        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
+        StartupBackgroundWorkSnapshot running = owner.CaptureWorkSnapshot();
+        Assert.AreEqual(0, running.QueuedCount);
+        Assert.AreEqual(1, running.RunningCount);
+        Assert.AreEqual(1, running.BacklogCount);
+
+        release.SetResult(true);
+        await WaitForIdleAsync(owner);
+        Assert.AreEqual(
+            new StartupBackgroundWorkSnapshot(0, 0),
+            owner.CaptureWorkSnapshot());
     }
 
     [TestMethod]

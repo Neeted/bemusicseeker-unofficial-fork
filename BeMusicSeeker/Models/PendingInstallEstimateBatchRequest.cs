@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.Models;
@@ -24,13 +25,16 @@ internal sealed class PendingInstallEstimateBatchRequest
 
     public PendingEstimateSourceBatchSnapshot BatchSourceSnapshot { get; }
 
+    internal PerformanceInteraction PerformanceInteraction { get; }
+
     public PendingInstallEstimateBatchRequest(
         PendingInstallEstimateBatchSource source,
         IEnumerable<ChartPackage> packages,
         string displayName,
         IEnumerable<string> regroupEligibleSourceDirectories = null,
         int deferredPackageCount = 0,
-        PendingEstimateSourceBatchSnapshot batchSourceSnapshot = null)
+        PendingEstimateSourceBatchSnapshot batchSourceSnapshot = null,
+        PerformanceInteraction? performanceInteraction = null)
     {
         Source = source;
         Packages = [.. (packages ?? []).Where(package => package != null)];
@@ -42,6 +46,8 @@ internal sealed class PendingInstallEstimateBatchRequest
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         BatchSourceSnapshot = batchSourceSnapshot;
+        PerformanceInteraction = performanceInteraction
+            ?? PerformanceInteraction.Start("install_estimation");
     }
 
     internal static string GetDisplayName(string path)

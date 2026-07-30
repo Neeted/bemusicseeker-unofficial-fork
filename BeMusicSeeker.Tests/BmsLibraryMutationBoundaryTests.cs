@@ -110,7 +110,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string initializeMethod = ExtractMethodBody(
             librarySource,
-            "public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore, LibraryInitializeMode mode)");
+            "private void InitializeCore(");
         string installBatchMethod = ExtractMethodBody(packageInstallSource, "private IReadOnlyList<ChartPackage> ExecuteInstallBatch(");
         string folderMutationMethod = ExtractMethodBody(folderAutoRenameSource, "private bool ExecuteMutation(");
         string forceInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task<PendingPackageMutationResult> InstallResolvedPackagesAsync(");

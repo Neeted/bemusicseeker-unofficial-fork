@@ -727,7 +727,8 @@ internal sealed partial class PackageLifecycleOwner
 
     internal bool TryEnqueuePendingEstimateBatch(
         PendingInstallEstimateBatchRequest request,
-        Func<string, string, bool> shouldSkipForShutdown)
+        Func<string, string, bool> shouldSkipForShutdown,
+        Action requestAccepted = null)
     {
         if (request == null || request.PackageCount == 0)
         {
@@ -739,7 +740,7 @@ internal sealed partial class PackageLifecycleOwner
             return false;
         }
 
-        pendingEstimateQueueProcessor.Enqueue(request);
+        pendingEstimateQueueProcessor.Enqueue(request, requestAccepted);
         return true;
     }
 

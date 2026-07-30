@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$LegacyCommit = '8786e59f6bfc0a80625a65c17e10c79e6e86f4ac',
+    [string]$BaselineCommit = 'ab9d97ed3f53dab80fb2894f20f44abdfb6fed32',
     [string]$FixtureRoot,
     [string]$OutputDirectory,
     [string]$SqliteAssemblyRoot,
@@ -359,45 +359,6 @@ function Close-IsolatedApplication {
     }
 }
 
-function Start-LegacyUpdater {
-    param(
-        [Parameter(Mandatory)][string]$UpdaterExecutable,
-        [Parameter(Mandatory)][string]$AppRoot,
-        [Parameter(Mandatory)][string]$PackagePath,
-        [Parameter(Mandatory)][int]$ApplicationProcessId
-    )
-    $workRoot = Join-Path $AppRoot 'update_work'
-    $downloads = Join-Path $workRoot 'downloads'
-    New-Item -ItemType Directory -Path $downloads -Force | Out-Null
-    $downloadedPackage = Join-Path $downloads ([IO.Path]::GetFileName($PackagePath))
-    Copy-Item -LiteralPath $PackagePath -Destination $downloadedPackage -Force
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $UpdaterExecutable
-    $startInfo.WorkingDirectory = $AppRoot
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    foreach ($value in @(
-            '--app-dir', $AppRoot,
-            '--package', $downloadedPackage,
-            '--backup-dir', (Join-Path $AppRoot 'update_backup'),
-            '--pid', ([string]$ApplicationProcessId),
-            '--restart-exe', (Join-Path $AppRoot 'BeMusicSeeker.exe'))) {
-        [void]$startInfo.ArgumentList.Add([string]$value)
-    }
-    $updater = [Diagnostics.Process]::new()
-    $updater.StartInfo = $startInfo
-    if (-not $updater.Start()) {
-        $updater.Dispose()
-        throw "Unable to start legacy updater: $UpdaterExecutable"
-    }
-    return [pscustomobject]@{
-        Process = $updater
-        DownloadedPackage = $downloadedPackage
-    }
-}
-
 function Start-UpdaterHandshake {
     param(
         [Parameter(Mandatory)][string]$UpdaterExecutable,
@@ -517,27 +478,22 @@ function Archive-LogsBeforeRestart {
     }
 }
 
-function Export-HistoricalPackage {
+function Export-BaselinePackage {
     param([Parameter(Mandatory)][string]$Root)
-    $archive = Join-Path $Root 'historical-source.zip'
+    $archive = Join-Path $Root 'baseline-source.zip'
     $source = Join-Path $Root 'source'
     New-Item -ItemType Directory -Path $source -Force | Out-Null
-    Invoke-CheckedCommand git 'archive' '--format=zip' "--output=$archive" $LegacyCommit
+    Invoke-CheckedCommand git 'archive' '--format=zip' "--output=$archive" $BaselineCommit
     Expand-Archive -LiteralPath $archive -DestinationPath $source -Force
-    $project = Join-Path $source 'BeMusicSeeker.csproj'
-    Invoke-CheckedCommand dotnet 'restore' (Join-Path $source 'BeMusicSeeker.sln') '-p:Platform=x64'
-    Invoke-CheckedCommand dotnet 'build' $project '-c' 'Release' '-p:Platform=x64' '--no-restore'
+    Invoke-CheckedCommand dotnet 'restore' (Join-Path $source 'BeMusicSeeker.sln') '-r' 'win-x64' '--locked-mode'
     $publish = Join-Path $source 'scripts\publish.ps1'
-    $publishText = Get-Content -LiteralPath $publish -Raw
-    $publishText = $publishText -replace '\$devRoot = "D:\\work\\BeMusicSeeker-decomp"', ('$devRoot = "' + $source.Replace('"', '`"') + '"')
-    Set-Content -LiteralPath $publish -Value $publishText -Encoding UTF8
-    Invoke-CheckedCommand pwsh '-NoProfile' '-File' $publish '-PackageOnly' '-SkipBuild' '-SkipDocHtml'
+    Invoke-CheckedCommand pwsh '-NoProfile' '-File' $publish '-PackageOnly' '-SkipDocHtml'
     $package = Get-ChildItem -LiteralPath (Join-Path $source 'dist') -Filter '*.zip' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($null -eq $package) {
-        throw 'Historical publish did not produce a release package.'
+        throw 'Baseline publish did not produce a release package.'
     }
     return [pscustomobject]@{
-        Commit = $LegacyCommit
+        Commit = $BaselineCommit
         SourceRoot = $source
         PackagePath = $package.FullName
         PackageSha256 = Get-Sha256 -Path $package.FullName
@@ -684,35 +640,36 @@ New-Item -ItemType Directory -Path (Split-Path -Parent $script:receiptPath) -For
 $script:failed = $false
 
 try {
-    $historicalRoot = Join-Path $script:sandboxRoot 'historical'
-    New-Item -ItemType Directory -Path $historicalRoot -Force | Out-Null
-    $historical = Export-HistoricalPackage -Root $historicalRoot
+    $baselineRoot = Join-Path $script:sandboxRoot 'baseline'
+    New-Item -ItemType Directory -Path $baselineRoot -Force | Out-Null
+    $baseline = Export-BaselinePackage -Root $baselineRoot
     $current = Export-CurrentPackage
     $script:currentAppPublishRoot = Resolve-FullPath $current.AppPublishRoot
     Assert-Directory $script:currentAppPublishRoot
 
     $successRoot = Join-Path $script:sandboxRoot 'success'
     $successApp = Join-Path $successRoot 'app'
-    Expand-AppPackage -PackagePath $historical.PackagePath -Destination $successApp
+    Expand-AppPackage -PackagePath $baseline.PackagePath -Destination $successApp
+    $baselineExecutableHash = Get-Sha256 -Path (Join-Path $successApp 'BeMusicSeeker.exe')
     $successProfile = Prepare-Profile -ProfileRoot $successRoot -AppRoot $successApp -ProfileName 'standalone'
     $successLog = Join-Path $successApp 'log'
     $oldProcess = Start-IsolatedApplication -Executable (Join-Path $successApp 'BeMusicSeeker.exe') -ProfileRoot $successRoot -LogDirectory $successLog
     $beforeSuccess = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $successApp; DatabasePath = $successProfile.DatabasePath; InstallPath = $successProfile.InstallPath; LegacyConfigPath = $successProfile.LegacyConfigPath; MarkerPath = $successProfile.MarkerPath })
-    # The pre-NET10 package owns the legacy updater protocol: it waits for the
-    # application PID to exit and then applies the package without a launch
-    # decision handshake.
-    $successUpdater = Start-LegacyUpdater -UpdaterExecutable (Join-Path $successApp 'BeMusicSeeker.Updater.exe') -AppRoot $successApp -PackagePath $current.PackagePath -ApplicationProcessId $oldProcess.Id
+    # The committed .NET 10 baseline exercises the current updater handshake
+    # without rebuilding the retired net472 application.
+    $successUpdater = Start-UpdaterHandshake -UpdaterExecutable (Join-Path $successApp 'BeMusicSeeker.Updater.exe') -AppRoot $successApp -PackagePath $current.PackagePath -ApplicationProcessId $oldProcess.Id
     Close-IsolatedApplication -Process $oldProcess
     Archive-LogsBeforeRestart -LogDirectory $successLog
+    Approve-UpdaterHandshake -Handshake $successUpdater
     $successExitCode = Wait-UpdaterExit -Handshake $successUpdater
-    if ($successExitCode -ne 0) { throw "Old updater did not complete old-to-new update: exit=$successExitCode" }
+    if ($successExitCode -ne 0) { throw "Baseline updater did not complete update: exit=$successExitCode" }
     $currentProcess = Wait-CurrentRestart -Executable (Join-Path $successApp 'BeMusicSeeker.exe') -LogDirectory $successLog
     Close-IsolatedApplication -Process $currentProcess
     $successAfter = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $successApp; DatabasePath = $successProfile.DatabasePath; InstallPath = $successProfile.InstallPath; LegacyConfigPath = $successProfile.LegacyConfigPath; MarkerPath = $successProfile.MarkerPath })
     Assert-SemanticStateEqual -Before $beforeSuccess -After $successAfter -Label 'old-to-new success'
     Assert-PortableSingleFilePayloadLayout $successApp
     $successManaged = Get-TreeSha256 -Root $successApp
-    if ((Get-Sha256 -Path (Join-Path $successApp 'BeMusicSeeker.exe')) -eq (Get-Sha256 -Path (Join-Path $historical.SourceRoot 'bin\x64\Release\net472\BeMusicSeeker.exe'))) { throw 'Old-to-new update did not replace the application executable.' }
+    if ((Get-Sha256 -Path (Join-Path $successApp 'BeMusicSeeker.exe')) -eq $baselineExecutableHash) { throw 'Baseline-to-current update did not replace the application executable.' }
     Assert-File (Join-Path $successApp 'BeMusicSeeker.Updater.exe')
     if (Test-Path -LiteralPath (Join-Path $successApp 'BeMusicSeeker.Updater.dll')) { throw 'Current single-file updater left a companion DLL.' }
 
@@ -761,8 +718,8 @@ try {
     $receipt = [ordered]@{
         schemaVersion = 1
         status = 'passed'
-        legacyCommit = $historical.Commit
-        legacyPackageSha256 = $historical.PackageSha256
+        baselineCommit = $baseline.Commit
+        baselinePackageSha256 = $baseline.PackageSha256
         currentPackageSha256 = $current.PackageSha256
         currentAppPublishTreeSha256 = Get-TreeSha256 -Root $current.AppPublishRoot
         fixtureManifestSha256 = $script:manifestHash
@@ -777,7 +734,7 @@ catch {
     $failure = [ordered]@{
         schemaVersion = 1
         status = 'failed'
-        legacyCommit = $LegacyCommit
+        baselineCommit = $BaselineCommit
         fixtureManifestSha256 = $script:manifestHash
         sandboxRoot = $script:sandboxRoot
         error = $_.Exception.ToString()

@@ -3808,6 +3808,7 @@ public partial class MainWindowViewModel : ViewModel,
                 applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
             files.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
             files.StartupBackgroundTaskReporter = startupBackgroundTaskScheduler.Report;
+            files.StartupBackgroundWorkSnapshotProvider = startupBackgroundTaskScheduler.CaptureWorkSnapshot;
             tables.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
             tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
             if (!libraryProfile.OperationModeLR2DB)
@@ -4157,7 +4158,10 @@ public partial class MainWindowViewModel : ViewModel,
         {
             await Task.Run(delegate
             {
-                files.InitializeStartup([taskAdd1], semaphore);
+                files.InitializeStartup(
+                    [taskAdd1],
+                    semaphore,
+                    startupPerformanceInteraction);
             }).Logging("Initialize");
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
             RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);

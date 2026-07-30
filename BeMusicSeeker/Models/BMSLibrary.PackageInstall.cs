@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -904,6 +905,7 @@ public partial class BMSLibrary
         string source = ToPendingEstimateBatchSourceLogValue(request.Source);
         int lowConfidenceCount = 0;
         int completed = 0;
+        PerformanceInteraction? firstVisibleInteraction = null;
         var executionPolicy = InstallEstimationExecutionPolicy.ForManualBatch();
         var stopwatch = Stopwatch.StartNew();
         LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " display=" + (request.DisplayName ?? string.Empty));
@@ -912,7 +914,16 @@ public partial class BMSLibrary
             SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, request.PackageCount, 0, request.DisplayName ?? string.Empty);
             PendingInstallEstimateEvaluationContext evaluationContext = CreatePendingInstallEstimateEvaluationContext();
             List<PendingInstallEstimateEvaluationRequest> evaluationRequests = PreparePendingInstallEstimateEvaluationRequests(request);
-            ProcessPendingInstallEstimateEvaluationPipeline(request, source, CancellationToken.None, evaluationContext, evaluationRequests, executionPolicy, ref completed, ref lowConfidenceCount);
+            ProcessPendingInstallEstimateEvaluationPipeline(
+                request,
+                source,
+                CancellationToken.None,
+                evaluationContext,
+                evaluationRequests,
+                executionPolicy,
+                ref completed,
+                ref lowConfidenceCount,
+                ref firstVisibleInteraction);
         });
         stopwatch.Stop();
         LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + completed + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);

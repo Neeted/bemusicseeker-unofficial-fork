@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 
@@ -142,6 +143,17 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 {
                     return queue.Count == 0 && runningCount == 0;
                 }
+            }
+        }
+    }
+
+    internal StartupBackgroundWorkSnapshot CaptureWorkSnapshot()
+    {
+        lock (progressSynchronization)
+        {
+            lock (syncRoot)
+            {
+                return new StartupBackgroundWorkSnapshot(queue.Count, runningCount);
             }
         }
     }
