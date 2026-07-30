@@ -30,7 +30,7 @@
 - 通常ライブラリのbackground summaryはimmutable sourceとindex snapshotを受け取り、UI lane上のordered-row materializationを行わない。
 - playlist summaryはcompute後のUI queue、ItemsSource apply、first renderが現行markerの外にある。
 - playlist detailはowner request以前のmode transition／preparation renderにblind intervalがある。
-- resource-health、song-table materialization、post-init forced GCはstage別のallocation／retention evidenceが不足している。
+- resource-healthはimmutable projectionのmutable再materializationを退役し、song-table publicationは余分なrow-reference copyを除去した。post-init forced GCはcurrent markerでbenefitを観測し、削除判断を`MANUAL-02`へ委ねる。
 - install estimation、managed scan、parserにはrepository-owned fixtureと生成helperがあり、production dataなしのcomponent corpusを作れる見込みがある。
 
 これらは修正候補であり、net472比thresholdではない。

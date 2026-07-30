@@ -56,7 +56,24 @@ internal sealed class BmsLibraryMaintenanceService
         {
             return [];
         }
+        if (chart.GetBmsStorageOwner() == null
+            && chart.GetBmsonStorageOwner() == null
+            && chart.ResourceHealthMaintenanceSnapshot is ResourceHealthMaintenanceSnapshot snapshot)
+        {
+            return BuildResourceHealthWarnings(snapshot);
+        }
         return BuildResourceHealthWarnings(GetResourceHealthMaintenanceInfo(chart));
+    }
+
+    internal static bool AreResourceHealthWarningsIgnored(ChartFile chart)
+    {
+        if (chart?.GetBmsStorageOwner() == null
+            && chart?.GetBmsonStorageOwner() == null
+            && chart?.ResourceHealthMaintenanceSnapshot is ResourceHealthMaintenanceSnapshot snapshot)
+        {
+            return snapshot.FilesWarningIgnored;
+        }
+        return GetResourceHealthMaintenanceInfo(chart)?.is_files_warning_ignored == true;
     }
 
     internal static BMSFileMaintenanceInfo GetResourceHealthMaintenanceInfo(ChartFile chart)
@@ -437,6 +454,23 @@ internal sealed class BmsLibraryMaintenanceService
         AppendFlagWarning(warnings, maintenanceInfo.GetStagefileHealth(), ChartWarningKind.ResourceStagefileMissing, Resources.Warning_StagefileNotFound);
         AppendFlagWarning(warnings, maintenanceInfo.GetBackbmpHealth(), ChartWarningKind.ResourceBackbmpMissing, Resources.Warning_BackbmpNotFound);
         AppendFlagWarning(warnings, maintenanceInfo.GetBannerHealth(), ChartWarningKind.ResourceBannerMissing, Resources.Warning_BannerNotFound);
+        return warnings;
+    }
+
+    internal static IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(
+        ResourceHealthMaintenanceSnapshot snapshot)
+    {
+        if (snapshot == null)
+        {
+            return [];
+        }
+        List<ChartWarning> warnings = [];
+        AppendHealthWarning(warnings, snapshot.GetWavHealth(), snapshot.WavFilesDefined, snapshot.WavFilesExisting, ChartWarningKind.ResourceWavMissing, Resources.Warning_WavFilesNotFound);
+        AppendHealthWarning(warnings, snapshot.GetBgaHealth(), snapshot.BgaFilesDefined, snapshot.BgaFilesExisting, ChartWarningKind.ResourceBgaMissing, Resources.Warning_BgaFilesNotFound);
+        AppendHealthWarning(warnings, snapshot.GetMovieHealth(), snapshot.MovieFilesDefined, snapshot.MovieFilesExisting, ChartWarningKind.ResourceMovieMissing, Resources.Warning_MovieFilesNotFound);
+        AppendFlagWarning(warnings, snapshot.GetStagefileHealth(), ChartWarningKind.ResourceStagefileMissing, Resources.Warning_StagefileNotFound);
+        AppendFlagWarning(warnings, snapshot.GetBackbmpHealth(), ChartWarningKind.ResourceBackbmpMissing, Resources.Warning_BackbmpNotFound);
+        AppendFlagWarning(warnings, snapshot.GetBannerHealth(), ChartWarningKind.ResourceBannerMissing, Resources.Warning_BannerNotFound);
         return warnings;
     }
 

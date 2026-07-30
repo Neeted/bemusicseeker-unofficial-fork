@@ -21,7 +21,7 @@
 | UI queue／generation | `SYNTHETIC_MEASURABLE` | fake scheduler／dedicated STA harness | burst／rapid reentry | coalescing、latest generation、bounded turn | `P2` |
 | install destination estimation | `SYNTHETIC_MEASURABLE` | existing temp-directory helper | 71／100／399 resources | selected path、confidence、warning | `P4` |
 | managed scan／parse | `SYNTHETIC_MEASURABLE` | generated BMS／BMSON＋repository fixture | no-diff／120／160 charts | diff、DB rows、parse output | `P4` |
-| song-table materialization | `SYNTHETIC_MEASURABLE` | temporary SQLiteと既存load owner | small／medium／large rows | loaded rows、index publication | `P3` |
+| song-table materialization／publication | `SYNTHETIC_MEASURABLE` + `MANUAL_REAL_DATA` | existing temporary SQLite golden tests＋owned row-reference publication corpus | small／medium／large rows | loaded columns、row identity／order、publication copy count | `P3`。実DB query絶対時間は`MANUAL-02` |
 | resource-health component | `SYNTHETIC_MEASURABLE` | immutable synthetic resource snapshotと既存owner | small／medium／large targets | warning／ignored／index output | `P3` |
 | post-initialize GC | `OBSERVABILITY_REQUIRED` | aggregate startup marker | one aggregate event | pause／retained-memory component fields | `P3` |
 | full startup／WPF render／Everything／disk | `MANUAL_REAL_DATA` | final artifact＋real data | one final session | log completeness／no unexplained stall | `MANUAL-02` |
@@ -71,7 +71,7 @@ per-row／per-file logは行わない。diagnostic logging無効時のallocation
 |---|---|---|---|---|---|---|---|
 | P1 | same unit commit | fixed-seed corpus contract＋全corridor分類 | — | deterministic fingerprint／disabled-path formatter 0 calls | interaction／generation schema、aggregate marker、manual boundaryを固定 | ignored command receipt | accepted |
 | P2 | same unit commit | fixed-seed normal-library list＋existing playlist queue／generation fixtures | source-reference materializations 1,000／25,000／200,000、allocated bytes 20,536／598,328／4,517,880 | materializations 0、owned index snapshot込みallocated bytes 7,496／173,264／1,122,728、folder output一致 | immutable source＋owned read-only index snapshot、1,024-row cancellation boundary、guard外shutdown drain。playlistのstale／dedupe／latest-generation／selection behaviorを維持 | `8417F007771BA673BD61E6CE7A46B0284BEFC76BF48FE76A68C8A660A85F2377` | accepted。playlist detailはbackground terminal applyを明示し、actual WPF first-visibleは`MANUAL-02` |
-| P3 | pending | pending | — | — | — | — | pending |
+| P3 | same unit commit | fixed-seed BMS／BMSON song-table publication＋immutable resource-health snapshots | song copy 2、各route allocated 16,112／400,112／3,200,112。resource-health allocated 9,859,400／244,531,336／1,961,633,696 | song copy 1、各route allocated 8,056／200,056／1,600,056。resource-health allocated 413,400／10,089,752／82,279,704 | BMS／BMSON全row identity／order、warning kind／message、ignored membership、case-insensitive duplicate first-wins一致。GCはgeneration／decrement後queue depth／before-after memory markerを全terminal outcomeへ追加し削除判断をmanualへ分離 | `C0D46191FECF76F2AB24DDB8185F3A6BFED0493DDE43E5D7F2D8AAACB7046C63` | accepted。full startup／GC benefitは`MANUAL-02` |
 | P4 | pending | pending | — | — | — | — | pending |
 | P5 | pending | engineering Gate | — | — | — | — | pending |
 

@@ -79,22 +79,30 @@ internal sealed class ResourceHealthIndexSnapshot
         int version)
     {
         var stopwatch = Stopwatch.StartNew();
+        int capacity = targets switch
+        {
+            IReadOnlyCollection<ChartFile> readOnlyCollection => readOnlyCollection.Count,
+            ICollection<ChartFile> collection => collection.Count,
+            _ => 0
+        };
         List<ChartFile> activeTargets = [];
         List<ChartFile> ignoredTargets = [];
         Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection> projections = [];
-        HashSet<ResourceHealthChartKey> targetKeys = [];
-        List<ChartFile> uniqueTargets = DistinctValidTargets(targets);
-        foreach (ChartFile target in uniqueTargets)
+        HashSet<ResourceHealthChartKey> targetKeys =
+            capacity > 0 ? new HashSet<ResourceHealthChartKey>(capacity) : [];
+        foreach (ChartFile target in targets ?? [])
         {
             var key = ResourceHealthChartKey.FromChartFile(target);
-            targetKeys.Add(key);
+            if (!key.IsValid || !targetKeys.Add(key))
+            {
+                continue;
+            }
             IReadOnlyList<ChartWarning> warnings = maintenanceService?.BuildResourceHealthWarnings(target) ?? [];
             if (warnings.Count == 0)
             {
                 continue;
             }
-            BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(target);
-            bool isIgnored = maintenanceInfo?.is_files_warning_ignored == true;
+            bool isIgnored = BmsLibraryMaintenanceService.AreResourceHealthWarningsIgnored(target);
             var projection = new ResourceHealthWarningProjection(version, warnings, isIgnored);
             projections[key] = projection;
             if (isIgnored)
@@ -139,8 +147,7 @@ internal sealed class ResourceHealthIndexSnapshot
             {
                 continue;
             }
-            BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(updatedTarget);
-            bool isIgnored = maintenanceInfo?.is_files_warning_ignored == true;
+            bool isIgnored = BmsLibraryMaintenanceService.AreResourceHealthWarningsIgnored(updatedTarget);
             nextProjections[key] = new ResourceHealthWarningProjection(version, warnings, isIgnored);
         }
         List<ChartFile> activeTargets = [.. ActiveTargets.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromChartFile(file)))];

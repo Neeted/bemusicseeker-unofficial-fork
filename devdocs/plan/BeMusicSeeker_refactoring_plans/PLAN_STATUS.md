@@ -27,7 +27,7 @@
 
 - active outcome: `PERF-01 .NET 10 performance engineering closure`
 - active execution package: `PERF-01 Current-runtime performance closure`
-- execution anchor: `P3 STARTUP-INDEX-GC-COMPONENTS`
+- execution anchor: `P4 ESTIMATION-SCAN-PARSE-COMPONENTS`
 - planner state: not required; batch materialized
 
 ## Active implementation batch
@@ -36,8 +36,8 @@
 |---|---|---|
 | `P1 OBSERVABILITY-AND-CORPUS` | completed | current .NET 10 marker、corpus feasibility、fixed-seed generators、manual classification |
 | `P2 LIST-TRANSITION-CRITICAL-PATH` | completed | full-library copy、playlist summary／detail、queue／generation／drain |
-| `P3 STARTUP-INDEX-GC-COMPONENTS` | active | synthetic可能なsong-table／resource-health、GC／startup instrumentation |
-| `P4 ESTIMATION-SCAN-PARSE-COMPONENTS` | pending | install estimation、managed diff／parse、C# 14 hot path |
+| `P3 STARTUP-INDEX-GC-COMPONENTS` | completed | synthetic可能なsong-table／resource-health、GC／startup instrumentation |
+| `P4 ESTIMATION-SCAN-PARSE-COMPONENTS` | active | install estimation、managed diff／parse、C# 14 hot path |
 | `P5 ENGINEERING-PERFORMANCE-GATE` | pending | full verification、synthetic suite、publish、current report、fresh review |
 | `HANDOFF` | pending | `MANUAL-02` real-data performance acceptanceへhandoff |
 

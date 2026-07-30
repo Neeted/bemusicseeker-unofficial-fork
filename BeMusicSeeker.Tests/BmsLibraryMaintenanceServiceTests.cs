@@ -39,6 +39,41 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void ImmutableResourceHealthSnapshot_PreservesMutableWarningProjection()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var info = new BMSFileMaintenanceInfo
+        {
+            wav_files_defined = 4,
+            wav_files_existing = 2,
+            bga_files_defined = 1,
+            bga_files_existing = 0,
+            movie_files_defined = 0,
+            movie_files_existing = 0,
+            is_stagefile_defined = true,
+            is_stagefile_existing = false,
+            is_banner_defined = false,
+            is_banner_existing = false,
+            is_backbmp_defined = true,
+            is_backbmp_existing = true,
+            is_files_warning_ignored = true
+        };
+        ResourceHealthMaintenanceSnapshot snapshot = ResourceHealthMaintenanceSnapshot.From(info);
+
+        IReadOnlyList<ChartWarning> mutableWarnings =
+            BmsLibraryMaintenanceService.BuildResourceHealthWarnings(info);
+        IReadOnlyList<ChartWarning> immutableWarnings =
+            BmsLibraryMaintenanceService.BuildResourceHealthWarnings(snapshot);
+
+        CollectionAssert.AreEqual(
+            mutableWarnings.Select(warning => warning.Kind).ToArray(),
+            immutableWarnings.Select(warning => warning.Kind).ToArray());
+        CollectionAssert.AreEqual(
+            mutableWarnings.Select(warning => warning.Message).ToArray(),
+            immutableWarnings.Select(warning => warning.Message).ToArray());
+    }
+
+    [TestMethod]
     public void LazyMaintenancePlaceholder_IsNotAValidResourceHealthSnapshot()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -1,4 +1,5 @@
 using BeMusicSeeker.Models;
+using System;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -56,6 +57,40 @@ internal sealed class ResourceHealthMaintenanceSnapshot
     internal static ResourceHealthMaintenanceSnapshot From(BMSFileMaintenanceInfo source)
     {
         return source == null ? null : new ResourceHealthMaintenanceSnapshot(source);
+    }
+
+    internal int? GetWavHealth() => CalculateCountHealth(WavFilesDefined, WavFilesExisting);
+
+    internal int? GetBgaHealth() => CalculateCountHealth(BgaFilesDefined, BgaFilesExisting);
+
+    internal int? GetMovieHealth() => CalculateCountHealth(MovieFilesDefined, MovieFilesExisting);
+
+    internal bool? GetStagefileHealth() => CalculateFlagHealth(StagefileDefined, StagefileExisting);
+
+    internal bool? GetBannerHealth() => CalculateFlagHealth(BannerDefined, BannerExisting);
+
+    internal bool? GetBackbmpHealth() => CalculateFlagHealth(BackbmpDefined, BackbmpExisting);
+
+    private static int? CalculateCountHealth(int? defined, int? existing)
+    {
+        if (!defined.HasValue || (defined > 0 && !existing.HasValue))
+        {
+            return null;
+        }
+        if (defined == 0 || existing == defined)
+        {
+            return 100;
+        }
+        return (int)(100.0 * ((double)existing!.Value - Math.Sqrt(existing.Value)) / defined.Value);
+    }
+
+    private static bool? CalculateFlagHealth(bool? defined, bool? existing)
+    {
+        if (!defined.HasValue || (defined.Value && !existing.HasValue))
+        {
+            return null;
+        }
+        return defined == false || (defined.Value && existing!.Value);
     }
 
     internal BMSFileMaintenanceInfo ToMutable()

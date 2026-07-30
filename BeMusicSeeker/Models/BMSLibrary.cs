@@ -1072,8 +1072,8 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
         }
-        List<BMSFile> normalizedBmsRows = NormalizeBmsStorageRows(bmsFiles?.ToList());
-        List<LR2SongDBExtended.bmson_song> normalizedBmsonRows = NormalizeBmsonStorageRows(bmsonSongs?.ToList());
+        List<BMSFile> normalizedBmsRows = NormalizeBmsStorageRows(bmsFiles);
+        List<LR2SongDBExtended.bmson_song> normalizedBmsonRows = NormalizeBmsonStorageRows(bmsonSongs);
         CatalogStorageRowsReplacementRequest request = catalogMutationOwner.CreateStorageRowsReplacementRequest(
             normalizedBmsRows,
             normalizedBmsonRows,
@@ -4555,6 +4555,10 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    private long postInitializeGcGeneration;
+
+    private int postInitializeGcQueuedCount;
+
     private void QueuePostInitializeGarbageCollection(string reason)
     {
         if (TrySkipForShutdown("post_initialize_gc", reason))
@@ -4562,32 +4566,85 @@ public partial class BMSLibrary : ObservableObject
             return;
         }
         const int delayMs = 30000;
+        long generation = Interlocked.Increment(ref postInitializeGcGeneration);
+        int queueDepth = Interlocked.Increment(ref postInitializeGcQueuedCount);
+        PerformanceInteraction performanceInteraction =
+            PerformanceInteraction.Existing("post_initialize_gc", generation, generation);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "owner_queued",
+                "reason=" + (reason ?? "unknown")
+                + " delayMs=" + delayMs
+                + " queueDepth=" + queueDepth);
+        }
         Task.Run(async delegate
         {
+            string terminalStage = null;
+            string terminalFields = null;
             try
             {
                 await Task.Delay(delayMs).ConfigureAwait(false);
                 if (IsShutdownRequested)
                 {
                     LogInstallPerformance("post_initialize_gc skipped reason=shutdown_requested requestReason=" + (reason ?? "unknown"));
+                    terminalStage = "terminal_skipped";
+                    terminalFields = "reason=shutdown_requested";
                     return;
+                }
+                long managedBytesBefore = GC.GetTotalMemory(forceFullCollection: false);
+                int gen0Before = GC.CollectionCount(0);
+                int gen1Before = GC.CollectionCount(1);
+                int gen2Before = GC.CollectionCount(2);
+                if (Net10PerformanceLog.IsEnabled)
+                {
+                    Net10PerformanceLog.Write(
+                        performanceInteraction,
+                        "owner_started",
+                        "queueDepth=" + Volatile.Read(ref postInitializeGcQueuedCount)
+                        + " managedBytesBefore=" + managedBytesBefore
+                        + " gen0Before=" + gen0Before
+                        + " gen1Before=" + gen1Before
+                        + " gen2Before=" + gen2Before);
                 }
                 var stopwatch = Stopwatch.StartNew();
                 GC.Collect();
                 stopwatch.Stop();
-                long managedBytes = GC.GetTotalMemory(forceFullCollection: false);
-                NLogWrapper.DebuggerLogger?.Trace("owari: " + managedBytes);
+                long managedBytesAfter = GC.GetTotalMemory(forceFullCollection: false);
+                NLogWrapper.DebuggerLogger?.Trace("owari: " + managedBytesAfter);
                 LogInstallPerformance("post_initialize_gc done"
                     + " reason=" + (reason ?? "unknown")
                     + " delayMs=" + delayMs
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                    + " managedBytes=" + managedBytes);
+                    + " managedBytes=" + managedBytesAfter);
+                terminalStage = "terminal_applied";
+                terminalFields = "elapsedMs=" + stopwatch.ElapsedMilliseconds
+                    + " managedBytesBefore=" + managedBytesBefore
+                    + " managedBytesAfter=" + managedBytesAfter
+                    + " reclaimedManagedBytes=" + Math.Max(0L, managedBytesBefore - managedBytesAfter)
+                    + " gen0Delta=" + (GC.CollectionCount(0) - gen0Before)
+                    + " gen1Delta=" + (GC.CollectionCount(1) - gen1Before)
+                    + " gen2Delta=" + (GC.CollectionCount(2) - gen2Before);
             }
             catch (Exception ex)
             {
                 LogInstallPerformanceWarn("post_initialize_gc failed"
                     + " reason=" + (reason ?? "unknown")
                     + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+                terminalStage = "terminal_failed";
+                terminalFields = "exception=" + ex.GetType().Name;
+            }
+            finally
+            {
+                int queueDepthAfter = Interlocked.Decrement(ref postInitializeGcQueuedCount);
+                if (Net10PerformanceLog.IsEnabled && terminalStage != null)
+                {
+                    Net10PerformanceLog.Write(
+                        performanceInteraction,
+                        terminalStage,
+                        terminalFields + " queueDepthAfter=" + queueDepthAfter);
+                }
             }
         }).Logging("PostInitializeGarbageCollection");
     }
@@ -7993,12 +8050,13 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private static List<BMSFile> NormalizeBmsStorageRows(IReadOnlyList<BMSFile> files)
+    internal static List<BMSFile> NormalizeBmsStorageRows(IEnumerable<BMSFile> files)
     {
         return files == null ? [] : [.. files];
     }
 
-    private static List<LR2SongDBExtended.bmson_song> NormalizeBmsonStorageRows(IReadOnlyList<LR2SongDBExtended.bmson_song> songs)
+    internal static List<LR2SongDBExtended.bmson_song> NormalizeBmsonStorageRows(
+        IEnumerable<LR2SongDBExtended.bmson_song> songs)
     {
         return songs == null ? [] : [.. songs];
     }
