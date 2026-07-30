@@ -3866,25 +3866,16 @@ public partial class MainWindowViewModel : ViewModel,
                 startupReadyOperableReached,
                 treeViewFilterTypeSelected);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressVersion, delegate
         {
-            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressScannerLabel, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressTotalCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressProcessedCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressCurrentPath, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+            BMSLibrary.LibraryInitializationProgressSnapshot progress =
+                files.GetLibraryInitializationProgressSnapshot();
+            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(
+                progress.Stage,
+                progress.ScannerLabel,
+                progress.TotalCount,
+                progress.ProcessedCount,
+                progress.CurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryDatabaseLoadCompletedVersion, delegate
         {

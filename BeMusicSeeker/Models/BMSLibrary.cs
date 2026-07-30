@@ -240,6 +240,37 @@ public partial class BMSLibrary : ObservableObject
         FileDiff = 3
     }
 
+    public sealed class LibraryInitializationProgressSnapshot
+    {
+        internal LibraryInitializationProgressSnapshot(
+            long version,
+            LibraryInitializationProgressStage stage,
+            string scannerLabel,
+            int totalCount,
+            int processedCount,
+            string currentPath)
+        {
+            Version = version;
+            Stage = stage;
+            ScannerLabel = scannerLabel;
+            TotalCount = totalCount;
+            ProcessedCount = processedCount;
+            CurrentPath = currentPath;
+        }
+
+        public long Version { get; }
+
+        public LibraryInitializationProgressStage Stage { get; }
+
+        public string ScannerLabel { get; }
+
+        public int TotalCount { get; }
+
+        public int ProcessedCount { get; }
+
+        public string CurrentPath { get; }
+    }
+
     /// <summary>
     /// BMS 親フォルダ一覧キャッシュのスナップショットを格納するクラスです。
     /// バックグラウンドスレッドで構築し、UIスレッドで適用する2段階方式に利用されます。
@@ -974,6 +1005,14 @@ public partial class BMSLibrary : ObservableObject
     private int _LibraryInitializationProgressProcessedCount;
 
     private string _LibraryInitializationProgressCurrentPath = string.Empty;
+
+    private LibraryInitializationProgressSnapshot publishedLibraryInitializationProgress =
+        new(0L, LibraryInitializationProgressStage.None, string.Empty, 0, 0, string.Empty);
+
+    private LibraryInitializationProgressSnapshot pendingLibraryInitializationProgress =
+        new(0L, LibraryInitializationProgressStage.None, string.Empty, 0, 0, string.Empty);
+
+    private bool libraryInitializationProgressPublicationScheduled;
 
     private int _LibraryDatabaseLoadCompletedVersion;
 
@@ -2035,6 +2074,14 @@ public partial class BMSLibrary : ObservableObject
                 RaisePropertyChanged(() => LibraryInitializationProgressCurrentPath);
             }
         }
+    }
+
+    public long LibraryInitializationProgressVersion =>
+        Volatile.Read(ref publishedLibraryInitializationProgress).Version;
+
+    public LibraryInitializationProgressSnapshot GetLibraryInitializationProgressSnapshot()
+    {
+        return Volatile.Read(ref publishedLibraryInitializationProgress);
     }
 
     public int LibraryDatabaseLoadCompletedVersion
@@ -4258,66 +4305,122 @@ public partial class BMSLibrary : ObservableObject
             }
         }
         Interlocked.Exchange(ref lastLibraryInitializationProgressReportTimestamp, now);
-        List<string> changedProperties = [];
+        bool schedulePublication;
+        long publicationVersion;
         lock (lockLibraryInitializationProgress)
         {
             string normalizedScannerLabel = scannerLabel ?? string.Empty;
             int normalizedTotalCount = Math.Max(0, totalCount);
             int normalizedProcessedCount = Math.Max(0, processedCount);
             string normalizedCurrentPath = currentPath ?? string.Empty;
-            if (_LibraryInitializationProgressStage != stage)
+            LibraryInitializationProgressSnapshot previous = pendingLibraryInitializationProgress;
+            if (previous.Stage == stage
+                && previous.ScannerLabel == normalizedScannerLabel
+                && previous.TotalCount == normalizedTotalCount
+                && previous.ProcessedCount == normalizedProcessedCount
+                && previous.CurrentPath == normalizedCurrentPath)
             {
-                _LibraryInitializationProgressStage = stage;
-                changedProperties.Add(nameof(LibraryInitializationProgress));
+                return;
             }
-            if (_LibraryInitializationProgressScannerLabel != normalizedScannerLabel)
-            {
-                _LibraryInitializationProgressScannerLabel = normalizedScannerLabel;
-                changedProperties.Add(nameof(LibraryInitializationProgressScannerLabel));
-            }
-            if (_LibraryInitializationProgressTotalCount != normalizedTotalCount)
-            {
-                _LibraryInitializationProgressTotalCount = normalizedTotalCount;
-                changedProperties.Add(nameof(LibraryInitializationProgressTotalCount));
-            }
-            if (_LibraryInitializationProgressProcessedCount != normalizedProcessedCount)
-            {
-                _LibraryInitializationProgressProcessedCount = normalizedProcessedCount;
-                changedProperties.Add(nameof(LibraryInitializationProgressProcessedCount));
-            }
-            if (_LibraryInitializationProgressCurrentPath != normalizedCurrentPath)
-            {
-                _LibraryInitializationProgressCurrentPath = normalizedCurrentPath;
-                changedProperties.Add(nameof(LibraryInitializationProgressCurrentPath));
-            }
+
+            publicationVersion = previous.Version + 1L;
+            pendingLibraryInitializationProgress = new LibraryInitializationProgressSnapshot(
+                publicationVersion,
+                stage,
+                normalizedScannerLabel,
+                normalizedTotalCount,
+                normalizedProcessedCount,
+                normalizedCurrentPath);
+            schedulePublication = !libraryInitializationProgressPublicationScheduled;
+            libraryInitializationProgressPublicationScheduled = true;
         }
-        if (changedProperties.Count == 0)
+        if (!schedulePublication)
         {
             return;
         }
-        IUiScheduledOperation publication = uiScheduler.Schedule(() =>
+        ScheduleLibraryInitializationProgressPublication(publicationVersion);
+    }
+
+    private void ScheduleLibraryInitializationProgressPublication(long publicationVersion)
+    {
+        IUiScheduledOperation publication;
+        try
         {
-            foreach (string propertyName in changedProperties)
-            {
-                RaisePropertyChanged(propertyName);
-            }
-        });
+            publication = uiScheduler.Schedule(DrainLibraryInitializationProgressPublication);
+        }
+        catch (Exception ex)
+        {
+            ResetLibraryInitializationProgressPublicationSchedule();
+            LogInstallPerformanceWarn(
+                "library_initialization_progress_publication_schedule_failed version="
+                + publicationVersion
+                + " exception="
+                + ex.GetType().Name);
+            return;
+        }
         if (!publication.IsAccepted)
         {
+            ResetLibraryInitializationProgressPublicationSchedule();
             LogInstallPerformanceWarn(
                 "library_initialization_progress_publication_rejected reason="
                 + publication.RejectionReason);
             return;
         }
         _ = publication.Completion.ContinueWith(
-            task => LogInstallPerformanceWarn(
-                task.IsCanceled || publication.IsAborted
-                    ? "library_initialization_progress_publication_canceled"
-                    : "library_initialization_progress_publication_failed exception="
-                        + (task.Exception?.GetBaseException().GetType().Name ?? "unknown")),
+            task =>
+            {
+                ResetLibraryInitializationProgressPublicationSchedule();
+                LogInstallPerformanceWarn(
+                    task.IsCanceled || publication.IsAborted
+                        ? "library_initialization_progress_publication_canceled"
+                        : "library_initialization_progress_publication_failed exception="
+                            + (task.Exception?.GetBaseException().GetType().Name ?? "unknown"));
+            },
             CancellationToken.None,
             TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+    }
+
+    private void ResetLibraryInitializationProgressPublicationSchedule()
+    {
+        lock (lockLibraryInitializationProgress)
+        {
+            libraryInitializationProgressPublicationScheduled = false;
+        }
+    }
+
+    private void DrainLibraryInitializationProgressPublication()
+    {
+        LibraryInitializationProgressSnapshot snapshot;
+        lock (lockLibraryInitializationProgress)
+        {
+            snapshot = pendingLibraryInitializationProgress;
+            Volatile.Write(ref publishedLibraryInitializationProgress, snapshot);
+            _LibraryInitializationProgressStage = snapshot.Stage;
+            _LibraryInitializationProgressScannerLabel = snapshot.ScannerLabel;
+            _LibraryInitializationProgressTotalCount = snapshot.TotalCount;
+            _LibraryInitializationProgressProcessedCount = snapshot.ProcessedCount;
+            _LibraryInitializationProgressCurrentPath = snapshot.CurrentPath;
+        }
+
+        RaisePropertyChanged(nameof(LibraryInitializationProgressVersion));
+
+        long nextVersion = 0L;
+        lock (lockLibraryInitializationProgress)
+        {
+            if (pendingLibraryInitializationProgress.Version == snapshot.Version)
+            {
+                libraryInitializationProgressPublicationScheduled = false;
+            }
+            else
+            {
+                nextVersion = pendingLibraryInitializationProgress.Version;
+            }
+        }
+        if (nextVersion != 0L)
+        {
+            ScheduleLibraryInitializationProgressPublication(nextVersion);
+        }
     }
 
     private void CompleteLibraryDatabaseLoadProgress()
@@ -4469,7 +4572,6 @@ public partial class BMSLibrary : ObservableObject
         {
             try
             {
-                GC.Collect();
                 NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
                 LogInstallPerformance("init_library_enter mode=" + mode + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " setMaintenanceInfo=" + setMaintenanceInfo.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
                 if (isStartup)

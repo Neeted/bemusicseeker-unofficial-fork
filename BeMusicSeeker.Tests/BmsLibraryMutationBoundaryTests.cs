@@ -111,6 +111,9 @@ public sealed class BmsLibraryMutationBoundaryTests
         string initializeMethod = ExtractMethodBody(
             librarySource,
             "private void InitializeCore(");
+        Assert.IsFalse(
+            initializeMethod.Contains("GC.Collect()", StringComparison.Ordinal),
+            "Library initialization must not force a full collection before allocating the startup catalog.");
         string installBatchMethod = ExtractMethodBody(packageInstallSource, "private IReadOnlyList<ChartPackage> ExecuteInstallBatch(");
         string folderMutationMethod = ExtractMethodBody(folderAutoRenameSource, "private bool ExecuteMutation(");
         string forceInstallMethod = ExtractMethodBody(installDestinationSource, "private async Task<PendingPackageMutationResult> InstallResolvedPackagesAsync(");

@@ -684,9 +684,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         CandidateHierarchyInfo hierarchyInfo = BuildCandidateHierarchyInfo(candidateDirList);
         result.HierarchyCandidateDirectoryCount = hierarchyInfo.HierarchyCandidateDirectoryCount;
         var evaluationStopwatch = Stopwatch.StartNew();
-        IEnumerable<string> candidateSource = candidateDirList.AsParallel().WithDegreeOfParallelism(effectiveCandidateEvaluationDegree);
-        List<CandidateEvaluation> candidateInfos = [.. candidateSource
-            .Select(candidateDir => EvaluateDirectoryCandidate(
+        List<CandidateEvaluation> candidateInfos = effectiveCandidateEvaluationDegree == 1
+            ? [.. candidateDirList.Select(candidateDir => EvaluateDirectoryCandidate(
                 candidateDir,
                 resourceSnapshot,
                 directoryLookupCache,
@@ -695,7 +694,20 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 candidateViews[candidateDir],
                 evaluationMode,
                 diagnostics,
-                isSourceCandidate: false))];
+                isSourceCandidate: false))]
+            : [.. candidateDirList
+                .AsParallel()
+                .WithDegreeOfParallelism(effectiveCandidateEvaluationDegree)
+                .Select(candidateDir => EvaluateDirectoryCandidate(
+                    candidateDir,
+                    resourceSnapshot,
+                    directoryLookupCache,
+                    bundledResources,
+                    bundledView,
+                    candidateViews[candidateDir],
+                    evaluationMode,
+                    diagnostics,
+                    isSourceCandidate: false))];
         evaluationStopwatch.Stop();
         result.EvaluationMs = evaluationStopwatch.ElapsedMilliseconds;
         if (candidateInfos.Count == 0)

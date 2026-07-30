@@ -21,13 +21,15 @@ previous `PERF-01` produced useful component improvements but closed the enginee
 
 The remaining problem is not primarily summary／detail compute. F1 closed the generic settings fan-out、synchronous performance marker write、and unused binding state. F2 stabilized the playlist-summary source、made same-version presentation a no-op、and separated data reset from column-layout invalidation. F3 now commits rows、schema、selection、operation context、and visible playlist mode as one terminal transition、then retires the old detail source after ownership transfer. Data-only table updates preserve column layout and avoid duplicate cell-cache invalidation.
 
-The remaining high-confidence work is the source-visible duplicate work in startup、install estimation、managed scan construction、and chart parsing. These are engineering defects, not a final manual-measurement-only concern.
+F4 removed the forced full GC immediately before startup catalog allocation、coalesced initialization progress into one latest-snapshot UI commit、and bypassed PLINQ when install estimation is configured sequentially. Existing scan hash canonicalization and indexed BMSON continuation parsing remain covered by synthetic／golden tests.
+
+The remaining high-confidence work is an application-wide audit for the same generic fan-out、snapshot-copy、queue、and invalidation defects. This is grouped by owner and invalidation contract rather than individual property or method.
 
 ## Active outcome
 
 - active outcome: `PERF-02 .NET 10 user-visible performance acceleration`
 - active execution package: `F1-F6 Performance-first closure`
-- execution anchor: `F4 STARTUP-ESTIMATION-SCAN-PARSE`
+- execution anchor: `F5 APPLICATION-WIDE-PERF-AUDIT`
 - planner state: not required; batch materialized
 
 ## Active implementation batch
@@ -37,8 +39,8 @@ The remaining high-confidence work is the source-visible duplicate work in start
 | `F1 FANOUT-AND-DIAGNOSTICS` | completed | typed playlist event、lazy settings refresh、buffered performance log、unused hot-path state退役 |
 | `F2 PLAYLIST-SUMMARY-APPLY` | completed | stable source、single presentation apply、summary table invalidation削減 |
 | `F3 MAIN-LIST-TRANSITION` | completed | detail／summary／library atomic mode transition、CustomTableView fast path |
-| `F4 STARTUP-ESTIMATION-SCAN-PARSE` | active | likely optimizationsを実測待ちにせず実装 |
-| `F5 APPLICATION-WIDE-PERF-AUDIT` | pending | generic event bus、copy、queue、invalidationの横断grouped fix |
+| `F4 STARTUP-ESTIMATION-SCAN-PARSE` | completed | forced GC、progress fan-out、sequential estimation overheadを除去しsingle-pass scan／parser contractを維持 |
+| `F5 APPLICATION-WIDE-PERF-AUDIT` | active | generic event bus、copy、queue、invalidationの横断grouped fix |
 | `F6 FINAL-PERFORMANCE-GATE` | pending | full verification、publish、review、manual handoff |
 | `HANDOFF` | pending | final artifactの一回実データ確認へhandoff |
 

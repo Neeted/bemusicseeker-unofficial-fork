@@ -44,6 +44,8 @@ reviewed HEAD:
 4. detail／summary／library transitionはrows、schema、selection、operation context、visible modeをterminal commitし、old detail sourceはnew sourceのownership transfer後にretireする。
 5. performance markerはproducer timestampをbounded queueへenqueueし、専用background writerが`InstallPerformance.Net10`へbatch出力する。
 6. main table の binding は `MainChartList.Rows` と mode 別 virtual source の contract に統合され、consumer のない binding-policy state は持たない。
+7. library initializationはcritical path直前のfull GCを行わず、進捗をlatest immutable snapshotとしてcoalesceし、一つのUI notificationで適用する。
+8. install destination estimationはcandidate evaluation degreeが1の場合にPLINQを構築しない。scan hash canonicalizationとBMSON continuation探索は既存のsingle-pass contractを維持する。
 
 これらはproduction benchmarkを待たずに修正する。
 
@@ -68,5 +70,5 @@ reviewed HEAD:
 | detail／summary→library transition | engineering fix met; final real-data check deferred to post-F6 |
 | table invalidation contract | data reset and cross-mode data-only source apply met |
 | diagnostic logging hot-path cost | met; bounded non-blocking producer |
-| startup／estimation／scan／parse second-wave optimization | open |
+| startup／estimation／scan／parse second-wave optimization | met; forced GC、progress fan-out、degree=1 PLINQ overheadを除去し、既存single-pass scan／parser contractを検証 |
 | final user real-data check | pending after `F6`; non-blocking |

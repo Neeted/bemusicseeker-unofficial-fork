@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -17,6 +18,64 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryStateApplierTests
 {
+    [TestMethod]
+    public void LibraryInitializationProgress_CoalescesPendingReportsIntoOneTypedUiCommit()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var scheduler = new QueuedProgressUiScheduler();
+            var library = new TestBmsLibrary(
+                songDbPath,
+                getLR2Config: null!,
+                _lr2ScoreDB: null,
+                fileMutationService: null!,
+                dialogService: null!,
+                scheduler);
+            int versionNotifications = 0;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(BMSLibrary.LibraryInitializationProgressVersion))
+                {
+                    versionNotifications++;
+                }
+            };
+            MethodInfo report = typeof(BMSLibrary).GetMethod(
+                "ReportLibraryInitializationProgress",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            InvokeProgress(report, library, BMSLibrary.LibraryInitializationProgressStage.FileEnumeration, 12, 1, "first");
+            InvokeProgress(report, library, BMSLibrary.LibraryInitializationProgressStage.FileDiff, 12, 12, "last");
+
+            Assert.AreEqual(1, scheduler.PendingCount);
+            Assert.AreEqual(0L, library.LibraryInitializationProgressVersion);
+
+            scheduler.ExecuteNext();
+
+            BMSLibrary.LibraryInitializationProgressSnapshot snapshot =
+                library.GetLibraryInitializationProgressSnapshot();
+            Assert.AreEqual(1, versionNotifications);
+            Assert.AreEqual(2L, snapshot.Version);
+            Assert.AreEqual(BMSLibrary.LibraryInitializationProgressStage.FileDiff, snapshot.Stage);
+            Assert.AreEqual(12, snapshot.TotalCount);
+            Assert.AreEqual(12, snapshot.ProcessedCount);
+            Assert.AreEqual("last", snapshot.CurrentPath);
+            Assert.AreEqual(0, scheduler.PendingCount);
+        });
+    }
+
+    private static void InvokeProgress(
+        MethodInfo report,
+        BMSLibrary library,
+        BMSLibrary.LibraryInitializationProgressStage stage,
+        int total,
+        int processed,
+        string path)
+    {
+        report.Invoke(
+            library,
+            [stage, "managed", total, processed, path, true]);
+    }
+
     [TestMethod]
     public void PackageLifecycleOwner_SetPendingPackagesPublishesAfterCollectionMutationScope()
     {
@@ -1554,6 +1613,64 @@ public sealed class BmsLibraryStateApplierTests
 
         public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
             => throw new NotSupportedException();
+    }
+
+    private sealed class QueuedProgressUiScheduler : IUiScheduler
+    {
+        private readonly Queue<Action> actions = [];
+
+        internal int PendingCount => actions.Count;
+
+        public bool IsAvailable => true;
+
+        public bool CanExecuteInline => false;
+
+        public bool CheckAccess() => false;
+
+        public IUiScheduledOperation Schedule(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            actions.Enqueue(action);
+            return new CompletedUiScheduledOperation();
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) =>
+            action();
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) =>
+            action();
+
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal) =>
+            action();
+
+        internal void ExecuteNext()
+        {
+            actions.Dequeue()();
+        }
+    }
+
+    private sealed class CompletedUiScheduledOperation : IUiScheduledOperation
+    {
+        public bool IsAccepted => true;
+
+        public bool IsCompleted => true;
+
+        public bool IsAborted => false;
+
+        public string RejectionReason => string.Empty;
+
+        public Task Completion => Task.CompletedTask;
+
+        public void Abort()
+        {
+        }
     }
 
     private sealed class CanceledUiScheduledOperation : IUiScheduledOperation
