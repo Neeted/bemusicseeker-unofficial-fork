@@ -38,12 +38,12 @@ reviewed HEAD:
 
 ### High-confidence direct defects
 
-1. `ISettingsDialogWorkspacePort.SubscribePlaylistTableChanges`は、`PlaylistWorkspaceViewModel.PropertyChanged`全体へ接続されている。
+1. settings dialog の playlist table dependency は typed catalog version event へ限定され、非表示中は dirty version のみを保持する。
 2. playlist summaryはUI threadで毎回`ObservableCollection`を作り、source identityを交換する。
 3. `CustomTableView.OnItemsSourceChanged`はdata-only変更でもcolumn layoutをinvalidateする。
 4. detail→libraryはold detail source clear、new source apply、playlist-related PropertyChangedを別々にpublishする。
-5. performance markerはNLog `FileTarget`へ同期書込みされる。
-6. `UseAsyncChartRowsViewBinding`はproduction／XAML consumerがなく、notificationだけを増やしている。
+5. performance markerはproducer timestampをbounded queueへenqueueし、専用background writerが`InstallPerformance.Net10`へbatch出力する。
+6. main table の binding は `MainChartList.Rows` と mode 別 virtual source の contract に統合され、consumer のない binding-policy state は持たない。
 
 これらはproduction benchmarkを待たずに修正する。
 
@@ -67,6 +67,6 @@ reviewed HEAD:
 | playlist summary user-visible transition | open |
 | detail／summary→library transition | open |
 | table invalidation contract | open |
-| diagnostic logging hot-path cost | open |
+| diagnostic logging hot-path cost | met; bounded non-blocking producer |
 | startup／estimation／scan／parse second-wave optimization | open |
 | final user real-data check | pending after `F6`; non-blocking |

@@ -114,6 +114,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         string reason,
         bool rebuildAsync = true)
     {
+        PublishPlaylistCatalogChanged();
         RequestPlaylistSummaryDataRefresh(
             reason,
             rebuildAsync);

@@ -44,9 +44,9 @@ reviewed HEAD:
 
 ### 1. Settings dialogの広すぎるplaylist購読
 
-`ISettingsDialogWorkspacePort.SubscribePlaylistTableChanges`は、実際には`PlaylistWorkspaceViewModel.PropertyChanged`全体を購読している。
+F1で`PlaylistWorkspaceViewModel.PropertyChanged`全体の購読を退役し、playlist table／catalogの実変更だけを伝えるtyped version eventへ置換した。
 
-そのため、playlist summary rows、summary text、column visibility、detail mode、binding mode等のpresentation変更が、settings dialogのdirectory property通知とpreset dirty処理へfan-outする。
+旧構造ではplaylist summary rows、summary text、column visibility、detail mode等のpresentation変更が、settings dialogのdirectory property通知とpreset dirty処理へfan-outしていた。
 
 これは`DIRECT_FIX`である。
 
@@ -94,7 +94,7 @@ CustomTableView full invalidation
 
 ### 4. Main-list mode transitionのpresentation fan-out
 
-通常libraryへのcommit後に、playlist workspaceがcolumn visibility、summary columns、detail active、async binding stateを個別PropertyChangedする。
+通常libraryへのcommit後に、playlist workspaceがcolumn visibility、summary columns、detail activeを個別PropertyChangedする。
 
 さらにdetail source clearを新source applyより前に公開している。
 
@@ -102,12 +102,11 @@ CustomTableView full invalidation
 
 - main tableのrows、column schema、modeを一つのtyped presentation transactionで適用する。
 - old detail sourceのretireはnew sourceのownership transfer後に行う。
-- production consumerのない`UseAsyncChartRowsViewBinding`等のstate／notificationを退役する。
 - 非active summary controlやsettings dialogへhot-path notificationを伝播させない。
 
 ### 5. Performance loggingの同期file I/O
 
-current performance markerはUI apply pathからNLogの`FileTarget`へ同期的に書き込まれる。
+F1でperformance markerをbounded queueへ移し、UI apply pathはtimestampとsmall payloadのenqueueだけを行う。専用background writerがNLog targetへbatch出力する。
 
 恒久形:
 

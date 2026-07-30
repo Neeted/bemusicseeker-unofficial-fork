@@ -93,7 +93,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             "_IsPlaylistSummaryMode",
             "_IsPlaylistDetailViewActive",
             "_IsPlaylistTreeExpanded",
-            "_UseAsyncChartRowsViewBinding",
             "_GridHeaderText",
             "_PlaylistSummaryKeywordFilter",
             "_PlaylistSummaryKeywordSearchWarningText",
@@ -316,13 +315,13 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "CommitMainTablePresentationWithoutNotification(");
         StringAssert.Contains(workspaceSource, "PublishMainTablePresentation(");
         StringAssert.Contains(regularOwnerSource, "CommitColumnPresentationWithoutNotification(");
-        Assert.AreEqual(-1, regularOwnerSource.IndexOf("CommitBindingModeWithoutNotification(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, regularOwnerSource.IndexOf("CommitPlaylistDetailActivationWithoutNotification(", StringComparison.Ordinal));
         StringAssert.Contains(regularOwnerSource, "PublishColumnPresentation(");
-        Assert.AreEqual(-1, regularOwnerSource.IndexOf("PublishBindingMode(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, regularOwnerSource.IndexOf("PublishPlaylistDetailActivation(", StringComparison.Ordinal));
         Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("CommitColumnPresentationWithoutNotification(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("CommitBindingModeWithoutNotification(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("CommitPlaylistDetailActivationWithoutNotification(", StringComparison.Ordinal));
         Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishColumnPresentation(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishBindingMode(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishPlaylistDetailActivation(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;");
@@ -733,9 +732,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistDetailEditRefreshRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("CreatePlaylistDetailRefreshInput(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailRefreshInput", StringComparison.Ordinal));
-        string bindingModeUpdate = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void UpdateBmsFilesViewBindingMode(");
-        StringAssert.Contains(bindingModeUpdate, "if (playlistDetailActive)");
-        StringAssert.Contains(bindingModeUpdate, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
+        string detailActivationUpdate = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void UpdatePlaylistDetailActivation(");
+        StringAssert.Contains(detailActivationUpdate, "if (playlistDetailActive)");
+        StringAssert.Contains(detailActivationUpdate, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
         Assert.IsFalse(mainWindowSource.Contains("MainChartList.DisplayRefreshRequested"));
         string customTableSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "CustomTableView.cs");
         StringAssert.Contains(customTableSource, "subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;");
@@ -952,6 +951,241 @@ public sealed class PlaylistWorkspaceViewModelTests
                 Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
             }
         }
+    }
+
+    [TestMethod]
+    public void SettingsWorkspacePort_CatalogVersionDefersSettingsFanoutUntilDialogIsVisible()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            ISettingsDialogWorkspacePort settingsPort = workspace;
+            var settingNotifications = new List<string>();
+            dialog.PropertyChanged += (_, eventArgs) =>
+                settingNotifications.Add(eventArgs.PropertyName);
+            dialog.SetPresentationActive(active: true);
+            settingNotifications.Clear();
+            int catalogEventCount = 0;
+            settingsPort.PlaylistCatalogChanged += (_, _) => catalogEventCount++;
+            long presentationVersion = settingsPort.PlaylistCatalogVersion;
+
+            workspace.PlaylistSummaryText = "summary";
+            workspace.PublishColumnPresentation(
+                workspace.CommitColumnPresentationWithoutNotification(
+                    Visibility.Collapsed,
+                    new PlaylistSummaryColumnSettings()));
+            workspace.IsPlaylistDetailViewActive = true;
+            workspace.SetPlaylistSummaryMode(enabled: true);
+
+            Assert.AreEqual(0, catalogEventCount);
+            Assert.AreEqual(presentationVersion, settingsPort.PlaylistCatalogVersion);
+            CollectionAssert.DoesNotContain(
+                settingNotifications,
+                nameof(SettingsDialogViewModel.LR2ConfigBMSDirectories));
+            CollectionAssert.DoesNotContain(
+                settingNotifications,
+                nameof(SettingsDialogViewModel.AvailableBMSDirectories));
+
+            long previousVersion = settingsPort.PlaylistCatalogVersion;
+            dialog.SetPresentationActive(active: false);
+            var playlist = new TestBmsPlaylist(databasePath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>(
+                [
+                    new BMSTable
+                    {
+                        playlist_id = 1,
+                        name = "Catalog",
+                        symbol = "C",
+                    }
+                ])
+            };
+            workspace.RefreshPlaylistTreeTables(playlist);
+
+            Assert.IsTrue(settingsPort.PlaylistCatalogVersion > previousVersion);
+            CollectionAssert.DoesNotContain(
+                settingNotifications,
+                nameof(SettingsDialogViewModel.LR2ConfigBMSDirectories));
+            CollectionAssert.DoesNotContain(
+                settingNotifications,
+                nameof(SettingsDialogViewModel.AvailableBMSDirectories));
+
+            dialog.SetPresentationActive(active: true);
+
+            Assert.AreEqual(
+                1,
+                settingNotifications.Count(name =>
+                    name == nameof(SettingsDialogViewModel.LR2ConfigBMSDirectories)));
+            Assert.AreEqual(
+                1,
+                settingNotifications.Count(name =>
+                    name == nameof(SettingsDialogViewModel.AvailableBMSDirectories)));
+        }
+        finally
+        {
+            if (Directory.Exists(Path.GetDirectoryName(databasePath)!))
+            {
+                Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SettingsWorkspacePort_CatalogCallbackIsQueuedAndCoalescesLatestVersion()
+    {
+        var presentationQueue = new Queue<Action>();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            dispatchPresentation: presentationQueue.Enqueue);
+        ISettingsDialogWorkspacePort settingsPort = workspace;
+        int eventCount = 0;
+        long publishedVersion = 0L;
+        settingsPort.PlaylistCatalogChanged += (_, eventArgs) =>
+        {
+            eventCount++;
+            publishedVersion = eventArgs.Version;
+        };
+
+        workspace.RefreshPlaylistTreeTables(null);
+        workspace.RefreshPlaylistTreeTables(null);
+
+        Assert.AreEqual(0, eventCount);
+        Assert.AreEqual(1, presentationQueue.Count);
+        long latestVersion = settingsPort.PlaylistCatalogVersion;
+
+        presentationQueue.Dequeue()();
+
+        Assert.AreEqual(1, eventCount);
+        Assert.AreEqual(latestVersion, publishedVersion);
+    }
+
+    [TestMethod]
+    public void SettingsWorkspacePort_CatalogCallbackFailureDoesNotBlockNextVersion()
+    {
+        var presentationQueue = new Queue<Action>();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            dispatchPresentation: presentationQueue.Enqueue);
+        ISettingsDialogWorkspacePort settingsPort = workspace;
+        bool fail = true;
+        int successfulCount = 0;
+        settingsPort.PlaylistCatalogChanged += (_, _) =>
+        {
+            if (fail)
+            {
+                fail = false;
+                throw new InvalidOperationException("subscriber failed");
+            }
+            successfulCount++;
+        };
+
+        workspace.RefreshPlaylistTreeTables(null);
+        Assert.ThrowsException<InvalidOperationException>(() => presentationQueue.Dequeue()());
+
+        workspace.RefreshPlaylistTreeTables(null);
+        Assert.AreEqual(1, presentationQueue.Count);
+        presentationQueue.Dequeue()();
+
+        Assert.AreEqual(1, successfulCount);
+    }
+
+    [TestMethod]
+    public void SettingsWorkspacePort_DeferredCollectionMutationStillPublishesCatalogVersion()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var playlist = new TestBmsPlaylist(databasePath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                presentationRefreshDeferredProvider: request =>
+                    request.Kind == PlaylistPresentationRefreshKind.Tree);
+            ISettingsDialogWorkspacePort settingsPort = workspace;
+            int eventCount = 0;
+            settingsPort.PlaylistCatalogChanged += (_, _) => eventCount++;
+            workspace.RefreshPlaylistTreeTables(playlist);
+            long attachedVersion = settingsPort.PlaylistCatalogVersion;
+
+            playlist.BMSTables.Add(new BMSTable
+            {
+                playlist_id = 2,
+                name = "Deferred",
+                symbol = "D",
+            });
+
+            Assert.AreEqual(2, eventCount);
+            Assert.IsTrue(settingsPort.PlaylistCatalogVersion > attachedVersion);
+        }
+        finally
+        {
+            if (Directory.Exists(Path.GetDirectoryName(databasePath)!))
+            {
+                Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SettingsWorkspacePort_CatalogMutationRoutesPublishTypedVersion()
+    {
+        string workspaceSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.cs");
+        string treeSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.TreeSelection.cs");
+        string notificationsSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs");
+        string propertyEditingSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PropertyEditing.cs");
+        string bulkEditSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit.cs");
+
+        Assert.AreEqual(
+            -1,
+            workspaceSource.IndexOf("PropertyChanged += handler", StringComparison.Ordinal));
+        StringAssert.Contains(
+            SourceTextTestHelper.ExtractMethodBody(
+                treeSource,
+                "internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore, BMSLibrary playlistLibrary)"),
+            "PublishPlaylistCatalogChanged();");
+        StringAssert.Contains(
+            SourceTextTestHelper.ExtractMethodBody(
+                notificationsSource,
+                "private void RequestPlaylistTreePresentationRefresh("),
+            "PublishPlaylistCatalogChanged();");
+        StringAssert.Contains(
+            SourceTextTestHelper.ExtractMethodBody(
+                propertyEditingSource,
+                "private void ForwardPlaylistSummaryDataRefreshRequested("),
+            "PublishPlaylistCatalogChanged();");
+        StringAssert.Contains(
+            SourceTextTestHelper.ExtractMethodBody(
+                propertyEditingSource,
+                "private void ForwardPlaylistEntriesChanged("),
+            "PublishPlaylistCatalogChanged();");
+        StringAssert.Contains(
+            SourceTextTestHelper.ExtractMethodBody(
+                bulkEditSource,
+                "private void RequestPlaylistSummaryRefresh("),
+            "PublishPlaylistCatalogChanged();");
     }
 
     [TestMethod]
@@ -4671,6 +4905,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Func<string, Func<Task>, bool>? referenceApplyScheduler = null,
         Func<BMSLibrary>? playlistLibraryProvider = null,
         Action<Action>? dispatchPresentation = null,
+        Action<Action>? catalogNotificationQueue = null,
         PlaylistSummaryBmtSortCoordinator? playlistSummaryBmtSort = null,
         Action<PlaylistSummarySelectionRestoreRequest>? selectionRestoreSink = null,
         Func<Action, Task>? restoreUiApplyScheduler = null,
@@ -4719,6 +4954,8 @@ public sealed class PlaylistWorkspaceViewModelTests
              restoreUiApplyScheduler ?? PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler,
              restoreUiThreadCheck ?? PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
              playlistWorkspaceDialogService);
+        workspace.ConfigureCatalogNotificationQueue(
+            catalogNotificationQueue ?? dispatchPresentation ?? (action => action()));
         workspace.PlaylistPresentationRefreshRequested += (_, request) =>
         {
             switch (request.Kind)
@@ -4936,7 +5173,6 @@ public sealed class PlaylistWorkspaceViewModelTests
                 columns);
         viewModel.PlaylistWorkspace.PublishColumnPresentation(columnCommit);
         viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
-        viewModel.PlaylistWorkspace.UseAsyncChartRowsViewBinding = false;
         viewModel.PlaylistWorkspace.GridHeaderText = "Playlist summary";
         viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter = "title:test";
         viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter = PlaylistOwnedFilter.OwnedComplete;
@@ -4948,10 +5184,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(PlaylistOwnedFilter.OwnedComplete, viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter);
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
-        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding));
         CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
         CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
-        CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding));
     }
 
     [TestMethod]
@@ -5011,7 +5245,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(Visibility.Visible, workspace.ColumnSettingsVisibilityForPlaylist);
         Assert.AreSame(summaryColumns, workspace.PlaylistSummaryColumnsSettings);
         Assert.IsTrue(workspace.IsPlaylistDetailViewActive);
-        Assert.IsFalse(workspace.UseAsyncChartRowsViewBinding);
         Assert.AreEqual(0, propertyNames.Count);
 
         workspace.PublishMainTablePresentation(commit);
@@ -5019,7 +5252,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.IsPlaylistDetailViewActive));
-        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding));
     }
 
     [TestMethod]

@@ -85,7 +85,7 @@ public sealed class ApplicationUiSchedulerBoundaryTests
     }
 
     [TestMethod]
-    public void InMemoryLifetimePreservesExplicitShutdownAndRestartRoutes()
+    public async Task InMemoryLifetimePreservesExplicitShutdownAndRestartRoutes()
     {
         int shutdownCount = 0;
         int restartCount = 0;
@@ -97,7 +97,7 @@ public sealed class ApplicationUiSchedulerBoundaryTests
         Assert.IsTrue(lifetime.IsFirstStartup);
         lifetime.CompleteFirstStartup();
         lifetime.RequestShutdown();
-        lifetime.RestartApplication();
+        await lifetime.RestartApplicationAsync();
 
         Assert.IsFalse(lifetime.IsFirstStartup);
         Assert.AreEqual(1, shutdownCount);
@@ -144,6 +144,10 @@ public sealed class ApplicationUiSchedulerBoundaryTests
 
         public void RequestShutdown() => requestShutdown();
 
-        public void RestartApplication() => restartApplication();
+        public Task RestartApplicationAsync()
+        {
+            restartApplication();
+            return Task.CompletedTask;
+        }
     }
 }

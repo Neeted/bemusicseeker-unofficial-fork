@@ -104,9 +104,7 @@ internal sealed class TestApplicationLifetime : IApplicationLifetimePort
     {
     }
 
-    public void RestartApplication()
-    {
-    }
+    public Task RestartApplicationAsync() => Task.CompletedTask;
 }
 
 internal sealed class TestCultureCatalog : ICultureCatalog

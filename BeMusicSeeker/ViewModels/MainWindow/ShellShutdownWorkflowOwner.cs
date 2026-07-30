@@ -79,6 +79,8 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private static readonly TimeSpan ShutdownQueueDrainWarningThreshold = TimeSpan.FromSeconds(20);
 
+    private static readonly TimeSpan PerformanceDiagnosticsDrainLimit = TimeSpan.FromSeconds(5);
+
     private readonly object syncRoot = new();
 
     private readonly TaskCompletionSource<Task> shutdownStartCompletion =
@@ -113,6 +115,8 @@ internal sealed class ShellShutdownWorkflowOwner
     private readonly StartupProgressWorkflowOwner startupProgressWorkflowOwner;
 
     private readonly Action<string> markCoordinatedShutdownStarted;
+
+    private readonly Func<Task> stopPerformanceDiagnostics;
 
     private readonly Func<Func<Task>, Task> dispatchToUi;
 
@@ -169,6 +173,7 @@ internal sealed class ShellShutdownWorkflowOwner
         SemaphoreSlim mainOperationSemaphore,
         StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<string> markCoordinatedShutdownStarted,
+        Func<Task> stopPerformanceDiagnostics,
         Func<Func<Task>, Task> dispatchToUi,
         Action<string> logShutdown,
         Action<string> logShutdownWarning,
@@ -189,6 +194,7 @@ internal sealed class ShellShutdownWorkflowOwner
         this.mainOperationSemaphore = mainOperationSemaphore ?? throw new ArgumentNullException(nameof(mainOperationSemaphore));
         this.startupProgressWorkflowOwner = startupProgressWorkflowOwner ?? throw new ArgumentNullException(nameof(startupProgressWorkflowOwner));
         this.markCoordinatedShutdownStarted = markCoordinatedShutdownStarted ?? throw new ArgumentNullException(nameof(markCoordinatedShutdownStarted));
+        this.stopPerformanceDiagnostics = stopPerformanceDiagnostics ?? throw new ArgumentNullException(nameof(stopPerformanceDiagnostics));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logShutdown = logShutdown ?? throw new ArgumentNullException(nameof(logShutdown));
         this.logShutdownWarning = logShutdownWarning ?? throw new ArgumentNullException(nameof(logShutdownWarning));
@@ -531,12 +537,39 @@ internal sealed class ShellShutdownWorkflowOwner
         {
             markCoordinatedShutdownStarted(reason);
             ShutdownPreparationResult result = await PrepareShutdownCoreAsync(reason).ConfigureAwait(false);
+            await StopPerformanceDiagnosticsSafelyAsync().ConfigureAwait(false);
             MarkPreparationCompleted();
             completion.TrySetResult(result);
         }
         catch (Exception exception)
         {
             CompletePreparationFailure(completion, exception, updatePreparation);
+        }
+    }
+
+    private async Task StopPerformanceDiagnosticsSafelyAsync()
+    {
+        try
+        {
+            Task stopTask = stopPerformanceDiagnostics();
+            if (stopTask == null)
+            {
+                throw new InvalidOperationException("Performance diagnostics stop returned no task.");
+            }
+
+            if (await Task.WhenAny(
+                    stopTask,
+                    Task.Delay(PerformanceDiagnosticsDrainLimit)).ConfigureAwait(false) != stopTask)
+            {
+                logShutdownWarning("performance_diagnostics_stop_timed_out");
+                return;
+            }
+
+            await stopTask.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            LogWarningSafely(exception, "performance_diagnostics_stop_failed");
         }
     }
 
@@ -563,6 +596,7 @@ internal sealed class ShellShutdownWorkflowOwner
         {
             LogWarningSafely(shutdownException, "shell_shutdown cancellation fallback failed");
         }
+        await StopPerformanceDiagnosticsSafelyAsync().ConfigureAwait(false);
         lock (syncRoot)
         {
             preparationRunning = false;

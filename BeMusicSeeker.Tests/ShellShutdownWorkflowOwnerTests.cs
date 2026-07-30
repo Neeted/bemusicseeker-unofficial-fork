@@ -155,9 +155,15 @@ public sealed class ShellShutdownWorkflowOwnerTests
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         TaskCompletionSource<bool> regularChartStopRelease = PreparePendingRegularChartStop(viewModel);
+        int performanceStopCount = 0;
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(
             viewModel,
-            action => Task.FromException(new InvalidOperationException("dispatcher stopped")));
+            action => Task.FromException(new InvalidOperationException("dispatcher stopped")),
+            stopPerformanceDiagnostics: () =>
+            {
+                Interlocked.Increment(ref performanceStopCount);
+                return Task.CompletedTask;
+            });
 
         Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("update");
         Assert.IsFalse(preparation.Wait(TimeSpan.FromMilliseconds(100)));
@@ -166,6 +172,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
         Assert.IsTrue(owner.IsShutdownRequested);
         Assert.IsTrue(owner.IsShutdownPrepared);
+        Assert.AreEqual(1, performanceStopCount);
         Assert.IsTrue(owner.ConsumeUpdatePreparationFailure());
         ShellShutdownWorkflowCompletionReceipt close = await owner.RequestWindowCloseAsync();
         Assert.IsFalse(close.PreparationSucceeded);
@@ -212,6 +219,32 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
         Assert.IsTrue(library.IsShutdownRequested);
         Assert.IsTrue(playlist.IsShutdownRequested);
+    }
+
+    [TestMethod]
+    public async Task WindowCloseAwaitsPerformanceDiagnosticsDrainOffTerminalExitHandler()
+    {
+        var drainRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var drainEntered = new ManualResetEventSlim();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            stopPerformanceDiagnostics: () =>
+            {
+                drainEntered.Set();
+                return drainRelease.Task;
+            });
+
+        Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
+
+        Assert.IsTrue(drainEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsFalse(close.IsCompleted);
+
+        drainRelease.SetResult(true);
+        ShellShutdownWorkflowCompletionReceipt receipt = await close;
+
+        Assert.IsTrue(receipt.PreparationSucceeded);
+        Assert.IsTrue(receipt.CloseAllowed);
     }
 
     [TestMethod]
@@ -378,6 +411,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Action<string>? markShutdown = null,
         StartupUpdateWorkflowOwner? startupUpdate = null,
         ISettingsEditSession? settingsEditSession = null,
+        Func<Task>? stopPerformanceDiagnostics = null,
         Action<string>? logShutdown = null,
         Action<string>? logShutdownWarning = null)
     {
@@ -408,6 +442,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             new SemaphoreSlim(1, 1),
             viewModel.ProgressHub.StartupProgress,
             markShutdown ?? (_ => { }),
+            stopPerformanceDiagnostics ?? (() => Task.CompletedTask),
             dispatch ?? (action => action()),
             logShutdown ?? (_ => { }),
             logShutdownWarning ?? (_ => { }),

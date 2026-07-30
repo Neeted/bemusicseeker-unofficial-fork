@@ -396,7 +396,7 @@ playlist detail row は view row materialization だけでは bmson compatibilit
 
 playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS / bmson / missing row とも `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
 
-playlist detail 表示時の `MainChartList.Rows` 実体は `PlaylistDetailVirtualView` である。`PlaylistDetailSourceRow` を全件 source として保持し、可視 index だけ `PlaylistDetailRow` へ遅延 materialize する。playlist detail 中は `UseAsyncChartRowsViewBinding` を false に切り替え、通常一覧側の async binding policy と分けている。
+playlist detail 表示時の `MainChartList.Rows` 実体は `PlaylistDetailVirtualView` である。`PlaylistDetailSourceRow` を全件 source として保持し、可視 index だけ `PlaylistDetailRow` へ遅延 materialize する。main table は常に `MainChartList.Rows` を同期 one-way binding し、mode 差は binding policy flag ではなく `IList` source identity と各 virtual view の materialization contract で表現する。
 
 ### Playlist への追加
 
@@ -462,7 +462,6 @@ inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot �
 - `MainChartList.Rows`
 - `MainChartList.SelectedIndex`
 - `MainChartList.ColumnsSettings`
-- `UseAsyncChartRowsViewBinding`
 
 内部の一覧再構築は root の `RefreshChartRowsView(...)` から開始するが、通常一覧の rows / columns / selection / summary は `MainChartList` が一括適用する。playlist detail は `PlaylistDetailViewState` が source/view generation adoption を所有し、`MainChartList.ApplyPlaylistDetailTerminal(...)` が最終 request version 判定、main table commit、旧 rows disposal、通知集約を一つの不可逆な terminal transaction に閉じる。play history は `PlayHistoryPresentationState` が最終 request / sort / keyword / display-target 判定と feature state adoption を所有し、`MainChartList.ApplyPlayHistoryTerminal(...)` が main rows / explicit summary、旧 rows disposal、通知集約を同じ terminal transaction に閉じる。playlist summary は別 table として `PlaylistWorkspace.TryApplyPlaylistSummary(...)` が3種の generation を最終確認し、rows と専用 summary text を同時採用する。
 

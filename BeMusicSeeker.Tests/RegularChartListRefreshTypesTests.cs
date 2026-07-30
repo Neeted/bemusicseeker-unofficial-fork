@@ -75,12 +75,12 @@ public sealed class RegularChartListRefreshTypesTests
         StringAssert.Contains(refreshChartRowsView, "ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode)");
         StringAssert.Contains(refreshChartRowsView, "CapturePlaylistOpenReadinessSnapshot()");
         StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyMainLibraryView(");
-        StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
+        StringAssert.Contains(refreshChartRowsView, "UpdatePlaylistDetailActivation(route.IsPlaylistTreeActive)");
         Assert.IsFalse(refreshChartRowsView.Contains("CreatePlaylistDetailRefreshInput("));
         Assert.IsFalse(root.Contains("CapturePlaylistDetailSelection(out long selectionRevision)"));
         Assert.IsFalse(root.Contains("CapturePlaylistDetailFilterSnapshot()"));
         Assert.IsTrue(
-            refreshChartRowsView.IndexOf("UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)", StringComparison.Ordinal)
+            refreshChartRowsView.IndexOf("UpdatePlaylistDetailActivation(route.IsPlaylistTreeActive)", StringComparison.Ordinal)
             < refreshChartRowsView.IndexOf("PlaylistWorkspace.RequestDetailRefresh(", StringComparison.Ordinal));
         Assert.IsFalse(root.Contains("RegisterPlaylistSourceBuildRequest"));
         Assert.IsFalse(root.Contains("ProcessPendingPlaylistBuildRequests"));

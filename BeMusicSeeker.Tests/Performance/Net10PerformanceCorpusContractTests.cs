@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Diagnostics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -60,44 +64,125 @@ public sealed class Net10PerformanceCorpusContractTests
     }
 
     [TestMethod]
-    public void DisabledInstrumentation_DoesNotBuildOrPublishMessage()
+    public async Task BatchWriter_PreservesProducerTimestampAndCorrelationSchema()
     {
-        int factoryCalls = 0;
-        var messages = new List<string>();
-        var writer = new Net10PerformanceEventWriter(() => false, messages.Add);
+        var events = new ConcurrentQueue<Net10PerformanceEvent>();
+        var writer = new Net10PerformanceBatchWriter(8, 4, events.Enqueue);
+        PerformanceInteraction interaction = PerformanceInteraction.Existing(
+            "playlist_summary",
+            interactionId: 19,
+            generation: 23);
+        var timestamp = new DateTime(2026, 7, 31, 12, 34, 56, DateTimeKind.Local);
+
+        Assert.IsTrue(writer.TryWrite(
+            new Net10PerformanceEvent(
+                timestamp,
+                interaction,
+                "ui_applied",
+                "rows=100")));
+        await writer.StopAsync();
+
+        Net10PerformanceEvent captured = events.Single();
+        Assert.AreEqual(timestamp, captured.Timestamp);
+        Assert.AreEqual(
+            "net10_perf route=playlist_summary interactionId=19 generation=23 stage=ui_applied rows=100",
+            captured.FormatMessage());
+    }
+
+    [TestMethod]
+    public async Task BoundedWriter_AggregatesOverflowWithoutBlockingProducer()
+    {
+        using var sinkEntered = new ManualResetEventSlim();
+        using var releaseSink = new ManualResetEventSlim();
+        var events = new ConcurrentQueue<Net10PerformanceEvent>();
+        int sinkCalls = 0;
+        var writer = new Net10PerformanceBatchWriter(
+            capacity: 1,
+            batchSize: 1,
+            performanceEvent =>
+            {
+                if (Interlocked.Increment(ref sinkCalls) == 1)
+                {
+                    sinkEntered.Set();
+                    releaseSink.Wait();
+                }
+                events.Enqueue(performanceEvent);
+            });
         PerformanceInteraction interaction = PerformanceInteraction.Existing(
             "normal_library",
             interactionId: 42,
             generation: 7);
 
-        writer.Write(interaction, "snapshot_query_projection", () =>
-        {
-            factoryCalls++;
-            return "rows=1000";
-        });
+        Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
+            DateTime.Now,
+            interaction,
+            "owner_started",
+            null)));
+        Assert.IsTrue(sinkEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
+            DateTime.Now,
+            interaction,
+            "ui_queued",
+            null)));
+        Assert.IsFalse(writer.TryWrite(new Net10PerformanceEvent(
+            DateTime.Now,
+            interaction,
+            "ui_applied",
+            null)));
+        releaseSink.Set();
+        await writer.StopAsync();
 
-        Assert.AreEqual(0, factoryCalls);
-        Assert.AreEqual(0, messages.Count);
+        Assert.AreEqual(2, events.Count(item => item.Stage != "queue_overflow"));
+        Assert.AreEqual(1, events.Count(item =>
+            item.Stage == "queue_overflow"
+            && string.Equals(item.Fields, "droppedCount=1", StringComparison.Ordinal)));
     }
 
     [TestMethod]
-    public void EnabledInstrumentation_UsesStableCorrelationSchema()
+    public async Task BatchWriter_InvokesSinkOnBackgroundReader()
     {
-        var messages = new List<string>();
-        var writer = new Net10PerformanceEventWriter(() => true, messages.Add);
-        PerformanceInteraction interaction = PerformanceInteraction.Existing(
-            "playlist_summary",
-            interactionId: 19,
-            generation: 23);
-
-        writer.Write(interaction, "ui_applied", () => "rows=100");
-
-        CollectionAssert.AreEqual(
-            new[]
+        using var sinkEntered = new ManualResetEventSlim();
+        using var releaseSink = new ManualResetEventSlim();
+        int producerThreadId = Environment.CurrentManagedThreadId;
+        int sinkThreadId = producerThreadId;
+        var writer = new Net10PerformanceBatchWriter(
+            4,
+            2,
+            _ =>
             {
-                "net10_perf route=playlist_summary interactionId=19 generation=23 stage=ui_applied rows=100"
-            },
-            messages);
+                sinkThreadId = Environment.CurrentManagedThreadId;
+                sinkEntered.Set();
+                releaseSink.Wait();
+            });
+
+        Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
+            DateTime.Now,
+            PerformanceInteraction.Existing("startup", 1, 1),
+            "owner_started",
+            null)));
+        Assert.IsTrue(sinkEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.AreNotEqual(producerThreadId, sinkThreadId);
+        releaseSink.Set();
+        await writer.StopAsync();
+    }
+
+    [TestMethod]
+    public async Task BatchWriter_RecordsSinkFailuresWithoutFailingProducers()
+    {
+        var writer = new Net10PerformanceBatchWriter(
+            4,
+            2,
+            _ => throw new IOException("sink failed"));
+
+        Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
+            DateTime.Now,
+            PerformanceInteraction.Existing("startup", 1, 1),
+            "owner_started",
+            null)));
+
+        await writer.StopAsync();
+
+        Assert.AreEqual(1L, writer.SinkFailureCount);
     }
 
     [TestMethod]

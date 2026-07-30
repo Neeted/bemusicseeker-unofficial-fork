@@ -299,7 +299,7 @@ internal interface IApplicationLifetimePort
 
     void RequestShutdown();
 
-    void RestartApplication();
+    Task RestartApplicationAsync();
 }
 
 /// <summary>

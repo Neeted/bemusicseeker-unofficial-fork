@@ -9,8 +9,10 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.Utils;
@@ -26,6 +28,8 @@ namespace BeMusicSeeker;
 
 public partial class App : System.Windows.Application
 {
+    private static readonly TimeSpan PerformanceDiagnosticsDrainLimit = TimeSpan.FromSeconds(5);
+
     private const string MutexName = "a601b8c6-41c3-4182-950b-b96a0f0c8b0c";
 
     private static Mutex _mutex = null;
@@ -41,6 +45,10 @@ public partial class App : System.Windows.Application
     private readonly IApplicationRestartGateway applicationRestartGateway;
 
     private readonly ApplicationSettingsLifecycle applicationSettingsLifecycle = new();
+
+    private readonly object restartSyncRoot = new();
+
+    private Task restartTask;
 
     public bool firstStartup { get; set; }
 
@@ -90,6 +98,7 @@ public partial class App : System.Windows.Application
         ThreadPool.SetMinThreads(200, 200);
         LogLevel defaultFileLogLevel = ConvertToNLogLevel(CommandLineSwitches.LogLevel);
         NLogWrapper.ConfigureApplicationFileLogging(applicationPathSnapshot.BaseDirectory, defaultFileLogLevel, CommandLineSwitches.IsInfoLoggingEnabled);
+        Net10PerformanceLog.Start();
         NLogWrapper.AddTarget(new NetworkTarget
         {
             Address = "http://www.ribbit.xyz/bms/tools/bemusicseeker/report.cgi"
@@ -116,7 +125,7 @@ public partial class App : System.Windows.Application
         };
     }
 
-    private void Application_Startup(object sender, StartupEventArgs e)
+    private async void Application_Startup(object sender, StartupEventArgs e)
     {
         while (_mutex == null)
         {
@@ -145,10 +154,10 @@ public partial class App : System.Windows.Application
             message => NLogWrapper.FileLogger?.Info(message),
             (path, ex) => NLogWrapper.FileLogger?.Warn(ex, "temp_startup_cleanup_failed path=" + path));
 
-        CreateAndShowMainWindow();
+        await CreateAndShowMainWindowAsync().ConfigureAwait(true);
     }
 
-    private void CreateAndShowMainWindow()
+    private async Task CreateAndShowMainWindowAsync()
     {
         try
         {
@@ -165,16 +174,24 @@ public partial class App : System.Windows.Application
         }
         catch (Exception exception)
         {
-            HandleStartupCompositionFailure(exception);
+            await HandleStartupCompositionFailureAsync(exception).ConfigureAwait(true);
         }
     }
 
-    private void HandleStartupCompositionFailure(Exception exception)
+    private async Task HandleStartupCompositionFailureAsync(Exception exception)
     {
         MarkCoordinatedShutdownStarted("startup_composition_failed");
         try
         {
-            ExceptionLogger(exception);
+            try
+            {
+                ExceptionLogger(exception);
+            }
+            catch
+            {
+            }
+            await StopPerformanceDiagnosticsBeforeTerminalActionAsync(
+                "startup_composition_failed").ConfigureAwait(true);
         }
         finally
         {
@@ -185,22 +202,79 @@ public partial class App : System.Windows.Application
 
     private void Application_Exit(object sender, ExitEventArgs e)
     {
+        try
+        {
+            Task stopTask = Net10PerformanceLog.StopAsync();
+            if (!stopTask.Wait(PerformanceDiagnosticsDrainLimit))
+            {
+                NLogWrapper.FileLogger?.Warn(
+                    "performance_diagnostics_stop_timed_out reason=application_exit");
+            }
+        }
+        catch (Exception exception)
+        {
+            NLogWrapper.FileLogger?.Warn(
+                exception,
+                "performance_diagnostics_stop_failed reason=application_exit");
+        }
         ReleaseSingleInstanceMutex();
     }
 
-    public void RestartApplication()
+    public Task RestartApplicationAsync()
     {
         if (applicationPathSnapshot == null)
         {
             throw new InvalidOperationException("Application executable path is not available.");
         }
 
-        new ApplicationRestartCoordinator(
-            applicationPathSnapshot,
-            applicationRestartGateway,
-            () => BuildCommandLineArguments(Environment.GetCommandLineArgs().Skip(1)),
-            ReleaseSingleInstanceMutex,
-            Shutdown).Restart();
+        lock (restartSyncRoot)
+        {
+            return restartTask ??= RestartApplicationAfterDiagnosticsAsync();
+        }
+    }
+
+    private async Task RestartApplicationAfterDiagnosticsAsync()
+    {
+        try
+        {
+            await StopPerformanceDiagnosticsBeforeTerminalActionAsync(
+                "operation_mode_restart").ConfigureAwait(true);
+            new ApplicationRestartCoordinator(
+                applicationPathSnapshot,
+                applicationRestartGateway,
+                () => BuildCommandLineArguments(Environment.GetCommandLineArgs().Skip(1)),
+                ReleaseSingleInstanceMutex,
+                Shutdown).Restart();
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                NLogWrapper.FileLogger?.Error(
+                    exception,
+                    "application_restart_failed");
+            }
+            catch
+            {
+            }
+            ReleaseSingleInstanceMutex();
+            throw;
+        }
+    }
+
+    private static async Task StopPerformanceDiagnosticsBeforeTerminalActionAsync(string reason)
+    {
+        Task stopTask = Net10PerformanceLog.StopAsync();
+        if (await Task.WhenAny(
+                stopTask,
+                Task.Delay(PerformanceDiagnosticsDrainLimit)).ConfigureAwait(false) != stopTask)
+        {
+            NLogWrapper.FileLogger?.Warn(
+                "performance_diagnostics_stop_timed_out reason=" + reason);
+            return;
+        }
+
+        await stopTask.ConfigureAwait(false);
     }
 
     private static void ReleaseSingleInstanceMutex()

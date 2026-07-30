@@ -327,7 +327,7 @@ Phase E 完了後も domain/storage model は `BMSLibrary.BMSFiles` と `BMSLibr
 ### Phase F: 命名と API を整理する
 
 長期的には、ユーザー向け文言以外の内部 API も整理する。
-ただし `BMSFile`, `BMSLibrary.BMSFiles` は pending install、LR2 互換、storage row 互換の語彙に広く残っているため、全面 rename は挙動が安定してから行う。通常一覧 / playlist detail の public binding は `ChartRowsView` / `SelectedIndexChartRowsView` / `ColumnsSettingsChartRowsView` / `UseAsyncChartRowsViewBinding` へ移行済みである。`ChartPackage` については `ChartFiles` を primary API とし、production 参照のなくなった旧 `BMSFiles` alias は残さない。
+ただし `BMSFile`, `BMSLibrary.BMSFiles` は pending install、LR2 互換、storage row 互換の語彙に広く残っているため、全面 rename は挙動が安定してから行う。通常一覧 / playlist detail は `MainChartList.Rows` の source identity と virtual view により切り替える。`ChartPackage` については `ChartFiles` を primary API とし、production 参照のなくなった旧 `BMSFiles` alias は残さない。
 
 Phase F-1 では「新規コードの入口を chart 抽象に揃える」ことを優先する。
 
@@ -374,7 +374,7 @@ Phase F-3 は「広範囲 rename」ではなく、低リスクな内部境界の
 
 F-3 で進める候補 / 進捗:
 
-- `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ移行済み。public binding の `BMSFilesView` / `SelectedIndexBMSFilesView` / `ColumnsSettingsBMSFilesView` / `UseAsyncBMSFilesViewBinding` も `ChartRowsView` / `SelectedIndexChartRowsView` / `ColumnsSettingsChartRowsView` / `UseAsyncChartRowsViewBinding` へ移行済み
+- `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ移行済み。main table の binding は `MainChartList.Rows` に統合され、mode ごとの virtual source が row materialization を所有する
 - `SetBMSFilesView()` は private helper だったため `SetChartRowsView()` へ移行済み。production 参照のない旧名 shim は残さない
 - 旧 grid selection helper 群は実コードから削除済み。handler は chart 共通なら `GetSelectedChartTargets`、BMS 専用なら `GetSelectedBmsChartFiles` に寄せる。既存 model API が `BMSFile` adapter を要求する場合も UI handler では adapter list を作らず、ViewModel 側の snapshot / target 解決境界で扱う
 - `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`LibraryChartRowSortEngineTests` は小さい合成データで `LibraryChartRowSortEngine` の現行仕様を検証する

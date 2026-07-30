@@ -857,7 +857,6 @@ public sealed class RegularChartListOwnerTests
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         workspace.IsPlaylistDetailViewActive = true;
-        workspace.UseAsyncChartRowsViewBinding = false;
         var owner = new RegularChartListOwner(
             table,
             workspace,
@@ -871,7 +870,6 @@ public sealed class RegularChartListOwnerTests
             new TestUiScheduler(() => null!));
         int? sourceClearVersionAtRowsNotification = null;
         bool? detailActiveAtRowsNotification = null;
-        bool? asyncBindingAtRowsNotification = null;
         table.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MainChartListViewModel.Rows))
@@ -881,7 +879,6 @@ public sealed class RegularChartListOwnerTests
                     sourceClearVersionAtRowsNotification = buildState.RequestVersion;
                 }
                 detailActiveAtRowsNotification = workspace.IsPlaylistDetailViewActive;
-                asyncBindingAtRowsNotification = workspace.UseAsyncChartRowsViewBinding;
             }
         };
 
@@ -896,9 +893,7 @@ public sealed class RegularChartListOwnerTests
         Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, table.LastAppliedColumnMode);
         Assert.AreEqual(2, sourceClearVersionAtRowsNotification);
         Assert.AreEqual(false, detailActiveAtRowsNotification);
-        Assert.AreEqual(true, asyncBindingAtRowsNotification);
         Assert.IsFalse(workspace.IsPlaylistDetailViewActive);
-        Assert.IsTrue(workspace.UseAsyncChartRowsViewBinding);
         Assert.IsTrue(logs.Any(log => log.Contains("playlist_source_replace action=clear")));
     }
 

@@ -734,22 +734,23 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
     /// <summary>
-    /// playlist 詳細表示時の一覧反映方式を更新します。
+    /// playlist 詳細表示の activation state を更新します。
     /// </summary>
     /// <param name="playlistDetailActive">playlist 詳細表示中かどうか。</param>
-    private void UpdateBmsFilesViewBindingMode(bool playlistDetailActive)
+    private void UpdatePlaylistDetailActivation(bool playlistDetailActive)
     {
-        PlaylistBindingModeCommit commit = PlaylistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive);
+        bool detailActivationChanged =
+            PlaylistWorkspace.CommitPlaylistDetailActivationWithoutNotification(playlistDetailActive);
         if (playlistDetailActive)
         {
-            if (commit.DetailActiveChanged)
+            if (detailActivationChanged)
             {
                 PlaylistWorkspace.InitializePlaylistDetailSort(regularChartListOwner.CaptureSortParameters());
             }
             PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());
         }
-        PlaylistWorkspace.PublishBindingMode(commit);
-        if (commit.DetailActiveChanged)
+        PlaylistWorkspace.PublishPlaylistDetailActivation(detailActivationChanged);
+        if (detailActivationChanged)
         {
             SyncMainChartListSortPresentation();
         }
@@ -2705,6 +2706,7 @@ public partial class MainWindowViewModel : ViewModel,
                 shutdownReason => PlaylistWorkspace.PlaylistReferenceApplyWorkflow.DiscardForShutdown(shutdownReason)),
             ApplyMainChartListPresentationActionAsync,
             () => uiScheduler.CanExecuteInline);
+        PlaylistWorkspace.ConfigureCatalogNotificationQueue(QueueMainChartListAction);
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
@@ -2879,6 +2881,7 @@ public partial class MainWindowViewModel : ViewModel,
             _semaphore,
             startupProgressWorkflowOwner,
             applicationLifetime.MarkCoordinatedShutdownStarted,
+            Net10PerformanceLog.StopAsync,
             DispatchShellShutdownActionAsync,
             LogShutdown,
             LogShutdownWarning,
@@ -3167,6 +3170,24 @@ public partial class MainWindowViewModel : ViewModel,
     private void DispatchMainChartListAction(Action action)
     {
         DispatchUiAction(action);
+    }
+
+    private void QueueMainChartListAction(Action action)
+    {
+        if (action == null)
+        {
+            return;
+        }
+
+        IUiScheduledOperation operation = uiScheduler.Schedule(action);
+        if (operation == null || !operation.IsAccepted)
+        {
+            throw new InvalidOperationException(
+                "Playlist catalog notification could not be queued."
+                + (string.IsNullOrWhiteSpace(operation?.RejectionReason)
+                    ? string.Empty
+                    : " reason=" + operation.RejectionReason));
+        }
     }
 
     private Task DispatchShellShutdownActionAsync(Func<Task> action)
@@ -4576,7 +4597,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         if (route.Kind == ChartListRefreshRouteKind.RegisterPlaylistSourceBuild)
         {
-            UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive);
+            UpdatePlaylistDetailActivation(route.IsPlaylistTreeActive);
             PlaylistWorkspace.RequestDetailRefresh(
                 route.Mode,
                 route.RequestedMode,

@@ -171,6 +171,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         ApplyPlaylistPropertyPresentation(() =>
         {
+            PublishPlaylistCatalogChanged();
             if (request.Reason.StartsWith("playlist_property_", StringComparison.Ordinal))
             {
                 PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);
@@ -191,6 +192,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         ApplyPlaylistPropertyPresentation(() =>
         {
+            PublishPlaylistCatalogChanged();
             PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);
             PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible);
         });

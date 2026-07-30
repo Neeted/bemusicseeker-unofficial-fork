@@ -467,7 +467,13 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly Action<Lr2PlayHistorySchemaStatusSnapshot> lr2PlayHistorySchemaStatusChangedHandler;
 
-    private readonly PropertyChangedEventHandler playlistTableChangedHandler;
+    private readonly EventHandler<PlaylistCatalogChangedEventArgs> playlistCatalogChangedHandler;
+
+    private long latestPlaylistCatalogVersion;
+
+    private long publishedPlaylistCatalogVersion;
+
+    private bool isPresentationActive;
 
     private readonly PropertyChangedEventListener resourceServiceEventListener;
 
@@ -816,17 +822,35 @@ public partial class SettingsDialogViewModel : ViewModel
         try
         {
             SaveOperationModeForRestart(value);
-            applicationLifetime.RestartApplication();
+            SetOperationModeSelection(value);
+            _ = RestartForOperationModeChangeAsync();
         }
         catch (Exception ex)
         {
-            ShowUiMessage(
-                BeMusicSeeker.Properties.Resources.Error_RestartApplicationFailed + Environment.NewLine + Environment.NewLine + ex.Message,
-                BeMusicSeeker.Properties.Resources.Error,
-                MessageBoxImage.Hand,
-                "Restart failure notification");
-            applicationLifetime.RequestShutdown();
+            HandleRestartFailure(ex);
         }
+    }
+
+    private async Task RestartForOperationModeChangeAsync()
+    {
+        try
+        {
+            await applicationLifetime.RestartApplicationAsync().ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            HandleRestartFailure(exception);
+        }
+    }
+
+    private void HandleRestartFailure(Exception exception)
+    {
+        ShowUiMessage(
+            BeMusicSeeker.Properties.Resources.Error_RestartApplicationFailed + Environment.NewLine + Environment.NewLine + exception.Message,
+            BeMusicSeeker.Properties.Resources.Error,
+            MessageBoxImage.Hand,
+            "Restart failure notification");
+        applicationLifetime.RequestShutdown();
     }
 
     public string LR2bodyPath
@@ -3818,13 +3842,17 @@ public partial class SettingsDialogViewModel : ViewModel
                 new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.FillMissingMd5Sha256),
                 new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.PreferSha256Only)
         ];
-        playlistTableChangedHandler = (_, _) =>
+        playlistCatalogChangedHandler = (_, eventArgs) =>
         {
-            settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.LR2ConfigBMSDirectories));
-            settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.AvailableBMSDirectories));
-            settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
+            long version = eventArgs?.Version ?? workspacePort.PlaylistCatalogVersion;
+            settingDialogViewModel.ObservePlaylistCatalogVersion(version);
+            settingDialogViewModel.PublishPlaylistCatalogPresentationIfNeeded();
         };
-        workspacePort.SubscribePlaylistTableChanges(playlistTableChangedHandler);
+        workspacePort.PlaylistCatalogChanged += playlistCatalogChangedHandler;
+        ObservePlaylistCatalogVersion(workspacePort.PlaylistCatalogVersion);
+        Interlocked.Exchange(
+            ref publishedPlaylistCatalogVersion,
+            Interlocked.Read(ref latestPlaylistCatalogVersion));
         libraryOperationAvailabilityChangedHandler = (_, _) =>
             settingDialogViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         statePort.LibraryOperationAvailabilityChanged += libraryOperationAvailabilityChangedHandler;
@@ -4144,6 +4172,51 @@ public partial class SettingsDialogViewModel : ViewModel
     private void MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty()
     {
         isPlayHistoryFolderDisplayPresetPlaylistOptionsDirty = true;
+    }
+
+    internal void SetPresentationActive(bool active)
+    {
+        isPresentationActive = active;
+        if (active)
+        {
+            ObservePlaylistCatalogVersion(workspacePort.PlaylistCatalogVersion);
+            PublishPlaylistCatalogPresentationIfNeeded();
+            RefreshPlayHistoryFolderDisplayPresetPlaylistOptionsIfDirty();
+        }
+    }
+
+    private void ObservePlaylistCatalogVersion(long version)
+    {
+        long observedVersion = Interlocked.Read(ref latestPlaylistCatalogVersion);
+        while (version > observedVersion)
+        {
+            long previousVersion = Interlocked.CompareExchange(
+                ref latestPlaylistCatalogVersion,
+                version,
+                observedVersion);
+            if (previousVersion == observedVersion)
+            {
+                return;
+            }
+
+            observedVersion = previousVersion;
+        }
+    }
+
+    private void PublishPlaylistCatalogPresentationIfNeeded()
+    {
+        long latestVersion = Interlocked.Read(ref latestPlaylistCatalogVersion);
+        if (!isPresentationActive
+            || latestVersion <= Interlocked.Read(ref publishedPlaylistCatalogVersion))
+        {
+            return;
+        }
+
+        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
+        RefreshPlayHistoryFolderDisplayPresetPlaylistOptionsIfDirty();
+        Interlocked.Exchange(ref publishedPlaylistCatalogVersion, latestVersion);
     }
 
     private IReadOnlyList<PlaylistTablePresentationSnapshot> GetPlayHistoryFolderDisplayPresetTables()
@@ -7290,7 +7363,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         if (disposing)
         {
-            workspacePort.UnsubscribePlaylistTableChanges(playlistTableChangedHandler);
+            workspacePort.PlaylistCatalogChanged -= playlistCatalogChangedHandler;
             statePort.LibraryOperationAvailabilityChanged -= libraryOperationAvailabilityChangedHandler;
             statePort.Lr2PlayHistorySchemaStatusChanged -= lr2PlayHistorySchemaStatusChangedHandler;
         }

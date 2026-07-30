@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using BeMusicSeeker.Models;
 
@@ -17,6 +18,10 @@ public sealed partial class PlaylistWorkspaceViewModel
     private ObservableCollection<BMSTable> observedPlaylistTreeTables;
 
     private long playlistTreeNotificationGeneration;
+
+    private long playlistCatalogVersion;
+
+    private int playlistCatalogNotificationQueued;
 
     private PlaylistHydrationCompletionReceipt playlistHydrationCompletionReceipt;
 
@@ -37,6 +42,8 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal event EventHandler<PlaylistTreeSelectionActivatedEventArgs> TreeSelectionActivated;
 
     internal event EventHandler PlaylistTablesPresentationChanged;
+
+    internal event EventHandler<PlaylistCatalogChangedEventArgs> PlaylistCatalogChanged;
 
     internal event EventHandler PlaylistKeywordValueCandidatesChanged;
 
@@ -93,11 +100,74 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         AttachPlaylistTreeStore(playlistStore, playlistLibrary);
         ApplyPlaylistTreeTablesSource();
+        PublishPlaylistCatalogChanged();
     }
 
     internal void RefreshPlaylistTreePresentation()
     {
         ApplyPlaylistTreeTablesSource(raiseWhenUnchanged: true);
+    }
+
+    private void PublishPlaylistCatalogChanged()
+    {
+        Interlocked.Increment(ref playlistCatalogVersion);
+        if (Interlocked.CompareExchange(ref playlistCatalogNotificationQueued, 1, 0) == 0)
+        {
+            try
+            {
+                QueuePlaylistCatalogNotification();
+            }
+            catch
+            {
+                Interlocked.Exchange(ref playlistCatalogNotificationQueued, 0);
+                throw;
+            }
+        }
+    }
+
+    private void DrainPlaylistCatalogChanged()
+    {
+        long publishedVersion = Interlocked.Read(ref playlistCatalogVersion);
+        Exception publishFailure = null;
+        try
+        {
+            PlaylistCatalogChanged?.Invoke(
+                this,
+                new PlaylistCatalogChangedEventArgs(publishedVersion));
+        }
+        catch (Exception ex)
+        {
+            publishFailure = ex;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref playlistCatalogNotificationQueued, 0);
+            if (publishedVersion != Interlocked.Read(ref playlistCatalogVersion)
+                && Interlocked.CompareExchange(ref playlistCatalogNotificationQueued, 1, 0) == 0)
+            {
+                try
+                {
+                    QueuePlaylistCatalogNotification();
+                }
+                catch
+                {
+                    Interlocked.Exchange(ref playlistCatalogNotificationQueued, 0);
+                    throw;
+                }
+            }
+        }
+
+        if (publishFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(publishFailure).Throw();
+        }
+    }
+
+    private void QueuePlaylistCatalogNotification()
+    {
+        Action<Action> queueAction = Volatile.Read(ref queueCatalogNotification)
+            ?? throw new InvalidOperationException("Playlist catalog notification queue is not configured.");
+        queueAction(DrainPlaylistCatalogChanged);
     }
 
     private void AttachPlaylistTreeStore(BMSPlaylist nextStore, BMSLibrary nextLibrary)

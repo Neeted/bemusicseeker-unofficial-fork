@@ -21,7 +21,8 @@ internal sealed class AppApplicationLifetime : IApplicationLifetimePort
 
     public void RequestShutdown() => application.Shutdown();
 
-    public void RestartApplication() => application.RestartApplication();
+    public System.Threading.Tasks.Task RestartApplicationAsync()
+        => application.RestartApplicationAsync();
 }
 
 internal sealed class AppCultureCatalog : ICultureCatalog

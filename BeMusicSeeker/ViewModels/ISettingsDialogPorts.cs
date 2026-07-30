@@ -1,5 +1,4 @@
 using System;
-using System.ComponentModel;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -28,6 +27,8 @@ internal interface ISettingsDialogWorkspacePort
 {
     bool HasPlaylistTables { get; }
 
+    long PlaylistCatalogVersion { get; }
+
     IReadOnlyList<PlaylistTablePresentationSnapshot> CapturePlaylistPresentationSnapshots();
 
     bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string beatorajaRootPath);
@@ -38,9 +39,17 @@ internal interface ISettingsDialogWorkspacePort
 
     Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName);
 
-    void SubscribePlaylistTableChanges(PropertyChangedEventHandler handler);
+    event EventHandler<PlaylistCatalogChangedEventArgs> PlaylistCatalogChanged;
+}
 
-    void UnsubscribePlaylistTableChanges(PropertyChangedEventHandler handler);
+internal sealed class PlaylistCatalogChangedEventArgs : EventArgs
+{
+    internal PlaylistCatalogChangedEventArgs(long version)
+    {
+        Version = version;
+    }
+
+    internal long Version { get; }
 }
 
 internal interface ISettingsDialogCustomFolderOutputPort

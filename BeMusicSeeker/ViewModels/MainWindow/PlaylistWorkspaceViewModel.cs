@@ -24,6 +24,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 {
     private readonly Action<Action> dispatchPresentation;
 
+    private Action<Action> queueCatalogNotification;
+
     private readonly Func<Action, Task> playlistRestoreUiApplyScheduler;
 
     private readonly Func<bool> playlistRestoreUiThreadCheck;
@@ -278,8 +280,18 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         propertySaveService.PlaylistOperationNotificationPresentationRequested += ForwardPlaylistOperationNotificationPresentationRequested;
     }
 
+    internal void ConfigureCatalogNotificationQueue(Action<Action> queueAction)
+    {
+        Volatile.Write(
+            ref queueCatalogNotification,
+            queueAction ?? throw new ArgumentNullException(nameof(queueAction)));
+    }
+
     bool ISettingsDialogWorkspacePort.HasPlaylistTables
         => getPlaylistStore()?.BMSTables != null;
+
+    long ISettingsDialogWorkspacePort.PlaylistCatalogVersion
+        => Interlocked.Read(ref playlistCatalogVersion);
 
     IReadOnlyList<PlaylistTablePresentationSnapshot> ISettingsDialogWorkspacePort.CapturePlaylistPresentationSnapshots()
     {
@@ -316,11 +328,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         string operationName)
         => RunWithPlaylistOperationNotificationsAsync(operation, operationName);
 
-    void ISettingsDialogWorkspacePort.SubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
-        => PropertyChanged += handler ?? throw new ArgumentNullException(nameof(handler));
-
-    void ISettingsDialogWorkspacePort.UnsubscribePlaylistTableChanges(PropertyChangedEventHandler handler)
-        => PropertyChanged -= handler ?? throw new ArgumentNullException(nameof(handler));
+    event EventHandler<PlaylistCatalogChangedEventArgs> ISettingsDialogWorkspacePort.PlaylistCatalogChanged
+    {
+        add => PlaylistCatalogChanged += value;
+        remove => PlaylistCatalogChanged -= value;
+    }
 
     CustomFolderOutputSettingsSnapshot ISettingsDialogCustomFolderOutputPort.CustomFolderOutputSettings
         => customFolderOutputSettingsProvider()
@@ -697,8 +709,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private bool isPlaylistDetailViewActive;
 
-    private bool useAsyncChartRowsViewBinding = true;
-
     private string gridHeaderText = string.Empty;
 
     private string playlistSummaryKeywordFilter = string.Empty;
@@ -842,32 +852,20 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     /// publishes all related notifications after row ownership has transferred.
     /// <param name="selection">The column and summary presentation selected for the table.</param>
     /// <param name="playlistDetailActive">Whether the playlist detail binding remains active.</param>
-    /// <param name="commitBindingModeFirst">Preserves a caller's legacy binding-before-column commit order.</param>
     /// </summary>
     internal PlaylistMainTablePresentationCommit CommitMainTablePresentationWithoutNotification(
         MainChartListColumnSelection selection,
-        bool playlistDetailActive,
-        bool commitBindingModeFirst = false)
+        bool playlistDetailActive)
     {
-        // Play-history historically commits binding mode before column presentation;
-        // regular chart transitions retain their existing column-first order.
-        PlaylistColumnPresentationCommit columnPresentation;
-        PlaylistBindingModeCommit bindingMode;
-        if (commitBindingModeFirst)
-        {
-            bindingMode = CommitBindingModeWithoutNotification(playlistDetailActive);
-            columnPresentation = CommitColumnPresentationWithoutNotification(
+        PlaylistColumnPresentationCommit columnPresentation =
+            CommitColumnPresentationWithoutNotification(
                 selection.PlaylistColumnSettingsVisibility,
                 selection.PlaylistSummaryColumnsSettings);
-        }
-        else
-        {
-            columnPresentation = CommitColumnPresentationWithoutNotification(
-                selection.PlaylistColumnSettingsVisibility,
-                selection.PlaylistSummaryColumnsSettings);
-            bindingMode = CommitBindingModeWithoutNotification(playlistDetailActive);
-        }
-        return new PlaylistMainTablePresentationCommit(columnPresentation, bindingMode);
+        bool detailActivationChanged =
+            CommitPlaylistDetailActivationWithoutNotification(playlistDetailActive);
+        return new PlaylistMainTablePresentationCommit(
+            columnPresentation,
+            detailActivationChanged);
     }
 
     internal void PublishColumnPresentation(PlaylistColumnPresentationCommit commit)
@@ -891,29 +889,18 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         return commit.Generation == Interlocked.Read(ref columnPresentationGeneration);
     }
 
-    internal PlaylistBindingModeCommit CommitBindingModeWithoutNotification(bool playlistDetailActive)
+    internal bool CommitPlaylistDetailActivationWithoutNotification(bool playlistDetailActive)
     {
-        bool useAsyncBinding = !playlistDetailActive;
         bool detailActiveChanged = isPlaylistDetailViewActive != playlistDetailActive;
-        bool asyncBindingChanged = useAsyncChartRowsViewBinding != useAsyncBinding;
         isPlaylistDetailViewActive = playlistDetailActive;
-        useAsyncChartRowsViewBinding = useAsyncBinding;
-        return new PlaylistBindingModeCommit(detailActiveChanged, asyncBindingChanged);
+        return detailActiveChanged;
     }
 
-    internal void PublishBindingMode(PlaylistBindingModeCommit commit)
+    internal void PublishPlaylistDetailActivation(bool changed)
     {
-        if (commit == null)
-        {
-            throw new ArgumentNullException(nameof(commit));
-        }
-        if (commit.DetailActiveChanged)
+        if (changed)
         {
             RaisePropertyChanged(nameof(IsPlaylistDetailViewActive));
-        }
-        if (commit.AsyncBindingChanged)
-        {
-            RaisePropertyChanged(nameof(UseAsyncChartRowsViewBinding));
         }
     }
 
@@ -939,7 +926,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         }
         try
         {
-            PublishBindingMode(commit.BindingMode);
+            PublishPlaylistDetailActivation(commit.PlaylistDetailActivationChanged);
         }
         catch (Exception ex)
         {
@@ -1044,22 +1031,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             {
                 isPlaylistDetailViewActive = value;
                 RaisePropertyChanged(nameof(IsPlaylistDetailViewActive));
-            }
-        }
-    }
-
-    /// <summary>
-    /// Gets whether the main table should use async ItemsSource binding outside playlist detail view.
-    /// </summary>
-    public bool UseAsyncChartRowsViewBinding
-    {
-        get => useAsyncChartRowsViewBinding;
-        internal set
-        {
-            if (useAsyncChartRowsViewBinding != value)
-            {
-                useAsyncChartRowsViewBinding = value;
-                RaisePropertyChanged(nameof(UseAsyncChartRowsViewBinding));
             }
         }
     }
@@ -1852,30 +1823,17 @@ internal sealed class PlaylistColumnPresentationCommit
     internal long Generation { get; }
 }
 
-internal sealed class PlaylistBindingModeCommit
-{
-    internal PlaylistBindingModeCommit(bool detailActiveChanged, bool asyncBindingChanged)
-    {
-        DetailActiveChanged = detailActiveChanged;
-        AsyncBindingChanged = asyncBindingChanged;
-    }
-
-    internal bool DetailActiveChanged { get; }
-
-    internal bool AsyncBindingChanged { get; }
-}
-
 internal sealed class PlaylistMainTablePresentationCommit
 {
     internal PlaylistMainTablePresentationCommit(
         PlaylistColumnPresentationCommit columnPresentation,
-        PlaylistBindingModeCommit bindingMode)
+        bool playlistDetailActivationChanged)
     {
         ColumnPresentation = columnPresentation ?? throw new ArgumentNullException(nameof(columnPresentation));
-        BindingMode = bindingMode ?? throw new ArgumentNullException(nameof(bindingMode));
+        PlaylistDetailActivationChanged = playlistDetailActivationChanged;
     }
 
     internal PlaylistColumnPresentationCommit ColumnPresentation { get; }
 
-    internal PlaylistBindingModeCommit BindingMode { get; }
+    internal bool PlaylistDetailActivationChanged { get; }
 }

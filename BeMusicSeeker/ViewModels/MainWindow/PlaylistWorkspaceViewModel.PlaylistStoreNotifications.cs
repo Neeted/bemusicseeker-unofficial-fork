@@ -365,6 +365,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void RequestPlaylistTreePresentationRefresh(string reason)
     {
+        PublishPlaylistCatalogChanged();
         RaiseRequiredEvent(
             PlaylistPresentationRefreshRequested,
             new PlaylistPresentationRefreshRequestedEventArgs(

@@ -683,8 +683,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     result.PlaylistSourceClear = playlistWorkspace.CommitPlayHistorySourceClear();
                     result.MainTablePresentation = playlistWorkspace.CommitMainTablePresentationWithoutNotification(
                         request.ColumnSelection,
-                        playlistDetailActive: false,
-                        commitBindingModeFirst: true);
+                        playlistDetailActive: false);
                     mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
                     PruneSummaryFilters(request.ViewState.Provider);
                 });

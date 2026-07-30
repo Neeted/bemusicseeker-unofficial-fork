@@ -2113,7 +2113,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(rootViewModelCode, "hasActiveLibraryProfile = true;");
         StringAssert.Contains(restartMethod, "Resources.Confirm_RestartForOperationModeChange");
         StringAssert.Contains(restartMethod, "SaveOperationModeForRestart(value);");
-        StringAssert.Contains(restartMethod, "RestartApplication()");
+        StringAssert.Contains(restartMethod, "RestartForOperationModeChangeAsync()");
         Assert.IsFalse(restartMethod.Contains("CheckValidation("));
         Assert.IsFalse(restartMethod.Contains("ReloadFileDiffAsync()"));
         Assert.IsFalse(restartMethod.Contains("ReloadScoresOnly()"));
@@ -2181,7 +2181,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(settingDialogCode.Contains("settings_save_and_close"));
         Assert.IsFalse(settingDialogCode.Contains("SyncAppearanceThemeSelection"));
         Assert.IsFalse(settingDialogCode.Contains("firstStartupInitializationStarted"));
-        StringAssert.Contains(appCode, "public void RestartApplication()");
+        StringAssert.Contains(appCode, "public Task RestartApplicationAsync()");
         StringAssert.Contains(appCode, "ReleaseSingleInstanceMutex();");
         StringAssert.Contains(appCode, "Environment.GetCommandLineArgs().Skip(1)");
     }
@@ -3499,9 +3499,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(appCode, "MainWindow mainWindow = new(viewModel);"));
         Assert.AreEqual(1, CountOccurrences(appCode, "MainWindow = mainWindow;"));
         Assert.AreEqual(1, CountOccurrences(appCode, "mainWindow.Show();"));
-        StringAssert.Contains(appCode, "CreateAndShowMainWindow();");
+        StringAssert.Contains(appCode, "await CreateAndShowMainWindowAsync().ConfigureAwait(true);");
         StringAssert.Contains(appCode, "catch (Exception exception)");
-        StringAssert.Contains(appCode, "HandleStartupCompositionFailure(exception);");
+        StringAssert.Contains(appCode, "await HandleStartupCompositionFailureAsync(exception).ConfigureAwait(true);");
         StringAssert.Contains(appCode, "MarkCoordinatedShutdownStarted(\"startup_composition_failed\");");
         StringAssert.Contains(appCode, "ReleaseSingleInstanceMutex();");
         StringAssert.Contains(appCode, "Shutdown(1);");

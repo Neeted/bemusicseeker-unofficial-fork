@@ -99,7 +99,14 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (e.NewValue is true && base.DataContext is SettingsDialogViewModel settingDialogViewModel)
+        if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
+        {
+            return;
+        }
+
+        bool isVisible = e.NewValue is true;
+        settingDialogViewModel.SetPresentationActive(isVisible);
+        if (isVisible)
         {
             var stopwatch = Stopwatch.StartNew();
             RefreshAppearanceThemeSelection(settingDialogViewModel);
