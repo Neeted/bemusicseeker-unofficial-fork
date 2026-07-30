@@ -776,7 +776,6 @@ public sealed class CustomTableView : Grid
         MarkItemsApplied();
         InvalidateAllCellValues();
         CoerceSelectionToCurrentRows();
-        InvalidateColumnLayoutSnapshot();
         UpdateScrollBars();
         UpdateVisibleRowSubscriptions(GetCollectionChangedSubscriptionReason(e), logAlways: e?.Action == NotifyCollectionChangedAction.Reset);
         RequestRedraw("items_source_changed");

@@ -19,11 +19,10 @@
 
 previous `PERF-01` produced useful component improvements but closed the engineering Gate while the real-data logs still show approximately 0.9～1.2 second UI-apply gaps.
 
-The remaining problem is not primarily summary／detail compute. F1 closed the generic settings fan-out、synchronous performance marker write、and unused binding state. Current source still shows high-confidence structural work on the UI critical path:
+The remaining problem is not primarily summary／detail compute. F1 closed the generic settings fan-out、synchronous performance marker write、and unused binding state. F2 stabilized the playlist-summary source、made same-version presentation a no-op、and separated data reset from column-layout invalidation. Current source still shows high-confidence structural work on the UI critical path:
 
-- summary revisit replaces the entire collection and binding source.
-- data-only source changes invalidate column layout.
 - detail→library publishes old source clear and multiple related presentation properties around the new source apply.
+- main-table transitions still lack a single data／schema／selection transaction across detail、summary、and library modes.
 
 These are engineering defects, not a final manual-measurement-only concern. The performance Outcome is reopened.
 
@@ -31,7 +30,7 @@ These are engineering defects, not a final manual-measurement-only concern. The 
 
 - active outcome: `PERF-02 .NET 10 user-visible performance acceleration`
 - active execution package: `F1-F6 Performance-first closure`
-- execution anchor: `F2 PLAYLIST-SUMMARY-APPLY`
+- execution anchor: `F3 MAIN-LIST-TRANSITION`
 - planner state: not required; batch materialized
 
 ## Active implementation batch
@@ -39,8 +38,8 @@ These are engineering defects, not a final manual-measurement-only concern. The 
 | Unit | State | Scope |
 |---|---|---|
 | `F1 FANOUT-AND-DIAGNOSTICS` | completed | typed playlist event、lazy settings refresh、buffered performance log、unused hot-path state退役 |
-| `F2 PLAYLIST-SUMMARY-APPLY` | active | stable source、single presentation apply、summary table invalidation削減 |
-| `F3 MAIN-LIST-TRANSITION` | pending | detail／summary／library atomic mode transition、CustomTableView fast path |
+| `F2 PLAYLIST-SUMMARY-APPLY` | completed | stable source、single presentation apply、summary table invalidation削減 |
+| `F3 MAIN-LIST-TRANSITION` | active | detail／summary／library atomic mode transition、CustomTableView fast path |
 | `F4 STARTUP-ESTIMATION-SCAN-PARSE` | pending | likely optimizationsを実測待ちにせず実装 |
 | `F5 APPLICATION-WIDE-PERF-AUDIT` | pending | generic event bus、copy、queue、invalidationの横断grouped fix |
 | `F6 FINAL-PERFORMANCE-GATE` | pending | full verification、publish、review、manual handoff |

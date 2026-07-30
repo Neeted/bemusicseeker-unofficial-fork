@@ -699,11 +699,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private long columnPresentationGeneration;
 
-    private ObservableCollection<PlaylistSummaryRow> playlistSummaryView = [];
+    private readonly PlaylistSummaryVersionedCollection playlistSummaryView = [];
 
     private string playlistSummaryText = string.Empty;
 
-    private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;
+    private PlaylistSummaryPresentationIdentity appliedPlaylistSummaryIdentity;
 
     private bool isPlaylistSummaryMode;
 
@@ -1544,8 +1544,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             cacheGeneration = playlistSummaryRowsCacheGeneration;
             dataRebuildGeneration = playlistSummaryRowsCacheDataRebuildGeneration;
             if (!playlistSummaryRowsCacheValid
-                || dataRebuildGeneration <= 0L
-                || dataRebuildGeneration != playlistSummaryDataRebuildGeneration)
+                || dataRebuildGeneration <= 0L)
             {
                 return null;
             }
@@ -1561,6 +1560,15 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         }
 
         string nextSummaryText = request.SummaryText ?? string.Empty;
+        PlaylistSummaryPresentationIdentity identity = request.Identity
+            ?? new PlaylistSummaryPresentationIdentity(
+                request.CacheGeneration
+                    ?? request.DataRebuildGeneration
+                    ?? request.PresentationGeneration,
+                string.Empty,
+                PlaylistOwnedFilter.All,
+                nameof(PlaylistSummaryRow.Name),
+                ListSortDirection.Ascending);
         bool rowsChanged;
         bool textChanged;
         lock (playlistSummaryTransitionLock)
@@ -1574,16 +1582,14 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 return false;
             }
 
-            rowsChanged = !ReferenceEquals(playlistSummaryView, request.Rows);
+            rowsChanged = !Equals(appliedPlaylistSummaryIdentity, identity);
             textChanged = playlistSummaryText != nextSummaryText;
             if (rowsChanged)
             {
-                ObservableCollection<PlaylistSummaryRow> previousView = playlistSummaryView;
-                playlistSummaryView = request.Rows;
-                if (previousView != null)
-                {
-                    previousPlaylistSummaryViewWeakReference = new WeakReference<ObservableCollection<PlaylistSummaryRow>>(previousView);
-                }
+                playlistSummaryView.ReplaceItemsWithoutNotification(
+                    request.Rows,
+                    identity.SourceVersion);
+                appliedPlaylistSummaryIdentity = identity;
                 Interlocked.Exchange(ref lastPlaylistSummaryBuildCompletedTimestamp, Stopwatch.GetTimestamp());
             }
             playlistSummaryText = nextSummaryText;
@@ -1602,13 +1608,21 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         var publishExceptions = new List<Exception>();
         if (rowsChanged)
         {
+            TryPublish(playlistSummaryView.PublishReset, publishExceptions);
             TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryView)), publishExceptions);
         }
         if (textChanged)
         {
             TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), publishExceptions);
         }
-        PublishPlaylistSummarySelectionRestore(publishExceptions);
+        if (rowsChanged)
+        {
+            PublishPlaylistSummarySelectionRestore(publishExceptions);
+        }
+        else
+        {
+            TrySchedulePlaylistReloadCleanup();
+        }
         if (publishExceptions.Count > 0)
         {
             throw new PlaylistSummaryPublishException(new AggregateException(publishExceptions));
@@ -1695,15 +1709,95 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
 internal sealed class PlaylistSummaryApplyRequest
 {
-    internal ObservableCollection<PlaylistSummaryRow> Rows { get; set; }
+    internal IReadOnlyList<PlaylistSummaryRow> Rows { get; set; }
 
     internal string SummaryText { get; set; } = string.Empty;
+
+    internal PlaylistSummaryPresentationIdentity Identity { get; set; }
 
     internal long PresentationGeneration { get; set; }
 
     internal long? DataRebuildGeneration { get; set; }
 
     internal long? CacheGeneration { get; set; }
+}
+
+internal sealed class PlaylistSummaryPresentationIdentity : IEquatable<PlaylistSummaryPresentationIdentity>
+{
+    internal PlaylistSummaryPresentationIdentity(
+        long sourceVersion,
+        string keywordFilter,
+        PlaylistOwnedFilter ownedFilter,
+        string sortColumn,
+        ListSortDirection sortDirection)
+    {
+        SourceVersion = sourceVersion;
+        KeywordFilter = (keywordFilter ?? string.Empty).Trim();
+        OwnedFilter = ownedFilter;
+        SortColumn = sortColumn ?? nameof(PlaylistSummaryRow.Name);
+        SortDirection = sortDirection;
+    }
+
+    internal long SourceVersion { get; }
+
+    private string KeywordFilter { get; }
+
+    private PlaylistOwnedFilter OwnedFilter { get; }
+
+    private string SortColumn { get; }
+
+    private ListSortDirection SortDirection { get; }
+
+    public bool Equals(PlaylistSummaryPresentationIdentity other)
+    {
+        return other != null
+            && SourceVersion == other.SourceVersion
+            && string.Equals(KeywordFilter, other.KeywordFilter, StringComparison.Ordinal)
+            && OwnedFilter == other.OwnedFilter
+            && string.Equals(SortColumn, other.SortColumn, StringComparison.Ordinal)
+            && SortDirection == other.SortDirection;
+    }
+
+    public override bool Equals(object obj)
+    {
+        return Equals(obj as PlaylistSummaryPresentationIdentity);
+    }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(
+            SourceVersion,
+            KeywordFilter,
+            OwnedFilter,
+            SortColumn,
+            SortDirection);
+    }
+}
+
+internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<PlaylistSummaryRow>
+{
+    internal long Version { get; private set; }
+
+    internal void ReplaceItemsWithoutNotification(
+        IReadOnlyList<PlaylistSummaryRow> rows,
+        long version)
+    {
+        Items.Clear();
+        for (int index = 0; index < rows.Count; index++)
+        {
+            Items.Add(rows[index]);
+        }
+        Version = version;
+    }
+
+    internal void PublishReset()
+    {
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(
+            new System.Collections.Specialized.NotifyCollectionChangedEventArgs(
+                System.Collections.Specialized.NotifyCollectionChangedAction.Reset));
+    }
 }
 
 internal sealed class PlaylistSummaryDataBuildRequest

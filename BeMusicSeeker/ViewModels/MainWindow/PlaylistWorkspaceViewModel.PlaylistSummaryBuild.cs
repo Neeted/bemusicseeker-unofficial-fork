@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -161,10 +160,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
 
-            if (buildResult.UnloadedTableCount == 0)
-            {
-                TrySetPlaylistSummaryRowsCache(buildResult.Rows, dataRebuildGeneration);
-            }
+            bool cacheStored = buildResult.UnloadedTableCount == 0
+                && TrySetPlaylistSummaryRowsCache(buildResult.Rows, dataRebuildGeneration);
+            long? cacheGeneration = cacheStored
+                ? CurrentPlaylistSummaryRowsCacheGeneration
+                : null;
 
             string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
             string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
@@ -194,7 +194,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                 stopwatch,
                 buildMs,
                 presentationGeneration,
-                dataRebuildGeneration: dataRebuildGeneration);
+                dataRebuildGeneration: dataRebuildGeneration,
+                cacheGeneration: cacheGeneration);
         }
 
         void Action()
@@ -237,7 +238,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         List<PlaylistSummaryRow> cachedRows = GetPlaylistSummaryRowsCacheSnapshot(
             out long cacheGeneration,
-            out long dataRebuildGeneration);
+            out _);
         if (cachedRows == null)
         {
             RebuildPlaylistSummaryView();
@@ -250,7 +251,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             Stopwatch.StartNew(),
             0L,
             presentationGeneration,
-            dataRebuildGeneration: dataRebuildGeneration,
             cacheGeneration: cacheGeneration,
             isCacheHit: true);
     }
@@ -392,12 +392,34 @@ public sealed partial class PlaylistWorkspaceViewModel
                 "owner_started",
                 "source=summary_cache");
         }
+        string keywordFilter = PlaylistSummaryKeywordFilter;
+        PlaylistOwnedFilter ownedFilter = PlaylistSummaryOwnedFilter;
+        ChartListSortParameters currentSort = PlaylistSummarySortParameters;
+        string sortColumn = currentSort?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
+        ListSortDirection sortDirection = currentSort?.Direction ?? ListSortDirection.Ascending;
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = sortColumn,
+            Direction = sortDirection
+        };
         PlaylistSummaryPresentationResult presentationResult = BuildPlaylistSummaryPresentationRows(
             safeRawRows,
-            PlaylistSummaryKeywordFilter,
-            PlaylistSummaryOwnedFilter,
-            PlaylistSummarySortParameters,
+            keywordFilter,
+            ownedFilter,
+            sortParameters,
             useLegacySort: false);
+        long sourceVersion = cacheGeneration
+            ?? -(dataRebuildGeneration ?? presentationGeneration);
+        var identity = new PlaylistSummaryPresentationIdentity(
+            sourceVersion,
+            keywordFilter,
+            ownedFilter,
+            sortColumn,
+            sortDirection);
+        string summaryText = string.Format(
+            BeMusicSeeker.Properties.Resources.Playlist_summary_format,
+            presentationResult.Rows.Sum(row => row.TotalCharts),
+            presentationResult.Rows.Count);
         if (Net10PerformanceLog.IsEnabled)
         {
             Net10PerformanceLog.Write(
@@ -429,11 +451,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             bool applied = TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
             {
-                Rows = new ObservableCollection<PlaylistSummaryRow>(presentationResult.Rows),
-                SummaryText = string.Format(
-                    BeMusicSeeker.Properties.Resources.Playlist_summary_format,
-                    presentationResult.Rows.Sum(row => row.TotalCharts),
-                    presentationResult.Rows.Count),
+                Rows = presentationResult.Rows,
+                SummaryText = summaryText,
+                Identity = identity,
                 PresentationGeneration = presentationGeneration,
                 DataRebuildGeneration = dataRebuildGeneration,
                 CacheGeneration = cacheGeneration
@@ -483,7 +503,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         if (dataRebuildGeneration.HasValue)
         {
-            return IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration.Value);
+            if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration.Value))
+            {
+                return false;
+            }
         }
         return !cacheGeneration.HasValue || cacheGeneration.Value == CurrentPlaylistSummaryRowsCacheGeneration;
     }

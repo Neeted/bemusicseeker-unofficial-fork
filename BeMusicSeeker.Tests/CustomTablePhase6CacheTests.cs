@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -48,6 +50,30 @@ public sealed class CustomTablePhase6CacheTests
         Assert.IsFalse(snapshot.Matches(columns, 1d, 100d));
         Assert.IsFalse(snapshot.Matches(columns, 0d, 101d));
         Assert.IsFalse(snapshot.Matches([CreateColumn("A", 50)], 0d, 100d));
+    }
+
+    [TestMethod]
+    public void CustomTableView_DataResetKeepsColumnLayoutSnapshot()
+    {
+        RunOnSta(delegate
+        {
+            var view = new CustomTableView();
+            CustomTableColumnLayoutSnapshot snapshot = view.GetColumnLayoutSnapshot();
+            FieldInfo snapshotField = typeof(CustomTableView).GetField(
+                "columnLayoutSnapshot",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo collectionChanged = typeof(CustomTableView).GetMethod(
+                "ItemsSourceCollectionChanged",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            collectionChanged.Invoke(
+                view,
+                [
+                    new ObservableCollection<object>(),
+                    new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset)
+                ]);
+
+            Assert.AreSame(snapshot, snapshotField.GetValue(view));
+        });
     }
 
     [TestMethod]

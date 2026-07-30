@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -251,8 +252,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, recommendedImportSource.IndexOf("EnqueueExternalPlaylistBMSTableImport", StringComparison.Ordinal));
         StringAssert.Contains(recommendedImportSource, "EnqueueRecommendedPlaylistImportAsync((string)menuItem.Tag)");
         StringAssert.Contains(recommendedImportSource, "LoggingAndPropagate(\"treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick\")");
-        StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
-        StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
+        StringAssert.Contains(workspaceSource, "private readonly PlaylistSummaryVersionedCollection playlistSummaryView");
+        StringAssert.Contains(workspaceSource, "private PlaylistSummaryPresentationIdentity appliedPlaylistSummaryIdentity;");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("previousPlaylistSummaryViewWeakReference", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");
         StringAssert.Contains(workspaceSource, "internal bool TryApplyPlaylistSummary(PlaylistSummaryApplyRequest request)");
         StringAssert.Contains(workspaceSource, "private CancellationTokenSource playlistSummaryDataBuildCancellation;");
@@ -3126,8 +3128,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
         }));
         snapshot = workspace.CapturePlaylistReloadCleanupSnapshot();
-        Assert.IsTrue(snapshot.SummaryAlive);
-        Assert.AreEqual(1, snapshot.SummaryRowCount);
+        Assert.IsFalse(snapshot.SummaryAlive);
+        Assert.AreEqual(0, snapshot.SummaryRowCount);
     }
 
     [TestMethod]
@@ -5914,7 +5916,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         CollectionAssert.AreEqual(
             new[] { nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView), nameof(PlaylistWorkspaceViewModel.PlaylistSummaryText) },
             notifications);
-        Assert.AreSame(rows, workspace.PlaylistSummaryView);
+        CollectionAssert.AreEqual(rows, workspace.PlaylistSummaryView);
         Assert.AreEqual("3 charts / 1 playlist", workspace.PlaylistSummaryText);
         Assert.IsTrue(
             workspace.TryGetAppliedPlaylistSummaryPerformanceInteraction(
@@ -6077,8 +6079,81 @@ public sealed class PlaylistWorkspaceViewModelTests
             DataRebuildGeneration = dataGeneration
         }));
 
-        Assert.AreSame(rows, workspace.PlaylistSummaryView);
+        CollectionAssert.AreEqual(rows, workspace.PlaylistSummaryView);
         Assert.AreEqual("committed", workspace.PlaylistSummaryText);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummaryApplyKeepsStableSourceAndSkipsSamePresentationIdentity()
+    {
+        var workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
+        workspace.IsPlaylistSummaryMode = true;
+        ObservableCollection<PlaylistSummaryRow> stableSource = workspace.PlaylistSummaryView;
+        int resetCount = 0;
+        int sourceNotificationCount = 0;
+        stableSource.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset)
+            {
+                resetCount++;
+            }
+        };
+        workspace.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView))
+            {
+                sourceNotificationCount++;
+            }
+        };
+        var identity = new PlaylistSummaryPresentationIdentity(
+            sourceVersion: 11L,
+            keywordFilter: string.Empty,
+            PlaylistOwnedFilter.All,
+            nameof(PlaylistSummaryRow.Name),
+            ListSortDirection.Ascending);
+
+        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+        {
+            Rows = [new PlaylistSummaryRow { PlaylistId = 1 }],
+            SummaryText = "first",
+            Identity = identity,
+            PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+        }));
+        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+        {
+            Rows = [new PlaylistSummaryRow { PlaylistId = 2 }],
+            SummaryText = "first",
+            Identity = identity,
+            PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+        }));
+
+        Assert.AreSame(stableSource, workspace.PlaylistSummaryView);
+        Assert.AreEqual(1, workspace.PlaylistSummaryView[0].PlaylistId);
+        Assert.AreEqual(1, resetCount);
+        Assert.AreEqual(1, sourceNotificationCount);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummaryCacheSurvivesModeExitUntilCatalogInvalidation()
+    {
+        var workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
+        workspace.IsPlaylistSummaryMode = true;
+        long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+        Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
+            [new PlaylistSummaryRow { PlaylistId = 7 }],
+            dataGeneration));
+
+        workspace.IsPlaylistSummaryMode = false;
+        List<PlaylistSummaryRow> cachedRows =
+            workspace.GetPlaylistSummaryRowsCacheSnapshot(out long cacheGeneration, out long cachedDataGeneration);
+
+        Assert.IsNotNull(cachedRows);
+        Assert.AreEqual(7, cachedRows[0].PlaylistId);
+        Assert.AreEqual(dataGeneration, cachedDataGeneration);
+        Assert.AreEqual(workspace.CurrentPlaylistSummaryRowsCacheGeneration, cacheGeneration);
+
+        workspace.InvalidatePlaylistSummaryCache();
+        Assert.IsNull(workspace.GetPlaylistSummaryRowsCacheSnapshot(out _, out _));
     }
 
     [TestMethod]

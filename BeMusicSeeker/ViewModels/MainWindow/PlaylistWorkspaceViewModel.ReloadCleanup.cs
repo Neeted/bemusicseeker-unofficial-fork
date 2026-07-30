@@ -1,5 +1,4 @@
 using System;
-using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
@@ -186,17 +185,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal PlaylistReloadCleanupSnapshot CapturePlaylistReloadCleanupSnapshot()
     {
-        ObservableCollection<PlaylistSummaryRow> previousSummaryRows = null;
-        bool summaryAlive;
-        lock (playlistSummaryTransitionLock)
-        {
-            summaryAlive = previousPlaylistSummaryViewWeakReference != null
-                && previousPlaylistSummaryViewWeakReference.TryGetTarget(out previousSummaryRows);
-        }
         PlaylistPreviousDetailRowsSnapshot previousDetailRows = CapturePreviousDetailRowsSnapshot();
         return new PlaylistReloadCleanupSnapshot(
-            summaryAlive,
-            summaryAlive ? previousSummaryRows.Count : 0,
+            summaryAlive: false,
+            summaryRowCount: 0,
             previousDetailRows);
     }
 
