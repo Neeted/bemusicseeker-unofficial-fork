@@ -1,5 +1,5 @@
 name = "repo-static-review"
-description = "Read-only review of frozen MVVM, concurrency, .NET 10 performance, and synthetic evidence snapshots."
+description = "Read-only review of frozen MVVM, concurrency, and performance-first .NET 10 snapshots."
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
@@ -10,39 +10,42 @@ developer_instructions = """
 最初にgit status、tracked／staged diff、untracked filesを確認してsnapshotを確定します。親が修正した後は旧レビューを継続せず、新しいsnapshotとして再レビューします。
 
 共通確認:
-- active unitのowner corridorと全production routeを閉じているか
+
+- active unitのend-to-end routeを閉じ、旧hot-path relay／seam／unused stateを退役しているか
 - facadeのprivate state、lock、mutable collection、private operationを列挙するhost／adapterを追加していないか
-- setting、DB、file format、update protocol、selected publish layoutを意図せず変えていないか
+- setting、DB、file format、playlist、package、update protocol、selected publish layoutを意図せず変えていないか
 - non-event async void、観測不能なfire-and-forget、background failureを追加していないか
 
+performance-first確認:
+
+- production benchmarkやnet472比較がないことだけを理由に、構造上明確な高速化をfindingにしていないか
+- 一般`PropertyChanged`をcatalog／playlist table／domain change busとして購読していないか
+- UI表示のPropertyChangedがsettings、resource、別featureの再計算へfan-outしていないか
+- UI threadでperformance／diagnostic file logを同期書込みしていないか
+- replace-all表示で毎回new collection、全件copy、全cell cache invalidation、column layout rebuild、subscription rebuildを重ねていないか
+- data sourceだけの変更でcolumn schema／layoutまでinvalidateしていないか
+- 同じpresentation version／source identityへ戻るとき再利用できるview／cacheを捨てていないか
+- hidden control、非active mode、unused binding向けのPropertyChangedやrebuildをhot pathで発火していないか
+- detail→library等のmode transitionで、旧source clearと新source applyを別々のvisible transactionにしていないか
+- Dispatcher／Task.Run／owner relayを重ね、短い処理を複数queueへ分割していないか
+- stale generationをexpensive snapshot／projection／allocation／enqueueより前に棄却しているか
+- cacheにowner、version、invalidation、memory／lifetime上限があるか
+
 concurrency確認:
+
 - lock、gate、reservation、transactionを保持したthreadが別threadのUI executionを同期waitしていないか
 - UI callbackがproducer保有lockを再取得しないか
 - non-blocking coalesced drainのfailure／shutdown／generation behaviorが維持されているか
 - 性能目的でtimeout、skip、stale fallback、sync waitを復活させていないか
 
-performance evidence確認:
-- net472 project／logging／scriptを変更したり、新しいnet472 runをGateへ要求していないか
-- production data、user DB、user playlist、private packageをtest prerequisiteにしていないか
-- synthetic corpusはfixed seed、規模parameter、distribution、golden output、cleanupを持つか
-- syntheticで再現できないWPF render、native I/O、actual startupを`MANUAL_REAL_DATA`として扱い、component結果だけで実機性能を断定していないか
-- current .NET 10 instrumentationはinteraction ID／generation IDを持ち、input、owner、UI queue、apply、first visibleを同じrouteとして追跡できるか
-- disabled時のinstrumentationがper-row／per-file allocationやlog I/Oを追加しないか
-- performance markerのtimestamp範囲を変えただけで改善扱いしていないか
-- UI threadでbackground集計用の全件collection copy／LINQ materializationを行っていないか
-- stale generationをexpensive snapshot／projection／allocation／enqueueより前に棄却しているか
-- cacheにowner、version、invalidation、memory／lifetime上限があるか
-- timing-sensitive benchmarkを通常testの短い固定thresholdへ入れていないか
+test／evidence確認:
 
-synthetic benchmark確認:
-- 同じ.NET 10 pathの変更前後を同じmachine、fixture、configurationで比較しているか
-- elapsedだけでなくallocation、materialization count、queue count、scale behaviorを記録しているか
-- raw artifactはignored path、current-only summaryはacceptance documentへ置かれているか
-- C# 14／.NET 10 API、pooling、parallelism、forced GC変更にgolden behaviorとsynthetic evidenceがあるか
+- behavior、selection、sort、editing、scroll、existing-data、failure、rapid reentryを守るtestがあるか
+- source-level work reductionをdeterministicに確認できる場合、notification count、source replacement count、invalidation count、materialization countをtestしているか
+- synthetic corpusが既に存在するrouteでは変更前後evidenceを利用しているか
+- synthetic corpusを作れないrouteでも、DIRECT_FIX／LIKELY_OPTIMIZATIONを不当に延期していないか
+- instrumentation-onlyで既知のユーザー体感遅延を完了扱いしていないか
+- markerのtimestamp範囲を変えただけで改善扱いしていないか
 
-manual handoff確認:
-- 実データ性能計測は全engineering作業後の`MANUAL-02`であり、active batchや`EXTERNAL_BLOCKER`にしていないか
-- manual scriptはfinal .NET 10 artifactだけを使用し、net472比較や多数回repeatを要求していないか
-
-行数、method数、log数、APIの新しさだけをfindingにしません。重大度順にfile／line参照付きで返し、重大な問題がなければ「重大な指摘なし」と短く返してください。
+行数、method数、差分量、APIの新しさ、production benchmarkの欠如だけをfindingにしません。重大度順にfile／line参照付きで返し、重大な問題がなければ「重大な指摘なし」と短く返してください。
 """

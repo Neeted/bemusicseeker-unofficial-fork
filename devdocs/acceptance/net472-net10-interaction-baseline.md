@@ -1,25 +1,25 @@
-# Historical net472 / .NET 10 Symptom Evidence
-
-この文書は、`3c000ec2e7a6e619c60d0f8c9e48ad12bd06d4f5`のnet472 buildと、performance outcome開始時の.NET 10 buildで取得した一回ログから、調査候補を見つけた履歴である。
+# Historical net472 / .NET 10 Symptom Note
 
 現在の正本は[.NET 10 performance engineering evidence](./net10-performance-engineering.md)である。
 
-## Active use
+この文書は、既存の次のlogを修正優先度の参考に使ったことだけを記録する。
 
-既存logから次の候補が見つかった。
+```text
+.tmp/20260731_net472_log
+.tmp/20260731_.NET 10_log
+```
 
-- playlist summaryはcompute後のUI queue／apply／renderにblind intervalがある。
-- playlist detailはowner request前のmode transitionにblind intervalがある。
-- full library routeにはlarge ordered-row materialization候補がある。
-- resource-health、song-table、forced GC、scanにはstage／allocation情報が不足している。
+用途:
 
-## Inactive use
+- playlist summaryのcompute後UI applyが長いこと。
+- playlist detail自体はcurrent .NET 10で高速なこと。
+- detail→libraryのpresentation blind intervalが長いこと。
+- startup全体は一覧ほど優先度が高くないこと。
 
 今後は次を行わない。
 
 - net472側へのmarker追加。
 - net472 build／操作の再実行。
-- net472と.NET 10の厳密なA/B Gate。
+- net472と.NET 10の厳密なp50／p90 A/B Gate。
 - .NET 10 log schemaをnet472へ合わせる変更。
-
-この文書の数値はrelease合否やperformance completionの判定に使用しない。
+- net472比の数値がないことを理由にcurrent .NET 10の高速化を延期すること。

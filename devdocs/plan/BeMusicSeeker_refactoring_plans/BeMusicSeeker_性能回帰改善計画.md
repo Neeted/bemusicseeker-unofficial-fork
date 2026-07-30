@@ -1,184 +1,242 @@
-# BeMusicSeeker .NET 10 性能改善計画
+# BeMusicSeeker .NET 10 ユーザー体感性能改善計画
 
-[現在地](./PLAN_STATUS.md) / [性能register](./PERFORMANCE_REGRESSION_REGISTER.md) / [current evidence](../../acceptance/net10-performance-engineering.md) / [historical symptom note](../../acceptance/net472-net10-interaction-baseline.md) / [共通実行ルール](./00_Codex共通実行ルール.md)
+[現在地](./PLAN_STATUS.md) / [作業register](./PERFORMANCE_WORK_REGISTER.md) / [共通実行ルール](./00_Codex共通実行ルール.md) / [current evidence](../../acceptance/net10-performance-engineering.md) / [historical log note](../../acceptance/net472-net10-interaction-baseline.md)
 
 ## Outcome
 
-`PERF-01 .NET 10 performance engineering closure`
+`PERF-02 .NET 10 user-visible performance acceleration`
 
-目的は、MVVM ownership、data compatibility、deadlock safetyを維持したまま、現在の.NET 10アプリに残る不要なcopy、queue、allocation、index rebuild、GC pauseを減らすことである。net472との厳密な対照実験は行わない。
+MVVM ownership、existing-data互換性、解消済みのdeadlock safetyを維持しながら、現在の.NET 10アプリで残っている一覧画面の秒単位遅延と、起動・導入先推定・scan／parseの不要workを除去する。
 
-最優先は次である。
+このOutcomeでは、差分の小ささよりhot pathの単純さを優先する。production benchmarkを作業中に取得できないことは、構造上妥当な高速化を延期する理由にしない。
 
-1. playlist summary、playlist detail、通常ライブラリ一覧の遷移。
-2. startup／initialization内のsong-table、resource-health、GC。
-3. install destination estimation。
-4. library construction、managed file diff、BMS／BMSON／chart-info parsing。
+## Review decision
 
-## Evidence policy
-
-- 既存のnet472／.NET 10 logは、秒単位遅延の候補を発見したhistorical symptom evidenceとして保持する。
-- 今後はnet472へmarkerを追加せず、再build／再計測もしない。
-- Codexの性能evidenceは、production dataを必要としないsynthetic corpus、deterministic structural counter、current .NET 10 instrumentationから構成する。
-- full WPF render、実library分布、Everything／disk／antivirus、実運用cacheに依存する性能は`MANUAL_REAL_DATA`へ分類し、全engineering作業後にユーザーが確認する。
-- synthetic結果から実データの絶対時間を断定しない。algorithmic work、allocation、queue、scale behaviorを改善したことを示す。
-
-## Current findings
-
-既存logとcurrent sourceから、次の優先候補がある。
-
-- 通常ライブラリのbackground summaryはimmutable sourceとindex snapshotを受け取り、UI lane上のordered-row materializationを行わない。
-- playlist summaryはcompute後のUI queue、ItemsSource apply、first renderが現行markerの外にある。
-- playlist detailはowner request以前のmode transition／preparation renderにblind intervalがある。
-- resource-healthはimmutable projectionのmutable再materializationを退役し、song-table publicationは余分なrow-reference copyを除去した。post-init forced GCはcurrent markerでbenefitを観測し、削除判断を`MANUAL-02`へ委ねる。
-- install estimation、managed scan、parserにはrepository-owned fixtureと生成helperがあり、production dataなしのcomponent corpusを作れる見込みがある。
-
-これらは修正候補であり、net472比thresholdではない。
-
-## Synthetic corpus feasibility
-
-| Corridor | Classification | Repository evidence / intended corpus | Limit |
-|---|---|---|---|
-| normal library projection／summary | `SYNTHETIC_MEASURABLE` | `RegularChartListOwnerTests.cs`のrow／apply helperを基に、in-memory `LibraryChartRow`、sort index、folder／resource stateをfixed seedで生成 | actual WPF render timeは`MANUAL_REAL_DATA` |
-| playlist summary／detail compute | `SYNTHETIC_MEASURABLE` | `PlaylistSummaryAggregationTests.cs`等を基に`BMSTable`、entries、summary rows、small／medium／large tableを生成 | GPU／layout／real column configurationはmanual |
-| UI queue／generation／drain | `SYNTHETIC_MEASURABLE` | dedicated STA／fake schedulerとexplicit barrierでqueue count、coalescing、first applyを検証 | absolute user-visible latencyはmanual |
-| install destination estimation | `SYNTHETIC_MEASURABLE` | `BmsLibraryInstallEstimationServiceTests.cs`が71／100／399 resource規模をtemp directoryで生成済み | real package distributionはmanual |
-| BMS／BMSON parse | `SYNTHETIC_MEASURABLE` | `BmsLibraryInitializationServiceTests.cs`／`BmsonSongParserTests.cs`のgenerated BMS／BMSONとrepository fixtures | unknown real chart distributionはmanual |
-| managed file diff／DB apply | `SYNTHETIC_MEASURABLE` | `BmsLibraryInitializationServiceTests.cs`が120／160 chart corpusを生成済み | Everything native enumerationはmanual |
-| song-table materialization | `SYNTHETIC_MEASURABLE` | existing load ownerをtemporary SQLiteへ接続し、managed row／index publicationを分離して測定 | full startup、user DB分布はmanual |
-| resource-health component | `SYNTHETIC_MEASURABLE` | existing ownerへimmutable synthetic chart-resource snapshotを入力 | production chart tree分布はmanual |
-| post-initialize GC | `OBSERVABILITY_REQUIRED` | aggregate current-runtime markerでpause／memory fieldsを相関 | full startupでの削除判断はmanual |
-| full startup／first render／Everything／disk | `MANUAL_REAL_DATA` | final artifactの.NET 10 logで確認 | Codex Gateへ入れない |
-
-corpus feasibilityはP1でcurrent codeに対して確定済みである。fixed seedは`0xBEE501`、共通row scaleは1,000／25,000／200,000とし、corridor固有fixtureは既存test helperを再利用する。
-
-## Active implementation batch
-
-### `P1 OBSERVABILITY-AND-CORPUS`
-
-1. current .NET 10だけにinteraction correlationを追加する。
+reviewed HEAD:
 
 ```text
-input accepted
-owner queued / started
-snapshot / query / projection
-terminal apply started / applied
-UI queued / started / applied（dispatcher queueが実在するrouteだけ）
-first useful visible
+72445a5029ba12356ac50340e4a399f7292f349f
 ```
 
-2. startup、resource-health、song-table、install estimation、scan、parserはaggregate stage eventを追加する。
-3. logはdiagnostic switch／levelで有効化し、disabled時にmessage文字列やper-item objectを作らない。
-4. [current evidence](../../acceptance/net10-performance-engineering.md)へcorpus matrix、generator、seed、規模、commandをmaterializeする。
-5. synthetic corpusを作れないrouteは`MANUAL_REAL_DATA`へ移し、今後の実機sessionに必要なmarkerだけを残す。
-6. net472 code、log、scriptには触れない。
+最近の作業には有効な改善が含まれる。
 
-Exit:
+- normal-library refreshのproducer-side synchronous UI waitは退役しており、既知deadlockは再発していない。
+- background summary用のUI-thread全件ordered-row copyは削除された。
+- playlist detailのowner request後の処理は、今回の.NET 10 logで約97～175 msであり、net472 sampleより速い。
+- startup readyは今回のsampleで.NET 10側が短く、startup全体は最優先問題ではない。
+- install estimation、scan、parser、resource indexにはsyntheticなallocation／operation削減が入っている。
 
-- critical routeの.NET 10 log schemaが一貫し、build値とend-to-end markerを混同しない。
-- 各corridorが`SYNTHETIC_MEASURABLE`、`OBSERVABILITY_REQUIRED`、`MANUAL_REAL_DATA`のいずれかへ確定する。
-- production dataを要求するtest／scriptを追加していない。
+一方、性能Outcomeを完了扱いにした判断は早かった。synthetic componentの改善と実画面の体感改善が一致していない。
 
-### `P2 LIST-TRANSITION-CRITICAL-PATH`
+## Current log findings
 
-- 通常ライブラリのUI-thread ordered-row materializationを廃止し、immutable source＋index snapshotをbackground summaryへ渡す。
-- 同じ全件copyを別threadへ移すだけの修正にせず、copy自体を不要にする。
-- fixed-seed list corpusでrow count、sort／filter、folder summary、allocation、materialization countを検証する。
-- playlist summaryはqueue／apply／first-visible markerを追加し、同一versionの重複presentation、obsolete generation、不要なcollection replacementがsynthetic evidenceで確認された場合だけ除去する。
-- playlist detailはselection→request、mode swap、preparation applyを計測し、不要なWPF turn／旧view再適用だけを修正する。
-- normal refresh drainはproducerのnon-blocking contractを維持し、一turnのwork量とreschedule countをdeterministic testで固定する。
+比較は厳密なbenchmarkではなく、修正優先度を決める症状evidenceとして使用する。
 
-Exit:
+| Route | Current observation | Decision |
+|---|---|---|
+| playlist summary初回 | compute約323 msに対し、inputからfirst visibleまで約1.18 s | compute後のUI applyを直接改善する |
+| playlist summary再訪 | compute約15 msでもfirst visibleまで約0.90 s | cache computeではなくsource replacement／binding／notificationが支配的 |
+| playlist detail | requestからvisibleまで約97～175 ms | 高速なrouteを保護し、全面rewriteしない |
+| playlist detail→full library | rows／columnの計測値はほぼ0～1 msだがfirst visibleまで約1.17 s | related presentation、old source clear、binding fan-outのblind intervalを除去する |
+| startup | current sampleはnet472 sampleより短い | 最優先にせず、明確な不要workだけ改善する |
 
-- UI lane上のsummary用全件copyが0である。
-- output、sort、filter、selection、scroll、rapid reentry、deadlock regressionが通る。
-- synthetic large corpusで対象hotspotのelapsedまたはallocationが変更前より改善し、別stageへworkを隠していない。
-- actual first-renderの合否はMANUAL-02へhandoffできるlogを持つ。
+## Confirmed structural defects
 
-### `P3 STARTUP-INDEX-GC-COMPONENTS`
+### 1. Settings dialogの広すぎるplaylist購読
 
-- full startupの実データbenchmarkは行わない。
-- song-tableとresource-healthはtemporary SQLite／synthetic snapshotsでownerを分離できる場合だけcomponent corpusを作る。
-- key normalization、target enumeration、warning projection、dictionary／set allocation、publicationを別stageにする。
-- capacity、identity key reuse、single-pass index、zero-warning allocation削減はsynthetic evidenceがある場合だけ採用する。
-- post-init `GC.Collect()`は、synthetic componentとcurrent .NET 10 telemetryでpause、retained bytes、直後のqueue backlogを観測する。full startup条件を再現できない場合は、推測で削除せずMANUAL-02のmarker対象にする。
-- startup background jobのdependency、重複warmup、同一index rebuildはsource／structural evidenceで閉じる。
+`ISettingsDialogWorkspacePort.SubscribePlaylistTableChanges`は、実際には`PlaylistWorkspaceViewModel.PropertyChanged`全体を購読している。
 
-Exit:
+そのため、playlist summary rows、summary text、column visibility、detail mode、binding mode等のpresentation変更が、settings dialogのdirectory property通知とpreset dirty処理へfan-outする。
 
-- corpusが成立したcomponentに不要なmaterialization／allocation regressionがない。
-- corpusが成立しないstageは低負荷instrumentationとmanual classificationを持つ。
-- full startupの改善をdevelopment dataだけで断定していない。
+これは`DIRECT_FIX`である。
 
-### `P4 ESTIMATION-SCAN-PARSE-COMPONENTS`
+恒久形:
 
-#### Install destination estimation
+- playlist table／catalogの実変更専用typed eventまたはversionを作る。
+- settings dialogはそのeventだけを購読する。
+- dialogが非表示ならdirty/versionだけを更新し、directory snapshotは表示時に読む。
+- summary／detail／libraryのpresentation property変更ではsettings notificationを発火しない。
 
-- existing temp-directory helperを使い、chart数、candidate directory数、audio／visual resource数、hash hit率を固定seedで生成する。
-- snapshot、index build、candidate enumeration、score、warning、result sortを分ける。
-- versioned index reuse、重複enumeration、per-candidate allocation、parallel crossoverを同じ.NET 10 componentで比較する。
-- progress／cancellationはper-item UI dispatchを発生させない。
+### 2. Playlist summaryのreplace-all UI apply
 
-#### Managed scan／construction
-
-- generated BMS／BMSON corpusとpre-enumerated path snapshotでdecode、diff、parse、DB applyを測る。
-- Everything native query、actual disk／antivirus性能は測定対象外とし、current logのstage boundaryだけ用意する。
-
-#### Parser
-
-- repository fixtureとgenerated small／large／pathological chartをgolden outputへ固定する。
-- measured allocation topに限り、span、indexed loop、pre-sized collection等を適用する。
-- encoding、culture、case、conditional／random command、diagnostic内容を維持する。
-
-Exit:
-
-- synthetic corpusが成立するcomponentで変更前よりelapsedまたはallocationが改善し、golden behaviorが一致する。
-- production dataやnet472 runを要求していない。
-- native／external stageを改善済みと誤認していない。
-
-### `P5 ENGINEERING-PERFORMANCE-GATE`
-
-- 全5 projectのlocked restore、Release build、full tests、Roslynator／warnings。
-- deadlock regression、estimated-install normal completion、startup／scan／parse golden behavior。
-- selected main-app／updater Self-contained publish、existing-data、update success／rollback。
-- synthetic performance suiteとcurrent-only report。
-- instrumentation disabled pathの低負荷性、log schema、manual operation coverage。
-- frozen snapshotのfresh outcome review、重大指摘修正後の再検証／fresh review。
-
-P5に次を含めない。
-
-- net472 build／logging／repeat run。
-- production DB／playlist／chart treeを使うbenchmark。
-- actual WPF first-renderの統計Gate。
-- Everything／disk／antivirusのperformance Gate。
-- userの実データsession結果待ち。
-
-### `HANDOFF`
-
-P5通過後、Codexのengineering performance readinessをcompleteとし、[MANUAL-02](./POST_MIGRATION_MANUAL_ACCEPTANCE.md#manual-02-real-data-performance-acceptance)へhandoffする。ユーザーはfinal artifactで一度の実データsessionを行い、残る秒単位stallがあれば新しいfollow-up outcomeを開始する。
-
-## Engineering acceptance
-
-| Scope | Required |
-|---|---|
-| correctness／data／deadlock | regression 0 |
-| known full-list copy | UI lane materialization 0 |
-| synthetic component | fixed corpusで変更前より対象hotspotのelapsedまたはallocationが改善し、output一致 |
-| queue／generation | duplicate／obsolete applyとone-turn workがdeterministic testでbounded |
-| instrumentation | current .NET 10 interactionがinputからfirst-visibleまで相関可能。disabled時にper-item overheadなし |
-| unsupported real-data route | `MANUAL_REAL_DATA`分類、marker、manual scriptあり |
-| net472 | 新しい作業・Gateなし |
-
-wall-clock thresholdを全componentへ一律適用しない。各unitは変更前に対象metricとsuccess conditionを固定し、短いtimer noiseではなくallocation、operation count、scale curveも併用する。
-
-## Exit
+summary applyは毎回UI threadで次を実行する。
 
 ```text
-strict Refactoring Completion Gate: met
-concurrency / responsiveness acceptance: met
-.NET 10 engineering performance readiness: met
-engineering migration: complete
-active outcome: none
-active implementation batch: empty
-post-engineering real-data performance acceptance: pending user action; non-blocking
+new ObservableCollection<PlaylistSummaryRow>(rows)
+total chart Sum
+PlaylistSummaryView identity replacement
+PropertyChanged
+selection restore
+CustomTableView full invalidation
 ```
+
+再訪時にcomputeが15 msでも約0.9 sかかるため、summary source identity、binding、selection、table invalidationを見直す。
+
+恒久形:
+
+- stableなversioned summary sourceをownerが保持する。
+- background側でsummary textとpresentation snapshotを完成させる。
+- UIは一つのtyped presentation commitを適用する。
+- 内容とversionが同一ならsource交換、column rebuild、selection restoreを行わない。
+- replace-all時も一回のdata resetと必要なrow／selection invalidationだけにする。
+
+### 3. CustomTableViewの過剰invalidation
+
+`OnItemsSourceChanged`はdata source変更だけでもcolumn layout snapshotを破棄し、cell cache、selection、scroll、row subscription、redrawを一括更新する。
+
+恒久形:
+
+- row data、column schema、text metric、selection、scrollを別dimensionとしてinvalidateする。
+- data-only swapではcolumn layoutを維持する。
+-同じapply内でcell cacheを二重破棄しない。
+- visible row subscriptionを差分更新する。
+- presentation snapshotを一回applyし、rowsとcolumnsのPropertyChanged順序へ依存しない。
+
+### 4. Main-list mode transitionのpresentation fan-out
+
+通常libraryへのcommit後に、playlist workspaceがcolumn visibility、summary columns、detail active、async binding stateを個別PropertyChangedする。
+
+さらにdetail source clearを新source applyより前に公開している。
+
+恒久形:
+
+- main tableのrows、column schema、modeを一つのtyped presentation transactionで適用する。
+- old detail sourceのretireはnew sourceのownership transfer後に行う。
+- production consumerのない`UseAsyncChartRowsViewBinding`等のstate／notificationを退役する。
+- 非active summary controlやsettings dialogへhot-path notificationを伝播させない。
+
+### 5. Performance loggingの同期file I/O
+
+current performance markerはUI apply pathからNLogの`FileTarget`へ同期的に書き込まれる。
+
+恒久形:
+
+- timestampとsmall value payloadは呼出laneで取得する。
+- performance eventはbounded async queue／bufferへenqueueする。
+- writerはUI外でbatch flushする。
+- queue overflowはdropped countをaggregate記録し、UIをblockしない。
+- fatal／errorの通常log semanticsは変更しない。
+- diagnostic無効時はmessage文字列を作らない。
+
+## Ordered implementation batch
+
+### F1 — `FANOUT-AND-DIAGNOSTICS`
+
+分類: `DIRECT_FIX`
+
+1. generic `PropertyChanged` playlist-table subscriptionをtyped catalog/table eventへ置換する。
+2. settings dialogはlazy dirty/version方式へ変更する。
+3. summary／detail／libraryのpresentation changeがsettings notificationへ流れないtestを追加する。
+4. performance markerをnon-blocking buffered writerへ移す。
+5. `UseAsyncChartRowsViewBinding`等、production consumerのないhot-path stateを退役する。
+6. current logのblind intervalを、related-presentation、source apply、selection restore、table invalidationへ分割する。
+
+exit:
+
+- presentation property一件につきsettings handlerが走らない。
+- UI threadがperformance file writeを待たない。
+- deadlock invariantとlog correlationを維持する。
+
+### F2 — `PLAYLIST-SUMMARY-APPLY`
+
+分類: `DIRECT_FIX`＋`LIKELY_OPTIMIZATION`
+
+1. stable versioned summary source／presentation snapshotを導入する。
+2. summary total、text、row snapshotをbackground buildで完成させる。
+3. cached revisitで同一source／column schemaを再利用する。
+4. source変更、text変更、selection restoreを一つのterminal applyへまとめる。
+5. inactive／stale generationのapplyをcollection生成前に棄却する。
+6. summary tableのrow subscription、cache invalidation、render requestを一回へ抑える。
+7. sort、filter、selection、context menu、editing、reload cleanupを維持する。
+
+exit:
+
+- cached revisitでnew `ObservableCollection`とfull binding source replacementを行わない。
+-同一versionではtable invalidationとselection restoreが0回。
+- changed versionでは一回のdata resetで表示を更新する。
+
+### F3 — `MAIN-LIST-TRANSITION`
+
+分類: `DIRECT_FIX`＋`LIKELY_OPTIMIZATION`
+
+1. detail→library、summary→library、library→detailを一つのmain-table presentation commitへ統合する。
+2. new rows／columns／modeを先にcommitし、old detail sourceのdispose／logはownership transfer後へ移す。
+3. row dataだけの変更でcolumn schemaを再構築しない。
+4. hidden summary tableと無関係なsettings／playlist propertiesを更新しない。
+5. CustomTableViewへdata-only／schema-change／selection-onlyのfast pathを追加する。
+6. `ItemsSource`変更時の重複cell cache invalidation、column layout invalidation、row subscription rebuildを削減する。
+7. fastなplaylist detail build routeとvirtual library sourceを維持する。
+
+exit:
+
+- detail→libraryのhot pathに一般PropertyChanged fan-outがない。
+- source clearとnew source applyが別のvisible transitionにならない。
+- data-only source applyでcolumn layout rebuild countが0。
+- first renderを要求するDispatcher turnがboundedである。
+
+### F4 — `STARTUP-ESTIMATION-SCAN-PARSE`
+
+分類: `LIKELY_OPTIMIZATION`＋既存の`MEASURED_OPTIMIZATION`
+
+一覧以外の重要経路について、proof不足を理由に既知の不要workを残さない。
+
+対象:
+
+- startup／initializationのduplicate warmup、index rebuild、forced GC、非必須maintenance。
+- install destination estimationのsnapshot、candidate enumeration、normalization、hash／resource lookup、progress。
+- library construction／managed file diffのpath decode、row mapping、DB batch、index publication。
+- BMS／BMSON／chart-info parserのsubstring、multiple enumeration、collection growth、dictionary lookup。
+
+方針:
+
+- startupでfirst useful windowに不要なworkはidle／post-visibleへ移し、cancellationとshutdownを持たせる。
+-同じcatalog versionのindex／hash／normalized keyはowner-scoped cacheとして再利用する。
+-小規模入力をparallel化せず、大規模入力だけbounded parallelismを使う。
+- progressはitemごとにUIへ送らずcoalesceする。
+- parserはgolden behaviorを守れる箇所でspan、indexed loop、pre-sized collection、single-pass処理を採用する。
+- forced GCは必須根拠がなければcritical startup pathから外す。memory-pressureまたはidle ownerへ限定できる。
+-実環境I/Oを再現できなくても、重複work／allocation／enumerationがsource上明確なら修正する。
+
+### F5 — `APPLICATION-WIDE-PERF-AUDIT`
+
+分類: `DIRECT_FIX`／`LIKELY_OPTIMIZATION`
+
+一覧画面で見つかった同型問題を全featureへ横展開する。
+
+探索対象:
+
+- feature ViewModelの一般`PropertyChanged`をdomain eventとして購読するroute。
+- UI thread上のsync log、file／DB、全件copy、large LINQ materialization。
+-一操作で複数回発火するItemsSource／Columns／selection／visibility通知。
+- hidden control向けapply。
+- commit→publish→relay→Viewの重複Dispatcher hop。
+- version／cacheがあるのに毎回再構築するindex／projection。
+- defensive snapshotの多重copy。
+- stale generation棄却が遅いroute。
+- rapid reentryでqueueが蓄積するroute。
+
+method一件ごとのunitは作らず、同じowner／invalidation contract／test scopeでまとめて修正する。
+
+### F6 — `FINAL-PERFORMANCE-GATE`
+
+1. 全5 projectのlocked restore、Release build、full tests、analyzer。
+2. deadlock、rapid reentry、shutdown、estimated-install正常完了。
+3. playlist summary／detail／libraryのstructural performance tests。
+4. startup／estimation／scan／parseのgolden behaviorと既存synthetic suite。
+5. selected main-app／updater Self-contained publish。
+6. existing-data、update success、rollback。
+7. performance logging disabled pathとbounded writer。
+8. frozen snapshotのfresh outcome review、重大指摘修正後の再検証。
+
+Gateは次を要求する。
+
+- 既知の秒単位UI gapに対応するhot-path defectが未処理で残っていない。
+- generic PropertyChanged domain busがない。
+- UI thread synchronous performance file I/Oがない。
+- summary revisitで無条件collection replacementがない。
+- data-only table applyでcolumn layout rebuildを行わない。
+- detail→libraryが一つのpresentation transactionである。
+-解消済みdeadlockを復活させていない。
+-最終実機確認に必要なinteraction markerが低負荷で残っている。
+
+実データでの絶対時間は全engineering作業後の手動受入れで一度確認する。結果待ちをCodex工程へ含めない。

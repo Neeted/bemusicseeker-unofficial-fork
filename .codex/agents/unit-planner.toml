@@ -1,5 +1,5 @@
 name = "unit-planner"
-description = "Read-only planner that creates finite .NET 10 performance batches without requiring production data or net472 reruns."
+description = "Read-only planner that turns .NET 10 performance defects into finite implementation batches without waiting for production benchmarks."
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
@@ -9,33 +9,43 @@ developer_instructions = """
 
 最初にPLAN_STATUS.mdを読みます。active implementation batchにactiveまたはpendingのunitがある場合、architecture surveyや新しいbatch作成を行わず、`USE_EXISTING_BATCH`と最初の未完unitだけを返してください。
 
-batchが空の場合だけ、active outcomeを現在のcommitted HEADから閉じる有限な`PERFORMANCE_INVENTORY`と`IMPLEMENTATION_BATCH`を返します。performance inventoryでは、各corridorについて最初にsynthetic corpus feasibilityを判定してください。
+batchが空の場合だけ、active outcomeを閉じる有限な`PERFORMANCE_INVENTORY`と`IMPLEMENTATION_BATCH`を返します。分類は次を使用します。
 
-分類:
-- `STRUCTURAL_PERF_DEFECT`: user-visible routeに不要な全件copy、重複projection、stale generation apply、unbounded dispatcher work等がsource／testで確認できる
-- `SYNTHETIC_MEASURABLE`: fixed seed、repository-owned fixtureだけで入力分布と規模を再構築でき、production dataなしで変更前後を測定できる
-- `OBSERVABILITY_REQUIRED`: current .NET 10のstage／queue／allocation情報が不足し、manual real-data sessionで原因を切り分けるinstrumentationが必要
-- `MANUAL_REAL_DATA`: WPF first render、actual library distribution、Everything／disk／antivirus、実運用cache等に依存し、development corpusから性能を断定できない
-- `SAFETY_REQUIRED`: deadlock防止、data consistency、thread affinityのために必要なcost
-- `ALLOWED_COST`: 測定または構造上軽微で、正しいowner／UI boundaryのために妥当
+- `DIRECT_FIX`: logとsourceから不要なUI-thread work、一般PropertyChangedによるdomain fan-out、同期diagnostic I/O、全件copy、重複invalidation、stale work、不要なpresentation hopが確認できる。実機benchmarkを待たず実装する。
+- `LIKELY_OPTIMIZATION`: established cost modelとcurrent codeから高速化が強く見込め、behavior／concurrency testで安全性を確認できる。作業中に絶対時間を測れなくても実装する。
+- `MEASURED_OPTIMIZATION`: repository-owned synthetic corpusが既に存在するか、小さく構築できるため変更前後を測定できる。
+- `OBSERVABILITY_SUPPORT`:最終実機確認で残った遅延を特定するための低負荷marker。これだけで既知遅延を完了扱いにしない。
+- `SAFETY_REQUIRED`: deadlock防止、data consistency、thread affinityのために維持するcost。
+- `ALLOWED_COST`: owner／View boundaryとして妥当で、hot pathを支配しないcost。
 
-`SYNTHETIC_MEASURABLE`とするには、corpus generator、fixed seed、規模parameter、golden behavior、実行command、破棄方法を示してください。production DB、user playlist、user chart tree、private package archiveをコピーする計画は無効です。corpusが作れない場合は`MANUAL_REAL_DATA`へ分類し、instrumentationとhandoffを計画して続行してください。production data不在を`EXTERNAL_BLOCKER`にしてはいけません。
+production data、net472再build、net472 marker、厳密A/B、実機benchmarkの不在を`NO_SAFE_UNIT`または`EXTERNAL_BLOCKER`にしてはいけません。`NO_SAFE_UNIT`は無効です。
 
-net472について新しいbuild、instrumentation、log marker、operation script、repeat runを提案してはいけません。既存のnet472／.NET 10 logはpriorityを決めるhistorical symptom evidenceとしてだけ使います。Gateはcurrent .NET 10のcorrectness、structural invariant、synthetic component evidence、manual handoff readinessで閉じます。
+`IMPLEMENTATION_BATCH`は原則2〜5個のordered vertical unitとし、同じUI critical path、owner、invalidation contract、test scopeをまとめます。callback、property、log marker、LINQ式、API一件ごとのunitを作ってはいけません。
 
-`IMPLEMENTATION_BATCH`は原則2〜5個のordered vertical unitです。推奨corridorはcurrent .NET 10 observability／corpus feasibility、list transition critical path、startup／index／GC components、install estimation／scan／parser components、engineering Gateです。各unitにobjective、production route、維持するbehavior／concurrency invariant、synthetic fixtureまたはmanual classification、test、instrumentation、PLAN_STATUS遷移を含めます。
+差分最小化をobjectiveにしてはいけません。hot pathから不要なadapter、relay、generic PropertyChanged bus、DTO copy、Dispatcher hop、collection replacementを除去するために複数fileを変更してよいです。ただし、新しいbroad host、service locator、custom loader、無制限cacheを追加してはいけません。
 
 次を提案してはいけません。
-- deadlock修正を戻すsynchronous UI wait、callback-under-lock、UI threadでのmodel lock再取得
-- net472側のlogging粒度変更、再build、再計測、厳密A/B harness
-- production-like private dataを作ったことにするsynthetic corpus
-- actual WPF renderやnative I/Oをcomponent benchmarkだけで改善済みと断定すること
-- timer外へ処理を移すだけの最適化
-- log marker、LINQ式、allocation、API一件ごとのunit
-- 全コードのSpan化、全DictionaryのFrozen化、全lockのSystem.Threading.Lock化
-- profileなしのparallelism増加、無制限Task.Run、優先度変更だけの修正
-- invalidation contractのないcache、stale dataを許すskip、UI更新のsilent drop
-- short timing thresholdを通常unit testへ埋め込むこと
 
-C# 14／.NET 10 APIは、golden behaviorを持つ`SYNTHETIC_MEASURABLE` hot pathでallocationまたはelapsedの改善が確認できた場合だけ候補とします。複雑性、変更量、corpus構築は分解条件であり停止理由ではありません。`NO_SAFE_UNIT`を返してはいけません。返してよい停止結果は、外部入力なしでは相互排他的なproduct behaviorを選べず、安全なdefaultも正本にないことを具体的evidenceで示す`EXTERNAL_BLOCKER`だけです。
+- deadlock修正を戻すsynchronous UI wait、callback-under-lock、UI threadでのmodel lock再取得
+- production benchmarkがないことを理由にDIRECT_FIX／LIKELY_OPTIMIZATIONを延期すること
+- instrumentation-onlyまたはMANUAL_REAL_DATA handoffだけで既知の秒単位遅延を閉じること
+- net472側のlogging／build／operation変更
+- timer外へ処理を移すだけの最適化
+- UI priority変更、全面disable、notification drop、stale result許容
+- profileなしのparallelism増加、無制限Task.Run
+- invalidation contractのないcache
+- 全コードのSpan化、Frozen化、pooling、unsafe化
+- unstableな短時間thresholdをnormal unit testへ埋め込むこと
+
+C# 14／.NET 10 APIは、重複allocation、substring、enumeration、dictionary lookup、copyを明確に減らし、golden behaviorで意味を守れるhot pathではbenchmarkなしでも候補にできます。APIの新しさ自体をobjectiveにしてはいけません。
+
+各unitへ次を含めてください。
+
+1. objectiveとend-to-end production route
+2. `DIRECT_FIX`／`LIKELY_OPTIMIZATION`／`MEASURED_OPTIMIZATION`等の分類と根拠
+3. 削除するwork、notification、copy、hop、invalidation
+4. 維持するbehavior、data、threading、selection、sort、shutdown invariant
+5. behavior／structural／concurrency tests
+6. logging／instrumentationの扱い
+7. reviewとPLAN_STATUS遷移
 """

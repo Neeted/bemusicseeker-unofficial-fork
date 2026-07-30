@@ -2,34 +2,35 @@
 
 ## 正本
 
-作業開始時は次を読む。
+作業開始時は次だけを読む。
 
 1. `devdocs/plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md`
-2. active outcomeに対応する計画
-3. `devdocs/plan/BeMusicSeeker_refactoring_plans/00_Codex共通実行ルール.md`
-4. active register
+2. `devdocs/plan/BeMusicSeeker_refactoring_plans/BeMusicSeeker_性能回帰改善計画.md`
+3. `devdocs/plan/BeMusicSeeker_refactoring_plans/PERFORMANCE_WORK_REGISTER.md`
+4. `devdocs/plan/BeMusicSeeker_refactoring_plans/00_Codex共通実行ルール.md`
 
-`PLAN_STATUS.md`は現在地と現行evidenceだけを持つ。過去のunit、commit、review logはGit historyへ委ねる。
+過去のOutcome、unit、commit、review記録はGit historyへ委ねる。
 
 ## 実行
 
 - active implementation batchに`active`または`pending`があればplannerを起動せず、記載順に実装する。
 - planner／reviewerはsingle-flightで使う。サブエージェント実行中、rootはrepositoryの読み取り、検索、編集、build、test、stage、commitを凍結する。
-- rootによる同scopeの独立再調査、第2planner、consensus取得を行わない。planner後は指定routeのbounded feasibility checkだけを行う。
-- `NO_SAFE_UNIT`は無効。内部複雑性はowner、behavior corridor、synthetic measurement corridorへ分解する。
-- active batchの状態更新は対応code／test unitと同じcommitに含め、status-only progress commitを作らない。
+- rootによる同scopeの独立再調査、第2planner、consensus取得を行わない。
+- active batchの状態更新は対応するcode／test unitと同じcommitへ含め、status-only progress commitを作らない。
 - unit commitは内部checkpointである。active outcomeが未完ならユーザー応答で停止せず次unitへ進む。
+- `NO_SAFE_UNIT`は無効。production data、net472再計測、実機benchmarkの不在を停止理由にしてはならない。
 
-## Performance evidence
+## 性能優先方針
 
-- 目的は現在の.NET 10アプリの性能改善である。net472 buildの再計測、logging変更、厳密なA/B Gateを行わない。
-- `.tmp/net472_log`と`.tmp/.NET 10_log`は遅延候補を見つけたhistorical symptom evidenceであり、今後の合否基準にしない。
-- Codexが性能測定を行ってよいのは、repository内で固定seedから再構築でき、production dataを必要としないsynthetic corpusがあるcorridorだけである。
-- synthetic corpusを安全に作れないrouteは、無理にproduction-like dataを捏造しない。低負荷な.NET 10 instrumentation、behavior／structural test、`MANUAL_REAL_DATA` handoffで閉じる。
-- 実データを使う起動・一覧遷移・導入先推定・scanの計測は全engineering作業後にユーザーが一度行う。Codexのactive outcome、planner停止条件、`EXTERNAL_BLOCKER`へ入れない。
-- synthetic benchmarkは同じ.NET 10 code pathの変更前後を同じmachine、fixture、configurationで比較する。wall-clockだけでなくallocation、materialization count、queue count、algorithmic scaleを記録する。
-- normal test suiteへ不安定な短時間thresholdを入れない。timing-sensitive benchmarkは明示commandで実行し、deterministic invariantは通常testで固定する。
-- .NET 10 performance logはroute ID／generation IDを持ち、input accepted、owner start、terminal apply、実在するdispatcher queueのUI apply、first visibleを同じinteractionとして追跡する。background terminal stageをUI queueとは記録しない。per-row／per-file logを追加しない。
+- 目的は現在の.NET 10アプリを高速化することであり、差分、class数、adapter数、旧構造の維持を最小化することではない。
+- 既存logとsourceから、不要なUI-thread work、広すぎる通知fan-out、同期file log、全件copy、重複invalidation、不要なpresentation hopが高い確度で確認できる場合、実機benchmarkを待たずに修正する。
+- synthetic testを作れないこと、作業中に絶対時間を測れないこと、net472との厳密な比較材料がないことは、妥当な高速化を放置する理由にならない。
+- instrumentation-only、manual handoff、コメント追記だけでは、既知のユーザー体感遅延を完了扱いにしない。
+- C# 14／.NET 10 APIは、意味が明確でallocation、enumeration、copy、lookupを減らす場合、behavior testで意味を守れるならcomponent benchmarkがなくても採用できる。
+- ただし、根拠のないparallelism、pooling、unsafe化、priority変更、cache追加は行わない。
+- `PropertyChanged`をdomain／catalog event busとして使わない。subscriberは必要なtyped eventだけを購読する。
+- UI threadでdiagnostic file I/O、全件materialization、無関係なsettings更新、hidden control向けの再構築を行わない。
+- 同じ表示内容へ戻る場合は、安定したsource／presentation identity、version、cacheを再利用する。
 
 ## Concurrency の非交渉条件
 
@@ -37,14 +38,15 @@
 - `PropertyChanged`、event、dialog、UI scheduler、View callback、別owner callbackをowner lock内から同期実行しない。
 - background producerはversion／immutable change factをqueueして戻り、UI反映はcoalesced asynchronous drainで行う。
 - timeout、retry、`TryEnter`、notification skip、追加`Task.Run`、lock recursion変更でdeadlockを隠さない。
-- 性能改善のために、解消済みの非同期queueを同期waitへ戻したり、UI thread上でmodel lockを再取得する設計へ戻したりしない。
+- 性能改善のために、解消済みの非同期queueを同期waitへ戻したり、UI thread上でmodel lockを再取得したりしない。
+- file／DB／playlist／selection／sortのobservable behaviorとexisting-data互換性を維持する。
 
 ## Verification
 
-- performance unitは、behavior test、deadlock regression、synthetic corpusが成立する場合のbefore／after component evidence、fresh static reviewを同じunitで閉じる。
-- corpusが`MANUAL_REAL_DATA`の場合は、instrumentation contract、低負荷性、log schema、manual operation scriptを検証してunitを閉じる。実データ結果を待たない。
-- Full Gateでは全5 project、selected main-app／updater publish、existing-data、update success／rollback、synthetic performance suite、instrumentation schemaを確認する。
-- `.NET Desktop Runtime`未導入machine／VM、実データ性能確認、署名、公開release、proprietary license証跡はpost-engineeringのユーザー作業である。
+- unitごとに、変更したrouteのbehavior test、concurrency invariant、source-level work reductionを確認する。
+- synthetic corpusが既に安全に存在する場合は利用する。新しい巨大なbenchmark architectureを作ることをunitの前提にしない。
+- 実機性能測定は全engineering作業後にユーザーが一度行う。Codexのactive outcome、planner停止条件、`EXTERNAL_BLOCKER`にしない。
+- Full Gateでは全5 project、full tests、analyzer、selected main-app／updater publish、existing-data、update success／rollback、deadlock regression、hot-path structural auditを確認する。
 
 ## Git・Release Freeze
 
