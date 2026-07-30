@@ -5,6 +5,8 @@ namespace BeMusicSeeker.Models.Utils;
 
 public class ChartScanResult
 {
+    internal bool ResourceHashArraysAreSortedDistinct { get; set; }
+
     public HashSet<string> ChartFilePaths { get; set; } = new HashSet<string>(StringComparer.Ordinal);
 
     internal Dictionary<string, RootFileEnumerationEntry> ChartFileEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);

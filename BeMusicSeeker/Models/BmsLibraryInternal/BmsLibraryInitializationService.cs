@@ -1465,6 +1465,7 @@ internal sealed class BmsLibraryInitializationService
             MergeHashDictionary(merged.SelfOwnedImageRelativePathHashesByChartDirectory, scanResult.SelfOwnedImageRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.SelfOwnedMovieRelativePathHashesByChartDirectory, scanResult.SelfOwnedMovieRelativePathHashesByChartDirectory);
         }
+        merged.ResourceHashArraysAreSortedDistinct = true;
         return merged;
     }
 
@@ -1519,14 +1520,14 @@ internal sealed class BmsLibraryInitializationService
         {
             if (!destination.TryGetValue(item.Key, out uint[] existing) || existing == null || existing.Length == 0)
             {
-                destination[item.Key] = item.Value ?? [];
+                destination[item.Key] = [.. (item.Value ?? []).Distinct().OrderBy(hash => hash)];
                 continue;
             }
             if (item.Value == null || item.Value.Length == 0)
             {
                 continue;
             }
-            destination[item.Key] = [.. existing.Concat(item.Value).Distinct()];
+            destination[item.Key] = [.. existing.Concat(item.Value).Distinct().OrderBy(hash => hash)];
         }
     }
 

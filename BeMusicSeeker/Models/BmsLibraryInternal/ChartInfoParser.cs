@@ -700,11 +700,15 @@ internal static class ChartInfoParser
     {
         BmsonSoundNote[] notes = [.. (channel?.Notes ?? []).OrderBy(item => item.Y)];
         long startMicroseconds = 0L;
+        int nextDistinctNoteIndex = 0;
         for (int noteIndex = 0; noteIndex < notes.Length; noteIndex++)
         {
             timeoutGuard.ThrowIfTimedOutEvery(noteIndex + 1, "bmson_sound_notes");
             BmsonSoundNote note = notes[noteIndex];
-            BmsonSoundNote next = notes.Skip(noteIndex + 1).FirstOrDefault(item => item.Y > note.Y);
+            BmsonSoundNote next = AdvanceToNextBmsonContinuationNote(
+                notes,
+                noteIndex,
+                ref nextDistinctNoteIndex);
             if (!note.Continue)
             {
                 startMicroseconds = 0L;
@@ -768,6 +772,30 @@ internal static class ChartInfoParser
             }
             startMicroseconds += durationMicroseconds;
         }
+    }
+
+    internal static BmsonSoundNote AdvanceToNextBmsonContinuationNote(
+        BmsonSoundNote[] notes,
+        int noteIndex,
+        ref int nextDistinctNoteIndex)
+    {
+        if (notes == null
+            || noteIndex < 0
+            || noteIndex >= notes.Length)
+        {
+            return null;
+        }
+        if (nextDistinctNoteIndex <= noteIndex)
+        {
+            nextDistinctNoteIndex = noteIndex + 1;
+        }
+        int currentY = notes[noteIndex].Y;
+        while (nextDistinctNoteIndex < notes.Length
+            && notes[nextDistinctNoteIndex].Y <= currentY)
+        {
+            nextDistinctNoteIndex++;
+        }
+        return nextDistinctNoteIndex < notes.Length ? notes[nextDistinctNoteIndex] : null;
     }
 
     private static string MakeBmsonLongNoteEndKey(int x, int y)

@@ -204,6 +204,7 @@ internal static class ChartDirectoryScanBuilder
         SetDictionary(result.SelfOwnedAudioRelativePathHashesByChartDirectory, selfOwnedAudioRelativePathHashes);
         SetDictionary(result.SelfOwnedImageRelativePathHashesByChartDirectory, selfOwnedImageRelativePathHashes);
         SetDictionary(result.SelfOwnedMovieRelativePathHashesByChartDirectory, selfOwnedMovieRelativePathHashes);
+        result.ResourceHashArraysAreSortedDistinct = true;
         return result;
     }
 

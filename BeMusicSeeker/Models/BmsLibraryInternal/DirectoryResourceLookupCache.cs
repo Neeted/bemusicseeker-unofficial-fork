@@ -158,7 +158,8 @@ internal sealed class DirectoryResourceLookupCache
                 selfOwnedAudioRelativePathHashes,
                 selfOwnedImageRelativePathHashes,
                 selfOwnedMovieRelativePathHashes,
-                trustSortedDistinctArrays: false)
+                trustSortedDistinctArrays: false,
+                takeOwnership: false)
         {
         }
 
@@ -169,29 +170,31 @@ internal sealed class DirectoryResourceLookupCache
             IEnumerable<uint> selfOwnedAudioRelativePathHashes,
             IEnumerable<uint> selfOwnedImageRelativePathHashes,
             IEnumerable<uint> selfOwnedMovieRelativePathHashes,
-            bool trustSortedDistinctArrays)
+            bool trustSortedDistinctArrays,
+            bool takeOwnership)
         {
-            audioRelativePathHashArray = MaterializeHashes(audioRelativePathHashes, trustSortedDistinctArrays);
-            imageRelativePathHashArray = MaterializeHashes(imageRelativePathHashes, trustSortedDistinctArrays);
-            movieRelativePathHashArray = MaterializeHashes(movieRelativePathHashes, trustSortedDistinctArrays);
+            audioRelativePathHashArray = MaterializeHashes(audioRelativePathHashes, trustSortedDistinctArrays, takeOwnership);
+            imageRelativePathHashArray = MaterializeHashes(imageRelativePathHashes, trustSortedDistinctArrays, takeOwnership);
+            movieRelativePathHashArray = MaterializeHashes(movieRelativePathHashes, trustSortedDistinctArrays, takeOwnership);
             selfOwnedAudioRelativePathHashArray = selfOwnedAudioRelativePathHashes == null
                 ? audioRelativePathHashArray
-                : MaterializeHashes(selfOwnedAudioRelativePathHashes, trustSortedDistinctArrays);
+                : MaterializeHashes(selfOwnedAudioRelativePathHashes, trustSortedDistinctArrays, takeOwnership);
             selfOwnedImageRelativePathHashArray = selfOwnedImageRelativePathHashes == null
                 ? imageRelativePathHashArray
-                : MaterializeHashes(selfOwnedImageRelativePathHashes, trustSortedDistinctArrays);
+                : MaterializeHashes(selfOwnedImageRelativePathHashes, trustSortedDistinctArrays, takeOwnership);
             selfOwnedMovieRelativePathHashArray = selfOwnedMovieRelativePathHashes == null
                 ? movieRelativePathHashArray
-                : MaterializeHashes(selfOwnedMovieRelativePathHashes, trustSortedDistinctArrays);
+                : MaterializeHashes(selfOwnedMovieRelativePathHashes, trustSortedDistinctArrays, takeOwnership);
         }
 
-        internal static Entry FromNativeSorted(
+        internal static Entry FromSortedDistinctArrays(
             IEnumerable<uint> audioRelativePathHashes,
             IEnumerable<uint> imageRelativePathHashes,
             IEnumerable<uint> movieRelativePathHashes,
             IEnumerable<uint> selfOwnedAudioRelativePathHashes = null,
             IEnumerable<uint> selfOwnedImageRelativePathHashes = null,
-            IEnumerable<uint> selfOwnedMovieRelativePathHashes = null)
+            IEnumerable<uint> selfOwnedMovieRelativePathHashes = null,
+            bool takeOwnership = false)
         {
             return new Entry(
                 audioRelativePathHashes,
@@ -200,7 +203,8 @@ internal sealed class DirectoryResourceLookupCache
                 selfOwnedAudioRelativePathHashes,
                 selfOwnedImageRelativePathHashes,
                 selfOwnedMovieRelativePathHashes,
-                trustSortedDistinctArrays: true);
+                trustSortedDistinctArrays: true,
+                takeOwnership);
         }
 
         public Entry Clone()
@@ -214,7 +218,10 @@ internal sealed class DirectoryResourceLookupCache
                 selfOwnedMovieRelativePathHashArray);
         }
 
-        private static uint[] MaterializeHashes(IEnumerable<uint> hashes, bool trustSortedDistinctArrays = false)
+        private static uint[] MaterializeHashes(
+            IEnumerable<uint> hashes,
+            bool trustSortedDistinctArrays = false,
+            bool takeOwnership = false)
         {
             if (hashes == null)
             {
@@ -223,7 +230,7 @@ internal sealed class DirectoryResourceLookupCache
             uint[] hashArray = hashes as uint[] ?? [.. hashes];
             if (trustSortedDistinctArrays)
             {
-                return hashArray;
+                return takeOwnership ? hashArray : [.. hashArray];
             }
             if (hashArray.Length <= 1)
             {
@@ -360,13 +367,14 @@ internal sealed class DirectoryResourceLookupCache
             {
                 continue;
             }
-            cache.entries[chartDirectory] = Entry.FromNativeSorted(
+            cache.entries[chartDirectory] = Entry.FromSortedDistinctArrays(
                 GetNativeHashes(audioRelativePathHashesByDirectoryIndex, i),
                 GetNativeHashes(imageRelativePathHashesByDirectoryIndex, i),
                 GetNativeHashes(movieRelativePathHashesByDirectoryIndex, i),
                 GetNativeHashes(selfOwnedAudioRelativePathHashesByDirectoryIndex, i),
                 GetNativeHashes(selfOwnedImageRelativePathHashesByDirectoryIndex, i),
-                GetNativeHashes(selfOwnedMovieRelativePathHashesByDirectoryIndex, i));
+                GetNativeHashes(selfOwnedMovieRelativePathHashesByDirectoryIndex, i),
+                takeOwnership: true);
         }
         cache.isFullReverseLookupBuilt = cache.CategoryReverseLookupEntryCount > 0;
         return cache;
@@ -1022,13 +1030,27 @@ internal sealed class DirectoryResourceLookupCache
 
     private static Entry CreateEntry(ChartScanResult scanResult, string directoryPath)
     {
-        return new Entry(
-            TryGetHashes(scanResult?.AudioRelativePathHashesByChartDirectory, directoryPath),
-            TryGetHashes(scanResult?.ImageRelativePathHashesByChartDirectory, directoryPath),
-            TryGetHashes(scanResult?.MovieRelativePathHashesByChartDirectory, directoryPath),
-            TryGetHashesOrNull(scanResult?.SelfOwnedAudioRelativePathHashesByChartDirectory, directoryPath),
-            TryGetHashesOrNull(scanResult?.SelfOwnedImageRelativePathHashesByChartDirectory, directoryPath),
-            TryGetHashesOrNull(scanResult?.SelfOwnedMovieRelativePathHashesByChartDirectory, directoryPath));
+        IEnumerable<uint> audioHashes = TryGetHashes(scanResult?.AudioRelativePathHashesByChartDirectory, directoryPath);
+        IEnumerable<uint> imageHashes = TryGetHashes(scanResult?.ImageRelativePathHashesByChartDirectory, directoryPath);
+        IEnumerable<uint> movieHashes = TryGetHashes(scanResult?.MovieRelativePathHashesByChartDirectory, directoryPath);
+        IEnumerable<uint> selfOwnedAudioHashes = TryGetHashesOrNull(scanResult?.SelfOwnedAudioRelativePathHashesByChartDirectory, directoryPath);
+        IEnumerable<uint> selfOwnedImageHashes = TryGetHashesOrNull(scanResult?.SelfOwnedImageRelativePathHashesByChartDirectory, directoryPath);
+        IEnumerable<uint> selfOwnedMovieHashes = TryGetHashesOrNull(scanResult?.SelfOwnedMovieRelativePathHashesByChartDirectory, directoryPath);
+        return scanResult?.ResourceHashArraysAreSortedDistinct == true
+            ? Entry.FromSortedDistinctArrays(
+                audioHashes,
+                imageHashes,
+                movieHashes,
+                selfOwnedAudioHashes,
+                selfOwnedImageHashes,
+                selfOwnedMovieHashes)
+            : new Entry(
+                audioHashes,
+                imageHashes,
+                movieHashes,
+                selfOwnedAudioHashes,
+                selfOwnedImageHashes,
+                selfOwnedMovieHashes);
     }
 
     private static IEnumerable<uint> TryGetHashesOrNull(IDictionary<string, uint[]> hashesByDirectory, string directoryPath)

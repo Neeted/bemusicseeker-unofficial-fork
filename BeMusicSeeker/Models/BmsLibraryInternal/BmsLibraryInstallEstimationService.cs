@@ -493,6 +493,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             effectiveBundledResources,
             bundledView,
             sourceCandidateResources ?? new DirectoryResourceLookupCache.Entry(),
+            candidateView: null,
             evaluationMode,
             diagnostics: null,
             isSourceCandidate: true);
@@ -617,6 +618,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 directoryLookupCache,
                 bundledResources: null,
                 bundledView: null,
+                candidateView: null,
                 evaluationMode,
                 diagnostics: null,
                 isSourceCandidate: true);
@@ -633,6 +635,10 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         HashSet<uint> targetFileHashes = resourceSnapshot.EnumerateAllRelativePathHashes();
         List<string> candidateDirList = allCandidateDirs;
+        CandidateResourceView bundledView = evaluationMode == InstallEstimationFinalEvaluationMode.RelativeStrict
+            ? CreateCandidateResourceView(bundledResources)
+            : null;
+        Dictionary<string, CandidateResourceView> candidateViews = null;
         if (targetFileHashes.Count > 0 || result.TargetPathAwareHashCount > 0)
         {
             candidateDirList = ApplyPathAwareBroadFilter(allCandidateDirs, resourceSnapshot, directoryLookupCache);
@@ -645,12 +651,15 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 SetNoViableDestinationResult(result);
                 return result;
             }
+            candidateViews = CreateCandidateResourceViews(
+                candidateDirList,
+                directoryLookupCache,
+                diagnostics);
             candidateDirList = ApplyAudioCandidateGate(
                 candidateDirList,
                 resourceSnapshot,
-                directoryLookupCache,
-                bundledResources,
-                evaluationMode);
+                candidateViews,
+                bundledView);
             result.CandidateDirectoryCountAfterAudioGate = candidateDirList.Count;
             if (candidateDirList.Count == 0)
             {
@@ -667,12 +676,13 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             result.CandidateDirectoryCountAfterAudioGate = candidateDirList.Count;
             result.CandidateDirectoryCountAfterHashFilter = candidateDirList.Count;
         }
+        candidateViews ??= CreateCandidateResourceViews(
+            candidateDirList,
+            directoryLookupCache,
+            diagnostics);
         result.CandidateDirectoryCount = candidateDirList.Count;
         CandidateHierarchyInfo hierarchyInfo = BuildCandidateHierarchyInfo(candidateDirList);
         result.HierarchyCandidateDirectoryCount = hierarchyInfo.HierarchyCandidateDirectoryCount;
-        CandidateResourceView bundledView = evaluationMode == InstallEstimationFinalEvaluationMode.RelativeStrict
-            ? CreateCandidateResourceView(bundledResources)
-            : null;
         var evaluationStopwatch = Stopwatch.StartNew();
         IEnumerable<string> candidateSource = candidateDirList.AsParallel().WithDegreeOfParallelism(effectiveCandidateEvaluationDegree);
         List<CandidateEvaluation> candidateInfos = [.. candidateSource
@@ -682,6 +692,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 directoryLookupCache,
                 bundledResources,
                 bundledView,
+                candidateViews[candidateDir],
                 evaluationMode,
                 diagnostics,
                 isSourceCandidate: false))];
@@ -908,12 +919,16 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return [.. candidates.Where(candidateDir => filteredDirectories.Contains(candidateDir))];
     }
 
-    private List<string> ApplyAudioCandidateGate(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache directoryLookupCache, DirectoryResourceLookupCache.Entry bundledResources, InstallEstimationFinalEvaluationMode evaluationMode)
+    private List<string> ApplyAudioCandidateGate(
+        IEnumerable<string> candidateDirectories,
+        ChartResourceSnapshot resourceSnapshot,
+        IReadOnlyDictionary<string, CandidateResourceView> candidateViews,
+        CandidateResourceView bundledView)
     {
         List<string> candidates = [.. (candidateDirectories ?? [])
             .Where(dir => !string.IsNullOrWhiteSpace(dir))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (candidates.Count == 0 || resourceSnapshot == null || directoryLookupCache == null)
+        if (candidates.Count == 0 || resourceSnapshot == null || candidateViews == null)
         {
             return candidates;
         }
@@ -925,13 +940,12 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
 
         int requiredMatchedForViableHealth = GetRequiredMatchedForViableAudioHealth(resourceSnapshot.AudioReferenceCount);
-        CandidateResourceView bundledView = CreateCandidateResourceView(bundledResources);
+        bundledView ??= CandidateResourceView.Empty;
 
         return [.. candidates
             .Where(delegate (string candidateDir)
             {
-                DirectoryResourceLookupCache.Entry entry = directoryLookupCache.GetEntryOrNull(candidateDir);
-                CandidateResourceView candidateView = CreateCandidateResourceView(entry);
+                CandidateResourceView candidateView = candidateViews[candidateDir];
                 if (candidateView.AudioRelativePathHashes.Count == 0)
                 {
                     return false;
@@ -1176,13 +1190,20 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return entry?.IsSameChartTarget(targetEntry) == true;
     }
 
-    private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, DirectoryResourceLookupCache.Entry transientCandidateEntry, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
+    private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, DirectoryResourceLookupCache.Entry transientCandidateEntry, CandidateResourceView candidateView, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
     {
         DirectoryResourceLookupCache.Entry candidateEntry = transientCandidateEntry ?? entry;
-        return EvaluateCandidateRelativeStrict(candidateDir, snapshot, candidateEntry, bundledView, diagnostics, isSourceCandidate);
+        return EvaluateCandidateRelativeStrict(
+            candidateDir,
+            snapshot,
+            candidateEntry,
+            candidateView,
+            bundledView,
+            diagnostics,
+            isSourceCandidate);
     }
 
-    private static CandidateEvaluation EvaluateDirectoryCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
+    private static CandidateEvaluation EvaluateDirectoryCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, CandidateResourceView candidateView, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
     {
         CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(
             candidateDir,
@@ -1194,14 +1215,15 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             bundledResources,
             bundledView,
             null,
+            candidateView,
             evaluationMode,
             diagnostics,
             isSourceCandidate);
     }
 
-    private static CandidateEvaluation EvaluateCandidateRelativeStrict(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, CandidateResourceView bundledView, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
+    private static CandidateEvaluation EvaluateCandidateRelativeStrict(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, CandidateResourceView candidateView, CandidateResourceView bundledView, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
     {
-        CandidateResourceView candidateView = CreateCandidateResourceView(entry, diagnostics: diagnostics);
+        candidateView ??= CreateCandidateResourceView(entry, diagnostics: diagnostics);
         bundledView ??= CandidateResourceView.Empty;
 
         Stopwatch matchStopwatch = diagnostics == null ? null : Stopwatch.StartNew();
@@ -1305,6 +1327,21 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return view;
     }
 
+    private static Dictionary<string, CandidateResourceView> CreateCandidateResourceViews(
+        IEnumerable<string> candidateDirectories,
+        DirectoryResourceLookupCache directoryLookupCache,
+        EvaluationDiagnostics diagnostics)
+    {
+        var result = new Dictionary<string, CandidateResourceView>(StringComparer.OrdinalIgnoreCase);
+        foreach (string candidateDirectory in candidateDirectories ?? [])
+        {
+            result[candidateDirectory] = CreateCandidateResourceView(
+                directoryLookupCache?.GetEntryOrNull(candidateDirectory),
+                diagnostics);
+        }
+        return result;
+    }
+
     private static int CountMatchedReferences(IReadOnlyCollection<ChartResourceSnapshot.ResourceReference> targetReferences, ISet<uint> candidateRelativePathHashes, ISet<uint> bundledRelativePathHashes)
     {
         if (targetReferences == null || targetReferences.Count == 0)
@@ -1354,16 +1391,33 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     private static int CountUnion(params ISet<uint>[] hashSets)
     {
-        HashSet<uint> union = [];
-        foreach (ISet<uint> hashSet in hashSets ?? [])
+        int total = 0;
+        ISet<uint>[] sets = hashSets ?? [];
+        for (int setIndex = 0; setIndex < sets.Length; setIndex++)
         {
+            ISet<uint> hashSet = sets[setIndex];
             if (hashSet == null || hashSet.Count == 0)
             {
                 continue;
             }
-            union.UnionWith(hashSet);
+            foreach (uint hash in hashSet)
+            {
+                bool alreadyCounted = false;
+                for (int previousIndex = 0; previousIndex < setIndex; previousIndex++)
+                {
+                    if (sets[previousIndex]?.Contains(hash) == true)
+                    {
+                        alreadyCounted = true;
+                        break;
+                    }
+                }
+                if (!alreadyCounted)
+                {
+                    total++;
+                }
+            }
         }
-        return union.Count;
+        return total;
     }
 
     private static int GetPrimaryHealth(ChartResourceSnapshot snapshot, CandidateEvaluation evaluation)

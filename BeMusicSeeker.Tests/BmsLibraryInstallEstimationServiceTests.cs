@@ -7,6 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Tests.Performance;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -15,6 +16,8 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
+    public TestContext TestContext { get; set; }
+
     [TestMethod]
     public void InstallEstimationDegreeResolvers_UseProcessorCountMinusOneAndDoNotClampConfiguredPackages()
     {
@@ -680,6 +683,61 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(1, result.CandidateDirectoryCount);
             Assert.AreEqual(strongCandidateDir, result.SelectedCandidate?.DirectoryPath);
         });
+    }
+
+    [TestMethod]
+    [TestCategory("Net10Performance")]
+    [TestCategory("estimation")]
+    public void EstimateInstallationDirectory_BuildsEachCandidateResourceViewOnce()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        foreach (Net10PerformanceCorpusScale scale in Net10PerformanceCorpus.GetConfiguredScales())
+        {
+            int candidateCount = scale switch
+            {
+                Net10PerformanceCorpusScale.Small => 8,
+                Net10PerformanceCorpusScale.Medium => 64,
+                _ => 512
+            };
+            BmsLibraryInstallEstimationService service = CreateService();
+            string sourceDir = Path.Combine(@"C:\Pending", "Source");
+            string[] allAudio =
+                [.. Enumerable.Range(0, 100).Select(index => index.ToString("D3") + ".wav")];
+            TestableBmsFile file = CreateFile(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Path.Combine(sourceDir, "chart.bms"),
+                allAudio);
+            file.SetMaintenanceInfo(
+                CreateMaintenanceInfo(file, wavDefined: allAudio.Length, wavExisting: 0),
+                suppressPropertyChanged: true);
+            var lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceDir, ["chart.bms"]);
+            for (int index = 0; index < candidateCount; index++)
+            {
+                lookupCache.AddDir(
+                    Path.Combine(@"C:\Installed", "Candidate" + index.ToString("D4")),
+                    allAudio.Take(71));
+            }
+
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(
+                service,
+                [file],
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                lookupCache,
+                candidateEvaluationDegree: 1,
+                ChartInstallationEstimateMode.Normal);
+
+            Assert.AreEqual(candidateCount, result.CandidateDirectoryCountAfterBroadFilter);
+            Assert.AreEqual(candidateCount, result.CandidateDirectoryCountAfterAudioGate);
+            Assert.AreEqual(candidateCount, result.CandidateViewBuildCount);
+            TestContext.WriteLine(
+                "route=install_estimation_candidate_views"
+                + " scale=" + scale
+                + " candidates=" + candidateCount
+                + " legacyViewBuildCount=" + (candidateCount * 2)
+                + " currentViewBuildCount=" + result.CandidateViewBuildCount
+                + " selected=" + result.SelectedCandidate?.DirectoryPath);
+        }
     }
 
     [TestMethod]

@@ -4383,6 +4383,59 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_MergedScanHashesAreSortedDistinctAndSearchable()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Merged");
+            uint firstHash = 30u;
+            uint sharedHash = 20u;
+            uint lastHash = 10u;
+
+            ChartScanResult CreateResult(uint[] hashes) => new()
+            {
+                ChartDirectories = new HashSet<string>([chartDirectoryPath], StringComparer.OrdinalIgnoreCase),
+                AudioRelativePathHashesByChartDirectory =
+                    new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [chartDirectoryPath] = hashes
+                    }
+            };
+
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateResult([firstHash, sharedHash])
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [],
+                executeBmsonScan: () => new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateResult([sharedHash, lastHash])
+                });
+
+            DirectoryResourceLookupCache.Entry entry =
+                result.NextDirectoryResourceLookupCache.GetEntryOrNull(chartDirectoryPath);
+            CollectionAssert.AreEqual(
+                new uint[] { lastHash, sharedHash, firstHash },
+                entry.AudioRelativePathHashArray);
+            Assert.IsTrue(entry.AudioRelativePathHashes.Contains(firstHash));
+            Assert.IsTrue(entry.AudioRelativePathHashes.Contains(sharedHash));
+            Assert.IsTrue(entry.AudioRelativePathHashes.Contains(lastHash));
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_UsesNativeResourceIndexWithoutMaterializingScanHashMaps()
     {
         TestResourceInitializer.EnsureJapaneseResources();

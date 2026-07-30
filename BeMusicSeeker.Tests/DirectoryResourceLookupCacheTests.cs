@@ -12,6 +12,29 @@ namespace BeMusicSeeker.Tests;
 public sealed class DirectoryResourceLookupCacheTests
 {
     [TestMethod]
+    public void CreateFromScanResult_UntrustedUnsortedHashesRemainSearchableAndDistinct()
+    {
+        string directory = @"C:\Songs\Unsorted";
+        var scanResult = new ChartScanResult
+        {
+            ChartDirectories = new HashSet<string>([directory], StringComparer.OrdinalIgnoreCase),
+            AudioRelativePathHashesByChartDirectory =
+                new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [directory] = [30u, 10u, 20u, 10u]
+                }
+        };
+
+        DirectoryResourceLookupCache cache = DirectoryResourceLookupCache.CreateFromScanResult(scanResult);
+        DirectoryResourceLookupCache.Entry entry = cache.GetEntryOrNull(directory);
+
+        CollectionAssert.AreEqual(new uint[] { 10u, 20u, 30u }, entry.AudioRelativePathHashArray);
+        Assert.IsTrue(entry.AudioRelativePathHashes.Contains(10u));
+        Assert.IsTrue(entry.AudioRelativePathHashes.Contains(20u));
+        Assert.IsTrue(entry.AudioRelativePathHashes.Contains(30u));
+    }
+
+    [TestMethod]
     public void EnsureAudioRelativeDirectoriesByHashes_BuildsCategoryReverseLookup()
     {
         DirectoryResourceLookupCache cache = CreateCache();
