@@ -73,8 +73,7 @@ internal sealed class PlayHistoryPresentationState
     internal bool TryCommitTerminal(
         PlayHistoryTerminalRequest request,
         PlayHistoryTerminalCommitResult result,
-        Action commitRows,
-        Action commitRelatedOwners)
+        Func<bool> commitRowsAndRelatedOwners)
     {
         if (request == null)
         {
@@ -84,13 +83,9 @@ internal sealed class PlayHistoryPresentationState
         {
             throw new ArgumentNullException(nameof(result));
         }
-        if (commitRows == null)
+        if (commitRowsAndRelatedOwners == null)
         {
-            throw new ArgumentNullException(nameof(commitRows));
-        }
-        if (commitRelatedOwners == null)
-        {
-            throw new ArgumentNullException(nameof(commitRelatedOwners));
+            throw new ArgumentNullException(nameof(commitRowsAndRelatedOwners));
         }
 
         lock (SyncRoot)
@@ -99,8 +94,10 @@ internal sealed class PlayHistoryPresentationState
             {
                 return false;
             }
-            commitRows();
-            commitRelatedOwners();
+            if (!commitRowsAndRelatedOwners())
+            {
+                return false;
+            }
 
             if (request.ArchivePeriodTree != null
                 && SetArchivePeriodTree(request.ArchivePeriodTree))
@@ -378,6 +375,8 @@ internal sealed class PlayHistoryTerminalRequest
 {
     internal PlayHistoryViewState ViewState { get; set; }
     internal MainChartListRowsApplyRequest MainRowsRequest { get; set; }
+
+    internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; set; }
     internal MainChartListColumnSelection ColumnSelection { get; set; }
     internal IReadOnlyList<PlayHistoryPeriodTreeItem> ArchivePeriodTree { get; set; }
     internal IReadOnlyList<PlayHistorySummaryCard> SummaryCards { get; set; }

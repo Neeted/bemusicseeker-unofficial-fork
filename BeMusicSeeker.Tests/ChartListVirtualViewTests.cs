@@ -600,6 +600,9 @@ public sealed class ChartListVirtualViewTests
         });
 
         Assert.AreEqual("prepare", calls[0]);
+        Assert.IsTrue(
+            calls.IndexOf(nameof(MainChartListViewModel.Rows))
+            < calls.IndexOf(nameof(MainChartListViewModel.ColumnsSettings)));
         CollectionAssert.Contains(calls, nameof(MainChartListViewModel.ColumnsSettings));
         CollectionAssert.Contains(calls, nameof(MainChartListViewModel.Rows));
         CollectionAssert.Contains(calls, nameof(MainChartListViewModel.SummaryText));
@@ -609,6 +612,49 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(result.ColumnSettingMs >= 0);
         Assert.IsTrue(result.SetViewMs >= 0);
         Assert.IsTrue(result.ColumnStageMs >= 0);
+    }
+
+    [TestMethod]
+    public void MainChartList_ColumnNotificationFailureDoesNotSuppressRowsOrRelatedState()
+    {
+        var mainChartList = new MainChartListViewModel
+        {
+            Rows = new List<object>(),
+            ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD),
+            SummaryText = "old"
+        };
+        var calls = new List<string>();
+        int operationContextNotifications = 0;
+        mainChartList.PropertyChanged += (_, e) =>
+        {
+            calls.Add(e.PropertyName);
+            if (e.PropertyName == nameof(MainChartListViewModel.ColumnsSettings))
+            {
+                throw new InvalidOperationException("column binding failed");
+            }
+        };
+        mainChartList.OperationContextChanged += (_, _) => operationContextNotifications++;
+
+        Assert.ThrowsException<AggregateException>(() => mainChartList.ApplyRows(
+            new MainChartListRowsApplyRequest
+            {
+                Rows = new List<object> { new() },
+                ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL),
+                SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                Summary = MainChartListSummaryUpdate.Explicit("new"),
+                OperationContextMode = MainViewUpdateMode.PendingInstallFolderSelected,
+                Stopwatch = Stopwatch.StartNew()
+            }));
+
+        Assert.AreEqual(nameof(MainChartListViewModel.Rows), calls[0]);
+        CollectionAssert.Contains(calls, nameof(MainChartListViewModel.ColumnsSettings));
+        CollectionAssert.Contains(calls, nameof(MainChartListViewModel.RowDragKind));
+        CollectionAssert.Contains(calls, nameof(MainChartListViewModel.SummaryText));
+        Assert.AreEqual(1, operationContextNotifications);
+        Assert.AreEqual("new", mainChartList.SummaryText);
+        Assert.AreEqual(
+            MainViewOperationSection.InstallPending,
+            mainChartList.CurrentOperationContext.OperationSection);
     }
 
     [TestMethod]
@@ -742,6 +788,42 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void MainChartList_RowsTransitionDisposesPreviousRowsAfterBindingNotification()
+    {
+        var previousRow = new CountingDisposable();
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var mainChartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { previousRow },
+            ColumnsSettings = settings
+        };
+        int disposeCountDuringRowsNotification = -1;
+        mainChartList.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainChartListViewModel.Rows))
+            {
+                disposeCountDuringRowsNotification = previousRow.DisposeCount;
+            }
+        };
+        MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(
+            new MainChartListRowsApplyRequest
+            {
+                Rows = new List<object>(),
+                ColumnsSettings = settings,
+                SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                Summary = MainChartListSummaryUpdate.Preserve(),
+                TerminalStageStartMs = 0,
+                Stopwatch = Stopwatch.StartNew()
+            });
+
+        transition.CommitOwnership();
+        transition.Complete();
+
+        Assert.AreEqual(0, disposeCountDuringRowsNotification);
+        Assert.AreEqual(1, previousRow.DisposeCount);
+    }
+
+    [TestMethod]
     public void MainChartList_RowsTransitionRejectsInvalidLifecycleOperations()
     {
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
@@ -795,7 +877,7 @@ public sealed class ChartListVirtualViewTests
             }
         };
 
-        Assert.ThrowsException<InvalidOperationException>(() => mainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        Assert.ThrowsException<AggregateException>(() => mainChartList.ApplyRows(new MainChartListRowsApplyRequest
         {
             Rows = candidateRows,
             ColumnsSettings = mainChartList.ColumnsSettings,
@@ -850,10 +932,20 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryDisplayTargetItem.All.Identity,
             displayTargetRevision: 0);
         var table = new MainChartListViewModel { Rows = new List<object>() };
+        var detailBuildState = new PlaylistDetailBuildState();
+        bool detailLockHeldDuringRelatedOwnerCommit = false;
+        bool playHistoryLockHeldDuringRelatedOwnerCommit = false;
+        table.AppliedColumnModeCommitted += _ =>
+        {
+            detailLockHeldDuringRelatedOwnerCommit =
+                Monitor.IsEntered(detailBuildState.SyncRoot);
+            playHistoryLockHeldDuringRelatedOwnerCommit =
+                Monitor.IsEntered(workflowOwner.PresentationState.SyncRoot);
+        };
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
             new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
+            detailBuildState,
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
@@ -898,7 +990,8 @@ public sealed class ChartListVirtualViewTests
             sortProfile: "default",
             currentKeywordFilter: string.Empty,
             PlayHistoryDisplayTargetItem.All,
-            archivePeriodTree: null);
+            archivePeriodTree: null,
+            workspace.PrepareDetailSourceRetirementWithoutPublishing());
         callerRows.Add(null!);
 
         PlayHistorySortedRowsApplyResult result = workflowOwner.ApplySortedRows(
@@ -916,6 +1009,8 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(-1, table.SelectedIndex);
         Assert.IsFalse(string.IsNullOrWhiteSpace(table.SummaryText));
         Assert.IsFalse(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
+        Assert.IsFalse(detailLockHeldDuringRelatedOwnerCommit);
+        Assert.IsFalse(playHistoryLockHeldDuringRelatedOwnerCommit);
     }
 
     [TestMethod]
@@ -980,7 +1075,8 @@ public sealed class ChartListVirtualViewTests
                 sortProfile: "stale",
                 currentKeywordFilter: string.Empty,
                 PlayHistoryDisplayTargetItem.All,
-                archivePeriodTree: null),
+                archivePeriodTree: null,
+                workspace.PrepareDetailSourceRetirementWithoutPublishing()),
             Stopwatch.StartNew(),
             table,
             workspace);
@@ -1127,7 +1223,8 @@ public sealed class ChartListVirtualViewTests
                     sortProfile: "default",
                     currentKeywordFilter: string.Empty,
                     PlayHistoryDisplayTargetItem.All,
-                    archivePeriodTree: null),
+                    archivePeriodTree: null,
+                    workspace.PrepareDetailSourceRetirementWithoutPublishing()),
                 Stopwatch.StartNew(),
                 table,
                 workspace));
@@ -1155,6 +1252,29 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(exception.OwnershipTransferred);
         Assert.IsNotNull(exception.TerminalCommitResult);
         Assert.IsNotNull(exception.TerminalCommitResult.PlaylistSourceClear);
+        Assert.IsNotNull(state.CurrentView);
+    }
+
+    [TestMethod]
+    public void PlayHistoryTerminal_DetailRequestAfterRetirementReceiptRejectsStaleApply()
+    {
+        PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(
+            out PlayHistoryPresentationState state,
+            out MainChartListViewModel table);
+        state.RequestGeneration = 1;
+        var oldRows = new List<object> { new() };
+        table.Rows = oldRows;
+        PlayHistoryTerminalRequest request = CreatePlayHistoryTerminalRequest(
+            new List<object> { new() },
+            "stale",
+            requestId: 1);
+        owner.PrepareThenInvalidateDetailRetirement(request);
+
+        PlayHistoryTerminalCommitResult result = owner.TryApply(request);
+
+        Assert.IsFalse(result.Applied);
+        Assert.AreSame(oldRows, table.Rows);
+        Assert.IsNull(result.PlaylistSourceClear);
     }
 
     [TestMethod]
@@ -1474,7 +1594,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void PlayHistoryTerminal_SourceClearCancellationFailureDoesNotSuppressRetentionLog()
+    public void PlayHistoryTerminal_PreparedRetirementReportsCancellationFailureAndStillCommits()
     {
         var workflowOwner = new PlayHistoryWorkflowOwner();
         PlayHistoryPresentationState state = workflowOwner.PresentationState;
@@ -1525,10 +1645,17 @@ public sealed class ChartListVirtualViewTests
             table,
             workspace);
 
-        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
-            () => owner.TryApply(CreatePlayHistoryTerminalRequest(new List<object> { new object() }, "committed", requestId: 1)));
+        PlayHistoryTerminalRequest request = CreatePlayHistoryTerminalRequest(
+            new List<object> { new object() },
+            "committed",
+            requestId: 1);
+        request.DetailSourceRetirement = workspace.PrepareDetailSourceRetirementWithoutPublishing();
 
-        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.ThrowsException<AggregateException>(
+            () => workspace.PublishDetailSourceRetirement(request.DetailSourceRetirement));
+        PlayHistoryTerminalCommitResult result = owner.TryApply(request);
+
+        Assert.IsTrue(result.Applied);
         Assert.IsTrue(retentionLogged);
     }
 
@@ -4177,10 +4304,19 @@ public sealed class ChartListVirtualViewTests
 
         internal PlayHistoryTerminalCommitResult TryApply(PlayHistoryTerminalRequest request)
         {
+            request.DetailSourceRetirement ??=
+                workspace.PrepareDetailSourceRetirementWithoutPublishing();
             return workflowOwner.ApplyTerminal(
                 request,
                 table,
                 workspace);
+        }
+
+        internal void PrepareThenInvalidateDetailRetirement(PlayHistoryTerminalRequest request)
+        {
+            request.DetailSourceRetirement =
+                workspace.PrepareDetailSourceRetirementWithoutPublishing();
+            workspace.PrepareDetailSourceRetirementWithoutPublishing();
         }
     }
 

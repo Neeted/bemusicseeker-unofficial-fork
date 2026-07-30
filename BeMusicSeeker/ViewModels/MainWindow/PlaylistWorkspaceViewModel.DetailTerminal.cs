@@ -152,13 +152,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                     Rows = viewApply.FinalRows,
                     ColumnsSettings = columnSelection.ColumnsSettings,
                     SelectionPolicy = MainChartListSelectionPolicy.Reset,
-                    Summary = IsPlaylistSummaryMode
+                    Summary = IsPlaylistSummaryModeRequested
                     ? MainChartListSummaryUpdate.Preserve()
                     : MainChartListSummaryUpdate.NormalRows(viewApply.FinalRows),
                     ColumnSettingReuse = columnSelection.Reused,
                     ColumnPreparationMs = columnSelection.ElapsedMs,
                     TerminalStageStartMs = stageStartMs,
-                    Stopwatch = request.Stopwatch
+                    Stopwatch = request.Stopwatch,
+                    OperationContextMode = columnSelection.AppliedMode
                 },
                 CancellationToken = request.CancellationToken
             });
@@ -192,28 +193,41 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         try
         {
+            var publishExceptions = new List<Exception>();
             if (replaceSource)
             {
-                LogDetailWeakReferenceStatus("before_source_replace");
-                detailRetentionLog("playlist_source_replace action=replace generationId="
-                    + commit.SourceGenerationId
-                    + " previousGenerationId=" + commit.PreviousSourceGenerationId
-                    + " sourceCount=" + (sourceRows?.Count ?? 0)
-                    + " disposedCount=" + (commit.PreviousSourceRows?.Count ?? 0)
-                    + " playlistSourceRowCount=" + (sourceRows?.Count ?? 0)
-                    + " playlistViewRowCount=" + CountDetailRows(viewApply.FinalRows));
+                TryPublish(
+                    () => LogDetailWeakReferenceStatus("before_source_replace"),
+                    publishExceptions);
+                TryPublish(
+                    () => detailRetentionLog("playlist_source_replace action=replace generationId="
+                        + commit.SourceGenerationId
+                        + " previousGenerationId=" + commit.PreviousSourceGenerationId
+                        + " sourceCount=" + (sourceRows?.Count ?? 0)
+                        + " disposedCount=" + (commit.PreviousSourceRows?.Count ?? 0)
+                        + " playlistSourceRowCount=" + (sourceRows?.Count ?? 0)
+                        + " playlistViewRowCount=" + CountDetailRows(viewApply.FinalRows)),
+                    publishExceptions);
             }
-            LogDetailWeakReferenceStatus("before_view_replace");
-            detailRetentionLog((viewApply.FinalRows.Count == 0 ? "playlist_view_clear " : "playlist_view_replace ")
-                + "generationId=" + commit.ViewGenerationId
-                + " previousGenerationId=" + commit.PreviousViewGenerationId
-                + " sourceCount=" + commit.SourceRowsAlive
-                + " viewCount=" + viewApply.FinalRows.Count
-                + " playlistSourceRowCount=" + commit.SourceRowsAlive
-                + " playlistViewRowCount=" + CountDetailRows(viewApply.FinalRows)
-                + " previousViewRowsReferenced=" + CountDetailRows(commit.PreviousViewRows)
-                + " disposedCount=" + CountDetailRows(commit.PreviousViewRows)
-                + " selectedIndex=" + detailMainChartList.SelectedIndex);
+            TryPublish(
+                () => LogDetailWeakReferenceStatus("before_view_replace"),
+                publishExceptions);
+            TryPublish(
+                () => detailRetentionLog((viewApply.FinalRows.Count == 0 ? "playlist_view_clear " : "playlist_view_replace ")
+                    + "generationId=" + commit.ViewGenerationId
+                    + " previousGenerationId=" + commit.PreviousViewGenerationId
+                    + " sourceCount=" + commit.SourceRowsAlive
+                    + " viewCount=" + viewApply.FinalRows.Count
+                    + " playlistSourceRowCount=" + commit.SourceRowsAlive
+                    + " playlistViewRowCount=" + CountDetailRows(viewApply.FinalRows)
+                    + " previousViewRowsReferenced=" + CountDetailRows(commit.PreviousViewRows)
+                    + " disposedCount=" + CountDetailRows(commit.PreviousViewRows)
+                    + " selectedIndex=" + detailMainChartList.SelectedIndex),
+                publishExceptions);
+            if (publishExceptions.Count > 0)
+            {
+                throw new AggregateException(publishExceptions);
+            }
             return new PlaylistDetailTerminalApplyResult(
                 true,
                 viewApply,
@@ -226,15 +240,64 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    internal PlaylistSourceClearCommitResult CommitPlayHistorySourceClear()
+    internal bool TryCommitPlayHistoryRowsAndSource(
+        PlaylistSourceRetirementRequest request,
+        Action commitRows,
+        out PlaylistSourceClearCommitResult sourceClear)
     {
-        return DetailBuildState.CommitSourceClear(DetailViewState);
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (commitRows == null)
+        {
+            throw new ArgumentNullException(nameof(commitRows));
+        }
+        lock (DetailBuildState.SyncRoot)
+        {
+            if (request.RequestVersion != DetailBuildState.RequestVersion)
+            {
+                sourceClear = null;
+                return false;
+            }
+            commitRows();
+            sourceClear = DetailBuildState.CommitPreparedSourceRetirement(
+                DetailViewState,
+                request);
+            return sourceClear != null;
+        }
     }
 
-    internal void ClearDetailSourceForRegularView()
+    internal PlaylistSourceRetirementRequest PrepareDetailSourceRetirementForRegularView()
     {
-        PlaylistSourceClearCommitResult commit = DetailBuildState.CommitSourceClear(DetailViewState);
-        PublishSourceClear(commit);
+        PlaylistSourceRetirementRequest request =
+            PrepareDetailSourceRetirementWithoutPublishing();
+        PublishDetailSourceRetirement(request);
+        return request;
+    }
+
+    internal PlaylistSourceRetirementRequest PrepareDetailSourceRetirementWithoutPublishing()
+    {
+        return DetailBuildState.PrepareSourceRetirement();
+    }
+
+    internal void PublishDetailSourceRetirement(PlaylistSourceRetirementRequest request)
+    {
+        DetailBuildState.PublishSourceRetirement(request);
+    }
+
+    internal PlaylistSourceClearCommitResult CommitDetailSourceClearForRegularView(
+        PlaylistSourceRetirementRequest request)
+    {
+        return DetailBuildState.CommitPreparedSourceRetirement(DetailViewState, request);
+    }
+
+    internal void PublishDetailSourceClearForRegularView(PlaylistSourceClearCommitResult commit)
+    {
+        if (commit != null)
+        {
+            PublishSourceClear(commit);
+        }
     }
 
     internal void PublishPlayHistorySourceClear(PlaylistSourceClearCommitResult commit)
@@ -263,14 +326,21 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             throw new ArgumentNullException(nameof(commit));
         }
-        DetailBuildState.PublishSourceClear(commit);
-        LogDetailWeakReferenceStatus("before_source_clear");
-        detailRetentionLog("playlist_source_replace action=clear generationId="
-            + commit.PreviousGenerationId
-            + " sourceCount=0 disposedCount="
-            + (commit.SourceRows?.Count ?? 0)
-            + " playlistSourceRowCount=0 playlistViewRowCount="
-            + CountDetailRows(commit.ViewRows));
+        var publishExceptions = new List<Exception>();
+        TryPublish(() => DetailBuildState.PublishSourceClear(commit), publishExceptions);
+        TryPublish(() => LogDetailWeakReferenceStatus("before_source_clear"), publishExceptions);
+        TryPublish(
+            () => detailRetentionLog("playlist_source_replace action=clear generationId="
+                + commit.PreviousGenerationId
+                + " sourceCount=0 disposedCount="
+                + (commit.SourceRows?.Count ?? 0)
+                + " playlistSourceRowCount=0 playlistViewRowCount="
+                + CountDetailRows(commit.ViewRows)),
+            publishExceptions);
+        if (publishExceptions.Count > 0)
+        {
+            throw new AggregateException(publishExceptions);
+        }
     }
 
     private void LogDetailWeakReferenceStatus(string reason)
@@ -314,6 +384,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         var result = new PlaylistDetailTerminalCommitResult();
         bool CommitDetailPresentation(Action commitRows)
         {
+            bool committed;
             lock (DetailBuildState.SyncRoot)
             {
                 if (request.CancellationToken.IsCancellationRequested
@@ -327,27 +398,32 @@ public sealed partial class PlaylistWorkspaceViewModel
                     commitRows,
                     () =>
                     {
-                        result.ColumnPresentationCommit = CommitColumnPresentationWithoutNotification(
-                            request.ColumnSelection.PlaylistColumnSettingsVisibility,
-                            request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                        result.MainTablePresentationCommit = CommitMainTablePresentationWithoutNotification(
+                            request.ColumnSelection,
+                            playlistDetailActive: true,
+                            playlistSummaryActive: false);
                         result.AppliedColumnMode = request.ColumnSelection.AppliedMode;
-                        detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
-                        detailMainChartList.CommitCompletion(new MainChartListCompletion(
-                            request.BuildRequest.MainViewBuildRequestId,
-                            Stopwatch.GetTimestamp(),
-                            Thread.CurrentThread.ManagedThreadId,
-                            request.BuildRequest.Mode,
-                            request.MainRowsRequest.Stopwatch.ElapsedMilliseconds));
                     });
-                return true;
+                committed = true;
             }
+            if (committed)
+            {
+                detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
+                detailMainChartList.CommitCompletion(new MainChartListCompletion(
+                    request.BuildRequest.MainViewBuildRequestId,
+                    Stopwatch.GetTimestamp(),
+                    Thread.CurrentThread.ManagedThreadId,
+                    request.BuildRequest.Mode,
+                    request.MainRowsRequest.Stopwatch.ElapsedMilliseconds));
+            }
+            return committed;
         }
 
         void PublishDetailPresentation()
         {
-            if (result.ColumnPresentationCommit != null)
+            if (result.MainTablePresentationCommit != null)
             {
-                PublishColumnPresentation(result.ColumnPresentationCommit);
+                PublishMainTablePresentation(result.MainTablePresentationCommit);
             }
         }
 

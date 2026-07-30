@@ -121,7 +121,10 @@ public sealed partial class PlayHistoryWorkflowOwner
             request.ViewRequest.PeriodRequest,
             request.ViewRequest.RequestId,
             request.ViewRequest.KeywordFilterRevision,
-            request.ViewRequest.DisplayTargetRevision);
+            request.ViewRequest.DisplayTargetRevision)
+        {
+            DetailSourceRetirement = request.ViewRequest.DetailSourceRetirement
+        };
         PlayHistoryReadWorkflowResult readResult = BuildReadView(
             new PlayHistoryReadWorkflowRequest(
                 activeViewRequest,
@@ -194,7 +197,8 @@ public sealed partial class PlayHistoryWorkflowOwner
                     sortProfile,
                     request.KeywordFilter,
                     request.DisplayTarget,
-                    archivePeriodTree),
+                    archivePeriodTree,
+                    request.ViewRequest.DetailSourceRetirement),
                 request.Stopwatch,
                 dependencies.MainChartList,
                 dependencies.PlaylistWorkspace);

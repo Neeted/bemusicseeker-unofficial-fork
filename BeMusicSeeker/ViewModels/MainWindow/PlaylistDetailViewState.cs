@@ -136,6 +136,6 @@ internal sealed class PlaylistDetailTerminalCommitResult
     internal long ViewGenerationId { get; set; }
     internal int SourceRowsAlive { get; set; }
     internal MainChartListRowsApplyResult MainRowsApply { get; set; }
-    internal PlaylistColumnPresentationCommit ColumnPresentationCommit { get; set; }
+    internal PlaylistMainTablePresentationCommit MainTablePresentationCommit { get; set; }
     internal MainViewUpdateMode? AppliedColumnMode { get; set; }
 }

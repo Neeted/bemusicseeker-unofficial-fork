@@ -67,6 +67,8 @@ public sealed class RegularChartListRefreshTypesTests
     public void RefreshChartRowsView_DispatchesRegularProductionEntry()
     {
         string refreshChartRowsView = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void RefreshChartRowsView(");
+        string treeSelectionActivated = SourceTextTestHelper.ReadMainWindowViewModelMethodBody(
+            "private void PlaylistWorkspaceTreeSelectionActivated(");
         string root = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
 
         StringAssert.Contains(refreshChartRowsView, "ChartListRefreshCoordinator.ResolveRoute");
@@ -75,6 +77,8 @@ public sealed class RegularChartListRefreshTypesTests
         StringAssert.Contains(refreshChartRowsView, "ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode)");
         StringAssert.Contains(refreshChartRowsView, "CapturePlaylistOpenReadinessSnapshot()");
         StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyMainLibraryView(");
+        StringAssert.Contains(refreshChartRowsView, "PlaylistWorkspace.IsPlaylistSummaryModeRequested");
+        StringAssert.Contains(treeSelectionActivated, "regularChartListOwner.PrepareForMainViewRefresh();");
         StringAssert.Contains(refreshChartRowsView, "UpdatePlaylistDetailActivation(route.IsPlaylistTreeActive)");
         Assert.IsFalse(refreshChartRowsView.Contains("CreatePlaylistDetailRefreshInput("));
         Assert.IsFalse(root.Contains("CapturePlaylistDetailSelection(out long selectionRevision)"));

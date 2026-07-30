@@ -17,8 +17,6 @@ using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
-using NLog;
-using Ribbit.Logging;
 
 namespace BeMusicSeeker.Views;
 
@@ -70,7 +68,6 @@ public sealed class CustomTableView : Grid
     private const int RowSubscriptionOverscan = 5;
     private const long RowSubscriptionSlowLogThresholdMs = 100L;
     private const long RenderSlowLogThresholdMs = 100L;
-    private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.CustomTableView");
     private static readonly Thickness CellEditorBorderThicknessValue = new(CellEditorBorderThickness);
     private static readonly Thickness CellEditorPadding = new(Math.Max(0d, CellTextHorizontalPadding - CellEditorBorderThickness), 0d, Math.Max(0d, CellTextHorizontalPadding - CellEditorBorderThickness), 0d);
     private static readonly Style CellEditorTextBoxStyle = CreateCellEditorTextBoxStyle();
@@ -169,6 +166,8 @@ public sealed class CustomTableView : Grid
     private int lastVisibleSubscriptionCount = -1;
     private int rowValueGeneration;
     private int columnValueGeneration;
+    private long cellValueInvalidationGeneration;
+    private long hiddenCellValueInvalidationGeneration;
     private long itemsAppliedTimestamp;
     private bool firstRenderLogged = true;
     private bool updatingSelectedIndexFromSelection;
@@ -317,23 +316,7 @@ public sealed class CustomTableView : Grid
         };
         IsVisibleChanged += delegate
         {
-            if (IsVisible)
-            {
-                MarkItemsApplied();
-                InvalidateColumnLayoutSnapshot();
-                UpdateScrollBars();
-                UpdateVisibleRowSubscriptions("visible_changed", logAlways: true);
-                RequestRedraw("visible_changed");
-            }
-            else
-            {
-                CommitActiveEdit();
-                CloseCellToolTip();
-                rowChangeTracker.DetachAllRows();
-                EndColumnResize();
-                ClearDragState();
-                ClearHeaderDragState();
-            }
+            ApplyVisibilityChanged(IsVisible);
         };
     }
 
@@ -638,9 +621,11 @@ public sealed class CustomTableView : Grid
         view.MarkItemsApplied();
         view.InvalidateAllCellValues();
         view.CoerceSelectionToCurrentRows();
-        view.InvalidateColumnLayoutSnapshot();
         view.UpdateScrollBars();
-        view.UpdateVisibleRowSubscriptions("items_source_changed", logAlways: true);
+        view.UpdateVisibleRowSubscriptions(
+            "items_source_changed",
+            logAlways: true,
+            invalidateCellValuesWhenWindowChanges: false);
         view.RequestRedraw("items_source_changed");
     }
 
@@ -777,8 +762,39 @@ public sealed class CustomTableView : Grid
         InvalidateAllCellValues();
         CoerceSelectionToCurrentRows();
         UpdateScrollBars();
-        UpdateVisibleRowSubscriptions(GetCollectionChangedSubscriptionReason(e), logAlways: e?.Action == NotifyCollectionChangedAction.Reset);
+        UpdateVisibleRowSubscriptions(
+            GetCollectionChangedSubscriptionReason(e),
+            logAlways: e?.Action == NotifyCollectionChangedAction.Reset,
+            invalidateCellValuesWhenWindowChanges: false);
         RequestRedraw("items_source_changed");
+    }
+
+    internal void ApplyVisibilityChanged(bool isVisible)
+    {
+        if (isVisible)
+        {
+            MarkItemsApplied();
+            bool invalidatedWhileHidden =
+                cellValueInvalidationGeneration != hiddenCellValueInvalidationGeneration;
+            UpdateScrollBars();
+            UpdateVisibleRowSubscriptions(
+                "visible_changed",
+                logAlways: true,
+                invalidateCellValuesWhenWindowChanges: !invalidatedWhileHidden,
+                isVisibleOverride: true);
+            RequestRedraw("visible_changed");
+            return;
+        }
+
+        CommitActiveEdit();
+        CloseCellToolTip();
+        rowChangeTracker.DetachAllRows();
+        lastVisibleSubscriptionFirstIndex = -1;
+        lastVisibleSubscriptionCount = -1;
+        EndColumnResize();
+        ClearDragState();
+        ClearHeaderDragState();
+        hiddenCellValueInvalidationGeneration = cellValueInvalidationGeneration;
     }
 
     private void AttachColumnLayoutHandlers()
@@ -941,6 +957,7 @@ public sealed class CustomTableView : Grid
 
     private void InvalidateAllCellValues()
     {
+        cellValueInvalidationGeneration++;
         unchecked
         {
             rowValueGeneration++;
@@ -951,6 +968,7 @@ public sealed class CustomTableView : Grid
 
     private void InvalidateColumnCellValues()
     {
+        cellValueInvalidationGeneration++;
         unchecked
         {
             columnValueGeneration++;
@@ -1000,12 +1018,16 @@ public sealed class CustomTableView : Grid
         return string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
     }
 
-    private void UpdateVisibleRowSubscriptions(string reason, bool logAlways = false)
+    private void UpdateVisibleRowSubscriptions(
+        string reason,
+        bool logAlways = false,
+        bool invalidateCellValuesWhenWindowChanges = true,
+        bool? isVisibleOverride = null)
     {
         var stopwatch = Stopwatch.StartNew();
         int firstIndex = 0;
         int requestedCount = 0;
-        if (IsVisible)
+        if (isVisibleOverride ?? IsVisible)
         {
             int rowCount = RowCount;
             if (rowCount > 0)
@@ -1017,7 +1039,10 @@ public sealed class CustomTableView : Grid
                 requestedCount = Math.Max(0, lastExclusive - firstIndex);
                 if (firstIndex != lastVisibleSubscriptionFirstIndex || requestedCount != lastVisibleSubscriptionCount)
                 {
-                    InvalidateAllCellValues();
+                    if (invalidateCellValuesWhenWindowChanges)
+                    {
+                        InvalidateAllCellValues();
+                    }
                     lastVisibleSubscriptionFirstIndex = firstIndex;
                     lastVisibleSubscriptionCount = requestedCount;
                 }
@@ -1037,10 +1062,12 @@ public sealed class CustomTableView : Grid
             rowChangeTracker.DetachAllRows();
         }
         stopwatch.Stop();
-        if (logAlways || stopwatch.ElapsedMilliseconds >= RowSubscriptionSlowLogThresholdMs)
+        if (Net10PerformanceLog.IsEnabled
+            && (logAlways || stopwatch.ElapsedMilliseconds >= RowSubscriptionSlowLogThresholdMs))
         {
-            installPerformanceLogger?.Info(
-                "custom_table_row_subscription reason=" + reason
+            QueuePerformanceLog(
+                "custom_table_row_subscription",
+                "reason=" + reason
                 + " firstIndex=" + firstIndex
                 + " requestedCount=" + requestedCount
                 + " subscribedRowCount=" + rowChangeTracker.SubscribedRowCount
@@ -1152,8 +1179,9 @@ public sealed class CustomTableView : Grid
         BeginPendingItemsSourceSwapColumnRedrawSuppression();
         long suppressMs = stopwatch.ElapsedMilliseconds - suppressStartMs;
         stopwatch.Stop();
-        installPerformanceLogger?.Info(
-            "custom_table_prepare_items_source_swap totalMs=" + stopwatch.ElapsedMilliseconds
+        QueuePerformanceLog(
+            "custom_table_prepare_items_source_swap",
+            "totalMs=" + stopwatch.ElapsedMilliseconds
             + " commitActiveEditMs=" + commitActiveEditMs
             + " clearHitMs=" + clearHitMs
             + " suppressColumnRedrawMs=" + suppressMs);
@@ -2495,8 +2523,7 @@ public sealed class CustomTableView : Grid
         int textCacheHits,
         int textCacheMisses)
     {
-        if (!CommandLineSwitches.IsInfoLoggingEnabled
-            || installPerformanceLogger?.IsInfoEnabled != true)
+        if (!Net10PerformanceLog.IsEnabled)
         {
             return;
         }
@@ -2506,8 +2533,9 @@ public sealed class CustomTableView : Grid
         {
             return;
         }
-        installPerformanceLogger?.Info(
-            "custom_table_render reason=" + reason
+        QueuePerformanceLog(
+            "custom_table_render",
+            "reason=" + reason
             + " rowCount=" + RowCount
             + " visibleRowCount=" + visibleRowCount
             + " visibleColumnCount=" + visibleColumnCount
@@ -2521,6 +2549,16 @@ public sealed class CustomTableView : Grid
             + " textCacheHits=" + textCacheHits
             + " textCacheMisses=" + textCacheMisses
             + " cellValueCacheCount=" + cellValueCache.Count);
+    }
+
+    private static void QueuePerformanceLog(string stage, string fields)
+    {
+        if (!Net10PerformanceLog.IsEnabled)
+        {
+            return;
+        }
+        PerformanceInteraction interaction = PerformanceInteraction.Start("custom_table");
+        Net10PerformanceLog.Write(interaction, stage, fields);
     }
 
     private static bool IsAlwaysLoggedRenderReason(string reason)

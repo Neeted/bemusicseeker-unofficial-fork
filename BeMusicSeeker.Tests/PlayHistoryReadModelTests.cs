@@ -3205,6 +3205,8 @@ public sealed class PlayHistoryReadModelTests
     public void WorkflowOwner_PeriodActivationFailureDoesNotLeaveRequestLifecycleActive()
     {
         var owner = new PlayHistoryWorkflowOwner();
+        owner.ConfigureDetailSourceRetirement(
+            () => new PlaylistSourceRetirementRequest(1, null));
         owner.ConfigureDisplayTargetCatalogRefresh(
             () => false,
             () => [],
@@ -3231,17 +3233,25 @@ public sealed class PlayHistoryReadModelTests
             string.Empty,
             displayTargetRevision: 0);
         System.Threading.CancellationToken nextToken = owner.GetCancellationToken(next.RequestId);
+        bool lockHeldDuringDeactivateSelection = false;
         Assert.ThrowsException<InvalidOperationException>(() => owner.Deactivate(
-            () => throw new InvalidOperationException("deactivation failed")));
+            () =>
+            {
+                lockHeldDuringDeactivateSelection =
+                    Monitor.IsEntered(owner.PresentationState.SyncRoot);
+                throw new InvalidOperationException("deactivation failed");
+            }));
+        Assert.IsFalse(lockHeldDuringDeactivateSelection);
         Assert.IsTrue(nextToken.IsCancellationRequested);
         Assert.IsNull(owner.SnapshotActiveRequest());
     }
 
     [TestMethod]
-    public void MainViewSelectionKeepsChartOperationContextSynchronizedWhenDeactivationRaises()
+    public void MainViewSelectionKeepsExistingChartOperationContextWhenDeactivationRaises()
     {
         var viewModel = MainWindowViewModelTestFactory.Create();
         PlayHistoryWorkflowOwner playHistory = viewModel.PlayHistory;
+        viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
         playHistory.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             string.Empty,
@@ -3263,8 +3273,8 @@ public sealed class PlayHistoryReadModelTests
             viewModel,
             new object[] { MainViewUpdateMode.FolderFilterSelected, null! }));
 
-        Assert.AreEqual(MainViewOperationSection.Library, viewModel.MainChartList.CurrentOperationContext.OperationSection);
-        Assert.AreEqual(ChartOperationSourceScope.Library, viewModel.MainChartList.CurrentOperationContext.SourceScope);
+        Assert.AreEqual(MainViewOperationSection.InstallPending, viewModel.MainChartList.CurrentOperationContext.OperationSection);
+        Assert.AreEqual(ChartOperationSourceScope.PendingPackage, viewModel.MainChartList.CurrentOperationContext.SourceScope);
         Assert.IsNull(playHistory.SnapshotActiveRequest());
     }
 
@@ -3272,6 +3282,13 @@ public sealed class PlayHistoryReadModelTests
     public void WorkflowOwner_ActivatePeriodRaisesAfterRequestLockIsReleased()
     {
         var owner = new PlayHistoryWorkflowOwner();
+        var detailSourceRetirement = new PlaylistSourceRetirementRequest(1, null);
+        bool lockHeldDuringRetirement = false;
+        owner.ConfigureDetailSourceRetirement(() =>
+        {
+            lockHeldDuringRetirement = Monitor.IsEntered(owner.PresentationState.SyncRoot);
+            return detailSourceRetirement;
+        });
         owner.ConfigureDisplayTargetCatalogRefresh(
             () => false,
             () => [],
@@ -3289,6 +3306,8 @@ public sealed class PlayHistoryReadModelTests
             "  keyword  ");
 
         Assert.AreSame(request, activated);
+        Assert.AreSame(detailSourceRetirement, request.DetailSourceRetirement);
+        Assert.IsFalse(lockHeldDuringRetirement);
         Assert.IsFalse(lockWasHeld);
         Assert.AreEqual(PlaylistRequestFactory.NormalizeKeywordFilter("  keyword  "), owner.CurrentKeywordIdentity);
         Assert.IsTrue(owner.IsCurrentRequest(request.RequestId));
@@ -3298,15 +3317,23 @@ public sealed class PlayHistoryReadModelTests
     public void WorkflowOwner_OwnsRefreshRevisionCoalescingAndActivity()
     {
         var owner = new PlayHistoryWorkflowOwner();
-        owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0);
+        PlayHistoryViewRequest activeRequest =
+            owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0);
+        var detailSourceRetirement = new PlaylistSourceRetirementRequest(
+            requestVersion: 7,
+            buildCancellation: null);
+        activeRequest.DetailSourceRetirement = detailSourceRetirement;
 
         Assert.IsTrue(owner.TryBeginKeywordRefresh(string.Empty, advanceRevision: false, out PlayHistoryViewRequest initialRequest));
         Assert.AreEqual(0L, initialRequest.KeywordFilterRevision);
+        Assert.AreSame(detailSourceRetirement, initialRequest.DetailSourceRetirement);
         owner.CompleteKeywordRefresh(initialRequest.KeywordFilterRevision);
 
         Assert.IsTrue(owner.TryBeginKeywordRefresh("keyword", advanceRevision: true, out PlayHistoryViewRequest keywordRequest));
         Assert.IsFalse(owner.TryBeginKeywordRefresh("keyword", advanceRevision: false, out _));
         Assert.IsTrue(owner.TryBeginDisplayTargetRefresh("target", advanceRevision: true, out PlayHistoryViewRequest displayRequest));
+        Assert.AreSame(detailSourceRetirement, keywordRequest.DetailSourceRetirement);
+        Assert.AreSame(detailSourceRetirement, displayRequest.DetailSourceRetirement);
         Assert.IsFalse(owner.TryBeginDisplayTargetRefresh("target", advanceRevision: false, out _));
         Assert.IsFalse(owner.AreRefreshQueuesIdle);
 

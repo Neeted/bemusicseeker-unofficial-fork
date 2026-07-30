@@ -519,7 +519,7 @@ internal sealed class RegularChartListOwner : IDisposable
         RegularNormalLibraryTreeFilter filter = filterKind.HasValue
             ? RegularNormalLibraryTreeFilter.Create(filterKind.Value, filterKey)
             : null;
-        bool keywordPresentationRefreshRequired = playlistWorkspace.SetPlaylistSummaryMode(enabled: false);
+        bool keywordPresentationRefreshRequired = playlistWorkspace.RequestPlaylistSummaryMode(enabled: false);
         lock (syncRoot)
         {
             if (disposed)
@@ -554,7 +554,7 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             return false;
         }
-        bool keywordPresentationRefreshRequired = playlistWorkspace.SetPlaylistSummaryMode(enabled: false);
+        bool keywordPresentationRefreshRequired = playlistWorkspace.RequestPlaylistSummaryMode(enabled: false);
         BMSLibrary library = CaptureAttachedLibrary();
         if (library == null)
         {
@@ -620,7 +620,7 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             return false;
         }
-        bool keywordPresentationRefreshRequired = playlistWorkspace.SetPlaylistSummaryMode(enabled: false);
+        bool keywordPresentationRefreshRequired = playlistWorkspace.RequestPlaylistSummaryMode(enabled: false);
         lock (syncRoot)
         {
             if (disposed)
@@ -745,19 +745,38 @@ internal sealed class RegularChartListOwner : IDisposable
 
     internal bool TryBeginRequest(out RegularChartListRequestLease lease)
     {
+        return TryBeginRequest(
+            retireDetailSource: false,
+            out lease,
+            out _);
+    }
+
+    private bool TryBeginRequest(
+        bool retireDetailSource,
+        out RegularChartListRequestLease lease,
+        out PlaylistSourceRetirementRequest detailSourceRetirement)
+    {
         CancellationTokenSource previous;
         lock (syncRoot)
         {
             if (disposed)
             {
                 lease = null;
+                detailSourceRetirement = null;
                 return false;
             }
+            detailSourceRetirement = retireDetailSource
+                ? playlistWorkspace.PrepareDetailSourceRetirementWithoutPublishing()
+                : null;
             previous = currentCancellation;
             currentCancellation = new CancellationTokenSource();
             currentRequestId = MainViewBuildRequestSequence.Next();
             regularRequestActive = true;
             lease = new RegularChartListRequestLease(currentRequestId, currentCancellation.Token);
+        }
+        if (detailSourceRetirement != null)
+        {
+            playlistWorkspace.PublishDetailSourceRetirement(detailSourceRetirement);
         }
         CancelAndDispose(previous);
         if (Net10PerformanceLog.IsEnabled)
@@ -774,6 +793,19 @@ internal sealed class RegularChartListOwner : IDisposable
 
     internal bool TryBeginVirtualRequest(BMSLibrary library, out RegularChartListRequestLease lease)
     {
+        return TryBeginVirtualRequest(
+            library,
+            retireDetailSource: false,
+            out lease,
+            out _);
+    }
+
+    private bool TryBeginVirtualRequest(
+        BMSLibrary library,
+        bool retireDetailSource,
+        out RegularChartListRequestLease lease,
+        out PlaylistSourceRetirementRequest detailSourceRetirement)
+    {
         CancellationTokenSource previousRequest;
         CancellationTokenSource prewarmCancellation = null;
         lock (syncRoot)
@@ -781,6 +813,7 @@ internal sealed class RegularChartListOwner : IDisposable
             if (disposed)
             {
                 lease = null;
+                detailSourceRetirement = null;
                 return false;
             }
             if (virtualSourceRowsLibraryReserved
@@ -792,11 +825,18 @@ internal sealed class RegularChartListOwner : IDisposable
             }
             virtualSourceRowsLibrary = library;
             virtualSourceRowsLibraryReserved = true;
+            detailSourceRetirement = retireDetailSource
+                ? playlistWorkspace.PrepareDetailSourceRetirementWithoutPublishing()
+                : null;
             previousRequest = currentCancellation;
             currentCancellation = new CancellationTokenSource();
             currentRequestId = MainViewBuildRequestSequence.Next();
             regularRequestActive = true;
             lease = new RegularChartListRequestLease(currentRequestId, currentCancellation.Token);
+        }
+        if (detailSourceRetirement != null)
+        {
+            playlistWorkspace.PublishDetailSourceRetirement(detailSourceRetirement);
         }
         CancelAndDispose(previousRequest);
         Cancel(prewarmCancellation);
@@ -2178,10 +2218,14 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             throw new ArgumentException("A complete materialized regular chart-list request is required.", nameof(request));
         }
-        if (!TryBeginRequest(out RegularChartListRequestLease lease))
+        if (!TryBeginRequest(
+            request.RetireDetailSource,
+            out RegularChartListRequestLease lease,
+            out PlaylistSourceRetirementRequest detailSourceRetirement))
         {
             return default;
         }
+        request.DetailSourceRetirement = detailSourceRetirement;
 
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
         RegularChartListBuildResult build;
@@ -2229,7 +2273,8 @@ internal sealed class RegularChartListOwner : IDisposable
                 },
                 request.ColumnSelection,
                 request.Mode,
-                stopwatch));
+                stopwatch,
+                request.DetailSourceRetirement));
         return terminal.WasCommitted
             ? new RegularMaterializedChartListApplyResult(terminal.RowsApply, build, request.Mode)
             : default;
@@ -2331,8 +2376,6 @@ internal sealed class RegularChartListOwner : IDisposable
         string keywordFilter = filters.KeywordFilter;
         ChartModeFilter modeFilter = filters.ModeFilter;
         RegularChartListExternalVersions externalVersions = CaptureExternalVersions(request.Library, default);
-        ClearPlaylistSourceRowsForRegularView();
-
         MainViewUpdateMode resolvedMode = ChartListRefreshCoordinator.ResolveMainColumnSettingMode(request.Mode, request.CurrentTreeMode);
         MainViewUpdateMode resolvedTreeMode = ChartListRefreshCoordinator.ResolveMainColumnSettingMode(request.CurrentTreeMode, request.CurrentTreeMode);
         MainChartListColumnSelection columnSelection = mainChartList.ResolveColumnSettingForViewUpdate(resolvedMode, request.CurrentTreeMode);
@@ -2368,6 +2411,7 @@ internal sealed class RegularChartListOwner : IDisposable
                     PreserveSummary = request.PreserveSummary,
                     Mode = request.Mode,
                     Stopwatch = request.Stopwatch,
+                    RetireDetailSource = true,
                     Reason = request.Mode.ToString()
                 });
             LogDefaultVirtualEntry(request, sort, result, sortWasReset);
@@ -2399,7 +2443,8 @@ internal sealed class RegularChartListOwner : IDisposable
                     ColumnSelection = columnSelection,
                     PreserveSummary = request.PreserveSummary,
                     Mode = request.Mode,
-                    Stopwatch = request.Stopwatch
+                    Stopwatch = request.Stopwatch,
+                    RetireDetailSource = true
                 });
             LogSubsetVirtualEntry(request, sort, subset.Name, result, sortWasReset);
             if (result.WasCommitted && sortWasReset)
@@ -2462,15 +2507,11 @@ internal sealed class RegularChartListOwner : IDisposable
                 ColumnSelection = effectiveMode == request.Mode ? columnSelection : treeColumnSelection,
                 PreserveSummary = request.PreserveSummary,
                 Mode = effectiveMode,
-                Stopwatch = request.Stopwatch
+                Stopwatch = request.Stopwatch,
+                RetireDetailSource = true
             });
         LogMaterializedEntry(request, effectiveMode, refreshRequest, materialized);
         return new RegularChartListEntryResult(materialized.WasCommitted, RegularChartListEntryRoute.Materialized, sortWasReset: false);
-    }
-
-    private void ClearPlaylistSourceRowsForRegularView()
-    {
-        playlistWorkspace.ClearDetailSourceForRegularView();
     }
 
     private void SynchronizeBmsonRowsForRefresh(RegularChartListEntryRequest request)
@@ -2953,10 +2994,15 @@ internal sealed class RegularChartListOwner : IDisposable
             throw new ArgumentNullException(nameof(request));
         }
         ResetDerivedCaches();
-        if (!TryBeginVirtualRequest(request.Library, out RegularChartListRequestLease lease))
+        if (!TryBeginVirtualRequest(
+            request.Library,
+            request.RetireDetailSource,
+            out RegularChartListRequestLease lease,
+            out PlaylistSourceRetirementRequest detailSourceRetirement))
         {
             return RegularVirtualNormalLibraryApplyResult.NotCommitted();
         }
+        request.DetailSourceRetirement = detailSourceRetirement;
 
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
         PerformanceInteraction performanceInteraction =
@@ -3069,7 +3115,8 @@ internal sealed class RegularChartListOwner : IDisposable
                 },
                 request.ColumnSelection,
                 request.Mode,
-                stopwatch));
+                stopwatch,
+                request.DetailSourceRetirement));
         if (!terminal.WasCommitted)
         {
             return RegularVirtualNormalLibraryApplyResult.NotCommitted();
@@ -3120,10 +3167,15 @@ internal sealed class RegularChartListOwner : IDisposable
         }
 
         ResetDerivedCaches();
-        if (!TryBeginVirtualRequest(request.Library, out RegularChartListRequestLease lease))
+        if (!TryBeginVirtualRequest(
+            request.Library,
+            request.RetireDetailSource,
+            out RegularChartListRequestLease lease,
+            out PlaylistSourceRetirementRequest detailSourceRetirement))
         {
             return default;
         }
+        request.DetailSourceRetirement = detailSourceRetirement;
 
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
         mainChartList.RowProjection.CaptureVersions(request.Library);
@@ -3219,7 +3271,8 @@ internal sealed class RegularChartListOwner : IDisposable
                 },
                 request.ColumnSelection,
                 request.Mode,
-                stopwatch));
+                stopwatch,
+                request.DetailSourceRetirement));
         if (!terminal.WasCommitted)
         {
             return default;
@@ -3693,6 +3746,7 @@ internal sealed class RegularChartListOwner : IDisposable
         }
 
         PlaylistMainTablePresentationCommit mainTablePresentationCommit = null;
+        PlaylistSourceClearCommitResult detailSourceClearCommit = null;
         bool CommitRegularPresentation(Action commitRows)
         {
             lock (syncRoot)
@@ -3704,7 +3758,14 @@ internal sealed class RegularChartListOwner : IDisposable
                 commitRows();
                 mainTablePresentationCommit = playlistWorkspace.CommitMainTablePresentationWithoutNotification(
                     presentation.ColumnSelection,
-                    playlistDetailActive: false);
+                    playlistDetailActive: false,
+                    playlistSummaryActive: false);
+                if (presentation.DetailSourceRetirement != null)
+                {
+                    detailSourceClearCommit =
+                        playlistWorkspace.CommitDetailSourceClearForRegularView(
+                            presentation.DetailSourceRetirement);
+                }
                 if (presentation.Build != null)
                 {
                     folderRows = presentation.Build.Stage.FolderRows;
@@ -3730,7 +3791,30 @@ internal sealed class RegularChartListOwner : IDisposable
             }
         }
 
-        void PublishRelatedPresentation() => playlistWorkspace.PublishMainTablePresentation(mainTablePresentationCommit);
+        void PublishRelatedPresentation()
+        {
+            List<Exception> publishExceptions = [];
+            try
+            {
+                playlistWorkspace.PublishMainTablePresentation(mainTablePresentationCommit);
+            }
+            catch (Exception ex)
+            {
+                publishExceptions.Add(ex);
+            }
+            try
+            {
+                playlistWorkspace.PublishDetailSourceClearForRegularView(detailSourceClearCommit);
+            }
+            catch (Exception ex)
+            {
+                publishExceptions.Add(ex);
+            }
+            if (publishExceptions.Count > 0)
+            {
+                throw new AggregateException(publishExceptions);
+            }
+        }
 
         MainChartListPresentationApplyResult applied;
         try
@@ -4546,6 +4630,7 @@ internal sealed class RegularChartListPresentationResult
         MainChartListColumnSelection columnSelection,
         MainViewUpdateMode mode,
         Stopwatch stopwatch,
+        PlaylistSourceRetirementRequest detailSourceRetirement,
         RegularChartListPresentationKind kind)
     {
         Build = build;
@@ -4565,6 +4650,7 @@ internal sealed class RegularChartListPresentationResult
         ColumnSelection = columnSelection;
         Stopwatch = stopwatch ?? throw new ArgumentNullException(nameof(stopwatch));
         Mode = mode;
+        DetailSourceRetirement = detailSourceRetirement;
         Kind = kind;
     }
 
@@ -4575,6 +4661,8 @@ internal sealed class RegularChartListPresentationResult
     internal MainViewUpdateMode Mode { get; }
 
     internal Stopwatch Stopwatch { get; }
+
+    internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; }
 
     internal RegularChartListPresentationKind Kind { get; }
 
@@ -4608,7 +4696,8 @@ internal sealed class RegularChartListPresentationResult
             ColumnPreparationMs = columnPreparationMs,
             TerminalStageStartMs = terminalStageStartMs,
             Stopwatch = rowsStopwatch,
-            RowsAlreadyPrepared = rowsAlreadyPrepared
+            RowsAlreadyPrepared = rowsAlreadyPrepared,
+            OperationContextMode = ColumnSelection.AppliedMode
         };
     }
 
@@ -4617,7 +4706,8 @@ internal sealed class RegularChartListPresentationResult
         MainChartListRowsApplyRequest rowsRequest,
         MainChartListColumnSelection columnSelection,
         MainViewUpdateMode mode,
-        Stopwatch stopwatch)
+        Stopwatch stopwatch,
+        PlaylistSourceRetirementRequest detailSourceRetirement = null)
     {
         if (build == null)
         {
@@ -4637,6 +4727,7 @@ internal sealed class RegularChartListPresentationResult
             columnSelection,
             mode,
             stopwatch,
+            detailSourceRetirement,
             RegularChartListPresentationKind.Materialized);
     }
 
@@ -4644,7 +4735,8 @@ internal sealed class RegularChartListPresentationResult
         MainChartListRowsApplyRequest rowsRequest,
         MainChartListColumnSelection columnSelection,
         MainViewUpdateMode mode,
-        Stopwatch stopwatch)
+        Stopwatch stopwatch,
+        PlaylistSourceRetirementRequest detailSourceRetirement = null)
     {
         return new RegularChartListPresentationResult(
             build: null,
@@ -4652,6 +4744,7 @@ internal sealed class RegularChartListPresentationResult
             columnSelection,
             mode,
             stopwatch,
+            detailSourceRetirement,
             RegularChartListPresentationKind.Virtual);
     }
 }
@@ -4666,6 +4759,8 @@ internal sealed class RegularMaterializedChartListApplyRequest
     internal bool PreserveSummary { get; set; }
     internal MainViewUpdateMode Mode { get; set; }
     internal Stopwatch Stopwatch { get; set; }
+    internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; set; }
+    internal bool RetireDetailSource { get; set; }
 }
 
 internal readonly struct RegularMaterializedChartListApplyResult
@@ -4719,6 +4814,8 @@ internal sealed class RegularVirtualNormalLibraryApplyRequest
     internal bool PreserveSummary { get; set; }
     internal MainViewUpdateMode Mode { get; set; }
     internal Stopwatch Stopwatch { get; set; }
+    internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; set; }
+    internal bool RetireDetailSource { get; set; }
     internal string Reason { get; set; }
 }
 
@@ -4740,6 +4837,8 @@ internal sealed class RegularVirtualChartSubsetApplyRequest
     internal bool PreserveSummary { get; set; }
     internal MainViewUpdateMode Mode { get; set; }
     internal Stopwatch Stopwatch { get; set; }
+    internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; set; }
+    internal bool RetireDetailSource { get; set; }
 }
 
 internal readonly struct RegularVirtualChartSubsetApplyResult

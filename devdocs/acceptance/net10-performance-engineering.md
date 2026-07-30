@@ -41,7 +41,7 @@ reviewed HEAD:
 1. settings dialog の playlist table dependency は typed catalog version event へ限定され、非表示中は dirty version のみを保持する。
 2. playlist summaryはworkspace-owned stable versioned sourceへ一回のdata resetでcommitし、同一source／filter／sort versionの再訪をno-opにする。
 3. `CustomTableView`はdata resetでcell dataだけをinvalidateし、column layout snapshotを維持する。
-4. detail→libraryはold detail source clear、new source apply、playlist-related PropertyChangedを別々にpublishする。
+4. detail／summary／library transitionはrows、schema、selection、operation context、visible modeをterminal commitし、old detail sourceはnew sourceのownership transfer後にretireする。
 5. performance markerはproducer timestampをbounded queueへenqueueし、専用background writerが`InstallPerformance.Net10`へbatch出力する。
 6. main table の binding は `MainChartList.Rows` と mode 別 virtual source の contract に統合され、consumer のない binding-policy state は持たない。
 
@@ -65,8 +65,8 @@ reviewed HEAD:
 | deadlock safety | met; protect |
 | playlist detail route | acceptable; protect |
 | playlist summary user-visible transition | engineering fix met; final real-data check deferred to post-F6 |
-| detail／summary→library transition | open |
-| table invalidation contract | summary data reset met; cross-mode transaction open |
+| detail／summary→library transition | engineering fix met; final real-data check deferred to post-F6 |
+| table invalidation contract | data reset and cross-mode data-only source apply met |
 | diagnostic logging hot-path cost | met; bounded non-blocking producer |
 | startup／estimation／scan／parse second-wave optimization | open |
 | final user real-data check | pending after `F6`; non-blocking |

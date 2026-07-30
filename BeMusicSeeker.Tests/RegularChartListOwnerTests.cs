@@ -96,11 +96,12 @@ public sealed class RegularChartListOwnerTests
         Assert.IsTrue(owner.NavigateTree(RegularChartFolderFilterKind.Artist, "Artist A"));
         Assert.AreEqual("artist:Artist A", presentations[1].FilterIdentity);
         Assert.IsTrue(presentations[1].KeywordRefresh);
-        Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+        Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+        Assert.IsFalse(workspace.IsPlaylistSummaryModeRequested);
 
         Assert.IsTrue(owner.NavigateTree(filterKind: null));
         Assert.IsNull(presentations[2].FilterIdentity);
-        Assert.IsFalse(presentations[2].KeywordRefresh);
+        Assert.IsTrue(presentations[2].KeywordRefresh);
 
         workspace.SetPlaylistSummaryMode(enabled: true);
         Assert.IsFalse(owner.NavigateTree((RegularChartFolderFilterKind)999, "invalid"));
@@ -140,16 +141,19 @@ public sealed class RegularChartListOwnerTests
             for (int index = 0; index < modes.Length; index++)
             {
                 object? parameter = index == 3 ? "duplicate-folder" : null;
+                int presentationCountBefore = presentations.Count;
 
                 Assert.IsTrue(owner.NavigateMaintenance(modes[index], parameter, "test_navigation"));
 
-                RegularChartMaintenanceNavigationPresentationRequestedEventArgs request = presentations[index];
+                RegularChartMaintenanceNavigationPresentationRequestedEventArgs request = presentations[^1];
                 Assert.AreEqual(modes[index], request.Mode);
                 Assert.AreSame(parameter, request.Parameter);
-                Assert.AreEqual(index == 0, request.KeywordPresentationRefreshRequired);
+                Assert.AreEqual(index == 3 ? 2 : 1, presentations.Count - presentationCountBefore);
+                Assert.AreEqual(index != 3, request.KeywordPresentationRefreshRequired);
                 Assert.IsTrue(request.RefreshRequested);
             }
-            Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+            Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+            Assert.IsFalse(workspace.IsPlaylistSummaryModeRequested);
 
             int presentationCount = presentations.Count;
             workspace.SetPlaylistSummaryMode(enabled: true);
@@ -174,10 +178,13 @@ public sealed class RegularChartListOwnerTests
         Assert.AreEqual(MainViewUpdateMode.FileMissingFilterSelected, presentations[0].Mode);
         Assert.IsTrue(presentations[0].KeywordPresentationRefreshRequired);
         Assert.IsFalse(presentations[0].RefreshRequested);
-        Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+        Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+        Assert.IsFalse(workspace.IsPlaylistSummaryModeRequested);
 
         Assert.IsTrue(owner.NavigateMaintenance(MainViewUpdateMode.ZeroNoteFilterSelected));
-        Assert.AreEqual(1, presentations.Count);
+        Assert.AreEqual(2, presentations.Count);
+        Assert.IsTrue(presentations[1].KeywordPresentationRefreshRequired);
+        Assert.IsFalse(presentations[1].RefreshRequested);
     }
 
     [TestMethod]
@@ -237,7 +244,7 @@ public sealed class RegularChartListOwnerTests
             MainViewUpdateMode.NewlyInstalledFolderSelected,
             installedPackage));
         Assert.AreSame(installedPackage, presentations[1].Parameter);
-        Assert.IsFalse(presentations[1].KeywordPresentationRefreshRequired);
+        Assert.IsTrue(presentations[1].KeywordPresentationRefreshRequired);
 
         Assert.IsTrue(owner.NavigateInstall(MainViewUpdateMode.PendingInstallFolderSelected));
         Assert.AreEqual(MainViewUpdateMode.PendingInstallFolderSelected, presentations[2].Mode);
@@ -805,7 +812,7 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
-    public void ApplyRegularView_ClearsPlaylistSourceStateBeforeRegularPublish()
+    public void ApplyRegularView_NestedNewerRequestKeepsLatestRetirementReceipt()
     {
         var table = new MainChartListViewModel();
         var buildState = new PlaylistDetailBuildState
@@ -870,6 +877,21 @@ public sealed class RegularChartListOwnerTests
             new TestUiScheduler(() => null!));
         int? sourceClearVersionAtRowsNotification = null;
         bool? detailActiveAtRowsNotification = null;
+        bool sourceWasRetainedAtPreparation = false;
+        bool nestedStarted = false;
+        RegularChartListEntryResult nestedResult = default;
+        table.RowsReplacing += (_, _) =>
+        {
+            sourceWasRetainedAtPreparation =
+                ReferenceEquals(sourceRows, viewState.Source.Rows)
+                && ReferenceEquals(viewRows, viewState.View.Rows);
+            if (!nestedStarted)
+            {
+                nestedStarted = true;
+                nestedResult = owner.ApplyRegularView(
+                    CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected));
+            }
+        };
         table.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MainChartListViewModel.Rows))
@@ -884,58 +906,70 @@ public sealed class RegularChartListOwnerTests
 
         RegularChartListEntryResult result = owner.ApplyRegularView(CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected));
 
-        Assert.IsTrue(result.WasCommitted);
-        Assert.AreEqual(2, buildState.RequestVersion);
+        Assert.IsFalse(result.WasCommitted);
+        Assert.IsTrue(nestedResult.WasCommitted);
+        Assert.IsTrue(sourceWasRetainedAtPreparation);
+        Assert.AreEqual(3, buildState.RequestVersion);
         Assert.AreEqual(0, viewState.Source.Rows.Count);
         Assert.AreEqual(0, viewState.View.Rows.Count);
         Assert.IsNull(buildState.PendingRequest);
         Assert.IsNull(buildState.CurrentBuildRequest);
         Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, table.LastAppliedColumnMode);
-        Assert.AreEqual(2, sourceClearVersionAtRowsNotification);
+        Assert.AreEqual(3, sourceClearVersionAtRowsNotification);
         Assert.AreEqual(false, detailActiveAtRowsNotification);
         Assert.IsFalse(workspace.IsPlaylistDetailViewActive);
         Assert.IsTrue(logs.Any(log => log.Contains("playlist_source_replace action=clear")));
     }
 
     [TestMethod]
+    public void ApplyRegularView_RetentionLogFailureStillPublishesRegularModeBeforeRetirement()
+    {
+        var table = new MainChartListViewModel();
+        var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
+        var sourceRows = new List<PlaylistDetailSourceRow>
+        {
+            CreatePlaylistSourceRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        };
+        var viewState = new PlaylistDetailViewState();
+        viewState.Source.Rows = sourceRows;
+        viewState.View.Rows = new List<object> { new PlaylistDetailRow(sourceRows[0]) };
+        var publicationOrder = new List<string>();
+        PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner(
+            table,
+            buildState,
+            viewState,
+            _ =>
+            {
+                publicationOrder.Add("retirement-log");
+                throw new InvalidOperationException("retirement log failed");
+            });
+        workspace.IsPlaylistDetailViewActive = true;
+        workspace.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistDetailViewActive))
+            {
+                publicationOrder.Add("mode");
+            }
+        };
+        using RegularChartListOwner owner = CreateOwner(table, workspace);
+
+        Assert.ThrowsException<RegularChartListTerminalPublishException>(
+            () => owner.ApplyRegularView(CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected)));
+
+        CollectionAssert.AreEqual(
+            new[] { "mode", "retirement-log", "retirement-log" },
+            publicationOrder);
+        Assert.IsFalse(workspace.IsPlaylistDetailViewActive);
+        Assert.AreEqual(0, viewState.Source.Rows.Count);
+        Assert.AreEqual(0, viewState.View.Rows.Count);
+    }
+
+    [TestMethod]
     public void ApplyMainLibraryView_DelegatesMainLibraryRouteToRegularPipeline()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
+        using RegularChartListOwner owner = CreateOwner(table, workspace);
         var route = new ChartListRefreshRoute(
             ChartListRefreshRouteKind.ContinueMainLibrary,
             MainViewUpdateMode.FolderFilterSelected,
@@ -943,17 +977,44 @@ public sealed class RegularChartListOwnerTests
             MainViewUpdateMode.FolderFilterSelected,
             isPlaylistTreeActive: false,
             includeBmsonRows: false);
+        table.UpdateSummaryText(0, 0);
+        string expectedSummary = table.SummaryText;
+        table.UpdateSummaryText(9, 3);
+        workspace.SetPlaylistSummaryMode(enabled: true);
+        workspace.RequestPlaylistSummaryMode(enabled: false);
 
         RegularChartListEntryResult result = owner.ApplyMainLibraryView(
             route,
             library: null,
             parameter: null,
             treeParameter: null,
-            preserveSummary: false,
+            preserveSummary: workspace.IsPlaylistSummaryModeRequested,
             Stopwatch.StartNew());
 
         Assert.IsTrue(result.WasCommitted);
         Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, table.LastAppliedColumnMode);
+        Assert.AreEqual(expectedSummary, table.SummaryText);
+    }
+
+    [TestMethod]
+    public void TryApplyMaterialized_TransientSortRetainsResolvedPendingOperationContext()
+    {
+        var table = new MainChartListViewModel();
+        PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
+        using RegularChartListOwner owner = CreateOwner(table, workspace);
+
+        RegularMaterializedChartListApplyResult result = owner.TryApplyMaterialized(
+            CreateMaterializedApplyRequest(
+                [LibraryChartRow.FromChartFile(CreateSourceRow("Pending", "Alpha").Chart)],
+                MainViewUpdateMode.PendingInstallFolderSelected));
+
+        Assert.IsTrue(result.WasCommitted);
+        Assert.AreEqual(
+            MainViewOperationSection.InstallPending,
+            table.CurrentOperationContext.OperationSection);
+        Assert.AreEqual(
+            ChartOperationSourceScope.PendingPackage,
+            table.CurrentOperationContext.SourceScope);
     }
 
     [TestMethod]
@@ -3821,6 +3882,7 @@ public sealed class RegularChartListOwnerTests
                 MainViewUpdateMode.FolderFilterSelected);
 
             Assert.IsTrue(second.Reused);
+            Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, second.AppliedMode);
             Assert.AreSame(table.ColumnsSettings, second.ColumnsSettings);
             Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
             Assert.AreEqual(Visibility.Collapsed, workspace.ColumnSettingsVisibilityForPlaylist);
@@ -4040,15 +4102,19 @@ public sealed class RegularChartListOwnerTests
               ExternalShellGatewayPolicy.Current);
     }
 
-    private static PlaylistWorkspaceViewModel CreateWorkspaceForOwner()
+    private static PlaylistWorkspaceViewModel CreateWorkspaceForOwner(
+        MainChartListViewModel? table = null,
+        PlaylistDetailBuildState? buildState = null,
+        PlaylistDetailViewState? viewState = null,
+        Action<string>? detailRetentionLog = null)
     {
         return new PlaylistWorkspaceViewModel(
             action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
+            table ?? new MainChartListViewModel(action => action()),
+            buildState ?? new PlaylistDetailBuildState(),
+            viewState ?? new PlaylistDetailViewState(),
             _ => { },
-            _ => { },
+            detailRetentionLog ?? (_ => { }),
             () => new CustomFolderOutputSettingsSnapshot(),
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
@@ -4236,13 +4302,14 @@ public sealed class RegularChartListOwnerTests
     }
 
     private static RegularMaterializedChartListApplyRequest CreateMaterializedApplyRequest(
-        IEnumerable<LibraryChartRow> rows)
+        IEnumerable<LibraryChartRow> rows,
+        MainViewUpdateMode appliedMode = MainViewUpdateMode.FolderFilterSelected)
     {
         var refresh = new RegularChartListRefreshRequest(
             MainViewUpdateMode.SortUpdated,
             MainViewUpdateMode.TreeViewFilterNotChanged,
             parameter: null,
-            MainViewUpdateMode.FolderFilterSelected,
+            appliedMode,
             treeParameter: null,
             includeBmsonRows: false,
             virtualSubsetRequiredFailure: false,
@@ -4260,7 +4327,7 @@ public sealed class RegularChartListOwnerTests
                 settings,
                 reused: false,
                 elapsedMs: 0L,
-                MainViewUpdateMode.FolderFilterSelected,
+                appliedMode,
                 Visibility.Collapsed,
                 new PlaylistSummaryColumnSettings()),
             Mode = MainViewUpdateMode.SortUpdated,

@@ -1058,12 +1058,14 @@ public sealed class ApplicationCompositionTests
                 int workerThreadId = 0;
                 int propertyChangedThreadId = 0;
                 int propertyChangedCount = 0;
+                var frame = new DispatcherFrame();
                 viewModel.PlaylistWorkspace.PropertyChanged += (_, e) =>
                 {
                     if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode))
                     {
                         propertyChangedThreadId = Thread.CurrentThread.ManagedThreadId;
                         propertyChangedCount++;
+                        frame.Continue = false;
                     }
                 };
 
@@ -1072,19 +1074,24 @@ public sealed class ApplicationCompositionTests
                     workerThreadId = Thread.CurrentThread.ManagedThreadId;
                     viewModel.PlaylistWorkspace.RequestSummarySelection();
                 });
-                var frame = new DispatcherFrame();
-                _ = worker.ContinueWith(
-                    _ => uiDispatcher.BeginInvoke(
-                        DispatcherPriority.ContextIdle,
-                        (Action)(() => frame.Continue = false)),
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
+                bool timedOut = false;
+                var timeout = new DispatcherTimer(
+                    TimeSpan.FromSeconds(5),
+                    DispatcherPriority.Send,
+                    (_, _) =>
+                    {
+                        timedOut = true;
+                        frame.Continue = false;
+                    },
+                    uiDispatcher);
 
                 Dispatcher.PushFrame(frame);
+                timeout.Stop();
                 worker.GetAwaiter().GetResult();
 
+                Assert.IsFalse(timedOut, "Playlist summary terminal presentation was not published.");
                 Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryMode);
+                Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryModeRequested);
                 Assert.AreNotEqual(uiThreadId, workerThreadId);
                 Assert.AreEqual(uiThreadId, propertyChangedThreadId);
                 Assert.AreEqual(1, propertyChangedCount);

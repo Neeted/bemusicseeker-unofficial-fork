@@ -735,7 +735,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("CreatePlaylistDetailRefreshInput(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailRefreshInput", StringComparison.Ordinal));
         string detailActivationUpdate = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void UpdatePlaylistDetailActivation(");
-        StringAssert.Contains(detailActivationUpdate, "if (playlistDetailActive)");
+        StringAssert.Contains(detailActivationUpdate, "if (!playlistDetailActive)");
         StringAssert.Contains(detailActivationUpdate, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
         Assert.IsFalse(mainWindowSource.Contains("MainChartList.DisplayRefreshRequested"));
         string customTableSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "CustomTableView.cs");
@@ -3854,8 +3854,9 @@ public sealed class PlaylistWorkspaceViewModelTests
             ?? throw new AssertFailedException("Summary selection activation was not raised.");
 
         Assert.IsTrue(currentSummary.SummaryModeChanged);
-        Assert.IsTrue(workspace.IsPlaylistSummaryMode);
-        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_summary_header, workspace.GridHeaderText);
+        Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+        Assert.IsTrue(workspace.IsPlaylistSummaryModeRequested);
+        Assert.AreEqual(string.Empty, workspace.GridHeaderText);
         Assert.AreEqual(1, presentationRefreshRequestCount);
         Assert.IsTrue(workspace.HasDeferredPlaylistSummaryPresentationRefresh());
     }
@@ -3935,9 +3936,9 @@ public sealed class PlaylistWorkspaceViewModelTests
             ?? throw new AssertFailedException("Detail selection activation was not raised.");
         Assert.IsTrue(selected.SummaryModeChanged);
         Assert.IsTrue(buildRequest.CancellationToken.IsCancellationRequested);
-        Assert.IsFalse(workspace.IsPlaylistSummaryMode);
-        Assert.AreEqual(string.Empty, workspace.GridHeaderText);
-        Assert.AreEqual(string.Empty, workspace.PlaylistSummaryText);
+        Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+        Assert.IsFalse(workspace.IsPlaylistSummaryModeRequested);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_summary_header, workspace.GridHeaderText);
         Assert.IsTrue(workspace.IsCurrentPlaylistDetailSelection(selected.Detail, selected.SelectionRevision));
         workspace.CompletePlaylistSummaryDataBuild(buildRequest);
     }
@@ -5242,7 +5243,8 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         PlaylistMainTablePresentationCommit commit = workspace.CommitMainTablePresentationWithoutNotification(
             selection,
-            playlistDetailActive: true);
+            playlistDetailActive: true,
+            playlistSummaryActive: false);
 
         Assert.AreEqual(Visibility.Visible, workspace.ColumnSettingsVisibilityForPlaylist);
         Assert.AreSame(summaryColumns, workspace.PlaylistSummaryColumnsSettings);
@@ -6131,6 +6133,50 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(1, workspace.PlaylistSummaryView[0].PlaylistId);
         Assert.AreEqual(1, resetCount);
         Assert.AreEqual(1, sourceNotificationCount);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummaryTerminalCommitsRowsBeforeVisibleMode()
+    {
+        var viewModel = MainWindowViewModelTestFactory.Create();
+        PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+        var publicationOrder = new List<string>();
+        workspace.PlaylistSummaryView.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset)
+            {
+                publicationOrder.Add("rows");
+            }
+        };
+        workspace.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode))
+            {
+                publicationOrder.Add("mode");
+            }
+        };
+
+        Assert.IsTrue(workspace.RequestPlaylistSummaryMode(enabled: true));
+        Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+        {
+            Rows = [new PlaylistSummaryRow { PlaylistId = 3 }],
+            SummaryText = "ready",
+            Identity = new PlaylistSummaryPresentationIdentity(
+                sourceVersion: 17L,
+                keywordFilter: string.Empty,
+                PlaylistOwnedFilter.All,
+                nameof(PlaylistSummaryRow.Name),
+                ListSortDirection.Ascending),
+            PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+        }));
+
+        CollectionAssert.AreEqual(new[] { "rows", "mode" }, publicationOrder);
+        Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+        Assert.IsFalse(workspace.IsPlaylistDetailViewActive);
+        Assert.AreEqual(
+            MainViewOperationSection.Playlist,
+            viewModel.MainChartList.CurrentOperationContext.OperationSection);
     }
 
     [TestMethod]

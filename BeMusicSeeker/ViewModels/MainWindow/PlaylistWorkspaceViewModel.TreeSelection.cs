@@ -330,6 +330,9 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal void RequestSummarySelection()
     {
         long selectionRevision = ClearPlaylistDetailSelection();
+        PlaylistSourceRetirementRequest detailSourceRetirement =
+            PrepareDetailSourceRetirementForRegularView();
+        RegisterPlaylistSummaryDetailSourceRetirement(detailSourceRetirement);
         dispatchPresentation(
             () =>
             {
@@ -342,7 +345,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     return;
                 }
-                bool summaryModeChanged = SetPlaylistSummaryMode(enabled: true);
+                bool summaryModeChanged = RequestPlaylistSummaryMode(enabled: true);
                 lock (playlistDetailSelectionSyncRoot)
                 {
                     if (!IsCurrentPlaylistSummarySelectionWithoutLock(selectionRevision))
@@ -364,6 +367,26 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
                 RequestPlaylistSummaryPresentationRefresh();
             });
+    }
+
+    internal bool RegisterPlaylistSummaryDetailSourceRetirement(
+        PlaylistSourceRetirementRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        lock (playlistSummaryTransitionLock)
+        {
+            if (pendingPlaylistSummaryDetailSourceRetirement != null
+                && pendingPlaylistSummaryDetailSourceRetirement.RequestVersion
+                    >= request.RequestVersion)
+            {
+                return false;
+            }
+            pendingPlaylistSummaryDetailSourceRetirement = request;
+            return true;
+        }
     }
 
     internal long ClearPlaylistDetailSelection()
@@ -402,7 +425,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     return;
                 }
-                bool summaryModeChanged = SetPlaylistSummaryMode(enabled: false);
+                bool summaryModeChanged = RequestPlaylistSummaryMode(enabled: false);
                 lock (playlistDetailSelectionSyncRoot)
                 {
                     if (!IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision))

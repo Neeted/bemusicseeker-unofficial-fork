@@ -205,8 +205,8 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(mainChartListSource, "internal MainChartListRowsCommit CommitPreparedRowsWithoutDisposal(");
         StringAssert.Contains(mainChartListSource, "internal void DisposeCommittedRows(");
         StringAssert.Contains(mainChartListSource, "internal MainChartListRowsApplyResult PublishRowsCommit(");
-        StringAssert.Contains(playlistTerminalApplySource, "CommitColumnPresentationWithoutNotification(");
-        StringAssert.Contains(playlistTerminalApplySource, "PublishColumnPresentation(result.ColumnPresentationCommit)");
+        StringAssert.Contains(playlistTerminalApplySource, "CommitMainTablePresentationWithoutNotification(");
+        StringAssert.Contains(playlistTerminalApplySource, "PublishMainTablePresentation(result.MainTablePresentationCommit)");
         StringAssert.Contains(playlistTerminalApplySource, "result.AppliedColumnMode = request.ColumnSelection.AppliedMode;");
         StringAssert.Contains(playlistTerminalApplySource, "detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);");
         Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("CommitExternalColumnMode", StringComparison.Ordinal));
@@ -267,6 +267,43 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistSummaryRetirement_InvalidatesOlderDetailTerminalBeforeSummaryApply()
+    {
+        var viewModel = MainWindowViewModelTestFactory.Create();
+        var oldRows = new List<object>();
+        viewModel.MainChartList.Rows = oldRows;
+        viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion = 1;
+        PlaylistSourceRetirementRequest retirement =
+            viewModel.PlaylistWorkspace.PrepareDetailSourceRetirementForRegularView();
+        Assert.IsTrue(
+            viewModel.PlaylistWorkspace.RegisterPlaylistSummaryDetailSourceRetirement(retirement));
+        viewModel.PlaylistWorkspace.RequestPlaylistSummaryMode(enabled: true);
+
+        PlaylistDetailTerminalCommitResult result = viewModel.PlaylistWorkspace.ApplyDetailTerminal(
+            CreatePlaylistTerminalRequest(
+                new List<object> { new object() },
+                requestVersion: 1));
+
+        Assert.IsFalse(result.Applied);
+        Assert.AreSame(oldRows, viewModel.MainChartList.Rows);
+        Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryModeRequested);
+        Assert.AreEqual(2, viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion);
+    }
+
+    [TestMethod]
+    public void PlaylistSummaryRetirementRegistration_KeepsNewestRequestVersion()
+    {
+        var viewModel = MainWindowViewModelTestFactory.Create();
+        var older = new PlaylistSourceRetirementRequest(1, buildCancellation: null);
+        var newer = new PlaylistSourceRetirementRequest(2, buildCancellation: null);
+
+        Assert.IsTrue(
+            viewModel.PlaylistWorkspace.RegisterPlaylistSummaryDetailSourceRetirement(newer));
+        Assert.IsFalse(
+            viewModel.PlaylistWorkspace.RegisterPlaylistSummaryDetailSourceRetirement(older));
+    }
+
+    [TestMethod]
     public void PlaylistWorkspace_CurrentSourceEntryBuildsAndCommitsMainTableRows()
     {
         var viewModel = MainWindowViewModelTestFactory.Create();
@@ -277,6 +314,15 @@ public sealed class PlaylistViewPipelineTests
         viewModel.PlaylistWorkspace.DetailViewState.Source.Rows = [sourceRow];
         viewModel.PlaylistWorkspace.DetailViewState.Source.GenerationId = 4;
         viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion = 1;
+        bool buildLockHeldDuringColumnModeEvent = false;
+        bool viewLockHeldDuringColumnModeEvent = false;
+        viewModel.MainChartList.AppliedColumnModeCommitted += _ =>
+        {
+            buildLockHeldDuringColumnModeEvent = Monitor.IsEntered(
+                viewModel.PlaylistWorkspace.DetailBuildState.SyncRoot);
+            viewLockHeldDuringColumnModeEvent = Monitor.IsEntered(
+                viewModel.PlaylistWorkspace.DetailViewState.SyncRoot);
+        };
         var buildRequest = new PlaylistBuildRequest
         {
             RequestVersion = 1,
@@ -303,6 +349,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(result.ViewApply.FinalRows, viewModel.MainChartList.Rows);
         Assert.AreEqual(4L, viewModel.PlaylistWorkspace.DetailViewState.Source.GenerationId);
         Assert.AreEqual(1L, viewModel.PlaylistWorkspace.DetailViewState.View.GenerationId);
+        Assert.IsFalse(buildLockHeldDuringColumnModeEvent);
+        Assert.IsFalse(viewLockHeldDuringColumnModeEvent);
     }
 
     [TestMethod]

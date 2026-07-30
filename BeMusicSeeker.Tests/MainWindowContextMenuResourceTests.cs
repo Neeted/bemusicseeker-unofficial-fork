@@ -205,7 +205,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(artistRoute, "RegularChartFolderFilterKind.Artist");
         StringAssert.Contains(rootRoute, "ShouldBlockStartupUiInteraction(\"tree_root_folder_select\")");
         StringAssert.Contains(rootRoute, "viewModel.RegularChartList.NavigateTree(filterKind: null)");
-        StringAssert.Contains(ownerSource, "playlistWorkspace.SetPlaylistSummaryMode(enabled: false)");
+        StringAssert.Contains(ownerSource, "playlistWorkspace.RequestPlaylistSummaryMode(enabled: false)");
         StringAssert.Contains(ownerSource, "TreeNavigationPresentationRequested");
         Assert.IsFalse(rootViewModelSource.Contains("ExecFolderFilter"));
         Assert.IsFalse(rootViewModelSource.Contains("FolderFilterType"));
@@ -628,7 +628,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("ConfigureTerminalShellPublish("));
         StringAssert.Contains(playHistoryWorkflowCode, "PublishTerminalShellState(");
         StringAssert.Contains(playHistoryWorkflowCode, "PublishTerminalShellStateAfterTablePublishFailure(");
-        StringAssert.Contains(playlistDetailTerminalCode, "CommitPlayHistorySourceClear(");
+        StringAssert.Contains(playlistDetailTerminalCode, "TryCommitPlayHistoryRowsAndSource(");
         StringAssert.Contains(playlistDetailTerminalCode, "PublishPlayHistorySourceClear(");
         StringAssert.Contains(playlistDetailTerminalCode, "LogPlayHistorySourceClear(");
         StringAssert.Contains(terminalShellOwnerCode, "ownershipTransferred: true");

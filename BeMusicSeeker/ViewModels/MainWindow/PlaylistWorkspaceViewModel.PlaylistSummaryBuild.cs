@@ -64,7 +64,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistSummaryDeferredRefreshKind refresh = TakeDeferredPlaylistSummaryRefresh(
             dataRefreshRequired,
             out deferredRebuildAsync);
-        if (!IsPlaylistSummaryMode)
+        if (!IsPlaylistSummaryModeRequested)
         {
             return 0L;
         }

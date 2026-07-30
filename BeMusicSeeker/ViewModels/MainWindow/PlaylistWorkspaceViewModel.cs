@@ -707,6 +707,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private bool isPlaylistSummaryMode;
 
+    private bool isPlaylistSummaryModeRequested;
+
+    private PlaylistSourceRetirementRequest pendingPlaylistSummaryDetailSourceRetirement;
+
     private bool isPlaylistDetailViewActive;
 
     private string gridHeaderText = string.Empty;
@@ -855,17 +859,20 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     /// </summary>
     internal PlaylistMainTablePresentationCommit CommitMainTablePresentationWithoutNotification(
         MainChartListColumnSelection selection,
-        bool playlistDetailActive)
+        bool playlistDetailActive,
+        bool playlistSummaryActive)
     {
         PlaylistColumnPresentationCommit columnPresentation =
             CommitColumnPresentationWithoutNotification(
                 selection.PlaylistColumnSettingsVisibility,
                 selection.PlaylistSummaryColumnsSettings);
-        bool detailActivationChanged =
-            CommitPlaylistDetailActivationWithoutNotification(playlistDetailActive);
+        PlaylistPresentationModeCommit modePresentation =
+            CommitPresentationModeWithoutNotification(
+                playlistSummaryActive,
+                playlistDetailActive);
         return new PlaylistMainTablePresentationCommit(
             columnPresentation,
-            detailActivationChanged);
+            modePresentation);
     }
 
     internal void PublishColumnPresentation(PlaylistColumnPresentationCommit commit)
@@ -874,13 +881,22 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         {
             throw new ArgumentNullException(nameof(commit));
         }
+        var publishExceptions = new List<Exception>();
         if (commit.VisibilityChanged && IsCurrentColumnPresentationCommit(commit))
         {
-            RaisePropertyChanged(nameof(ColumnSettingsVisibilityForPlaylist));
+            TryPublish(
+                () => RaisePropertyChanged(nameof(ColumnSettingsVisibilityForPlaylist)),
+                publishExceptions);
         }
         if (commit.SummaryColumnsChanged && IsCurrentColumnPresentationCommit(commit))
         {
-            RaisePropertyChanged(nameof(PlaylistSummaryColumnsSettings));
+            TryPublish(
+                () => RaisePropertyChanged(nameof(PlaylistSummaryColumnsSettings)),
+                publishExceptions);
+        }
+        if (publishExceptions.Count > 0)
+        {
+            throw new AggregateException(publishExceptions);
         }
     }
 
@@ -926,7 +942,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         }
         try
         {
-            PublishPlaylistDetailActivation(commit.PlaylistDetailActivationChanged);
+            PublishPresentationMode(commit.ModePresentation);
         }
         catch (Exception ex)
         {
@@ -973,30 +989,51 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         get => isPlaylistSummaryMode;
         internal set
         {
-            bool changed;
-            CancellationTokenSource cancellation = null;
+            RequestPlaylistSummaryMode(value);
+            PublishPresentationMode(
+                CommitPresentationModeWithoutNotification(
+                    summaryActive: value,
+                    detailActive: value ? false : isPlaylistDetailViewActive));
+        }
+    }
+
+    internal bool IsPlaylistSummaryModeRequested
+    {
+        get
+        {
             lock (playlistSummaryTransitionLock)
             {
-                changed = isPlaylistSummaryMode != value;
-                isPlaylistSummaryMode = value;
-                if (changed && !value)
-                {
-                    cancellation = playlistSummaryDataBuildCancellation;
-                    playlistSummaryDataBuildCancellation = null;
-                    playlistSummaryDataRebuildGeneration++;
-                    playlistSummaryPresentationGeneration++;
-                    deferredPlaylistSummaryDataRefreshRequested = false;
-                    deferredPlaylistSummaryDataRebuildAsync = true;
-                    deferredPlaylistSummaryPresentationRefreshRequested = false;
-                    ClearPlaylistSummarySelectionRestoreUnsafe();
-                }
-            }
-            CancelDataBuild(cancellation);
-            if (changed)
-            {
-                RaisePropertyChanged(nameof(IsPlaylistSummaryMode));
+                return isPlaylistSummaryModeRequested;
             }
         }
+    }
+
+    internal bool RequestPlaylistSummaryMode(bool enabled)
+    {
+        CancellationTokenSource cancellation = null;
+        bool visibleModeWillChange;
+        lock (playlistSummaryTransitionLock)
+        {
+            visibleModeWillChange = isPlaylistSummaryMode != enabled;
+            if (isPlaylistSummaryModeRequested == enabled)
+            {
+                return visibleModeWillChange;
+            }
+            isPlaylistSummaryModeRequested = enabled;
+            if (!enabled)
+            {
+                cancellation = playlistSummaryDataBuildCancellation;
+                playlistSummaryDataBuildCancellation = null;
+                playlistSummaryDataRebuildGeneration++;
+                playlistSummaryPresentationGeneration++;
+                deferredPlaylistSummaryDataRefreshRequested = false;
+                deferredPlaylistSummaryDataRebuildAsync = true;
+                deferredPlaylistSummaryPresentationRefreshRequested = false;
+                ClearPlaylistSummarySelectionRestoreUnsafe();
+            }
+        }
+        CancelDataBuild(cancellation);
+        return visibleModeWillChange;
     }
 
     /// <summary>
@@ -1005,18 +1042,69 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     /// <returns><see langword="true"/> when the mode itself changed.</returns>
     internal bool SetPlaylistSummaryMode(bool enabled)
     {
-        bool changed = IsPlaylistSummaryMode != enabled;
-        IsPlaylistSummaryMode = enabled;
-        if (enabled)
-        {
-            GridHeaderText = BeMusicSeeker.Properties.Resources.Playlist_summary_header;
-        }
-        else
-        {
-            GridHeaderText = string.Empty;
-            PlaylistSummaryText = string.Empty;
-        }
+        bool changed = RequestPlaylistSummaryMode(enabled);
+        PublishPresentationMode(
+            CommitPresentationModeWithoutNotification(
+                summaryActive: enabled,
+                detailActive: enabled ? false : isPlaylistDetailViewActive));
         return changed;
+    }
+
+    private PlaylistPresentationModeCommit CommitPresentationModeWithoutNotification(
+        bool summaryActive,
+        bool detailActive)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            bool summaryChanged = isPlaylistSummaryMode != summaryActive;
+            bool detailChanged = isPlaylistDetailViewActive != detailActive;
+            string nextHeaderText = summaryActive
+                ? BeMusicSeeker.Properties.Resources.Playlist_summary_header
+                : string.Empty;
+            string nextSummaryText = summaryActive
+                ? playlistSummaryText
+                : string.Empty;
+            bool headerChanged = gridHeaderText != nextHeaderText;
+            bool summaryTextChanged = playlistSummaryText != nextSummaryText;
+            isPlaylistSummaryMode = summaryActive;
+            isPlaylistDetailViewActive = detailActive;
+            gridHeaderText = nextHeaderText;
+            playlistSummaryText = nextSummaryText;
+            return new PlaylistPresentationModeCommit(
+                summaryChanged,
+                detailChanged,
+                headerChanged,
+                summaryTextChanged);
+        }
+    }
+
+    private void PublishPresentationMode(PlaylistPresentationModeCommit commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
+        var publishExceptions = new List<Exception>();
+        if (commit.SummaryChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(IsPlaylistSummaryMode)), publishExceptions);
+        }
+        if (commit.DetailChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(IsPlaylistDetailViewActive)), publishExceptions);
+        }
+        if (commit.HeaderChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(GridHeaderText)), publishExceptions);
+        }
+        if (commit.SummaryTextChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), publishExceptions);
+        }
+        if (publishExceptions.Count > 0)
+        {
+            throw new AggregateException(publishExceptions);
+        }
     }
 
     /// <summary>
@@ -1201,7 +1289,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 return default;
             }
             cancellation = InvalidatePlaylistSummaryDataUnsafe();
-            bool queued = isPlaylistSummaryMode;
+            bool queued = isPlaylistSummaryModeRequested;
             if (queued)
             {
                 deferredPlaylistSummaryDataRefreshRequested = true;
@@ -1210,7 +1298,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             }
             result = new PlaylistSummaryDataRefreshRequestResult
             {
-                NextBuildGeneration = isPlaylistSummaryMode
+                NextBuildGeneration = isPlaylistSummaryModeRequested
                     ? playlistSummaryDataRebuildGeneration + 1L
                     : 0L,
                 Queued = queued
@@ -1265,7 +1353,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     {
         lock (playlistSummaryTransitionLock)
         {
-            if (isPlaylistSummaryMode
+            if (isPlaylistSummaryModeRequested
                 && !playlistSummaryDataBuildStopped
                 && !deferredPlaylistSummaryDataRefreshRequested)
             {
@@ -1398,7 +1486,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         CancellationTokenSource previousCancellation;
         lock (playlistSummaryTransitionLock)
         {
-            if (!isPlaylistSummaryMode || playlistSummaryDataBuildStopped)
+            if (!isPlaylistSummaryModeRequested || playlistSummaryDataBuildStopped)
             {
                 request = null;
                 return false;
@@ -1571,9 +1659,12 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 ListSortDirection.Ascending);
         bool rowsChanged;
         bool textChanged;
+        bool operationContextChanged;
+        PlaylistPresentationModeCommit modeCommit;
+        PlaylistSourceRetirementRequest detailSourceRetirement;
         lock (playlistSummaryTransitionLock)
         {
-            if (!isPlaylistSummaryMode
+            if (!isPlaylistSummaryModeRequested
                 || playlistSummaryDataBuildStopped
                 || request.PresentationGeneration != playlistSummaryPresentationGeneration
                 || (request.DataRebuildGeneration.HasValue && request.DataRebuildGeneration.Value != playlistSummaryDataRebuildGeneration)
@@ -1603,7 +1694,19 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                     lastPlaylistSummaryAppliedDataGeneration,
                     appliedDataGeneration);
             }
+            modeCommit = CommitPresentationModeWithoutNotification(
+                summaryActive: true,
+                detailActive: false);
+            operationContextChanged =
+                detailMainChartList.CommitOperationContextWithoutNotification(
+                    MainViewUpdateMode.PlaylistFilterSelected);
+            detailSourceRetirement = pendingPlaylistSummaryDetailSourceRetirement;
+            pendingPlaylistSummaryDetailSourceRetirement = null;
         }
+        PlaylistSourceClearCommitResult detailSourceClearCommit =
+            detailSourceRetirement == null
+                ? null
+                : CommitDetailSourceClearForRegularView(detailSourceRetirement);
 
         var publishExceptions = new List<Exception>();
         if (rowsChanged)
@@ -1623,6 +1726,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         {
             TrySchedulePlaylistReloadCleanup();
         }
+        TryPublish(
+            () => detailMainChartList.PublishOperationContextChanged(operationContextChanged),
+            publishExceptions);
+        TryPublish(() => PublishPresentationMode(modeCommit), publishExceptions);
+        TryPublish(
+            () => PublishDetailSourceClearForRegularView(detailSourceClearCommit),
+            publishExceptions);
         if (publishExceptions.Count > 0)
         {
             throw new PlaylistSummaryPublishException(new AggregateException(publishExceptions));
@@ -1921,13 +2031,36 @@ internal sealed class PlaylistMainTablePresentationCommit
 {
     internal PlaylistMainTablePresentationCommit(
         PlaylistColumnPresentationCommit columnPresentation,
-        bool playlistDetailActivationChanged)
+        PlaylistPresentationModeCommit modePresentation)
     {
         ColumnPresentation = columnPresentation ?? throw new ArgumentNullException(nameof(columnPresentation));
-        PlaylistDetailActivationChanged = playlistDetailActivationChanged;
+        ModePresentation = modePresentation ?? throw new ArgumentNullException(nameof(modePresentation));
     }
 
     internal PlaylistColumnPresentationCommit ColumnPresentation { get; }
 
-    internal bool PlaylistDetailActivationChanged { get; }
+    internal PlaylistPresentationModeCommit ModePresentation { get; }
+}
+
+internal sealed class PlaylistPresentationModeCommit
+{
+    internal PlaylistPresentationModeCommit(
+        bool summaryChanged,
+        bool detailChanged,
+        bool headerChanged,
+        bool summaryTextChanged)
+    {
+        SummaryChanged = summaryChanged;
+        DetailChanged = detailChanged;
+        HeaderChanged = headerChanged;
+        SummaryTextChanged = summaryTextChanged;
+    }
+
+    internal bool SummaryChanged { get; }
+
+    internal bool DetailChanged { get; }
+
+    internal bool HeaderChanged { get; }
+
+    internal bool SummaryTextChanged { get; }
 }

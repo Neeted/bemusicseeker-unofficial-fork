@@ -130,7 +130,7 @@ public sealed class MainChartListViewModel : ViewModel
                 ColumnsSettings,
                 reused: true,
                 stopwatch.ElapsedMilliseconds,
-                appliedMode: null,
+                appliedMode: resolvedMode,
                 ResolvePlaylistColumnSettingsVisibility(resolvedMode),
                 playlistSummaryColumnsSettings);
         }
@@ -326,6 +326,8 @@ public sealed class MainChartListViewModel : ViewModel
     /// </summary>
     internal event EventHandler DisplayRefreshRequested;
 
+    internal event EventHandler OperationContextChanged;
+
     internal void PrepareRowsReplacement()
     {
         RowsReplacing?.Invoke(this, EventArgs.Empty);
@@ -431,6 +433,23 @@ public sealed class MainChartListViewModel : ViewModel
     internal void SetOperationContext(MainViewUpdateMode mode)
     {
         Volatile.Write(ref operationContext, MainChartListOperationContext.FromMode(mode));
+    }
+
+    internal bool CommitOperationContextWithoutNotification(MainViewUpdateMode mode)
+    {
+        MainChartListOperationContext previous = CurrentOperationContext;
+        MainChartListOperationContext next = MainChartListOperationContext.FromMode(mode);
+        Volatile.Write(ref operationContext, next);
+        return previous.OperationSection != next.OperationSection
+            || previous.SourceScope != next.SourceScope;
+    }
+
+    internal void PublishOperationContextChanged(bool changed)
+    {
+        if (changed)
+        {
+            OperationContextChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>
@@ -820,6 +839,8 @@ public sealed class MainChartListViewModel : ViewModel
         columnsSettings = request.ColumnsSettings;
         selectedIndex = prepared.NextSelectedIndex;
         summaryText = prepared.NextSummaryText;
+        bool operationContextChanged = request.OperationContextMode.HasValue
+            && CommitOperationContextWithoutNotification(request.OperationContextMode.Value);
         prepared.Committed = true;
         long commitGeneration = Interlocked.Increment(ref rowsCommitGeneration);
 
@@ -828,7 +849,8 @@ public sealed class MainChartListViewModel : ViewModel
             columnSettingMs,
             request.Stopwatch.ElapsedMilliseconds - setViewStartMs,
             previousRows,
-            commitGeneration);
+            commitGeneration,
+            operationContextChanged);
     }
 
     internal void DisposeCommittedRows(MainChartListRowsCommit commit)
@@ -896,39 +918,37 @@ public sealed class MainChartListViewModel : ViewModel
         long columnSettingMs = commit.ColumnSettingMs;
         long setViewNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
         long columnNotificationMs = 0L;
-        try
+        var publishExceptions = new List<Exception>();
+        if (prepared.RowsChanged && IsCurrentRowsCommit(commit))
         {
-            if (prepared.ColumnsChanged && IsCurrentRowsCommit(commit))
-            {
-                long columnNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
-                RaisePropertyChanged(nameof(ColumnsSettings));
-                if (IsCurrentRowsCommit(commit))
-                {
-                    RaisePropertyChanged(nameof(RowDragKind));
-                }
-                columnNotificationMs = request.Stopwatch.ElapsedMilliseconds - columnNotificationStartMs;
-                columnSettingMs += columnNotificationMs;
-            }
-            if (prepared.RowsChanged && IsCurrentRowsCommit(commit))
-            {
-                RaisePropertyChanged(nameof(Rows));
-            }
-            if (prepared.SummaryChanged && IsCurrentRowsCommit(commit))
-            {
-                RaisePropertyChanged(nameof(SummaryText));
-            }
-            if (prepared.SelectionChanged && IsCurrentRowsCommit(commit))
-            {
-                RaisePropertyChanged(nameof(SelectedIndex));
-            }
+            TryPublish(() => RaisePropertyChanged(nameof(Rows)), publishExceptions);
         }
-        catch
+        if (prepared.ColumnsChanged && IsCurrentRowsCommit(commit))
         {
-            if (prepared.RowsReplacementPrepared)
+            long columnNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
+            TryPublish(() => RaisePropertyChanged(nameof(ColumnsSettings)), publishExceptions);
+            if (IsCurrentRowsCommit(commit))
             {
-                FailRowsReplacementPublish();
+                TryPublish(() => RaisePropertyChanged(nameof(RowDragKind)), publishExceptions);
             }
-            throw;
+            columnNotificationMs = request.Stopwatch.ElapsedMilliseconds - columnNotificationStartMs;
+            columnSettingMs += columnNotificationMs;
+        }
+        if (prepared.SummaryChanged && IsCurrentRowsCommit(commit))
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(SummaryText)), publishExceptions);
+        }
+        if (prepared.SelectionChanged && IsCurrentRowsCommit(commit))
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(SelectedIndex)), publishExceptions);
+        }
+        if (commit.OperationContextChanged && IsCurrentRowsCommit(commit))
+        {
+            TryPublish(() => PublishOperationContextChanged(changed: true), publishExceptions);
+        }
+        if (publishExceptions.Count > 0 && prepared.RowsReplacementPrepared)
+        {
+            TryPublish(FailRowsReplacementPublish, publishExceptions);
         }
 
         commit.Published = true;
@@ -937,12 +957,31 @@ public sealed class MainChartListViewModel : ViewModel
             - setViewNotificationStartMs
             - columnNotificationMs;
         long columnStageMs = request.Stopwatch.ElapsedMilliseconds - request.TerminalStageStartMs;
-        return new MainChartListRowsApplyResult(
+        var result = new MainChartListRowsApplyResult(
             prepared.PrepareSwapMs,
             columnSettingMs,
             setViewMs,
             columnStageMs,
             request.ColumnSettingReuse);
+        if (publishExceptions.Count > 0)
+        {
+            throw new AggregateException(
+                "One or more main chart-list presentation notifications failed.",
+                publishExceptions);
+        }
+        return result;
+    }
+
+    private static void TryPublish(Action publish, ICollection<Exception> exceptions)
+    {
+        try
+        {
+            publish();
+        }
+        catch (Exception ex)
+        {
+            exceptions.Add(ex);
+        }
     }
 
     private bool IsCurrentRowsCommit(MainChartListRowsCommit commit)
@@ -1296,6 +1335,8 @@ internal sealed class MainChartListRowsApplyRequest
     internal Stopwatch Stopwatch { get; set; }
 
     internal bool RowsAlreadyPrepared { get; set; }
+
+    internal MainViewUpdateMode? OperationContextMode { get; set; }
 }
 
 internal sealed class MainChartListPreparedRowsApply
@@ -1381,13 +1422,15 @@ internal sealed class MainChartListRowsCommit
         long columnSettingMs,
         long commitSetViewMs,
         IList previousRowsPendingDisposal,
-        long generation)
+        long generation,
+        bool operationContextChanged)
     {
         Prepared = prepared;
         ColumnSettingMs = columnSettingMs;
         CommitSetViewMs = commitSetViewMs;
         PreviousRowsPendingDisposal = previousRowsPendingDisposal;
         Generation = generation;
+        OperationContextChanged = operationContextChanged;
     }
 
     internal MainChartListPreparedRowsApply Prepared { get; }
@@ -1397,6 +1440,8 @@ internal sealed class MainChartListRowsCommit
     internal long CommitSetViewMs { get; }
 
     internal long Generation { get; }
+
+    internal bool OperationContextChanged { get; }
 
     internal IList PreviousRowsPendingDisposal { get; set; }
 
@@ -1453,8 +1498,8 @@ internal sealed class MainChartListRowsTransition
         completed = true;
         MainChartListRowsApplyResult result = default;
         var exceptions = new List<Exception>();
-        TryComplete(() => owner.DisposeCommittedRows(commit), exceptions);
         TryComplete(() => result = owner.PublishRowsCommit(commit), exceptions);
+        TryComplete(() => owner.DisposeCommittedRows(commit), exceptions);
         if (exceptions.Count > 0)
         {
             throw new AggregateException("The main chart-list rows transition committed ownership but completion failed.", exceptions);

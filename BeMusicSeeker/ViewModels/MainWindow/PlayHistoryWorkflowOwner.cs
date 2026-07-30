@@ -23,6 +23,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
     private ListenerCommand<PlayHistorySummaryCard> toggleSummaryFilterCommand;
     private Func<bool> isViewRefreshShutdownRequested;
     private Action<PlayHistoryViewRequest> refreshView;
+    private Func<PlaylistSourceRetirementRequest> prepareDetailSourceRetirement;
     private bool isViewActive;
     private readonly Action<string> mainViewLog;
 
@@ -50,6 +51,13 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             ?? throw new ArgumentNullException(nameof(isShutdownRequested));
         refreshView = refresh
             ?? throw new ArgumentNullException(nameof(refresh));
+    }
+
+    internal void ConfigureDetailSourceRetirement(
+        Func<PlaylistSourceRetirementRequest> prepare)
+    {
+        prepareDetailSourceRetirement =
+            prepare ?? throw new ArgumentNullException(nameof(prepare));
     }
 
     internal void QueueKeywordFilterRefresh(string identity, bool advanceRevision = true)
@@ -674,19 +682,35 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         var result = new PlayHistoryTerminalCommitResult();
         bool CommitPlayHistoryPresentation(Action commitRows)
         {
-            return PresentationState.TryCommitTerminal(
+            bool committed = PresentationState.TryCommitTerminal(
                 request,
                 result,
-                commitRows,
                 () =>
                 {
-                    result.PlaylistSourceClear = playlistWorkspace.CommitPlayHistorySourceClear();
-                    result.MainTablePresentation = playlistWorkspace.CommitMainTablePresentationWithoutNotification(
-                        request.ColumnSelection,
-                        playlistDetailActive: false);
-                    mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
-                    PruneSummaryFilters(request.ViewState.Provider);
+                    PlaylistSourceClearCommitResult sourceClear = null;
+                    try
+                    {
+                        return playlistWorkspace.TryCommitPlayHistoryRowsAndSource(
+                            request.DetailSourceRetirement,
+                            commitRows,
+                            out sourceClear);
+                    }
+                    finally
+                    {
+                        result.PlaylistSourceClear = sourceClear;
+                    }
                 });
+            if (!committed)
+            {
+                return false;
+            }
+            result.MainTablePresentation = playlistWorkspace.CommitMainTablePresentationWithoutNotification(
+                request.ColumnSelection,
+                playlistDetailActive: false,
+                playlistSummaryActive: false);
+            mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
+            PruneSummaryFilters(request.ViewState.Provider);
+            return true;
         }
 
         void PublishPlayHistoryPresentation()
@@ -838,6 +862,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     ArchivePeriodTree = request.ArchivePeriodTree,
                     SummaryCards = summaryCards,
                     DiagnosticText = diagnosticSummaryText,
+                    DetailSourceRetirement = request.DetailSourceRetirement,
                     MainRowsRequest = new MainChartListRowsApplyRequest
                     {
                         Rows = nextRowsView,
@@ -847,7 +872,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                         ColumnSettingReuse = columnSelection.Reused,
                         ColumnPreparationMs = columnSelection.ElapsedMs,
                         TerminalStageStartMs = columnSettingStartMs,
-                        Stopwatch = stopwatch
+                        Stopwatch = stopwatch,
+                        OperationContextMode = columnSelection.AppliedMode
                     }
                 },
                 mainChartList,
@@ -1452,7 +1478,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         PlayHistoryPeriodRequest periodRequest,
         string keywordIdentity,
         string displayTargetIdentity,
-        long displayTargetRevision)
+        long displayTargetRevision,
+        PlaylistSourceRetirementRequest detailSourceRetirement = null)
     {
         CancellationTokenSource previousCancellation;
         PlayHistoryViewRequest request;
@@ -1470,7 +1497,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 periodRequest ?? PlayHistoryPeriodRequest.All(),
                 PresentationState.RequestGeneration,
                 PresentationState.KeywordRevision,
-                displayTargetRevision);
+                displayTargetRevision)
+            {
+                DetailSourceRetirement = detailSourceRetirement
+            };
             ActiveRequest = request;
         }
         Cancel(previousCancellation);
@@ -1490,11 +1520,17 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             snapshotDisplayTargetCatalogTables(),
             queueRefreshWhenSelectionChanges: false);
         PlayHistoryDisplayTargetItem safeDisplayTarget = SelectedDisplayTarget;
+        Func<PlaylistSourceRetirementRequest> retirementFactory =
+            prepareDetailSourceRetirement
+            ?? throw new InvalidOperationException("Play-history detail source retirement is not configured.");
+        PlaylistSourceRetirementRequest detailSourceRetirement = retirementFactory()
+            ?? throw new InvalidOperationException("Play-history detail source retirement returned no receipt.");
         PlayHistoryViewRequest request = BeginRequest(
             periodRequest,
             PlaylistRequestFactory.NormalizeKeywordFilter(keywordFilter),
             safeDisplayTarget.Identity,
-            DisplayTargetRevision);
+            DisplayTargetRevision,
+            detailSourceRetirement);
         try
         {
             PeriodRequestActivated?.Invoke(
@@ -1634,7 +1670,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 ActiveRequest.PeriodRequest,
                 ActiveRequest.RequestId,
                 revision,
-                DisplayTargetRevision);
+                DisplayTargetRevision)
+            {
+                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement
+            };
             Interlocked.Increment(ref keywordActiveCount);
             return true;
         }
@@ -1675,7 +1714,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 ActiveRequest.PeriodRequest,
                 ActiveRequest.RequestId,
                 KeywordRevision,
-                revision);
+                revision)
+            {
+                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement
+            };
             Interlocked.Increment(ref displayTargetActiveCount);
             return true;
         }
@@ -2063,14 +2105,14 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             {
                 isViewActive = false;
             }
-            try
-            {
-                deactivateSelection?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                deactivationException = ExceptionDispatchInfo.Capture(ex);
-            }
+        }
+        try
+        {
+            deactivateSelection?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            deactivationException = ExceptionDispatchInfo.Capture(ex);
         }
         Cancel(cancellation);
         if (wasViewActive)
@@ -2143,4 +2185,6 @@ internal sealed class PlayHistoryViewRequest
     internal long KeywordFilterRevision { get; }
 
     internal long DisplayTargetRevision { get; }
+
+    internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; set; }
 }
