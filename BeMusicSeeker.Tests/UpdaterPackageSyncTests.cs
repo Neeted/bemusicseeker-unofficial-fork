@@ -36,7 +36,7 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual(1, GetRecoverySupervisorValues(appDirectoryPath).Count, "The transaction must arm a persistent recovery supervisor.");
 
             string decisionFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
-            File.WriteAllText(decisionFilePath, "cancel");
+            PublishUpdaterDecision(decisionFilePath, "cancel");
             Assert.IsTrue(process.WaitForExit(5000));
             Assert.AreEqual(0, process.ExitCode);
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
@@ -369,7 +369,9 @@ public sealed class UpdaterPackageSyncTests
 
             Assert.IsTrue(secondUpdater.WaitForExit(5000), "The second updater must reject the held transaction lease promptly.");
             Assert.AreNotEqual(0, secondUpdater.ExitCode);
-            File.WriteAllText(Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt"), "cancel");
+            PublishUpdaterDecision(
+                Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt"),
+                "cancel");
             Assert.IsTrue(firstUpdater.WaitForExit(5000), "The first updater must release the lease after cancellation.");
             Assert.AreEqual(0, firstUpdater.ExitCode);
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
@@ -400,7 +402,9 @@ public sealed class UpdaterPackageSyncTests
             Thread.Sleep(250);
             Assert.IsFalse(recovery.HasExited, "A competing recovery must wait for the transaction owner.");
 
-            File.WriteAllText(Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt"), "cancel");
+            PublishUpdaterDecision(
+                Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt"),
+                "cancel");
             Assert.IsTrue(firstUpdater.WaitForExit(5000));
             Assert.AreEqual(0, firstUpdater.ExitCode);
             Assert.IsTrue(recovery.WaitForExit(5000), "The competing recovery must finish after the owner releases the lease.");
@@ -1291,10 +1295,22 @@ public sealed class UpdaterPackageSyncTests
         {
             if (WaitForReadyOrProcessExit(process, readyFilePath) && publishProceed)
             {
-                File.WriteAllText(decisionFilePath, "proceed");
+                PublishUpdaterDecision(decisionFilePath, "proceed");
             }
         }
         return process;
+    }
+
+    private static void PublishUpdaterDecision(string decisionFilePath, string decision)
+    {
+        string temporaryPath = decisionFilePath + ".tmp";
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(decision);
+        using (FileStream stream = new(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+        {
+            stream.Write(bytes, 0, bytes.Length);
+            stream.Flush(flushToDisk: true);
+        }
+        File.Move(temporaryPath, decisionFilePath, overwrite: true);
     }
 
     private static ProcessStartInfo CreateUpdaterStartInfo(

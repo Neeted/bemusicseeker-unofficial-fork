@@ -9,18 +9,18 @@
 reviewed HEAD:
 
 ```text
-72445a5029ba12356ac50340e4a399f7292f349f
+72445a5029ba12356ac50340e4a399f7292f349f..final F6 commit
 ```
 
-`PERF-01`で次は成立した。
+`PERF-02`のengineering Gateは完了した。
 
-- normal refresh deadlock safety。
-- full-library summary用のUI-thread ordered-row全件materialization退役。
-- playlist detail compute／applyの高速route。
-- resource／song-table／estimation／scan／parserのcomponent allocation削減。
-- full tests、analyzer、Self-contained publish、existing-data、update／rollback。
+- Full verification、3,574 tests passed、16 skipped、Roslynator 0 diagnostics。
+- managed bundle＋ReadyToRunのmain appとsingle-file updaterをSelf-contained publish。
+- existing-data、update success、fault rollback acceptance。
+- repository publish artifactのstartup、library、playlist、shutdown UI smoke。
+- normal refresh deadlock safetyとnon-blocking producer invariant。
 
-しかし、2026-07-31の実データlogでは一覧遷移のユーザー体感遅延が残っているため、performance engineering completionを取り消し、`PERF-02`を開始する。
+production dataを使う最終体感確認はengineering Gateを止めず、`MANUAL-01`へhandoffした。
 
 ## 2026-07-31 symptom evidence
 
@@ -69,10 +69,12 @@ reviewed HEAD:
 | functional correctness | met |
 | deadlock safety | met; protect |
 | playlist detail route | acceptable; protect |
-| playlist summary user-visible transition | engineering fix met; final real-data check deferred to post-F6 |
-| detail／summary→library transition | engineering fix met; final real-data check deferred to post-F6 |
+| playlist summary user-visible transition | engineering fix met; final real-data check handed off |
+| detail／summary→library transition | engineering fix met; final real-data check handed off |
 | table invalidation contract | data reset and cross-mode data-only source apply met |
 | diagnostic logging hot-path cost | met; bounded non-blocking producer |
 | startup／estimation／scan／parse second-wave optimization | met; forced GC、progress fan-out、degree=1 PLINQ overheadを除去し、既存single-pass scan／parser contractを検証 |
 | application-wide copy／queue／event fan-out | met; catalog version-first、drop progress coalescing、typed playlist lifecycle |
-| final user real-data check | pending after `F6`; non-blocking |
+| Full engineering verification | met |
+| selected publish UI smoke | met |
+| final user real-data check | pending user action; non-blocking |

@@ -662,6 +662,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 message => lifecycleLogs.Add(message),
                 (exception, message) => failureLogs.Add((exception, message)), (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            workspace.ConfigureCatalogNotificationQueue(action => action());
             PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
             workspace.RefreshPlaylistTreeTables(playlist);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
@@ -1539,6 +1540,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 _ => { },
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            workspace.ConfigureCatalogNotificationQueue(action => action());
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
@@ -7475,6 +7477,7 @@ public sealed class BmsPlaylistUpdateTests
                 {
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
                 });
+            workspace.ConfigureCatalogNotificationQueue(action => action());
             var notificationRoutes = new List<string>();
             workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notificationRoutes.Add(request.RouteName);
             long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
