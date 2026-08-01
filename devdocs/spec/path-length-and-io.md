@@ -89,17 +89,11 @@ Explorer 起動は `ExplorerOpenService` に集約する。ファイルを開く
 
 これらは `ChartFileScanFailure` として `Path`, `ChartKind`, `Stage`, `ExceptionType`, `Message` を保持する。呼び出し側は個別ダイアログを出さず、性能ログへ summary と各ファイルを記録する。
 
-## AppContext
+## .NET 10 / manifest
 
-.NET Framework で標準 API が長パスを扱いやすいよう、アプリ設定では次を明示する。
+現行appは.NET 10を使い、.NET Framework向け`AppContextSwitchOverrides`には依存しない。app manifestで`longPathAware=true`を宣言する。
 
-```xml
-<AppContextSwitchOverrides value="Switch.System.IO.UseLegacyPathHandling=false;Switch.System.IO.BlockLongPaths=false" />
-```
-
-また、アプリ manifest では `longPathAware=true` を設定する。
-
-ただし、譜面読み取りと root scan の正本はこれらの設定だけに依存せず、`LongPathFileSystem` に集約する。OS やランタイム設定差で標準 API の挙動が変わっても、譜面読み取り経路の意味を変えないためである。
+譜面読み取りとroot scanの正本はmanifestだけに依存せず、`LongPathFileSystem`へ集約する。外部tool、native library、shell、player等には独自のpath制約があり得るため、UIでは選択可否、実I/O可否、外部component互換性を別に判定する。
 
 ## 関連仕様
 

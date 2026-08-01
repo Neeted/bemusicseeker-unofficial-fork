@@ -4,39 +4,95 @@
 
 ## 目的
 
-初期化は次の 2 つを分けて扱う。
+起動時の状態は、単一の「初期化完了」ではなく次の境界で扱う。
 
-- 導入可能 readiness: 譜面の導入先推定と導入開始に必要な情報が揃った状態。
-- 初期化全体の完了: UI 操作可能後に走る startup background task まで含めて収束した状態。
+| 境界 | 意味 | この時点で期待できること |
+| --- | --- | --- |
+| `startup_install_estimation_ready` | catalog、導入先 resource index、pending package state が揃った | 譜面導入先推定と導入処理を開始できる |
+| `startup_ready_ui` | required な初期表示を適用した | 初期画面が表示されている |
+| `startup_ready_operable` | 通常入力を解禁し startup scheduler を開始した | 譜面導入、基本一覧の閲覧・操作を開始できる |
+| `startup_initialization_complete` | required local hydration と required progress phase が完了した | local playlist 編集、score/chart-info を含む通常の local 操作を行える |
+| `startup_post_initialization_maintenance_complete` | startup scheduler が所有する post task と登録済み best-effort warmup が収束した | scheduler 管理下の自動外部同期・保守・cache が完了している。独立 worker の ranking/XML refresh と遅延 presentation flush の完了は含めない |
 
-導入可能を早くするために必要な background work を単に後回しへ隠すのではなく、`startup_install_estimation_ready` と `startup_initialization_complete` の両方を観測する。
+`startup_initialization_complete` は、すべての起動後処理が終わったという意味ではない。通常利用に必要な local state の完了を表す。自動 URL 補完、playlist reference apply、external table / playlist sync、custom-folder physical consistency audit、beatoraja export、仮想 sort prewarm などは post-initialization work として別に観測する。
 
-2026-06-09 時点では、通常起動と空 DB 初回構築 / 大量差分を分けて読む。
+この分離は計測値だけを短く見せるためのものではない。startup scheduler に登録された post-initialization task は `startup_ready_operable` 直後から required task と並行して開始でき、`startup_background_summary` と `startup_post_initialization_maintenance_complete` で完了を追跡する。`playlist_virtual_order_prewarm` のように required completion 後にのみ開始する best-effort warmup もある。scheduler 外で動く ranking/XML refresh と遅延 presentation flush は、それぞれの lifecycle marker / phase で追跡し、post marker から完了を推測しない。
 
-- 通常起動 / 差分なしに近い起動では、導入可能 readiness は概ね 20 秒前後、UI 操作可能は 21 秒前後まで短縮済みである。この場合の background tail は `chart_info_hydration` が中心で、`startup_initialization_complete` は 39 秒前後まで短縮済みである。
-- 空 DB 初回構築や大量差分では、`song` / `bmson_song` / `maintenance` / inline `chart_info` を新規構築するため、全 chart file bytes の read と post-parse 評価が支配的になる。`chart_digest_map` はこの file read の副産物として必要範囲が追加・更新される partial cache であり、app schema repair が全量補完するものではない。
-- 2026-06-09 の空 DB / metadata bundle import ありの検証では、`parse_read_bytes_estimate=14140679183`、`startup_install_estimation_ready elapsedMs=915119`、`startup_ready_operable elapsedMs=974273`、`startup_initialization_complete elapsedMs=1069672` であった。このログでは `song_tbl_file_check_ms=913587` が critical path を支配し、さらに初回自動 LR2 song.db sync の `song_rows` が file diff 直後に再度全件 read / parse している。`startup_initialization_complete` には `ranking_refresh_deferred` の tail も含まれるため、file diff、LR2 song.db sync、ranking tail は分けて評価する。
-- 以前の 14GB 級単純 read benchmark との比較だけでは、現在の大量差分ボトルネックを説明しきれない。次の短縮対象は、read そのものだけでなく、file diff inline maintenance、DB commit chunk の前倒し、初回自動 LR2 song.db sync との重複回避として扱う。具体計画は `devdocs/plan/chart-file-read-pipeline-unification-plan.md` の Phase 8 以降を正本とする。
+2026-08-01 の約 21 万譜面環境では、`folder-r2r` / `bundle-r2r` の PC 起動後初回・2回目とも、導入可能および操作可能が約 22 秒、required initialization complete が約 31～33 秒であった。旧 cold-start の約 100 秒化は、optional library-folder refresh が operability を gate していたためであり、現行実装では依存を除去している。数値は環境依存であり、仕様上の合否値ではない。
 
 ## Startup
 
-```text
-Startup
-  -> LR2 mode の場合だけ app schema preflight
-  -> 必要なら警告と app schema repair
-  -> LR2 mode の場合だけ final preflight
-  -> metadata bundle import
-  -> catalog DB load
-  -> active score source の DB load
-  -> file enumeration / native canonical resource index build
-  -> file diff apply
-  -> pending package restore
-  -> install readiness
-  -> UI refresh / operable
-  -> startup background scheduler
+```mermaid
+flowchart TD
+    A[Process / App startup] --> B[Library profile・settings validation]
+    B --> C[App schema preflight / repair]
+    C --> X[LR2 backup / database rebuild when enabled]
+    X --> S[Start file / resource scan prefetch]
+    X --> D[Metadata bundle import]
+    D --> E[Catalog DB・score source load]
+    S --> F[Chart / resource enumeration complete]
+    E --> Q{Catalog and scan inputs ready}
+    F --> Q
+    Q --> G[File diff apply・pending package restore]
+    G --> H[startup_install_estimation_ready]
+    H --> I[startup_ready_data]
+    I --> J[Required UI flush]
+    J --> K[startup_ready_ui]
+    K --> L[startup_ready_operable<br/>通常入力解禁・scheduler start]
+
+    L --> R1[Required local work]
+    R1 --> R2[playlist entries hydration]
+    R1 --> R3[score hydration]
+    R1 --> R4[chart-info hydration / backfill phase]
+    R1 --> R5[LR2 song.db sync enrollment / required phase]
+    R1 --> R6[chart digest backfill / skip]
+    R1 --> R7[required scheduler enrollment closed / required work idle]
+    R2 --> M[startup_initialization_complete]
+    R3 --> M
+    R4 --> M
+    R5 --> M
+    R6 --> M
+    R7 --> M
+
+    L --> P1[Scheduler-owned post work<br/>concurrency 1]
+    P1 --> P2[folder tree / playlist index]
+    P1 --> P3[maintenance / URL / reference / external sync]
+    P1 --> P4[custom-folder audit / GC / external catalog / export]
+    M --> P5[best-effort owned index / virtual sort prewarm]
+    P2 --> Z[startup_post_initialization_maintenance_complete]
+    P3 --> Z
+    P4 --> Z
+    P5 --> Z
+    R3 -.-> P6[Independent ranking / XML refresh]
+    P6 --> P7[ranking_refresh_deferred done / own marker]
+    M --> P8[Deferred startup presentation flush]
+    P8 --> P9[startup_presentation_flush done]
 ```
 
-`Startup` の app schema repair と metadata import は DB load より前に完了させる。`chart_info` hydration/backfill は app schema repair の代替ではない。
+テキスト表現:
+
+```text
+profile / schema
+  └─ app schema preflight / repair
+       └─ LR2 backup / database rebuild (when enabled)
+            ├─ file/resource scan prefetch → enumeration・resource index complete
+            └─ metadata import → catalog・score load
+                 └─ scan と catalog の join
+  → file diff・pending restore
+  → install estimation ready
+  → required UI flush
+  → ready operable + scheduler start
+       ├─ required local hydration
+       │    → startup_initialization_complete
+       ├─ scheduler-owned optional maintenance / network / prewarm
+       │    → startup_post_initialization_maintenance_complete
+       ├─ independent ranking/XML refresh → own marker
+       └─ deferred presentation flush → startup_presentation_flush
+```
+
+`Startup` の app schema repair は設定確認後に完了させ、LR2 backup が有効な場合はその承認後に `Backup.SaveBackupsWithResult` と必要な `Backup.RebuildDatabase` を await してから `InitializeStartup` に入る。`InitializeStartup` 内では file/resource scan が metadata import と並行して先行開始でき、file diff は catalog load と scan surface の両方が揃ってから適用する。`chart_info` hydration/backfill は app schema repair の代替ではない。
+
+library folder tree は versioned post-initialization refresh として独立する。folder tree の worker、model reader、または UI apply が遅延しても、`startup_ready_operable`、required scheduler、`startup_initialization_complete` を止めない。
 
 ## Library Profile
 
@@ -97,7 +153,7 @@ app schema repair 後は必ず final preflight を行い、上記の未収束が
 
 app schema repair は `song` table 全件を走査して実ファイルから SHA-256 を生成しない。missing digest は file diff / install / inline `chart_info` / chart info backfill など、譜面 bytes を読む後続 pipeline の責務とする。
 
-初回設定後の `Msg_init_completed` は `files_initialize_done` 直後ではなく、startup scheduler が idle になり `startup_initialization_complete` を記録した後に表示する。これにより、初回完了メッセージは critical path だけでなく通常の起動時 background 初期化まで終えた境界を表す。
+初回設定後の `Msg_init_completed` は `files_initialize_done` 直後ではなく、required local initialization が完了して `startup_initialization_complete` を記録した後に表示する。自動外部同期、physical consistency audit、export、prewarm まで完了したことは意味しない。scheduler 管理下の post task は `startup_post_initialization_maintenance_complete` で別に観測し、scheduler 外の ranking/XML refresh と遅延 presentation flush は独立した lifecycle で観測する。
 
 ## Metadata Bundle Import
 
@@ -169,46 +225,51 @@ LR2 sync の `song_rows` pipeline は reader / worker / writer の責務を明�
 | `startup_install_estimation_ready` | pending estimate queue を開始できる |
 | `startup_install_ready` | 現行では install estimation readiness と同じ境界 |
 | `startup_ready_data` | 導入判定に必要な catalog / resource index が揃った |
-| `startup_ready_ui` / `startup_ready_install` / `startup_ready_operable` | Chart package drop など導入系 UI を操作できる境界。所持譜面一覧 / プレイリスト一覧の完全操作可能境界ではない |
-| `startup_initialization_complete` | expected background phase と startup scheduler queue が空になった |
-| `startup_background_summary` | background task の queue/start/complete/failed/elapsed/lane/dependency summary |
-| `startup_presentation_flush` | 起動中に遅延した enrichment / playlist reference 依存の presentation を、初期化完了後にまとめて反映した |
+| `startup_ready_ui` / `startup_ready_install` / `startup_ready_operable` | required UI を反映し、通常入力を解禁して scheduler を開始する境界。導入先推定は既に利用可能で、基本一覧を操作できる |
+| `startup_initialization_complete` | required local hydration、required progress phase、required scheduler work が完了した。local playlist 編集と通常の local list 操作を期待できる |
+| `startup_post_initialization_maintenance_complete` | scheduler 管理下の post scheduling が閉じ、post task と best-effort warmup が完了した。独立 worker と遅延 presentation flush は含めない |
+| `startup_background_summary` | required / post task の queue/start/complete/failed/elapsed/lane/dependency summary。initialization complete 時点では post task が残り得る |
+| `startup_presentation_flush` | 起動中に遅延した enrichment / playlist reference 依存 presentation の bounded apply |
 
 ## Startup Background Scheduler
 
-startup background scheduler は `MainWindowViewModel.QueueStartupBackgroundTask()` 経由で登録される task を、dependency と lane concurrency に従って実行する。
+startup background scheduler は `MainWindowViewModel` が `BMSLibrary.StartupBackgroundTaskScheduler` と `BMSPlaylist.StartupBackgroundTaskScheduler` へ delegate を注入し、`StartupBackgroundTaskSchedulerOwner.Queue()` に接続された task を、dependency、lane concurrency、required / post classification に従って実行する。
 
-| Lane | Task | 並列数 | Dependency |
-| --- | --- | --- | --- |
-| `read_hydration` | `playlist_entries_hydration`, `chart_info_hydration` | 2 | なし |
-| `maintenance_hydration` | `maintenance_hydration` | 1 | なし |
-| `playlist_followup` | `playlist_url_completion`, `playlist_ref_apply`, `external_playlist_sync` | 1 | playlist entries 完了後、または task 内の ensure 後に進める |
-| `dependent_maintenance` | `installable_maintenance` | 1 | `chart_info_hydration,maintenance_hydration` |
-| `default` | その他の短い prewarm など | 1 | task ごと |
+### Required initialization
 
-全体 concurrency は 4。`maintenance_hydration` は `installable_maintenance` の依存であり、playlist / chart info の read hydration と直接の順序依存を持たないため専用 lane で並走させる。`startup_background_summary` は task ごとに lane と dependency を出す。
+`startup_initialization_complete` が待つ主な task / phase は次である。
 
-`Startup` では scheduler は `startup_ready_operable` 到達まで開始しない。`StartupBackgroundTasksDone` phase は、他の expected phase と scheduler queue / running task がすべて空になった時だけ complete する。ステータスバーの完了表示と `startup_initialization_complete` / `startup_background_summary` の境界を分離せず、background task を expected phase から外して見かけだけ短くしない。`ScoreOnly` / `ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は既に UI operable 後の operation なので、operation 開始時の reset 後も scheduler を runnable に保つ。これは reload 中に `playlist_entries_hydration`、`external_playlist_sync`、`score_hydration_deferred`、`ranking_refresh_deferred` など operation ごとの background task を queue したまま止めないための仕様である。`ReloadTables` 自体は score/ranking を queue しない。
+| Lane | Task / phase | 並列数 | 意味 |
+| --- | --- | ---: | --- |
+| `read_hydration` | `playlist_entries_hydration`, `chart_info_hydration` | 2 | local playlist entries と current chart-info session state |
+| `default` | `score_hydration_deferred`, LR2 song.db sync enrollment / required phase | 1 | score state と LR2 required completion |
+| progress phase | chart digest / chart-info backfill phase | task に応じる | request が不要なら skip 完了、必要なら current generation の完了を待つ |
 
-`Startup` 中の presentation は、導入系 UI、基本 catalog UI、enrichment / playlist reference 依存 UI を分けて扱う。`InstallTree` は従来通り `startup_ready_ui` / `startup_ready_operable` の判定対象にする。通常ライブラリ root / folder / FullScanAllCharts の `LibraryMainView`、`LibraryFolderTree`、`PlaylistTree` は、`files.InitializeStartup()` 完了後の `ui_suppress` flush で basic presentation として反映してよい。この段階の一覧は `song` / bmson catalog と identity sort key を正本にし、仮想 `IList` により可視行だけを `LibraryChartRow` 化する。`DuplicateTree` と、`FileMissing` / `Garbled` / `ZeroNote` / `ChartInfoParseError` など maintenance / warning 系 tree mode の `LibraryMainView` は、対象 snapshot が未確定のため `startup_initialization_complete` 後の `startup_presentation_flush` まで遅延する。
+`StartupBackgroundTasksDone` は scheduler 全体の empty ではなく、`runningRequiredCount == 0` かつ required request が queue に無い状態を表す。required scheduling enrollment が閉じ、他の expected startup phase も完了したときだけ進捗上の完了になる。
 
-`startup_presentation_flush` は、初期一覧そのものを初めて出す境界ではなく、`score`、`ranking`、`chart_info`、`maintenance`、`playlist_entries`、playlist reference apply に依存する未反映 presentation をまとめて流す境界である。ユーザーが起動中に `path:` など基本列だけの keyword filter を入力した場合も、この basic presentation と同じ扱いで表示できる。score / chart_info / maintenance / warning 依存の sort、filter、表示列は background hydration 完了後の依存更新で反映する。
+### Post-initialization work
 
-startup performance は background tail だけで判定しない。抽象化作業では `startup_background_summary` に加えて、`startup_ready_operable` とその前段の `init_library phase1_min_load_ms` / `phase2_scan_maint_ms`、`song_tbl_load_projection`、`song_tbl_load_breakdown`、`song_tbl_file_check_breakdown`、`everything_scan`、`main_view_build`、`ui_suppress flush_*` を同時に見る。通常起動では Everything scan が 20 秒前後、その後数秒で `startup_ready_operable` に達することを期待値にする。`song_tbl_load_breakdown` は `bmsfiles_assign_ms` に加えて BMS / bmson setter 別の `bmsfiles_assign_bms_ms` / `bmsfiles_assign_bmson_ms` も出し、catalog assignment が UI projection や index rebuild を巻き込んでいないかを確認できるようにする。file diff 前に作る installed chart snapshot と install destination / installed directory index 用 snapshot は identity/runtime state だけを持てばよいため、resource reference 配列はコピーしない。FullScanAllCharts などの view logging は表示用 snapshot を作るだけで resource health index を新規構築しない。
+次は `startup_initialization_complete` を gate しない。
 
-通常ライブラリの default 表示では、presentation flush 後も全件 `LibraryChartRow` を作らない。`BMSFile` / bmson の軽量 source row と `ChartListOrder` だけを全件分作り、`MainChartList.Rows` は仮想 `IList` として公開する。初回描画、クリック、tooltip、右クリックなどの表示系操作では `CustomTableView` が参照した index の行だけを `LibraryChartRow` に実体化する。default 表示から registry 対応列の Asc / Desc へ sort しても仮想 `IList` を維持し、source row は generation / row count が一致する範囲で再利用する。現行 registry は identity / install destination / ref-table 系に加えて、warning digest (`WarningDigestText`)、score 系 (`clear`, `rateDouble`, `score`, `maxcombo`, `minbp`, `rankingString`, `rankingLastupdate`, `stddevVal`, `scoreDifficulty`)、chart_info 系 (`ChartLevelSortKey`, BPM, duration, judge, feature, notes, TOTAL, density, soflan count など)、maintenance 直読列 (`WAVHealth`, `BGAHealth`, `MovieHealth`, `encoding`) を含む。
+| Lane / task family | 主な task | 意味 |
+| --- | --- | --- |
+| post default | playlist library index prewarm、virtual sort prewarm、external table catalog、post-initialize GC、beatoraja export | best-effort cache、network、memory maintenance、export |
+| post folder tree | `library_folder_tree_refresh` | versioned / coalesced navigation tree presentation |
+| post playlist follow-up | `playlist_url_completion`, `playlist_ref_apply`, `external_playlist_sync` | automatic enrichment / external synchronization |
+| post maintenance | `maintenance_hydration`, `installable_maintenance`, `playlist_custom_folder_output_repair` | persisted maintenance attach、補完、物理出力 audit |
 
-通常ライブラリの folder filter、keyword filter、mode filter は、全件 source row に対する現在 sort order を先に取得し、その order index を source row predicate で絞り込む。filter 変更時に同じ sort column / direction の全件 order cache が有効なら、filter subset に対して再 sort しない。keyword filter は score / chart info field も source row から直接読むため、summary cache の filter identity には score snapshot version と chart info index version を含める。source row の title / artist / path / mode / hash など identity 系 sort key は、source row 生成時の `ChartFile` snapshot に固定する。identity 変更時は source generation または sort-key generation を進めて source row / order cache を作り直す。score / chart_info / maintenance / warning / install destination / ref-table など hydration や後段 attach で変わる列は対応する owner / projection から読むため、未実体化行でも dependency generation によって更新を反映する。order cache は `sourceGeneration + sortKeyGeneration + dependency generation + column + direction + rowCount` を正当性契約にする。`IdentitySortKey` は追加 generation なし、`Score` は `ScoreSnapshotVersion`、`ChartInfo` は `ChartInfoIndexVersion`、`Maintenance` は maintenance hydration version と ViewModel 側の maintenance presentation generation、`Warning` / `InstallDestination` / `ReferenceTables` は ViewModel 側の dedicated generation を使う。warning / maintenance / install destination / ref-table 変更は該当 dependency generation だけを進め、identity order cache と source row cache は破棄しない。`WarningDigestText` は source warning、resource health projection、install destination の合成値なので、warning generation に加えて maintenance / install destination generation にも依存する。fingerprint 再走査は行わない。sort 対象値を変更する処理は、row cache の実体化状態に依存せず mutation source 側で該当 dependency generation を進める。`main_view_build` は `virtual=True`、`sourceRows`、`orderedRows`、`viewRowsCreated`、`sortProfile=virtual_*_order` を出し、`viewRowsCreated` は初回 build 直後は 0、描画後も可視行 + overscan 程度に留まる。summary の folder count は仮想 view 作成時に同期計算せず、未計算時は曲数だけを即時表示し、background の `main_summary_folder_count` が current generation と一致した場合だけフォルダ数を補完する。
+startup scheduler 管理下の post-initialization task の concurrency は 1 で、required work と同時に一つまで進められる。`post_initialize_gc` は required scheduling が閉じ required work が idle になるまで開始しない。scheduler 管理下の post task は単に計測外へ隠すのではなく、summary と post-complete markerで追跡する。scheduler 外の ranking/XML refresh と遅延 presentation flush は、それぞれの完了 phase / lifecycle markerで追跡する。
 
-hydration 完了時の通常一覧反映は、full normal library かつ keyword / mode / folder filter が空で、現在 sort が変更 dependency に依存しない場合は ItemsSource を差し替えない。`RefreshMainTableDisplay` message で custom table の可視セル cache だけを破棄して再描画し、21 万行の source/order/view rebuild を避ける。source membership や identity sort key の変更、現在 sort と同じ dependency の変更、keyword / mode / folder filter 適用中、playlist detail view では従来どおり full refresh する。refresh display は `LibraryMainView` の full-refresh defer queue へ入れず、実体化済み `LibraryChartRow` の dependency cache を無効化して可視セルだけを再描画する。
+`Startup` では scheduler は `startup_ready_operable` で開始する。`ScoreOnly` / `ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は既に UI operable 後の operation なので、operation開始時のreset後もschedulerをrunnableに保つ。
 
-`SortUpdated` は表示 mode と列セットを変えないため、同じ解決済み column setting mode が適用済みなら列設定を再適用しない。これにより sort 操作の `columnSettingMs` は 0 近傍になる。互換 metric としての `columnMs` は `prepareSwapMs`、`columnSettingMs`、`setViewMs` に分解して記録し、`PrepareMainTableSwap` は View / `CustomTableView` 側の内訳も別ログで確認できるようにする。`startup_initialization_complete` と、存在する場合は `startup_presentation_flush done` の後には、readiness / `startup_background_summary` に含めない best-effort task として仮想 order prewarm を開始する。初回対象 descriptor は priority 1-3 の Asc / Desc とし、priority は対象除外ではなく実行順を表す。prewarm は `ChartListSourceRow` と `ChartListOrder` cache だけを作り、`LibraryChartRow` は生成しない。generation や row count が変わった結果は stale として cache に入れない。
+### ユーザー操作との契約
 
-仮想 order prewarm の descriptor build は background task 1 件の中で priority 1 -> 2 -> 3 の stage に分け、各 stage を bounded parallel に実行する。並列度は `min(stageDescriptorCount, min(4, max(1, Environment.ProcessorCount - 1)))` とし、初期化中の他処理と競合しすぎない範囲で完了を早める。`virtual_order_prewarm` ログは全体と stage ごとに `descriptorCount`、`degree`、`priority`、`sourceGeneration`、`sortKeyGeneration`、`cacheHit`、`built`、`staleSkipped` を出す。priority 0 (`WarningDigestText`、resource health、encoding、`level`) は startup prewarm しないが、通常操作時の on-demand order cache 対象には残す。
-
-manual 記載機能で使う derived index は、readiness tier を分けて扱う。`critical init` は `startup_ready_operable` までに必要な catalog / install tree の最小情報、`startup background` は `startup_background_summary` に含める hydration / playlist / maintenance task、`post-startup best-effort warmup` は readiness をブロックしない sort order / installed primary hash / real path directory view / install destination overlay / playlist summary owned hash など、`explicit on-demand` は duplicate group analysis のようにユーザー操作そのものが重い明示処理である。best-effort warmup は correctness の必須条件ではないため、ユーザー操作が先に来た場合は synchronous fallback を許容する。ただし cold path は `installed_primary_hash_lookup`、`installed_chart_lookup_index`、`owned_adjacent_index_warmup` などの log で見えるようにし、初回操作に隠れた full build が再発した場合に追跡できるようにする。playlist detail resolve index は playlist open readiness に直結するため `playlist_library_index_prewarm` として startup background に残し、cache / currentness は BMSLibrary 側の invalidation version、owned collection version、storage rows version で管理する。resolve snapshot 内の representative `LibraryChartRef` は immutable `ChartFile` snapshot を持ち、公開済み snapshot が後続の digest mutation で storage owner の途中状態を読むことはない。新規 build は chart_info / digest update window 中に publish せず、window 終了後に current snapshot を使う。real path directory view、install destination overlay、installed primary hash、playlist summary owned hash の warmup は `post_startup_warmup stage=owned_adjacent_index` として仮想 sort order prewarm より先に実行する。仮想 sort order prewarm は owned adjacent index warmup の完了後に続けるため、duplicate merge / folder 操作で必要な directory view、overlay snapshot、md5 count lookup を長い priority 1-3 sort prewarm の後ろに置かない。installed primary hash warmup は full installed directory lookup を作らないため、duplicate merge / installed 判定の cold md5 count build だけを先に潰す。playlist summary owned hash snapshot は invalidation version、owned collection version、storage rows version を持ち、warmup 中に owned collection mutation や storage row replacement が入った stale build result は publish せず作り直す。duplicate merge 後に duplicate view の refresh が必要な場合、`owned_collection_changed` 由来の `playlist_library_index_prewarm` は duplicate refresh 完了後へ回し、user-visible refresh と同じ owned collection lock を取り合わない。merge の remove-only source refresh は notification delta で通常一覧 row cache を prune し、user-visible refresh の前に全 owned storage owner view を取り直さない。これは起動直後の CPU / memory の山を増やさず、duplicate merge / folder / playlist summary 操作の cold owned adjacent index build と user-visible refresh の競合を減らすためである。
-
-直近ログでは、background tail の支配項は `chart_info_hydration` である。`playlist_entries_hydration` と `chart_info_hydration` は `read_hydration` lane で並走し、`maintenance_hydration` は専用 lane で同時に進める。`chart_info_hydration` は full `chart_info` row load / materialize が重く、`startup_initialization_complete` までの最後の長い task になりやすい。次に短縮する場合は、task を expected phase から外すのではなく、`chart_info_hydration` の no-op skip / persistent hydrated index / projection 設計を見直す。
+- 譜面導入先推定に必要な destination resource index は scheduler 開始前に完成させ、post task へ移さない。
+- local playlist 編集に必要な playlist entries hydration は required とする。
+- 通常 library / playlist 一覧の基本表示は operable までに成立させる。
+- library folder tree の最終 refresh、maintenance 固有表示、自動 URL / reference / external sync は eventual consistency を許容する。
+- sort order prewarm は従来どおり optional で、未完なら on-demand build を使う。
+- external sync 完了までを「初期化完了」に含める必要がある製品要件へ変更する場合は、network を core initialization へ戻さず、別の `online synchronization complete` milestone を設ける。
 
 ## DB Access Policy
 
@@ -300,7 +361,7 @@ ReloadFileDiff
   -> playlist reference apply
 ```
 
-差分が 0 件の場合は DB commit、chart_info hydration/backfill、installable maintenance を発生させない。
+差分が 0 件の場合、file diff 由来の DB commit、inline chart-info、inline maintenance は発生させない。Startup operation 全体としては、DB 由来 session hydration や post-initialization maintenance が独立に queue される場合がある。
 
 Everything が正常に検索できた結果 chart 0 件を返した場合は、検索自体は成功として扱い、managed fallback scan には進まない。Everything が利用できないなど検索結果を取得できない場合だけ managed fallback scan に進む。Everything 由来または fallback 由来の成功扱いの scan result が chart 0 件で、既存の BMS / bmson storage row が 1 件以上あるなら、その scan result を削除差分の正本として扱わない。これは「ライブラリが空になった」という user intent ではなく、Everything / fallback 経路の空結果が絡む危険状態として扱い、file diff を開始せず、DB commit、LR2 folder/song sync、memory catalog replacement を行わない。UI には `song.db` 更新をスキップしたことと、BMS directory 設定および Everything index/search 状態の確認を促す警告を出す。既存 row がない新規空 DB では、空 scan result は通常の空ライブラリとして扱ってよい。
 
@@ -345,7 +406,7 @@ ScoreOnly
 - DB connection を保持したまま、大量の runtime state 反映、index publish、UI notification を行わない。
 - 導入可能 readiness を、playlist hydration、score/ranking refresh、chart_info hydration、maintenance hydration の完了に依存させない。
 - score DB 設定変更では `ScoreOnly` を使い、playlist/table reload や external playlist sync を起動しない。
-- startup background task を expected phase から外して初期化完了を短く見せない。必要な task は `startup_background_summary` に残す。
+- required local operation に必要な task を、計測値を短くする目的だけで post-initialization へ移さない。scheduler 管理下で post とした task は `startup_background_summary` と `startup_post_initialization_maintenance_complete` で追跡し、scheduler 外の task は独立した phase / markerを持たせる。
 
 ## 関連資料
 

@@ -851,7 +851,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 
 ### 性能確認
 
-この領域は large library startup / main view / duplicate search / install estimation / merge に直接触れる。性能確認では最新の完了済み cycle を同じ DB / roots / Release net472 build で比較する。
+この領域はlarge library startup、main view、duplicate search、install estimation、mergeに直接触れる。性能確認はcurrent .NET 10のstage log、固定seed synthetic fixture、golden behaviorを正本にする。過去net472ログは症状や優先度の参考に留め、新しいinstrumentationや厳密A/Bをnet472側へ追加しない。実データ依存のWPF描画やcold-bootは、engineering完了後の手動受入れで確認する。
 
 重点 log:
 

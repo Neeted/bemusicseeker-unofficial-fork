@@ -2,83 +2,77 @@
 
 この資料は現行実装の大枠を示す。詳細な処理境界は機能別仕様を正本にする。
 
-## レイヤ
+## Runtime / UI stack
+
+- .NET 10 / C# 14
+- WPF + Windows Forms host、x64
+- LivetCask MVVM components
+- SQLite (`sqlite-net-pcl` / `SQLitePCLRaw`)
+- Everything SDK 3 native bridge
+- NLog、BASS.NET、SevenZipExtractor、NVorbis等
+
+## レイヤとownership
 
 - `BeMusicSeeker.Views`
-  - WPF 画面。
-  - ユーザー操作を ViewModel へ渡す。
+  - WPF routed event、focus、selection、scroll、hit-test、drag visual、dialog、window handleなどView固有処理。
+  - typed immutable presentation requestをterminal applyする。
 - `BeMusicSeeker.ViewModels`
-  - UI state と use case orchestration。
-  - 中心は `MainWindowViewModel`。
+  - shell compositionとfeature owner。
+  - `MainWindowViewModel`はroot shellであり、playlist、library list、folder tree、install、maintenance、settings、playback等のchild ownerをcompositionする。
+  - feature stateやmulti-service workflowをrootへ戻さない。
 - `BeMusicSeeker.Models`
-  - library catalog、playlist、install、resource health、keyword search などの domain logic。
-  - 中心は `BMSLibrary` と `BMSPlaylist`。
+  - library catalog、playlist、install、maintenance、resource health、score、LR2同期等のdomain owner。
 - `BeMusicSeeker.Models.BmsLibraryInternal`
-  - `BMSLibrary` の startup、DB access、install estimation、file operation などを分割した service 群。
+  - storage、mutation、scan、package、file operation、projection、native runtime等のbounded owner / gateway。
 - `BeMusicSeeker.Models.Utils`
-  - Everything bridge wrapper、scan helper、hash helper、settings / utility。
+  - scan、path、hash、settings等の共通utility。
 - `native/EverythingBridge`
-  - Everything SDK 3 を使う native bridge。
-  - C# 側は bridge DLL を同一ビルド成果物として扱う。
+  - Everything SDK 3を使うx64 native bridge。managed側と同一distribution contractで扱う。
 
-## 主要 Component
+## 主要component
 
-- `App`
-  - process startup、settings upgrade、logging、global exception handling。
-- `MainWindowViewModel`
-  - startup / reload / install / playlist operation の入口と shell orchestration。
-  - startup background scheduler を composition し、child owner の terminal fact を shell へ接続する。
-- `StartupProgressWorkflowOwner`
-  - startup / reload operation token、phase/version freshness、failure、hide scheduling、progress presentation の正本。
-  - `OperationProgressHubViewModel.StartupProgress` として status-bar binding に公開する。
-- `BMSLibrary`
-  - 所持 catalog、pending package、resource index、score snapshot、install operation の正本。
-- `BMSPlaylist`
-  - table header / playlist entries / external playlist sync。
-- `BmsLibraryDbGateway`
-  - song DB / score DB access の gateway。
-  - startup hydration の read phase は read-only connection、write は明示 transaction path を使う。
-- `EverythingNative`
-  - native bridge result を decode し、native scan path では resource dictionaries を materialize せず `LibraryResourceIndex` / `DirectoryResourceLookupCache` へ渡す。
+- `App`: process startup、settings migration、logging、global exception boundary。
+- `MainWindowViewModel`: startup / reload orchestration、child owner composition、typed terminal factのshell接続。
+- `StartupProgressWorkflowOwner`: operation token、expected / completed phase、failure、UI block、progress presentation。
+- `StartupBackgroundTaskSchedulerOwner`: required / post task classification、dependency、lane、coalescing、shutdown drain。
+- `BMSLibrary`: owned catalog、resource index、pending / installed package、score snapshot、mutation ownerのcomposition。
+- `BMSPlaylist`: table / entry storage、local edit、URL / external sync ownerのcomposition。
+- `BmsLibraryDbGateway`: song DB / score DBのread / transaction gateway。
+- `EverythingNative`: native packed resultのdecodeとresource index surface。
 
-## Startup Boundary
+## Startup boundary
 
-startup は次を分けて扱う。
+startupは次を分ける。
 
-- install readiness
-  - catalog、destination resource index、pending package state が揃った状態。
-- UI operable
-  - startup UI refresh が終わり、操作可能になった状態。
-- initialization complete
-  - startup background task まで完了した状態。
+1. install estimation ready: catalog、destination resource index、pending package state。
+2. UI ready: required initial presentation適用。
+3. operable: 通常入力解禁、startup scheduler開始。
+4. initialization complete: required local hydration完了。
+5. post-initialization complete: startup scheduler 管理下の post task と登録済み best-effort warmup の完了。scheduler 外の ranking / XML refresh と遅延 presentation flush は含めず、それぞれの lifecycle marker で追跡する。
 
-詳細は [startup-initialization-flow.md](startup-initialization-flow.md) を参照する。
+optional library-folder refreshやDispatcher Background workをglobal operabilityへ接続しない。詳細は [startup-initialization-flow.md](startup-initialization-flow.md) を参照する。
 
-## UI / Model Concurrency Boundary
+## UI / model concurrency boundary
 
-WPF UI に binding される `ObservableCollection` は UI read model として扱い、所有者の UI scheduler / collection applier 境界を通して更新する。domain model の writer lock を保持したまま、別 thread から `ObservableCollection` の `Add` / `Remove` / `Replace` / `Clear` を直接呼ばない。
+WPF binding collectionはUI read modelとして扱い、所有者のUI scheduler / collection applierを通して更新する。
 
-理由は、collection / property change 通知を UI dispatcher 上で適用する必要があるためである。background thread が model writer lock を保持したまま UI dispatcher を待ち、UI thread が同じ model の reader lock を待つと deadlock になる。
+- domain writer lock保持中にUI、dialog、event subscriber、別owner callbackを同期実行しない。
+- workerから`Dispatcher.Invoke`、`.Result`、`.Wait()`でUI完了を待たない。
+- background producerはimmutable fact / versionをqueueして戻る。
+- UI applyはcoalesceし、stale generationを高コスト処理前に棄却する。
+- DB、filesystem、networkはUI thread外で実行し、UI terminal apply中には行わない。
+- shutdown時はqueued taskを追跡し、観測不能なfire-and-forgetを作らない。
 
-playlist / library などの長い操作は次の順に分ける。
+破壊的chart / package operationは [library-mutation-boundary.md](library-mutation-boundary.md) を正本にする。
 
-- HTTP / parse / DB / filesystem の重い処理は UI thread 外で実行する。
-- model lock の保持時間は、正本状態の検査・採番・短い in-memory 更新に限定する。
-- UI binding collection への反映は UI dispatcher 上で短く実行し、反映中に network / DB / filesystem I/O を行わない。
-- lock 保持中に `Dispatcher.Invoke`、message box、event callback、`Task.Wait` / `.Result` のような同期待ちは行わない。
+## Native bridge policy
 
-譜面行、保留パッケージ、導入済みパッケージに対する破壊的操作は [library-mutation-boundary.md](library-mutation-boundary.md) を正本にする。これらの操作では、確認 dialog は ViewModel の preflight で解決し、model lock 中の dialog 表示は operation report として境界外へ遅延する。
+Everythingが使える場合、通常起動のfile enumerationは`EBridge_ScanChartAndResources`を使う。chart-relative resource keyとreverse lookup surfaceをnative resultに含める。Everythingが使えない場合はmanaged fallback scanを使うが、旧native ABIやcontract mismatchへの互換fallbackは行わない。
 
-## Native Bridge Policy
+## Deployment boundary
 
-Everything が使える場合、通常起動の file enumeration は `EBridge_ScanChartAndResources` を使う。
+main appは`win-x64` Self-contained、managed bundle + ReadyToRunを正本とする。native self-extract、all-content extraction、single-file compression、trimmingは使わない。BASS / 7zは`libs/x64`、Everything bridgeは`native`、language catalogは`lang`を使う。
 
-- chart / audio / image / movie を列挙する。
-- chart-relative resource key と reverse lookup surface を native packed result に含める。
-- managed 側で旧 basename-only / all-resource surface を main path に戻さない。
+## Documentation priority
 
-Everything が使えない場合は managed fallback scan を使う。ただし、古い native ABI や contract mismatch への互換 fallback は行わない。
-
-## Documentation Priority
-
-古い計画資料より `spec/` 配下の現行仕様を優先する。経緯は `../plan/` を参照する。
+`spec/`配下を現行仕様の正本とする。計画・履歴は`../plan/`、受入れevidenceは`../acceptance/`を参照する。

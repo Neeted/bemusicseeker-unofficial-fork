@@ -201,7 +201,7 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 - `IsLibraryOperationInProgress == false`: 通常の保存・反映判定に進む。
 
 初回設定ダイアログは、まだ進捗 operation が active ではないため保存可能とする。
-初期化が始まった後に設定画面を開いた場合は、起動・バックグラウンド更新が完全に終わるまで保存不可とする。
+初期化が始まった後に設定画面を開いた場合、`startup_ready_operable`までのUI block、activeなrequired startup / reload progress、またはchart mutationがある間は保存不可とする。`startup_initialization_complete`後も続くpost-initialization maintenanceだけでは保存をblockしない。設定変更と競合する個別owner operationがある場合は、そのownerのavailabilityで別途禁止する。
 
 設定画面の dirty 判定は `Settings.Default.PropertyChanged` の発火有無ではなく、保存済み snapshot と現在値の明示差分で行う。getter の防御的正規化、表示更新、schema status の presentation 更新だけで Cancel が full restore に入ってはならない。dirty 判定は filesystem validation や LR2 XML 保存を含めない。
 
@@ -209,7 +209,7 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 
 初回設定の案内は、設定画面で言語と動作モードを選ぶことを先に示す。`スタンドアローン(LR2と連携しない)` では一般タブの BMS ディレクトリとインストールタブの新規インストール先が必須で、`LR2と連携する` では一般タブの LR2 ディレクトリ、プレイリストタブのカスタムフォルダ出力先、インストールタブの新規インストール先が必須になる。必須項目が揃って `OK` が押されるまで、BMS ファイルの初回スキャンは開始しない。
 
-設定保存直後のメッセージは、初回スキャンをこれから開始することを示す。初回完了メッセージは `startup_initialization_complete` 後に表示し、次回以降は差分更新中心になることを伝える。
+設定保存直後のメッセージは、初回スキャンをこれから開始することを示す。初回完了メッセージは required local initialization を表す `startup_initialization_complete` 後に表示し、次回以降は差分更新中心になることを伝える。external sync、physical audit、export、prewarmは後続してよい。
 
 ## Settings File Migration
 

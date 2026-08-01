@@ -1,110 +1,89 @@
 # .NET 10 Performance Engineering Evidence
 
-[性能計画](../plan/BeMusicSeeker_refactoring_plans/BeMusicSeeker_性能回帰改善計画.md) / [現在地](../plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md) / [register](../plan/BeMusicSeeker_refactoring_plans/PERFORMANCE_WORK_REGISTER.md)
+[起動仕様](../spec/startup-initialization-flow.md) / [distribution](./net10-distribution-performance.md) / [現在地](../plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md)
 
 この文書はcurrent-only reportである。逐次unit履歴はGit historyへ委ねる。
 
 ## Reviewed snapshot
 
 ```text
-HEAD: 9dfa08dcad67a4e067609fc4514befe7e79b44ec
+HEAD: c9fcb9a4f6a523688c977264a6a78cf85be07665
 logs:
-  .tmp/20260731_log_.NET 10 PC起動後 初回起動
-  .tmp/20260731_log_.NET 10 PC起動後 2回目起動
-  .tmp/20260731_log_.NET 10 PC起動後 2回目起動 画面遷移問題なし
+  .tmp/20260801_folder-r2r_log
+  .tmp/20260801_bundle-r2r_log
 ```
 
-## List transition decision
+各logにはPC起動後初回起動と同じPC sessionの2回目起動が含まれる。
 
-一覧画面のユーザー体感問題は解消済みと判断する。
+## Startup result
 
-| Route | Current log evidence |
-|---|---:|
-| playlist summary 初回 | input→first useful visible 約594 ms。compute 480 ms、UI apply約3 ms、first render 109 ms |
-| playlist summary 同一cache再訪 | input→first useful visible 約32 ms |
-| playlist detail 114 rows | input→first useful visible 約129 ms |
-| full library 211,867 rows | input→first useful visible 約60 ms、再訪約23 ms |
+| Layout | Run | Install estimation ready | Ready operable | Required initialization complete | Post maintenance complete |
+| --- | --- | ---: | ---: | ---: | ---: |
+| folder-r2r | PC起動後初回 | 22,348 ms | 22,398 ms | 32,156 ms | 約63.6 s |
+| folder-r2r | 2回目 | 21,770 ms | 21,815 ms | 31,406 ms | window close前に未完 |
+| bundle-r2r | PC起動後初回 | 22,306 ms | 22,362 ms | 33,043 ms | 約64.0 s |
+| bundle-r2r | 2回目 | 21,882 ms | 21,956 ms | 32,504 ms | 約62.8 s |
 
-コード上の説明:
+評価:
 
-- `PlaylistSummaryVersionedCollection`がstable source identityを保持し、同一versionの再訪でcollection replacementを行わない。
-- `CommitMainTablePresentationWithoutNotification`と`PublishMainTablePresentation`がrows、mode、selectionを一つのterminal transactionで公開する。
-- `CustomTableView`はdata-only source changeでcolumn layout snapshotを破棄しない。
-- settings fan-outはtyped playlist table／catalog eventへ分離され、presentation propertyから無関係なsettings更新を起こさない。
-- performance markerはbounded asynchronous writerを使う。
-- normal-library refresh producerはUI完了を同期waitしない。
+- 以前再現していたPC起動後初回の約100秒化は再発していない。
+- cold / second runの差はrequired initializationで概ね1秒未満である。
+- folder-r2rとbundle-r2rの差は0.9～1.1秒、約2.7～3.4%で、selection thresholdの5秒かつ15%を満たさない。
+- current issueはdistribution formatではなく、既に修正したoptional folder-tree readiness dependencyであった。
 
-これらは今後のstartup修正で保護する。
+## Required / post task semantics
 
-## Reproducible cold-start issue
+required initializationで待つ主要work:
 
-| Run | `startup_ready_ui` | `startup_ready_operable` | UI→operable gap | `startup_initialization_complete` | operable→complete |
-|---|---:|---:|---:|---:|---:|
-| PC起動後 初回 | 23,225 ms | 88,721 ms | 65,496 ms | 103,315 ms | 14,594 ms |
-| 2回目 | 24,434 ms | 24,779 ms | 345 ms | 39,101 ms | 14,322 ms |
-| 2回目・画面遷移確認 | 24,140 ms | 24,418 ms | 278 ms | 38,176 ms | 13,758 ms |
+- playlist entries hydration: 約6.7～7.1 s
+- chart-info hydration: 約1.4～1.6 s
+- score hydration: 約1.1～1.2 s
+- LR2 required enrollment: 10 ms以下
 
-song-table load、Everything／BMS scan、`startup_ready_ui`までの主要phaseはcold／warmで同程度である。約65秒のcold penaltyは、ほぼ全て`startup_ready_ui`後、`startup_ready_operable`前に存在する。
+post-initialization workはoperable直後からrequired workと並行して開始する。全post taskのconcurrencyは1である。主なtail:
 
-cold runでは次の順序である。
+- playlist virtual-order prewarm: 約20～21 s
+- custom-folder physical repair / audit: 約3.9～5.7 s
+- maintenance hydration: 約5.1～5.4 s
+- external catalog: 約2.3～3.3 s
+- post-initialize GC: 約1.2 s
 
-```text
-startup_ready_ui                    23.225 s
-post_initialize_gc                 +30 s付近、515 ms
-library folder deferred apply      88.5 s付近
-parent_folder_cache rebuildMs      119 ms
-startup_ready_operable             88.721 s
-startup background scheduler start 88.721 s
-startup_initialization_complete    103.315 s
-```
+したがって`startup_initialization_complete`の短縮は、単に全workをその後から開始する変更ではない。ただしvirtual sort prewarmはrequired complete後にqueueされるbest-effort workであり、post-completeまでは約63～64秒かかる。
 
-`parent_folder_cache rebuildMs=119`はcache algorithm部分だけで、requestからworker開始、reader-lock wait、path snapshot、Dispatcher queue waitを含まない。
+## User-visible capability decision
 
-## Baseline cause and current closure
+- chart install / destination estimation: operable前にreadiness完了。
+- normal library / playlist browsing: operableから利用可能。
+- local playlist edit: playlist entries hydrationをrequiredとし、initialization completeまでに保証。
+- automatic URL completion / playlist reference / external sync: post work。initialization complete時点の完了は保証しない。
+- library folder tree final refresh: post work。global operabilityをgateしない。
+- sort cache: post best-effort。未完時はon-demand fallback。
 
-### Confirmed
+## List transition protection
 
-baselineでは、`MainWindowViewModel.TryLogStartupReadyOperable`が通常入力のunblockと`StartupBackgroundTaskSchedulerOwner.Start()`を同時に行い、startup UI flushにlibrary-folder refreshが含まれる場合に`LibraryFolderTreeViewModel.DeferredRefreshCompleted`まで延期されていた。
+一覧遷移改善は維持されている。
 
-baselineのrefreshは次の二段queueであった。
+- playlist summaryはstable versioned sourceを使う。
+- main-table rows / mode / selectionをatomic presentation commitで公開する。
+- data-only変更でcolumn layoutを破棄しない。
+- unrelated settings fan-outをtyped eventへ分離した。
+- performance logはbounded asynchronous writerを使う。
+- normal-library refresh producerはUI completionを同期waitしない。
 
-```text
-generic Task.Run
-  → BMSLibrary.BuildBMSParentFolderListCacheSnapshot
-  → UI scheduler at Background priority
-  → DeferredRefreshCompleted
-  → startup_ready_operable / scheduler_start
-```
+今回のstartup変更はこれらのrouteを再設計していない。
 
-したがって、optional folder-tree presentationが遅れると、アプリ操作可能化と全startup background workが同じ時間だけ遅れる。これが100秒化の直接原因であった。
+## Shutdown observation
 
-S1～S4でこのdependencyを閉じた。現在は、`LibraryFolderTreeViewModel`がMainWindowから注入された`StartupBackgroundTaskSchedulerOwner`へ`library_folder_tree_refresh`として要求を渡し、`post_initialization_folder_tree_refresh` laneで準備を行う。scheduler未設定時は旧ThreadPool経路へfallbackせずfail-fastする。`ThreadPool.SetMinThreads(200, 200)`も退役した。S5ではこの境界を含むFull verification、選択publish、更新受入れ、Release executable UI smoke、Roslynator解析を再確認した。
+folder-r2rの2回目はpost-initialization external catalog実行中にwindow closeされ、HTTP requestがcancelされ、queued BMT taskが1件discardされた。shutdown drainは約104 msで完了しており、ユーザー終了に伴うexpected cancellationである。required initializationおよびdata integrity failureのevidenceではない。
 
-### Highly likely contributor
+## Engineering gate evidence recorded in repository
 
-baselineのUI applyは`UiSchedulePriority.Background`であり、cold runではrequest後約65秒間completionがなかった。exact split markerがないため、ThreadPool queue、`rwlockBMSFiles` reader wait、path snapshot、Dispatcher Background queueのどこが支配したかは確定していない。ただし、いずれであってもoptional low-priority refreshをglobal readiness gateにした設計が不適切だったことは確定している。現在はmarker、owned lane、coalescing、shutdown drain、決定的テストを備える。
-
-### Not the primary cause
-
-現行publishはmanaged bundle＋ReadyToRunだが、native self-extract、all-content extraction、single-file compressionを無効にしている。cold penaltyはprocess起動前や`startup_ready_ui`前ではなくmanaged startup route内の65秒gapなので、配布形式だけでは説明できない。
-
-## Current decision
-
-`PERF-03 .NET 10 cold-start initialization closure`のengineering gateを完了した。S5では全5 projectのlocked restore、Release build、full test、Roslynator、selected publish、existing-data、update success／rollback、startup structural／deadlock regressionを通過し、`bin\x64\Release\net10.0-windows\BeMusicSeeker.exe`による一時プロファイルUI smokeも通過した。bundle-r2r／folder-r2rのPC再起動後比較はMANUAL-01へhandoffする。
-
-## Engineering gate result
-
-- locked restore: `dotnet restore .\BeMusicSeeker.sln -r win-x64 --locked-mode -p:PublishReadyToRun=true`
-- full tests: 3,589 passed, 16 skipped, 0 failed (parallel shards; each shard response threshold 180 seconds以内)
+- locked restore / Release build: passed
+- full tests: 3,589 passed, 16 skipped, 0 failed
 - Roslynator: 0 diagnostics
-- selected publish: bundle-r2r app／single-file updater
+- bundle-r2r / folder-r2r reproducible publish: passed
 - existing-data acceptance: passed
-- update success／fault rollback acceptance: passed
-- repository Release executable UI smoke: passed using the path above; installed application was not used
+- update success / fault rollback: passed
+- Release executable UI smoke: passed
 
-Engineering完了後の実機再起動比較だけがユーザー手動受入れとして残る。これはengineering gateを停止しない。
-
-1. operabilityとstartup schedulerをoptional folder-tree completionから分離する。
-2. required initializationとpost-initialization maintenanceを分離する。
-3. folder refreshのworker／lock／Dispatcher waitを可視化し、generic `Task.Run`／global min-thread tuningを退役する。
-4. code fix後にbundle-r2rとfolder-r2rをPC再起動後一回だけ比較できるhandoffを用意する。
+このレビュー環境ではbuild / testを再実行しておらず、上記はrepositoryに記録されたgate evidenceである。
