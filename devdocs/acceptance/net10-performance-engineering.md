@@ -1,80 +1,96 @@
 # .NET 10 Performance Engineering Evidence
 
-[性能計画](../plan/BeMusicSeeker_refactoring_plans/BeMusicSeeker_性能回帰改善計画.md) / [現在地](../plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md) / [作業register](../plan/BeMusicSeeker_refactoring_plans/PERFORMANCE_WORK_REGISTER.md)
+[性能計画](../plan/BeMusicSeeker_refactoring_plans/BeMusicSeeker_性能回帰改善計画.md) / [現在地](../plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md) / [register](../plan/BeMusicSeeker_refactoring_plans/PERFORMANCE_WORK_REGISTER.md)
 
-この文書はcurrent-only reportである。過去unitの逐次logはGit historyとignored artifactsへ委ねる。
+この文書はcurrent-only reportである。逐次unit履歴はGit historyへ委ねる。
+
+## Reviewed snapshot
+
+```text
+HEAD: c5ffed1379ce20b66010dd4a00f1333bd5743ba2
+logs:
+  .tmp/20260731_log_.NET 10 PC起動後 初回起動
+  .tmp/20260731_log_.NET 10 PC起動後 2回目起動
+  .tmp/20260731_log_.NET 10 PC起動後 2回目起動 画面遷移問題なし
+```
+
+## List transition decision
+
+一覧画面のユーザー体感問題は解消済みと判断する。
+
+| Route | Current log evidence |
+|---|---:|
+| playlist summary 初回 | input→first useful visible 約594 ms。compute 480 ms、UI apply約3 ms、first render 109 ms |
+| playlist summary 同一cache再訪 | input→first useful visible 約32 ms |
+| playlist detail 114 rows | input→first useful visible 約129 ms |
+| full library 211,867 rows | input→first useful visible 約60 ms、再訪約23 ms |
+
+コード上の説明:
+
+- `PlaylistSummaryVersionedCollection`がstable source identityを保持し、同一versionの再訪でcollection replacementを行わない。
+- `CommitMainTablePresentationWithoutNotification`と`PublishMainTablePresentation`がrows、mode、selectionを一つのterminal transactionで公開する。
+- `CustomTableView`はdata-only source changeでcolumn layout snapshotを破棄しない。
+- settings fan-outはtyped playlist table／catalog eventへ分離され、presentation propertyから無関係なsettings更新を起こさない。
+- performance markerはbounded asynchronous writerを使う。
+- normal-library refresh producerはUI完了を同期waitしない。
+
+これらは今後のstartup修正で保護する。
+
+## Reproducible cold-start issue
+
+| Run | `startup_ready_ui` | `startup_ready_operable` | UI→operable gap | `startup_initialization_complete` | operable→complete |
+|---|---:|---:|---:|---:|---:|
+| PC起動後 初回 | 23,225 ms | 88,721 ms | 65,496 ms | 103,315 ms | 14,594 ms |
+| 2回目 | 24,434 ms | 24,779 ms | 345 ms | 39,101 ms | 14,322 ms |
+| 2回目・画面遷移確認 | 24,140 ms | 24,418 ms | 278 ms | 38,176 ms | 13,758 ms |
+
+song-table load、Everything／BMS scan、`startup_ready_ui`までの主要phaseはcold／warmで同程度である。約65秒のcold penaltyは、ほぼ全て`startup_ready_ui`後、`startup_ready_operable`前に存在する。
+
+cold runでは次の順序である。
+
+```text
+startup_ready_ui                    23.225 s
+post_initialize_gc                 +30 s付近、515 ms
+library folder deferred apply      88.5 s付近
+parent_folder_cache rebuildMs      119 ms
+startup_ready_operable             88.721 s
+startup background scheduler start 88.721 s
+startup_initialization_complete    103.315 s
+```
+
+`parent_folder_cache rebuildMs=119`はcache algorithm部分だけで、requestからworker開始、reader-lock wait、path snapshot、Dispatcher queue waitを含まない。
+
+## Cause assessment
+
+### Confirmed
+
+`MainWindowViewModel.TryLogStartupReadyOperable`は、通常入力のunblockと`StartupBackgroundTaskSchedulerOwner.Start()`を同時に行う。startup UI flushにlibrary-folder refreshが含まれる場合、この呼出しは`LibraryFolderTreeViewModel.DeferredRefreshCompleted`まで延期される。
+
+そのrefreshは次の二段queueである。
+
+```text
+Task.Run
+  → BMSLibrary.BuildBMSParentFolderListCacheSnapshot
+  → UI scheduler at Background priority
+  → DeferredRefreshCompleted
+  → startup_ready_operable / scheduler_start
+```
+
+したがって、optional folder-tree presentationが遅れると、アプリ操作可能化と全startup background workが同じ時間だけ遅れる。これが100秒化の直接原因である。
+
+### Highly likely contributor
+
+UI applyは`UiSchedulePriority.Background`であり、cold runではrequest後約65秒間completionがない。exact split markerがないため、ThreadPool queue、`rwlockBMSFiles` reader wait、path snapshot、Dispatcher Background queueのどこが支配したかは未確定である。ただし、いずれであってもoptional low-priority refreshをglobal readiness gateにした設計は不適切である。
+
+### Not the primary cause
+
+現行publishはmanaged bundle＋ReadyToRunだが、native self-extract、all-content extraction、single-file compressionを無効にしている。cold penaltyはprocess起動前や`startup_ready_ui`前ではなくmanaged startup route内の65秒gapなので、配布形式だけでは説明できない。
 
 ## Current decision
 
-reviewed HEAD:
+`PERF-03 .NET 10 cold-start initialization closure`を開始する。
 
-```text
-72445a5029ba12356ac50340e4a399f7292f349f..final F6 commit
-```
-
-`PERF-02`のengineering Gateは完了した。
-
-- Full verification、3,574 tests passed、16 skipped、Roslynator 0 diagnostics。
-- managed bundle＋ReadyToRunのmain appとsingle-file updaterをSelf-contained publish。
-- existing-data、update success、fault rollback acceptance。
-- repository publish artifactのstartup、library、playlist、shutdown UI smoke。
-- normal refresh deadlock safetyとnon-blocking producer invariant。
-
-production dataを使う最終体感確認はengineering Gateを止めず、`MANUAL-01`へhandoffした。
-
-## 2026-07-31 symptom evidence
-
-この数値は厳密なA/B Gateではなく、current .NET 10の修正優先度を決める。
-
-| Route | net472 sample | current .NET 10 sample | Interpretation |
-|---|---:|---:|---|
-| playlist summary初回 | input→first visible 約0.69 s | 約1.18 s | current compute約0.32 sよりUI applyが長い |
-| playlist summary再訪 | summary presentはほぼ即時 | compute約0.015 s、input→visible 約0.90 s | cache computeではなくsource／binding／notificationが支配 |
-| playlist detail | 約0.13～0.25 s | 約0.10～0.18 s | current routeは保護対象 |
-| detail→full library | 約0.38～0.45 s | 約1.17 s | declared rows／column workはほぼ0～1 ms。blind presentation interval |
-| startup ready | 約38.2 s | 約24.9 s | startup全体は今回の最優先ではない |
-
-## Source correlation
-
-### High-confidence direct defects
-
-1. settings dialog の playlist table dependency は typed catalog version event へ限定され、非表示中は dirty version のみを保持する。
-2. playlist summaryはworkspace-owned stable versioned sourceへ一回のdata resetでcommitし、同一source／filter／sort versionの再訪をno-opにする。
-3. `CustomTableView`はdata resetでcell dataだけをinvalidateし、column layout snapshotを維持する。
-4. detail／summary／library transitionはrows、schema、selection、operation context、visible modeをterminal commitし、old detail sourceはnew sourceのownership transfer後にretireする。
-5. performance markerはproducer timestampをbounded queueへenqueueし、専用background writerが`InstallPerformance.Net10`へbatch出力する。
-6. main table の binding は `MainChartList.Rows` と mode 別 virtual source の contract に統合され、consumer のない binding-policy state は持たない。
-7. library initializationはcritical path直前のfull GCを行わず、進捗をlatest immutable snapshotとしてcoalesceし、一つのUI notificationで適用する。
-8. install destination estimationはcandidate evaluation degreeが1の場合にPLINQを構築しない。scan hash canonicalizationとBMSON continuation探索は既存のsingle-pass contractを維持する。
-9. catalog derived collectionはstorage versionを先に確認し、same-version routeではrow snapshotを作らない。rebuild時もdetached row snapshotを再copyしない。
-10. drop-install active progressはlatest statusを一つのUI operationへcoalesceし、completion／inactive terminal orderingを維持する。
-11. playlist workspaceはtable identityとhydration requested／completedのtyped lifecycle eventだけを購読し、lock／running／presentation propertyのgeneric fan-outを受けない。
-
-これらはproduction benchmarkを待たずに修正する。
-
-## Evidence policy for PERF-02
-
-- net472側を変更・再build・再計測しない。
-- production dataをCodex／CI prerequisiteにしない。
-- `DIRECT_FIX`／`LIKELY_OPTIMIZATION`はbehaviorとconcurrencyをtestし、実機benchmarkがなくても実装する。
-- synthetic corpusが既にあるrouteではcomponent evidenceを利用する。
-- instrumentation-onlyで既知遅延を完了扱いにしない。
-- final real-data measurementは全engineering作業後にユーザーが一度行う。
-- raw log／trace／benchmark outputはignored artifactに置き、current summaryだけを更新する。
-
-## Current acceptance state
-
-| Area | State |
-|---|---|
-| functional correctness | met |
-| deadlock safety | met; protect |
-| playlist detail route | acceptable; protect |
-| playlist summary user-visible transition | engineering fix met; final real-data check handed off |
-| detail／summary→library transition | engineering fix met; final real-data check handed off |
-| table invalidation contract | data reset and cross-mode data-only source apply met |
-| diagnostic logging hot-path cost | met; bounded non-blocking producer |
-| startup／estimation／scan／parse second-wave optimization | met; forced GC、progress fan-out、degree=1 PLINQ overheadを除去し、既存single-pass scan／parser contractを検証 |
-| application-wide copy／queue／event fan-out | met; catalog version-first、drop progress coalescing、typed playlist lifecycle |
-| Full engineering verification | met |
-| selected publish UI smoke | met |
-| final user real-data check | pending user action; non-blocking |
+1. operabilityとstartup schedulerをoptional folder-tree completionから分離する。
+2. required initializationとpost-initialization maintenanceを分離する。
+3. folder refreshのworker／lock／Dispatcher waitを可視化し、generic `Task.Run`／global min-thread tuningを整理する。
+4. code fix後にbundle-r2rとfolder-r2rをPC再起動後一回だけ比較できるhandoffを用意する。

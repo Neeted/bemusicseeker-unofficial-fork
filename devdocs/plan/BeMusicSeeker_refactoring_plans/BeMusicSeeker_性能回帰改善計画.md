@@ -1,241 +1,143 @@
-# BeMusicSeeker .NET 10 ユーザー体感性能改善計画
+# BeMusicSeeker .NET 10 性能改善計画
 
-[現在地](./PLAN_STATUS.md) / [作業register](./PERFORMANCE_WORK_REGISTER.md) / [共通実行ルール](./00_Codex共通実行ルール.md) / [current evidence](../../acceptance/net10-performance-engineering.md) / [historical log note](../../acceptance/net472-net10-interaction-baseline.md)
+[current evidence](../../acceptance/net10-performance-engineering.md) / [distribution](../../acceptance/net10-distribution-performance.md) / [現在地](./PLAN_STATUS.md) / [register](./PERFORMANCE_WORK_REGISTER.md)
 
-## Outcome
+## 目的
 
-`PERF-02 .NET 10 user-visible performance acceleration`
+.NET 10版のMVVM／concurrency／data compatibilityを維持しつつ、PC起動後初回だけ`startup_initialization_complete`が約100秒になる問題を解消する。
 
-MVVM ownership、existing-data互換性、解消済みのdeadlock safetyを維持しながら、現在の.NET 10アプリで残っている一覧画面の秒単位遅延と、起動・導入先推定・scan／parseの不要workを除去する。
+画面遷移は、stable summary source、atomic main-table presentation、data-only invalidationによって実用水準へ改善済みである。これらを再設計せず保護する。
 
-このOutcomeでは、差分の小ささよりhot pathの単純さを優先する。production benchmarkを作業中に取得できないことは、構造上妥当な高速化を延期する理由にしない。
+## 現在の診断
 
-## Review decision
-
-reviewed HEAD:
+cold／warmの主要scanやDB loadは同程度である。cold-only penalty約65秒は次へ集中する。
 
 ```text
-72445a5029ba12356ac50340e4a399f7292f349f
+startup_ready_ui
+  → deferred library-folder preparation
+  → Dispatcher Background apply
+  → DeferredRefreshCompleted
+  → startup_ready_operable
+  → startup background scheduler start
 ```
 
-最近の作業には有効な改善が含まれる。
+`startup_ready_operable`が遅れるため、schedulerにqueue済みのhydration／maintenanceも65秒後まで開始されず、最終的に`startup_initialization_complete`が約103秒になる。
 
-- normal-library refreshのproducer-side synchronous UI waitは退役しており、既知deadlockは再発していない。
-- background summary用のUI-thread全件ordered-row copyは削除された。
-- playlist detailのowner request後の処理は、今回の.NET 10 logで約97～175 msであり、net472 sampleより速い。
-- startup readyは今回のsampleで.NET 10側が短く、startup全体は最優先問題ではない。
-- install estimation、scan、parser、resource indexにはsyntheticなallocation／operation削減が入っている。
+exact waitの内訳は現行logだけでは確定できない。候補はThreadPool queue、library reader-lock wait、211k path snapshot、Dispatcher Background queueである。しかし、optional tree refreshをglobal readiness gateにしたdependency自体は、内訳に関係なく修正対象である。
 
-一方、性能Outcomeを完了扱いにした判断は早かった。synthetic componentの改善と実画面の体感改善が一致していない。
-
-## Current log findings
-
-比較は厳密なbenchmarkではなく、修正優先度を決める症状evidenceとして使用する。
-
-| Route | Current observation | Decision |
-|---|---|---|
-| playlist summary初回 | compute約323 msに対し、inputからfirst visibleまで約1.18 s | compute後のUI applyを直接改善する |
-| playlist summary再訪 | compute約15 msでもfirst visibleまで約0.90 s | cache computeではなくsource replacement／binding／notificationが支配的 |
-| playlist detail | requestからvisibleまで約97～175 ms | 高速なrouteを保護し、全面rewriteしない |
-| playlist detail→full library | rows／columnの計測値はほぼ0～1 msだがfirst visibleまで約1.17 s | related presentation、old source clear、binding fan-outのblind intervalを除去する |
-| startup | current sampleはnet472 sampleより短い | 最優先にせず、明確な不要workだけ改善する |
-
-## Confirmed structural defects
-
-### 1. Settings dialogの広すぎるplaylist購読
-
-F1で`PlaylistWorkspaceViewModel.PropertyChanged`全体の購読を退役し、playlist table／catalogの実変更だけを伝えるtyped version eventへ置換した。
-
-旧構造ではplaylist summary rows、summary text、column visibility、detail mode等のpresentation変更が、settings dialogのdirectory property通知とpreset dirty処理へfan-outしていた。
-
-これは`DIRECT_FIX`である。
-
-恒久形:
-
-- playlist table／catalogの実変更専用typed eventまたはversionを作る。
-- settings dialogはそのeventだけを購読する。
-- dialogが非表示ならdirty/versionだけを更新し、directory snapshotは表示時に読む。
-- summary／detail／libraryのpresentation property変更ではsettings notificationを発火しない。
-
-### 2. Playlist summaryのreplace-all UI apply
-
-summary applyは毎回UI threadで次を実行する。
+## Target architecture
 
 ```text
-new ObservableCollection<PlaylistSummaryRow>(rows)
-total chart Sum
-PlaylistSummaryView identity replacement
-PropertyChanged
-selection restore
-CustomTableView full invalidation
+required data / initial main presentation
+  ↓
+startup_ready_ui
+  ↓
+startup_ready_operable + required background scheduler start
+  ├─ required local hydration
+  │    ↓
+  │  startup_initialization_complete
+  └─ optional presentation / audit / network / export / prewarm
+       ↓
+     startup_post_initialization_maintenance_complete
 ```
 
-再訪時にcomputeが15 msでも約0.9 sかかるため、summary source identity、binding、selection、table invalidationを見直す。
+library folder tree:
 
-恒久形:
+```text
+versioned refresh request
+  → owned preparation lane
+  → short model snapshot
+  → coalesced UI apply
+```
 
-- stableなversioned summary sourceをownerが保持する。
-- background側でsummary textとpresentation snapshotを完成させる。
-- UIは一つのtyped presentation commitを適用する。
-- 内容とversionが同一ならsource交換、column rebuild、selection restoreを行わない。
-- replace-all時も一回のdata resetと必要なrow／selection invalidationだけにする。
-
-### 3. CustomTableViewの過剰invalidation
-
-`OnItemsSourceChanged`はdata source変更だけでもcolumn layout snapshotを破棄し、cell cache、selection、scroll、row subscription、redrawを一括更新する。
-
-恒久形:
-
-- row data、column schema、text metric、selection、scrollを別dimensionとしてinvalidateする。
-- data-only swapではcolumn layoutを維持する。
--同じapply内でcell cacheを二重破棄しない。
-- visible row subscriptionを差分更新する。
-- presentation snapshotを一回applyし、rowsとcolumnsのPropertyChanged順序へ依存しない。
-
-### 4. Main-list mode transitionのpresentation fan-out
-
-通常libraryへのcommit後に、playlist workspaceがcolumn visibility、summary columns、detail activeを個別PropertyChangedする。
-
-さらにdetail source clearを新source applyより前に公開している。
-
-恒久形:
-
-- main tableのrows、column schema、modeを一つのtyped presentation transactionで適用する。
-- old detail sourceのretireはnew sourceのownership transfer後に行う。
-- 非active summary controlやsettings dialogへhot-path notificationを伝播させない。
-
-### 5. Performance loggingの同期file I/O
-
-F1でperformance markerをbounded queueへ移し、UI apply pathはtimestampとsmall payloadのenqueueだけを行う。専用background writerがNLog targetへbatch出力する。
-
-恒久形:
-
-- timestampとsmall value payloadは呼出laneで取得する。
-- performance eventはbounded async queue／bufferへenqueueする。
-- writerはUI外でbatch flushする。
-- queue overflowはdropped countをaggregate記録し、UIをblockしない。
-- fatal／errorの通常log semanticsは変更しない。
-- diagnostic無効時はmessage文字列を作らない。
+folder treeが遅延しても通常操作とrequired hydrationは進む。表示時に未準備ならloading stateまたはlast valid snapshotを使い、同期buildでUIを止めない。
 
 ## Ordered implementation batch
 
-### F1 — `FANOUT-AND-DIAGNOSTICS`
+### S1 — `STARTUP-READINESS-GATE`
 
-分類: `DIRECT_FIX`
+分類: `READINESS_DEFECT`＋`DIRECT_FIX`
 
-1. generic `PropertyChanged` playlist-table subscriptionをtyped catalog/table eventへ置換する。
-2. settings dialogはlazy dirty/version方式へ変更する。
-3. summary／detail／libraryのpresentation changeがsettings notificationへ流れないtestを追加する。
-4. performance markerをnon-blocking buffered writerへ移す。
-5. `UseAsyncChartRowsViewBinding`等、production consumerのないhot-path stateを退役する。
-6. current logのblind intervalを、related-presentation、source apply、selection restore、table invalidationへ分割する。
+1. folder refreshへ同一interaction IDのmarkerを追加する。
+   - request accepted
+   - worker queued／started
+   - model reader wait start／end
+   - path snapshot complete
+   - cache build complete
+   - UI queued／started／applied
+   - stale／reschedule reason
+2. `startup_ready_operable`と`StartupBackgroundTaskSchedulerOwner.Start()`を`DeferredRefreshCompleted`から分離する。
+3. required UI maskが適用された同じstartup transitionでoperabilityを確定し、folder refreshは独立して継続する。
+4. `LibraryFolderTreeDeferredRefreshCompleted`はtree-specific readinessだけを通知する。
+5. `Background` operationまたはreader guardを意図的にblockしても、operability、scheduler start、required tasksが進む決定的testを追加する。
+6. folder treeのlatest-version coalescing、eventual apply、shutdown abortを維持する。
 
-exit:
+禁止:
 
-- presentation property一件につきsettings handlerが走らない。
-- UI threadがperformance file writeを待たない。
-- deadlock invariantとlog correlationを維持する。
+- priorityをNormalへ上げるだけでglobal dependencyを残す
+- timeoutでoperable扱いにする
+- refreshを捨てる
+- UI threadで同期cache buildする
 
-### F2 — `PLAYLIST-SUMMARY-APPLY`
-
-分類: `DIRECT_FIX`＋`LIKELY_OPTIMIZATION`
-
-1. stable versioned summary source／presentation snapshotを導入する。
-2. summary total、text、row snapshotをbackground buildで完成させる。
-3. cached revisitで同一source／column schemaを再利用する。
-4. source変更、text変更、selection restoreを一つのterminal applyへまとめる。
-5. inactive／stale generationのapplyをcollection生成前に棄却する。
-6. summary tableのrow subscription、cache invalidation、render requestを一回へ抑える。
-7. sort、filter、selection、context menu、editing、reload cleanupを維持する。
-
-exit:
-
-- cached revisitでnew `ObservableCollection`とfull binding source replacementを行わない。
--同一versionではtable invalidationとselection restoreが0回。
-- changed versionでは一回のdata resetで表示を更新する。
-
-### F3 — `MAIN-LIST-TRANSITION`
+### S2 — `STARTUP-TAIL-CONTRACT`
 
 分類: `DIRECT_FIX`＋`LIKELY_OPTIMIZATION`
 
-1. detail→library、summary→library、library→detailを一つのmain-table presentation commitへ統合する。
-2. new rows／columns／modeを先にcommitし、old detail sourceのdispose／logはownership transfer後へ移す。
-3. row dataだけの変更でcolumn schemaを再構築しない。
-4. hidden summary tableと無関係なsettings／playlist propertiesを更新しない。
-5. CustomTableViewへdata-only／schema-change／selection-onlyのfast pathを追加する。
-6. `ItemsSource`変更時の重複cell cache invalidation、column layout invalidation、row subscription rebuildを削減する。
-7. fastなplaylist detail build routeとvirtual library sourceを維持する。
+1. scheduler taskを`required initialization`と`post-initialization maintenance`へ分類する。
+2. `startup_initialization_complete`はrequired local hydrationだけを待つ。
+3. 次は原則post-initializationへ移す。
+   - external／network catalog
+   - playlist URL completion
+   - custom-folder physical consistency audit
+   - beatoraja export
+   - best-effort prewarm
+4. `playlist_custom_folder_output_repair`はeventual repairを維持するが、`pendingCount=0`でも行う335,550-entry physical auditでrequired completionを止めない。
+5. featureをaudit完了前に開いた場合のlazy ensure／updating state／explicit refreshを定義する。
+6. post-initialize GCはrequired tasksと競合しないidle／memory-pressure ownerへ移し、startup開始からの固定delayだけで発火させない。
+7. required task failureとoptional task failureをUI／logで区別する。
 
-exit:
+### S3 — `STARTUP-CONTENTION-AND-OWNERSHIP`
 
-- detail→libraryのhot pathに一般PropertyChanged fan-outがない。
-- source clearとnew source applyが別のvisible transitionにならない。
-- data-only source applyでcolumn layout rebuild countが0。
-- first renderを要求するDispatcher turnがboundedである。
+分類: `DIRECT_FIX`＋`OBSERVABILITY_SUPPORT`
 
-### F4 — `STARTUP-ESTIMATION-SCAN-PARSE`
+1. parent-folder preparationをgeneric `Task.Run`から明示startup／folder-refresh owner laneへ移す。
+2. model reader-lock waitとpath snapshotを短縮し、同じcatalog versionのsnapshotを再利用できる場合はowner-scoped version cacheを使う。
+3. `Task.Run`→Background Dispatcherという二段queueを必要最小限にする。
+4. `ThreadPool.SetMinThreads(200, 200)`をcurrent routeで再評価する。
+   - readiness dependency修正後にqueue waitがなければ削除する。
+   - queue waitが残る場合も、global magic numberではなくowned lane／bounded concurrencyを優先する。
+5. startup markersへThreadPool thread count／pending work、reader wait、Dispatcher queue waitをaggregateで記録する。
+6. startup progress animationやbindingがBackground operationを飢餓させても、required readinessへ影響しないことを確認する。
 
-分類: `LIKELY_OPTIMIZATION`＋既存の`MEASURED_OPTIMIZATION`
+### S4 — `COLD-BOOT-DISTRIBUTION-FALLBACK`
 
-一覧以外の重要経路について、proof不足を理由に既知の不要workを残さない。
+分類: `POST_ENGINEERING_MANUAL`を支えるengineering task
 
-対象:
+1. 同じHEADから`bundle-r2r`と`folder-r2r`を再現できるpublish command／validatorを維持する。
+2. app code、R2R、native assets、settings／data layoutを同一にする。
+3. folder profileはstandard host layoutとし、custom loader／managed relocationを導入しない。
+4. process start、managed startup start、`startup_ready_ui`、`startup_ready_operable`、`startup_initialization_complete`を両artifactで記録できるようにする。
+5. code fix完了後のPC再起動比較を`POST_MIGRATION_MANUAL_ACCEPTANCE.md`へhandoffする。
+6. manual resultがfolder選択条件を満たした場合に、profile、publish script、validator、update manifestを一括変更できる単一follow-upを定義する。
 
-- startup／initializationのduplicate warmup、index rebuild、forced GC、非必須maintenance。
-- install destination estimationのsnapshot、candidate enumeration、normalization、hash／resource lookup、progress。
-- library construction／managed file diffのpath decode、row mapping、DB batch、index publication。
-- BMS／BMSON／chart-info parserのsubstring、multiple enumeration、collection growth、dictionary lookup。
+S4はmanual result待ちでCodexを停止しない。defaultは引き続き`bundle-r2r`とする。
 
-方針:
-
-- startupでfirst useful windowに不要なworkはidle／post-visibleへ移し、cancellationとshutdownを持たせる。
--同じcatalog versionのindex／hash／normalized keyはowner-scoped cacheとして再利用する。
--小規模入力をparallel化せず、大規模入力だけbounded parallelismを使う。
-- progressはitemごとにUIへ送らずcoalesceする。
-- parserはgolden behaviorを守れる箇所でspan、indexed loop、pre-sized collection、single-pass処理を採用する。
-- forced GCは必須根拠がなければcritical startup pathから外す。memory-pressureまたはidle ownerへ限定できる。
--実環境I/Oを再現できなくても、重複work／allocation／enumerationがsource上明確なら修正する。
-
-### F5 — `APPLICATION-WIDE-PERF-AUDIT`
-
-分類: `DIRECT_FIX`／`LIKELY_OPTIMIZATION`
-
-一覧画面で見つかった同型問題を全featureへ横展開する。
-
-探索対象:
-
-- feature ViewModelの一般`PropertyChanged`をdomain eventとして購読するroute。
-- UI thread上のsync log、file／DB、全件copy、large LINQ materialization。
--一操作で複数回発火するItemsSource／Columns／selection／visibility通知。
-- hidden control向けapply。
-- commit→publish→relay→Viewの重複Dispatcher hop。
-- version／cacheがあるのに毎回再構築するindex／projection。
-- defensive snapshotの多重copy。
-- stale generation棄却が遅いroute。
-- rapid reentryでqueueが蓄積するroute。
-
-method一件ごとのunitは作らず、同じowner／invalidation contract／test scopeでまとめて修正する。
-
-### F6 — `FINAL-PERFORMANCE-GATE`
+### S5 — `FINAL-STARTUP-GATE`
 
 1. 全5 projectのlocked restore、Release build、full tests、analyzer。
-2. deadlock、rapid reentry、shutdown、estimated-install正常完了。
-3. playlist summary／detail／libraryのstructural performance tests。
-4. startup／estimation／scan／parseのgolden behaviorと既存synthetic suite。
-5. selected main-app／updater Self-contained publish。
-6. existing-data、update success、rollback。
-7. performance logging disabled pathとbounded writer。
-8. frozen snapshotのfresh outcome review、重大指摘修正後の再検証。
+2. blocked folder-refreshでもoperabilityとrequired schedulerが進むtest。
+3. folder tree eventual apply、rapid reentry、shutdown。
+4. playlist summary／detail／libraryの成立済みperformance contract。
+5. estimated-install、scan／parse golden behavior、deadlock regression。
+6. selected main app／updater Self-contained publish。
+7. existing-data、update success、rollback。
+8. frozen snapshot fresh review、重大指摘修正後の再検証。
 
-Gateは次を要求する。
+Engineering exit:
 
-- 既知の秒単位UI gapに対応するhot-path defectが未処理で残っていない。
-- generic PropertyChanged domain busがない。
-- UI thread synchronous performance file I/Oがない。
-- summary revisitで無条件collection replacementがない。
-- data-only table applyでcolumn layout rebuildを行わない。
-- detail→libraryが一つのpresentation transactionである。
--解消済みdeadlockを復活させていない。
--最終実機確認に必要なinteraction markerが低負荷で残っている。
-
-実データでの絶対時間は全engineering作業後の手動受入れで一度確認する。結果待ちをCodex工程へ含めない。
+- optional folder tree／Background workがglobal readinessをgateしない。
+- cold-only 65秒gapを生むdependencyがsourceから消えている。
+- `startup_initialization_complete`のrequired task契約が明示されている。
+- optional maintenanceはeventual completionとfailure visibilityを持つ。
+-画面遷移改善とdeadlock修正を維持する。
+- cold-boot distribution比較に必要な最終artifactとmarkerが揃っている。

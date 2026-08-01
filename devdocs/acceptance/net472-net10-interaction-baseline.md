@@ -1,25 +1,13 @@
 # Historical net472 / .NET 10 Symptom Note
 
-現在の正本は[.NET 10 performance engineering evidence](./net10-performance-engineering.md)である。
+[current evidence](./net10-performance-engineering.md) / [性能計画](../plan/BeMusicSeeker_refactoring_plans/BeMusicSeeker_性能回帰改善計画.md)
 
-この文書は、既存の次のlogを修正優先度の参考に使ったことだけを記録する。
+この文書は既存logから得たhistorical symptomだけを残す。net472を再build、再instrument、反復benchmarkする正本ではない。
 
-```text
-.tmp/20260731_net472_log
-.tmp/20260731_.NET 10_log
-```
+## Current interpretation
 
-用途:
-
-- playlist summaryのcompute後UI applyが長いこと。
-- playlist detail自体はcurrent .NET 10で高速なこと。
-- detail→libraryのpresentation blind intervalが長いこと。
-- startup全体は一覧ほど優先度が高くないこと。
-
-今後は次を行わない。
-
-- net472側へのmarker追加。
-- net472 build／操作の再実行。
-- net472と.NET 10の厳密なp50／p90 A/B Gate。
-- .NET 10 log schemaをnet472へ合わせる変更。
-- net472比の数値がないことを理由にcurrent .NET 10の高速化を延期すること。
+- playlist summary、playlist detail、full libraryの画面遷移は、2026-07-31のfinal .NET 10 logとユーザー体感で問題ない水準まで改善した。
+- net472との厳密parityは今後のengineering objectiveにしない。成立した.NET 10 presentation contractを保護する。
+- PC起動後初回の`startup_initialization_complete`は.NET 10で約103秒、2回目は約38～39秒という再現性がある。
+- net472初回が約40秒だったという観測は優先度を示すが、marker粒度が異なるため厳密なA/B数値には使わない。
+- current .NET 10内のstage evidenceでは、cold penaltyは`startup_ready_ui`後のoptional folder-tree readiness edgeに集中する。
