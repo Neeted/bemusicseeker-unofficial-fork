@@ -4801,17 +4801,13 @@ public partial class BMSLibrary : ObservableObject
 
     private long postInitializeGcGeneration;
 
-    private int postInitializeGcOutstandingCount;
-
     private void QueuePostInitializeGarbageCollection(string reason)
     {
         if (TrySkipForShutdown("post_initialize_gc", reason))
         {
             return;
         }
-        const int delayMs = 30000;
         long generation = Interlocked.Increment(ref postInitializeGcGeneration);
-        int gcRequestsOutstanding = Interlocked.Increment(ref postInitializeGcOutstandingCount);
         PerformanceInteraction performanceInteraction =
             PerformanceInteraction.Existing("post_initialize_gc", generation, generation);
         if (Net10PerformanceLog.IsEnabled)
@@ -4820,23 +4816,22 @@ public partial class BMSLibrary : ObservableObject
                 performanceInteraction,
                 "owner_queued",
                 "reason=" + (reason ?? "unknown")
-                + " delayMs=" + delayMs
-                + " gcRequestsOutstanding=" + gcRequestsOutstanding
+                + " owner=required_scheduler_idle"
                 + FormatStartupBackgroundWorkSnapshot());
         }
-        Task.Run(async delegate
+
+        Task Work()
         {
             string terminalStage = null;
             string terminalFields = null;
             try
             {
-                await Task.Delay(delayMs).ConfigureAwait(false);
                 if (IsShutdownRequested)
                 {
                     LogInstallPerformance("post_initialize_gc skipped reason=shutdown_requested requestReason=" + (reason ?? "unknown"));
                     terminalStage = "terminal_skipped";
                     terminalFields = "reason=shutdown_requested";
-                    return;
+                    return Task.CompletedTask;
                 }
                 long managedBytesBefore = GC.GetTotalMemory(forceFullCollection: false);
                 int gen0Before = GC.CollectionCount(0);
@@ -4847,7 +4842,7 @@ public partial class BMSLibrary : ObservableObject
                     Net10PerformanceLog.Write(
                         performanceInteraction,
                         "owner_started",
-                        "gcRequestsOutstanding=" + Volatile.Read(ref postInitializeGcOutstandingCount)
+                        "owner=required_scheduler_idle"
                         + FormatStartupBackgroundWorkSnapshot()
                         + " managedBytesBefore=" + managedBytesBefore
                         + " gen0Before=" + gen0Before
@@ -4861,7 +4856,6 @@ public partial class BMSLibrary : ObservableObject
                 NLogWrapper.DebuggerLogger?.Trace("owari: " + managedBytesAfter);
                 LogInstallPerformance("post_initialize_gc done"
                     + " reason=" + (reason ?? "unknown")
-                    + " delayMs=" + delayMs
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                     + " managedBytes=" + managedBytesAfter);
                 terminalStage = "terminal_applied";
@@ -4883,18 +4877,27 @@ public partial class BMSLibrary : ObservableObject
             }
             finally
             {
-                int gcRequestsOutstandingAfter = Interlocked.Decrement(ref postInitializeGcOutstandingCount);
                 if (Net10PerformanceLog.IsEnabled && terminalStage != null)
                 {
                     Net10PerformanceLog.Write(
                         performanceInteraction,
                         terminalStage,
                         terminalFields
-                        + " gcRequestsOutstandingAfter=" + gcRequestsOutstandingAfter
                         + FormatStartupBackgroundWorkSnapshot());
                 }
             }
-        }).Logging("PostInitializeGarbageCollection");
+            return Task.CompletedTask;
+        }
+
+        if (StartupBackgroundTaskScheduler != null)
+        {
+            if (!StartupBackgroundTaskScheduler("post_initialize_gc", reason ?? "queue", null, Work))
+            {
+                LogInstallPerformance("post_initialize_gc skipped reason=scheduler_rejected requestReason=" + (reason ?? "unknown"));
+            }
+            return;
+        }
+        LogInstallPerformance("post_initialize_gc skipped reason=no_scheduler requestReason=" + (reason ?? "unknown"));
     }
 
     private string FormatStartupBackgroundWorkSnapshot()
@@ -6081,8 +6084,32 @@ public partial class BMSLibrary : ObservableObject
         ReportStartupBackgroundTask("score_hydration_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
         if (shouldStartWorker)
         {
-            Task.Run(ProcessDeferredScoreHydrationRequests).Logging("ProcessDeferredScoreHydrationRequests");
+            ScheduleDeferredScoreHydrationWorker(reason);
         }
+    }
+
+    private void ScheduleDeferredScoreHydrationWorker(string reason)
+    {
+        if (StartupBackgroundTaskScheduler != null)
+        {
+            if (StartupBackgroundTaskScheduler(
+                    "score_hydration_deferred",
+                    reason ?? "queue",
+                    null,
+                    () =>
+                    {
+                        ProcessDeferredScoreHydrationRequests();
+                        return Task.CompletedTask;
+                    }))
+            {
+                return;
+            }
+
+            ProcessDeferredScoreHydrationRequests();
+            return;
+        }
+
+        Task.Run(ProcessDeferredScoreHydrationRequests).Logging("ProcessDeferredScoreHydrationRequests");
     }
 
     private void TryStartIrScorePrefetch(int lr2Id, BmsLibraryOptionsSnapshot options, string reason)

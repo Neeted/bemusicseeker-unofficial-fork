@@ -173,7 +173,10 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         QueueCore(reason, force: false);
     }
 
-    internal void SchedulePostStartupSync(string reason, Action queued = null)
+    internal void SchedulePostStartupSync(
+        string reason,
+        Action queued = null,
+        Func<Action, Task> scheduler = null)
     {
         if (!CanRun())
         {
@@ -203,7 +206,8 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
                 {
                     failure?.Throw();
                 }
-            });
+            },
+            scheduler);
     }
 
     internal void SyncFolderDataAfterSettingsChange(string reason)
@@ -289,9 +293,12 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         return runtime.IsLr2ModeEnabled && runtime.IsLibraryAvailable;
     }
 
-    private void ScheduleBackground(string routeName, Action work)
+    private void ScheduleBackground(
+        string routeName,
+        Action work,
+        Func<Action, Task> scheduler = null)
     {
-        Task task = backgroundScheduler(work);
+        Task task = (scheduler ?? backgroundScheduler)(work);
         taskLogger(task, routeName);
     }
 

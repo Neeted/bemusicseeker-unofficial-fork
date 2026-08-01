@@ -2364,8 +2364,8 @@ public sealed class MainWindowContextMenuResourceTests
             < reloadFileDiff.IndexOf("MarkStartupProgressFailureCleanupComplete(operationToken)", StringComparison.Ordinal));
         StringAssert.Contains(reinitialize, ".LoggingAndPropagate(\"FullReinitialize\")");
         Assert.IsTrue(
-            reinitialize.IndexOf("_semaphore.Release();", StringComparison.Ordinal)
-            < reinitialize.IndexOf("PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(", StringComparison.Ordinal));
+            reinitialize.IndexOf("PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(", StringComparison.Ordinal)
+            < reinitialize.IndexOf("_semaphore.Release();", StringComparison.Ordinal));
         Assert.IsFalse(viewModelCode.Contains("public async void ReinitializeLibrary()"));
         Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "PlaylistWorkspace.QueueExternalPlaylistSync(");
@@ -2376,8 +2376,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialize, "PlaylistWorkspace.LoadExternalTableCollectionAsync(");
         StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfoAsync");
         Assert.IsTrue(
-            initialize.IndexOf("_semaphore.Release();", StringComparison.Ordinal)
-            < initialize.IndexOf("\"external_table_catalog\"", StringComparison.Ordinal));
+            initialize.IndexOf("\"external_table_catalog\"", StringComparison.Ordinal)
+            < initialize.LastIndexOf("_semaphore.Release();", StringComparison.Ordinal));
         Assert.IsFalse(initialize.Contains("void taskAdd2()"));
         StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver(),");
         StringAssert.Contains(initialize, "files.Lr2PlaylistFolderSynchronization);");
@@ -4138,10 +4138,34 @@ public sealed class MainWindowContextMenuResourceTests
     public void PostStartupWarmup_UsesOneOwnedLifecycleAndRunsAdjacentIndexesBeforeVirtualSortPrewarm()
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string scoreOnly = ExtractBetween(
+            viewModelCode,
+            "internal async Task ReloadScoresOnlyAsync()",
+            "internal async Task ReloadFileDiffAsync()");
+        string fullReinitialize = ExtractBetween(
+            viewModelCode,
+            "internal async Task ReinitializeLibraryAsync()",
+            "internal static string BuildAppSchemaRepairWarningMessage");
+        string reloadTables = ExtractBetween(
+            viewModelCode,
+            "internal async Task ReloadTablesAsync()",
+            "internal async Task ReloadScoresOnlyAsync()");
+        string reloadFileDiff = ExtractBetween(
+            viewModelCode,
+            "internal async Task ReloadFileDiffAsync()",
+            "internal async Task ReinitializeLibraryAsync()");
         string scheduler = ExtractBetween(
             viewModelCode,
             "private void SchedulePostStartupBestEffortWarmups",
             "private void RunPostStartupOwnedAdjacentIndexWarmup");
+        string startupCompletion = ExtractBetween(
+            viewModelCode,
+            "private void TryLogStartupInitializationComplete",
+            "private void TryLogStartupPostInitializationComplete");
+        string completion = ExtractBetween(
+            viewModelCode,
+            "private void CompleteStartupPostInitializationWarmup",
+            "private bool QueueDeferredStartupPresentationFlushAfterInitialization");
         string ownedWarmup = ExtractBetween(
             viewModelCode,
             "private void RunPostStartupOwnedAdjacentIndexWarmup",
@@ -4160,7 +4184,36 @@ public sealed class MainWindowContextMenuResourceTests
             "internal void RunVirtualOrderPrewarm",
             "private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualOrderPrewarmDescriptors");
 
-        StringAssert.Contains(scheduler, "ScheduleVirtualNormalLibraryOrderPrewarm(reason)");
+        StringAssert.Contains(scheduler, "ScheduleVirtualNormalLibraryOrderPrewarm(reason, warmupCompleted)");
+        StringAssert.Contains(scheduler, "startupPostInitializationWarmupsPending = 1");
+        StringAssert.Contains(scheduler, "startupPostInitializationVirtualWarmupScheduled");
+        StringAssert.Contains(scheduler, "CompleteStartupPostInitializationWarmup");
+        StringAssert.Contains(scheduler, "startupBackgroundTaskScheduler.CurrentGeneration");
+        StringAssert.Contains(scheduler, "IsCurrentStartupPostInitializationCallback(");
+        StringAssert.Contains(scheduler, "MarkRequiredInitializationSchedulingComplete(schedulerGeneration)");
+        StringAssert.Contains(completion, "IsCurrentStartupPostInitializationCallback(");
+        StringAssert.Contains(scoreOnly, "MarkNonStartupBackgroundSchedulingComplete();");
+        StringAssert.Contains(fullReinitialize, "MarkNonStartupBackgroundSchedulingComplete();");
+        StringAssert.Contains(reloadTables, "MarkNonStartupBackgroundSchedulingComplete();");
+        StringAssert.Contains(reloadFileDiff, "MarkNonStartupBackgroundSchedulingComplete();");
+        Assert.IsTrue(
+            fullReinitialize.IndexOf("PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(\"FullReinitialize\", operationToken);", StringComparison.Ordinal)
+                < fullReinitialize.IndexOf("MarkNonStartupBackgroundSchedulingComplete();", StringComparison.Ordinal));
+        int startupWarmupSchedule = viewModelCode.IndexOf(
+            "SchedulePostStartupBestEffortWarmups(\"startup_initialization_ready\", operationToken);",
+            StringComparison.Ordinal);
+        int startupPhaseCompletion = viewModelCode.IndexOf(
+            "startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(",
+            startupWarmupSchedule,
+            StringComparison.Ordinal);
+        Assert.IsTrue(startupWarmupSchedule >= 0 && startupWarmupSchedule < startupPhaseCompletion);
+        StringAssert.Contains(startupCompletion, "SchedulePostStartupBestEffortWarmups(\"startup_initialization_complete\", expectedOperationToken);");
+        Assert.IsTrue(
+            startupCompletion.IndexOf("LogUiSuppression(\"startup_initialization_complete elapsedMs=\" + elapsedMs);", StringComparison.Ordinal)
+                < startupCompletion.IndexOf("SchedulePostStartupBestEffortWarmups(\"startup_initialization_complete\", expectedOperationToken);", StringComparison.Ordinal));
+        StringAssert.Contains(viewModelCode, "startupPostInitializationLr2Enrolled");
+        StringAssert.Contains(viewModelCode, "TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);");
+        StringAssert.Contains(viewModelCode, "ShellShutdownWorkflow?.IsShutdownRequested == true");
         Assert.IsFalse(ownedWarmup.Contains("Wait()"));
         StringAssert.Contains(ownedWarmup, "cancellationToken.ThrowIfCancellationRequested()");
 
@@ -4173,6 +4226,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(primaryHashWarmup > installDestinationOverlayWarmup);
         Assert.IsTrue(playlistSummaryWarmup > primaryHashWarmup);
         StringAssert.Contains(lifecycleScheduler, "regularChartListOwner.TryBeginVirtualOrderPrewarm");
+        StringAssert.Contains(lifecycleScheduler, "startupBackgroundTaskScheduler.Queue(");
+        StringAssert.Contains(lifecycleScheduler, "playlist_virtual_order_prewarm");
+        Assert.IsFalse(lifecycleScheduler.Contains("Task.Run(", StringComparison.Ordinal));
         StringAssert.Contains(lifecycleScheduler, "using (lease)");
         int ownedRun = lifecycleScheduler.IndexOf("RunPostStartupOwnedAdjacentIndexWarmup", StringComparison.Ordinal);
         int virtualRun = lifecycleScheduler.IndexOf("RunVirtualOrderPrewarm", StringComparison.Ordinal);
@@ -4222,6 +4278,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(method, "tables.ReloadTables(queueBeatorajaBmtExportAfterHydration: false)");
         StringAssert.Contains(method, "PlaylistWorkspace.QueueExternalPlaylistSync(");
         StringAssert.Contains(method, ".LoggingAndPropagate(\"ReloadTables\")");
+        Assert.IsTrue(
+            method.IndexOf("PlaylistWorkspace.QueueExternalPlaylistSync(", StringComparison.Ordinal)
+                < method.IndexOf("MarkNonStartupBackgroundSchedulingComplete();", StringComparison.Ordinal));
         Assert.IsFalse(viewModelCode.Contains("public async void ReloadTables()"));
         Assert.IsFalse(method.Contains("files.InitializeScoresOnly"));
         Assert.IsFalse(method.Contains("QueueDeferredScoreHydration"));

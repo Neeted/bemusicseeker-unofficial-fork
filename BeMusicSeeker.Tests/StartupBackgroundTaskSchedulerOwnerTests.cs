@@ -28,7 +28,185 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.Start();
         Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
         release.SetResult(true);
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
+    }
+
+    [TestMethod]
+    public async Task PostInitializationWorkDoesNotBlockRequiredIdleOrRequiredWorker()
+    {
+        var postEntered = new ManualResetEventSlim();
+        var postRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredEntered = new ManualResetEventSlim();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("playlist_library_index_prewarm", "post", null, async () =>
+        {
+            postEntered.Set();
+            await postRelease.Task.ConfigureAwait(false);
+        });
+        owner.Start();
+
+        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(owner.IsIdle);
+        Assert.IsFalse(owner.IsFullyIdle);
+
+        owner.Queue("lr2_song_db_sync", "required", null, () =>
+        {
+            requiredEntered.Set();
+            return Task.CompletedTask;
+        });
+        Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+        Assert.IsFalse(owner.IsFullyIdle);
+
+        postRelease.SetResult(true);
+        await WaitForFullyIdleAsync(owner);
+    }
+
+    [TestMethod]
+    public async Task PostInitializationGarbageCollectionWaitsForRequiredWorkToBecomeIdle()
+    {
+        var requiredEntered = new ManualResetEventSlim();
+        var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var postEntered = new ManualResetEventSlim();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("chart_info_hydration", "required", null, async () =>
+        {
+            requiredEntered.Set();
+            await requiredRelease.Task.ConfigureAwait(false);
+        });
+        owner.Queue("post_initialize_gc", "post", null, () =>
+        {
+            postEntered.Set();
+            return Task.CompletedTask;
+        });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+
+        Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsFalse(postEntered.IsSet);
+        Assert.IsFalse(owner.IsIdle);
+
+        requiredRelease.SetResult(true);
+        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
+        await WaitForFullyIdleAsync(owner);
+    }
+
+    [TestMethod]
+    public async Task PostInitializationGarbageCollectionWaitsForRequiredSchedulingClosure()
+    {
+        var requiredEntered = new ManualResetEventSlim();
+        var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var postEntered = new ManualResetEventSlim();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("post_initialize_gc", "post", null, () =>
+        {
+            postEntered.Set();
+            return Task.CompletedTask;
+        });
+        owner.Start();
+        owner.MarkPostInitializationSchedulingComplete();
+
+        Assert.IsFalse(postEntered.IsSet);
+
+        owner.Queue("lr2_song_db_sync", "required", null, async () =>
+        {
+            requiredEntered.Set();
+            await requiredRelease.Task.ConfigureAwait(false);
+        });
+        Assert.IsFalse(postEntered.IsSet);
+
+        owner.MarkRequiredInitializationSchedulingComplete();
+        Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsFalse(postEntered.IsSet);
+
+        requiredRelease.SetResult(true);
+        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
+        await WaitForFullyIdleAsync(owner);
+    }
+
+    [TestMethod]
+    public async Task StaleRequiredSchedulingClosureCannotReleaseNewGenerationGarbageCollection()
+    {
+        var postEntered = new ManualResetEventSlim();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("post_initialize_gc", "post", null, () =>
+        {
+            postEntered.Set();
+            return Task.CompletedTask;
+        });
+        long staleGeneration = owner.CurrentGeneration;
+        owner.Reset(startImmediately: true);
+        owner.MarkPostInitializationSchedulingComplete();
+
+        Assert.IsFalse(owner.MarkRequiredInitializationSchedulingComplete(staleGeneration));
+        Assert.IsFalse(postEntered.IsSet);
+
+        Assert.IsTrue(owner.MarkRequiredInitializationSchedulingComplete(owner.CurrentGeneration));
+        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
+        await WaitForFullyIdleAsync(owner);
+    }
+
+    [TestMethod]
+    public async Task RunningGarbageCollectionBlocksRequiredWorkAfterGenerationReset()
+    {
+        var garbageCollectionEntered = new ManualResetEventSlim();
+        var garbageCollectionRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredEntered = new ManualResetEventSlim();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("post_initialize_gc", "post", null, async () =>
+        {
+            garbageCollectionEntered.Set();
+            await garbageCollectionRelease.Task.ConfigureAwait(false);
+        });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+
+        Assert.IsTrue(garbageCollectionEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        owner.Reset(startImmediately: true);
+        owner.Queue("chart_info_hydration", "required", null, () =>
+        {
+            requiredEntered.Set();
+            return Task.CompletedTask;
+        });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+
+        Assert.IsFalse(requiredEntered.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+
+        garbageCollectionRelease.SetResult(true);
+        Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)), owner.DescribeWaitState());
+        await WaitForFullyIdleAsync(owner);
+    }
+
+    [TestMethod]
+    public async Task PostInitializationCompletionRequiresSchedulingClosureAndFullIdle()
+    {
+        var postRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int idleNotifications = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner(
+            schedulerIdleChanged: (_, _) => Interlocked.Increment(ref idleNotifications));
+
+        owner.Queue("playlist_library_index_prewarm", "post", null, async () =>
+        {
+            await postRelease.Task.ConfigureAwait(false);
+        });
+        owner.Start();
+        owner.MarkPostInitializationSchedulingComplete();
+
+        Assert.IsTrue(owner.IsPostInitializationSchedulingComplete);
+        Assert.IsFalse(owner.IsFullyIdle);
+
+        postRelease.SetResult(true);
+        await WaitForFullyIdleAsync(owner);
+        Assert.IsTrue(Volatile.Read(ref idleNotifications) > 0);
     }
 
     [TestMethod]
@@ -57,7 +235,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, running.BacklogCount);
 
         release.SetResult(true);
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
         Assert.AreEqual(
             new StartupBackgroundWorkSnapshot(0, 0),
             owner.CaptureWorkSnapshot());
@@ -85,7 +263,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         await Task.Delay(100);
         CollectionAssert.AreEqual(new[] { "maintenance" }, order.ToArray());
         dependencyRelease.SetResult(true);
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
 
         CollectionAssert.AreEqual(new[] { "maintenance", "installable" }, order.ToArray());
     }
@@ -120,7 +298,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         CollectionAssert.AreEqual(new[] { "high" }, order.ToArray());
 
         highPriorityRelease.SetResult(true);
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
         CollectionAssert.AreEqual(new[] { "high", "middle", "low" }, order.ToArray());
     }
 
@@ -154,12 +332,12 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
 
         firstRelease.SetResult(true);
-        Assert.IsTrue(latestEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(latestEntered.Wait(TimeSpan.FromSeconds(5)), owner.DescribeWaitState());
         Assert.IsFalse(dependentEntered.IsSet);
 
         latestRelease.SetResult(true);
         Assert.IsTrue(dependentEntered.Wait(TimeSpan.FromSeconds(5)));
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
     }
 
     [TestMethod]
@@ -167,12 +345,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     {
         var firstRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var latestRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var blockerRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var followupBlockerRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var firstEntered = new ManualResetEventSlim();
         var latestEntered = new ManualResetEventSlim();
-        var maintenanceEntered = new ManualResetEventSlim();
-        var installableEntered = new ManualResetEventSlim();
         var followupBlockerEntered = new ManualResetEventSlim();
         var dependentEntered = new ManualResetEventSlim();
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
@@ -191,18 +366,6 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
         Assert.IsTrue(latestEntered.Wait(TimeSpan.FromSeconds(5)));
 
-        owner.Queue("maintenance_hydration", "blocker", null, async () =>
-        {
-            maintenanceEntered.Set();
-            await blockerRelease.Task.ConfigureAwait(false);
-        });
-        owner.Queue("installable_maintenance", "blocker", null, async () =>
-        {
-            installableEntered.Set();
-            await blockerRelease.Task.ConfigureAwait(false);
-        });
-        Assert.IsTrue(maintenanceEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(installableEntered.Wait(TimeSpan.FromSeconds(5)));
         owner.Queue("playlist_url_completion", "lane_blocker", null, async () =>
         {
             followupBlockerEntered.Set();
@@ -220,9 +383,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
         firstRelease.SetResult(true);
         Assert.IsTrue(dependentEntered.Wait(TimeSpan.FromSeconds(5)));
-        blockerRelease.SetResult(true);
         followupBlockerRelease.SetResult(true);
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
     }
 
     [TestMethod]
@@ -244,7 +406,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }));
 
         owner.Start();
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
 
         Assert.AreEqual(0, firstRuns);
         Assert.AreEqual(1, latestRuns);
@@ -328,7 +490,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
 
         release.SetResult(true);
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
         Assert.AreEqual(6, Volatile.Read(ref started));
         Assert.IsTrue(Volatile.Read(ref maximumActive) <= 4);
         Assert.IsTrue(Volatile.Read(ref maximumReadHydrationActive) <= 2);
@@ -372,7 +534,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
         oldRelease.SetResult(true);
         newRelease.SetResult(true);
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
         Assert.AreEqual(4, Volatile.Read(ref counters.NewStarted));
         Assert.AreEqual(1, Volatile.Read(ref queuedRuns));
     }
@@ -415,7 +577,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsFalse(followupEntered.IsSet);
         followupRelease.SetResult(true);
         Assert.IsTrue(followupEntered.Wait(TimeSpan.FromSeconds(5)));
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
     }
 
     [TestMethod]
@@ -431,7 +593,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
         owner.Start();
         Assert.IsTrue(dependentRan.Wait(TimeSpan.FromSeconds(5)));
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
 
         string summary = owner.BuildSummaryLog(12L);
         StringAssert.Contains(summary, "failed=1");
@@ -468,7 +630,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsFalse(owner.Queue("post_shutdown", "shutdown", null, () => Task.CompletedTask));
 
         requiredRelease.SetResult(true);
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
         StringAssert.Contains(owner.BuildSummaryLog(1L), "external_playlist_sync");
     }
 
@@ -503,7 +665,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
         firstRelease.SetResult(true);
         Assert.IsTrue(dependentEntered.Wait(TimeSpan.FromSeconds(5)));
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
     }
 
     [TestMethod]
@@ -526,7 +688,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsTrue(notified.Wait(TimeSpan.FromSeconds(5)));
         Assert.IsTrue(observedIdle);
         Assert.IsTrue(idleProbeSucceeded);
-        await WaitForIdleAsync(owner);
+        await WaitForFullyIdleAsync(owner);
     }
 
     private sealed class ConcurrencyCounters
@@ -581,13 +743,13 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             new object());
     }
 
-    private static async Task WaitForIdleAsync(StartupBackgroundTaskSchedulerOwner owner)
+    private static async Task WaitForFullyIdleAsync(StartupBackgroundTaskSchedulerOwner owner)
     {
-        for (int i = 0; i < 500 && !owner.IsIdle; i++)
+        for (int i = 0; i < 500 && !owner.IsFullyIdle; i++)
         {
             await Task.Delay(10).ConfigureAwait(false);
         }
-        Assert.IsTrue(owner.IsIdle);
+        Assert.IsTrue(owner.IsFullyIdle);
     }
 
     private static void UpdateMaximum(ref int target, int candidate)

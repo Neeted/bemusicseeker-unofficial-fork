@@ -846,7 +846,7 @@ internal sealed class ShellShutdownWorkflowOwner
     {
         await WaitForConditionAsync(
             "startupBackgroundTasks",
-            () => startupBackgroundTaskScheduler.IsIdle,
+            () => startupBackgroundTaskScheduler.IsFullyIdle,
             ShutdownDrainWarningThreshold,
             tracker,
             startupBackgroundTaskScheduler.DescribeWaitState).ConfigureAwait(false);

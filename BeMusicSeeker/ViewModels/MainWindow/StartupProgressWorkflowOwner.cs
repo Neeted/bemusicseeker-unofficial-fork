@@ -36,6 +36,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     private readonly Action<long> startupInitializationCompleted;
     private readonly Func<bool> backgroundTasksIdle;
     private readonly Func<long, long, bool> backgroundTasksIdleSnapshotCurrent;
+    private readonly Func<bool> backgroundTaskEnrollmentReady;
     private readonly object backgroundTaskProgressSynchronization;
     private readonly object startupProgressLock = new();
     private StartupProgressState startupProgressState = new();
@@ -56,7 +57,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         Action<long> startupInitializationCompleted,
         Func<bool> backgroundTasksIdle,
         Func<long, long, bool> backgroundTasksIdleSnapshotCurrent,
-        object backgroundTaskProgressSynchronization)
+        object backgroundTaskProgressSynchronization,
+        Func<bool> backgroundTaskEnrollmentReady = null)
     {
         this.versionSnapshotProvider = versionSnapshotProvider ?? throw new ArgumentNullException(nameof(versionSnapshotProvider));
         this.prepareOperation = prepareOperation ?? throw new ArgumentNullException(nameof(prepareOperation));
@@ -67,6 +69,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         this.backgroundTasksIdle = backgroundTasksIdle ?? throw new ArgumentNullException(nameof(backgroundTasksIdle));
         this.backgroundTasksIdleSnapshotCurrent = backgroundTasksIdleSnapshotCurrent
             ?? throw new ArgumentNullException(nameof(backgroundTasksIdleSnapshotCurrent));
+        this.backgroundTaskEnrollmentReady = backgroundTaskEnrollmentReady ?? (() => true);
         this.backgroundTaskProgressSynchronization = backgroundTaskProgressSynchronization
             ?? throw new ArgumentNullException(nameof(backgroundTaskProgressSynchronization));
     }
@@ -169,11 +172,27 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             return startupProgressState.IsActive && startupProgressState.OperationToken == operationToken;
         }
     }
+
+    internal bool IsStartupInitializationRequiredProgressComplete(long operationToken = 0L)
+    {
+        lock (startupProgressLock)
+        {
+            return startupProgressState.IsActive
+                && !startupProgressState.IsFailed
+                && startupProgressState.OperationKind == StartupProgressOperationKind.Startup
+                && (operationToken == 0L || startupProgressState.OperationToken == operationToken)
+                && AreExpectedStartupProgressPhasesCompleted(startupProgressState);
+        }
+    }
     internal void TryCompleteStartupBackgroundTasksPhaseIfIdle(
         long operationToken = 0L,
         long schedulerGeneration = 0L,
         long schedulerRevision = 0L)
     {
+        if (!backgroundTaskEnrollmentReady())
+        {
+            return;
+        }
         bool marked = false;
         lock (backgroundTaskProgressSynchronization)
         {
@@ -319,6 +338,11 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     /// <param name="phase">完了したフェーズ。</param>
     internal void MarkStartupProgressPhaseCompleted(StartupProgressPhase phase, long operationToken = 0L)
     {
+        if (phase == StartupProgressPhase.StartupBackgroundTasksDone
+            && !backgroundTaskEnrollmentReady())
+        {
+            return;
+        }
         bool marked = false;
         lock (startupProgressLock)
         {
@@ -350,6 +374,11 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
 
     internal void SkipStartupProgressPhaseIfExpected(StartupProgressPhase phase, string reason, long operationToken = 0L)
     {
+        if (phase == StartupProgressPhase.StartupBackgroundTasksDone
+            && !backgroundTaskEnrollmentReady())
+        {
+            return;
+        }
         bool skipped = false;
         StartupProgressOperationKind operationKind = StartupProgressOperationKind.None;
         lock (startupProgressLock)
@@ -1483,12 +1512,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                                 | StartupProgressPhase.StartupReadyData
                                 | StartupProgressPhase.StartupReadyUi
                                 | StartupProgressPhase.StartupReadyOperable
-                                | StartupProgressPhase.PlaylistReferenceApplied
-                                | StartupProgressPhase.ExternalPlaylistSyncDone
                                 | StartupProgressPhase.ScoreHydrationDone
-                                | StartupProgressPhase.RankingRefreshDone
-                                | StartupProgressPhase.MaintenanceDeferredDone
-                                | StartupProgressPhase.InstallableMaintenanceDeferredDone
                                 | StartupProgressPhase.ChartDigestBackfillDone
                                 | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone

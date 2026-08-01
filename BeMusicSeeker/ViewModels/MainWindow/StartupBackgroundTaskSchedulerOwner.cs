@@ -26,6 +26,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
         internal string Lane;
 
+        internal bool IsPostInitialization;
+
         internal int Priority;
 
         internal long Version;
@@ -92,7 +94,17 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private bool started;
 
+    private bool postInitializationSchedulingComplete;
+
+    private bool requiredInitializationSchedulingComplete;
+
     private int runningCount;
+
+    private int runningRequiredCount;
+
+    private int runningPostInitializationCount;
+
+    private int runningPostInitializationIdleOnlyCount;
 
     private bool shutdownRequested;
 
@@ -141,7 +153,21 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             {
                 lock (syncRoot)
                 {
-                    return queue.Count == 0 && runningCount == 0;
+                    return IsRequiredWorkIdleUnsafe();
+                }
+            }
+        }
+    }
+
+    internal bool IsFullyIdle
+    {
+        get
+        {
+            lock (progressSynchronization)
+            {
+                lock (syncRoot)
+                {
+                    return IsFullyIdleUnsafe();
                 }
             }
         }
@@ -154,6 +180,28 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             lock (syncRoot)
             {
                 return new StartupBackgroundWorkSnapshot(queue.Count, runningCount);
+            }
+        }
+    }
+
+    internal bool IsPostInitializationSchedulingComplete
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return postInitializationSchedulingComplete;
+            }
+        }
+    }
+
+    internal long CurrentGeneration
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return generation;
             }
         }
     }
@@ -174,8 +222,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             {
                 return generation == candidateGeneration
                     && idleRevision == candidateRevision
-                    && queue.Count == 0
-                    && runningCount == 0;
+                    && IsRequiredWorkIdleUnsafe();
             }
         }
     }
@@ -201,6 +248,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         string normalizedDependency = string.IsNullOrWhiteSpace(dependency) ? null : dependency;
         string normalizedLane = GetLane(normalizedName);
         int priority = GetPriority(normalizedName);
+        bool isPostInitialization = IsPostInitializationTask(normalizedName);
         bool shouldStartWorker = false;
         bool skippedAfterLock = false;
         string replacedLog = null;
@@ -225,11 +273,12 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                         existing.Reason = normalizedReason;
                         existing.Dependency = normalizedDependency;
                         existing.Lane = normalizedLane;
+                        existing.IsPostInitialization = isPostInitialization;
                         existing.Priority = priority;
                         existing.Version = requestVersion;
                         existing.Work = work;
                         existing.Discard = discard;
-                        replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " generation=" + existing.Generation + " reason=" + normalizedReason + " coalesceKey=" + normalizedName + " replaced=true";
+                        replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " generation=" + existing.Generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " coalesceKey=" + normalizedName + " replaced=true";
                     }
                     else
                     {
@@ -239,6 +288,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             Reason = normalizedReason,
                             Dependency = normalizedDependency,
                             Lane = normalizedLane,
+                            IsPostInitialization = isPostInitialization,
                             CoalesceKey = normalizedName,
                             Priority = priority,
                             Version = requestVersion,
@@ -247,7 +297,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             Discard = discard
                         });
                     }
-                    queuedLog = "startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " generation=" + generation + " reason=" + normalizedReason + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority;
+                    queuedLog = "startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " generation=" + generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority;
                     shouldStartWorker = started;
                 }
             }
@@ -304,6 +354,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             lock (syncRoot)
             {
                 shutdownRequested = false;
+                postInitializationSchedulingComplete = false;
+                requiredInitializationSchedulingComplete = false;
                 generation++;
                 idleRevision++;
                 for (int i = 0; i < queue.Count; i++)
@@ -326,6 +378,46 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         {
             TryStartWorkers();
         }
+    }
+
+    internal void MarkPostInitializationSchedulingComplete()
+    {
+        bool notifyIdle = false;
+        lock (progressSynchronization)
+        {
+            lock (syncRoot)
+            {
+                postInitializationSchedulingComplete = true;
+                notifyIdle = started && IsFullyIdleUnsafe();
+            }
+        }
+        if (notifyIdle)
+        {
+            NotifyIdleChanged();
+        }
+        TryStartWorkers();
+    }
+
+    internal void MarkRequiredInitializationSchedulingComplete()
+    {
+        MarkRequiredInitializationSchedulingComplete(CurrentGeneration);
+    }
+
+    internal bool MarkRequiredInitializationSchedulingComplete(long candidateGeneration)
+    {
+        lock (progressSynchronization)
+        {
+            lock (syncRoot)
+            {
+                if (generation != candidateGeneration)
+                {
+                    return false;
+                }
+                requiredInitializationSchedulingComplete = true;
+            }
+        }
+        TryStartWorkers();
+        return true;
     }
 
     internal void RequestShutdown(string reason)
@@ -446,7 +538,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     {
         lock (syncRoot)
         {
-            return "queueCount=" + queue.Count + " runningCount=" + runningCount;
+            return "queueCount=" + queue.Count
+                + " runningCount=" + runningCount
+                + " requiredRunningCount=" + runningRequiredCount
+                + " postInitializationRunningCount=" + runningPostInitializationCount;
         }
     }
 
@@ -485,7 +580,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             {
                 lock (syncRoot)
                 {
-                    if (!started || runningCount >= GetTotalConcurrency())
+                    if (!started)
                     {
                         return;
                     }
@@ -498,6 +593,18 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     queue.RemoveAt(index);
                     idleRevision++;
                     runningCount++;
+                    if (request.IsPostInitialization)
+                    {
+                        runningPostInitializationCount++;
+                        if (IsPostInitializationIdleOnly(request.Name))
+                        {
+                            runningPostInitializationIdleOnlyCount++;
+                        }
+                    }
+                    else
+                    {
+                        runningRequiredCount++;
+                    }
                     runningCountByLane.TryGetValue(request.Lane, out int runningInLane);
                     runningCountByLane[request.Lane] = runningInLane + 1;
                     laneRunningCount = runningInLane + 1;
@@ -521,7 +628,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             {
                 continue;
             }
-            if (!CanStartInLaneUnsafe(candidate.Lane))
+            if (!CanStartRequestUnsafe(candidate))
             {
                 continue;
             }
@@ -542,25 +649,55 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         return runningInLane < GetLaneConcurrency(normalizedLane);
     }
 
+    private bool CanStartRequestUnsafe(Request request)
+    {
+        if (runningCount >= GetTotalConcurrency()
+            || !CanStartInLaneUnsafe(request.Lane))
+        {
+            return false;
+        }
+        if (!request.IsPostInitialization)
+        {
+            if (runningPostInitializationIdleOnlyCount > 0)
+            {
+                return false;
+            }
+            return runningRequiredCount < GetTotalConcurrency();
+        }
+        if (runningPostInitializationCount >= GetPostInitializationConcurrency())
+        {
+            return false;
+        }
+        if (IsPostInitializationIdleOnly(request.Name)
+            && (!postInitializationSchedulingComplete
+                || !requiredInitializationSchedulingComplete
+                || runningRequiredCount > 0
+                || queue.Any(candidate => !candidate.IsPostInitialization)))
+        {
+            return false;
+        }
+        return true;
+    }
+
     private void StartWorker(Request request, int laneRunningCount, int totalRunningCount)
     {
         Task.Run(async delegate
         {
             var stopwatch = Stopwatch.StartNew();
-            logInfo("startup_background_task start name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
+            logInfo("startup_background_task start name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
             RecordStarted(request);
             try
             {
                 await request.Work().ConfigureAwait(false);
                 stopwatch.Stop();
-                logInfo("startup_background_task done name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                logInfo("startup_background_task done name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 RecordCompleted(request, "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=" + request.Reason);
                 StartupMemoryPressureService.LogCheckpoint(logInfo, "startup_background_task", request.Name + "_done");
             }
             catch (Exception exception)
             {
                 stopwatch.Stop();
-                logWarning("startup_background_task failed name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + exception.Message);
+                logWarning("startup_background_task failed name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + exception.Message);
                 RecordCompleted(request, "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: exception.Message);
                 StartupMemoryPressureService.LogCheckpoint(logInfo, "startup_background_task", request.Name + "_failed");
             }
@@ -576,6 +713,18 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             completedRequestVersionByName[request.Name] = request.Version;
                         }
                         runningCount = Math.Max(0, runningCount - 1);
+                        if (request.IsPostInitialization)
+                        {
+                            runningPostInitializationCount = Math.Max(0, runningPostInitializationCount - 1);
+                            if (IsPostInitializationIdleOnly(request.Name))
+                            {
+                                runningPostInitializationIdleOnlyCount = Math.Max(0, runningPostInitializationIdleOnlyCount - 1);
+                            }
+                        }
+                        else
+                        {
+                            runningRequiredCount = Math.Max(0, runningRequiredCount - 1);
+                        }
                         idleRevision++;
                         if (!string.IsNullOrWhiteSpace(request.Lane)
                             && runningCountByLane.TryGetValue(request.Lane, out int runningInLane))
@@ -729,16 +878,43 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static bool IsRequiredForShutdown(string name)
     {
-        return string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
+        return string.Equals(name, "score_hydration_deferred", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPostInitializationTask(string name)
+    {
+        return string.Equals(name, "external_table_catalog", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "post_initialize_gc", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("beatoraja_bmt_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPostInitializationIdleOnly(string name)
+    {
+        return string.Equals(name, "post_initialize_gc", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatRequestKind(bool isPostInitialization)
+    {
+        return isPostInitialization ? "post_initialization" : "required";
     }
 
     private static int GetPriority(string name)
     {
         if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)) return 10;
         if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase)) return 15;
+        if (string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)) return 18;
         if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)) return 20;
         if (string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)) return 30;
         if (string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)) return 40;
@@ -751,6 +927,14 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     }
 
     private static string GetLane(string name)
+    {
+        string baseLane = GetBaseLane(name);
+        return IsPostInitializationTask(name)
+            ? "post_initialization_" + baseLane
+            : baseLane;
+    }
+
+    private static string GetBaseLane(string name)
     {
         if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)) return "read_hydration";
@@ -769,6 +953,18 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     }
 
     private static int GetTotalConcurrency() => 4;
+
+    private static int GetPostInitializationConcurrency() => 1;
+
+    private bool IsRequiredWorkIdleUnsafe()
+    {
+        return runningRequiredCount == 0 && !queue.Any(request => !request.IsPostInitialization);
+    }
+
+    private bool IsFullyIdleUnsafe()
+    {
+        return queue.Count == 0 && runningCount == 0;
+    }
 
     private static Metric CloneMetric(Metric metric)
     {

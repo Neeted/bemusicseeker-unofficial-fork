@@ -299,6 +299,14 @@ public partial class MainWindowViewModel : ViewModel,
                     ? Stopwatch.StartNew()
                     : null;
                 startupInitializationCompleteLogged = false;
+                startupPostInitializationCompletionTracking = operationKind == StartupProgressOperationKind.Startup;
+                startupPostInitializationCompletionLogged = false;
+                startupPostInitializationWarmupOperationToken = 0L;
+                startupPostInitializationWarmupSchedulerGeneration = 0L;
+                startupPostInitializationWarmupScheduled = false;
+                startupPostInitializationWarmupsPending = 0;
+                startupPostInitializationVirtualWarmupScheduled = false;
+                startupPostInitializationLr2Enrolled = false;
                 startupInitializationCompleteRetryQueued = false;
                 startupCompletionContinuationToken = 0L;
             }
@@ -325,6 +333,31 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return startupCompletionContinuationToken == expectedOperationToken;
         }
+    }
+
+    private void MarkNonStartupBackgroundSchedulingComplete()
+    {
+        startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete();
+        startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
+    }
+
+    private bool IsStartupRequiredBackgroundTaskEnrollmentComplete()
+    {
+        lock (startupInitializationCompletionLock)
+        {
+            return !startupPostInitializationCompletionTracking
+                || startupPostInitializationLr2Enrolled;
+        }
+    }
+
+    internal static bool IsCurrentStartupPostInitializationCallback(
+        long operationToken,
+        long schedulerGeneration,
+        Func<long, bool> isOperationTokenCurrent,
+        Func<long, bool> isSchedulerGenerationCurrent)
+    {
+        return isOperationTokenCurrent(operationToken)
+            && isSchedulerGenerationCurrent(schedulerGeneration);
     }
 
     private void TryLogStartupInitializationComplete(long expectedOperationToken = 0L)
@@ -370,7 +403,10 @@ public partial class MainWindowViewModel : ViewModel,
                 {
                     return;
                 }
-                if (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle)
+                if ((startupPostInitializationCompletionTracking && !startupPostInitializationLr2Enrolled)
+                    || !startupProgressWorkflowOwner.IsStartupInitializationRequiredProgressComplete(expectedOperationToken)
+                    || !startupBackgroundTaskScheduler.IsStarted
+                    || !startupBackgroundTaskScheduler.IsIdle)
                 {
                     QueueStartupInitializationCompleteRetryUnsafe(expectedOperationToken);
                     return;
@@ -386,15 +422,73 @@ public partial class MainWindowViewModel : ViewModel,
         }
         LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
         LogUiSuppression(startupBackgroundTaskScheduler.BuildSummaryLog(elapsedMs));
-        if (!QueueDeferredStartupPresentationFlushAfterInitialization(expectedOperationToken))
+        SchedulePostStartupBestEffortWarmups("startup_initialization_complete", expectedOperationToken);
+        QueueDeferredStartupPresentationFlushAfterInitialization(expectedOperationToken);
+    }
+
+    private void TryLogStartupPostInitializationComplete()
+    {
+        if (ShellShutdownWorkflow?.IsShutdownRequested == true
+            || !startupBackgroundTaskScheduler.IsStarted
+            || !startupBackgroundTaskScheduler.IsPostInitializationSchedulingComplete
+            || !startupBackgroundTaskScheduler.IsFullyIdle)
         {
-            if (expectedOperationToken != 0L
-                && !IsStartupCompletionTokenCurrent(expectedOperationToken))
+            return;
+        }
+        bool shouldLog;
+        lock (startupInitializationCompletionLock)
+        {
+            shouldLog = startupPostInitializationCompletionTracking
+                && startupInitializationCompleteLogged
+                && startupPostInitializationWarmupScheduled
+                && startupPostInitializationVirtualWarmupScheduled
+                && startupPostInitializationWarmupsPending == 0
+                && !startupPostInitializationCompletionLogged;
+            if (shouldLog)
+            {
+                startupPostInitializationCompletionLogged = true;
+            }
+        }
+        if (!shouldLog)
+        {
+            return;
+        }
+        LogUiSuppression("startup_post_initialization_maintenance_complete");
+        if (Net10PerformanceLog.IsEnabled && startupPerformanceInteraction.InteractionId > 0L)
+        {
+            Net10PerformanceLog.Write(
+                startupPerformanceInteraction,
+                "post_initialization_maintenance_complete",
+                "kind=post_initialization");
+        }
+    }
+
+    private void CompleteStartupPostInitializationWarmup(long operationToken, long schedulerGeneration)
+    {
+        if (!IsCurrentStartupPostInitializationCallback(
+                operationToken,
+                schedulerGeneration,
+                IsStartupCompletionTokenCurrent,
+                startupBackgroundTaskScheduler.IsCurrentGeneration))
+        {
+            return;
+        }
+        lock (startupInitializationCompletionLock)
+        {
+            if (!IsCurrentStartupPostInitializationCallback(
+                    operationToken,
+                    schedulerGeneration,
+                    IsStartupCompletionTokenCurrent,
+                    startupBackgroundTaskScheduler.IsCurrentGeneration))
             {
                 return;
             }
-            SchedulePostStartupBestEffortWarmups("startup_initialization_complete", expectedOperationToken);
+            if (startupPostInitializationWarmupsPending > 0)
+            {
+                startupPostInitializationWarmupsPending--;
+            }
         }
+        TryLogStartupPostInitializationComplete();
     }
 
     private bool QueueDeferredStartupPresentationFlushAfterInitialization(long expectedOperationToken = 0L)
@@ -537,6 +631,22 @@ public partial class MainWindowViewModel : ViewModel,
     private Stopwatch startupInitializationCompleteStopwatch;
 
     private bool startupInitializationCompleteLogged;
+
+    private bool startupPostInitializationCompletionTracking;
+
+    private bool startupPostInitializationCompletionLogged;
+
+    private long startupPostInitializationWarmupOperationToken;
+
+    private long startupPostInitializationWarmupSchedulerGeneration;
+
+    private bool startupPostInitializationWarmupScheduled;
+
+    private int startupPostInitializationWarmupsPending;
+
+    private bool startupPostInitializationVirtualWarmupScheduled;
+
+    private bool startupPostInitializationLr2Enrolled;
 
     private bool startupInitializationCompleteRetryQueued;
 
@@ -2284,10 +2394,110 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void SchedulePostStartupBestEffortWarmups(string reason, long operationToken)
     {
-        Lr2SongDbSyncWorkflow.SchedulePostStartupSync(
-            reason,
-            () => TryLogStartupInitializationComplete(operationToken));
-        ScheduleVirtualNormalLibraryOrderPrewarm(reason);
+        Action warmupCompleted = null;
+        Action lr2WarmupCompleted = null;
+        bool scheduleLr2Warmup = false;
+        bool scheduleVirtualWarmup = false;
+        long schedulerGeneration = 0L;
+        lock (startupInitializationCompletionLock)
+        {
+            if (startupPostInitializationCompletionTracking)
+            {
+                if (startupPostInitializationWarmupScheduled
+                    && startupPostInitializationWarmupOperationToken == operationToken)
+                {
+                    if (startupInitializationCompleteLogged
+                        && !startupPostInitializationVirtualWarmupScheduled)
+                    {
+                        schedulerGeneration = startupPostInitializationWarmupSchedulerGeneration;
+                        warmupCompleted = () => CompleteStartupPostInitializationWarmup(operationToken, schedulerGeneration);
+                        startupPostInitializationVirtualWarmupScheduled = true;
+                        startupPostInitializationWarmupsPending++;
+                        scheduleVirtualWarmup = true;
+                    }
+                }
+                else
+                {
+                    startupPostInitializationWarmupOperationToken = operationToken;
+                    startupPostInitializationWarmupScheduled = true;
+                    startupPostInitializationWarmupsPending = 1;
+                    startupPostInitializationVirtualWarmupScheduled = false;
+                    schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
+                    startupPostInitializationWarmupSchedulerGeneration = schedulerGeneration;
+                    warmupCompleted = () => CompleteStartupPostInitializationWarmup(operationToken, schedulerGeneration);
+                    scheduleLr2Warmup = true;
+                }
+            }
+            else
+            {
+                scheduleLr2Warmup = true;
+                scheduleVirtualWarmup = true;
+            }
+        }
+        if (warmupCompleted != null)
+        {
+            lr2WarmupCompleted = delegate
+            {
+                if (!IsCurrentStartupPostInitializationCallback(
+                        operationToken,
+                        schedulerGeneration,
+                        IsStartupCompletionTokenCurrent,
+                        startupBackgroundTaskScheduler.IsCurrentGeneration)
+                    || !startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete(schedulerGeneration))
+                {
+                    return;
+                }
+                lock (startupInitializationCompletionLock)
+                {
+                    if (!IsCurrentStartupPostInitializationCallback(
+                            operationToken,
+                            schedulerGeneration,
+                            IsStartupCompletionTokenCurrent,
+                            startupBackgroundTaskScheduler.IsCurrentGeneration))
+                    {
+                        return;
+                    }
+                    startupPostInitializationLr2Enrolled = true;
+                }
+                warmupCompleted();
+                startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
+                TryLogStartupInitializationComplete(operationToken);
+            };
+        }
+        if (scheduleLr2Warmup)
+        {
+            Func<Action, Task> startupScheduler = null;
+            if (lr2WarmupCompleted != null)
+            {
+                startupScheduler = action =>
+                {
+                    bool accepted = startupBackgroundTaskScheduler.Queue(
+                        "lr2_song_db_sync_enrollment",
+                        reason,
+                        null,
+                        () =>
+                        {
+                            action();
+                            return Task.CompletedTask;
+                        },
+                        _ => lr2WarmupCompleted());
+                    if (!accepted)
+                    {
+                        lr2WarmupCompleted();
+                    }
+                    return Task.CompletedTask;
+                };
+            }
+            Lr2SongDbSyncWorkflow.SchedulePostStartupSync(
+                reason,
+                lr2WarmupCompleted,
+                startupScheduler);
+        }
+        if (scheduleVirtualWarmup)
+        {
+            ScheduleVirtualNormalLibraryOrderPrewarm(reason, warmupCompleted);
+        }
+        TryLogStartupPostInitializationComplete();
     }
 
     private void RunPostStartupOwnedAdjacentIndexWarmup(int runId, string reason, CancellationToken cancellationToken)
@@ -2370,7 +2580,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void ScheduleVirtualNormalLibraryOrderPrewarm(string reason)
+    private void ScheduleVirtualNormalLibraryOrderPrewarm(string reason, Action completed = null)
     {
         IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors();
         int degree = RegularChartListOwner.ResolveVirtualOrderPrewarmDegree(descriptors.Count);
@@ -2385,6 +2595,7 @@ public partial class MainWindowViewModel : ViewModel,
                 + " priority3=" + CountPrewarmDescriptorsByPriority(descriptors, 3)
                 + " waitFor=owned_adjacent_index"
                 + " skipped=already_running_or_stopped");
+            completed?.Invoke();
             return;
         }
         LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
@@ -2395,29 +2606,43 @@ public partial class MainWindowViewModel : ViewModel,
             + " priority2=" + CountPrewarmDescriptorsByPriority(descriptors, 2)
             + " priority3=" + CountPrewarmDescriptorsByPriority(descriptors, 3)
             + " waitFor=owned_adjacent_index");
-        try
-        {
-            _ = Task.Run(() =>
+        bool queued = startupBackgroundTaskScheduler.Queue(
+            "playlist_virtual_order_prewarm",
+            reason,
+            null,
+            () =>
             {
-                using (lease)
+                try
                 {
-                    RunPostStartupOwnedAdjacentIndexWarmup(lease.RunId, reason, lease.Token);
-                    bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(
-                        MainViewUpdateMode.FolderFilterSelected,
-                        MainViewUpdateMode.FolderFilterSelected);
-                    regularChartListOwner.RunVirtualOrderPrewarm(
-                        lease,
-                        prewarmLibrary,
-                        includeBmsonRows,
-                        descriptors,
-                        reason);
+                    using (lease)
+                    {
+                        RunPostStartupOwnedAdjacentIndexWarmup(lease.RunId, reason, lease.Token);
+                        bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(
+                            MainViewUpdateMode.FolderFilterSelected,
+                            MainViewUpdateMode.FolderFilterSelected);
+                        regularChartListOwner.RunVirtualOrderPrewarm(
+                            lease,
+                            prewarmLibrary,
+                            includeBmsonRows,
+                            descriptors,
+                            reason);
+                    }
                 }
+                finally
+                {
+                    completed?.Invoke();
+                }
+                return Task.CompletedTask;
+            },
+            _ =>
+            {
+                lease.Dispose();
+                completed?.Invoke();
             });
-        }
-        catch
+        if (!queued)
         {
             lease.Dispose();
-            throw;
+            completed?.Invoke();
         }
     }
 
@@ -2647,9 +2872,13 @@ public partial class MainWindowViewModel : ViewModel,
             FormatTextForLog,
             (generation, revision) =>
             {
-                startupProgressWorkflowOwner?.TryCompleteStartupBackgroundTasksPhaseIfIdle(
-                    schedulerGeneration: generation,
-                    schedulerRevision: revision);
+                if (IsStartupRequiredBackgroundTaskEnrollmentComplete())
+                {
+                    startupProgressWorkflowOwner?.TryCompleteStartupBackgroundTasksPhaseIfIdle(
+                        schedulerGeneration: generation,
+                        schedulerRevision: revision);
+                }
+                TryLogStartupPostInitializationComplete();
             },
             startupBackgroundTaskProgressSynchronization);
         startupProgressWorkflowOwner = new StartupProgressWorkflowOwner(
@@ -2660,7 +2889,8 @@ public partial class MainWindowViewModel : ViewModel,
             TryLogStartupInitializationComplete,
             () => startupBackgroundTaskScheduler.IsStarted && startupBackgroundTaskScheduler.IsIdle,
             (generation, revision) => startupBackgroundTaskScheduler.IsCurrentIdleSnapshot(generation, revision),
-            startupBackgroundTaskProgressSynchronization);
+            startupBackgroundTaskProgressSynchronization,
+            IsStartupRequiredBackgroundTaskEnrollmentComplete);
         treeViewFilterTypeSelected = GetStartupSettingsSnapshot().StartupSelectInstallPending
             ? MainViewUpdateMode.PendingInstallFolderSelected
             : MainViewUpdateMode.FolderFilterSelected;
@@ -3373,15 +3603,22 @@ public partial class MainWindowViewModel : ViewModel,
         {
             EndUiUpdateSuppression();
             startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
-            _semaphore.Release();
-        }
-        if (scheduleDeferredExternalSync)
-        {
-            PlaylistWorkspace.QueueExternalPlaylistSync(
-                "ReloadTables",
-                fromReloadTables: true,
-                publishReferenceReceipt: true,
-                operationToken: operationToken);
+            try
+            {
+                if (scheduleDeferredExternalSync)
+                {
+                    PlaylistWorkspace.QueueExternalPlaylistSync(
+                        "ReloadTables",
+                        fromReloadTables: true,
+                        publishReferenceReceipt: true,
+                        operationToken: operationToken);
+                }
+            }
+            finally
+            {
+                MarkNonStartupBackgroundSchedulingComplete();
+                _semaphore.Release();
+            }
         }
         startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
             "ReloadTables:scheduled",
@@ -3431,6 +3668,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         finally
         {
+            MarkNonStartupBackgroundSchedulingComplete();
             EndUiUpdateSuppression();
             startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
             LogInitStage("ui_suppress_end_called", "ReloadScoresOnly");
@@ -3478,6 +3716,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         finally
         {
+            MarkNonStartupBackgroundSchedulingComplete();
             EndUiUpdateSuppression();
             startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
             LogInitStage("ui_suppress_end_called", "ReloadFileDiff");
@@ -3523,12 +3762,19 @@ public partial class MainWindowViewModel : ViewModel,
             EndUiUpdateSuppression();
             startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
             LogInitStage("ui_suppress_end_called", "FullReinitialize");
-            _semaphore.Release();
-        }
-        if (scheduleDeferredPlaylistRef)
-        {
-            PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue("FullReinitialize", operationToken);
-            LogInitStage("deferred_playlist_ref_queued", "FullReinitialize");
+            try
+            {
+                if (scheduleDeferredPlaylistRef)
+                {
+                    PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue("FullReinitialize", operationToken);
+                    LogInitStage("deferred_playlist_ref_queued", "FullReinitialize");
+                }
+            }
+            finally
+            {
+                MarkNonStartupBackgroundSchedulingComplete();
+                _semaphore.Release();
+            }
         }
         startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
             "FullReinitialize:scheduled",
@@ -3540,7 +3786,6 @@ public partial class MainWindowViewModel : ViewModel,
             StartupProgressPhase.ChartDigestBackfillDone,
             StartupProgressPhase.Lr2SongDbSyncDone,
             StartupProgressPhase.ScoreHydrationDone,
-            StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
             StartupProgressPhase.InstallableMaintenanceDeferredDone);
     }
@@ -4218,7 +4463,6 @@ public partial class MainWindowViewModel : ViewModel,
         RaisePropertyChanged(nameof(HasActiveLibraryProfile));
         RaiseLibraryOperationAvailabilityChanged();
         PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
-        _semaphore.Release();
         startupBackgroundTaskScheduler.Queue(
             "external_table_catalog",
             "Initialize",
@@ -4236,6 +4480,7 @@ public partial class MainWindowViewModel : ViewModel,
                 publishReferenceReceipt: true,
                 operationToken: operationToken);
         }
+        SchedulePostStartupBestEffortWarmups("startup_initialization_ready", operationToken);
         startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
             "Initialize:scheduled",
             operationToken,
@@ -4250,6 +4495,8 @@ public partial class MainWindowViewModel : ViewModel,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
             StartupProgressPhase.InstallableMaintenanceDeferredDone);
+        startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
+        _semaphore.Release();
         return true;
     }
 

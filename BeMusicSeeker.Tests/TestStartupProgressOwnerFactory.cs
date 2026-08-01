@@ -1,10 +1,11 @@
+using System;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
 
 internal static class TestStartupProgressOwnerFactory
 {
-    internal static StartupProgressWorkflowOwner Create()
+    internal static StartupProgressWorkflowOwner Create(Func<bool> backgroundTaskEnrollmentReady = null)
     {
         return new StartupProgressWorkflowOwner(
             () => new StartupProgressVersionSnapshot(),
@@ -14,6 +15,7 @@ internal static class TestStartupProgressOwnerFactory
             _ => { },
             () => false,
             (_, _) => false,
-            new object());
+            new object(),
+            backgroundTaskEnrollmentReady);
     }
 }

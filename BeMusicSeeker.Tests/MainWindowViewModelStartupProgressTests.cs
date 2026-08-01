@@ -22,11 +22,26 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void StartupProgress_InitialExpectedCounts_ArePublishedByOwner()
     {
-        Assert.AreEqual(19.0, Start(StartupProgressOperationKind.Startup).Maximum);
+        Assert.AreEqual(14.0, Start(StartupProgressOperationKind.Startup).Maximum);
         Assert.AreEqual(6.0, Start(StartupProgressOperationKind.ReloadFileDiff).Maximum);
         Assert.AreEqual(4.0, Start(StartupProgressOperationKind.ScoreOnly).Maximum);
         Assert.AreEqual(15.0, Start(StartupProgressOperationKind.FullReinitialize).Maximum);
         Assert.AreEqual(5.0, Start(StartupProgressOperationKind.ReloadTables).Maximum);
+    }
+
+    [TestMethod]
+    public void StartupProgress_StartupDoesNotWaitForPostInitializationMaintenance()
+    {
+        StartupProgressPhase expected = StartupProgressWorkflowOwner.GetInitialExpectedStartupProgressPhases(StartupProgressOperationKind.Startup);
+
+        Assert.AreEqual(StartupProgressPhase.None, expected & StartupProgressPhase.PlaylistReferenceApplied);
+        Assert.AreEqual(StartupProgressPhase.None, expected & StartupProgressPhase.ExternalPlaylistSyncDone);
+        Assert.AreEqual(StartupProgressPhase.None, expected & StartupProgressPhase.RankingRefreshDone);
+        Assert.AreEqual(StartupProgressPhase.None, expected & StartupProgressPhase.MaintenanceDeferredDone);
+        Assert.AreEqual(StartupProgressPhase.None, expected & StartupProgressPhase.InstallableMaintenanceDeferredDone);
+        Assert.AreNotEqual(StartupProgressPhase.None, expected & StartupProgressPhase.PlaylistEntriesHydrationDone);
+        Assert.AreNotEqual(StartupProgressPhase.None, expected & StartupProgressPhase.ChartInfoHydrationDone);
+        Assert.AreNotEqual(StartupProgressPhase.None, expected & StartupProgressPhase.StartupBackgroundTasksDone);
     }
 
     [TestMethod]
@@ -116,6 +131,52 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public async Task StartupPostInitialization_StaleCallbackCannotOpenNewGenerationBarrier()
+    {
+        var postEntered = new ManualResetEventSlim();
+        StartupBackgroundTaskSchedulerOwner scheduler = new(
+            () => false,
+            _ => { },
+            _ => { },
+            _ => { },
+            value => value ?? string.Empty,
+            (_, _) => { },
+            new object());
+        scheduler.Queue("post_initialize_gc", "test", null, () =>
+        {
+            postEntered.Set();
+            return Task.CompletedTask;
+        });
+
+        long staleGeneration = scheduler.CurrentGeneration;
+        scheduler.Reset(startImmediately: true);
+        scheduler.MarkPostInitializationSchedulingComplete();
+
+        const long currentOperationToken = 2L;
+        bool staleAccepted = MainWindowViewModel.IsCurrentStartupPostInitializationCallback(
+            operationToken: 1L,
+            schedulerGeneration: staleGeneration,
+            isOperationTokenCurrent: token => token == currentOperationToken,
+            isSchedulerGenerationCurrent: scheduler.IsCurrentGeneration);
+
+        Assert.IsFalse(staleAccepted);
+        Assert.IsFalse(postEntered.IsSet);
+
+        long currentGeneration = scheduler.CurrentGeneration;
+        bool currentAccepted = MainWindowViewModel.IsCurrentStartupPostInitializationCallback(
+            currentOperationToken,
+            currentGeneration,
+            token => token == currentOperationToken,
+            scheduler.IsCurrentGeneration);
+
+        Assert.IsTrue(currentAccepted);
+        Assert.IsTrue(scheduler.MarkRequiredInitializationSchedulingComplete(currentGeneration));
+        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
+        await Task.Delay(20).ConfigureAwait(false);
+        Assert.IsTrue(scheduler.IsFullyIdle);
+    }
+
+    [TestMethod]
     public void StartupProgress_PublishesNewTokenBeforePrepareCallback()
     {
         StartupProgressWorkflowOwner owner = null!;
@@ -181,7 +242,29 @@ public sealed class MainWindowViewModelStartupProgressTests
         SkipAllOptionalStartupPhases(owner);
         Mark(owner, StartupProgressPhase.StartupBackgroundTasksDone);
 
-        Assert.AreEqual(19.0, owner.Value);
+        Assert.AreEqual(14.0, owner.Value);
+        Assert.AreEqual(Resources.Statusbar_progress_complete, owner.Label);
+    }
+
+    [TestMethod]
+    public void StartupProgress_BackgroundTasksWaitForRequiredEnrollment()
+    {
+        bool enrollmentReady = false;
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create(() => enrollmentReady);
+        owner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        owner.TryCompleteStartupProgressLibraryDatabaseLoad(1);
+        owner.TryCompleteStartupProgressLibraryFileEnumeration(1);
+        owner.TryCompleteStartupProgressLibraryFileDiff(1);
+        Mark(owner, StartupProgressPhase.StartupReadyData);
+        Mark(owner, StartupProgressPhase.StartupReadyUi);
+        Mark(owner, StartupProgressPhase.StartupReadyOperable);
+        SkipAllOptionalStartupPhases(owner);
+
+        Mark(owner, StartupProgressPhase.StartupBackgroundTasksDone);
+        Assert.AreNotEqual(Resources.Statusbar_progress_complete, owner.Label);
+
+        enrollmentReady = true;
+        Mark(owner, StartupProgressPhase.StartupBackgroundTasksDone);
         Assert.AreEqual(Resources.Statusbar_progress_complete, owner.Label);
     }
 
