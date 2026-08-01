@@ -1,8 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -469,6 +476,110 @@ public sealed class MainWindowViewModelStartupProgressTests
             startupOperationActive: true));
     }
 
+    [TestMethod]
+    public void StartupReadiness_OperableAndRequiredSchedulerStartBeforeBlockedFolderReaderCompletes()
+    {
+        string tempRootPath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_StartupReadiness_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+
+        try
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            }
+
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            StartupProgressWorkflowOwner startupProgress = owner.ProgressHub.StartupProgress;
+            long operationToken = startupProgress.StartStartupProgressOperation(
+                StartupProgressOperationKind.Startup);
+            SetPrivateField(owner, "startupReadyInstallStopwatch", Stopwatch.StartNew());
+            SetPrivateField(owner, "startupReadyOperableStopwatch", Stopwatch.StartNew());
+
+            Type refreshChannelType = typeof(MainWindowViewModel).GetNestedType(
+                "UiRefreshChannel",
+                BindingFlags.NonPublic)!;
+            object readyMask = Enum.ToObject(refreshChannelType, 1 | 4 | 8);
+            object folderMask = Enum.ToObject(refreshChannelType, 2);
+            InvokePrivate(
+                owner,
+                "TryLogStartupReadyUi",
+                new[] { readyMask, (object)operationToken });
+
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                BMSFiles = []
+            };
+            library.SearchTargets = [tempRootPath];
+            IDisposable writerGuard = AcquireBmsFileWriterGuard(library);
+            try
+            {
+                int refreshCompletions = 0;
+                owner.LibraryFolderTree.DeferredRefreshCompleted += (_, _) => refreshCompletions++;
+                owner.LibraryFolderTree.AttachLibrary(library);
+                Task<int> folderListRead = Task.Run(
+                    () => owner.LibraryFolderTree.BMSParentFolderList.Count);
+                Assert.IsTrue(
+                    folderListRead.Wait(TimeSpan.FromSeconds(1)),
+                    "Folder-tree presentation reads must not wait for the model reader guard.");
+                StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
+                    owner,
+                    "startupBackgroundTaskScheduler");
+                using var requiredTaskStarted = new ManualResetEventSlim();
+                Assert.IsTrue(scheduler.Queue(
+                    "startup_readiness_required_test",
+                    "test",
+                    null,
+                    () =>
+                    {
+                        requiredTaskStarted.Set();
+                        return Task.CompletedTask;
+                    }));
+
+                InvokePrivate(
+                    owner,
+                    "FlushPendingUiRefresh",
+                    new[]
+                    {
+                        folderMask,
+                        (object)operationToken,
+                        (object)false,
+                        (object)true
+                    });
+
+                Assert.IsTrue(scheduler.IsStarted);
+                Assert.IsTrue(requiredTaskStarted.Wait(TimeSpan.FromSeconds(5)));
+                Assert.AreEqual(0, refreshCompletions);
+                FieldInfo queuedField = typeof(LibraryFolderTreeViewModel)
+                    .GetField("deferredRefreshQueued", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                Assert.IsTrue((bool)queuedField.GetValue(owner.LibraryFolderTree)!);
+            }
+            finally
+            {
+                writerGuard.Dispose();
+                FieldInfo queuedField = typeof(LibraryFolderTreeViewModel)
+                    .GetField("deferredRefreshQueued", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                SpinWait.SpinUntil(
+                    () => !(bool)queuedField.GetValue(owner.LibraryFolderTree)!,
+                    TimeSpan.FromSeconds(5));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
     private static StartupProgressWorkflowOwner Start(StartupProgressOperationKind operationKind)
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -561,5 +672,38 @@ public sealed class MainWindowViewModelStartupProgressTests
         {
             Skip(owner, phase);
         }
+    }
+
+    private static T GetPrivateField<T>(object target, string name)
+    {
+        return (T)target.GetType()
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(target)!;
+    }
+
+    private static void SetPrivateField(object target, string name, object value)
+    {
+        target.GetType()
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(target, value);
+    }
+
+    private static void InvokePrivate(object target, string name, object[] arguments)
+    {
+        MethodInfo method = target.GetType()
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == name
+                && candidate.GetParameters().Length == arguments.Length);
+        method.Invoke(target, arguments);
+    }
+
+    private static IDisposable AcquireBmsFileWriterGuard(BMSLibrary library)
+    {
+        PropertyInfo property = typeof(BMSLibrary)
+            .GetProperty("rwlockBMSFiles", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        object wrapper = property.GetValue(library)!;
+        return (IDisposable)wrapper.GetType()
+            .GetMethod("GetWriterGuard", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .Invoke(wrapper, null)!;
     }
 }

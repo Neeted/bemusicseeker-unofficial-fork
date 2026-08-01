@@ -717,6 +717,36 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void StartupReadiness_DoesNotWaitForLibraryFolderTreeCompletion()
+    {
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string completedHandler = ExtractBetween(
+            viewModelCode,
+            "private void LibraryFolderTreeDeferredRefreshCompleted(",
+            "private void InstallTreePresentationChanged(");
+        string flushPendingUiRefresh = ExtractBetween(
+            viewModelCode,
+            "private void FlushPendingUiRefresh(",
+            "private void ChartMutationActivityChanged");
+
+        Assert.IsTrue(completedHandler.IndexOf("TryLogStartupReadyOperable", StringComparison.Ordinal) < 0);
+        StringAssert.Contains(completedHandler, "library_folder_tree_ready");
+
+        int scheduleIndex = flushPendingUiRefresh.IndexOf(
+            "LibraryFolderTree.ScheduleDeferredRefresh",
+            StringComparison.Ordinal);
+        int readinessIndex = flushPendingUiRefresh.IndexOf(
+            "TryLogStartupReadyOperable(operationToken)",
+            StringComparison.Ordinal);
+        Assert.IsTrue(scheduleIndex >= 0);
+        Assert.IsTrue(readinessIndex > scheduleIndex);
+        StringAssert.Contains(flushPendingUiRefresh, "if (flag)");
+        StringAssert.Contains(flushPendingUiRefresh, "if (logReadiness)");
+        Assert.IsTrue(flushPendingUiRefresh.IndexOf("else if (logReadiness)", StringComparison.Ordinal) < 0);
+        StringAssert.Contains(viewModelCode, "startupReadyOperableStopwatch == null || !startupReadyUiReached");
+    }
+
+    [TestMethod]
     public void PlayHistoryView_KeywordFilterUpdatedReusesProjectedState()
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();

@@ -41,14 +41,14 @@ warm runではそれぞれ約24.1～24.4 s、24.4～24.8 s、38.2～39.1 sであ
 ## Active outcome
 
 - active outcome: `PERF-03 .NET 10 cold-start initialization closure`
-- execution anchor: `S1 STARTUP-READINESS-GATE`
+- execution anchor: `S2 STARTUP-TAIL-CONTRACT`
 
 ## Active implementation batch
 
 | Unit | State | Closure |
 |---|---|---|
-| `S1 STARTUP-READINESS-GATE` | active | folder-tree completionからoperability／schedulerを分離し、exact wait markerと決定的testを追加 |
-| `S2 STARTUP-TAIL-CONTRACT` | pending | required initializationとoptional maintenanceを分離 |
+| `S1 STARTUP-READINESS-GATE` | completed | folder-tree completionからoperability／schedulerを分離し、exact wait markerと決定的testを追加 |
+| `S2 STARTUP-TAIL-CONTRACT` | active | required initializationとoptional maintenanceを分離 |
 | `S3 STARTUP-CONTENTION-AND-OWNERSHIP` | pending | generic Task.Run、reader wait、Dispatcher queue、global ThreadPool tuningを整理 |
 | `S4 COLD-BOOT-DISTRIBUTION-FALLBACK` | pending | bundle-r2r／folder-r2rの同一HEAD artifactとmanual decision path |
 | `S5 FINAL-STARTUP-GATE` | pending | Full verification、publish、review、handoff |

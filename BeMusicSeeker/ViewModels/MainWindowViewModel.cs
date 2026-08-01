@@ -1574,7 +1574,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void TryLogStartupReadyOperable(long operationToken)
     {
-        if (startupReadyOperableStopwatch == null)
+        if (startupReadyOperableStopwatch == null || !startupReadyUiReached)
         {
             return;
         }
@@ -1726,14 +1726,21 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        LibraryFolderTree.ScheduleDeferredRefresh(activeOperationToken);
+        PerformanceInteraction interaction = e.Interaction.InteractionId > 0L
+            ? e.Interaction
+            : startupOperationActive
+                ? startupPerformanceInteraction
+                : default;
+        LibraryFolderTree.ScheduleDeferredRefresh(
+            activeOperationToken,
+            interaction);
     }
 
     private void LibraryFolderTreeDeferredRefreshCompleted(
         object sender,
         LibraryFolderTreeRefreshCompletedEventArgs e)
     {
-        TryLogStartupReadyOperable(e.OperationToken);
+        LogUiSuppression("library_folder_tree_ready operationToken=" + e.OperationToken);
     }
 
     private void InstallTreePresentationChanged(
@@ -1852,9 +1859,14 @@ public partial class MainWindowViewModel : ViewModel,
         }
         if (flag)
         {
-            LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
+            LibraryFolderTree.ScheduleDeferredRefresh(
+                operationToken,
+                startupProgressWorkflowOwner.IsOperationActive
+                    && startupProgressWorkflowOwner.CurrentOperationKind == StartupProgressOperationKind.Startup
+                    ? startupPerformanceInteraction
+                    : default);
         }
-        else if (logReadiness)
+        if (logReadiness)
         {
             TryLogStartupReadyOperable(operationToken);
         }

@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using Livet;
@@ -40,6 +41,8 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     private long refreshRequestVersion;
 
     private long deferredRefreshOperationToken;
+
+    private PerformanceInteraction deferredRefreshInteraction;
 
     internal LibraryFolderTreeViewModel(
         Func<string, bool> directoryExists,
@@ -94,7 +97,9 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
         {
             if (library != null && !parentFolderListViewInitialized)
             {
-                RefreshParentFolderListView(raisePropertyChanged: false);
+                RefreshParentFolderListView(
+                    raisePropertyChanged: false,
+                    allowSynchronousCacheBuild: false);
             }
             return bmsParentFolderList;
         }
@@ -194,23 +199,34 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     /// <summary>
     /// Schedules one background cache preparation and one UI-thread apply.
     /// </summary>
-    internal void ScheduleDeferredRefresh(long operationToken)
+    internal void ScheduleDeferredRefresh(
+        long operationToken,
+        PerformanceInteraction interaction = default)
     {
         bool shouldSchedule = false;
         lock (refreshLock)
         {
             deferredRefreshOperationToken = operationToken;
+            deferredRefreshInteraction = interaction;
             if (!deferredRefreshQueued)
             {
                 deferredRefreshQueued = true;
                 shouldSchedule = true;
             }
         }
+        LogRefreshStage(
+            interaction,
+            "request_accepted",
+            "operationToken=" + operationToken);
         if (!shouldSchedule)
         {
             return;
         }
 
+        LogRefreshStage(
+            interaction,
+            "worker_queued",
+            "operationToken=" + operationToken);
         QueueDeferredRefresh();
     }
 
@@ -220,6 +236,8 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
         {
             BMSLibrary refreshLibrary;
             long requestVersion;
+            long operationToken;
+            PerformanceInteraction interaction;
             lock (refreshLock)
             {
                 if (!deferredRefreshQueued)
@@ -228,7 +246,14 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                 }
                 refreshLibrary = library;
                 requestVersion = refreshRequestVersion;
+                operationToken = deferredRefreshOperationToken;
+                interaction = deferredRefreshInteraction;
             }
+
+            LogRefreshStage(
+                interaction,
+                "worker_started",
+                "operationToken=" + operationToken);
 
             BMSLibrary.ParentFolderListCacheSnapshot snapshot = null;
             Exception prepareException = null;
@@ -236,7 +261,8 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
             {
                 if (refreshLibrary != null)
                 {
-                    snapshot = refreshLibrary.BuildBMSParentFolderListCacheSnapshot();
+                    snapshot = refreshLibrary.BuildBMSParentFolderListCacheSnapshot(
+                        (stage, fields) => LogRefreshStage(interaction, stage, fields));
                 }
             }
             catch (Exception ex)
@@ -250,6 +276,7 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                 lock (refreshLock)
                 {
                     deferredRefreshQueued = false;
+                    deferredRefreshInteraction = default;
                 }
                 return;
             }
@@ -257,10 +284,19 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
             IUiScheduledOperation operation;
             try
             {
+                LogRefreshStage(
+                    interaction,
+                    "ui_queued",
+                    "operationToken=" + operationToken);
                 operation = uiScheduler.Schedule((Action)delegate
             {
+                LogRefreshStage(
+                    interaction,
+                    "ui_started",
+                    "operationToken=" + operationToken);
                 var stopwatch = Stopwatch.StartNew();
                 bool shouldReschedule = false;
+                string rescheduleReason = null;
                 try
                 {
                     bool refreshed = false;
@@ -276,17 +312,27 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                         if (!refreshed && refreshLibrary.IsBMSParentFolderListCacheDirty())
                         {
                             shouldReschedule = true;
+                            rescheduleReason = "cache_apply_rejected";
                         }
                     }
                     if (prepareException == null && !requestIsCurrent)
                     {
                         shouldReschedule = true;
+                        rescheduleReason = "source_changed";
                     }
                     if (prepareException == null && !shouldReschedule && requestIsCurrent)
                     {
                         if (!RefreshParentFolderListView(allowSynchronousCacheBuild: false))
                         {
                             shouldReschedule = true;
+                            rescheduleReason = "cache_not_ready";
+                        }
+                        else
+                        {
+                            LogRefreshStage(
+                                interaction,
+                                "ui_applied",
+                                "operationToken=" + operationToken);
                         }
                     }
                 }
@@ -295,18 +341,26 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                     stopwatch.Stop();
                     log("ui_suppress flush_library_folder_tree_deferred_ms=" + stopwatch.ElapsedMilliseconds);
                     bool requestAnotherRefresh;
-                    long operationToken;
+                    long latestOperationToken;
+                    PerformanceInteraction latestInteraction;
                     lock (refreshLock)
                     {
                         requestAnotherRefresh = shouldReschedule
                             || requestVersion != refreshRequestVersion
                             || !ReferenceEquals(library, refreshLibrary);
-                        operationToken = deferredRefreshOperationToken;
+                        latestOperationToken = deferredRefreshOperationToken;
+                        latestInteraction = deferredRefreshInteraction;
                         deferredRefreshQueued = false;
+                        deferredRefreshInteraction = default;
                     }
                     bool dispatcherShuttingDown = !uiScheduler.IsAvailable;
                     if (requestAnotherRefresh)
                     {
+                        LogRefreshStage(
+                            interaction,
+                            "stale_reschedule",
+                            "reason=" + (rescheduleReason ?? "latest_request")
+                                + " operationToken=" + latestOperationToken);
                         if (dispatcherShuttingDown)
                         {
                             ClearDeferredRefreshQueue();
@@ -317,14 +371,15 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                                 this,
                                 new LibraryFolderTreeRefreshRequestedEventArgs(
                                     LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
-                                    operationToken));
+                                    latestOperationToken,
+                                    latestInteraction));
                         }
                     }
                     else if (prepareException == null)
                     {
                         DeferredRefreshCompleted?.Invoke(
                             this,
-                            new LibraryFolderTreeRefreshCompletedEventArgs(operationToken));
+                            new LibraryFolderTreeRefreshCompletedEventArgs(latestOperationToken));
                     }
                 }
             }, UiSchedulePriority.Background);
@@ -355,6 +410,33 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
         lock (refreshLock)
         {
             deferredRefreshQueued = false;
+            deferredRefreshInteraction = default;
+        }
+    }
+
+    private void LogRefreshStage(
+        PerformanceInteraction interaction,
+        string stage,
+        string fields = null)
+    {
+        if (interaction.InteractionId <= 0L)
+        {
+            return;
+        }
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            Net10PerformanceLog.Write(interaction, stage, fields);
+        }
+        else
+        {
+            string message = "library_folder_tree stage=" + stage
+                + " interactionId=" + interaction.InteractionId
+                + " generation=" + interaction.Generation;
+            if (!string.IsNullOrWhiteSpace(fields))
+            {
+                message += " " + fields;
+            }
+            log(message);
         }
     }
 
@@ -437,15 +519,19 @@ internal sealed class LibraryFolderTreeRefreshRequestedEventArgs : EventArgs
 {
     internal LibraryFolderTreeRefreshRequestedEventArgs(
         LibraryFolderTreeRefreshRequestOrigin origin,
-        long operationToken)
+        long operationToken,
+        PerformanceInteraction interaction = default)
     {
         Origin = origin;
         OperationToken = operationToken;
+        Interaction = interaction;
     }
 
     internal LibraryFolderTreeRefreshRequestOrigin Origin { get; }
 
     internal long OperationToken { get; }
+
+    internal PerformanceInteraction Interaction { get; }
 }
 
 /// <summary>

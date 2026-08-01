@@ -1345,12 +1345,21 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private List<string> CreateInstalledChartPathSnapshotForParentFolderCache()
+    private List<string> CreateInstalledChartPathSnapshotForParentFolderCache(
+        Action<string, string> stageMarker = null)
     {
+        stageMarker?.Invoke("model_reader_wait_start", null);
+        Stopwatch readerWaitStopwatch = Stopwatch.StartNew();
+        List<string> snapshot;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            return CreateOwnedChartPathSnapshotUnsafe();
+            readerWaitStopwatch.Stop();
+            snapshot = CreateOwnedChartPathSnapshotUnsafe();
         }
+        stageMarker?.Invoke(
+            "model_reader_wait_end",
+            "elapsedMs=" + readerWaitStopwatch.ElapsedMilliseconds);
+        return snapshot;
     }
 
     private List<string> CreateOwnedChartPathSnapshotUnsafe()
@@ -1375,7 +1384,8 @@ public partial class BMSLibrary : ObservableObject
     /// 親フォルダ一覧のキャッシュスナップショットをバックグラウンドで構築します。
     /// キャッシュが有効な場合は null を返します。
     /// </summary>
-    internal ParentFolderListCacheSnapshot BuildBMSParentFolderListCacheSnapshot()
+    internal ParentFolderListCacheSnapshot BuildBMSParentFolderListCacheSnapshot(
+        Action<string, string> stageMarker = null)
     {
         int version = 0;
         lock (lockParentFolderList)
@@ -1386,8 +1396,15 @@ public partial class BMSLibrary : ObservableObject
             }
             version = bmsParentFolderListDirtyVersion;
         }
-        List<string> installedChartPaths = CreateInstalledChartPathSnapshotForParentFolderCache();
-        return parentFolderCacheService.BuildSnapshot(version, installedChartPaths, getBMSDirectories(), CurrentOptionsSnapshot);
+        List<string> installedChartPaths = CreateInstalledChartPathSnapshotForParentFolderCache(stageMarker);
+        stageMarker?.Invoke("path_snapshot_complete", null);
+        ParentFolderListCacheSnapshot snapshot = parentFolderCacheService.BuildSnapshot(
+            version,
+            installedChartPaths,
+            getBMSDirectories(),
+            CurrentOptionsSnapshot);
+        stageMarker?.Invoke("cache_build_complete", null);
+        return snapshot;
     }
 
     /// <summary>

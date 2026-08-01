@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Windows.Threading;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -201,6 +203,8 @@ public sealed class LibraryFolderTreeViewModelTests
         using var firstRefreshPosted = new ManualResetEventSlim();
         using var readmissionRequested = new ManualResetEventSlim();
         using var latestRefreshCompleted = new ManualResetEventSlim();
+        PerformanceInteraction interaction = PerformanceInteraction.Start("startup", 7L);
+        PerformanceInteraction latestInteraction = PerformanceInteraction.Start("startup", 42L);
         Thread dispatcherThread = new(() =>
         {
             dispatcher = Dispatcher.CurrentDispatcher;
@@ -221,6 +225,7 @@ public sealed class LibraryFolderTreeViewModelTests
         owner.CacheRefreshRequested += (_, args) =>
         {
             request = args;
+            owner.ScheduleDeferredRefresh(args.OperationToken, args.Interaction);
             readmissionRequested.Set();
         };
         owner.DeferredRefreshCompleted += (_, args) =>
@@ -248,8 +253,9 @@ public sealed class LibraryFolderTreeViewModelTests
 
         try
         {
-            owner.ScheduleDeferredRefresh(operationToken: 7);
+            owner.ScheduleDeferredRefresh(operationToken: 7, interaction: interaction);
             Assert.IsTrue(firstRefreshPosted.Wait(TimeSpan.FromSeconds(5)));
+            owner.ScheduleDeferredRefresh(operationToken: 42, interaction: latestInteraction);
             typeof(LibraryFolderTreeViewModel)
                 .GetMethod("MarkRefreshRequested", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(owner, null);
@@ -260,10 +266,8 @@ public sealed class LibraryFolderTreeViewModelTests
             Assert.AreEqual(
                 LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
                 request.Origin);
-            Assert.AreEqual(7, request.OperationToken);
-            Assert.AreEqual(0, refreshCompletions);
-
-            owner.ScheduleDeferredRefresh(operationToken: 42);
+            Assert.AreEqual(42, request.OperationToken);
+            Assert.AreEqual(latestInteraction.InteractionId, request.Interaction.InteractionId);
 
             Assert.IsTrue(latestRefreshCompleted.Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(42, completedOperationToken);
@@ -275,6 +279,99 @@ public sealed class LibraryFolderTreeViewModelTests
             releaseBlocker.Set();
             dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
             Assert.IsTrue(dispatcherThread.Join(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [TestMethod]
+    public void DeferredRefresh_EmitsAggregateStagesForOneInteraction()
+    {
+        string tempRootPath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_LibraryFolderTree_Stages_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+
+        try
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            }
+
+            var stages = new ConcurrentQueue<string>();
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                BMSFiles = []
+            };
+            library.SearchTargets = [tempRootPath];
+            var owner = new LibraryFolderTreeViewModel(
+                _ => true,
+                _ => new ExplorerOpenResult(),
+                new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                stages.Enqueue,
+                stages.Enqueue);
+            owner.AttachLibrary(library);
+            owner.InvalidateLibraryFolderCache();
+
+            PerformanceInteraction interaction = PerformanceInteraction.Start("startup", 17L);
+            owner.ScheduleDeferredRefresh(42L, interaction);
+
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => stages.Any(value => value.IndexOf("stage=ui_applied", StringComparison.Ordinal) >= 0),
+                TimeSpan.FromSeconds(5)));
+
+            string[] expectedStages =
+            [
+                "request_accepted",
+                "worker_queued",
+                "worker_started",
+                "model_reader_wait_start",
+                "model_reader_wait_end",
+                "path_snapshot_complete",
+                "cache_build_complete",
+                "ui_queued",
+                "ui_started",
+                "ui_applied"
+            ];
+            string[] actual = stages.ToArray();
+            foreach (string expectedStage in expectedStages)
+            {
+                Assert.IsTrue(
+                    actual.Any(value => value.IndexOf("stage=" + expectedStage, StringComparison.Ordinal) >= 0),
+                    "Missing aggregate stage: " + expectedStage);
+            }
+            Assert.IsTrue(actual
+                .Where(value => value.IndexOf("stage=", StringComparison.Ordinal) >= 0)
+                .All(value => value.IndexOf(
+                "interactionId=" + interaction.InteractionId,
+                StringComparison.Ordinal) >= 0));
+
+            int entryCountBeforeIndependentRefresh = stages.Count;
+            owner.InvalidateLibraryFolderCache();
+            owner.ScheduleDeferredRefresh(43L);
+            FieldInfo queuedField = typeof(LibraryFolderTreeViewModel)
+                .GetField("deferredRefreshQueued", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => !(bool)queuedField.GetValue(owner)!,
+                TimeSpan.FromSeconds(5)));
+            string[] independentRefreshMarkers = stages
+                .Skip(entryCountBeforeIndependentRefresh)
+                .Where(value => value.IndexOf("stage=", StringComparison.Ordinal) >= 0)
+                .ToArray();
+            Assert.IsFalse(independentRefreshMarkers.Any(value => value.IndexOf(
+                "interactionId=" + interaction.InteractionId,
+                StringComparison.Ordinal) >= 0));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
         }
     }
 
@@ -303,10 +400,12 @@ public sealed class LibraryFolderTreeViewModelTests
 
             var library = new TestBmsLibrary(songDbPath);
             library.SearchTargets = [firstRoot, secondRoot, firstRoot];
+            using var firstRefreshApplied = new ManualResetEventSlim();
+            using var secondRefreshApplied = new ManualResetEventSlim();
             var owner = new LibraryFolderTreeViewModel(
                 _ => true,
                 _ => new ExplorerOpenResult(),
-                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             int parentFolderPropertyChanges = 0;
             int cacheRefreshRequests = 0;
             owner.PropertyChanged += (_, args) =>
@@ -314,13 +413,25 @@ public sealed class LibraryFolderTreeViewModelTests
                 if (args.PropertyName == nameof(LibraryFolderTreeViewModel.BMSParentFolderList))
                 {
                     parentFolderPropertyChanges++;
+                    if (parentFolderPropertyChanges == 1)
+                    {
+                        firstRefreshApplied.Set();
+                    }
+                    else
+                    {
+                        secondRefreshApplied.Set();
+                    }
                 }
             };
-            owner.CacheRefreshRequested += (_, _) => cacheRefreshRequests++;
+            owner.CacheRefreshRequested += (_, args) =>
+            {
+                cacheRefreshRequests++;
+                owner.ScheduleDeferredRefresh(args.OperationToken, args.Interaction);
+            };
 
             owner.AttachLibrary(library);
             Assert.IsTrue(owner.IsLibraryAttached);
-            Assert.AreEqual(0, parentFolderPropertyChanges);
+            Assert.IsTrue(firstRefreshApplied.Wait(TimeSpan.FromSeconds(5)));
             CollectionAssert.AreEqual(
                 new[] { secondRoot, firstRoot },
                 owner.BMSParentFolderList.ToArray());
@@ -334,10 +445,11 @@ public sealed class LibraryFolderTreeViewModelTests
                 library.SearchTargets.ToArray());
             owner.InvalidateLibraryFolderCache();
 
+            Assert.IsTrue(secondRefreshApplied.Wait(TimeSpan.FromSeconds(5)));
             CollectionAssert.AreEqual(
                 new[] { secondRoot, replacementRoot },
                 owner.BMSParentFolderList.ToArray());
-            Assert.AreEqual(propertyChangesBeforeInvalidation, parentFolderPropertyChanges);
+            Assert.IsTrue(parentFolderPropertyChanges > propertyChangesBeforeInvalidation);
             Assert.AreEqual(1, cacheRefreshRequests);
         }
         finally
