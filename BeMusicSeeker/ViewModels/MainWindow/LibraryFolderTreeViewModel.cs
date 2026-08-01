@@ -32,6 +32,8 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
 
     private readonly Func<string, ExplorerOpenResult> openDirectory;
 
+    private Func<string, Func<Task>, bool> deferredRefreshScheduler;
+
     private BMSLibrary library;
 
     private bool parentFolderListViewInitialized;
@@ -230,10 +232,31 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
         QueueDeferredRefresh();
     }
 
+    internal void ConfigureDeferredRefreshScheduler(Func<string, Func<Task>, bool> scheduler)
+    {
+        deferredRefreshScheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
+    }
+
     private void QueueDeferredRefresh()
     {
-        Task.Run(delegate
+        Func<Task> work = () =>
         {
+            RunDeferredRefreshWorker();
+            return Task.CompletedTask;
+        };
+        if (deferredRefreshScheduler != null)
+        {
+            if (!deferredRefreshScheduler("library_folder_tree_refresh", work))
+            {
+                ClearDeferredRefreshQueue();
+            }
+            return;
+        }
+        throw new InvalidOperationException("Library-folder refresh scheduler is not configured.");
+    }
+
+    private void RunDeferredRefreshWorker()
+    {
             BMSLibrary refreshLibrary;
             long requestVersion;
             long operationToken;
@@ -402,7 +425,6 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
             {
                 ClearDeferredRefreshQueue();
             }
-        });
     }
 
     private void ClearDeferredRefreshQueue()

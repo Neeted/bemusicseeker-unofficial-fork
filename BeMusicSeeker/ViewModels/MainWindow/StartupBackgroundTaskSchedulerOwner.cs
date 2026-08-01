@@ -893,6 +893,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             || string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)
@@ -914,6 +915,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     {
         if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)) return 10;
         if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase)) return 15;
+        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)) return 16;
         if (string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)) return 18;
         if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)) return 20;
         if (string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)) return 30;
@@ -942,6 +944,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)) return "playlist_followup";
+        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)) return "folder_tree_refresh";
         if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)) return "dependent_maintenance";
         return "default";

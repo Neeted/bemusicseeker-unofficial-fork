@@ -3017,6 +3017,12 @@ public partial class MainWindowViewModel : ViewModel,
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
         LibraryFolderTree = childComposition.LibraryFolderTree;
+        LibraryFolderTree.ConfigureDeferredRefreshScheduler(
+            (reason, work) => startupBackgroundTaskScheduler.Queue(
+                "library_folder_tree_refresh",
+                reason,
+                null,
+                work));
         LibraryFolderTree.CacheRefreshRequested += LibraryFolderTreeCacheRefreshRequested;
         LibraryFolderTree.DeferredRefreshCompleted += LibraryFolderTreeDeferredRefreshCompleted;
         InstallTree = childComposition.InstallTree;

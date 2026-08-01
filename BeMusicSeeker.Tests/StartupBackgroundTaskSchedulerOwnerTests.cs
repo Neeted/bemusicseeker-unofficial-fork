@@ -32,6 +32,34 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     }
 
     [TestMethod]
+    public async Task LibraryFolderTreeRefreshUsesPostInitializationOwnerLane()
+    {
+        var entered = new ManualResetEventSlim();
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        Assert.IsTrue(owner.Queue("library_folder_tree_refresh", "deferred", null, async () =>
+        {
+            entered.Set();
+            await release.Task.ConfigureAwait(false);
+        }));
+        owner.Start();
+
+        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)), owner.DescribeWaitState());
+        Assert.IsTrue(owner.IsIdle);
+        Assert.IsFalse(owner.IsFullyIdle);
+        release.SetResult(true);
+        await WaitForFullyIdleAsync(owner);
+
+        StringAssert.Contains(
+            owner.BuildSummaryLog(0L),
+            "library_folder_tree_refresh{queued=1,started=1,completed=1,failed=0,lastStatus=done,lastMs=");
+        StringAssert.Contains(
+            owner.BuildSummaryLog(0L),
+            "lane=post_initialization_folder_tree_refresh");
+    }
+
+    [TestMethod]
     public async Task PostInitializationWorkDoesNotBlockRequiredIdleOrRequiredWorker()
     {
         var postEntered = new ManualResetEventSlim();

@@ -94,8 +94,6 @@ public partial class App : System.Windows.Application
         applicationPathSnapshot = ApplicationPathPolicy.Current;
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12;
         ServicePointManager.DefaultConnectionLimit = 16;
-        // 起動ログ比較では既定値より MinThreads=200 の方が startup_ready_* 指標が安定して短かったため維持。
-        ThreadPool.SetMinThreads(200, 200);
         LogLevel defaultFileLogLevel = ConvertToNLogLevel(CommandLineSwitches.LogLevel);
         NLogWrapper.ConfigureApplicationFileLogging(applicationPathSnapshot.BaseDirectory, defaultFileLogLevel, CommandLineSwitches.IsInfoLoggingEnabled);
         Net10PerformanceLog.Start();

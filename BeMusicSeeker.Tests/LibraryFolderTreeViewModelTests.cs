@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
@@ -44,7 +45,7 @@ public sealed class LibraryFolderTreeViewModelTests
         Assert.IsTrue(dispatcherReady.Wait(TimeSpan.FromSeconds(5)));
         dispatcherThread.Join();
 
-        var owner = new LibraryFolderTreeViewModel(
+        var owner = CreateTreeOwner(
             _ => true,
             _ => new ExplorerOpenResult(),
             new WpfUiScheduler(() => shutdownDispatcher));
@@ -72,7 +73,7 @@ public sealed class LibraryFolderTreeViewModelTests
         Thread dispatcherThread = new(() =>
         {
             dispatcher = Dispatcher.CurrentDispatcher;
-            owner = new LibraryFolderTreeViewModel(
+            owner = CreateTreeOwner(
                 _ => true,
                 _ => new ExplorerOpenResult(),
                 new WpfUiScheduler(() => dispatcher));
@@ -133,7 +134,7 @@ public sealed class LibraryFolderTreeViewModelTests
         Thread dispatcherThread = new(() =>
         {
             dispatcher = Dispatcher.CurrentDispatcher;
-            owner = new LibraryFolderTreeViewModel(
+            owner = CreateTreeOwner(
                 _ => true,
                 _ => new ExplorerOpenResult(),
                 new WpfUiScheduler(() => dispatcher));
@@ -208,7 +209,7 @@ public sealed class LibraryFolderTreeViewModelTests
         Thread dispatcherThread = new(() =>
         {
             dispatcher = Dispatcher.CurrentDispatcher;
-            owner = new LibraryFolderTreeViewModel(
+            owner = CreateTreeOwner(
                 _ => true,
                 _ => new ExplorerOpenResult(),
                 new WpfUiScheduler(() => dispatcher));
@@ -308,7 +309,7 @@ public sealed class LibraryFolderTreeViewModelTests
                 BMSFiles = []
             };
             library.SearchTargets = [tempRootPath];
-            var owner = new LibraryFolderTreeViewModel(
+            var owner = CreateTreeOwner(
                 _ => true,
                 _ => new ExplorerOpenResult(),
                 new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -376,6 +377,40 @@ public sealed class LibraryFolderTreeViewModelTests
     }
 
     [TestMethod]
+    public void DeferredRefreshUsesConfiguredOwnerScheduler()
+    {
+        string queuedName = null!;
+        Func<Task> queuedWork = null!;
+        var owner = CreateTreeOwner(
+            _ => true,
+            _ => new ExplorerOpenResult(),
+            new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+        owner.ConfigureDeferredRefreshScheduler((name, work) =>
+        {
+            queuedName = name;
+            queuedWork = work;
+            return true;
+        });
+
+        owner.ScheduleDeferredRefresh(operationToken: 42);
+
+        Assert.AreEqual("library_folder_tree_refresh", queuedName);
+        Assert.IsNotNull(queuedWork);
+    }
+
+    [TestMethod]
+    public void DeferredRefreshFailsFastWithoutOwnerScheduler()
+    {
+        var owner = new LibraryFolderTreeViewModel(
+            _ => true,
+            _ => new ExplorerOpenResult(),
+            new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => owner.ScheduleDeferredRefresh(operationToken: 42));
+    }
+
+    [TestMethod]
     public void AttachedLibrary_ExposesSortedDistinctFoldersAndInvalidatesAfterSearchRootChange()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_LibraryFolderTree_" + Guid.NewGuid().ToString("N"));
@@ -402,7 +437,7 @@ public sealed class LibraryFolderTreeViewModelTests
             library.SearchTargets = [firstRoot, secondRoot, firstRoot];
             using var firstRefreshApplied = new ManualResetEventSlim();
             using var secondRefreshApplied = new ManualResetEventSlim();
-            var owner = new LibraryFolderTreeViewModel(
+            var owner = CreateTreeOwner(
                 _ => true,
                 _ => new ExplorerOpenResult(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
@@ -464,10 +499,10 @@ public sealed class LibraryFolderTreeViewModelTests
     [TestMethod]
     public void DetachedLibrary_SearchRootRuntimeIsNoOp()
     {
-        var owner = new LibraryFolderTreeViewModel(
+        var owner = CreateTreeOwner(
             _ => true,
             _ => new ExplorerOpenResult(),
-                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
+            new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
         int refreshRequests = 0;
         owner.CacheRefreshRequested += (_, _) => refreshRequests++;
 
@@ -513,7 +548,7 @@ public sealed class LibraryFolderTreeViewModelTests
                     }
                 ]
             };
-            var owner = new LibraryFolderTreeViewModel(
+            var owner = CreateTreeOwner(
                 _ => true,
                 _ => new ExplorerOpenResult(),
                 new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
@@ -541,7 +576,7 @@ public sealed class LibraryFolderTreeViewModelTests
     {
         List<string> validationPaths = [];
         List<string> openedPaths = [];
-        var owner = new LibraryFolderTreeViewModel(
+        var owner = CreateTreeOwner(
             path =>
             {
                 validationPaths.Add(path);
@@ -557,7 +592,7 @@ public sealed class LibraryFolderTreeViewModelTests
                     OpenedPath = path
                 };
             },
-                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
+            new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
 
         owner.OpenFolderInExplorer("C:\\Library");
 
@@ -568,10 +603,10 @@ public sealed class LibraryFolderTreeViewModelTests
     [TestMethod]
     public void OpenFolderInExplorer_MissingFolderDoesNotInvokeExplorer()
     {
-        var owner = new LibraryFolderTreeViewModel(
+        var owner = CreateTreeOwner(
             _ => false,
             _ => throw new AssertFailedException("Explorer should not be invoked for a missing folder."),
-                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
+            new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
 
         owner.OpenFolderInExplorer("C:\\Missing");
     }
@@ -580,7 +615,7 @@ public sealed class LibraryFolderTreeViewModelTests
     public void OpenFolderInExplorer_PreservesFailedExplorerResultWithoutFallback()
     {
         int openCount = 0;
-        var owner = new LibraryFolderTreeViewModel(
+        var owner = CreateTreeOwner(
             _ => true,
             path =>
             {
@@ -592,10 +627,31 @@ public sealed class LibraryFolderTreeViewModelTests
                     FailureReason = "shell_failed"
                 };
             },
-                new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
+            new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
 
         owner.OpenFolderInExplorer("C:\\Library");
 
         Assert.AreEqual(1, openCount);
+    }
+
+    private static LibraryFolderTreeViewModel CreateTreeOwner(
+        Func<string, bool> directoryExists,
+        Func<string, ExplorerOpenResult> openDirectory,
+        IUiScheduler uiScheduler,
+        Action<string>? log = null,
+        Action<string>? logWarning = null)
+    {
+        var owner = new LibraryFolderTreeViewModel(
+            directoryExists,
+            openDirectory,
+            uiScheduler,
+            log,
+            logWarning);
+        owner.ConfigureDeferredRefreshScheduler((_, work) =>
+        {
+            Task ignored = Task.Run(work);
+            return true;
+        });
+        return owner;
     }
 }
