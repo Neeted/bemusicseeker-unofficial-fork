@@ -8,5 +8,5 @@
 |---|---|---|---|---|
 | `UI-01` | protected completion | summary cache再訪約32 ms、detail約129 ms、full library約23～60 ms。stable source／atomic commit／data-only invalidationが成立 | startup変更で退行させない | S5 |
 | `START-READINESS` | protected completion | folder refresh、optional maintenance、global ThreadPool tuningはrequired readinessから分離済み。専用lane、coalescing、shutdown drainを保護する | S4／S5でstartup structural／eventual-apply contractを再確認 | all |
-| `DIST-01` | fallback | previous non-reboot testでfolder-r2rとbundle-r2rは実用上同等。cold rebootは未評価 | 同一HEADの二artifactと一回manual decision | S4／user |
+| `DIST-01` | fallback | current HEADからbundle-r2r（24 files）とfolder-r2r（505 files）の同一設定artifactを再生成済み。PC再起動後のcold comparisonは未評価 | MANUAL-01で一回比較し、必要なら一括profile切替 | S4／user |
 | `SAFE-01` | `SAFETY_REQUIRED` | normal refresh deadlockはnon-blocking producerで解消 | sync UI wait／callback-under-lockを復活させない | all |

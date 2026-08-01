@@ -7,7 +7,7 @@
 ## Reviewed snapshot
 
 ```text
-HEAD: c5ffed1379ce20b66010dd4a00f1333bd5743ba2
+HEAD: c5c5a47366ff446f6aafcbca47756416cb870f39
 logs:
   .tmp/20260731_log_.NET 10 PC起動後 初回起動
   .tmp/20260731_log_.NET 10 PC起動後 2回目起動
@@ -60,27 +60,29 @@ startup_initialization_complete    103.315 s
 
 `parent_folder_cache rebuildMs=119`はcache algorithm部分だけで、requestからworker開始、reader-lock wait、path snapshot、Dispatcher queue waitを含まない。
 
-## Cause assessment
+## Baseline cause and current closure
 
 ### Confirmed
 
-`MainWindowViewModel.TryLogStartupReadyOperable`は、通常入力のunblockと`StartupBackgroundTaskSchedulerOwner.Start()`を同時に行う。startup UI flushにlibrary-folder refreshが含まれる場合、この呼出しは`LibraryFolderTreeViewModel.DeferredRefreshCompleted`まで延期される。
+baselineでは、`MainWindowViewModel.TryLogStartupReadyOperable`が通常入力のunblockと`StartupBackgroundTaskSchedulerOwner.Start()`を同時に行い、startup UI flushにlibrary-folder refreshが含まれる場合に`LibraryFolderTreeViewModel.DeferredRefreshCompleted`まで延期されていた。
 
-そのrefreshは次の二段queueである。
+baselineのrefreshは次の二段queueであった。
 
 ```text
-Task.Run
+generic Task.Run
   → BMSLibrary.BuildBMSParentFolderListCacheSnapshot
   → UI scheduler at Background priority
   → DeferredRefreshCompleted
   → startup_ready_operable / scheduler_start
 ```
 
-したがって、optional folder-tree presentationが遅れると、アプリ操作可能化と全startup background workが同じ時間だけ遅れる。これが100秒化の直接原因である。
+したがって、optional folder-tree presentationが遅れると、アプリ操作可能化と全startup background workが同じ時間だけ遅れる。これが100秒化の直接原因であった。
+
+S1～S3でこのdependencyを閉じた。現在は、`LibraryFolderTreeViewModel`がMainWindowから注入された`StartupBackgroundTaskSchedulerOwner`へ`library_folder_tree_refresh`として要求を渡し、`post_initialization_folder_tree_refresh` laneで準備を行う。scheduler未設定時は旧ThreadPool経路へfallbackせずfail-fastする。`ThreadPool.SetMinThreads(200, 200)`も退役した。
 
 ### Highly likely contributor
 
-UI applyは`UiSchedulePriority.Background`であり、cold runではrequest後約65秒間completionがない。exact split markerがないため、ThreadPool queue、`rwlockBMSFiles` reader wait、path snapshot、Dispatcher Background queueのどこが支配したかは未確定である。ただし、いずれであってもoptional low-priority refreshをglobal readiness gateにした設計は不適切である。
+baselineのUI applyは`UiSchedulePriority.Background`であり、cold runではrequest後約65秒間completionがなかった。exact split markerがないため、ThreadPool queue、`rwlockBMSFiles` reader wait、path snapshot、Dispatcher Background queueのどこが支配したかは確定していない。ただし、いずれであってもoptional low-priority refreshをglobal readiness gateにした設計が不適切だったことは確定している。現在はmarker、owned lane、coalescing、shutdown drain、決定的テストを備える。
 
 ### Not the primary cause
 
@@ -88,9 +90,9 @@ UI applyは`UiSchedulePriority.Background`であり、cold runではrequest後�
 
 ## Current decision
 
-`PERF-03 .NET 10 cold-start initialization closure`を開始する。
+`PERF-03 .NET 10 cold-start initialization closure`のcode-level S1～S4を完了し、S5のfinal startup gateへ進む。bundle-r2r／folder-r2rの再起動後比較と機能／update／rollback確認はMANUAL-01へhandoffする。
 
 1. operabilityとstartup schedulerをoptional folder-tree completionから分離する。
 2. required initializationとpost-initialization maintenanceを分離する。
-3. folder refreshのworker／lock／Dispatcher waitを可視化し、generic `Task.Run`／global min-thread tuningを整理する。
+3. folder refreshのworker／lock／Dispatcher waitを可視化し、generic `Task.Run`／global min-thread tuningを退役する。
 4. code fix後にbundle-r2rとfolder-r2rをPC再起動後一回だけ比較できるhandoffを用意する。

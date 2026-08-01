@@ -48,3 +48,32 @@ PC再起動後の最終判断:
 - stage log上、差がmanaged application内の同じreadiness edgeに残る場合は配布形式で隠さずcode routeへ戻す。
 
 この一回比較はpost-engineering manual acceptanceであり、Codexを結果待ちで停止させない。
+
+## Current reproducibility evidence
+
+S1～S3完了後の同一HEADから、次の二artifactを再生成できることを確認した。出力は`artifacts/performance/net10-distribution-s4/`配下のignored local artifactであり、commitには含めない。
+
+```text
+HEAD: c5c5a47366ff446f6aafcbca47756416cb870f39
+SDK: 10.0.302 (global.json, rollForward=latestPatch)
+RuntimeIdentifier: win-x64
+SelfContained: true
+PublishReadyToRun: true
+PublishTrimmed: false
+PublishReadyToRunComposite: false
+IncludeAllContentForSelfExtract: false
+EnableCompressionInSingleFile: false
+```
+
+```powershell
+dotnet restore .\BeMusicSeeker.sln --runtime win-x64 --locked-mode -p:PublishReadyToRun=true
+dotnet publish .\BeMusicSeeker.csproj /p:Configuration=Release /p:Platform=x64 --runtime win-x64 --self-contained true --no-restore -p:PublishTrimmed=false -p:PublishReadyToRunComposite=false -p:EnableCompressionInSingleFile=false -p:IncludeAllContentForSelfExtract=false -p:DebugType=None -p:DebugSymbols=false -p:PublishReadyToRun=true -p:PublishSingleFile=true -p:PublishDir=artifacts/performance/net10-distribution-s4/bundle-r2r
+dotnet publish .\BeMusicSeeker.csproj /p:Configuration=Release /p:Platform=x64 --runtime win-x64 --self-contained true --no-restore -p:PublishTrimmed=false -p:PublishReadyToRunComposite=false -p:EnableCompressionInSingleFile=false -p:IncludeAllContentForSelfExtract=false -p:DebugType=None -p:DebugSymbols=false -p:PublishReadyToRun=true -p:PublishSingleFile=false -p:PublishDir=artifacts/performance/net10-distribution-s4/folder-r2r
+```
+
+| Artifact | Files | Bytes | SHA-256 (BeMusicSeeker.exe) |
+|---|---:|---:|---|
+| bundle-r2r | 24 | 201,075,466 | `41BF8438E883AFC67B4836090BC39B31E2570AAF869C98450C55A6B74FF0C75A` |
+| folder-r2r | 505 | 207,373,687 | `0D1E0C54F088C2F46728BA61C2D9BF363093DF4B28CF809A4BD3DCE3325018D8` |
+
+`folder-r2r`は`BeMusicSeeker.deps.json`、`BeMusicSeeker.runtimeconfig.json`、managed runtime DLLをexe隣接に置く標準.NET host layoutである。両artifactとも`libs/x64`、`native`、`lang`を維持し、custom loader、AssemblyResolve、private probing、managed DLL relocation、deps書換えは使用しない。PC再起動後の比較、機能／update／rollbackのmanual acceptanceはMANUAL-01へhandoffし、engineering gateを停止させない。

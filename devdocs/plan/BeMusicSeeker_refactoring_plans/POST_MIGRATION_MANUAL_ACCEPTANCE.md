@@ -29,6 +29,10 @@
 
 同じ手順をfinal `folder-r2r` artifactで一回行う。
 
+### C. Update success / rollback
+
+各artifactについて、既存の一世代前packageからのupdate successを一回確認し、再起動後にsettings、既存data、native assetsが維持されることを確認する。その後、検証可能なfault（破損または不正manifest等）を一回投入し、updaterがfaultを失敗として報告し、旧artifactと既存dataへrollbackできることを確認する。成功／rollbackともにインストール版ではなく、比較対象artifactとrepositoryのupdaterを使う。
+
 ### Selection
 
 - folder-r2rのprocess start→`startup_initialization_complete`が5秒以上かつ15%以上短く、機能／update／rollbackに問題がなければfolder-r2rを選択する。
