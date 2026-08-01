@@ -257,174 +257,174 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
 
     private void RunDeferredRefreshWorker()
     {
-            BMSLibrary refreshLibrary;
-            long requestVersion;
-            long operationToken;
-            PerformanceInteraction interaction;
-            lock (refreshLock)
+        BMSLibrary refreshLibrary;
+        long requestVersion;
+        long operationToken;
+        PerformanceInteraction interaction;
+        lock (refreshLock)
+        {
+            if (!deferredRefreshQueued)
             {
-                if (!deferredRefreshQueued)
-                {
-                    return;
-                }
-                refreshLibrary = library;
-                requestVersion = refreshRequestVersion;
-                operationToken = deferredRefreshOperationToken;
-                interaction = deferredRefreshInteraction;
-            }
-
-            LogRefreshStage(
-                interaction,
-                "worker_started",
-                "operationToken=" + operationToken);
-
-            BMSLibrary.ParentFolderListCacheSnapshot snapshot = null;
-            Exception prepareException = null;
-            try
-            {
-                if (refreshLibrary != null)
-                {
-                    snapshot = refreshLibrary.BuildBMSParentFolderListCacheSnapshot(
-                        (stage, fields) => LogRefreshStage(interaction, stage, fields));
-                }
-            }
-            catch (Exception ex)
-            {
-                prepareException = ex;
-                logWarning("ui_stall_library_folder_tree_prepare_failed message=" + ex.Message);
-            }
-
-            if (!uiScheduler.IsAvailable)
-            {
-                lock (refreshLock)
-                {
-                    deferredRefreshQueued = false;
-                    deferredRefreshInteraction = default;
-                }
                 return;
             }
+            refreshLibrary = library;
+            requestVersion = refreshRequestVersion;
+            operationToken = deferredRefreshOperationToken;
+            interaction = deferredRefreshInteraction;
+        }
 
-            IUiScheduledOperation operation;
+        LogRefreshStage(
+            interaction,
+            "worker_started",
+            "operationToken=" + operationToken);
+
+        BMSLibrary.ParentFolderListCacheSnapshot snapshot = null;
+        Exception prepareException = null;
+        try
+        {
+            if (refreshLibrary != null)
+            {
+                snapshot = refreshLibrary.BuildBMSParentFolderListCacheSnapshot(
+                    (stage, fields) => LogRefreshStage(interaction, stage, fields));
+            }
+        }
+        catch (Exception ex)
+        {
+            prepareException = ex;
+            logWarning("ui_stall_library_folder_tree_prepare_failed message=" + ex.Message);
+        }
+
+        if (!uiScheduler.IsAvailable)
+        {
+            lock (refreshLock)
+            {
+                deferredRefreshQueued = false;
+                deferredRefreshInteraction = default;
+            }
+            return;
+        }
+
+        IUiScheduledOperation operation;
+        try
+        {
+            LogRefreshStage(
+                interaction,
+                "ui_queued",
+                "operationToken=" + operationToken);
+            operation = uiScheduler.Schedule((Action)delegate
+        {
+            LogRefreshStage(
+                interaction,
+                "ui_started",
+                "operationToken=" + operationToken);
+            var stopwatch = Stopwatch.StartNew();
+            bool shouldReschedule = false;
+            string rescheduleReason = null;
             try
             {
-                LogRefreshStage(
-                    interaction,
-                    "ui_queued",
-                    "operationToken=" + operationToken);
-                operation = uiScheduler.Schedule((Action)delegate
-            {
-                LogRefreshStage(
-                    interaction,
-                    "ui_started",
-                    "operationToken=" + operationToken);
-                var stopwatch = Stopwatch.StartNew();
-                bool shouldReschedule = false;
-                string rescheduleReason = null;
-                try
+                bool refreshed = false;
+                bool requestIsCurrent;
+                lock (refreshLock)
                 {
-                    bool refreshed = false;
-                    bool requestIsCurrent;
-                    lock (refreshLock)
-                    {
-                        requestIsCurrent = requestVersion == refreshRequestVersion
-                            && ReferenceEquals(library, refreshLibrary);
-                    }
-                    if (prepareException == null && requestIsCurrent && snapshot != null && refreshLibrary != null)
-                    {
-                        refreshed = refreshLibrary.TryApplyBMSParentFolderListCacheSnapshot(snapshot);
-                        if (!refreshed && refreshLibrary.IsBMSParentFolderListCacheDirty())
-                        {
-                            shouldReschedule = true;
-                            rescheduleReason = "cache_apply_rejected";
-                        }
-                    }
-                    if (prepareException == null && !requestIsCurrent)
+                    requestIsCurrent = requestVersion == refreshRequestVersion
+                        && ReferenceEquals(library, refreshLibrary);
+                }
+                if (prepareException == null && requestIsCurrent && snapshot != null && refreshLibrary != null)
+                {
+                    refreshed = refreshLibrary.TryApplyBMSParentFolderListCacheSnapshot(snapshot);
+                    if (!refreshed && refreshLibrary.IsBMSParentFolderListCacheDirty())
                     {
                         shouldReschedule = true;
-                        rescheduleReason = "source_changed";
-                    }
-                    if (prepareException == null && !shouldReschedule && requestIsCurrent)
-                    {
-                        if (!RefreshParentFolderListView(allowSynchronousCacheBuild: false))
-                        {
-                            shouldReschedule = true;
-                            rescheduleReason = "cache_not_ready";
-                        }
-                        else
-                        {
-                            LogRefreshStage(
-                                interaction,
-                                "ui_applied",
-                                "operationToken=" + operationToken);
-                        }
+                        rescheduleReason = "cache_apply_rejected";
                     }
                 }
-                finally
+                if (prepareException == null && !requestIsCurrent)
                 {
-                    stopwatch.Stop();
-                    log("ui_suppress flush_library_folder_tree_deferred_ms=" + stopwatch.ElapsedMilliseconds);
-                    bool requestAnotherRefresh;
-                    long latestOperationToken;
-                    PerformanceInteraction latestInteraction;
-                    lock (refreshLock)
+                    shouldReschedule = true;
+                    rescheduleReason = "source_changed";
+                }
+                if (prepareException == null && !shouldReschedule && requestIsCurrent)
+                {
+                    if (!RefreshParentFolderListView(allowSynchronousCacheBuild: false))
                     {
-                        requestAnotherRefresh = shouldReschedule
-                            || requestVersion != refreshRequestVersion
-                            || !ReferenceEquals(library, refreshLibrary);
-                        latestOperationToken = deferredRefreshOperationToken;
-                        latestInteraction = deferredRefreshInteraction;
-                        deferredRefreshQueued = false;
-                        deferredRefreshInteraction = default;
+                        shouldReschedule = true;
+                        rescheduleReason = "cache_not_ready";
                     }
-                    bool dispatcherShuttingDown = !uiScheduler.IsAvailable;
-                    if (requestAnotherRefresh)
+                    else
                     {
                         LogRefreshStage(
                             interaction,
-                            "stale_reschedule",
-                            "reason=" + (rescheduleReason ?? "latest_request")
-                                + " operationToken=" + latestOperationToken);
-                        if (dispatcherShuttingDown)
-                        {
-                            ClearDeferredRefreshQueue();
-                        }
-                        else
-                        {
-                            CacheRefreshRequested?.Invoke(
-                                this,
-                                new LibraryFolderTreeRefreshRequestedEventArgs(
-                                    LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
-                                    latestOperationToken,
-                                    latestInteraction));
-                        }
-                    }
-                    else if (prepareException == null)
-                    {
-                        DeferredRefreshCompleted?.Invoke(
-                            this,
-                            new LibraryFolderTreeRefreshCompletedEventArgs(latestOperationToken));
+                            "ui_applied",
+                            "operationToken=" + operationToken);
                     }
                 }
-            }, UiSchedulePriority.Background);
-                operation.Completion.ContinueWith(_ =>
+            }
+            finally
+            {
+                stopwatch.Stop();
+                log("ui_suppress flush_library_folder_tree_deferred_ms=" + stopwatch.ElapsedMilliseconds);
+                bool requestAnotherRefresh;
+                long latestOperationToken;
+                PerformanceInteraction latestInteraction;
+                lock (refreshLock)
                 {
-                    if (operation.IsAborted)
+                    requestAnotherRefresh = shouldReschedule
+                        || requestVersion != refreshRequestVersion
+                        || !ReferenceEquals(library, refreshLibrary);
+                    latestOperationToken = deferredRefreshOperationToken;
+                    latestInteraction = deferredRefreshInteraction;
+                    deferredRefreshQueued = false;
+                    deferredRefreshInteraction = default;
+                }
+                bool dispatcherShuttingDown = !uiScheduler.IsAvailable;
+                if (requestAnotherRefresh)
+                {
+                    LogRefreshStage(
+                        interaction,
+                        "stale_reschedule",
+                        "reason=" + (rescheduleReason ?? "latest_request")
+                            + " operationToken=" + latestOperationToken);
+                    if (dispatcherShuttingDown)
                     {
                         ClearDeferredRefreshQueue();
                     }
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-                if (!operation.IsAccepted || operation.IsAborted)
+                    else
+                    {
+                        CacheRefreshRequested?.Invoke(
+                            this,
+                            new LibraryFolderTreeRefreshRequestedEventArgs(
+                                LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
+                                latestOperationToken,
+                                latestInteraction));
+                    }
+                }
+                else if (prepareException == null)
+                {
+                    DeferredRefreshCompleted?.Invoke(
+                        this,
+                        new LibraryFolderTreeRefreshCompletedEventArgs(latestOperationToken));
+                }
+            }
+        }, UiSchedulePriority.Background);
+            operation.Completion.ContinueWith(_ =>
+            {
+                if (operation.IsAborted)
                 {
                     ClearDeferredRefreshQueue();
                 }
-            }
-            catch (Exception) when (!uiScheduler.IsAvailable)
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+            if (!operation.IsAccepted || operation.IsAborted)
             {
                 ClearDeferredRefreshQueue();
             }
+        }
+        catch (Exception) when (!uiScheduler.IsAvailable)
+        {
+            ClearDeferredRefreshQueue();
+        }
     }
 
     private void ClearDeferredRefreshQueue()

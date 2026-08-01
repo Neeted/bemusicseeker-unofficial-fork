@@ -6,7 +6,7 @@
 
 ## Current checkpoint
 
-- reviewed HEAD: `c5c5a47366ff446f6aafcbca47756416cb870f39`
+- reviewed HEAD: `9dfa08dcad67a4e067609fc4514befe7e79b44ec`
 - current logs:
   - `.tmp/20260731_log_.NET 10 PC起動後 初回起動`
   - `.tmp/20260731_log_.NET 10 PC起動後 2回目起動`
@@ -16,7 +16,7 @@
 - .NET 10 functional／dependency／data migration: complete
 - concurrency／deadlock acceptance: met、継続保護
 - list-transition performance acceptance: met、継続保護
-- cold-start initialization acceptance: not met
+- cold-start initialization acceptance: met (engineering gate; PC reboot comparison is pending user action)
 - Release Freeze: active
 
 ## Review decision
@@ -28,7 +28,7 @@
 - full library: 約23～60 ms
 - stable versioned source、atomic main-table commit、data-only invalidationが成立
 
-一方、PC起動後初回だけ次の再現性がある。
+以下はS1～S5適用前のbaseline evidenceであり、比較用に保持する。PC起動後初回だけ次の再現性があった。
 
 ```text
 startup_ready_ui             23.225 s
@@ -36,12 +36,12 @@ startup_ready_operable       88.721 s
 startup_initialization_complete 103.315 s
 ```
 
-warm runではそれぞれ約24.1～24.4 s、24.4～24.8 s、38.2～39.1 sである。cold penaltyはoptional library-folder deferred refreshがoperabilityとstartup schedulerをgateするdependencyに集中する。
+warm runではそれぞれ約24.1～24.4 s、24.4～24.8 s、38.2～39.1 sであった。baselineのcold penaltyはoptional library-folder deferred refreshがoperabilityとstartup schedulerをgateするdependencyに集中していた。現在の実装ではこのdependencyを除去済みであり、PC再起動後の比較だけをMANUAL-01へhandoffしている。
 
 ## Active outcome
 
-- active outcome: `PERF-03 .NET 10 cold-start initialization closure`
-- execution anchor: `S5 FINAL-STARTUP-GATE`
+- active outcome: none
+- execution anchor: none
 
 ## Active implementation batch
 
@@ -51,10 +51,10 @@ warm runではそれぞれ約24.1～24.4 s、24.4～24.8 s、38.2～39.1 sであ
 | `S2 STARTUP-TAIL-CONTRACT` | completed | required initializationとpost-initialization maintenanceを分離し、GCをrequired-idle ownerへ移管 |
 | `S3 STARTUP-CONTENTION-AND-OWNERSHIP` | completed | parent-folder preparationをowned startup laneへ移し、global ThreadPool tuningを退役 |
 | `S4 COLD-BOOT-DISTRIBUTION-FALLBACK` | completed | 同一HEADからbundle-r2r／folder-r2rを再生成し、標準folder host layoutとmanual decision pathを確認 |
-| `S5 FINAL-STARTUP-GATE` | active | Full verification、publish、review、handoff |
-| `HANDOFF` | pending | engineering完了、PC再起動後一回確認へhandoff |
+| `S5 FINAL-STARTUP-GATE` | completed | Full verification、publish、Release executable UI smoke、review、handoff |
+| `HANDOFF` | completed | engineering完了、PC再起動後一回確認へhandoff |
 
-active batchはmaterialize済みである。unit-plannerを起動しない。
+active implementation batchはない。unit-plannerを起動しない。
 
 ## Exit state
 
@@ -66,6 +66,6 @@ list-transition performance acceptance: met
 engineering migration: complete
 active outcome: none
 active implementation batch: empty
-selected distribution: bundle-r2r provisional or manual-selected folder-r2r
+selected distribution: bundle-r2r provisional
 post-engineering cold-boot acceptance: pending user action; non-blocking
 ```

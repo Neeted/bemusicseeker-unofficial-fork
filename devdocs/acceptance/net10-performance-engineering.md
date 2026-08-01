@@ -7,7 +7,7 @@
 ## Reviewed snapshot
 
 ```text
-HEAD: c5c5a47366ff446f6aafcbca47756416cb870f39
+HEAD: 9dfa08dcad67a4e067609fc4514befe7e79b44ec
 logs:
   .tmp/20260731_log_.NET 10 PC起動後 初回起動
   .tmp/20260731_log_.NET 10 PC起動後 2回目起動
@@ -78,7 +78,7 @@ generic Task.Run
 
 したがって、optional folder-tree presentationが遅れると、アプリ操作可能化と全startup background workが同じ時間だけ遅れる。これが100秒化の直接原因であった。
 
-S1～S3でこのdependencyを閉じた。現在は、`LibraryFolderTreeViewModel`がMainWindowから注入された`StartupBackgroundTaskSchedulerOwner`へ`library_folder_tree_refresh`として要求を渡し、`post_initialization_folder_tree_refresh` laneで準備を行う。scheduler未設定時は旧ThreadPool経路へfallbackせずfail-fastする。`ThreadPool.SetMinThreads(200, 200)`も退役した。
+S1～S4でこのdependencyを閉じた。現在は、`LibraryFolderTreeViewModel`がMainWindowから注入された`StartupBackgroundTaskSchedulerOwner`へ`library_folder_tree_refresh`として要求を渡し、`post_initialization_folder_tree_refresh` laneで準備を行う。scheduler未設定時は旧ThreadPool経路へfallbackせずfail-fastする。`ThreadPool.SetMinThreads(200, 200)`も退役した。S5ではこの境界を含むFull verification、選択publish、更新受入れ、Release executable UI smoke、Roslynator解析を再確認した。
 
 ### Highly likely contributor
 
@@ -90,7 +90,19 @@ baselineのUI applyは`UiSchedulePriority.Background`であり、cold runではr
 
 ## Current decision
 
-`PERF-03 .NET 10 cold-start initialization closure`のcode-level S1～S4を完了し、S5のfinal startup gateへ進む。bundle-r2r／folder-r2rの再起動後比較と機能／update／rollback確認はMANUAL-01へhandoffする。
+`PERF-03 .NET 10 cold-start initialization closure`のengineering gateを完了した。S5では全5 projectのlocked restore、Release build、full test、Roslynator、selected publish、existing-data、update success／rollback、startup structural／deadlock regressionを通過し、`bin\x64\Release\net10.0-windows\BeMusicSeeker.exe`による一時プロファイルUI smokeも通過した。bundle-r2r／folder-r2rのPC再起動後比較はMANUAL-01へhandoffする。
+
+## Engineering gate result
+
+- locked restore: `dotnet restore .\BeMusicSeeker.sln -r win-x64 --locked-mode -p:PublishReadyToRun=true`
+- full tests: 3,589 passed, 16 skipped, 0 failed (parallel shards; each shard response threshold 180 seconds以内)
+- Roslynator: 0 diagnostics
+- selected publish: bundle-r2r app／single-file updater
+- existing-data acceptance: passed
+- update success／fault rollback acceptance: passed
+- repository Release executable UI smoke: passed using the path above; installed application was not used
+
+Engineering完了後の実機再起動比較だけがユーザー手動受入れとして残る。これはengineering gateを停止しない。
 
 1. operabilityとstartup schedulerをoptional folder-tree completionから分離する。
 2. required initializationとpost-initialization maintenanceを分離する。
