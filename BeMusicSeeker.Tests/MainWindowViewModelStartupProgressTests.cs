@@ -271,19 +271,35 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public async Task StartupProgress_CompletionHidePublishesInactiveLifecycleChange()
     {
-        StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.Startup);
-        var changedProperties = new List<string>();
-        owner.PropertyChanged += (_, eventArgs) => changedProperties.Add(eventArgs.PropertyName);
+        var delayEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDelay = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inactivePublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create(
+            completionHideDelay: () =>
+            {
+                delayEntered.TrySetResult(true);
+                return releaseDelay.Task;
+            });
+        owner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        owner.PropertyChanged += (_, eventArgs) =>
+        {
+            if (eventArgs.PropertyName == nameof(StartupProgressWorkflowOwner.IsOperationActive)
+                && !owner.IsOperationActive)
+            {
+                inactivePublished.TrySetResult(true);
+            }
+        };
 
         CompleteUntilBackground(owner);
         Skip(owner, StartupProgressPhase.InstallableMaintenanceDeferredDone);
         Mark(owner, StartupProgressPhase.StartupBackgroundTasksDone);
 
+        await delayEntered.Task.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
         Assert.IsTrue(owner.IsOperationActive);
-        await Task.Delay(4000).ConfigureAwait(false);
+        releaseDelay.TrySetResult(true);
+        await inactivePublished.Task.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
 
         Assert.IsFalse(owner.IsOperationActive);
-        CollectionAssert.Contains(changedProperties, nameof(StartupProgressWorkflowOwner.IsOperationActive));
     }
 
     [TestMethod]

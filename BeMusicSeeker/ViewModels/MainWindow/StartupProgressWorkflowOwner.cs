@@ -37,6 +37,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     private readonly Func<bool> backgroundTasksIdle;
     private readonly Func<long, long, bool> backgroundTasksIdleSnapshotCurrent;
     private readonly Func<bool> backgroundTaskEnrollmentReady;
+    private readonly Func<Task> completionHideDelay;
     private readonly object backgroundTaskProgressSynchronization;
     private readonly object startupProgressLock = new();
     private StartupProgressState startupProgressState = new();
@@ -49,6 +50,21 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     private double progressValue;
     private double progressMaximum = 1.0;
 
+    /// <summary>
+    /// Initializes the owner with the startup-progress runtime boundaries.
+    /// </summary>
+    /// <param name="versionSnapshotProvider">Provides the current completion versions when an operation starts.</param>
+    /// <param name="prepareOperation">Prepares operation-scoped collaborators for a newly assigned token.</param>
+    /// <param name="dispatch">Dispatches presentation notifications to their owning thread.</param>
+    /// <param name="log">Writes startup-progress diagnostics.</param>
+    /// <param name="startupInitializationCompleted">Publishes completion of required startup initialization.</param>
+    /// <param name="backgroundTasksIdle">Reports whether startup background tasks are currently idle.</param>
+    /// <param name="backgroundTasksIdleSnapshotCurrent">Validates a scheduler generation and revision as an idle snapshot.</param>
+    /// <param name="backgroundTaskProgressSynchronization">Synchronizes scheduler enrollment with progress completion.</param>
+    /// <param name="backgroundTaskEnrollmentReady">Reports whether required background-task enrollment is complete.</param>
+    /// <param name="completionHideDelay">
+    /// Waits before a completed operation is hidden. When omitted, the production two-second delay is used.
+    /// </param>
     internal StartupProgressWorkflowOwner(
         Func<StartupProgressVersionSnapshot> versionSnapshotProvider,
         Action<StartupProgressOperationKind, long> prepareOperation,
@@ -58,7 +74,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         Func<bool> backgroundTasksIdle,
         Func<long, long, bool> backgroundTasksIdleSnapshotCurrent,
         object backgroundTaskProgressSynchronization,
-        Func<bool> backgroundTaskEnrollmentReady = null)
+        Func<bool> backgroundTaskEnrollmentReady = null,
+        Func<Task> completionHideDelay = null)
     {
         this.versionSnapshotProvider = versionSnapshotProvider ?? throw new ArgumentNullException(nameof(versionSnapshotProvider));
         this.prepareOperation = prepareOperation ?? throw new ArgumentNullException(nameof(prepareOperation));
@@ -70,6 +87,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         this.backgroundTasksIdleSnapshotCurrent = backgroundTasksIdleSnapshotCurrent
             ?? throw new ArgumentNullException(nameof(backgroundTasksIdleSnapshotCurrent));
         this.backgroundTaskEnrollmentReady = backgroundTaskEnrollmentReady ?? (() => true);
+        this.completionHideDelay = completionHideDelay
+            ?? (() => Task.Delay(TimeSpan.FromSeconds(2)));
         this.backgroundTaskProgressSynchronization = backgroundTaskProgressSynchronization
             ?? throw new ArgumentNullException(nameof(backgroundTaskProgressSynchronization));
     }
@@ -1224,7 +1243,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     {
         Task.Run(async delegate
         {
-            await Task.Delay(2000).ConfigureAwait(false);
+            await completionHideDelay().ConfigureAwait(false);
             bool shouldClear = false;
             lock (startupProgressLock)
             {
