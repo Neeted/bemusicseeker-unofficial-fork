@@ -32,6 +32,8 @@ follow-up review では、親が `previous reviewed snapshot`、`fix delta`、`p
 10. version 更新時に AssemblyInformationalVersion、localized update history、release notes、生成物の正本が整合しているか
 11. source-text だけでなく behavior を確認する test があり、変更リスクに対して verification evidence が十分か
 12. docs / specs / comments が current behavior と矛盾していないか
+13. `devdocs/spec/testing-strategy.md` の lane と実行特性が一致し、Functional の command 全体 180 秒予算、tracked file 不変、timeout diagnostics、3回連続検証を shard 単位の成功で読み替えていないか
+14. 固定待ち、過剰な `DoNotParallelize`、共有 resource 競合を、マシン負荷を抑えるだけの worker / shard 制限で隠していないか
 
 finding は重大度順に、次の形式で返してください。
 

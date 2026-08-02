@@ -49,14 +49,14 @@ repo 内で確認できる事実は自分で調査し、親へ再調査させな
 4. 同じ unit で削除・退役する旧 route、重複処理、不要 seam
 5. 維持する UI behavior、persisted data、file / protocol compatibility、threading / shutdown / failure invariant
 6. 追加・更新する behavior tests
-7. `verify-refactor.ps1` の推奨 Mode、具体的な TestFilter、Full が必要な理由
+7. `devdocs/spec/testing-strategy.md` に基づく推奨 lane と `verify-refactor.ps1` の Mode、具体的な TestFilter。通常の全体確認は Functional とし、Full や opt-in lane が必要な場合はその理由
 8. `repo-static-review` へ渡す review scope
 9. 実装中に再計画すべき具体的な evidence
 10. unit を独立して stage / commit する場合の対象 path と、同じ file に後続 unit の差分があるときの保全方法
 
 ## RISKS
 
-実在するリスクと、その検出方法だけを簡潔に示してください。行数、差分量、API の新しさだけをリスクにしません。flaky test、timeout、または従来より明白に長時間化した test が既知なら、並列実行、共有 state、固定待ち、競合、I/O、input 量、timeout 根拠のどれを調べ、同じ unit と独立 commit のどちらで閉じるかを示してください。
+実在するリスクと、その検出方法だけを簡潔に示してください。行数、差分量、API の新しさだけをリスクにしません。flaky test、timeout、または従来より明白に長時間化した test が既知なら、並列実行、共有 state、固定待ち、競合、I/O、input 量、timeout 根拠のどれを調べ、同じ unit と独立 commit のどちらで閉じるかを示してください。Functional は testhost / shard ごとではなく command 全体で 180 秒以内であること、runner / lane / 並列化の変更では3回連続実行と tracked file 不変確認が必要であることを計画へ含めてください。マシン負荷を抑えるためだけの並列度制限は提案しないでください。
 
 計画は end-to-end の production behavior を閉じるものにしてください。NLogWrapper、多言語リソース、WPF / MVVM owner 境界、async / lock、version / release 手順は関連する場合だけ計画へ組み込みます。計画文書や progress log の作成自体を implementation unit にしないでください。
 """
