@@ -42,7 +42,9 @@ public sealed class ExternalPlayerProcessGatewayTests
 
         session.Start();
 
-        Assert.IsTrue(exited.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => session.HasExited && exited.IsSet,
+            TimeSpan.FromSeconds(5)));
         Assert.AreSame(session, observedSender);
     }
 

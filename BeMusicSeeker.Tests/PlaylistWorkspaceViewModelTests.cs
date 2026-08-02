@@ -973,6 +973,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+            var catalogNotificationQueue = new Queue<Action>();
+            workspace.ConfigureCatalogNotificationQueue(catalogNotificationQueue.Enqueue);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             ISettingsDialogWorkspacePort settingsPort = workspace;
             var settingNotifications = new List<string>();
@@ -1018,6 +1020,9 @@ public sealed class PlaylistWorkspaceViewModelTests
             workspace.RefreshPlaylistTreeTables(playlist);
 
             Assert.IsTrue(settingsPort.PlaylistCatalogVersion > previousVersion);
+            Assert.AreEqual(1, catalogNotificationQueue.Count);
+            catalogNotificationQueue.Dequeue()();
+            Assert.AreEqual(1, catalogEventCount);
             CollectionAssert.DoesNotContain(
                 settingNotifications,
                 nameof(SettingsDialogViewModel.LR2ConfigBMSDirectories));

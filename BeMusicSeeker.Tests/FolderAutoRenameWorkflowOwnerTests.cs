@@ -145,7 +145,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var dialogs = new AcceptedFolderDialogService();
-            var completion = new ManualResetEventSlim(false);
+            int completionCount = 0;
+            int schedulerCalls = 0;
             int executorCalls = 0;
             string observedParentDirectory = null!;
             var owner = CreateOwner(
@@ -157,11 +158,16 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     return new FolderAutoRenameExecutionResult { RefreshRequired = true };
                 },
                 (current, parentDirectory) => true,
-                action => Task.Run(action),
+                action =>
+                {
+                    schedulerCalls++;
+                    action();
+                    return Task.CompletedTask;
+                },
                 action => action(),
                 dialogs: dialogs);
             owner.AttachLibrary(library);
-            owner.CompletionPublished += _ => completion.Set();
+            owner.CompletionPublished += _ => completionCount++;
 
             await owner.RequestStartAllAsync(root);
 
@@ -170,8 +176,9 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreEqual(MessageBoxButton.OKCancel, dialogs.LastConfirmationRequest.Button);
             Assert.AreEqual(MessageBoxImage.Question, dialogs.LastConfirmationRequest.Icon);
             Assert.AreEqual(MessageBoxResult.Cancel, dialogs.LastConfirmationRequest.DefaultResult);
-            Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)));
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(1, schedulerCalls);
+            Assert.AreEqual(1, completionCount);
+            Assert.IsTrue(owner.IsIdle);
             Assert.AreEqual(1, executorCalls);
             Assert.AreEqual(root, observedParentDirectory);
         }
