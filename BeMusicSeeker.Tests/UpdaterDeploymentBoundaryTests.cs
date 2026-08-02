@@ -87,6 +87,7 @@ public sealed class UpdaterDeploymentBoundaryTests
     }
 
     [TestMethod]
+    [TestCategory("ReleaseAcceptance")]
     public void PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput()
     {
         string repositoryRoot = FindRepositoryRoot();

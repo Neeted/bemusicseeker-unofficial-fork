@@ -1,18 +1,21 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Quick', 'Full')]
+    [ValidateSet('Quick', 'Functional', 'Full')]
     [string]$Mode = 'Quick',
 
-    [string]$TestFilter
+    [string]$TestFilter,
+
+    # This seam only lowers the canonical budget so the timeout path can be
+    # verified without waiting three minutes. It cannot relax the policy limit.
+    [ValidateRange(1, 180)]
+    [int]$FunctionalTimeoutSeconds = 180
 )
 
 $ErrorActionPreference = 'Stop'
+$commandStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $repoRoot 'BeMusicSeeker.sln'
 $uiExecutable = Join-Path $repoRoot 'bin\x64\Release\net10.0-windows\BeMusicSeeker.exe'
-$toolProjects = @(
-    (Join-Path $repoRoot 'tools\chart-info-compare\ChartInfoCompare.csproj'),
-    (Join-Path $repoRoot 'tools\chart-info-export\ChartInfoExport.csproj'))
 $toolExecutables = @(
     (Join-Path $repoRoot 'tools\chart-info-compare\bin\x64\Release\net10.0\ChartInfoCompare.exe'),
     (Join-Path $repoRoot 'tools\chart-info-export\bin\x64\Release\net10.0\ChartInfoExport.exe'))
@@ -22,14 +25,21 @@ $scdAppPublishOutput = Join-Path $scdPublishRoot 'app'
 $scdUpdaterPublishOutput = Join-Path $scdPublishRoot 'updater'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
-$testTimeoutSeconds = 180
-# Each test host already uses class-level parallelism. Bounding concurrent hosts
-# prevents their worker pools from oversubscribing the machine under Full load.
-$maximumConcurrentFullTestShards = 2
-$isolatedFullTestClassShards = @(
+$testHangTimeoutSeconds = 120
+$functionalCleanupReserveSeconds = 10
+$functionalProcessCleanupSeconds = 7
+$functionalFilter = @(
+    'TestCategory!=Net10Performance',
+    'TestCategory!=Performance',
+    'TestCategory!=LargeFixture',
+    'TestCategory!=ParserCompatibilityFull',
+    'TestCategory!=ParserCompatibilitySlow',
+    'TestCategory!=ProductionDiffFull',
+    'TestCategory!=ProcessIntegration',
+    'TestCategory!=ReleaseAcceptance') -join '&'
+$functionalTestClassShards = @(
     [pscustomobject]@{
         Name = 'library-sync'
-        RunSeparately = $true
         Classes = @(
             'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests',
             'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests',
@@ -38,7 +48,6 @@ $isolatedFullTestClassShards = @(
     },
     [pscustomobject]@{
         Name = 'presentation-workspace'
-        RunSeparately = $false
         Classes = @(
             'BeMusicSeeker.Tests.BmsPlaylistUpdateTests',
             'BeMusicSeeker.Tests.PlaybackPanelViewModelTests',
@@ -47,7 +56,6 @@ $isolatedFullTestClassShards = @(
     },
     [pscustomobject]@{
         Name = 'catalog-maintenance'
-        RunSeparately = $false
         Classes = @(
             'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
             'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
@@ -73,32 +81,74 @@ function Invoke-CheckedCommand {
     }
 }
 
-function Write-TestProcessOutput {
+function Get-TrackedWorkingTreeFingerprint {
+    $diff = @(& git -C $repoRoot -c core.autocrlf=false diff --binary --full-index HEAD --)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to fingerprint tracked files (exit code $LASTEXITCODE)."
+    }
+
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($diff -join "`n")
+    return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes))
+}
+
+function Get-RemainingBudgetSeconds {
     param(
         [Parameter(Mandatory)]
-        [string]$StandardOutputPath,
+        [System.Diagnostics.Stopwatch]$Stopwatch,
 
         [Parameter(Mandatory)]
-        [string]$StandardErrorPath
+        [int]$BudgetSeconds
     )
 
-    if (Test-Path -LiteralPath $StandardOutputPath -PathType Leaf) {
-        $standardOutput = Get-Content -LiteralPath $StandardOutputPath -Raw
-        if (-not [string]::IsNullOrEmpty($standardOutput)) {
-            Write-Host $standardOutput -NoNewline
+    $remaining = $BudgetSeconds `
+        - $functionalCleanupReserveSeconds `
+        - $Stopwatch.Elapsed.TotalSeconds
+    if ($remaining -le 0) {
+        throw "Functional verification cannot retain the ${functionalCleanupReserveSeconds}-second cleanup reserve within the $BudgetSeconds-second command budget."
+    }
+
+    return [Math]::Max(1, [int][Math]::Floor($remaining))
+}
+
+function Write-TestDiagnosticSummary {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$StandardOutputPath
+    )
+
+    $sequenceFiles = @(
+        Get-ChildItem -LiteralPath $DiagnosticsDirectory -Filter 'Sequence*.xml' -File -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending)
+    if ($sequenceFiles.Count -gt 0) {
+        Write-Warning "Blame sequence (active/last tests): $($sequenceFiles[0].FullName)"
+        try {
+            [xml]$sequence = Get-Content -LiteralPath $sequenceFiles[0].FullName -Raw
+            $testNames = @($sequence.SelectNodes('//Test') | ForEach-Object { $_.Name })
+            if ($testNames.Count -gt 0) {
+                Write-Warning "Last blame-observed tests:`n$($testNames | Select-Object -Last 10 | ForEach-Object { '  ' + $_ } | Out-String)"
+            }
+        }
+        catch {
+            Write-Warning "Unable to parse blame sequence: $($_.Exception.Message)"
         }
     }
 
-    if (Test-Path -LiteralPath $StandardErrorPath -PathType Leaf) {
-        $standardError = Get-Content -LiteralPath $StandardErrorPath -Raw
-        if (-not [string]::IsNullOrEmpty($standardError)) {
-            Write-Error $standardError -ErrorAction Continue
+    if (Test-Path -LiteralPath $StandardOutputPath -PathType Leaf) {
+        $lastOutput = @(Get-Content -LiteralPath $StandardOutputPath | Select-Object -Last 30)
+        if ($lastOutput.Count -gt 0) {
+            Write-Warning "Last test output:`n$($lastOutput -join [Environment]::NewLine)"
         }
     }
 }
 
-function Invoke-MonitoredTestCommand {
+function Invoke-MonitoredCommand {
     param(
+        [Parameter(Mandatory)]
+        [string]$Label,
+
         [Parameter(Mandatory)]
         [string]$CommandPath,
 
@@ -109,227 +159,472 @@ function Invoke-MonitoredTestCommand {
         [string]$WorkingDirectory,
 
         [Parameter(Mandatory)]
-        [string]$DiagnosticsDirectory
+        [string]$DiagnosticsDirectory,
+
+        [Parameter(Mandatory)]
+        [int]$TimeoutSeconds,
+
+        [switch]$IsTestCommand
     )
 
+    [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
     $standardOutputPath = Join-Path $DiagnosticsDirectory 'stdout.log'
     $standardErrorPath = Join-Path $DiagnosticsDirectory 'stderr.log'
-    $process = $null
+    $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $process = [System.Diagnostics.Process]::new()
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $CommandPath
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+    $process.StartInfo = $startInfo
+
     $timedOut = $false
     $exitCode = $null
-
+    $standardOutput = [string]::Empty
+    $standardError = [string]::Empty
     try {
-        $process = Start-Process `
-            -FilePath $CommandPath `
-            -ArgumentList $Arguments `
-            -WorkingDirectory $WorkingDirectory `
-            -RedirectStandardOutput $standardOutputPath `
-            -RedirectStandardError $standardErrorPath `
-            -PassThru
+        Write-Host "$Label (timeout ${TimeoutSeconds}s): $CommandPath $($Arguments -join ' ')"
+        if (-not $process.Start()) {
+            throw "Unable to start ${Label}: $CommandPath"
+        }
 
-        if (-not $process.WaitForExit($testTimeoutSeconds * 1000)) {
+        $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
+        $standardErrorTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             $timedOut = $true
-            Write-Warning "dotnet test did not return within $testTimeoutSeconds seconds. Stopping the test process tree."
-            & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
+            Write-Warning "$Label exceeded ${TimeoutSeconds}s after $([Math]::Round($stageStopwatch.Elapsed.TotalSeconds, 1))s. Stopping process tree PID $($process.Id)."
+            try {
+                $process.Kill($true)
+            }
+            catch {
+                Write-Warning "Managed process-tree termination failed: $($_.Exception.Message)"
+                & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
+            }
+            if (-not $process.WaitForExit(10000)) {
+                throw "$Label process tree did not exit within the 10-second cleanup window."
+            }
         }
         else {
+            $process.WaitForExit()
             $exitCode = $process.ExitCode
         }
+
+        $standardOutput = $standardOutputTask.GetAwaiter().GetResult()
+        $standardError = $standardErrorTask.GetAwaiter().GetResult()
     }
     finally {
-        if ($null -ne $process) {
-            $process.Dispose()
+        $stageStopwatch.Stop()
+        [System.IO.File]::WriteAllText(
+            $standardOutputPath,
+            $standardOutput,
+            [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText(
+            $standardErrorPath,
+            $standardError,
+            [System.Text.UTF8Encoding]::new($false))
+        $process.Dispose()
+    }
+
+    if (-not [string]::IsNullOrEmpty($standardOutput)) {
+        Write-Host $standardOutput -NoNewline
+    }
+    if (-not [string]::IsNullOrEmpty($standardError)) {
+        if (-not $timedOut -and $exitCode -eq 0) {
+            Write-Warning $standardError.TrimEnd()
+        }
+        else {
+            Write-Error $standardError -ErrorAction Continue
         }
     }
 
-    Write-TestProcessOutput -StandardOutputPath $standardOutputPath -StandardErrorPath $standardErrorPath
-
-    if ($timedOut) {
-        throw "dotnet test exceeded the $testTimeoutSeconds-second response timeout. Test output: $DiagnosticsDirectory"
-    }
-
-    if ($exitCode -ne 0) {
-        throw "dotnet test failed with exit code $exitCode. Test output: $DiagnosticsDirectory"
+    Write-Host "$Label elapsed: $([Math]::Round($stageStopwatch.Elapsed.TotalSeconds, 1))s; diagnostics: $DiagnosticsDirectory"
+    if ($timedOut -or $exitCode -ne 0) {
+        if ($IsTestCommand) {
+            Write-TestDiagnosticSummary `
+                -DiagnosticsDirectory $DiagnosticsDirectory `
+                -StandardOutputPath $standardOutputPath
+        }
+        if ($timedOut) {
+            throw "$Label exceeded the ${TimeoutSeconds}-second timeout. Diagnostics: $DiagnosticsDirectory"
+        }
+        throw "$Label failed with exit code $exitCode. Diagnostics: $DiagnosticsDirectory"
     }
 }
 
-function Invoke-MonitoredFullTestCommands {
+function Invoke-BudgetedCommand {
     param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [Parameter(Mandatory)]
+        [int]$BudgetSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$Label,
+
         [Parameter(Mandatory)]
         [string]$CommandPath,
 
         [Parameter(Mandatory)]
-        [string[]]$CommonArguments,
+        [string[]]$Arguments,
 
         [Parameter(Mandatory)]
-        [string]$WorkingDirectory,
+        [string]$DiagnosticsDirectory,
 
-        [Parameter(Mandatory)]
-        [string]$DiagnosticsDirectory
+        [switch]$IsTestCommand
     )
 
-    $isolatedFullTestClasses = @(
-        $isolatedFullTestClassShards |
-            ForEach-Object { $_.Classes })
-    $remainingFilter = ($isolatedFullTestClasses |
-        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
+    $remainingSeconds = Get-RemainingBudgetSeconds -Stopwatch $Stopwatch -BudgetSeconds $BudgetSeconds
+    Invoke-MonitoredCommand `
+        -Label $Label `
+        -CommandPath $CommandPath `
+        -Arguments $Arguments `
+        -WorkingDirectory $repoRoot `
+        -DiagnosticsDirectory $DiagnosticsDirectory `
+        -TimeoutSeconds $remainingSeconds `
+        -IsTestCommand:$IsTestCommand
+}
 
-    foreach ($shard in ($isolatedFullTestClassShards |
-        Where-Object { $_.RunSeparately })) {
-        $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
-        [void](New-Item -ItemType Directory -Path $shardDirectory -Force)
-        $arguments = $CommonArguments + @(
-            '--results-directory',
-            $shardDirectory,
-            '--filter',
-            (($shard.Classes |
-                ForEach-Object { "FullyQualifiedName~$_" }) -join '|'))
-        Write-Host "Test shard: $($shard.Name) (dedicated)"
-        Invoke-MonitoredTestCommand `
-            -CommandPath $CommandPath `
-            -Arguments $arguments `
-            -WorkingDirectory $WorkingDirectory `
-            -DiagnosticsDirectory $shardDirectory
+function Get-TestArguments {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Filter,
+
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory,
+
+        [Parameter(Mandatory)]
+        [int]$TimeoutSeconds,
+
+        [switch]$NoBuild
+    )
+
+    $arguments = @(
+        'test',
+        $solution,
+        '/p:Configuration=Release',
+        '/p:Platform=x64',
+        '--no-restore',
+        '--results-directory',
+        $DiagnosticsDirectory,
+        '--logger',
+        'trx;LogFileName=results.trx',
+        '--logger',
+        'console;verbosity=normal',
+        '--blame-crash',
+        '--blame-hang',
+        '--blame-hang-timeout',
+        "${testHangTimeoutSeconds}s",
+        '--blame-hang-dump-type',
+        'mini',
+        '--filter',
+        $Filter)
+    if ($NoBuild) {
+        $arguments += '--no-build'
     }
+    return $arguments
+}
 
+function Invoke-TestLane {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name,
+
+        [Parameter(Mandatory)]
+        [string]$Filter,
+
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory,
+
+        [int]$TimeoutSeconds = 180,
+
+        [switch]$NoBuild
+    )
+
+    $arguments = Get-TestArguments `
+        -Filter $Filter `
+        -DiagnosticsDirectory $DiagnosticsDirectory `
+        -TimeoutSeconds $TimeoutSeconds `
+        -NoBuild:$NoBuild
+    Invoke-MonitoredCommand `
+        -Label "$Name test lane" `
+        -CommandPath 'dotnet' `
+        -Arguments $arguments `
+        -WorkingDirectory $repoRoot `
+        -DiagnosticsDirectory $DiagnosticsDirectory `
+        -TimeoutSeconds $TimeoutSeconds `
+        -IsTestCommand
+}
+
+function Invoke-ParallelFunctionalTestShards {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory,
+
+        [Parameter(Mandatory)]
+        [int]$TimeoutSeconds
+    )
+
+    $assignedClasses = @($functionalTestClassShards | ForEach-Object { $_.Classes })
+    $remainingClassFilter = ($assignedClasses |
+        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
     $shards = @(
-        [pscustomobject]@{ Name = 'remaining'; Filter = $remainingFilter })
+        [pscustomobject]@{
+            Name = 'remaining'
+            Filter = "($functionalFilter)&($remainingClassFilter)"
+        })
     $shards += @(
-        $isolatedFullTestClassShards |
-            Where-Object { -not $_.RunSeparately } |
-            ForEach-Object {
-                [pscustomobject]@{
-                    Name = $_.Name
-                    Filter = ($_.Classes |
-                        ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-                }
-            })
-    for ($waveStart = 0;
-        $waveStart -lt $shards.Count;
-        $waveStart += $maximumConcurrentFullTestShards) {
-        $waveEnd = [Math]::Min(
-            $waveStart + $maximumConcurrentFullTestShards,
-            $shards.Count)
-        $waveShards = @($shards[$waveStart..($waveEnd - 1)])
-        Write-Host "Test shard wave: $(($waveShards.Name) -join ', ')"
+        $functionalTestClassShards | ForEach-Object {
+            $classFilter = ($_.Classes |
+                ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+            [pscustomobject]@{
+                Name = $_.Name
+                Filter = "($functionalFilter)&($classFilter)"
+            }
+        })
 
-        $processes = @()
-        $timedOut = $false
-        $launchFailure = $null
-        $failedShard = $null
-        $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+    [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
+    $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $entries = @()
+    $timedOut = $false
+    $timedOutShardNames = @()
+    $launchFailure = $null
+    $failedShard = $null
+    $failedShardName = $null
+    $failedShardExitCode = $null
+    $cleanupFailures = [System.Collections.Generic.List[string]]::new()
 
-        try {
-            foreach ($shard in $waveShards) {
-                $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
-                [void](New-Item -ItemType Directory -Path $shardDirectory -Force)
-                $standardOutputPath = Join-Path $shardDirectory 'stdout.log'
-                $standardErrorPath = Join-Path $shardDirectory 'stderr.log'
-                $arguments = $CommonArguments + @(
-                    '--results-directory',
-                    $shardDirectory,
-                    '--filter',
-                    $shard.Filter)
-                $process = Start-Process `
-                    -FilePath $CommandPath `
-                    -ArgumentList $arguments `
-                    -WorkingDirectory $WorkingDirectory `
-                    -RedirectStandardOutput $standardOutputPath `
-                    -RedirectStandardError $standardErrorPath `
-                    -PassThru
-                $processes += [pscustomobject]@{
-                    Name = $shard.Name
-                    Process = $process
-                    StandardOutputPath = $standardOutputPath
-                    StandardErrorPath = $standardErrorPath
-                }
+    try {
+        foreach ($shard in $shards) {
+            $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
+            [void](New-Item -ItemType Directory -Path $shardDirectory -Force)
+            $arguments = Get-TestArguments `
+                -Filter $shard.Filter `
+                -DiagnosticsDirectory $shardDirectory `
+                -TimeoutSeconds $TimeoutSeconds `
+                -NoBuild
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = 'dotnet'
+            $startInfo.WorkingDirectory = $repoRoot
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            foreach ($argument in $arguments) {
+                [void]$startInfo.ArgumentList.Add($argument)
+            }
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $startInfo
+            if (-not $process.Start()) {
+                throw "Unable to start functional test shard '$($shard.Name)'."
+            }
+            $entries += [pscustomobject]@{
+                Name = $shard.Name
+                Directory = $shardDirectory
+                Process = $process
+                ProcessId = $process.Id
+                StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
+                StandardErrorTask = $process.StandardError.ReadToEndAsync()
+            }
+        }
+
+        Write-Host "Functional test shards (global timeout ${TimeoutSeconds}s): $(($entries.Name) -join ', ')"
+        while ($true) {
+            $failedShard = $entries |
+                Where-Object { $_.Process.HasExited -and $_.Process.ExitCode -ne 0 } |
+                Select-Object -First 1
+            if ($null -ne $failedShard) {
+                break
             }
 
-            $waitTasks = [System.Threading.Tasks.Task[]]@(
-                $processes | ForEach-Object { $_.Process.WaitForExitAsync() })
-            if (-not [System.Threading.Tasks.Task]::WaitAll(
-                $waitTasks,
-                $testTimeoutSeconds * 1000)) {
+            $runningEntries = @($entries | Where-Object { -not $_.Process.HasExited })
+            if ($runningEntries.Count -eq 0) {
+                break
+            }
+            if ($stageStopwatch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
                 $timedOut = $true
-                $timedOutShardNames = @(
-                    $processes |
-                        Where-Object { -not $_.Process.HasExited } |
-                        ForEach-Object { $_.Name })
-                $timeoutMessage =
-                    "dotnet test shards did not return within $testTimeoutSeconds seconds. " +
-                    "Stopping: " +
-                    ($timedOutShardNames -join ', ')
-                Write-Warning $timeoutMessage
+                $timedOutShardNames = @($runningEntries | ForEach-Object { $_.Name })
+                Write-Warning "Functional test phase exceeded ${TimeoutSeconds}s. Stopping shards: $($timedOutShardNames -join ', ')"
+                break
             }
+            Start-Sleep -Milliseconds 100
         }
-        catch {
-            $launchFailure = $_
+    }
+    catch {
+        $launchFailure = $_
+    }
+    finally {
+        $fallbackProcesses = @()
+        if ($null -ne $failedShard) {
+            $failedShardName = $failedShard.Name
+            $failedShardExitCode = $failedShard.Process.ExitCode
         }
-        finally {
-            foreach ($entry in $processes) {
+        if ($timedOut -or $null -ne $failedShard -or $null -ne $launchFailure) {
+            $runningEntries = @($entries | Where-Object { -not $_.Process.HasExited })
+            foreach ($entry in $runningEntries) {
                 try {
-                    if (($timedOut -or $null -ne $launchFailure) -and
-                        -not $entry.Process.HasExited) {
-                        try {
-                            $entry.Process.Kill($true)
-                        }
-                        catch {
-                            $cleanupFailures.Add(
-                                "$($entry.Name): process-tree termination failed: $($_.Exception.Message)")
-                        }
-                    }
+                    $entry.Process.Kill($true)
+                }
+                catch {
+                    Write-Warning "$($entry.Name): managed process-tree termination failed for PID $($entry.ProcessId): $($_.Exception.Message)"
                     try {
-                        if (-not $entry.Process.WaitForExit(10000)) {
-                            $cleanupFailures.Add(
-                                "$($entry.Name): process did not exit within the 10-second cleanup window")
+                        $taskkillStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+                        $taskkillStartInfo.FileName = 'taskkill.exe'
+                        $taskkillStartInfo.UseShellExecute = $false
+                        $taskkillStartInfo.CreateNoWindow = $true
+                        foreach ($argument in @('/PID', [string]$entry.ProcessId, '/T', '/F')) {
+                            [void]$taskkillStartInfo.ArgumentList.Add($argument)
+                        }
+                        $taskkillProcess = [System.Diagnostics.Process]::new()
+                        $taskkillProcess.StartInfo = $taskkillStartInfo
+                        if (-not $taskkillProcess.Start()) {
+                            throw "Unable to start taskkill.exe for PID $($entry.ProcessId)."
+                        }
+                        $fallbackProcesses += [pscustomobject]@{
+                            Name = $entry.Name
+                            Process = $taskkillProcess
+                            ProcessId = $taskkillProcess.Id
+                            TargetProcessId = $entry.ProcessId
                         }
                     }
                     catch {
                         $cleanupFailures.Add(
-                            "$($entry.Name): exit observation failed: $($_.Exception.Message)")
+                            "$($entry.Name): taskkill fallback could not start for PID $($entry.ProcessId): $($_.Exception.Message)")
                     }
-                    Write-Host "Test shard: $($entry.Name)"
-                    Write-TestProcessOutput `
-                        -StandardOutputPath $entry.StandardOutputPath `
-                        -StandardErrorPath $entry.StandardErrorPath
-                    if (-not $timedOut -and
-                        $null -eq $launchFailure -and
-                        $null -eq $failedShard -and
-                        $entry.Process.HasExited -and
-                        $entry.Process.ExitCode -ne 0) {
-                        $failedShard = [pscustomobject]@{
-                            Name = $entry.Name
-                            ExitCode = $entry.Process.ExitCode
-                        }
-                    }
+                }
+            }
+
+            $cleanupStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+            while ($cleanupStopwatch.Elapsed.TotalSeconds -lt $functionalProcessCleanupSeconds) {
+                $activeEntries = @($runningEntries | Where-Object { -not $_.Process.HasExited })
+                $activeFallbacks = @($fallbackProcesses | Where-Object { -not $_.Process.HasExited })
+                if ($activeEntries.Count -eq 0 -and $activeFallbacks.Count -eq 0) {
+                    break
+                }
+                Start-Sleep -Milliseconds 50
+            }
+            $cleanupStopwatch.Stop()
+
+            $activeEntriesAtDeadline = @(
+                $runningEntries | Where-Object { -not $_.Process.HasExited })
+            foreach ($entry in $activeEntriesAtDeadline) {
+                $cleanupFailures.Add(
+                    "$($entry.Name): PID $($entry.ProcessId) remained active after the shared ${functionalProcessCleanupSeconds}-second process cleanup deadline")
+            }
+            $activeFallbacksAtDeadline = @(
+                $fallbackProcesses | Where-Object { -not $_.Process.HasExited })
+            foreach ($fallback in $activeFallbacksAtDeadline) {
+                $cleanupFailures.Add(
+                    "$($fallback.Name): taskkill helper PID $($fallback.ProcessId) for target PID $($fallback.TargetProcessId) remained active after the shared ${functionalProcessCleanupSeconds}-second process cleanup deadline")
+                try {
+                    $fallback.Process.Kill($true)
                 }
                 catch {
                     $cleanupFailures.Add(
-                        "$($entry.Name): cleanup/output collection failed: $($_.Exception.Message)")
+                        "$($fallback.Name): taskkill helper for PID $($fallback.TargetProcessId) could not be stopped: $($_.Exception.Message)")
                 }
-                finally {
-                    try {
-                        $entry.Process.Dispose()
-                    }
-                    catch {
-                        $cleanupFailures.Add(
-                            "$($entry.Name): process disposal failed: $($_.Exception.Message)")
-                    }
+            }
+
+            $helperCleanupMilliseconds = [Math]::Max(
+                0,
+                [int](($functionalCleanupReserveSeconds - $cleanupStopwatch.Elapsed.TotalSeconds) * 1000))
+            $helperCleanupStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+            while ($helperCleanupStopwatch.ElapsedMilliseconds -lt $helperCleanupMilliseconds) {
+                $activeFallbacks = @(
+                    $activeFallbacksAtDeadline | Where-Object { -not $_.Process.HasExited })
+                if ($activeFallbacks.Count -eq 0) {
+                    break
+                }
+                Start-Sleep -Milliseconds 50
+            }
+            $helperCleanupStopwatch.Stop()
+            foreach ($fallback in $activeFallbacksAtDeadline | Where-Object { -not $_.Process.HasExited }) {
+                $cleanupFailures.Add(
+                    "$($fallback.Name): taskkill helper PID $($fallback.ProcessId) for target PID $($fallback.TargetProcessId) remained active after the shared ${functionalCleanupReserveSeconds}-second cleanup reserve")
+            }
+        }
+
+        foreach ($fallback in $fallbackProcesses) {
+            try {
+                if (-not $fallback.Process.HasExited) {
+                    continue
+                }
+                $fallback.Process.WaitForExit()
+            }
+            finally {
+                if ($fallback.Process.HasExited) {
+                    $fallback.Process.Dispose()
                 }
             }
         }
-        if ($cleanupFailures.Count -gt 0) {
-            throw "Test shard cleanup failed: $($cleanupFailures -join '; ')"
+
+        foreach ($entry in $entries) {
+            try {
+                if (-not $entry.Process.HasExited) {
+                    continue
+                }
+                $entry.Process.WaitForExit()
+                $standardOutput = $entry.StandardOutputTask.GetAwaiter().GetResult()
+                $standardError = $entry.StandardErrorTask.GetAwaiter().GetResult()
+                $standardOutputPath = Join-Path $entry.Directory 'stdout.log'
+                $standardErrorPath = Join-Path $entry.Directory 'stderr.log'
+                [System.IO.File]::WriteAllText(
+                    $standardOutputPath,
+                    $standardOutput,
+                    [System.Text.UTF8Encoding]::new($false))
+                [System.IO.File]::WriteAllText(
+                    $standardErrorPath,
+                    $standardError,
+                    [System.Text.UTF8Encoding]::new($false))
+
+                Write-Host "Test shard: $($entry.Name); exit code: $($entry.Process.ExitCode)"
+                if (-not $timedOut -and -not [string]::IsNullOrEmpty($standardOutput)) {
+                    Write-Host $standardOutput -NoNewline
+                }
+                if (-not [string]::IsNullOrEmpty($standardError)) {
+                    if (-not $timedOut -and $entry.Process.ExitCode -eq 0) {
+                        Write-Warning $standardError.TrimEnd()
+                    }
+                    else {
+                        Write-Error $standardError -ErrorAction Continue
+                    }
+                }
+
+                if (($timedOutShardNames -contains $entry.Name) -or $entry.Process.ExitCode -ne 0) {
+                    Write-TestDiagnosticSummary `
+                        -DiagnosticsDirectory $entry.Directory `
+                        -StandardOutputPath $standardOutputPath
+                }
+            }
+            catch {
+                $cleanupFailures.Add(
+                    "$($entry.Name): cleanup/output collection failed: $($_.Exception.Message)")
+            }
+            finally {
+                $entry.Process.Dispose()
+            }
         }
-        if ($null -ne $launchFailure) {
-            throw $launchFailure
-        }
-        if ($timedOut) {
-            throw "dotnet test exceeded the $testTimeoutSeconds-second response timeout. Test output: $DiagnosticsDirectory"
-        }
-        if ($null -ne $failedShard) {
-            throw "dotnet test shard '$($failedShard.Name)' failed with exit code $($failedShard.ExitCode). Test output: $DiagnosticsDirectory"
-        }
+        $stageStopwatch.Stop()
+    }
+
+    Write-Host "Functional test phase elapsed: $([Math]::Round($stageStopwatch.Elapsed.TotalSeconds, 1))s; diagnostics: $DiagnosticsDirectory"
+    if ($cleanupFailures.Count -gt 0) {
+        throw "Functional test shard cleanup failed: $($cleanupFailures -join '; ')"
+    }
+    if ($null -ne $launchFailure) {
+        throw $launchFailure
+    }
+    if ($timedOut) {
+        throw "Functional test phase exceeded the ${TimeoutSeconds}-second timeout. Diagnostics: $DiagnosticsDirectory"
+    }
+    if ($null -ne $failedShardName) {
+        throw "Functional test shard '$failedShardName' failed with exit code $failedShardExitCode. Diagnostics: $(Join-Path $DiagnosticsDirectory $failedShardName)"
     }
 }
 
@@ -433,7 +728,6 @@ function Invoke-SelfContainedPublishVerification {
     if ($versionProcess.ExitCode -ne 0) {
         throw "Self-contained updater --version failed with exit code $($versionProcess.ExitCode)."
     }
-
 }
 
 function Invoke-ExistingDataAcceptance {
@@ -455,99 +749,7 @@ function Invoke-UpdateAcceptance {
         '-OutputDirectory' $acceptanceOutputDirectory
 }
 
-Push-Location $repoRoot
-try {
-    if ($Mode -eq 'Full') {
-        Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode' '-p:PublishReadyToRun=true'
-        Invoke-CheckedCommand dotnet tool restore
-    }
-
-    # Build, format, and analyzer commands run to completion. Only dotnet test
-    # has the simple 180-second command-response timeout described above.
-    Invoke-CheckedCommand dotnet build $solution '/p:Configuration=Release' '/p:Platform=x64' '--no-restore'
-
-    foreach ($toolProject in $toolProjects) {
-        Invoke-CheckedCommand dotnet build $toolProject '/p:Configuration=Release' '/p:Platform=x64' '--no-restore'
-    }
-
-    if (-not (Test-Path -LiteralPath $uiExecutable -PathType Leaf)) {
-        throw "Release UI executable was not produced: $uiExecutable"
-    }
-
-    foreach ($toolExecutable in $toolExecutables) {
-        if (-not (Test-Path -LiteralPath $toolExecutable -PathType Leaf)) {
-            throw "Release tool executable was not produced: $toolExecutable"
-        }
-
-        Invoke-CheckedCommand $toolExecutable '--help'
-    }
-
-    if ($Mode -eq 'Full') {
-        Write-Host "Self-contained publish verification output: $scdPublishRoot"
-        Invoke-SelfContainedPublishVerification
-        Invoke-ExistingDataAcceptance
-        Invoke-UpdateAcceptance
-        $env:BMS_SCD_APP_PUBLISH_ROOT = $scdAppPublishOutput
-        $env:BMS_SCD_UPDATER_PUBLISH_ROOT = $scdUpdaterPublishOutput
-    }
-
-    $resolvedUiExecutable = (Resolve-Path -LiteralPath $uiExecutable).Path
-    Write-Host "Release UI executable: $resolvedUiExecutable"
-    Assert-ReleaseOutputLayout -ExecutablePath $resolvedUiExecutable
-
-    $testDiagnosticsDirectory = Join-Path $verificationArtifactsDirectory (
-        'tests-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
-    [void](New-Item -ItemType Directory -Path $testDiagnosticsDirectory -Force)
-
-    $testArguments = @(
-        'test',
-        $solution,
-        '/p:Configuration=Release',
-        '/p:Platform=x64',
-        '--no-build',
-        '--no-restore',
-        '--blame')
-    if ($Mode -eq 'Quick' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
-        $testArguments += @('--filter', $TestFilter)
-    }
-
-    if ([string]::IsNullOrWhiteSpace($TestFilter)) {
-        Invoke-MonitoredFullTestCommands `
-            -CommandPath 'dotnet' `
-            -CommonArguments $testArguments `
-            -WorkingDirectory $repoRoot `
-            -DiagnosticsDirectory $testDiagnosticsDirectory
-    }
-    else {
-        $testArguments += @(
-            '--results-directory',
-            $testDiagnosticsDirectory)
-        Invoke-MonitoredTestCommand `
-            -CommandPath 'dotnet' `
-            -Arguments $testArguments `
-            -WorkingDirectory $repoRoot `
-            -DiagnosticsDirectory $testDiagnosticsDirectory
-    }
-
-    Remove-Item Env:BMS_SCD_APP_PUBLISH_ROOT -ErrorAction SilentlyContinue
-    Remove-Item Env:BMS_SCD_UPDATER_PUBLISH_ROOT -ErrorAction SilentlyContinue
-
-    Invoke-CheckedCommand dotnet format whitespace $solution '--verify-no-changes' '--no-restore' '--verbosity' 'minimal'
-
-    if ($Mode -eq 'Full') {
-        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-        if (-not (Test-Path -LiteralPath $vswhere)) {
-            throw "vswhere.exe was not found: $vswhere"
-        }
-
-        $msbuildPath = & $vswhere -version '[17.0,18.0)' -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin' | Select-Object -First 1
-        if ([string]::IsNullOrWhiteSpace($msbuildPath)) {
-            throw 'Visual Studio 2022 MSBuild 17 was not found.'
-        }
-
-        Invoke-CheckedCommand dotnet roslynator analyze $solution '--msbuild-path' $msbuildPath '--properties' 'Configuration=Release' '--severity-level' 'warning' '--ignore-compiler-diagnostics' '--verbosity' 'minimal'
-    }
-
+function Assert-RepositoryWhitespace {
     Invoke-CheckedCommand git diff '--check' 'HEAD' '--'
 
     $untrackedFiles = @(git ls-files --others --exclude-standard)
@@ -555,29 +757,193 @@ try {
         throw "Unable to enumerate untracked files (exit code $LASTEXITCODE)."
     }
 
-    if ($untrackedFiles.Count -gt 0) {
-        $emptyFile = New-TemporaryFile
-        try {
-            foreach ($untrackedFile in $untrackedFiles) {
-                $checkOutput = @(& git -c core.autocrlf=false -c core.whitespace=cr-at-eol diff --no-index --check -- $emptyFile.FullName $untrackedFile 2>&1)
-                $checkExitCode = $LASTEXITCODE
-                if ($checkOutput.Count -gt 0) {
-                    throw "Whitespace error in untracked file '$untrackedFile':`n$($checkOutput -join [Environment]::NewLine)"
-                }
-                if ($checkExitCode -gt 1) {
-                    throw "Unable to inspect untracked file '$untrackedFile' (exit code $checkExitCode)."
-                }
-                # `git diff --no-index` returns 1 when the expected comparison
-                # contains differences. Do not leak that success-path code to
-                # callers that invoke this script in the current pwsh process.
-                $global:LASTEXITCODE = 0
+    if ($untrackedFiles.Count -eq 0) {
+        return
+    }
+
+    $emptyFile = New-TemporaryFile
+    try {
+        foreach ($untrackedFile in $untrackedFiles) {
+            $checkOutput = @(& git -c core.autocrlf=false -c core.whitespace=cr-at-eol diff --no-index --check -- $emptyFile.FullName $untrackedFile 2>&1)
+            $checkExitCode = $LASTEXITCODE
+            if ($checkOutput.Count -gt 0) {
+                throw "Whitespace error in untracked file '$untrackedFile':`n$($checkOutput -join [Environment]::NewLine)"
             }
-        }
-        finally {
-            Remove-Item -LiteralPath $emptyFile.FullName -Force
+            if ($checkExitCode -gt 1) {
+                throw "Unable to inspect untracked file '$untrackedFile' (exit code $checkExitCode)."
+            }
+            $global:LASTEXITCODE = 0
         }
     }
+    finally {
+        Remove-Item -LiteralPath $emptyFile.FullName -Force
+    }
+}
+
+function Assert-BuiltOutputs {
+    if (-not (Test-Path -LiteralPath $uiExecutable -PathType Leaf)) {
+        throw "Release UI executable was not produced: $uiExecutable"
+    }
+    Assert-ReleaseOutputLayout -ExecutablePath (Resolve-Path -LiteralPath $uiExecutable).Path
+}
+
+function Invoke-StandaloneTestVerification {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Filter,
+
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsRoot,
+
+        [switch]$UseFunctionalShards
+    )
+
+    $budget = $FunctionalTimeoutSeconds
+    Invoke-BudgetedCommand `
+        -Stopwatch $commandStopwatch `
+        -BudgetSeconds $budget `
+        -Label 'Locked restore' `
+        -CommandPath 'dotnet' `
+        -Arguments @('restore', $solution, '-r', 'win-x64', '--locked-mode', '-p:PublishReadyToRun=true') `
+        -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
+
+    $testDirectory = Join-Path $DiagnosticsRoot 'functional'
+    if ($UseFunctionalShards) {
+        Invoke-BudgetedCommand `
+            -Stopwatch $commandStopwatch `
+            -BudgetSeconds $budget `
+            -Label 'Functional build' `
+            -CommandPath 'dotnet' `
+            -Arguments @('build', $solution, '/p:Configuration=Release', '/p:Platform=x64', '--no-restore') `
+            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'build')
+        Assert-BuiltOutputs
+        $remaining = Get-RemainingBudgetSeconds -Stopwatch $commandStopwatch -BudgetSeconds $budget
+        Invoke-ParallelFunctionalTestShards `
+            -DiagnosticsDirectory $testDirectory `
+            -TimeoutSeconds $remaining
+    }
+    else {
+        [void](New-Item -ItemType Directory -Path $testDirectory -Force)
+        $remaining = Get-RemainingBudgetSeconds -Stopwatch $commandStopwatch -BudgetSeconds $budget
+        $testArguments = Get-TestArguments `
+            -Filter $Filter `
+            -DiagnosticsDirectory $testDirectory `
+            -TimeoutSeconds $remaining
+        Invoke-BudgetedCommand `
+            -Stopwatch $commandStopwatch `
+            -BudgetSeconds $budget `
+            -Label 'Filtered build and test' `
+            -CommandPath 'dotnet' `
+            -Arguments $testArguments `
+            -DiagnosticsDirectory $testDirectory `
+            -IsTestCommand
+        Assert-BuiltOutputs
+    }
+
+    Assert-RepositoryWhitespace
+
+    if ($commandStopwatch.Elapsed.TotalSeconds -gt $budget) {
+        throw "Functional verification exceeded the $budget-second command budget after repository checks."
+    }
+    Write-Host "Functional command elapsed: $([Math]::Round($commandStopwatch.Elapsed.TotalSeconds, 1))s / ${budget}s"
+}
+
+if ($Mode -eq 'Functional' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
+    throw 'Use Quick mode for a filtered test iteration. Functional mode always runs the canonical functional lane.'
+}
+if ($Mode -eq 'Full' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
+    throw 'Full mode does not accept TestFilter. Use Quick mode for an explicit opt-in lane.'
+}
+
+$trackedStateBefore = Get-TrackedWorkingTreeFingerprint
+$verificationFailure = $null
+$testDiagnosticsDirectory = Join-Path $verificationArtifactsDirectory (
+    'tests-' + $Mode.ToLowerInvariant() + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+[void](New-Item -ItemType Directory -Path $testDiagnosticsDirectory -Force)
+
+Push-Location $repoRoot
+try {
+    if ($Mode -eq 'Full') {
+        Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode' '-p:PublishReadyToRun=true'
+        Invoke-CheckedCommand dotnet tool restore
+        Invoke-CheckedCommand dotnet build $solution '/p:Configuration=Release' '/p:Platform=x64' '--no-restore'
+
+        foreach ($toolExecutable in $toolExecutables) {
+            if (-not (Test-Path -LiteralPath $toolExecutable -PathType Leaf)) {
+                throw "Release tool executable was not produced: $toolExecutable"
+            }
+            Invoke-CheckedCommand $toolExecutable '--help'
+        }
+
+        Assert-BuiltOutputs
+        Write-Host "Self-contained publish verification output: $scdPublishRoot"
+        Invoke-SelfContainedPublishVerification
+        Invoke-ExistingDataAcceptance
+        Invoke-UpdateAcceptance
+        $env:BMS_SCD_APP_PUBLISH_ROOT = $scdAppPublishOutput
+        $env:BMS_SCD_UPDATER_PUBLISH_ROOT = $scdUpdaterPublishOutput
+
+        Invoke-ParallelFunctionalTestShards `
+            -DiagnosticsDirectory (Join-Path $testDiagnosticsDirectory 'functional') `
+            -TimeoutSeconds 180
+        Invoke-TestLane `
+            -Name 'Process integration' `
+            -Filter 'TestCategory=ProcessIntegration' `
+            -DiagnosticsDirectory (Join-Path $testDiagnosticsDirectory 'process-integration') `
+            -NoBuild
+        Invoke-TestLane `
+            -Name 'Release acceptance' `
+            -Filter 'TestCategory=ReleaseAcceptance' `
+            -DiagnosticsDirectory (Join-Path $testDiagnosticsDirectory 'release-acceptance') `
+            -NoBuild
+
+        Invoke-CheckedCommand dotnet format whitespace $solution '--verify-no-changes' '--no-restore' '--verbosity' 'minimal'
+
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        if (-not (Test-Path -LiteralPath $vswhere)) {
+            throw "vswhere.exe was not found: $vswhere"
+        }
+        $msbuildPath = & $vswhere -version '[17.0,18.0)' -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin' | Select-Object -First 1
+        if ([string]::IsNullOrWhiteSpace($msbuildPath)) {
+            throw 'Visual Studio 2022 MSBuild 17 was not found.'
+        }
+        Invoke-CheckedCommand dotnet roslynator analyze $solution '--msbuild-path' $msbuildPath '--properties' 'Configuration=Release' '--severity-level' 'warning' '--ignore-compiler-diagnostics' '--verbosity' 'minimal'
+        Assert-RepositoryWhitespace
+    }
+    else {
+        $effectiveFilter = if ($Mode -eq 'Quick' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
+            $TestFilter
+        }
+        else {
+            $functionalFilter
+        }
+        Invoke-StandaloneTestVerification `
+            -Filter $effectiveFilter `
+            -DiagnosticsRoot $testDiagnosticsDirectory `
+            -UseFunctionalShards:([string]::IsNullOrWhiteSpace($TestFilter))
+    }
+}
+catch {
+    $verificationFailure = $_
 }
 finally {
+    Remove-Item Env:BMS_SCD_APP_PUBLISH_ROOT -ErrorAction SilentlyContinue
+    Remove-Item Env:BMS_SCD_UPDATER_PUBLISH_ROOT -ErrorAction SilentlyContinue
     Pop-Location
+}
+
+$trackedStateAfter = Get-TrackedWorkingTreeFingerprint
+if ($trackedStateAfter -ne $trackedStateBefore) {
+    $failureContext = if ($null -ne $verificationFailure) {
+        " Original verification failure: $($verificationFailure.Exception.Message)"
+    }
+    else {
+        [string]::Empty
+    }
+    throw "Verification changed one or more tracked files. Inspect git diff before continuing.$failureContext"
+}
+Write-Host "Tracked working tree fingerprint unchanged: $trackedStateAfter"
+
+if ($null -ne $verificationFailure) {
+    throw $verificationFailure
 }

@@ -9,6 +9,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[TestCategory("ProcessIntegration")]
 public sealed class DistributionBenchmarkHarnessTests
 {
     [TestMethod]

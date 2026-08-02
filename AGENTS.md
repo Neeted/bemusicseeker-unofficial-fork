@@ -86,7 +86,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 - 通常のコード変更は、レビュー前に原則一度 `Functional` を行う。`Functional` は command 全体で 180 秒以内を受入条件とし、個別 testhost / shard ごとに時間予算をリセットしない。
 - `Full` は publish / updater / distribution、release 手順、または Full runner 自体を変更した場合と release 前に使う。settings、startup、共有 model などの変更だけを理由に、通常機能テストと release acceptance を毎回まとめて実行しない。対象に応じて filtered `Quick`、`Functional`、明示的な opt-in lane を組み合わせる。
 - review 修正後は、まず影響範囲の filtered `Quick` を行う。修正が通常機能検証の前提を変えた場合だけ最終 `Functional` を再実行し、release lane を変えた場合だけ `Full` も再実行する。
-- timeout 時は process tree を停止し、active または last observed test、経過時間、TRX / VSTest diagnostics / blame artifact を残す。timeout を延長したり同じ run を無制限に再試行したりせず、`artifacts\verification` の出力を確認して原因を直す。
+- timeout 時は process tree を停止し、active または last observed test、経過時間、console progress / TRX / blame artifact を残す。timeout を延長したり同じ run を無制限に再試行したりせず、`artifacts\verification` の出力を確認して原因を直す。
 - runner、lane、並列化、fixture 配置を変更した場合は、同一条件の `Functional` を3回連続で実行し、各 command が180秒以内、tracked file が不変、残留 test process がないことを確認する。
 - test はマシンの CPU / I/O を安定性が許す範囲で利用し、wall-clock time を短縮する。負荷抑制だけを理由に shard / worker を制限せず、競合で不安定になる場合は共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
 - flaky test、timeout、または従来より明白に長時間化した test を発見した時点で、本筋を一旦止めて原因を調査する。現在の変更範囲外に見えても放置せず、並列実行、共有 state、固定待ち時間、競合、I/O、fixture / input 量、監視側の timeout 根拠を確認する。

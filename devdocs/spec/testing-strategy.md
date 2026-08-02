@@ -10,7 +10,7 @@
 - Functional は、追跡対象ファイルを変更せず、実行順序や並列度によらず決定的に成功する。
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
 - リソース競合で不安定になる場合は、共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
-- timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、TRX / VSTest diagnostics / blame artifact の場所を残す。
+- timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。
 - runner、lane、並列化、fixture 配置を変更した場合は、Functional を同一条件で 3 回連続実行し、各回が 180 秒以内であることを確認する。
 
 ## 標準コマンド

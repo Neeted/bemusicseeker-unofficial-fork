@@ -244,6 +244,7 @@ public sealed class UpdateDownloadServiceTests
     }
 
     [TestMethod]
+    [TestCategory("ReleaseAcceptance")]
     public void PreparedUpdaterPayloadStartsFromCurrentDirectory()
     {
         string updaterPublishOutput = Environment.GetEnvironmentVariable("BMS_SCD_UPDATER_PUBLISH_ROOT");
