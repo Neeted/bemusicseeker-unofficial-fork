@@ -12,9 +12,13 @@
 ### 要件整理と実装計画
 
 1. ルートエージェントが、ユーザー要件を目的、対象範囲、対象外、受入条件、互換性条件、既知の制約へ整理する。生の会話をそのまま planner へ渡して解釈を委ねない。
-2. コード、設定、スクリプトを実装する前に、`.codex/agents/unit-planner.toml` の `unit-planner` を呼び出す。現在の worktree、整理済み要件、関連する既知情報を渡し、実行可能な有限の計画を得る。
-3. `unit-planner` の実行中はルートエージェントを凍結する。repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、応答を待つ。
-4. planner の前提と実コードに差異が見つかった場合は、その差異だけを返して計画を補正する。同じ範囲を別 planner やルート側の全面調査で重複させない。
+2. 永続化、fallback、failure contract、ownership、互換性など、選択によって observable behavior が変わる事項を decision list として明示する。repository の正本や既に合意した方針から一意に決まらない場合は、実装を始めずユーザー判断を得る。
+3. コード、設定、スクリプトを実装する前に、`.codex/agents/unit-planner.toml` の `unit-planner` を呼び出す。現在の worktree、整理済み要件、decision list、関連する既知情報を渡し、実行可能な有限の計画を得る。
+4. planner が `NEEDS_DECISION` を返した場合は、安全そうな部分だけを先行実装せず、示された未決事項を解消してから新しい計画を得る。
+5. 3つを超える独立 subsystem にまたがる、またはおおむね 15 files を超える見込みの変更は、同じ受入条件へ段階的に到達する reviewable unit へ分割する。数値は停止の絶対条件ではなく、単一 snapshot の責務と検証範囲が広すぎないか判断するための signal とする。
+6. feature 固有の判断は `docs` 配下の設計判断文書へ置き、`AGENTS.md` や汎用 agent 設定へ個別機能の仕様を混ぜない。
+7. `unit-planner` の実行中はルートエージェントを凍結する。repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、応答を待つ。
+8. planner の前提と実コードに差異が見つかった場合は、その差異だけを返して計画を補正する。同じ範囲を別 planner やルート側の全面調査で重複させない。
 
 ### その他の調査と並列作業
 
@@ -26,8 +30,11 @@
 
 1. 実装と標準検証を終えたら、`.codex/agents/repo-static-review.toml` の `repo-static-review` を呼び出し、凍結した snapshot をレビューさせる。
 2. reviewer の実行中はルートエージェントを凍結し、repository の読み取り、検索、編集、build、test、format、stage、commit を行わない。
-3. 指摘を修正した場合は影響範囲を再検証し、変更後の新しい snapshot を fresh reviewer へ渡す。旧レビューの続きとして扱わない。
-4. planner / reviewer が利用できない環境では、同じ read-only 契約を明示した汎用サブエージェントを代替にし、省略したことにしない。
+3. 初回 reviewer には対象 unit の intent、受入条件、base / head、検証結果を渡す。finding は P0 / P1、受入条件へ直接反する P2、pre-existing / out-of-scope、non-blocking recommendation を区別させる。P0 / P1 と直接反する P2 は修正対象とし、単なる改善提案を同じ変更へ無制限に取り込まない。
+4. 指摘を修正した場合は影響範囲を再検証し、変更後の snapshot を fresh reviewer へ渡す。fresh reviewer には前回確認済み snapshot、修正差分、前回 finding を明示し、修正とそこから直接影響する invariant を主対象にさせる。
+5. 同じ unit で2回の修正 review を完了した後も新しい P1 が続く場合は、指摘を順次継ぎ足さず、ownership、scope、受入条件、unit 分割を再計画する。新しい P0 / P1 を無視するための回数制限にはしない。
+6. pre-existing / out-of-scope の問題は影響と根拠を記録し、現在の受入条件を阻害する場合だけ scope 変更をユーザーへ提示する。現在の変更で生じた問題として扱わない。
+7. planner / reviewer が利用できない環境では、同じ read-only 契約を明示した汎用サブエージェントを代替にし、省略したことにしない。
 
 ## アーキテクチャ上の注意
 
@@ -79,6 +86,9 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 - 通常のコード変更は、レビュー前に原則一度 `Quick` の全体確認を行う。project / package、startup / composition、共有 model、settings / persistence、file system、dispatcher / concurrency、publish / updater に触れた場合、または release 前は `Full` を一度行う。`Full` は `Quick` の確認を内包するため、直前に同じ全体確認を重複実行しない。
 - review 修正後は、まず影響範囲の filtered `Quick` を行う。修正が全体確認の前提を変えた場合だけ最終 `Quick` / `Full` を再実行する。
 - test の時間制限は script の監視に従う。現在は test process / shard が 180 秒で終了しなければ process tree を停止して失敗にする。timeout を延長したり同じ full run を無制限に再試行したりせず、`artifacts\verification` の出力を確認して原因を直す。
+- flaky test、timeout、または従来より明白に長時間化した test を発見した時点で、本筋を一旦止めて原因を調査する。現在の変更範囲外に見えても放置せず、並列実行、共有 state、固定待ち時間、競合、I/O、fixture / input 量、監視側の timeout 根拠を確認する。
+- test の見直しでは、可能なら同期 barrier や決定的な fake で安定化し、不要な固定待ちや過大な入力を削減する。必要な処理量として妥当な長時間 test は、実測と失敗検出能力を根拠に timeout / shard 設計を変更してよい。timeout 延長だけで不安定性を隠さない。
+- test-only の修正で閉じる場合は、現在の unit と同じ invariant を検証するものなら同じ commit、横断的または既存の test infrastructure 問題なら独立 commit とする。修正と該当 test の検証後、本筋へ戻る。
 - script が環境上利用できない場合だけ個別 command へ分解し、未実施項目と理由を明示する。標準入口を黙って省略しない。
 - prose / Markdown / TOML だけの変更では、構文、参照、UTF-8 / LF、whitespace、`git diff --check` を確認する。build 手順や agent behavior を変える設定変更は、必要な追加検証も行う。
 

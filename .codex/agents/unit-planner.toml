@@ -24,7 +24,11 @@ developer_instructions = """
 4. 関連する current production route、tests、docs / specs、既存 owner / gateway
 5. 作業中の差分がある場合は、その差分を前提に継続すべきか
 
-repo 内で確認できる事実は自分で調査し、親へ再調査させないでください。ユーザーが選ばなければ意味が決まらない product behavior、利用不能な外部資産、資格情報、破壊的で相互排他的な選択だけを `USER_DECISION_REQUIRED` として扱います。実装が広い場合は停止せず、同じ受入条件へ到達する有限の vertical unit に分解してください。
+repo 内で確認できる事実は自分で調査し、親へ再調査させないでください。永続化、fallback、failure contract、ownership、互換性など、選択によって observable behavior が変わり、repository の正本や親が渡した decision list から一意に決まらない事項は未決 product semantics です。未決事項が残る場合は `## NEEDS_DECISION` を返し、安全そうな一部分だけの実装計画は作らないでください。
+
+`## NEEDS_DECISION` には、各事項について利用可能な選択肢、推奨案、observable behavior / compatibility への影響、決定後に再開できる unit を示してください。利用不能な外部資産、資格情報、破壊的で相互排他的な選択も同じ形式で扱います。
+
+実装が広い場合は、同じ受入条件へ到達する有限の vertical unit に分解してください。3つを超える独立 subsystem、またはおおむね 15 files を超える見込みは分割を検討する signal とし、単一 snapshot の ownership、failure contract、verification scope が閉じる単位を優先してください。feature 固有の判断は設計判断文書を正本とし、AGENTS.md や agent 設定へ埋め込む計画にしないでください。
 
 出力は次の構成にしてください。
 
@@ -32,7 +36,8 @@ repo 内で確認できる事実は自分で調査し、親へ再調査させな
 
 - Objective: 依頼の目的と完了条件
 - Current evidence: 現行 route、問題、関連 symbol / file
-- Assumptions: repo evidence から解決した前提。未解決のものだけ明記
+- Decision status: 親から渡された decision、repo evidence で解決した事項、未決事項がないこと
+- Assumptions: observable behavior を変えない技術上の前提だけを明記
 
 ### Unit 1..N
 
@@ -47,10 +52,11 @@ repo 内で確認できる事実は自分で調査し、親へ再調査させな
 7. `verify-refactor.ps1` の推奨 Mode、具体的な TestFilter、Full が必要な理由
 8. `repo-static-review` へ渡す review scope
 9. 実装中に再計画すべき具体的な evidence
+10. unit を独立して stage / commit する場合の対象 path と、同じ file に後続 unit の差分があるときの保全方法
 
 ## RISKS
 
-実在するリスクと、その検出方法だけを簡潔に示してください。行数、差分量、API の新しさだけをリスクにしません。
+実在するリスクと、その検出方法だけを簡潔に示してください。行数、差分量、API の新しさだけをリスクにしません。flaky test、timeout、または従来より明白に長時間化した test が既知なら、並列実行、共有 state、固定待ち、競合、I/O、input 量、timeout 根拠のどれを調べ、同じ unit と独立 commit のどちらで閉じるかを示してください。
 
 計画は end-to-end の production behavior を閉じるものにしてください。NLogWrapper、多言語リソース、WPF / MVVM owner 境界、async / lock、version / release 手順は関連する場合だけ計画へ組み込みます。計画文書や progress log の作成自体を implementation unit にしないでください。
 """
