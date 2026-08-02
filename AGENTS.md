@@ -1,64 +1,112 @@
 # BeMusicSeeker Unofficial Fork
 
-## 正本
+## 基本方針
 
-作業開始時は次だけを読む。
+- このリポジトリは .NET 10 / C# 14 の WPF アプリケーションであり、デコンパイル由来コードを含む。依頼された挙動を守りつつ、変更した範囲では命名、責務、コメント、テスト可能性を改善する。
+- 作業開始時に `git status --short` と適用範囲内の `AGENTS.md` を確認し、既存の未コミット差分や無関係なファイルを変更、破棄、整形しない。
+- 差分の小ささ自体を目的にしない一方、依頼と無関係な全面整理や将来用抽象化は行わない。
+- コミット、push、tag、署名、公開、version 更新は、ユーザーの明示指示または合意済みの作業手順がある場合だけ行う。
 
-1. `devdocs/plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md`
-2. `devdocs/plan/BeMusicSeeker_refactoring_plans/BeMusicSeeker_性能回帰改善計画.md`
-3. `devdocs/plan/BeMusicSeeker_refactoring_plans/PERFORMANCE_WORK_REGISTER.md`
-4. `devdocs/plan/BeMusicSeeker_refactoring_plans/00_Codex共通実行ルール.md`
+## 作業の進め方とサブエージェント
 
-完了済みOutcome、unit、commit、review履歴はGit historyへ委ねる。
+### 要件整理と実装計画
 
-## 実行
+1. ルートエージェントが、ユーザー要件を目的、対象範囲、対象外、受入条件、互換性条件、既知の制約へ整理する。生の会話をそのまま planner へ渡して解釈を委ねない。
+2. コード、設定、スクリプトを実装する前に、`.codex/agents/unit-planner.toml` の `unit-planner` を呼び出す。現在の worktree、整理済み要件、関連する既知情報を渡し、実行可能な有限の計画を得る。
+3. `unit-planner` の実行中はルートエージェントを凍結する。repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、応答を待つ。
+4. planner の前提と実コードに差異が見つかった場合は、その差異だけを返して計画を補正する。同じ範囲を別 planner やルート側の全面調査で重複させない。
 
-- active implementation batchに`active`または`pending`があればplannerを起動せず、記載順に実装する。
-- planner／reviewerはsingle-flightで使う。サブエージェント実行中、rootはrepositoryの読み取り、検索、編集、build、test、stage、commitを凍結する。
-- rootによる同scopeの独立再調査、第2planner、consensus取得を行わない。
-- batch状態は対応するcode／test unitと同じcommitで更新し、status-only progress commitを作らない。
-- unit commitは内部checkpointである。active outcomeが未完ならユーザー応答で停止せず次unitへ進む。
-- `NO_SAFE_UNIT`は無効。PC再起動後の実測、production data、net472再計測の不在を停止理由にしない。
+### その他の調査と並列作業
 
-## Startup readiness contract
+- planner 作成と直接関係しない調査、仕様確認、履歴調査、独立した技術観点には、必要に応じて別のサブエージェントを使ってよい。
+- ルートエージェントとサブエージェントは、範囲、観点、参照対象、書込み対象が重ならない場合に限り並列で作業できる。重複調査や同一ファイルへの同時書込みは行わない。
+- ルートエージェントが統合責任を持つ。書込みを委譲する場合は対象ファイルを明示し、重複しない単位に限定する。調査だけなら read-only を優先する。
 
-- `startup_ready_ui`は初期画面の必要なdata／bindingが適用された時点を表す。
-- `startup_ready_operable`は通常入力を受け付けられる時点を表し、非表示または遅延可能なtree、prewarm、audit、network、exportを待ってはならない。
-- `startup_initialization_complete`は通常利用に必要なlocal hydrationの完了を表す。network、physical audit、export、best-effort prewarmは別のpost-initialization milestoneへ分離する。
-- `DispatcherPriority.Background`、idle priority、generic `Task.Run`、任意のView refreshをglobal operabilityの必須edgeにしない。
-- startup background schedulerは、optional presentation完了ではなくrequired readinessに基づいて開始する。
-- readiness-critical workはrequest、worker start、model-read wait、snapshot、UI queue、UI start、applyを一つのcorrelation IDで記録する。
+### 実装後レビュー
 
-## 性能優先方針
+1. 実装と標準検証を終えたら、`.codex/agents/repo-static-review.toml` の `repo-static-review` を呼び出し、凍結した snapshot をレビューさせる。
+2. reviewer の実行中はルートエージェントを凍結し、repository の読み取り、検索、編集、build、test、format、stage、commit を行わない。
+3. 指摘を修正した場合は影響範囲を再検証し、変更後の新しい snapshot を fresh reviewer へ渡す。旧レビューの続きとして扱わない。
+4. planner / reviewer が利用できない環境では、同じ read-only 契約を明示した汎用サブエージェントを代替にし、省略したことにしない。
 
-- 目的は現在の.NET 10アプリを高速化することであり、差分や旧構造の維持を最小化することではない。
-- sourceとlogから不要なwait、queue、copy、fan-out、rebuildが明確なら、実機benchmarkを待たず修正する。
-- priority変更、ThreadPool min-thread増加、timeout、追加`Task.Run`だけで待ちを隠さない。wait graphとreadiness dependencyを直す。
-- C# 14／.NET 10 APIは、意味を守りつつallocation、enumeration、copy、lookupを明確に減らすhot pathで採用できる。
-- 根拠のないparallelism、pooling、unsafe化、無制限cache、custom loaderは導入しない。
-- 画面遷移で成立したstable source、atomic presentation、data-only invalidation、non-blocking refresh producerを維持する。
+## アーキテクチャ上の注意
 
-## Concurrency の非交渉条件
+- `MainWindow` / root ViewModel は shell と composition を担当する。feature state、domain decision、永続化、複数 service の順序制御は、既存の feature ViewModel、owner、service、gateway に置く。
+- code-behind には focus、selection、scroll、hit-test、drag、WPF routed event など View 固有の terminal behavior を置いてよい。View 固有処理を隠すだけの forwarding class は作らない。
+- owner 間は明示的な依存と immutable request / result / event で接続する。mutable collection、lock、private state を列挙する broad host、service locator、巨大 callback interface を追加しない。
+- model lock、DB transaction、operation gate を保持したまま UI、dialog、event subscriber、別 owner の完了を同期的に待たない。UI スレッドで sync-over-async を行わず、非 event handler の `async void` を追加しない。
+- 既存の owner / gateway / scheduler 境界を迂回して global state や platform API へ直接依存しない。境界を変える場合は挙動、失敗、shutdown、thread affinity をテストする。
 
-- model lock、DB transaction、reservation、operation gateを保持したまま別threadのUI完了を同期waitしない。
-- `PropertyChanged`、event、dialog、UI scheduler、View callback、別owner callbackをowner lock内から同期実行しない。
-- background producerはversion／immutable factをqueueして戻り、UI反映はcoalesced asynchronous drainで行う。
-- timeout、retry、`TryEnter`、notification skip、lock recursion変更でdeadlockを隠さない。
+## ログ
 
-## Distribution
+- production code から NLog を直接構成・取得・呼び出さない。logger の取得と出力は `Ribbit\Logging\NLogWrapper.cs` を経由する。
+- 通常ログは `NLogWrapper.FileLogger` 等を使い、名前付き channel は `NLogWrapper.GetLogger(name)` を使う。`LogManager`、target、rule の直接操作は `NLogWrapper` 実装内に限定する。
+- ログには原因調査に必要な文脈を含めるが、UI thread の hot path や per-item loop に無制限の文字列生成・同期 I/O を追加しない。機密情報や不要な個人データを出力しない。
 
-- 現行`bundle-r2r`はnative self-extract、all-content extraction、single-file compressionを使用しない。
-- cold-start問題をbundle起因と断定せず、まずmanaged startup stage内の待ちを閉じる。
-- `folder-r2r`は標準host layoutの性能優先fallbackとして維持する。managed DLLを独自`libs`へ移すloader／probing／deps書換えは作らない。
-- 最終PC再起動後比較は全engineering作業後のユーザー手動受入れとし、Codexのactive outcomeを止めない。
+## 多言語リソース
 
-## Verification
+- ダイアログ、メニュー、ボタン、設定、エラー、通常ステータスなど、ユーザーが目にする新しい文字列は必ず多言語リソース化する。`.cs` / `.xaml` へ新規の固定文言を直接追加しない。
+- resource key を追加・削除する場合は、次を同じ変更で揃える。
+  - `BeMusicSeeker\Properties\Resources.resx`
+  - `BeMusicSeeker\Properties\Resources.cs`
+  - `lang\en-US.json`, `fr-FR.json`, `ja-JP.json`, `ko-KR.json`, `zh-CN.json`, `zh-TW.json`
+- 全言語へ意味のある値を追加し、空文字や一時的な placeholder を残さない。`LocalizationResourceParityTests` を更新・実行する。
+- ログ、開発者向け診断、性能 marker、テスト専用文字列、内部 protocol 名は UI リソース化の対象外としてよい。
 
-- unitごとにbehavior、concurrency invariant、readiness dependency、source-level work reductionを確認する。
-- blocked／starvedなoptional folder refreshでも`startup_ready_operable`とrequired scheduler startが進む決定的testを持つ。
-- Full Gateでは全5 project、full tests、analyzer、selected publish、existing-data、update success／rollback、deadlock regression、startup structural auditを確認する。
+## 変更時の保守性
 
-## Git・Release Freeze
+- 新規または変更する public / protected / internal API には、契約と存在理由が分かる XML documentation を追加・更新する。
+- 触れた範囲のデコンパイル由来名は、挙動を変えずに domain 用語へ改善する。ただし命名だけの広範な差分を混ぜない。
+- 互換性維持、性能最適化、外部仕様、回避策など、コードだけでは理由が分からない箇所には「何をしているか」ではなく「なぜ必要か」をコメントする。
+- source text だけを確認する脆いテストより、observable behavior、永続データ、threading、failure contract を確認するテストを優先する。
 
-- rootだけがwriter／stager／committerとなり、unrelated差分へ触れない。
-- `git push`、tag、署名、公開release／publish、version／release notes変更はユーザーの明示指示まで禁止する。
+## 標準検証
+
+PowerShell 7 から `scripts\verify-refactor.ps1` を標準入口として使う。
+
+```powershell
+# 反復中の関連テスト
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter '<MSTest filter>'
+
+# 通常の全体確認
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick
+
+# restore、tool、analyzer、publish / update acceptance を含む高リスク確認
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
+```
+
+- 実装中は関連 test filter の `Quick` を優先し、小さな修正ごとに full suite を繰り返さない。
+- 通常のコード変更は、レビュー前に原則一度 `Quick` の全体確認を行う。project / package、startup / composition、共有 model、settings / persistence、file system、dispatcher / concurrency、publish / updater に触れた場合、または release 前は `Full` を一度行う。`Full` は `Quick` の確認を内包するため、直前に同じ全体確認を重複実行しない。
+- review 修正後は、まず影響範囲の filtered `Quick` を行う。修正が全体確認の前提を変えた場合だけ最終 `Quick` / `Full` を再実行する。
+- test の時間制限は script の監視に従う。現在は test process / shard が 180 秒で終了しなければ process tree を停止して失敗にする。timeout を延長したり同じ full run を無制限に再試行したりせず、`artifacts\verification` の出力を確認して原因を直す。
+- script が環境上利用できない場合だけ個別 command へ分解し、未実施項目と理由を明示する。標準入口を黙って省略しない。
+- prose / Markdown / TOML だけの変更では、構文、参照、UTF-8 / LF、whitespace、`git diff --check` を確認する。build 手順や agent behavior を変える設定変更は、必要な追加検証も行う。
+
+## UI確認と computer use
+
+- UI 確認では、computer use のアプリ検索や起動操作を使わない。同名のインストール版が優先されるため、先に PowerShell 等で repository 内の正確な executable path を指定して起動する。
+
+```powershell
+$exe = (Resolve-Path .\bin\x64\Release\net10.0-windows\BeMusicSeeker.exe).Path
+Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe)
+```
+
+- publish artifact を確認する場合は、その artifact の絶対 path を同じ方法で起動する。computer use は起動済みの対象 process / window の操作だけに使い、可能なら process path が期待値と一致することを確認する。
+- ユーザー操作によって computer use が中断された場合は、最後の安全な地点から操作を再取得してリトライする。一度の中断を理由に作業全体を終了しない。ただし、ユーザーが要件を変更した場合は新しい指示を優先する。
+- UI確認後は対象アプリを閉じ、computer use の session も終了する。残留 process を放置しない。
+
+## バージョン更新とリリース
+
+バージョン更新の依頼を受けた場合は、次を同じ変更で揃える。
+
+1. `Properties\AssemblyInfo.cs`
+   - `AssemblyInformationalVersion` を更新する。package 名、tag、`update.json`、公開用 `version.txt` の正本である。
+   - `AssemblyVersion` は互換性上の理由または明示指示がない限り変更しない。
+2. `BeMusicSeeker\Views\SettingDialog.xaml`
+   - `Update_history` に対象 version の履歴を追加する。
+   - 新しい説明文は多言語リソースを追加せず日本語ベタ書きで良い。
+3. `release notes\vX.X.X.X リリースノート.md`
+   - 対象 version の release notes を作成・更新し、GitHub Release 本文として使える状態にする。
+4. `ReleaseScriptVersionSourceTests` と `LocalizationResourceParityTests` を含む関連検証を行い、release 前に `verify-refactor.ps1 -Mode Full` を通す。
+
+`version.txt` と `update.json` は手動編集しない。`scripts\publish.ps1` / `scripts\release.ps1` が `AssemblyInformationalVersion` から生成する。package 作成、draft、tag、push、公開は、ユーザーがその release 操作を明示した場合だけ実行する。
