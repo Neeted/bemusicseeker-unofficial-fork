@@ -23,6 +23,9 @@ $scdUpdaterPublishOutput = Join-Path $scdPublishRoot 'updater'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
 $testTimeoutSeconds = 180
+# Each test host already uses class-level parallelism. Bounding concurrent hosts
+# prevents their worker pools from oversubscribing the machine under Full load.
+$maximumConcurrentFullTestShards = 2
 $isolatedFullTestClassShards = @(
     [pscustomobject]@{
         Name = 'library-sync'
@@ -201,122 +204,132 @@ function Invoke-MonitoredFullTestCommands {
                         ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
                 }
             })
-    $processes = @()
-    $timedOut = $false
-    $launchFailure = $null
-    $failedShard = $null
-    $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+    for ($waveStart = 0;
+        $waveStart -lt $shards.Count;
+        $waveStart += $maximumConcurrentFullTestShards) {
+        $waveEnd = [Math]::Min(
+            $waveStart + $maximumConcurrentFullTestShards,
+            $shards.Count)
+        $waveShards = @($shards[$waveStart..($waveEnd - 1)])
+        Write-Host "Test shard wave: $(($waveShards.Name) -join ', ')"
 
-    try {
-        foreach ($shard in $shards) {
-            $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
-            [void](New-Item -ItemType Directory -Path $shardDirectory -Force)
-            $standardOutputPath = Join-Path $shardDirectory 'stdout.log'
-            $standardErrorPath = Join-Path $shardDirectory 'stderr.log'
-            $arguments = $CommonArguments + @(
-                '--results-directory',
-                $shardDirectory,
-                '--filter',
-                $shard.Filter)
-            $process = Start-Process `
-                -FilePath $CommandPath `
-                -ArgumentList $arguments `
-                -WorkingDirectory $WorkingDirectory `
-                -RedirectStandardOutput $standardOutputPath `
-                -RedirectStandardError $standardErrorPath `
-                -PassThru
-            $processes += [pscustomobject]@{
-                Name = $shard.Name
-                Process = $process
-                StandardOutputPath = $standardOutputPath
-                StandardErrorPath = $standardErrorPath
+        $processes = @()
+        $timedOut = $false
+        $launchFailure = $null
+        $failedShard = $null
+        $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+
+        try {
+            foreach ($shard in $waveShards) {
+                $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
+                [void](New-Item -ItemType Directory -Path $shardDirectory -Force)
+                $standardOutputPath = Join-Path $shardDirectory 'stdout.log'
+                $standardErrorPath = Join-Path $shardDirectory 'stderr.log'
+                $arguments = $CommonArguments + @(
+                    '--results-directory',
+                    $shardDirectory,
+                    '--filter',
+                    $shard.Filter)
+                $process = Start-Process `
+                    -FilePath $CommandPath `
+                    -ArgumentList $arguments `
+                    -WorkingDirectory $WorkingDirectory `
+                    -RedirectStandardOutput $standardOutputPath `
+                    -RedirectStandardError $standardErrorPath `
+                    -PassThru
+                $processes += [pscustomobject]@{
+                    Name = $shard.Name
+                    Process = $process
+                    StandardOutputPath = $standardOutputPath
+                    StandardErrorPath = $standardErrorPath
+                }
+            }
+
+            $waitTasks = [System.Threading.Tasks.Task[]]@(
+                $processes | ForEach-Object { $_.Process.WaitForExitAsync() })
+            if (-not [System.Threading.Tasks.Task]::WaitAll(
+                $waitTasks,
+                $testTimeoutSeconds * 1000)) {
+                $timedOut = $true
+                $timedOutShardNames = @(
+                    $processes |
+                        Where-Object { -not $_.Process.HasExited } |
+                        ForEach-Object { $_.Name })
+                $timeoutMessage =
+                    "dotnet test shards did not return within $testTimeoutSeconds seconds. " +
+                    "Stopping: " +
+                    ($timedOutShardNames -join ', ')
+                Write-Warning $timeoutMessage
             }
         }
-
-        $waitTasks = [System.Threading.Tasks.Task[]]@(
-            $processes | ForEach-Object { $_.Process.WaitForExitAsync() })
-        if (-not [System.Threading.Tasks.Task]::WaitAll(
-            $waitTasks,
-            $testTimeoutSeconds * 1000)) {
-            $timedOut = $true
-            $timedOutShardNames = @(
-                $processes |
-                    Where-Object { -not $_.Process.HasExited } |
-                    ForEach-Object { $_.Name })
-            $timeoutMessage =
-                "dotnet test shards did not return within $testTimeoutSeconds seconds. " +
-                "Stopping: " +
-                ($timedOutShardNames -join ', ')
-            Write-Warning $timeoutMessage
+        catch {
+            $launchFailure = $_
         }
-    }
-    catch {
-        $launchFailure = $_
-    }
-    finally {
-        foreach ($entry in $processes) {
-            try {
-                if (($timedOut -or $null -ne $launchFailure) -and
-                    -not $entry.Process.HasExited) {
+        finally {
+            foreach ($entry in $processes) {
+                try {
+                    if (($timedOut -or $null -ne $launchFailure) -and
+                        -not $entry.Process.HasExited) {
+                        try {
+                            $entry.Process.Kill($true)
+                        }
+                        catch {
+                            $cleanupFailures.Add(
+                                "$($entry.Name): process-tree termination failed: $($_.Exception.Message)")
+                        }
+                    }
                     try {
-                        $entry.Process.Kill($true)
+                        if (-not $entry.Process.WaitForExit(10000)) {
+                            $cleanupFailures.Add(
+                                "$($entry.Name): process did not exit within the 10-second cleanup window")
+                        }
                     }
                     catch {
                         $cleanupFailures.Add(
-                            "$($entry.Name): process-tree termination failed: $($_.Exception.Message)")
+                            "$($entry.Name): exit observation failed: $($_.Exception.Message)")
+                    }
+                    Write-Host "Test shard: $($entry.Name)"
+                    Write-TestProcessOutput `
+                        -StandardOutputPath $entry.StandardOutputPath `
+                        -StandardErrorPath $entry.StandardErrorPath
+                    if (-not $timedOut -and
+                        $null -eq $launchFailure -and
+                        $null -eq $failedShard -and
+                        $entry.Process.HasExited -and
+                        $entry.Process.ExitCode -ne 0) {
+                        $failedShard = [pscustomobject]@{
+                            Name = $entry.Name
+                            ExitCode = $entry.Process.ExitCode
+                        }
                     }
                 }
-                try {
-                    if (-not $entry.Process.WaitForExit(10000)) {
+                catch {
+                    $cleanupFailures.Add(
+                        "$($entry.Name): cleanup/output collection failed: $($_.Exception.Message)")
+                }
+                finally {
+                    try {
+                        $entry.Process.Dispose()
+                    }
+                    catch {
                         $cleanupFailures.Add(
-                            "$($entry.Name): process did not exit within the 10-second cleanup window")
+                            "$($entry.Name): process disposal failed: $($_.Exception.Message)")
                     }
-                }
-                catch {
-                    $cleanupFailures.Add(
-                        "$($entry.Name): exit observation failed: $($_.Exception.Message)")
-                }
-                Write-Host "Test shard: $($entry.Name)"
-                Write-TestProcessOutput `
-                    -StandardOutputPath $entry.StandardOutputPath `
-                    -StandardErrorPath $entry.StandardErrorPath
-                if (-not $timedOut -and
-                    $null -eq $launchFailure -and
-                    $null -eq $failedShard -and
-                    $entry.Process.HasExited -and
-                    $entry.Process.ExitCode -ne 0) {
-                    $failedShard = [pscustomobject]@{
-                        Name = $entry.Name
-                        ExitCode = $entry.Process.ExitCode
-                    }
-                }
-            }
-            catch {
-                $cleanupFailures.Add(
-                    "$($entry.Name): cleanup/output collection failed: $($_.Exception.Message)")
-            }
-            finally {
-                try {
-                    $entry.Process.Dispose()
-                }
-                catch {
-                    $cleanupFailures.Add(
-                        "$($entry.Name): process disposal failed: $($_.Exception.Message)")
                 }
             }
         }
-    }
-    if ($cleanupFailures.Count -gt 0) {
-        throw "Test shard cleanup failed: $($cleanupFailures -join '; ')"
-    }
-    if ($null -ne $launchFailure) {
-        throw $launchFailure
-    }
-    if ($timedOut) {
-        throw "dotnet test exceeded the $testTimeoutSeconds-second response timeout. Test output: $DiagnosticsDirectory"
-    }
-    if ($null -ne $failedShard) {
-        throw "dotnet test shard '$($failedShard.Name)' failed with exit code $($failedShard.ExitCode). Test output: $DiagnosticsDirectory"
+        if ($cleanupFailures.Count -gt 0) {
+            throw "Test shard cleanup failed: $($cleanupFailures -join '; ')"
+        }
+        if ($null -ne $launchFailure) {
+            throw $launchFailure
+        }
+        if ($timedOut) {
+            throw "dotnet test exceeded the $testTimeoutSeconds-second response timeout. Test output: $DiagnosticsDirectory"
+        }
+        if ($null -ne $failedShard) {
+            throw "dotnet test shard '$($failedShard.Name)' failed with exit code $($failedShard.ExitCode). Test output: $DiagnosticsDirectory"
+        }
     }
 }
 
