@@ -2003,6 +2003,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         Directory.CreateDirectory(rootDirectory);
         string lr2Root = Path.Combine(scope.DirectoryPath, "LR2beta3");
+        string previousLr2Root = Settings.Default.LR2RootPath;
+        Settings.Default.LR2RootPath = lr2Root;
+        try
+        {
         string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
         string randomDirectory = Path.Combine(builtinRoot, "RANDOM");
         Directory.CreateDirectory(randomDirectory);
@@ -2047,6 +2051,11 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         CollectionAssert.Contains(fileCheckResult.Lr2ScanFolderInfoFilePaths.ToList(), folderInfoPath);
         CollectionAssert.Contains(fileCheckResult.Lr2ScanTextFileDirectories.ToList(), Lr2FolderPath.NormalizeDirectoryPath(randomDirectory));
         Assert.IsTrue(fileCheckResult.Lr2ScanDirectoryEntries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(randomDirectory)));
+        }
+        finally
+        {
+            Settings.Default.LR2RootPath = previousLr2Root;
+        }
     }
 
     [TestMethod]
