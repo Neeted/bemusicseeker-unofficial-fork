@@ -99,8 +99,25 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void BassAudioPlayer_StaticInitializationDoesNotEnumerateOrLoadNativeRuntime()
     {
+        WeakReference loadContextReference = null;
+        try
+        {
+            RunStaticInitializationInCollectibleContext(out loadContextReference);
+        }
+        finally
+        {
+            WaitForCollectibleContextUnload(loadContextReference);
+        }
+
+        Assert.IsFalse(loadContextReference.IsAlive, "The collectible audio test context must unload before another WPF test resolves application resources.");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void RunStaticInitializationInCollectibleContext(out WeakReference loadContextReference)
+    {
         string applicationAssemblyPath = typeof(BassAudioPlayer).Assembly.Location;
         var loadContext = new IsolatedApplicationLoadContext(applicationAssemblyPath);
+        loadContextReference = new WeakReference(loadContext, trackResurrection: true);
         try
         {
             Assembly applicationAssembly = loadContext.LoadFromAssemblyPath(applicationAssemblyPath);
@@ -119,6 +136,16 @@ public sealed class BassNativeRuntimeTests
         finally
         {
             loadContext.Unload();
+        }
+    }
+
+    private static void WaitForCollectibleContextUnload(WeakReference loadContextReference)
+    {
+        for (int attempt = 0; attempt < 10 && loadContextReference?.IsAlive == true; attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
         }
     }
 
