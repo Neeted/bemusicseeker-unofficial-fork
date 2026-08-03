@@ -108,6 +108,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow;
 
+    private string audioDeviceTestStatusMessage;
+
     private readonly IAudioDeviceCatalog audioDeviceCatalog;
 
     private readonly IAudioSettingsGateway audioSettingsGateway;
@@ -175,6 +177,22 @@ public partial class SettingsDialogViewModel : ViewModel
     /// </summary>
     public bool IsAudioDeviceTestAvailable => !IsAudioDeviceTestInProgress;
 
+    /// <summary>Gets the localized outcome of the most recent audio-device test.</summary>
+    public string AudioDeviceTestStatusMessage
+    {
+        get => audioDeviceTestStatusMessage;
+        private set
+        {
+            if (string.Equals(audioDeviceTestStatusMessage, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            audioDeviceTestStatusMessage = value;
+            RaisePropertyChanged(nameof(AudioDeviceTestStatusMessage));
+        }
+    }
+
     internal bool IsScoreReloadPending => scoreReloadPending;
 
     internal bool IsFileDiffReloadPending => fileDiffReloadPending;
@@ -184,6 +202,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// </summary>
     internal void RequestOpen()
     {
+        AudioDeviceTestStatusMessage = null;
         audioDeviceCatalog.Refresh();
         playerDeviceNames = BuildPlayerDeviceNames(audioSettingsGateway.PlayerDriver);
         RaisePropertyChanged(nameof(PlayerDriverNames));
@@ -5735,6 +5754,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplicationSettings.PlayerWASAPIParam,
             ApplicationSettings.uBMplayVolume,
             playSound: true);
+        AudioDeviceTestStatusMessage = null;
         Task<AudioDeviceTestResult> testTask = audioDeviceTestWorkflow.TryRunAsync(request);
         RaisePropertyChanged(nameof(IsAudioDeviceTestInProgress));
         RaisePropertyChanged(nameof(IsAudioDeviceTestAvailable));
@@ -5747,6 +5767,8 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 return;
             }
+
+            AudioDeviceTestStatusMessage = FormatAudioDeviceTestResult(result);
 
             if (!CanApplyAudioDeviceTestResult(request, result))
             {
@@ -5775,6 +5797,18 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(PlayerFormat));
             RaisePropertyChanged(nameof(PlayerLatency));
         }
+        catch (AudioInitializationException exception)
+        {
+            string message = FormatAudioInitializationFailure(exception);
+            AudioDeviceTestStatusMessage = message;
+            UiDialogResult dialogResult = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
+                message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK));
+            UiDialogRoute.ThrowIfNotShown(dialogResult, "Audio device initialization failure notification");
+        }
         finally
         {
             RaisePropertyChanged(nameof(IsAudioDeviceTestInProgress));
@@ -5782,6 +5816,61 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(IsEditCompletionEnabled));
             RaisePropertyChanged(nameof(IsEditCancellationEnabled));
         }
+    }
+
+    private static string FormatAudioDeviceTestResult(AudioDeviceTestResult result)
+    {
+        string requestedDevice = DescribeAudioDevice(result.RequestedDevice, result.RequestedDeviceName);
+        string actualDevice = DescribeAudioDevice(result.ActualDevice, result.ActualDeviceName);
+        if (!result.Succeeded)
+        {
+            return string.Format(
+                BeMusicSeeker.Properties.Resources.AudioDeviceTestStreamFailureFormat,
+                result.RequestedBackend,
+                result.ActualBackend,
+                BeMusicSeeker.Properties.Resources.AudioDeviceTestStreamProgressFailureReason);
+        }
+        if (result.FallbackOccurred)
+        {
+            return string.Format(
+                BeMusicSeeker.Properties.Resources.AudioDeviceTestFallbackFormat,
+                result.RequestedBackend,
+                requestedDevice,
+                result.ActualBackend,
+                actualDevice,
+                BeMusicSeeker.Properties.Resources.AudioDeviceTestFallbackReason);
+        }
+        return string.Format(
+            BeMusicSeeker.Properties.Resources.AudioDeviceTestSuccessFormat,
+            result.ActualBackend,
+            actualDevice,
+            result.ActualRate,
+            result.EngineFormat,
+            result.EndpointFormat,
+            result.ActualChannels,
+            result.Latency);
+    }
+
+    private static string FormatAudioInitializationFailure(AudioInitializationException exception)
+    {
+        return string.Format(
+            BeMusicSeeker.Properties.Resources.AudioDeviceTestInitializationErrorFormat,
+            exception.RequestedBackend,
+            exception.ActualBackend,
+            exception.Stage,
+            exception.NativeErrorSource,
+            exception.NativeErrorCode?.ToString() ?? "-",
+            DescribeAudioDevice(exception.RequestedDevice.Driver, exception.RequestedDevice.Name),
+            DescribeAudioDevice(exception.ActualDevice.Driver, exception.ActualDevice.Name));
+    }
+
+    private static string DescribeAudioDevice(string identity, string name)
+    {
+        if (string.IsNullOrWhiteSpace(identity) && string.IsNullOrWhiteSpace(name))
+        {
+            return BeMusicSeeker.Properties.Resources.AudioDeviceDefault;
+        }
+        return string.IsNullOrWhiteSpace(name) ? identity : name;
     }
 
     private bool CanApplyAudioDeviceTestResult(

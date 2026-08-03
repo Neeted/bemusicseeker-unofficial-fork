@@ -79,6 +79,58 @@ public sealed class LocalizationResourceParityTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.InitialSetupLanguageDialogContinue));
     }
 
+    [TestMethod]
+    public void AudioDeviceTestResultStrings_ArePresentInAllLanguages()
+    {
+        string root = FindRepositoryRoot();
+        string langDirectory = Path.Combine(root, "lang");
+        var formatArgumentCounts = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [nameof(Resources.AudioDeviceTestSuccessFormat)] = 7,
+            [nameof(Resources.AudioDeviceTestFallbackFormat)] = 5,
+            [nameof(Resources.AudioDeviceTestStreamFailureFormat)] = 3,
+            [nameof(Resources.AudioDeviceTestInitializationErrorFormat)] = 7
+        };
+        string[] plainKeys =
+        [
+            nameof(Resources.AudioDeviceTestStreamProgressFailureReason),
+            nameof(Resources.AudioDeviceTestFallbackReason)
+        ];
+
+        foreach (string languagePath in Directory.GetFiles(langDirectory, "*.json").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            JObject language = ReadLanguageJsonObject(languagePath);
+            foreach ((string key, int argumentCount) in formatArgumentCounts)
+            {
+                string value = language[key]?.Value<string>();
+                Assert.IsFalse(string.IsNullOrWhiteSpace(value), Path.GetFileName(languagePath) + " " + key + " must not be empty.");
+                for (int index = 0; index < argumentCount; index++)
+                {
+                    StringAssert.Contains(
+                        value,
+                        "{" + index.ToString(CultureInfo.InvariantCulture),
+                        Path.GetFileName(languagePath) + " " + key + " must preserve placeholder " + index + ".");
+                }
+                object[] arguments = Enumerable.Range(0, argumentCount)
+                    .Select(index => index == argumentCount - 1 ? (object)1.5 : index.ToString(CultureInfo.InvariantCulture))
+                    .ToArray();
+                try
+                {
+                    _ = string.Format(CultureInfo.InvariantCulture, value, arguments);
+                }
+                catch (FormatException exception)
+                {
+                    Assert.Fail(Path.GetFileName(languagePath) + " " + key + " has invalid placeholders: " + exception.Message);
+                }
+            }
+            foreach (string key in plainKeys)
+            {
+                string value = language[key]?.Value<string>();
+                Assert.IsFalse(string.IsNullOrWhiteSpace(value), Path.GetFileName(languagePath) + " " + key + " must not be empty.");
+            }
+        }
+    }
+
     private static HashSet<string> ReadGeneratedResourceStringKeys()
     {
         return typeof(Resources)

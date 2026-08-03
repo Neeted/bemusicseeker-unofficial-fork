@@ -1,10 +1,15 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
+using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 using Un4seen.Bass;
@@ -153,13 +158,79 @@ public sealed class BassNativeRuntimeTests
     public void InitializeOwned_ActiveSessionRejectsScopedAndUnscopedReentry()
     {
         BassAudioSession ownedSession = null;
+        _ = NLogWrapper.GetLogger("AudioSession");
+        LoggingConfiguration originalLoggingConfiguration = LogManager.Configuration;
+        var audioSessionTarget = new MemoryTarget { Layout = "${message}" };
+        var testLoggingConfiguration = new LoggingConfiguration();
+        testLoggingConfiguration.AddRule(LogLevel.Info, LogLevel.Fatal, audioSessionTarget, "AudioSession");
+        LogManager.Configuration = testLoggingConfiguration;
         try
         {
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
             BassAudioPlayer.InitializeOwned(
                 BassAudioPlayer.DeviceDriver.NULL_DEVICE,
                 default,
                 0f,
                 out ownedSession);
+
+            BassAudioBackendResult negotiated = ownedSession.NegotiationResult;
+            Assert.IsNotNull(negotiated);
+            Assert.AreEqual(BassAudioPlayer.DeviceDriver.NULL_DEVICE, negotiated.Request.Backend);
+            Assert.AreEqual(SampleRate.AUTO, negotiated.Request.Rate);
+            Assert.AreEqual(SampleFormat.AUTO, negotiated.Request.Format);
+            Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, negotiated.ActualRate);
+            Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, negotiated.EngineFormat);
+            Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, negotiated.EndpointFormat);
+            Assert.AreEqual(2, negotiated.ActualChannels);
+            Assert.AreEqual(0d, negotiated.LatencyMilliseconds);
+            Assert.AreEqual(ownedSession.MixerHandle, negotiated.MixerHandle);
+            Assert.IsTrue(negotiated.MixerHandle != 0);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(negotiated.FallbackReason));
+
+            LogManager.Flush();
+            string productionSuccessLog = audioSessionTarget.Logs.Single(
+                log => log.Contains("Audio initialization attempt succeeded.", StringComparison.Ordinal));
+            StringAssert.Contains(productionSuccessLog, "fallbackOccurred=False");
+            StringAssert.Contains(productionSuccessLog, "fallbackDestination=none");
+            StringAssert.Contains(productionSuccessLog, "fallbackReason=none");
+            StringAssert.Contains(productionSuccessLog, "os=");
+            StringAssert.Contains(productionSuccessLog, "bassVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassWasapiVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassAsioVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassMixVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassFxVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassEncVersion=0x");
+
+            string exactSuccess = BassAudioPlayer.BuildInitializationSuccessDiagnostics(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                ownedSession,
+                SampleRate.AUTO,
+                SampleFormat.AUTO,
+                0f,
+                requestedEventMode: false,
+                "versions");
+            StringAssert.Contains(exactSuccess, "fallbackOccurred=False");
+            StringAssert.Contains(exactSuccess, "fallbackDestination=none");
+            StringAssert.Contains(exactSuccess, "fallbackReason=none");
+
+            string versions = BassAudioPlayer.BuildRuntimeVersionDiagnostics(
+                "test-os",
+                1,
+                2,
+                3,
+                4,
+                5,
+                6);
+            StringAssert.Contains(versions, "os=test-os");
+            StringAssert.Contains(versions, "bassVersion=0x00000001");
+            StringAssert.Contains(versions, "bassWasapiVersion=0x00000002");
+            StringAssert.Contains(versions, "bassAsioVersion=0x00000003");
+            StringAssert.Contains(versions, "bassMixVersion=0x00000004");
+            StringAssert.Contains(versions, "bassFxVersion=0x00000005");
+            StringAssert.Contains(versions, "bassEncVersion=0x00000006");
 
             Assert.ThrowsException<AudioInitializationException>(() => BassAudioPlayer.InitializeOwned(
                 BassAudioPlayer.DeviceDriver.NULL_DEVICE,
@@ -174,8 +245,16 @@ public sealed class BassNativeRuntimeTests
         }
         finally
         {
-            BassAudioPlayer.Free(ownedSession);
-            RibbitBassNet.Shutdown();
+            try
+            {
+                BassAudioPlayer.Free(ownedSession);
+                RibbitBassNet.Shutdown();
+                LogManager.Flush();
+            }
+            finally
+            {
+                LogManager.Configuration = originalLoggingConfiguration;
+            }
         }
     }
 

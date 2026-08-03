@@ -1952,6 +1952,18 @@ public class Resources
 
     public static string AudioDeviceUnavailableFormat => ResourceManager.GetString("AudioDeviceUnavailableFormat", resourceCulture);
 
+    public static string AudioDeviceTestSuccessFormat => ResourceManager.GetString("AudioDeviceTestSuccessFormat", resourceCulture);
+
+    public static string AudioDeviceTestFallbackFormat => ResourceManager.GetString("AudioDeviceTestFallbackFormat", resourceCulture);
+
+    public static string AudioDeviceTestStreamFailureFormat => ResourceManager.GetString("AudioDeviceTestStreamFailureFormat", resourceCulture);
+
+    public static string AudioDeviceTestStreamProgressFailureReason => ResourceManager.GetString("AudioDeviceTestStreamProgressFailureReason", resourceCulture);
+
+    public static string AudioDeviceTestFallbackReason => ResourceManager.GetString("AudioDeviceTestFallbackReason", resourceCulture);
+
+    public static string AudioDeviceTestInitializationErrorFormat => ResourceManager.GetString("AudioDeviceTestInitializationErrorFormat", resourceCulture);
+
     internal Resources()
     {
     }

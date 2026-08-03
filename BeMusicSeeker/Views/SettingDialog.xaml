@@ -435,6 +435,7 @@
                       </GroupBox>
                     </DockPanel>
                     <Button Margin="10" Width="200" HorizontalAlignment="Center" VerticalContentAlignment="Center" IsEnabled="{Binding IsAudioDeviceTestAvailable, Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_test, Mode=OneWay}" Click="buttonPlayerTestClick" />
+                    <TextBlock Margin="20,0,20,8" TextWrapping="Wrap" Text="{Binding AudioDeviceTestStatusMessage, Mode=OneWay}" />
                     <Label DockPanel.Dock="Bottom" Padding="5,2,5,5" HorizontalContentAlignment="Left" HorizontalAlignment="Left" Margin="20,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc1, Mode=OneWay}" />
                     <Label DockPanel.Dock="Bottom" Padding="5,2,5,5" HorizontalContentAlignment="Left" HorizontalAlignment="Left" Margin="20,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc2, Mode=OneWay}" />
                   </StackPanel>

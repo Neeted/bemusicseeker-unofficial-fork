@@ -327,7 +327,8 @@ internal sealed class BassWasapiNegotiator
             latencyMilliseconds,
             mixerHandle,
             attempts.AsReadOnly(),
-            fallbackReasons.Count == 0 ? null : string.Join(" ", fallbackReasons));
+            fallbackReasons.Count == 0 ? null : string.Join(" ", fallbackReasons),
+            info.chans);
         session.NegotiationResult = result;
         return result;
     }

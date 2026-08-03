@@ -874,5 +874,11 @@
   "UpdateDialog_UpdateButton": "업데이트",
   "UpdateDialog_ReleasePageButton": "릴리스 페이지",
   "AudioDeviceDefault": "(기본 장치)",
-  "AudioDeviceUnavailableFormat": "사용할 수 없음: {0}"
+  "AudioDeviceUnavailableFormat": "사용할 수 없음: {0}",
+  "AudioDeviceTestSuccessFormat": "오디오 장치 테스트에 성공했습니다. 백엔드: {0}, 장치: {1}, 샘플 레이트: {2}, 엔진 형식: {3}, 엔드포인트 형식: {4}, 채널: {5}, 지연 시간: {6:N1} ms",
+  "AudioDeviceTestFallbackFormat": "대체 경로로 오디오 장치를 초기화했습니다. 선택: {0} / {1}, 실제: {2} / {3}, 이유: {4}",
+  "AudioDeviceTestStreamFailureFormat": "장치 초기화에는 성공했지만 테스트 사운드의 재생 진행을 확인하지 못했습니다. 선택: {0}, 실제: {1}, 이유: {2}",
+  "AudioDeviceTestStreamProgressFailureReason": "재생 위치가 정상 속도로 진행되지 않았습니다.",
+  "AudioDeviceTestFallbackReason": "선택한 구성을 사용할 수 없어 사용 가능한 구성으로 전환했습니다.",
+  "AudioDeviceTestInitializationErrorFormat": "오디오 초기화에 실패했습니다.\n선택한 백엔드: {0}\n실패한 백엔드: {1}\n단계: {2}\n네이티브 오류: {3} ({4})\n선택한 장치: {5}\n실제 장치: {6}"
 }

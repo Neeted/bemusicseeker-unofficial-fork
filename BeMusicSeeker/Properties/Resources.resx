@@ -3043,4 +3043,22 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="AudioDeviceUnavailableFormat" xml:space="preserve">
     <value>利用不可: {0}</value>
   </data>
+  <data name="AudioDeviceTestSuccessFormat" xml:space="preserve">
+    <value>オーディオデバイスのテストに成功しました。バックエンド: {0}、デバイス: {1}、レート: {2}、エンジン形式: {3}、エンドポイント形式: {4}、チャンネル: {5}、レイテンシ: {6:N1} ms</value>
+  </data>
+  <data name="AudioDeviceTestFallbackFormat" xml:space="preserve">
+    <value>フォールバックしてオーディオデバイスを初期化しました。選択: {0} / {1}、実際: {2} / {3}、理由: {4}</value>
+  </data>
+  <data name="AudioDeviceTestStreamFailureFormat" xml:space="preserve">
+    <value>デバイスの初期化には成功しましたが、テスト音声の再生進行を確認できませんでした。選択: {0}、実際: {1}、理由: {2}</value>
+  </data>
+  <data name="AudioDeviceTestStreamProgressFailureReason" xml:space="preserve">
+    <value>再生位置が正常な速度で進みませんでした。</value>
+  </data>
+  <data name="AudioDeviceTestFallbackReason" xml:space="preserve">
+    <value>選択した構成をそのまま使用できなかったため、利用可能な構成へ切り替えました。</value>
+  </data>
+  <data name="AudioDeviceTestInitializationErrorFormat" xml:space="preserve">
+    <value>オーディオの初期化に失敗しました。&#xA;選択したバックエンド: {0}&#xA;失敗したバックエンド: {1}&#xA;ステージ: {2}&#xA;ネイティブエラー: {3} ({4})&#xA;選択したデバイス: {5}&#xA;実際のデバイス: {6}</value>
+  </data>
 </root>

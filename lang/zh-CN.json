@@ -874,5 +874,11 @@
   "UpdateDialog_UpdateButton": "更新",
   "UpdateDialog_ReleasePageButton": "Release 页面",
   "AudioDeviceDefault": "（默认设备）",
-  "AudioDeviceUnavailableFormat": "不可用：{0}"
+  "AudioDeviceUnavailableFormat": "不可用：{0}",
+  "AudioDeviceTestSuccessFormat": "音频设备测试成功。后端：{0}；设备：{1}；采样率：{2}；引擎格式：{3}；端点格式：{4}；声道：{5}；延迟：{6:N1} ms",
+  "AudioDeviceTestFallbackFormat": "音频设备已通过回退初始化。选择：{0} / {1}；实际：{2} / {3}；原因：{4}",
+  "AudioDeviceTestStreamFailureFormat": "设备初始化成功，但无法确认测试音频的播放进度。选择：{0}；实际：{1}；原因：{2}",
+  "AudioDeviceTestStreamProgressFailureReason": "播放位置未按正常速度推进。",
+  "AudioDeviceTestFallbackReason": "所选配置不可用，因此已切换到可用配置。",
+  "AudioDeviceTestInitializationErrorFormat": "音频初始化失败。\n选择的后端：{0}\n失败的后端：{1}\n阶段：{2}\n本机错误：{3} ({4})\n选择的设备：{5}\n实际设备：{6}"
 }

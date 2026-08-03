@@ -874,5 +874,11 @@
   "UpdateDialog_UpdateButton": "Mettre à jour",
   "UpdateDialog_ReleasePageButton": "Page de version",
   "AudioDeviceDefault": "(Périphérique par défaut)",
-  "AudioDeviceUnavailableFormat": "Indisponible : {0}"
+  "AudioDeviceUnavailableFormat": "Indisponible : {0}",
+  "AudioDeviceTestSuccessFormat": "Le test du périphérique audio a réussi. Moteur : {0} ; périphérique : {1} ; fréquence : {2} ; format moteur : {3} ; format du point de terminaison : {4} ; canaux : {5} ; latence : {6:N1} ms",
+  "AudioDeviceTestFallbackFormat": "Le périphérique audio a été initialisé avec un repli. Sélection : {0} / {1} ; réel : {2} / {3} ; raison : {4}",
+  "AudioDeviceTestStreamFailureFormat": "L'initialisation du périphérique a réussi, mais la progression du son de test n'a pas pu être vérifiée. Sélection : {0} ; réel : {1} ; raison : {2}",
+  "AudioDeviceTestStreamProgressFailureReason": "La position de lecture n'a pas progressé à une vitesse normale.",
+  "AudioDeviceTestFallbackReason": "La configuration sélectionnée n'était pas disponible ; une configuration disponible a donc été utilisée.",
+  "AudioDeviceTestInitializationErrorFormat": "Échec de l'initialisation audio.\nMoteur sélectionné : {0}\nMoteur en échec : {1}\nÉtape : {2}\nErreur native : {3} ({4})\nPériphérique sélectionné : {5}\nPériphérique réel : {6}"
 }

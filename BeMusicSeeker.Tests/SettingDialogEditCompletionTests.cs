@@ -22,6 +22,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
+using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -1008,6 +1009,9 @@ public sealed class SettingDialogEditCompletionTests
 
             AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
             Assert.AreEqual(0d, dialog.PlayerLatency);
+            StringAssert.Contains(
+                dialog.AudioDeviceTestStatusMessage,
+                Resources.AudioDeviceTestStreamProgressFailureReason);
         }
         finally
         {
@@ -1047,6 +1051,10 @@ public sealed class SettingDialogEditCompletionTests
 
             AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
             Assert.AreEqual(0d, dialog.PlayerLatency);
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "DirectSound");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "WasapiShared");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.AudioDeviceTestFallbackReason);
+            Assert.IsFalse(dialog.AudioDeviceTestStatusMessage.Contains("fallbackDestination=WASAPI_SHARED", StringComparison.Ordinal));
         }
         finally
         {
@@ -1095,6 +1103,52 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(SampleRate.AUTO, settings.PlayerSampleRate);
             Assert.AreEqual(SampleFormat.AUTO, settings.PlayerFormat);
             Assert.AreEqual(17d, dialog.PlayerLatency);
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "DirectSound");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTest_KnownInitializationFailureShowsLocalizedDiagnosticWithoutChangingSettings()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.Asio };
+            var dialogs = new RecordingRootDialogService();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(_ => throw new AudioInitializationException(
+                    BassAudioPlayer.DeviceDriver.ASIO,
+                    BassAudioPlayer.DeviceDriver.ASIO,
+                    "BASS_ASIO_Init",
+                    new BassAudioPlayer.DeviceDescriptor("Requested device", "requested-device"),
+                    default,
+                    "BASSASIO",
+                    BASSError.BASS_ERROR_DEVICE,
+                    "ASIO initialization failed")));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway,
+                dialogs);
+
+            await dialog.RunAudioDeviceTestAsync();
+
+            Assert.AreEqual(1, dialogs.MessageCount);
+            StringAssert.Contains(dialogs.LastMessageText, "ASIO");
+            StringAssert.Contains(dialogs.LastMessageText, "BASS_ASIO_Init");
+            StringAssert.Contains(dialogs.LastMessageText, "BASS_ERROR_DEVICE");
+            Assert.AreEqual(dialogs.LastMessageText, dialog.AudioDeviceTestStatusMessage);
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway, AudioDriver.Asio);
         }
         finally
         {
@@ -1818,7 +1872,8 @@ public sealed class SettingDialogEditCompletionTests
         MainWindowViewModel viewModel,
         CountingSettingsEditSession settingsSession,
         AudioDeviceTestWorkflowOwner workflow,
-        TestAudioSettingsGateway audioGateway)
+        TestAudioSettingsGateway audioGateway,
+        IUiDialogService? dialogs = null)
     {
         return new SettingsDialogViewModel(
             viewModel,
@@ -1830,6 +1885,7 @@ public sealed class SettingDialogEditCompletionTests
             new TestSettingsDialogPlaybackRuntimePort(),
             viewModel.Lr2SongDbSyncWorkflow,
             settingsSession,
+            schemaDialogs: dialogs,
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             audioDeviceTestWorkflow: workflow,
@@ -1852,9 +1908,10 @@ public sealed class SettingDialogEditCompletionTests
 
     private static void AssertExplicitAudioSettingsUnchanged(
         Settings settings,
-        TestAudioSettingsGateway audioGateway)
+        TestAudioSettingsGateway audioGateway,
+        AudioDriver expectedDriver = AudioDriver.DirectSound)
     {
-        Assert.AreEqual(AudioDriver.DirectSound, audioGateway.PlayerDriver);
+        Assert.AreEqual(expectedDriver, audioGateway.PlayerDriver);
         Assert.AreEqual("requested-device", settings.PlayerDevice);
         Assert.AreEqual("Requested device", settings.PlayerDeviceName);
         Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, settings.PlayerSampleRate);

@@ -874,5 +874,11 @@
   "UpdateDialog_UpdateButton": "更新",
   "UpdateDialog_ReleasePageButton": "Releaseページ",
   "AudioDeviceDefault": "（既定のデバイス）",
-  "AudioDeviceUnavailableFormat": "利用不可: {0}"
+  "AudioDeviceUnavailableFormat": "利用不可: {0}",
+  "AudioDeviceTestSuccessFormat": "オーディオデバイスのテストに成功しました。バックエンド: {0}、デバイス: {1}、レート: {2}、エンジン形式: {3}、エンドポイント形式: {4}、チャンネル: {5}、レイテンシ: {6:N1} ms",
+  "AudioDeviceTestFallbackFormat": "フォールバックしてオーディオデバイスを初期化しました。選択: {0} / {1}、実際: {2} / {3}、理由: {4}",
+  "AudioDeviceTestStreamFailureFormat": "デバイスの初期化には成功しましたが、テスト音声の再生進行を確認できませんでした。選択: {0}、実際: {1}、理由: {2}",
+  "AudioDeviceTestStreamProgressFailureReason": "再生位置が正常な速度で進みませんでした。",
+  "AudioDeviceTestFallbackReason": "選択した構成をそのまま使用できなかったため、利用可能な構成へ切り替えました。",
+  "AudioDeviceTestInitializationErrorFormat": "オーディオの初期化に失敗しました。\n選択したバックエンド: {0}\n失敗したバックエンド: {1}\nステージ: {2}\nネイティブエラー: {3} ({4})\n選択したデバイス: {5}\n実際のデバイス: {6}"
 }

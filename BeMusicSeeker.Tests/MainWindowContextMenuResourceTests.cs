@@ -2566,6 +2566,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(xaml, "IsChecked=\"{Binding UseInternalPlayer}\"");
         StringAssert.Contains(xaml, "IsEnabled=\"{Binding IsAudioDeviceTestAvailable, Mode=OneWay}\"");
+        StringAssert.Contains(xaml, "Text=\"{Binding AudioDeviceTestStatusMessage, Mode=OneWay}\"");
         StringAssert.Contains(viewModelCode, "public bool IsEditCompletionEnabled => !IsEditCompletionInProgress && !IsAudioDeviceTestInProgress;");
         StringAssert.Contains(viewModelCode, "public bool IsEditCancellationEnabled => !IsEditCompletionInProgress");
         StringAssert.Contains(viewModelCode, "if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress)");

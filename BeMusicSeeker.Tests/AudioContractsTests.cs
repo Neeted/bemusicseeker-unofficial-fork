@@ -126,6 +126,7 @@ public sealed class AudioContractsTests
             SampleRate.SAMPLE_RATE_48000Hz,
             SampleFormat.SAMPLE_FLOAT_32BIT,
             SampleFormat.SAMPLE_INT_16BIT,
+            6,
             18.5,
             "attemptedBackend=ASIO; fallbackDestination=WASAPI_SHARED",
             isSilentFallback: false);
@@ -139,6 +140,7 @@ public sealed class AudioContractsTests
         Assert.AreEqual(SampleFormat.SAMPLE_INT_24BIT, result.RequestedFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, result.EndpointFormat);
+        Assert.AreEqual(6, result.ActualChannels);
         Assert.IsTrue(result.FallbackOccurred);
         Assert.IsFalse(result.IsSilentFallback);
         StringAssert.Contains(result.FallbackReason, "fallbackDestination=WASAPI_SHARED");

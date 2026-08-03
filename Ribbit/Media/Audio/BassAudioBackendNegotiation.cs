@@ -87,7 +87,8 @@ internal sealed class BassAudioBackendResult
         double latencyMilliseconds,
         int mixerHandle,
         IReadOnlyList<BassAudioBackendAttempt> attempts,
-        string fallbackReason)
+        string fallbackReason,
+        int actualChannels = 2)
     {
         Request = request ?? throw new ArgumentNullException(nameof(request));
         ActualDevice = actualDevice;
@@ -98,6 +99,7 @@ internal sealed class BassAudioBackendResult
         MixerHandle = mixerHandle;
         Attempts = attempts ?? throw new ArgumentNullException(nameof(attempts));
         FallbackReason = fallbackReason;
+        ActualChannels = actualChannels;
     }
 
     /// <summary>Gets the original caller request.</summary>
@@ -117,6 +119,9 @@ internal sealed class BassAudioBackendResult
 
     /// <summary>Gets the measured output latency in milliseconds.</summary>
     internal double LatencyMilliseconds { get; }
+
+    /// <summary>Gets the channel count accepted by the endpoint or callback.</summary>
+    internal int ActualChannels { get; }
 
     /// <summary>Gets the decode mixer owned by the audio session.</summary>
     internal int MixerHandle { get; }
@@ -157,6 +162,7 @@ internal sealed class BassAudioBackendResult
             LatencyMilliseconds,
             MixerHandle,
             attempts,
-            fallbackReason);
+            fallbackReason,
+            ActualChannels);
     }
 }

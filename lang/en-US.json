@@ -874,5 +874,11 @@
   "UpdateDialog_UpdateButton": "Update",
   "UpdateDialog_ReleasePageButton": "Release Page",
   "AudioDeviceDefault": "(Default device)",
-  "AudioDeviceUnavailableFormat": "Unavailable: {0}"
+  "AudioDeviceUnavailableFormat": "Unavailable: {0}",
+  "AudioDeviceTestSuccessFormat": "Audio device test succeeded. Backend: {0}; device: {1}; rate: {2}; engine format: {3}; endpoint format: {4}; channels: {5}; latency: {6:N1} ms",
+  "AudioDeviceTestFallbackFormat": "The audio device initialized with fallback. Selected: {0} / {1}; actual: {2} / {3}; reason: {4}",
+  "AudioDeviceTestStreamFailureFormat": "Device initialization succeeded, but test-sound stream progress could not be verified. Selected: {0}; actual: {1}; reason: {2}",
+  "AudioDeviceTestStreamProgressFailureReason": "The playback position did not advance at a normal rate.",
+  "AudioDeviceTestFallbackReason": "The selected configuration was unavailable, so an available configuration was used.",
+  "AudioDeviceTestInitializationErrorFormat": "Audio initialization failed.\nSelected backend: {0}\nFailed backend: {1}\nStage: {2}\nNative error: {3} ({4})\nSelected device: {5}\nActual device: {6}"
 }

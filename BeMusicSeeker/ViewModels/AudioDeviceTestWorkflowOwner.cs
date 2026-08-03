@@ -154,6 +154,9 @@ internal sealed class AudioDeviceTestResult
     /// <summary>Gets the native endpoint or callback format.</summary>
     internal SampleFormat EndpointFormat => Initialization.EndpointFormat;
 
+    /// <summary>Gets the channel count accepted by the endpoint or callback.</summary>
+    internal int ActualChannels => Initialization.ActualChannels;
+
     /// <summary>Gets the negotiated latency in milliseconds.</summary>
     internal double Latency => Initialization.Latency;
 
@@ -488,6 +491,7 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 negotiated.ActualRate,
                 negotiated.EngineFormat,
                 negotiated.EndpointFormat,
+                negotiated.ActualChannels,
                 negotiated.LatencyMilliseconds,
                 negotiated.FallbackReason,
                 ownedSession.ActualBackend == BassAudioPlayer.DeviceDriver.NULL_DEVICE);
@@ -550,9 +554,20 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
     {
         try
         {
-            NLogWrapper.GetLogger(nameof(BassAudioDeviceTestRuntime)).Debug(
+            NLogWrapper.GetLogger(nameof(BassAudioDeviceTestRuntime)).Info(
                 "Audio device test result. requestedBackend=" + result.RequestedBackend
+                + " requestedDevice=[name=" + result.RequestedDeviceName + ",identity=" + result.RequestedDevice + "]"
+                + " requestedRate=" + result.RequestedRate
+                + " requestedFormat=" + result.RequestedFormat
+                + " requestedBufferMs=" + result.RequestedBufferSize
+                + " requestedEventMode=" + result.RequestedEventMode
                 + " actualBackend=" + result.ActualBackend
+                + " actualDevice=[name=" + result.ActualDeviceName + ",identity=" + result.ActualDevice + "]"
+                + " actualRate=" + result.ActualRate
+                + " actualChannels=" + result.ActualChannels
+                + " engineFormat=" + result.EngineFormat
+                + " endpointFormat=" + result.EndpointFormat
+                + " latencyMs=" + result.Latency
                 + " initializationSucceeded=" + result.DeviceInitializationSucceeded
                 + " streamProgressRequired=" + result.StreamProgressRequired
                 + " streamProgressSucceeded=" + result.StreamProgressSucceeded
@@ -561,6 +576,7 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 + " progressRatio=" + result.ProgressRatio
                 + " fallbackOccurred=" + result.FallbackOccurred
                 + " fallbackReason=" + result.FallbackReason
+                + " isSilentFallback=" + result.IsSilentFallback
                 + " failureReason=" + result.FailureReason);
         }
         catch

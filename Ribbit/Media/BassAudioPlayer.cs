@@ -14,6 +14,7 @@ using Ribbit.Logging;
 using Ribbit.Media.Audio;
 using Ribbit.Util;
 using Un4seen.Bass;
+using Un4seen.Bass.AddOn.Enc;
 using Un4seen.Bass.AddOn.Fx;
 using Un4seen.Bass.AddOn.Mix;
 using Un4seen.BassAsio;
@@ -548,6 +549,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
                 SampleRate requestedFrequency = _frequency;
                 SampleFormat requestedFormat = _format;
+                bool requestedEventMode = param.Length != 0
+                    && param[0] is bool eventMode
+                    && eventMode;
                 Exception primaryException = null;
                 var earlierAttempts = new List<BassAudioBackendAttempt>();
                 var crossBackendFallbackReasons = new List<string>();
@@ -568,6 +572,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     latencyParam = lParam;
                     DriverType = backend;
                     initializationStage = "begin";
+                    TryLogInitializationAttemptStart(
+                        driver,
+                        backend,
+                        desc,
+                        attemptDevice,
+                        requestedFrequency,
+                        requestedFormat,
+                        lParam,
+                        requestedEventMode);
                     try
                     {
                         DeviceDescriptor actualDescriptor = backend switch
@@ -603,6 +616,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             DeviceVolume = _deviceVolume;
                             DefaultVolume = _defaultVolume;
                         }
+                        TryLogInitializationSuccess(
+                            driver,
+                            backend,
+                            desc,
+                            session,
+                            requestedFrequency,
+                            requestedFormat,
+                            lParam,
+                            requestedEventMode);
                         return actualDescriptor;
                     }
                     catch (Exception exception)
@@ -619,7 +641,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             + " stage=" + contextual.Stage
                             + " nativeErrorSource=" + contextual.NativeErrorSource
                             + " nativeErrorCode=" + contextual.NativeErrorCode);
-                        TryLogInitializationAttemptFailure(driver, backend, contextual);
+                        TryLogInitializationAttemptFailure(
+                            driver,
+                            backend,
+                            desc,
+                            requestedFrequency,
+                            requestedFormat,
+                            lParam,
+                            requestedEventMode,
+                            contextual);
 
                         CaptureManagedHandles(session);
                         BassAudioSessionCleanup.Release(session, SessionNative, primaryException);
@@ -644,22 +674,172 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     private static void TryLogInitializationAttemptFailure(
         DeviceDriver requestedBackend,
         DeviceDriver attemptedBackend,
+        DeviceDescriptor requestedDevice,
+        SampleRate requestedRate,
+        SampleFormat requestedFormat,
+        float requestedBuffer,
+        bool requestedEventMode,
         AudioInitializationException exception)
     {
         try
         {
             TryLogAudioSessionWarning(
                 "Audio initialization attempt failed. requestedBackend=" + requestedBackend
+                + " requestedDevice=" + DescribeDevice(requestedDevice)
+                + " requestedRate=" + requestedRate
+                + " requestedFormat=" + requestedFormat
+                + " requestedBufferMs=" + requestedBuffer
+                + " requestedEventMode=" + requestedEventMode
                 + " attemptedBackend=" + attemptedBackend
                 + " stage=" + exception.Stage
+                + " actualDevice=" + DescribeDevice(exception.ActualDevice)
                 + " nativeErrorSource=" + exception.NativeErrorSource
                 + " nativeErrorCode=" + exception.NativeErrorCode
+                + " " + GetRuntimeVersionDiagnostics()
                 + " error=" + exception.Message);
         }
         catch
         {
             // Message construction must not replace the primary native failure or skip its cleanup.
         }
+    }
+
+    private static void TryLogInitializationAttemptStart(
+        DeviceDriver requestedBackend,
+        DeviceDriver attemptedBackend,
+        DeviceDescriptor requestedDevice,
+        DeviceDescriptor attemptedDevice,
+        SampleRate requestedRate,
+        SampleFormat requestedFormat,
+        float requestedBuffer,
+        bool requestedEventMode)
+    {
+        try
+        {
+            TryLogAudioSessionInfo(
+                "Audio initialization attempt started. requestedBackend=" + requestedBackend
+                + " requestedDevice=" + DescribeDevice(requestedDevice)
+                + " requestedRate=" + requestedRate
+                + " requestedFormat=" + requestedFormat
+                + " requestedBufferMs=" + requestedBuffer
+                + " requestedEventMode=" + requestedEventMode
+                + " attemptedBackend=" + attemptedBackend
+                + " attemptedDevice=" + DescribeDevice(attemptedDevice)
+                + " stage=begin nativeErrorSource=none nativeErrorCode=none "
+                + GetRuntimeVersionDiagnostics());
+        }
+        catch
+        {
+            // Diagnostics must not alter initialization or cleanup behavior.
+        }
+    }
+
+    private static void TryLogInitializationSuccess(
+        DeviceDriver requestedBackend,
+        DeviceDriver attemptedBackend,
+        DeviceDescriptor requestedDevice,
+        BassAudioSession session,
+        SampleRate requestedRate,
+        SampleFormat requestedFormat,
+        float requestedBuffer,
+        bool requestedEventMode)
+    {
+        try
+        {
+            TryLogAudioSessionInfo(BuildInitializationSuccessDiagnostics(
+                requestedBackend,
+                attemptedBackend,
+                requestedDevice,
+                session,
+                requestedRate,
+                requestedFormat,
+                requestedBuffer,
+                requestedEventMode,
+                GetRuntimeVersionDiagnostics()));
+        }
+        catch
+        {
+            // Diagnostics must not alter initialization or cleanup behavior.
+        }
+    }
+
+    /// <summary>Builds one deterministic successful-initialization diagnostic record.</summary>
+    internal static string BuildInitializationSuccessDiagnostics(
+        DeviceDriver requestedBackend,
+        DeviceDriver attemptedBackend,
+        DeviceDescriptor requestedDevice,
+        BassAudioSession session,
+        SampleRate requestedRate,
+        SampleFormat requestedFormat,
+        float requestedBuffer,
+        bool requestedEventMode,
+        string runtimeVersionDiagnostics)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        BassAudioBackendResult result = session.NegotiationResult;
+        bool fallbackOccurred = requestedBackend != session.ActualBackend
+            || !string.IsNullOrWhiteSpace(result?.FallbackReason)
+            || (!requestedDevice.Equals(default(DeviceDescriptor))
+                && !string.Equals(requestedDevice.Driver, session.ActualDevice.Driver, StringComparison.Ordinal))
+            || (requestedRate != SampleRate.AUTO && requestedRate != result?.ActualRate)
+            || (requestedFormat != SampleFormat.AUTO && requestedFormat != result?.EngineFormat);
+        return "Audio initialization attempt succeeded. requestedBackend=" + requestedBackend
+                + " requestedDevice=" + DescribeDevice(requestedDevice)
+                + " requestedRate=" + requestedRate
+                + " requestedFormat=" + requestedFormat
+                + " requestedBufferMs=" + requestedBuffer
+                + " requestedEventMode=" + requestedEventMode
+                + " attemptedBackend=" + attemptedBackend
+                + " stage=completed nativeErrorSource=none nativeErrorCode=none"
+                + " actualBackend=" + session.ActualBackend
+                + " actualDevice=" + DescribeDevice(session.ActualDevice)
+                + " actualRate=" + result?.ActualRate
+                + " actualChannels=" + result?.ActualChannels
+                + " engineFormat=" + result?.EngineFormat
+                + " endpointFormat=" + result?.EndpointFormat
+                + " latencyMs=" + result?.LatencyMilliseconds
+                + " fallbackOccurred=" + fallbackOccurred
+                + " fallbackDestination=" + (fallbackOccurred ? session.ActualBackend.ToString() : "none")
+                + " fallbackReason=" + (fallbackOccurred ? result?.FallbackReason : "none")
+                + " " + runtimeVersionDiagnostics;
+    }
+
+    private static string DescribeDevice(DeviceDescriptor device)
+    {
+        return device.Equals(default(DeviceDescriptor))
+            ? "<default>"
+            : "[name=" + device.Name + ",identity=" + device.Driver + "]";
+    }
+
+    private static string GetRuntimeVersionDiagnostics()
+    {
+        return BuildRuntimeVersionDiagnostics(
+            Environment.OSVersion.VersionString,
+            Bass.BASS_GetVersion(),
+            BassWasapi.BASS_WASAPI_GetVersion(),
+            BassAsio.BASS_ASIO_GetVersion(),
+            BassMix.BASS_Mixer_GetVersion(),
+            BassFx.BASS_FX_GetVersion(),
+            BassEnc.BASS_Encode_GetVersion());
+    }
+
+    /// <summary>Formats the OS and complete supported BASS native-family version snapshot.</summary>
+    internal static string BuildRuntimeVersionDiagnostics(
+        string osVersion,
+        int bassVersion,
+        int bassWasapiVersion,
+        int bassAsioVersion,
+        int bassMixVersion,
+        int bassFxVersion,
+        int bassEncVersion)
+    {
+        return "os=" + osVersion
+            + " bassVersion=0x" + bassVersion.ToString("X8")
+            + " bassWasapiVersion=0x" + bassWasapiVersion.ToString("X8")
+            + " bassAsioVersion=0x" + bassAsioVersion.ToString("X8")
+            + " bassMixVersion=0x" + bassMixVersion.ToString("X8")
+            + " bassFxVersion=0x" + bassFxVersion.ToString("X8")
+            + " bassEncVersion=0x" + bassEncVersion.ToString("X8");
     }
 
     private static BassAudioExclusiveLease EnterAudioSessionInitialization(
@@ -1117,6 +1297,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private static DeviceDescriptor InitializeNullDevice(DeviceDescriptor desc = default)
     {
+        SampleRate requestedRate = Frequency;
+        SampleFormat requestedFormat = Format;
+        var request = new BassAudioNegotiationRequest(
+            DeviceDriver.NULL_DEVICE,
+            desc,
+            requestedRate,
+            requestedFormat,
+            latencyParam);
         initializationStage = "BASS_Init";
         if (!Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
         {
@@ -1141,6 +1329,21 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         CurrentSession.MixerHandle = inputMixer;
         CurrentSession.OutputHandle = outputMixer;
         CurrentSession.ActualDevice = default;
+        string fallbackReason = requestedFormat != SampleFormat.AUTO
+            && requestedFormat != SampleFormat.SAMPLE_FLOAT_32BIT
+                ? "Null device decode mixer normalized to Float32."
+                : null;
+        CurrentSession.NegotiationResult = new BassAudioBackendResult(
+            request,
+            default,
+            Frequency,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            0.0,
+            inputMixer,
+            Array.Empty<BassAudioBackendAttempt>(),
+            fallbackReason,
+            actualChannels: 2);
         return default;
     }
 
@@ -1324,6 +1527,18 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         catch
         {
             // Cleanup and idempotent release semantics must not depend on diagnostics.
+        }
+    }
+
+    private static void TryLogAudioSessionInfo(string message)
+    {
+        try
+        {
+            NLogWrapper.GetLogger("AudioSession").Info(message);
+        }
+        catch
+        {
+            // Initialization and cleanup semantics must not depend on diagnostics.
         }
     }
 

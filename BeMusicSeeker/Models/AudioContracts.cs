@@ -324,6 +324,7 @@ internal sealed class AudioPlaybackInitializationResult
         SampleRate actualRate,
         SampleFormat engineFormat,
         SampleFormat endpointFormat,
+        int actualChannels,
         double latency,
         string fallbackReason,
         bool isSilentFallback)
@@ -342,6 +343,7 @@ internal sealed class AudioPlaybackInitializationResult
         ActualRate = actualRate;
         EngineFormat = engineFormat;
         EndpointFormat = endpointFormat;
+        ActualChannels = actualChannels;
         Latency = latency;
         FallbackReason = fallbackReason;
         IsSilentFallback = isSilentFallback;
@@ -394,6 +396,9 @@ internal sealed class AudioPlaybackInitializationResult
 
     /// <summary>Gets the endpoint or callback format reported by the backend.</summary>
     internal SampleFormat EndpointFormat { get; }
+
+    /// <summary>Gets the channel count accepted by the endpoint or callback.</summary>
+    internal int ActualChannels { get; }
 
     /// <summary>Gets the negotiated output latency in milliseconds.</summary>
     internal double Latency { get; }
@@ -522,6 +527,7 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
             negotiated.ActualRate,
             negotiated.EngineFormat,
             negotiated.EndpointFormat,
+            negotiated.ActualChannels,
             negotiated.LatencyMilliseconds,
             negotiated.FallbackReason,
             session.ActualBackend == Ribbit.Media.BassAudioPlayer.DeviceDriver.NULL_DEVICE);

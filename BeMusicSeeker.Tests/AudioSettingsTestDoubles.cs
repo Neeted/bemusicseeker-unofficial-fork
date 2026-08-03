@@ -111,6 +111,7 @@ internal static class AudioDeviceTestResultFactory
             actualRate ?? request.PlayerSampleRate,
             engineFormat ?? request.PlayerFormat,
             endpointFormat ?? engineFormat ?? request.PlayerFormat,
+            2,
             latency,
             fallbackReason,
             isSilentFallback: false);
