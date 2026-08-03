@@ -73,8 +73,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private static readonly Dictionary<uint, CachedData> OnMemoryFileCache;
 
-    private static readonly ReadOnlyDictionary<BASSASIOFormat, SampleFormat> FromBASSASIOFormat;
-
     private static readonly ReadOnlyDictionary<BASSWASAPIFormat, SampleFormat> FromBASSWASAPIFormat;
 
     private static readonly ReadOnlyDictionary<BASSWASAPIFormat, int> FromBASSWASAPIFormatToByte;
@@ -797,29 +795,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         InstanceLocks = [];
         Locks = new NamedLocks<uint>();
         OnMemoryFileCache = [];
-        FromBASSASIOFormat = new ReadOnlyDictionary<BASSASIOFormat, SampleFormat>(new Dictionary<BASSASIOFormat, SampleFormat>
-        {
-            {
-                BASSASIOFormat.BASS_ASIO_FORMAT_UNKNOWN,
-                SampleFormat.UNKNOWN
-            },
-            {
-                BASSASIOFormat.BASS_ASIO_FORMAT_16BIT,
-                SampleFormat.SAMPLE_INT_16BIT
-            },
-            {
-                BASSASIOFormat.BASS_ASIO_FORMAT_24BIT,
-                SampleFormat.SAMPLE_INT_24BIT
-            },
-            {
-                BASSASIOFormat.BASS_ASIO_FORMAT_32BIT,
-                SampleFormat.SAMPLE_INT_32BIT
-            },
-            {
-                BASSASIOFormat.BASS_ASIO_FORMAT_FLOAT,
-                SampleFormat.SAMPLE_FLOAT_32BIT
-            }
-        });
         FromBASSWASAPIFormat = new ReadOnlyDictionary<BASSWASAPIFormat, SampleFormat>(new Dictionary<BASSWASAPIFormat, SampleFormat>
         {
             {
@@ -1152,246 +1127,22 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private static DeviceDescriptor InitializeAsio(DeviceDescriptor desc = default)
     {
-        initializationStage = "BASS_Init";
-        if (!Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
-        {
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_Init failed: " + bASSError);
-        }
-        CurrentSession.CoreInitialized = true;
-        CurrentSession.CoreDeviceIndex = Bass.BASS_GetDevice();
-        Bass.BASS_SetConfig(BASSConfig.BASS_CONFIG_UPDATEPERIOD, 0);
-        initializationStage = "BASS_ASIO_GetDeviceInfos";
-        BASS_ASIO_DEVICEINFO[] array = BassAsio.BASS_ASIO_GetDeviceInfos();
-        if (array.Length == 0)
-        {
-            throw new Exception("ASIO device not found");
-        }
-        int device = 0;
-        bool flag = false;
-        if (!desc.Equals(default(DeviceDescriptor)))
-        {
-            device = array.Select((info, idx) => new { info, idx }).FirstOrDefault(s => desc.Name == s.info.name && desc.Driver == s.info.driver)?.idx ?? array.Select((info, idx) => new { info, idx }).FirstOrDefault(s => desc.Name == s.info.name)?.idx ?? 0;
-        }
-        else
-        {
-            flag = true;
-        }
-        BASS_ASIO_DEVICEINFO bASS_ASIO_DEVICEINFO = BassAsio.BASS_ASIO_GetDeviceInfo(device);
-        desc.Name = bASS_ASIO_DEVICEINFO.name;
-        desc.Driver = bASS_ASIO_DEVICEINFO.driver;
-        CurrentSession.ActualDevice = desc;
-        CurrentSession.AsioDeviceIndex = device;
-        initializationStage = "BASS_ASIO_Init";
-        if (!BassAsio.BASS_ASIO_Init(device, BASSASIOInit.BASS_ASIO_THREAD))
-        {
-            BASSError bASSError2 = BassAsio.BASS_ASIO_ErrorGetCode();
-            throw new Exception("BASS_ASIO_Init failed: " + bASSError2);
-        }
-        CurrentSession.AsioInitialized = true;
-        CurrentSession.AsioDeviceIndex = BassAsio.BASS_ASIO_GetDevice();
-        initializationStage = "BASS_ASIO_SetRate";
-        Frequency = ((Frequency == SampleRate.AUTO) ? SampleRate.SAMPLE_RATE_48000Hz : Frequency);
-        bool func(SampleRate rate)
-        {
-            Frequency = rate;
-            return BassAsio.BASS_ASIO_CheckRate((double)Frequency) && BassAsio.BASS_ASIO_SetRate((double)Frequency);
-        }
-        if (!func(Frequency))
-        {
-            Frequency = ((Frequency == SampleRate.SAMPLE_RATE_44100Hz) ? SampleRate.SAMPLE_RATE_88200Hz : Frequency);
-            SampleRate frequency = Frequency;
-            if (frequency <= SampleRate.SAMPLE_RATE_44100Hz)
-            {
-                if (frequency <= SampleRate.SAMPLE_RATE_11025Hz)
-                {
-                    goto IL_02ce;
-                }
-                else
-                {
-                    if (frequency == SampleRate.SAMPLE_RATE_22050Hz)
-                    {
-                        goto IL_02c0;
-                    }
-                    if (frequency == SampleRate.SAMPLE_RATE_32000Hz)
-                    {
-                        goto IL_02b2;
-                    }
-                    if (frequency == SampleRate.SAMPLE_RATE_44100Hz)
-                    {
-                        goto IL_02a4;
-                    }
-                }
-                goto IL_02ce;
-            }
-            if (frequency <= SampleRate.SAMPLE_RATE_88200Hz)
-            {
-                if (frequency == SampleRate.SAMPLE_RATE_48000Hz)
-                {
-                    goto IL_0296;
-                }
-                if (frequency != SampleRate.SAMPLE_RATE_88200Hz)
-                {
-                    goto IL_02ce;
-                }
-            }
-            else
-            {
-                if (frequency != SampleRate.SAMPLE_RATE_96000Hz)
-                {
-                    if (frequency != SampleRate.SAMPLE_RATE_176400Hz)
-                    {
-                        if (frequency != SampleRate.SAMPLE_RATE_192000Hz)
-                        {
-                            goto IL_02ce;
-                        }
-                        if (func(SampleRate.SAMPLE_RATE_176400Hz))
-                        {
-                            goto IL_02f2;
-                        }
-                    }
-                    if (func(SampleRate.SAMPLE_RATE_96000Hz))
-                    {
-                        goto IL_02f2;
-                    }
-                }
-                if (func(SampleRate.SAMPLE_RATE_88200Hz))
-                {
-                    goto IL_02f2;
-                }
-            }
-            if (!func(SampleRate.SAMPLE_RATE_48000Hz))
-            {
-                goto IL_0296;
-            }
-        }
-        goto IL_02f2;
-    IL_02c0:
-        if (!func(SampleRate.SAMPLE_RATE_11025Hz))
-        {
-            goto IL_02ce;
-        }
-        goto IL_02f2;
-    IL_02b2:
-        if (!func(SampleRate.SAMPLE_RATE_22050Hz))
-        {
-            goto IL_02c0;
-        }
-        goto IL_02f2;
-    IL_0296:
-        if (!func(SampleRate.SAMPLE_RATE_44100Hz))
-        {
-            goto IL_02a4;
-        }
-        goto IL_02f2;
-    IL_02ce:
-        Frequency = SampleRate.AUTO;
-        BASSError bASSError3 = BassAsio.BASS_ASIO_ErrorGetCode();
-        throw new Exception("BASS_ASIO_SetRate failed: " + bASSError3);
-    IL_02a4:
-        if (!func(SampleRate.SAMPLE_RATE_32000Hz))
-        {
-            goto IL_02b2;
-        }
-        goto IL_02f2;
-    IL_02f2:
-        BassAsio.BASS_ASIO_GetInfo();
-        double num = BassAsio.BASS_ASIO_GetRate();
-        Frequency = (SampleRate)num;
-        if (!BassAsio.BASS_ASIO_ChannelSetRate(input: false, 0, 0.0))
-        {
-            BASSError bASSError4 = BassAsio.BASS_ASIO_ErrorGetCode();
-            throw new Exception("BASS_ASIO_ChannelSetRate failed: " + bASSError4);
-        }
-        bool func2(BASSASIOFormat format)
-        {
-            Format = FromBASSASIOFormat[format];
-            return BassAsio.BASS_ASIO_ChannelSetFormat(input: false, 0, format);
-        }
-        initializationStage = "BASS_ASIO_ChannelSetFormat";
-        if (Format == SampleFormat.AUTO)
-        {
-            Format = FromBASSASIOFormat[BASSASIOFormat.BASS_ASIO_FORMAT_FLOAT];
-        }
-        switch (Format)
-        {
-            case SampleFormat.SAMPLE_FLOAT_32BIT:
-                if (func2(BASSASIOFormat.BASS_ASIO_FORMAT_FLOAT))
-                {
-                    break;
-                }
-                goto case SampleFormat.SAMPLE_INT_32BIT;
-            case SampleFormat.SAMPLE_INT_32BIT:
-                if (func2(BASSASIOFormat.BASS_ASIO_FORMAT_32BIT))
-                {
-                    break;
-                }
-                goto case SampleFormat.SAMPLE_INT_8BIT;
-            case SampleFormat.SAMPLE_INT_8BIT:
-            case SampleFormat.SAMPLE_INT_16BIT:
-                if (func2(BASSASIOFormat.BASS_ASIO_FORMAT_16BIT))
-                {
-                    break;
-                }
-                goto case SampleFormat.SAMPLE_INT_24BIT;
-            case SampleFormat.SAMPLE_INT_24BIT:
-                if (func2(BASSASIOFormat.BASS_ASIO_FORMAT_24BIT))
-                {
-                    break;
-                }
-                goto default;
-            default:
-                {
-                    Format = SampleFormat.UNKNOWN;
-                    BASSError bASSError5 = BassAsio.BASS_ASIO_ErrorGetCode();
-                    throw new Exception("BASS_ASIO_ChannelSetFormat failed: " + bASSError5);
-                }
-        }
-        BassAsio.BASS_ASIO_ChannelGetRate(input: false, 0);
-        BassAsio.BASS_ASIO_ChannelGetFormat(input: false, 0);
-        BassAsio.BASS_ASIO_ChannelGetInfo(input: false, 0);
-        initializationStage = "BASS_ASIO_ChannelEnable";
-        if (!BassAsio.BASS_ASIO_ChannelEnable(input: false, 0, AsioProc, IntPtr.Zero))
-        {
-            BASSError bASSError6 = BassAsio.BASS_ASIO_ErrorGetCode();
-            throw new Exception("BASS_ASIO_ChannelEnable failed: " + bASSError6);
-        }
-        for (int num2 = 1; num2 < 2; num2++)
-        {
-            if (!BassAsio.BASS_ASIO_ChannelJoin(input: false, num2, 0))
-            {
-                BASSError bASSError7 = BassAsio.BASS_ASIO_ErrorGetCode();
-                throw new Exception("BASS_ASIO_ChannelJoin failed: " + bASSError7);
-            }
-        }
-        var flags = (BASSFlag)(((Format == SampleFormat.SAMPLE_FLOAT_32BIT) ? 256 : 0) | 0x200000 | 0x20000);
-        initializationStage = "BASS_Mixer_StreamCreate";
-        inputMixer = BassMix.BASS_Mixer_StreamCreate((int)num, 2, flags);
-        if (inputMixer == 0)
-        {
-            BASSError bASSError8 = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_Mixer_StreamCreate failed: " + bASSError8);
-        }
-        outputMixer = inputMixer;
-        CurrentSession.MixerHandle = inputMixer;
-        CurrentSession.OutputHandle = outputMixer;
-        if (latencyParam <= 0f)
-        {
-            latencyParam = 0f;
-        }
-        initializationStage = "BASS_ASIO_Start";
-        if (!BassAsio.BASS_ASIO_Start(System.Math.Max(0, (int)latencyParam * (int)num / 1000), 4))
-        {
-            BASSError bASSError9 = BassAsio.BASS_ASIO_ErrorGetCode();
-            throw new Exception("BASS_ASIO_Start failed: " + bASSError9);
-        }
-        CurrentSession.IsStarted = true;
-        Latency = (double)(BassAsio.BASS_ASIO_GetLatency(input: false) * 1000) / num;
-        if (!flag)
-        {
-            return desc;
-        }
-        return default;
+        initializationStage = "ASIO negotiation";
+        var request = new BassAudioNegotiationRequest(
+            DeviceDriver.ASIO,
+            desc,
+            _frequency,
+            _format,
+            latencyParam);
+        BassAudioBackendResult result = new BassAsioNegotiator(
+            new BassAsioNegotiationNativeBoundary()).Initialize(request, CurrentSession, AsioProc);
+
+        inputMixer = result.MixerHandle;
+        outputMixer = result.MixerHandle;
+        _frequency = result.ActualRate;
+        _format = result.EngineFormat;
+        Latency = result.LatencyMilliseconds;
+        return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
     }
 
     private static DeviceDescriptor InitializeWasapi(DeviceDescriptor desc = default, bool isSharedMode = false, params object[] param)

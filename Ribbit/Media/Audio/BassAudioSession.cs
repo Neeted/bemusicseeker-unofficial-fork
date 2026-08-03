@@ -96,6 +96,9 @@ internal sealed class BassAudioSession
     /// <summary>Gets or sets whether the backend output was started.</summary>
     internal bool IsStarted { get; set; }
 
+    /// <summary>Gets or sets the values accepted by the initialized native backend.</summary>
+    internal BassAudioBackendResult NegotiationResult { get; set; }
+
     /// <summary>Gets the current ownership phase.</summary>
     internal BassAudioSessionState State { get; set; }
 
