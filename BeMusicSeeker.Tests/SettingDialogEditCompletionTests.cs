@@ -980,6 +980,174 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public async Task AudioDeviceTest_NoStreamProgress_DoesNotChangeEditedAudioValues()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.DirectSound };
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(request =>
+                    AudioDeviceTestResultFactory.CreateSuccessful(
+                        request,
+                        actualDeviceName: "Changed name",
+                        latency: 21,
+                        streamProgressSucceeded: false)));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway);
+
+            await dialog.RunAudioDeviceTestAsync();
+
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
+            Assert.AreEqual(0d, dialog.PlayerLatency);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTest_BackendFallback_DoesNotChangeEditedAudioValues()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.DirectSound };
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(request =>
+                    AudioDeviceTestResultFactory.CreateSuccessful(
+                        request,
+                        actualBackend: AudioDriver.WasapiShared,
+                        actualDevice: "fallback-device",
+                        actualDeviceName: "Fallback device",
+                        actualRate: SampleRate.SAMPLE_RATE_48000Hz,
+                        engineFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
+                        fallbackReason: "fallbackDestination=WASAPI_SHARED")));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway);
+
+            await dialog.RunAudioDeviceTestAsync();
+
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
+            Assert.AreEqual(0d, dialog.PlayerLatency);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTest_DefaultAndAutoSuccess_PreservesUserIntent()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.PlayerDevice = null;
+            settings.PlayerDeviceName = null;
+            settings.PlayerSampleRate = SampleRate.AUTO;
+            settings.PlayerFormat = SampleFormat.AUTO;
+            settings.PlayerBufferSize = 10;
+            settings.PlayerWASAPIParam = false;
+            settings.uBMplayVolume = 50;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.DirectSound };
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(request =>
+                    AudioDeviceTestResultFactory.CreateSuccessful(
+                        request,
+                        actualDevice: "resolved-default",
+                        actualDeviceName: "Resolved default",
+                        actualRate: SampleRate.SAMPLE_RATE_48000Hz,
+                        engineFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
+                        endpointFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
+                        latency: 17)));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway);
+
+            await dialog.RunAudioDeviceTestAsync();
+
+            Assert.IsNull(settings.PlayerDevice);
+            Assert.IsNull(settings.PlayerDeviceName);
+            Assert.AreEqual(SampleRate.AUTO, settings.PlayerSampleRate);
+            Assert.AreEqual(SampleFormat.AUTO, settings.PlayerFormat);
+            Assert.AreEqual(17d, dialog.PlayerLatency);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTest_RequestChangedWhileRunning_DoesNotApplyStaleResult()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.DirectSound };
+            using var runtimeStarted = new ManualResetEventSlim();
+            using var releaseRuntime = new ManualResetEventSlim();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(request =>
+                {
+                    runtimeStarted.Set();
+                    releaseRuntime.Wait();
+                    return AudioDeviceTestResultFactory.CreateSuccessful(
+                        request,
+                        actualDeviceName: "Stale result name",
+                        latency: 25);
+                }));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway);
+
+            Task testTask = dialog.RunAudioDeviceTestAsync();
+            Assert.IsTrue(runtimeStarted.Wait(TimeSpan.FromSeconds(5)));
+            settings.PlayerDeviceName = "User changed name";
+            releaseRuntime.Set();
+            await testTask;
+
+            Assert.AreEqual("User changed name", settings.PlayerDeviceName);
+            Assert.AreEqual(0d, dialog.PlayerLatency);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task SettingDialogViewModel_OwnsLr2ManualResyncAvailability()
     {
         string root = CreateTemporaryRoot();
@@ -1646,6 +1814,53 @@ public sealed class SettingDialogEditCompletionTests
         return viewModel;
     }
 
+    private static SettingsDialogViewModel CreateAudioDeviceTestDialog(
+        MainWindowViewModel viewModel,
+        CountingSettingsEditSession settingsSession,
+        AudioDeviceTestWorkflowOwner workflow,
+        TestAudioSettingsGateway audioGateway)
+    {
+        return new SettingsDialogViewModel(
+            viewModel,
+            viewModel.PlaylistWorkspace,
+            viewModel.PlaylistWorkspace,
+            viewModel.PlayHistory,
+            viewModel.LibraryFolderTree,
+            new TestSettingsDialogPlayerFactoryPort(),
+            new TestSettingsDialogPlaybackRuntimePort(),
+            viewModel.Lr2SongDbSyncWorkflow,
+            settingsSession,
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            audioDeviceTestWorkflow: workflow,
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: audioGateway);
+    }
+
+    private static void ConfigureExplicitAudioSettings(Settings settings)
+    {
+        settings.PlayerDevice = "requested-device";
+        settings.PlayerDeviceName = "Requested device";
+        settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz;
+        settings.PlayerFormat = SampleFormat.SAMPLE_INT_16BIT;
+        settings.PlayerBufferSize = 10;
+        settings.PlayerWASAPIParam = false;
+        settings.uBMplayVolume = 50;
+    }
+
+    private static void AssertExplicitAudioSettingsUnchanged(
+        Settings settings,
+        TestAudioSettingsGateway audioGateway)
+    {
+        Assert.AreEqual(AudioDriver.DirectSound, audioGateway.PlayerDriver);
+        Assert.AreEqual("requested-device", settings.PlayerDevice);
+        Assert.AreEqual("Requested device", settings.PlayerDeviceName);
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, settings.PlayerSampleRate);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, settings.PlayerFormat);
+    }
+
     private static (SettingsDialogViewModel Dialog, BeMusicSeeker.Models.LR2.LR2Config Config) CreateLr2RemovalDialog(
         CountingSettingsEditSession settingsSession,
         RecordingRootDialogService dialogs,
@@ -2137,13 +2352,19 @@ public sealed class SettingDialogEditCompletionTests
         {
             runtimeStarted.Set();
             releaseRuntime.Wait();
-            return new AudioDeviceTestResult(
-                AudioDriver.DirectSound,
-                request.PlayerDevice,
-                request.PlayerDeviceName,
-                request.PlayerSampleRate,
-                request.PlayerFormat,
-                0);
+            return AudioDeviceTestResultFactory.CreateSuccessful(request);
         }
+    }
+
+    private sealed class DelegateAudioDeviceTestRuntime : IAudioDeviceTestRuntime
+    {
+        private readonly Func<AudioDeviceTestRequest, AudioDeviceTestResult> run;
+
+        internal DelegateAudioDeviceTestRuntime(Func<AudioDeviceTestRequest, AudioDeviceTestResult> run)
+        {
+            this.run = run;
+        }
+
+        public AudioDeviceTestResult Run(AudioDeviceTestRequest request) => run(request);
     }
 }

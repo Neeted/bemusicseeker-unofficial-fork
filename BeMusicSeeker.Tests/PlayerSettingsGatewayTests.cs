@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlayerSettingsGatewayTests
 {
     [TestMethod]
-    public void GatewayCapturesAndAppliesNegotiatedAudioSettings()
+    public void GatewayCapturesRequestedAudioSettingsWithoutNegotiatedWriteBack()
     {
         Settings settings = Settings.Default;
         var originalDriver = settings.PlayerDriver;
@@ -42,18 +42,11 @@ public sealed class PlayerSettingsGatewayTests
             Assert.AreEqual(1234.5, snapshot.LR2bodyResolution.Width);
             Assert.AreEqual(678.25, snapshot.LR2bodyResolution.Height);
 
-            gateway.ApplyNegotiatedAudioSettings(
-                AudioDriver.Asio,
-                "device-after",
-                "Device after",
-                SampleRate.SAMPLE_RATE_48000Hz,
-                SampleFormat.SAMPLE_FLOAT_32BIT);
-
-            Assert.AreEqual(Ribbit.Media.BassAudioPlayer.DeviceDriver.ASIO, settings.PlayerDriver);
-            Assert.AreEqual("device-after", settings.PlayerDevice);
-            Assert.AreEqual("Device after", settings.PlayerDeviceName);
-            Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, settings.PlayerSampleRate);
-            Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, settings.PlayerFormat);
+            Assert.AreEqual(Ribbit.Media.BassAudioPlayer.DeviceDriver.DIRECT_SOUND, settings.PlayerDriver);
+            Assert.AreEqual("device-before", settings.PlayerDevice);
+            Assert.AreEqual("Device before", settings.PlayerDeviceName);
+            Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, settings.PlayerSampleRate);
+            Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, settings.PlayerFormat);
         }
         finally
         {
@@ -79,6 +72,13 @@ public sealed class PlayerSettingsGatewayTests
         Assert.IsFalse(source.Contains("Win32API."));
         StringAssert.Contains(source, "PlayerResolution LR2bodyResolution");
         StringAssert.Contains(source, "WindowPlacement LR2bodyWindowPlacement");
+        Assert.IsFalse(source.Contains("ApplyNegotiatedAudioSettings"));
+
+        string playerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Models",
+            "InternalBMSAutoPlayerSoundOnly.cs");
+        Assert.IsFalse(playerSource.Contains("ApplyNegotiatedAudioSettings"));
     }
 
     [TestMethod]

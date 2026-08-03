@@ -186,35 +186,109 @@ internal sealed class SettingsAudioGateway : IAudioSettingsGateway
     }
 }
 
+/// <summary>
+/// Separates the immutable playback request from values negotiated with the native backend.
+/// </summary>
 internal sealed class AudioPlaybackInitializationResult
 {
+    /// <summary>Creates a successful audible initialization result.</summary>
     internal AudioPlaybackInitializationResult(
-        AudioDriver playerDriver,
-        string playerDevice,
-        string playerDeviceName,
-        SampleRate playerSampleRate,
-        SampleFormat playerFormat,
-        double playerLatency)
+        AudioDriver requestedBackend,
+        string requestedDevice,
+        string requestedDeviceName,
+        SampleRate requestedRate,
+        SampleFormat requestedFormat,
+        float requestedBufferSize,
+        bool requestedEventMode,
+        int requestedVolume,
+        AudioDriver actualBackend,
+        string actualDevice,
+        string actualDeviceName,
+        SampleRate actualRate,
+        SampleFormat engineFormat,
+        SampleFormat endpointFormat,
+        double latency,
+        string fallbackReason,
+        bool isSilentFallback)
     {
-        PlayerDriver = playerDriver;
-        PlayerDevice = playerDevice;
-        PlayerDeviceName = playerDeviceName;
-        PlayerSampleRate = playerSampleRate;
-        PlayerFormat = playerFormat;
-        PlayerLatency = playerLatency;
+        RequestedBackend = requestedBackend;
+        RequestedDevice = requestedDevice;
+        RequestedDeviceName = requestedDeviceName;
+        RequestedRate = requestedRate;
+        RequestedFormat = requestedFormat;
+        RequestedBufferSize = requestedBufferSize;
+        RequestedEventMode = requestedEventMode;
+        RequestedVolume = requestedVolume;
+        ActualBackend = actualBackend;
+        ActualDevice = actualDevice;
+        ActualDeviceName = actualDeviceName;
+        ActualRate = actualRate;
+        EngineFormat = engineFormat;
+        EndpointFormat = endpointFormat;
+        Latency = latency;
+        FallbackReason = fallbackReason;
+        IsSilentFallback = isSilentFallback;
+        FallbackOccurred = requestedBackend != actualBackend
+            || !string.IsNullOrWhiteSpace(fallbackReason)
+            || (!string.IsNullOrWhiteSpace(requestedDevice)
+                && !string.Equals(requestedDevice, actualDevice, StringComparison.Ordinal))
+            || (requestedRate != SampleRate.AUTO && requestedRate != actualRate)
+            || (requestedFormat != SampleFormat.AUTO && requestedFormat != engineFormat);
     }
 
-    internal AudioDriver PlayerDriver { get; }
+    /// <summary>Gets the backend selected by the caller.</summary>
+    internal AudioDriver RequestedBackend { get; }
 
-    internal string PlayerDevice { get; }
+    /// <summary>Gets the requested backend-specific endpoint identity.</summary>
+    internal string RequestedDevice { get; }
 
-    internal string PlayerDeviceName { get; }
+    /// <summary>Gets the requested endpoint display name.</summary>
+    internal string RequestedDeviceName { get; }
 
-    internal SampleRate PlayerSampleRate { get; }
+    /// <summary>Gets the requested sample rate, including Auto intent.</summary>
+    internal SampleRate RequestedRate { get; }
 
-    internal SampleFormat PlayerFormat { get; }
+    /// <summary>Gets the requested sample format, including Auto intent.</summary>
+    internal SampleFormat RequestedFormat { get; }
 
-    internal double PlayerLatency { get; }
+    /// <summary>Gets the requested output buffer size in milliseconds.</summary>
+    internal float RequestedBufferSize { get; }
+
+    /// <summary>Gets whether event-driven WASAPI was requested.</summary>
+    internal bool RequestedEventMode { get; }
+
+    /// <summary>Gets the requested output volume.</summary>
+    internal int RequestedVolume { get; }
+
+    /// <summary>Gets the backend that owns the negotiated native session.</summary>
+    internal AudioDriver ActualBackend { get; }
+
+    /// <summary>Gets the negotiated endpoint identity.</summary>
+    internal string ActualDevice { get; }
+
+    /// <summary>Gets the negotiated endpoint display name.</summary>
+    internal string ActualDeviceName { get; }
+
+    /// <summary>Gets the sample rate read back from the native backend.</summary>
+    internal SampleRate ActualRate { get; }
+
+    /// <summary>Gets the sample format supplied by the internal mixer.</summary>
+    internal SampleFormat EngineFormat { get; }
+
+    /// <summary>Gets the endpoint or callback format reported by the backend.</summary>
+    internal SampleFormat EndpointFormat { get; }
+
+    /// <summary>Gets the negotiated output latency in milliseconds.</summary>
+    internal double Latency { get; }
+
+    /// <summary>Gets whether backend, endpoint, rate, format, mode, or period degraded.</summary>
+    internal bool FallbackOccurred { get; }
+
+    /// <summary>Gets the ordered native negotiation reason for a fallback.</summary>
+    internal string FallbackReason { get; }
+
+    /// <summary>Gets whether the result substituted a non-audible backend.</summary>
+    internal bool IsSilentFallback { get; }
 }
 
 internal interface IAudioPlaybackRuntime
@@ -240,6 +314,9 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
 
     public AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings)
     {
+        ArgumentNullException.ThrowIfNull(settings);
+        ThrowIfAudiblePlaybackUsesNullDevice(settings.PlayerDriver, settings.PlayerDevice, settings.PlayerDeviceName);
+
         BassAudioSession retainedSession = sessionLease.Session;
         if (retainedSession != null)
         {
@@ -269,14 +346,10 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
                 out initializedSession,
                 settings.PlayerWASAPIParam);
             sessionLease.Attach(initializedSession);
-
-            activeInitialization = new AudioPlaybackInitializationResult(
-                BassAudioMapping.FromBassDriver(Ribbit.Media.BassAudioPlayer.DriverType),
-                descriptor.Driver,
-                descriptor.Name,
-                Ribbit.Media.BassAudioPlayer.Frequency,
-                Ribbit.Media.BassAudioPlayer.Format,
-                Ribbit.Media.BassAudioPlayer.Latency);
+            BassAudioBackendResult negotiated = initializedSession.NegotiationResult
+                ?? throw new InvalidOperationException(
+                    "An audible BASS session completed without a negotiated backend result.");
+            activeInitialization = CreateInitializationResult(settings, initializedSession, negotiated);
             return activeInitialization;
         }
         catch
@@ -306,6 +379,60 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
         {
             activeInitialization = null;
         }
+    }
+
+    /// <summary>Builds the application contract from the retained native session.</summary>
+    internal static AudioPlaybackInitializationResult CreateInitializationResult(
+        PlayerSettingsSnapshot settings,
+        BassAudioSession session,
+        BassAudioBackendResult negotiated)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(negotiated);
+        return new AudioPlaybackInitializationResult(
+            settings.PlayerDriver,
+            settings.PlayerDevice,
+            settings.PlayerDeviceName,
+            settings.PlayerSampleRate,
+            settings.PlayerFormat,
+            settings.PlayerBufferSize,
+            settings.PlayerWASAPIParam,
+            settings.PlayerVolume,
+            BassAudioMapping.FromBassDriver(session.ActualBackend),
+            session.ActualDevice.Driver,
+            session.ActualDevice.Name,
+            negotiated.ActualRate,
+            negotiated.EngineFormat,
+            negotiated.EndpointFormat,
+            negotiated.LatencyMilliseconds,
+            negotiated.FallbackReason,
+            session.ActualBackend == Ribbit.Media.BassAudioPlayer.DeviceDriver.NULL_DEVICE);
+    }
+
+    /// <summary>Rejects the offline-only NullDevice before any audible native initialization.</summary>
+    internal static void ThrowIfAudiblePlaybackUsesNullDevice(
+        AudioDriver requestedBackend,
+        string requestedDevice,
+        string requestedDeviceName)
+    {
+        if (requestedBackend != AudioDriver.NullDevice)
+        {
+            return;
+        }
+
+        var descriptor = new Ribbit.Media.BassAudioPlayer.DeviceDescriptor(
+            requestedDeviceName,
+            requestedDevice);
+        throw new AudioInitializationException(
+            Ribbit.Media.BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+            Ribbit.Media.BassAudioPlayer.DeviceDriver.INVALID,
+            "backend selection",
+            descriptor,
+            default,
+            nameof(BassAudioPlaybackRuntime),
+            null,
+            "NullDevice is reserved for offline conversion and cannot initialize audible playback.");
     }
 
     private void TryRetainAndRetryFailedInitialization(BassAudioSession initializedSession)

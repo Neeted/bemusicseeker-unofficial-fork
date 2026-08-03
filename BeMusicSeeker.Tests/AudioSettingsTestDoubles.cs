@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
@@ -70,12 +71,49 @@ internal sealed class SuccessfulAudioDeviceTestRuntime : IAudioDeviceTestRuntime
 {
     public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
     {
-        return new AudioDeviceTestResult(
+        return AudioDeviceTestResultFactory.CreateSuccessful(request);
+    }
+}
+
+internal static class AudioDeviceTestResultFactory
+{
+    internal static AudioDeviceTestResult CreateSuccessful(
+        AudioDeviceTestRequest request,
+        AudioDriver? actualBackend = null,
+        string? actualDevice = null,
+        string? actualDeviceName = null,
+        SampleRate? actualRate = null,
+        SampleFormat? engineFormat = null,
+        SampleFormat? endpointFormat = null,
+        double latency = 0,
+        string? fallbackReason = null,
+        bool streamProgressSucceeded = true)
+    {
+        var initialization = new AudioPlaybackInitializationResult(
             request.PlayerDriver,
             request.PlayerDevice,
             request.PlayerDeviceName,
             request.PlayerSampleRate,
             request.PlayerFormat,
-            0);
+            request.PlayerBufferSize,
+            request.PlayerWASAPIParam,
+            request.PlayerVolume,
+            actualBackend ?? request.PlayerDriver,
+            actualDevice ?? request.PlayerDevice,
+            actualDeviceName ?? request.PlayerDeviceName,
+            actualRate ?? request.PlayerSampleRate,
+            engineFormat ?? request.PlayerFormat,
+            endpointFormat ?? engineFormat ?? request.PlayerFormat,
+            latency,
+            fallbackReason,
+            isSilentFallback: false);
+        return new AudioDeviceTestResult(
+            initialization,
+            request.PlaySound,
+            streamProgressSucceeded,
+            request.PlaySound ? TimeSpan.FromSeconds(1) : TimeSpan.Zero,
+            request.PlaySound ? TimeSpan.FromSeconds(1) : TimeSpan.Zero,
+            request.PlaySound ? 1d : null,
+            streamProgressSucceeded ? null : "stream did not progress");
     }
 }

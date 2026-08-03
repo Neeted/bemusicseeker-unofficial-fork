@@ -551,6 +551,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 SampleRate requestedFrequency = _frequency;
                 SampleFormat requestedFormat = _format;
                 Exception primaryException = null;
+                var earlierAttempts = new List<BassAudioBackendAttempt>();
+                var crossBackendFallbackReasons = new List<string>();
                 foreach (DeviceDriver backend in GetLegacyInitializationOrder(driver))
                 {
                     DeviceDescriptor attemptDevice = backend == driver ? desc : default;
@@ -579,6 +581,16 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             DeviceDriver.NULL_DEVICE => InitializeNullDevice(),
                             _ => throw new ArgumentOutOfRangeException(nameof(driver))
                         };
+                        if (session.NegotiationResult != null && earlierAttempts.Count != 0)
+                        {
+                            string earlierFallbackReason = string.Join(
+                                "; ",
+                                crossBackendFallbackReasons)
+                                + "; fallbackDestination=" + backend;
+                            session.NegotiationResult = session.NegotiationResult.WithEarlierAttempts(
+                                earlierAttempts,
+                                earlierFallbackReason);
+                        }
                         session.ActualDevice = CurrentSession.ActualDevice.Equals(default(DeviceDescriptor))
                             ? actualDescriptor
                             : CurrentSession.ActualDevice;
@@ -599,6 +611,16 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     {
                         AudioInitializationException contextual = AddInitializationContext(exception, session);
                         primaryException ??= contextual;
+                        earlierAttempts.Add(new BassAudioBackendAttempt(
+                            contextual.Stage,
+                            contextual.NativeErrorSource,
+                            contextual.NativeErrorCode,
+                            "backend=" + backend + " failed: " + contextual.Message));
+                        crossBackendFallbackReasons.Add(
+                            "attemptedBackend=" + backend
+                            + " stage=" + contextual.Stage
+                            + " nativeErrorSource=" + contextual.NativeErrorSource
+                            + " nativeErrorCode=" + contextual.NativeErrorCode);
                         TryLogInitializationAttemptFailure(driver, backend, contextual);
 
                         CaptureManagedHandles(session);
@@ -1932,6 +1954,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
     }
 
+    /// <summary>
+    /// Starts or pauses this stream and fails after a bounded retry when the mixer rejects it.
+    /// </summary>
     public void Play(PlayWith flagPlayWith = PlayWith.RESTART)
     {
         using BassAudioOperationLease operation =
@@ -1940,10 +1965,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         bool flag = false;
         lock (InstanceLocks[_handle])
         {
-            BASSActive bASSActive;
-            while (true)
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                bASSActive = BassMix.BASS_Mixer_ChannelIsActive(_handle);
+                BASSActive bASSActive = BassMix.BASS_Mixer_ChannelIsActive(_handle);
                 if (bASSActive == BASSActive.BASS_ACTIVE_STOPPED)
                 {
                     if (BassMix.BASS_Mixer_StreamAddChannel(inputMixer, _handle, BASSFlag.BASS_STREAM_PRESCAN))
@@ -1962,6 +1986,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     {
                         BASSError bASSError = Bass.BASS_ErrorGetCode();
                         NLogWrapper.TraceLogger?.Warn(string.Concat("BASS_Mixer_StreamAddChannel failed: ", bASSError, " :", FileName));
+                        throw new InvalidOperationException(
+                            "BASS_Mixer_StreamAddChannel failed: " + bASSError + " :" + FileName);
                     }
                     bASSActive = BASSActive.BASS_ACTIVE_PAUSED;
                 }
@@ -1971,7 +1997,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 }
                 if (flagPlayWith.HasFlag(PlayWith.PAUSE))
                 {
-                    break;
+                    if (bASSActive == BASSActive.BASS_ACTIVE_PLAYING)
+                    {
+                        BassMix.BASS_Mixer_ChannelPause(_handle);
+                    }
+                    playState = PlayState.Paused;
+                    return;
                 }
                 if (!BassMix.BASS_Mixer_ChannelPlay(_handle))
                 {
@@ -1982,19 +2013,20 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         lock (StaticLockObject)
                         {
                             CurrentVoices--;
-                            return;
                         }
+                        throw new InvalidOperationException(
+                            "BASS_Mixer_ChannelPlay failed after adding the channel: "
+                            + bASSError2 + " :" + FileName);
                     }
                     continue;
                 }
                 playState = PlayState.Playing;
                 return;
             }
-            if (bASSActive == BASSActive.BASS_ACTIVE_PLAYING)
-            {
-                BassMix.BASS_Mixer_ChannelPause(_handle);
-            }
-            playState = PlayState.Paused;
+
+            BASSError error = Bass.BASS_ErrorGetCode();
+            throw new InvalidOperationException(
+                "BASS_Mixer_ChannelPlay failed after a bounded retry: " + error + " :" + FileName);
         }
     }
 

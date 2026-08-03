@@ -112,13 +112,6 @@ internal interface IPlayerSettingsGateway
 {
     PlayerSettingsSnapshot CaptureSnapshot();
 
-    void ApplyNegotiatedAudioSettings(
-        AudioDriver playerDriver,
-        string playerDevice,
-        string playerDeviceName,
-        SampleRate playerSampleRate,
-        SampleFormat playerFormat);
-
     void SaveWindowPlacement(WindowPlacement windowPlacement);
 }
 
@@ -152,21 +145,6 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
             PlayerResolutionSettingsAdapter.FromSettings(values),
             values.IsSaveLR2bodyWindowPosition,
             Win32WindowPlacementAdapter.FromNative(values.LR2bodyWindowPlacement));
-    }
-
-    public void ApplyNegotiatedAudioSettings(
-        AudioDriver playerDriver,
-        string playerDevice,
-        string playerDeviceName,
-        SampleRate playerSampleRate,
-        SampleFormat playerFormat)
-    {
-        Settings values = Values;
-        values.PlayerDriver = BassAudioMapping.ToBassDriver(playerDriver);
-        values.PlayerDevice = playerDevice;
-        values.PlayerDeviceName = playerDeviceName;
-        values.PlayerSampleRate = playerSampleRate;
-        values.PlayerFormat = playerFormat;
     }
 
     public void SaveWindowPlacement(WindowPlacement windowPlacement)

@@ -546,13 +546,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         lock (_sharedObjectLock)
         {
             PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
-            AudioPlaybackInitializationResult initialization = audioPlaybackRuntime.Initialize(settings);
-            playerSettingsGateway.ApplyNegotiatedAudioSettings(
-                initialization.PlayerDriver,
-                initialization.PlayerDevice,
-                initialization.PlayerDeviceName,
-                initialization.PlayerSampleRate,
-                initialization.PlayerFormat);
+            _ = audioPlaybackRuntime.Initialize(settings);
             _fastForwarding = false;
             _fastBackwarding = false;
             Duration = TimeSpan.MinValue;

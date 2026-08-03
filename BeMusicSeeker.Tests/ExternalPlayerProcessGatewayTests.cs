@@ -664,15 +664,6 @@ public sealed class ExternalPlayerProcessGatewayTests
 
         public PlayerSettingsSnapshot CaptureSnapshot() => snapshot;
 
-        public void ApplyNegotiatedAudioSettings(
-            AudioDriver playerDriver,
-            string playerDevice,
-            string playerDeviceName,
-            SampleRate playerSampleRate,
-            SampleFormat playerFormat)
-        {
-        }
-
         public void SaveWindowPlacement(WindowPlacement windowPlacement)
         {
             SaveCalled = true;

@@ -1,6 +1,9 @@
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Media;
+using Ribbit.Media.Audio;
+using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -103,6 +106,109 @@ public sealed class AudioContractsTests
         {
             settings.uBMplayVolume = originalVolume;
         }
+    }
+
+    [TestMethod]
+    public void PlaybackInitializationResult_SeparatesRequestedAndNegotiatedValues()
+    {
+        var result = new AudioPlaybackInitializationResult(
+            AudioDriver.Asio,
+            "asio-requested",
+            "Requested ASIO",
+            SampleRate.SAMPLE_RATE_96000Hz,
+            SampleFormat.SAMPLE_INT_24BIT,
+            12,
+            true,
+            73,
+            AudioDriver.WasapiShared,
+            "wasapi-actual",
+            "Actual WASAPI",
+            SampleRate.SAMPLE_RATE_48000Hz,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            SampleFormat.SAMPLE_INT_16BIT,
+            18.5,
+            "attemptedBackend=ASIO; fallbackDestination=WASAPI_SHARED",
+            isSilentFallback: false);
+
+        Assert.AreEqual(AudioDriver.Asio, result.RequestedBackend);
+        Assert.AreEqual(AudioDriver.WasapiShared, result.ActualBackend);
+        Assert.AreEqual("asio-requested", result.RequestedDevice);
+        Assert.AreEqual("wasapi-actual", result.ActualDevice);
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_96000Hz, result.RequestedRate);
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, result.ActualRate);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_24BIT, result.RequestedFormat);
+        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, result.EndpointFormat);
+        Assert.IsTrue(result.FallbackOccurred);
+        Assert.IsFalse(result.IsSilentFallback);
+        StringAssert.Contains(result.FallbackReason, "fallbackDestination=WASAPI_SHARED");
+    }
+
+    [TestMethod]
+    public void PlaybackRuntime_NullDeviceRequestFailsBeforeAudibleInitialization()
+    {
+        var runtime = new BassAudioPlaybackRuntime();
+        PlayerSettingsSnapshot settings = CreatePlayerSettings(AudioDriver.NullDevice);
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => runtime.Initialize(settings));
+
+        Assert.AreEqual(BassAudioPlayer.DeviceDriver.NULL_DEVICE, exception.RequestedBackend);
+        Assert.AreEqual(BassAudioPlayer.DeviceDriver.INVALID, exception.ActualBackend);
+        Assert.AreEqual("backend selection", exception.Stage);
+        Assert.AreNotEqual(BassAudioPlayer.DeviceDriver.DIRECT_SOUND, exception.ActualBackend);
+    }
+
+    [TestMethod]
+    public void BackendResult_PreservesEarlierFailureWhenFallbackSucceeds()
+    {
+        var request = new BassAudioNegotiationRequest(
+            BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            default,
+            SampleRate.SAMPLE_RATE_48000Hz,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            10);
+        var result = new BassAudioBackendResult(
+            request,
+            new BassAudioPlayer.DeviceDescriptor("Endpoint", "endpoint-id"),
+            SampleRate.SAMPLE_RATE_48000Hz,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            10,
+            42,
+            [],
+            null);
+        var failedAttempt = new BassAudioBackendAttempt(
+            "BASS_WASAPI_Init",
+            "BASSWASAPI",
+            BASSError.BASS_ERROR_BUSY,
+            "exclusive failed");
+
+        BassAudioBackendResult fallback = result.WithEarlierAttempts(
+            [failedAttempt],
+            "attemptedBackend=WASAPI_EXCLUSIVE nativeErrorCode=BASS_ERROR_BUSY; "
+            + "fallbackDestination=WASAPI_SHARED");
+
+        Assert.AreEqual(1, fallback.Attempts.Count);
+        Assert.AreSame(failedAttempt, fallback.Attempts[0]);
+        StringAssert.Contains(fallback.FallbackReason, "BASS_ERROR_BUSY");
+        StringAssert.Contains(fallback.FallbackReason, "fallbackDestination=WASAPI_SHARED");
+    }
+
+    private static PlayerSettingsSnapshot CreatePlayerSettings(AudioDriver driver)
+    {
+        return new PlayerSettingsSnapshot(
+            driver,
+            string.Empty,
+            string.Empty,
+            SampleRate.AUTO,
+            SampleFormat.AUTO,
+            10,
+            false,
+            50,
+            new PlayerResolution(800, 600),
+            false,
+            default);
     }
 
     private sealed class RecordingAudioPlaybackRuntime : IAudioPlaybackRuntime

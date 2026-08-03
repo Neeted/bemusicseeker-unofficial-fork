@@ -126,4 +126,37 @@ internal sealed class BassAudioBackendResult
 
     /// <summary>Gets why a value other than the first-choice format was used.</summary>
     internal string FallbackReason { get; }
+
+    /// <summary>
+    /// Creates a copy that prepends failures from earlier backend attempts.
+    /// </summary>
+    internal BassAudioBackendResult WithEarlierAttempts(
+        IReadOnlyList<BassAudioBackendAttempt> earlierAttempts,
+        string earlierFallbackReason)
+    {
+        ArgumentNullException.ThrowIfNull(earlierAttempts);
+        if (earlierAttempts.Count == 0 && string.IsNullOrWhiteSpace(earlierFallbackReason))
+        {
+            return this;
+        }
+
+        var attempts = new List<BassAudioBackendAttempt>(earlierAttempts.Count + Attempts.Count);
+        attempts.AddRange(earlierAttempts);
+        attempts.AddRange(Attempts);
+        string fallbackReason = string.IsNullOrWhiteSpace(earlierFallbackReason)
+            ? FallbackReason
+            : string.IsNullOrWhiteSpace(FallbackReason)
+                ? earlierFallbackReason
+                : earlierFallbackReason + "; " + FallbackReason;
+        return new BassAudioBackendResult(
+            Request,
+            ActualDevice,
+            ActualRate,
+            EngineFormat,
+            EndpointFormat,
+            LatencyMilliseconds,
+            MixerHandle,
+            attempts,
+            fallbackReason);
+    }
 }

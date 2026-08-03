@@ -5734,12 +5734,26 @@ public partial class SettingsDialogViewModel : ViewModel
                 return;
             }
 
-            audioSettingsGateway.PlayerDriver = result.PlayerDriver;
-            ApplicationSettings.PlayerDevice = result.PlayerDevice;
-            ApplicationSettings.PlayerDeviceName = result.PlayerDeviceName;
-            ApplicationSettings.PlayerSampleRate = result.PlayerSampleRate;
-            ApplicationSettings.PlayerFormat = result.PlayerFormat;
-            PlayerLatency = result.PlayerLatency;
+            if (!CanApplyAudioDeviceTestResult(request, result))
+            {
+                return;
+            }
+
+            audioSettingsGateway.PlayerDriver = result.ActualBackend;
+            if (!string.IsNullOrWhiteSpace(request.PlayerDevice))
+            {
+                ApplicationSettings.PlayerDevice = result.ActualDevice;
+                ApplicationSettings.PlayerDeviceName = result.ActualDeviceName;
+            }
+            if (request.PlayerSampleRate != SampleRate.AUTO)
+            {
+                ApplicationSettings.PlayerSampleRate = result.ActualRate;
+            }
+            if (request.PlayerFormat != SampleFormat.AUTO)
+            {
+                ApplicationSettings.PlayerFormat = result.EngineFormat;
+            }
+            PlayerLatency = result.Latency;
             RaisePropertyChanged(nameof(PlayerDriverIndex));
             RaisePropertyChanged(nameof(PlayerDeviceNames));
             RaisePropertyChanged(nameof(PlayerDevice));
@@ -5754,6 +5768,46 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(IsEditCompletionEnabled));
             RaisePropertyChanged(nameof(IsEditCancellationEnabled));
         }
+    }
+
+    private bool CanApplyAudioDeviceTestResult(
+        AudioDeviceTestRequest request,
+        AudioDeviceTestResult result)
+    {
+        if (!result.Succeeded
+            || result.FallbackOccurred
+            || result.IsSilentFallback
+            || result.RequestedBackend != request.PlayerDriver
+            || result.ActualBackend != request.PlayerDriver
+            || !IsCurrentAudioDeviceTestRequest(request))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.PlayerDevice)
+            && !string.Equals(result.ActualDevice, request.PlayerDevice, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        if (request.PlayerSampleRate != SampleRate.AUTO
+            && result.ActualRate != request.PlayerSampleRate)
+        {
+            return false;
+        }
+        return request.PlayerFormat == SampleFormat.AUTO
+            || result.EngineFormat == request.PlayerFormat;
+    }
+
+    private bool IsCurrentAudioDeviceTestRequest(AudioDeviceTestRequest request)
+    {
+        return audioSettingsGateway.PlayerDriver == request.PlayerDriver
+            && string.Equals(ApplicationSettings.PlayerDevice, request.PlayerDevice, StringComparison.Ordinal)
+            && string.Equals(ApplicationSettings.PlayerDeviceName, request.PlayerDeviceName, StringComparison.Ordinal)
+            && ApplicationSettings.PlayerSampleRate == request.PlayerSampleRate
+            && ApplicationSettings.PlayerFormat == request.PlayerFormat
+            && ApplicationSettings.PlayerBufferSize.Equals(request.PlayerBufferSize)
+            && ApplicationSettings.PlayerWASAPIParam == request.PlayerWASAPIParam
+            && ApplicationSettings.uBMplayVolume == request.PlayerVolume;
     }
 
     [Flags]
