@@ -3037,4 +3037,10 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="UpdateDialog_ReleasePageButton" xml:space="preserve">
     <value>Releaseページ</value>
   </data>
+  <data name="AudioDeviceDefault" xml:space="preserve">
+    <value>（既定のデバイス）</value>
+  </data>
+  <data name="AudioDeviceUnavailableFormat" xml:space="preserve">
+    <value>利用不可: {0}</value>
+  </data>
 </root>

@@ -1948,6 +1948,10 @@ public class Resources
 
     public static string UpdateDialog_ReleasePageButton => ResourceManager.GetString("UpdateDialog_ReleasePageButton", resourceCulture);
 
+    public static string AudioDeviceDefault => ResourceManager.GetString("AudioDeviceDefault", resourceCulture);
+
+    public static string AudioDeviceUnavailableFormat => ResourceManager.GetString("AudioDeviceUnavailableFormat", resourceCulture);
+
     internal Resources()
     {
     }

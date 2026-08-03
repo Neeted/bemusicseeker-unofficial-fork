@@ -26,6 +26,23 @@ internal static class BassNativeRuntime
     private static readonly object SyncRoot = new();
     private static List<IntPtr> _loadedHandles;
 
+    private static int loadInvocationCount;
+
+    /// <summary>Gets how many times native loading was requested in this process.</summary>
+    internal static int LoadInvocationCount => System.Threading.Volatile.Read(ref loadInvocationCount);
+
+    /// <summary>Gets whether this process currently owns loaded BASS native module handles.</summary>
+    internal static bool IsLoaded
+    {
+        get
+        {
+            lock (SyncRoot)
+            {
+                return _loadedHandles is not null;
+            }
+        }
+    }
+
     private static string NativeDirectory
     {
         get
@@ -36,6 +53,7 @@ internal static class BassNativeRuntime
 
     internal static void Load()
     {
+        System.Threading.Interlocked.Increment(ref loadInvocationCount);
         lock (SyncRoot)
         {
             if (_loadedHandles is not null)

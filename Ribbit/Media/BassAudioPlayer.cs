@@ -214,8 +214,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         equalizerGains = new float[10].ToList();
     }
 
-    public static ReadOnlyDictionary<DeviceDriver, ReadOnlyCollection<DeviceDescriptor>> DeviceList { get; }
-
     public static double Latency { get; private set; }
 
     public static SampleRate Frequency
@@ -1035,30 +1033,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         _format = SampleFormat.AUTO;
         _defaultVolume = 0.4f;
         _deviceVolume = 0.4f;
-        Ribbit.Media.Audio.BassNet.Initialize();
-        DeviceList = GetInitialDeviceListWithinOperationGate();
         Ribbit.Media.Audio.BassNet.RegisterAudioSessionShutdown(ReleaseCurrentSessionUnderExclusive);
-    }
-
-    private static ReadOnlyDictionary<DeviceDriver, ReadOnlyCollection<DeviceDescriptor>>
-        GetInitialDeviceListWithinOperationGate()
-    {
-        while (true)
-        {
-            if (Ribbit.Media.Audio.BassNet.TryEnterAudioOperation(
-                out BassAudioOperationLease operation))
-            {
-                using (operation)
-                {
-                    return getDeviceList();
-                }
-            }
-
-            // A concurrent shutdown can unload the runtime after the type initializer
-            // starts. Wait for that attempt, reload, and retry without poisoning the type.
-            Ribbit.Media.Audio.BassNet.WaitForAudioShutdownCompletion();
-            Ribbit.Media.Audio.BassNet.Initialize();
-        }
     }
 
     private static DeviceDescriptor InitializeAsio(DeviceDescriptor desc = default)
@@ -1594,34 +1569,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 UpdateEQ(i, 0f);
             }
         }
-    }
-
-    private static ReadOnlyDictionary<DeviceDriver, ReadOnlyCollection<DeviceDescriptor>> getDeviceList()
-    {
-        if (IsInitialized)
-        {
-            return DeviceList;
-        }
-        Dictionary<DeviceDriver, ReadOnlyCollection<DeviceDescriptor>> dictionary = [];
-        if (!Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
-        {
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_Init failed: " + bASSError);
-        }
-        IEnumerable<DeviceDescriptor> second = from i in BassWasapi.BASS_WASAPI_GetDeviceInfos()
-                                               where !i.IsUnplugged && !i.IsLoopback && i.IsEnabled && !i.IsInput
-                                               select new DeviceDescriptor(i.name, i.id);
-        ReadOnlyCollection<DeviceDescriptor> value = (dictionary[DeviceDriver.WASAPI_SHARED] = new DeviceDescriptor[1].Concat(second).ToList().AsReadOnly());
-        dictionary[DeviceDriver.WASAPI_EXCLUSIVE] = value;
-        IEnumerable<DeviceDescriptor> second2 = from i in BassAsio.BASS_ASIO_GetDeviceInfos()
-                                                select new DeviceDescriptor(i.name, i.driver);
-        dictionary[DeviceDriver.ASIO] = new DeviceDescriptor[1].Concat(second2).ToList().AsReadOnly();
-        IEnumerable<DeviceDescriptor> second3 = from i in Bass.BASS_GetDeviceInfos()
-                                                where i.driver != null && i.IsEnabled
-                                                select new DeviceDescriptor(i.name, i.driver);
-        dictionary[DeviceDriver.DIRECT_SOUND] = new DeviceDescriptor[1].Concat(second3).ToList().AsReadOnly();
-        Ribbit.Media.Audio.BassNet.FreeDevice();
-        return new ReadOnlyDictionary<DeviceDriver, ReadOnlyCollection<DeviceDescriptor>>(dictionary);
     }
 
     public static void ClearMaxVoices()

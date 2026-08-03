@@ -12,6 +12,13 @@ internal sealed class TestAudioDeviceCatalog : IAudioDeviceCatalog
 
     internal bool EncoderAvailable { get; set; } = true;
 
+    internal int RefreshCount { get; private set; }
+
+    public void Refresh()
+    {
+        RefreshCount++;
+    }
+
     public IReadOnlyList<AudioDeviceInfo> GetDevices(AudioDriver driver)
     {
         return Devices;

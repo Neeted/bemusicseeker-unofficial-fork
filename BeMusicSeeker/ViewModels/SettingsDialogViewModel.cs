@@ -184,6 +184,13 @@ public partial class SettingsDialogViewModel : ViewModel
     /// </summary>
     internal void RequestOpen()
     {
+        audioDeviceCatalog.Refresh();
+        playerDeviceNames = BuildPlayerDeviceNames(audioSettingsGateway.PlayerDriver);
+        RaisePropertyChanged(nameof(PlayerDriverNames));
+        RaisePropertyChanged(nameof(PlayerDriverIndex));
+        RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
+        RaisePropertyChanged(nameof(PlayerDeviceNames));
+        RaisePropertyChanged(nameof(PlayerDevice));
         presentationPort?.OpenSettingsDialog();
     }
 
@@ -3568,27 +3575,42 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    public ReadOnlyObservableCollection<string> PlayerDriverNames => new(
-    [
-        "DirectSound",
+    public ReadOnlyObservableCollection<string> PlayerDriverNames
+        => new(
+        [
+            "DirectSound",
             "WASAPI (" + BeMusicSeeker.Properties.Resources.Shared + ")",
             "WASAPI (" + BeMusicSeeker.Properties.Resources.Exclusive + ")",
             "ASIO"
-    ]);
+        ]);
+
+    /// <summary>Gets a localized description for a saved backend that is not audible.</summary>
+    public string UnavailablePlayerDriverDescription => IsAudiblePlayerDriver(audioSettingsGateway.PlayerDriver)
+        ? null
+        : string.Format(
+            BeMusicSeeker.Properties.Resources.AudioDeviceUnavailableFormat,
+            audioSettingsGateway.PlayerDriver);
 
     public int PlayerDriverIndex
     {
         get
         {
-            return (int)NormalizePlayerDriver(audioSettingsGateway.PlayerDriver);
+            AudioDriver savedDriver = audioSettingsGateway.PlayerDriver;
+            return IsAudiblePlayerDriver(savedDriver) ? (int)savedDriver : -1;
         }
         set
         {
-            AudioDriver driver = NormalizePlayerDriver((AudioDriver)value);
+            AudioDriver driver = (AudioDriver)value;
+            if (!IsAudiblePlayerDriver(driver))
+            {
+                return;
+            }
             if (audioSettingsGateway.PlayerDriver != driver)
             {
                 audioSettingsGateway.PlayerDriver = driver;
-                playerDeviceNames = [.. audioDeviceCatalog.GetDevices(driver)];
+                playerDeviceNames = BuildPlayerDeviceNames(driver);
+                RaisePropertyChanged(nameof(PlayerDriverNames));
+                RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
                 RaisePropertyChanged("PlayerDriverIndex");
                 RaisePropertyChanged(nameof(PlayerDeviceNames));
                 RaisePropertyChanged(nameof(PlayerDevice));
@@ -3596,20 +3618,14 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private static AudioDriver NormalizePlayerDriver(AudioDriver driver)
-    {
-        if (driver < AudioDriver.DirectSound || driver > AudioDriver.Asio)
-        {
-            return AudioDriver.DirectSound;
-        }
-        return driver;
-    }
+    private static bool IsAudiblePlayerDriver(AudioDriver driver)
+        => driver >= AudioDriver.DirectSound && driver <= AudioDriver.Asio;
 
     public List<AudioDeviceInfo> PlayerDeviceNames
     {
         get
         {
-            return playerDeviceNames ??= [.. audioDeviceCatalog.GetDevices(NormalizePlayerDriver(audioSettingsGateway.PlayerDriver))];
+            return playerDeviceNames ??= BuildPlayerDeviceNames(audioSettingsGateway.PlayerDriver);
         }
         private set
         {
@@ -3625,12 +3641,6 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (value == null
-                && !string.IsNullOrWhiteSpace(ApplicationSettings.PlayerDevice)
-                && !PlayerDeviceNames.Any(d => string.Equals(d.Driver, ApplicationSettings.PlayerDevice, StringComparison.Ordinal)))
-            {
-                return;
-            }
             if (string.Equals(ApplicationSettings.PlayerDevice, value, StringComparison.Ordinal))
             {
                 return;
@@ -3644,26 +3654,30 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private AudioDeviceInfo ResolvePlayerDeviceDescriptor()
     {
-        AudioDeviceInfo deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Driver == ApplicationSettings.PlayerDevice);
-        if (deviceDescriptor.Driver == null && ApplicationSettings.PlayerDevice != null)
+        return PlayerDeviceNames.FirstOrDefault(d =>
+            string.Equals(d.Driver, ApplicationSettings.PlayerDevice, StringComparison.Ordinal));
+    }
+
+    private List<AudioDeviceInfo> BuildPlayerDeviceNames(AudioDriver driver)
+    {
+        var devices = IsAudiblePlayerDriver(driver)
+            ? new List<AudioDeviceInfo>(audioDeviceCatalog.GetDevices(driver))
+            : [];
+        string savedIdentity = ApplicationSettings.PlayerDevice;
+        if (!string.IsNullOrWhiteSpace(savedIdentity)
+            && !devices.Any(device => string.Equals(device.Driver, savedIdentity, StringComparison.Ordinal)))
         {
-            deviceDescriptor = default;
+            devices.Add(new AudioDeviceInfo(
+                string.IsNullOrWhiteSpace(ApplicationSettings.PlayerDeviceName)
+                    ? savedIdentity
+                    : ApplicationSettings.PlayerDeviceName,
+                savedIdentity,
+                -1,
+                isDefaultPlaceholder: false,
+                isNativeDefault: false,
+                isAvailable: false));
         }
-        if (deviceDescriptor.Driver == null)
-        {
-            deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Name == ApplicationSettings.PlayerDeviceName);
-            if (deviceDescriptor.Driver == null)
-            {
-                Match match = Regex.Match(ApplicationSettings.PlayerDeviceName ?? string.Empty, "(.*?)[\\s(\\d-]+(.*?)\\)");
-                if (match.Success)
-                {
-                    string p1 = Regex.Escape(match.Groups[1].ToString());
-                    string p2 = Regex.Escape(match.Groups[2].ToString());
-                    deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => Regex.IsMatch(d.Name ?? string.Empty, p1 + ".*" + p2));
-                }
-            }
-        }
-        return deviceDescriptor;
+        return devices;
     }
 
     public SampleRate PlayerSampleRate
@@ -7145,12 +7159,12 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.EncoderQuality = tempEncoderQuality;
         ApplicationSettings.EncodeFileNameFormat = tempEncodeFileNameFormat;
         audioSettingsGateway.PlayerDriver = (AudioDriver)tempPlayerDriverIndex;
-        if (playerDeviceNames != null)
-        {
-            playerDeviceNames = [.. audioDeviceCatalog.GetDevices(NormalizePlayerDriver(audioSettingsGateway.PlayerDriver))];
-        }
         ApplicationSettings.PlayerDevice = tempPlayerDevice;
         ApplicationSettings.PlayerDeviceName = tempPlayerDeviceName;
+        if (playerDeviceNames != null)
+        {
+            playerDeviceNames = BuildPlayerDeviceNames(audioSettingsGateway.PlayerDriver);
+        }
         ApplicationSettings.PlayerSampleRate = tempPlayerSampleRate;
         ApplicationSettings.PlayerFormat = tempPlayerFormat;
         ApplicationSettings.PlayerBufferSize = tempPlayerBufferSize;
@@ -7260,6 +7274,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(EncoderQuality));
         RaisePropertyChanged(nameof(EncodeFileNameFormat));
         RaisePropertyChanged(nameof(PlayerDriverIndex));
+        RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
         RaisePropertyChanged(nameof(PlayerDevice));
         RaisePropertyChanged(nameof(PlayerDeviceNames));
         RaisePropertyChanged(nameof(PlayerDevice));

@@ -74,7 +74,7 @@ public sealed class AudioContractsTests
         AudioDeviceInfo defaultDevice = new(null, null);
         AudioDeviceInfo namedDevice = new("device-name", "driver-id");
 
-        Assert.AreEqual("(Default device)", defaultDevice.FriendlyName);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.AudioDeviceDefault, defaultDevice.FriendlyName);
         Assert.IsNull(defaultDevice.Driver);
         Assert.AreEqual("device-name", namedDevice.FriendlyName);
         Assert.AreEqual("driver-id", namedDevice.Driver);

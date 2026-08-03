@@ -1,5 +1,8 @@
 using System;
 using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.Loader;
 using System.Security.Cryptography;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
@@ -94,34 +97,28 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
-    public void BassAudioPlayer_DeviceEnumerationKeepsNativeRuntimeLoadedUntilFullFree()
+    public void BassAudioPlayer_StaticInitializationDoesNotEnumerateOrLoadNativeRuntime()
     {
-        Assert.IsNotNull(BassAudioPlayer.DeviceList);
+        string applicationAssemblyPath = typeof(BassAudioPlayer).Assembly.Location;
+        var loadContext = new IsolatedApplicationLoadContext(applicationAssemblyPath);
         try
         {
-            RibbitBassNet.Initialize();
-        }
-        catch (InvalidOperationException)
-        {
-            // The BassAudioPlayer type initializer may have initialized the runtime first.
-            // Revalidate the already loaded family so an ABI failure is not mistaken for
-            // the expected duplicate-initialization case.
-            BassNativeRuntime.ValidateSupportedVersions();
-        }
-        BassAudioPlayer.Initialize(BassAudioPlayer.DeviceDriver.NULL_DEVICE);
-        Assert.AreEqual(BassAudioPlayer.DeviceDriver.NULL_DEVICE, BassAudioPlayer.DriverType);
+            Assembly applicationAssembly = loadContext.LoadFromAssemblyPath(applicationAssemblyPath);
+            Type runtimeType = applicationAssembly.GetType("Ribbit.Media.Audio.BassNativeRuntime", throwOnError: true)!;
+            Type enumeratorType = applicationAssembly.GetType("Ribbit.Media.Audio.BassAudioDeviceEnumerator", throwOnError: true)!;
+            Type playerType = applicationAssembly.GetType("Ribbit.Media.BassAudioPlayer", throwOnError: true)!;
 
-        try
-        {
-            BassAudioPlayer.Free();
-            Assert.AreEqual(0x02040C01, Bass.BASS_GetVersion());
-            BassAudioPlayer.Initialize(BassAudioPlayer.DeviceDriver.NULL_DEVICE);
-            Assert.AreEqual(BassAudioPlayer.DeviceDriver.NULL_DEVICE, BassAudioPlayer.DriverType);
-            RibbitBassNet.Shutdown();
+            int nativeLoadCountBefore = ReadStaticCounter(runtimeType, "LoadInvocationCount");
+            int enumerationCountBefore = ReadStaticCounter(enumeratorType, "EnumerationInvocationCount");
+
+            RuntimeHelpers.RunClassConstructor(playerType.TypeHandle);
+
+            Assert.AreEqual(nativeLoadCountBefore, ReadStaticCounter(runtimeType, "LoadInvocationCount"));
+            Assert.AreEqual(enumerationCountBefore, ReadStaticCounter(enumeratorType, "EnumerationInvocationCount"));
         }
         finally
         {
-            RibbitBassNet.Shutdown();
+            loadContext.Unload();
         }
     }
 
@@ -152,6 +149,36 @@ public sealed class BassNativeRuntimeTests
         {
             BassAudioPlayer.Free(ownedSession);
             RibbitBassNet.Shutdown();
+        }
+    }
+
+    private static int ReadStaticCounter(Type type, string propertyName)
+    {
+        return (int)type.GetProperty(
+            propertyName,
+            BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+    }
+
+    private sealed class IsolatedApplicationLoadContext : AssemblyLoadContext
+    {
+        private readonly AssemblyDependencyResolver resolver;
+
+        internal IsolatedApplicationLoadContext(string applicationAssemblyPath)
+            : base(isCollectible: true)
+        {
+            resolver = new AssemblyDependencyResolver(applicationAssemblyPath);
+        }
+
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            string? assemblyPath = resolver.ResolveAssemblyToPath(assemblyName);
+            return assemblyPath == null ? null : LoadFromAssemblyPath(assemblyPath);
+        }
+
+        protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
+        {
+            string? libraryPath = resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+            return libraryPath == null ? IntPtr.Zero : LoadUnmanagedDllFromPath(libraryPath);
         }
     }
 }

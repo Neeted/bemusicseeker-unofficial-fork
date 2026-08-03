@@ -872,5 +872,7 @@
   "UpdateDialog_PackageWithMetadataDescription": "包含已解析的中繼資料。即使未持有的譜面，也可以在播放清單中查看中繼資料。",
   "UpdateDialog_StartupBlocked": "啟動初始化完成前無法開始更新。",
   "UpdateDialog_UpdateButton": "更新",
-  "UpdateDialog_ReleasePageButton": "Release 頁面"
+  "UpdateDialog_ReleasePageButton": "Release 頁面",
+  "AudioDeviceDefault": "（預設裝置）",
+  "AudioDeviceUnavailableFormat": "無法使用：{0}"
 }

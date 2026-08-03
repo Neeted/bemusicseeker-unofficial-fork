@@ -389,6 +389,7 @@
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_device, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>
+                    <TextBlock Margin="8,0,8,4" Foreground="DarkOrange" Text="{Binding UnavailablePlayerDriverDescription, Mode=OneWay}" />
                     <DockPanel Height="35">
                       <DockPanel Width="229" IsEnabled="{Binding SelectedIndex, ElementName=comboBoxPlayerDriver, Converter={StaticResource playerDriverSelectionEnabledConverter}}">
                         <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerSampleRateNames, Mode=OneWay}" SelectedValue="{Binding PlayerSampleRate, Mode=TwoWay}" />

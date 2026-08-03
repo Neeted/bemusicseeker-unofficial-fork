@@ -52,6 +52,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     private readonly IAudioSettingsGateway audioSettingsGateway;
 
+    private readonly IAudioDeviceCatalog audioDeviceCatalog;
+
     private readonly Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider;
 
     private readonly Func<IBMSPlayer> defaultBmsPlayerFactory;
@@ -74,6 +76,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     private readonly IUpdaterProcessGateway updaterProcessGateway;
 
+    /// <summary>Creates the application composition with replaceable process and audio catalog boundaries.</summary>
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -95,7 +98,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         ApplicationPathSnapshot applicationPathSnapshot = null,
         IExternalShellGateway externalShellGateway = null,
         IExternalPlayerProcessGateway externalPlayerProcessGateway = null,
-        IUpdaterProcessGateway updaterProcessGateway = null)
+        IUpdaterProcessGateway updaterProcessGateway = null,
+        IAudioDeviceCatalog audioDeviceCatalog = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -110,6 +114,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         audioSettingsGateway = new SettingsAudioGateway(() => this.settingsEditSession.Values);
+        this.audioDeviceCatalog = audioDeviceCatalog ?? new BassAudioDeviceCatalog();
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
             ?? (() => new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway, new BassAudioPlaybackRuntime()));
         this.uiScheduler = uiScheduler
@@ -314,7 +319,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
                 playbackRuntimePort,
                 new BassAudioDeviceTestRuntime(applicationPathSnapshot)),
-            audioDeviceCatalog: new BassAudioDeviceCatalog(),
+            audioDeviceCatalog: audioDeviceCatalog,
             audioSettingsGateway: audioSettingsGateway);
     }
 

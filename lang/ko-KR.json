@@ -872,5 +872,7 @@
   "UpdateDialog_PackageWithMetadataDescription": "분석된 메타데이터를 함께 포함합니다. 보유하지 않은 보면도 플레이리스트에서 메타데이터를 볼 수 있습니다.",
   "UpdateDialog_StartupBlocked": "시작 초기화가 완료될 때까지 업데이트를 시작할 수 없습니다.",
   "UpdateDialog_UpdateButton": "업데이트",
-  "UpdateDialog_ReleasePageButton": "릴리스 페이지"
+  "UpdateDialog_ReleasePageButton": "릴리스 페이지",
+  "AudioDeviceDefault": "(기본 장치)",
+  "AudioDeviceUnavailableFormat": "사용할 수 없음: {0}"
 }

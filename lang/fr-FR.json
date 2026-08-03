@@ -872,5 +872,7 @@
   "UpdateDialog_PackageWithMetadataDescription": "Inclut des métadonnées pré-analysées. Vous pouvez consulter les métadonnées dans les playlists même pour les charts non installées.",
   "UpdateDialog_StartupBlocked": "La mise à jour ne peut pas démarrer avant la fin de l'initialisation.",
   "UpdateDialog_UpdateButton": "Mettre à jour",
-  "UpdateDialog_ReleasePageButton": "Page de version"
+  "UpdateDialog_ReleasePageButton": "Page de version",
+  "AudioDeviceDefault": "(Périphérique par défaut)",
+  "AudioDeviceUnavailableFormat": "Indisponible : {0}"
 }

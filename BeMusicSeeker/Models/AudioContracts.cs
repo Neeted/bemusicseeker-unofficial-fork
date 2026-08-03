@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using BeMusicSeeker.Properties;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models;
 
@@ -27,20 +27,55 @@ public enum AudioNormalization
 public readonly struct AudioDeviceInfo
 {
     internal AudioDeviceInfo(string name, string driver)
+        : this(name, driver, -1, isDefaultPlaceholder: string.IsNullOrWhiteSpace(driver), isNativeDefault: false, isAvailable: true)
+    {
+    }
+
+    /// <summary>Creates one catalog option without conflating Default and unavailable saved endpoints.</summary>
+    internal AudioDeviceInfo(
+        string name,
+        string driver,
+        int nativeIndex,
+        bool isDefaultPlaceholder,
+        bool isNativeDefault,
+        bool isAvailable)
     {
         Name = name;
         Driver = driver;
+        NativeIndex = nativeIndex;
+        IsDefaultPlaceholder = isDefaultPlaceholder;
+        IsNativeDefault = isNativeDefault;
+        IsAvailable = isAvailable;
     }
 
     public string Name { get; }
 
     public string Driver { get; }
 
-    public string FriendlyName => string.IsNullOrWhiteSpace(Name) ? "(Default device)" : Name;
+    /// <summary>Gets the backend-native index, or -1 for a non-native option.</summary>
+    internal int NativeIndex { get; }
+
+    /// <summary>Gets whether this option represents the caller's Default intent.</summary>
+    internal bool IsDefaultPlaceholder { get; }
+
+    /// <summary>Gets whether the native API marks this concrete endpoint as default.</summary>
+    internal bool IsNativeDefault { get; }
+
+    /// <summary>Gets whether the endpoint was present in the latest successful refresh.</summary>
+    internal bool IsAvailable { get; }
+
+    public string FriendlyName => IsDefaultPlaceholder
+        ? Resources.AudioDeviceDefault
+        : IsAvailable
+            ? Name
+            : string.Format(Resources.AudioDeviceUnavailableFormat, Name);
 }
 
 internal interface IAudioDeviceCatalog
 {
+    /// <summary>Refreshes every audible backend independently while retaining failed backends' last good list.</summary>
+    void Refresh();
+
     IReadOnlyList<AudioDeviceInfo> GetDevices(AudioDriver driver);
 
     bool IsEncoderAvailable(EncoderType encoder, string encoderDirectory);
@@ -48,10 +83,75 @@ internal interface IAudioDeviceCatalog
 
 internal sealed class BassAudioDeviceCatalog : IAudioDeviceCatalog
 {
+    private static readonly AudioDriver[] AudibleBackends =
+    [
+        AudioDriver.DirectSound,
+        AudioDriver.WasapiShared,
+        AudioDriver.WasapiExclusive,
+        AudioDriver.Asio
+    ];
+
+    private readonly object syncRoot = new();
+    private readonly IBassAudioDeviceEnumerator enumerator;
+    private readonly Dictionary<AudioDriver, IReadOnlyList<AudioDeviceInfo>> lastGood = [];
+
+    internal BassAudioDeviceCatalog()
+        : this(new BassAudioDeviceEnumerator())
+    {
+    }
+
+    /// <summary>Creates a catalog with a replaceable native enumerator.</summary>
+    internal BassAudioDeviceCatalog(IBassAudioDeviceEnumerator enumerator)
+    {
+        this.enumerator = enumerator ?? throw new ArgumentNullException(nameof(enumerator));
+        foreach (AudioDriver backend in AudibleBackends)
+        {
+            lastGood[backend] = [CreateDefaultOption()];
+        }
+    }
+
+    public void Refresh()
+    {
+        foreach (AudioDriver backend in AudibleBackends)
+        {
+            try
+            {
+                IReadOnlyList<BassAudioEnumeratedDevice> nativeDevices = enumerator.Enumerate(
+                    BassAudioMapping.ToBassDriver(backend));
+                var refreshed = new List<AudioDeviceInfo>(nativeDevices.Count + 1)
+                {
+                    CreateDefaultOption()
+                };
+                foreach (BassAudioEnumeratedDevice device in nativeDevices)
+                {
+                    refreshed.Add(new AudioDeviceInfo(
+                        device.Name,
+                        device.Identity,
+                        device.NativeIndex,
+                        isDefaultPlaceholder: false,
+                        device.IsDefault,
+                        isAvailable: true));
+                }
+                lock (syncRoot)
+                {
+                    lastGood[backend] = refreshed.AsReadOnly();
+                }
+            }
+            catch (Exception exception)
+            {
+                TryLogEnumerationFailure(backend, exception);
+            }
+        }
+    }
+
     public IReadOnlyList<AudioDeviceInfo> GetDevices(AudioDriver driver)
     {
-        Ribbit.Media.BassAudioPlayer.DeviceDriver bassDriver = BassAudioMapping.ToBassDriver(driver);
-        return [.. Ribbit.Media.BassAudioPlayer.DeviceList[bassDriver].Select(device => new AudioDeviceInfo(device.Name, device.Driver))];
+        lock (syncRoot)
+        {
+            return lastGood.TryGetValue(driver, out IReadOnlyList<AudioDeviceInfo> devices)
+                ? devices
+                : [];
+        }
     }
 
     public bool IsEncoderAvailable(EncoderType encoder, string encoderDirectory)
@@ -65,6 +165,23 @@ internal sealed class BassAudioDeviceCatalog : IAudioDeviceCatalog
         finally
         {
             Ribbit.Media.BassAudioWriter.EncoderDirectory = previousDirectory;
+        }
+    }
+
+    private static AudioDeviceInfo CreateDefaultOption()
+        => new(null, null, -1, isDefaultPlaceholder: true, isNativeDefault: false, isAvailable: true);
+
+    private static void TryLogEnumerationFailure(AudioDriver backend, Exception exception)
+    {
+        try
+        {
+            NLogWrapper.GetLogger(nameof(BassAudioDeviceCatalog)).Warn(
+                "Audio device enumeration failed; retaining last good list. backend="
+                + backend + " error=" + exception.Message);
+        }
+        catch
+        {
+            // Diagnostics must not turn one backend's enumeration failure into a catalog failure.
         }
     }
 }
@@ -464,4 +581,5 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
             }
         }
     }
+
 }

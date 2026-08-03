@@ -2518,7 +2518,7 @@ public sealed class MainWindowContextMenuResourceTests
         string playerDriverProperty = ExtractBetween(
             viewModelCode,
             "public int PlayerDriverIndex",
-            "private static AudioDriver NormalizePlayerDriver");
+            "private static bool IsAudiblePlayerDriver");
         string playerDriverGetter = ExtractBetween(
             playerDriverProperty,
             "get",
