@@ -140,6 +140,8 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
 {
     private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
+    private readonly BassAudioSessionLease sessionLease = new();
+
     internal BassAudioDeviceTestRuntime(ApplicationPathSnapshot applicationPathSnapshot)
     {
         this.applicationPathSnapshot = applicationPathSnapshot ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
@@ -147,25 +149,31 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
 
     public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
     {
+        if (!sessionLease.TryRelease(BassAudioPlayer.Free))
+        {
+            throw new InvalidOperationException(
+                "A previous audio device test still owns native resources after cleanup failed.");
+        }
+
         BassAudioPlayer.DeviceDescriptor descriptor = string.IsNullOrWhiteSpace(request.PlayerDevice)
             ? default
             : new BassAudioPlayer.DeviceDescriptor(request.PlayerDeviceName, request.PlayerDevice);
+        BassAudioSession ownedSession = null;
+        Exception primaryException = null;
         try
         {
             BassAudioPlayer.Frequency = request.PlayerSampleRate;
             BassAudioPlayer.Format = request.PlayerFormat;
             BassAudioPlayer.DeviceVolume = Math.Min(100, Math.Max(0, request.PlayerVolume)) / 100f;
-            descriptor = BassAudioPlayer.Initialize(
+            descriptor = BassAudioPlayer.InitializeOwned(
                 BassAudioMapping.ToBassDriver(request.PlayerDriver),
                 descriptor,
                 request.PlayerBufferSize,
+                out ownedSession,
                 request.PlayerWASAPIParam);
+            sessionLease.Attach(ownedSession);
+            using BassAudioOperationLease operation = BassNet.EnterAudioOperation();
             AudioDriver driver = BassAudioMapping.FromBassDriver(BassAudioPlayer.DriverType);
-            if (driver < AudioDriver.DirectSound)
-            {
-                driver = AudioDriver.DirectSound;
-                NLogWrapper.TraceLogger.Warn("Sound device not found?");
-            }
 
             if (request.PlaySound)
             {
@@ -180,9 +188,43 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 BassAudioPlayer.Format,
                 BassAudioPlayer.Latency);
         }
+        catch (Exception exception)
+        {
+            primaryException = exception;
+            throw;
+        }
         finally
         {
-            BassAudioPlayer.Free();
+            ReleaseTestSession(ownedSession, primaryException);
+        }
+    }
+
+    private void ReleaseTestSession(BassAudioSession ownedSession, Exception primaryException)
+    {
+        try
+        {
+            if (ownedSession != null && sessionLease.Session == null)
+            {
+                sessionLease.Attach(ownedSession);
+            }
+            if (!sessionLease.TryRelease(BassAudioPlayer.Free) && primaryException == null)
+            {
+                throw new InvalidOperationException(
+                    "The audio device test completed without confirming native cleanup.");
+            }
+        }
+        catch (Exception cleanupException) when (primaryException != null)
+        {
+            try
+            {
+                NLogWrapper.GetLogger(nameof(BassAudioDeviceTestRuntime)).Warn(
+                    "Audio device test cleanup failed while preserving the primary error: "
+                    + cleanupException.Message);
+            }
+            catch
+            {
+                // Diagnostics must not replace the device-test exception.
+            }
         }
     }
 

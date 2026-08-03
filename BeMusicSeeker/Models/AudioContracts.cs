@@ -234,33 +234,56 @@ internal interface IAudioPlaybackRuntime
 
 internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
 {
+    private readonly BassAudioSessionLease sessionLease = new();
+
+    private AudioPlaybackInitializationResult activeInitialization;
+
     public AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings)
     {
+        BassAudioSession retainedSession = sessionLease.Session;
+        if (retainedSession != null)
+        {
+            if (retainedSession.State == BassAudioSessionState.Active
+                && activeInitialization != null)
+            {
+                return activeInitialization;
+            }
+
+            throw new InvalidOperationException(
+                "The playback runtime still owns an audio session that is not active or fully released.");
+        }
+
         Ribbit.Media.BassAudioPlayer.DeviceDescriptor descriptor = string.IsNullOrWhiteSpace(settings.PlayerDevice)
             ? default
             : new Ribbit.Media.BassAudioPlayer.DeviceDescriptor(settings.PlayerDeviceName, settings.PlayerDevice);
         Ribbit.Media.BassAudioPlayer.Frequency = settings.PlayerSampleRate;
         Ribbit.Media.BassAudioPlayer.Format = settings.PlayerFormat;
         SetVolume(settings.PlayerVolume);
-        descriptor = Ribbit.Media.BassAudioPlayer.Initialize(
-            BassAudioMapping.ToBassDriver(settings.PlayerDriver),
-            descriptor,
-            settings.PlayerBufferSize,
-            settings.PlayerWASAPIParam);
-        AudioDriver driver = BassAudioMapping.FromBassDriver(Ribbit.Media.BassAudioPlayer.DriverType);
-        if (driver < AudioDriver.DirectSound)
+        BassAudioSession initializedSession = null;
+        try
         {
-            driver = AudioDriver.DirectSound;
-            Ribbit.Logging.NLogWrapper.TraceLogger.Warn("Sound device not found?");
-        }
+            descriptor = Ribbit.Media.BassAudioPlayer.InitializeOwned(
+                BassAudioMapping.ToBassDriver(settings.PlayerDriver),
+                descriptor,
+                settings.PlayerBufferSize,
+                out initializedSession,
+                settings.PlayerWASAPIParam);
+            sessionLease.Attach(initializedSession);
 
-        return new AudioPlaybackInitializationResult(
-            driver,
-            descriptor.Driver,
-            descriptor.Name,
-            Ribbit.Media.BassAudioPlayer.Frequency,
-            Ribbit.Media.BassAudioPlayer.Format,
-            Ribbit.Media.BassAudioPlayer.Latency);
+            activeInitialization = new AudioPlaybackInitializationResult(
+                BassAudioMapping.FromBassDriver(Ribbit.Media.BassAudioPlayer.DriverType),
+                descriptor.Driver,
+                descriptor.Name,
+                Ribbit.Media.BassAudioPlayer.Frequency,
+                Ribbit.Media.BassAudioPlayer.Format,
+                Ribbit.Media.BassAudioPlayer.Latency);
+            return activeInitialization;
+        }
+        catch
+        {
+            TryRetainAndRetryFailedInitialization(initializedSession);
+            throw;
+        }
     }
 
     public int CurrentVoices => Ribbit.Media.BassAudioPlayer.CurrentVoices;
@@ -279,6 +302,39 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
 
     public void Free()
     {
-        Ribbit.Media.BassAudioPlayer.Free();
+        if (sessionLease.TryRelease(Ribbit.Media.BassAudioPlayer.Free))
+        {
+            activeInitialization = null;
+        }
+    }
+
+    private void TryRetainAndRetryFailedInitialization(BassAudioSession initializedSession)
+    {
+        if (initializedSession == null)
+        {
+            return;
+        }
+
+        try
+        {
+            sessionLease.Attach(initializedSession);
+            if (sessionLease.TryRelease(Ribbit.Media.BassAudioPlayer.Free))
+            {
+                activeInitialization = null;
+            }
+        }
+        catch (Exception cleanupException)
+        {
+            try
+            {
+                Ribbit.Logging.NLogWrapper.GetLogger(nameof(BassAudioPlaybackRuntime)).Warn(
+                    "Playback initialization cleanup failed while preserving the primary error: "
+                    + cleanupException.Message);
+            }
+            catch
+            {
+                // Diagnostics must not replace the initialization exception.
+            }
+        }
     }
 }

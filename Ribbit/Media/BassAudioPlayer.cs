@@ -484,7 +484,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     }
 
     /// <summary>
-    /// Initializes an audio graph and returns the session token that exclusively owns it.
+    /// Initializes an audio graph and publishes the session token as soon as native ownership
+    /// is acquired, so callers can retain cleanup responsibility even when initialization throws.
     /// </summary>
     internal static DeviceDescriptor InitializeOwned(
         DeviceDriver driver,
@@ -564,6 +565,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     {
                         throw new InvalidOperationException("The audio lifecycle already owns a session.");
                     }
+                    // Publish ownership as soon as the lifecycle acquires it so the
+                    // consumer can retain and retry cleanup even when initialization throws.
+                    ownedSession = session;
 
                     session.ActualBackend = backend;
                     _frequency = requestedFrequency;
@@ -596,7 +600,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             DeviceVolume = _deviceVolume;
                             DefaultVolume = _defaultVolume;
                         }
-                        ownedSession = session;
                         return actualDescriptor;
                     }
                     catch (Exception exception)

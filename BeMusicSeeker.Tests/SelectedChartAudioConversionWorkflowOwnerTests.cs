@@ -130,6 +130,182 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task RunAsync_AcceptedProgressPropagatesWorkerFailureWithoutCompletion()
+    {
+        string root = CreateRoot();
+        try
+        {
+            string chartPath = CreateChartFile(root, "song.bms");
+            var events = new EventLog();
+            var workerFailure = new InvalidOperationException("worker cleanup failed");
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            var executor = new RecordingExecutor(events)
+            {
+                ExecuteAction = (_, _, _, _, _) => throw workerFailure
+            };
+            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+
+            InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => owner.RunAsync(new SelectedChartAudioConversionRequest([
+                    CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+                ])));
+
+            Assert.AreSame(workerFailure, observed);
+            Assert.AreEqual(1, executor.CallCount);
+            Assert.AreEqual(0, dialogs.MessageCalls);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task RunAsync_ConcurrentRequestIsRejectedBeforeDialogAndGateReopensAfterCompletion()
+    {
+        string root = CreateRoot();
+        var pickerEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePicker = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            string chartPath = CreateChartFile(root, "song.bms");
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            dialogs.FolderPickerHandler = async () =>
+            {
+                pickerEntered.TrySetResult();
+                await releasePicker.Task;
+                return dialogs.FolderResult;
+            };
+            var executor = new RecordingExecutor(events)
+            {
+                ExecuteAction = (_, _, _, _, report) => report(true)
+            };
+            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            var request = new SelectedChartAudioConversionRequest([
+                CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+            ]);
+
+            Task<SelectedChartAudioConversionResult> first = owner.RunAsync(request);
+            await pickerEntered.Task;
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => owner.RunAsync(request));
+            Assert.AreEqual(1, dialogs.PickerCalls);
+            Assert.AreEqual(0, executor.CallCount);
+
+            releasePicker.TrySetResult();
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, (await first).Status);
+
+            Assert.AreEqual(
+                SelectedChartAudioConversionStatus.Completed,
+                (await owner.RunAsync(request)).Status);
+            Assert.AreEqual(2, dialogs.PickerCalls);
+            Assert.AreEqual(2, executor.CallCount);
+        }
+        finally
+        {
+            releasePicker.TrySetResult();
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task RunAsync_ProgressExceptionDrainsWorkerBeforeSingleFlightGateReopens()
+    {
+        string root = CreateRoot();
+        using var releaseWorker = new ManualResetEventSlim();
+        var workerStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<SelectedChartAudioConversionResult>? first = null;
+        try
+        {
+            string chartPath = CreateChartFile(root, "song.bms");
+            var events = new EventLog();
+            var progressFailure = new InvalidOperationException("progress route threw");
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                ProgressHandler = async () =>
+                {
+                    await workerStarted.Task;
+                    throw progressFailure;
+                }
+            };
+            var executor = new RecordingExecutor(events)
+            {
+                ExecuteAction = (_, _, _, cancellationToken, _) =>
+                {
+                    using CancellationTokenRegistration registration = cancellationToken.Register(
+                        () => throw new InvalidOperationException("cancellation callback failed"));
+                    workerStarted.TrySetResult();
+                    WaitHandle.WaitAny([cancellationToken.WaitHandle, releaseWorker.WaitHandle]);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        cancellationObserved.TrySetResult();
+                    }
+                    releaseWorker.Wait();
+                }
+            };
+            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            var request = new SelectedChartAudioConversionRequest([
+                CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+            ]);
+
+            first = owner.RunAsync(request);
+            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => owner.RunAsync(request));
+            Assert.AreEqual(1, dialogs.PickerCalls);
+
+            releaseWorker.Set();
+            InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await first);
+            Assert.AreSame(progressFailure, observed);
+
+            dialogs.ProgressHandler = null;
+            executor.ExecuteAction = (_, _, _, _, report) => report(true);
+            Assert.AreEqual(
+                SelectedChartAudioConversionStatus.Completed,
+                (await owner.RunAsync(request)).Status);
+            Assert.AreEqual(2, dialogs.PickerCalls);
+            Assert.AreEqual(2, executor.CallCount);
+        }
+        finally
+        {
+            releaseWorker.Set();
+            if (first != null)
+            {
+                try
+                {
+                    await first;
+                }
+                catch
+                {
+                }
+            }
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
     public async Task RunAsync_CompletionNotificationNotShownFailsInsteadOfReturningSuccess()
     {
         string root = CreateRoot();
@@ -167,6 +343,61 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     public async Task RunAsync_ProgressFailureCancelsExecutionAndDoesNotShowCompletion()
     {
         string root = CreateRoot();
+        var workerStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            string chartPath = CreateChartFile(root, "song.bms");
+            var events = new EventLog();
+            var progressFailure = new InvalidOperationException("progress failed");
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Failed, error: progressFailure),
+                ProgressHandler = async () =>
+                {
+                    await workerStarted.Task;
+                    return new UiProgressResult(UiDialogStatus.Failed, error: progressFailure);
+                }
+            };
+            var executor = new RecordingExecutor(events)
+            {
+                ExecuteAction = (_, _, _, cancellationToken, _) =>
+                {
+                    using CancellationTokenRegistration registration = cancellationToken.Register(
+                        () => throw new InvalidOperationException("cancellation callback failed"));
+                    workerStarted.TrySetResult();
+                    cancellationToken.WaitHandle.WaitOne();
+                }
+            };
+            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+
+            InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => owner.RunAsync(new SelectedChartAudioConversionRequest([
+                    CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+                ])));
+
+            Assert.AreSame(progressFailure, observed.InnerException);
+            Assert.AreEqual(1, executor.CallCount);
+            Assert.AreEqual(0, dialogs.MessageCalls);
+            StringAssert.Contains(events.Join("|"), "playback");
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task RunAsync_UserCancellationDrainsWorkerAndSuppressesCallbackFailure()
+    {
+        string root = CreateRoot();
+        using var releaseWorker = new ManualResetEventSlim();
+        var workerStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<SelectedChartAudioConversionResult>? first = null;
         try
         {
             string chartPath = CreateChartFile(root, "song.bms");
@@ -174,31 +405,62 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             var dialogs = new RecordingDialogService(events)
             {
                 FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
-                ProgressResult = new UiProgressResult(UiDialogStatus.Failed, error: new InvalidOperationException("progress failed"))
+                ProgressResult = new UiProgressResult(UiDialogStatus.CancelledByUser),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                ProgressHandler = async () =>
+                {
+                    await workerStarted.Task;
+                    return new UiProgressResult(UiDialogStatus.CancelledByUser);
+                }
             };
             var executor = new RecordingExecutor(events)
             {
                 ExecuteAction = (_, _, _, cancellationToken, _) =>
                 {
-                    while (!cancellationToken.IsCancellationRequested)
-                    {
-                        Thread.Sleep(1);
-                    }
+                    using CancellationTokenRegistration registration = cancellationToken.Register(
+                        () => throw new InvalidOperationException("cancellation callback failed"));
+                    workerStarted.TrySetResult();
+                    cancellationToken.WaitHandle.WaitOne();
+                    cancellationObserved.TrySetResult();
+                    releaseWorker.Wait();
                 }
             };
             var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            var request = new SelectedChartAudioConversionRequest([
+                CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+            ]);
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                () => owner.RunAsync(new SelectedChartAudioConversionRequest([
-                    CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
-                ])));
+            first = owner.RunAsync(request);
+            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-            Assert.AreEqual(1, executor.CallCount);
-            Assert.AreEqual(0, dialogs.MessageCalls);
-            StringAssert.Contains(events.Join("|"), "playback");
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.RunAsync(request));
+            Assert.AreEqual(1, dialogs.PickerCalls);
+
+            releaseWorker.Set();
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Cancelled, (await first).Status);
+
+            dialogs.ProgressHandler = null;
+            dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.Accepted);
+            executor.ExecuteAction = (_, _, _, _, report) => report(true);
+            Assert.AreEqual(
+                SelectedChartAudioConversionStatus.Completed,
+                (await owner.RunAsync(request)).Status);
+            Assert.AreEqual(2, dialogs.PickerCalls);
+            Assert.AreEqual(2, executor.CallCount);
         }
         finally
         {
+            releaseWorker.Set();
+            if (first != null)
+            {
+                try
+                {
+                    await first;
+                }
+                catch
+                {
+                }
+            }
             DeleteRoot(root);
         }
     }
@@ -351,6 +613,12 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
         internal int MessageCalls { get; private set; }
 
+        internal int PickerCalls { get; private set; }
+
+        internal Func<Task<UiFolderPickerResult>>? FolderPickerHandler { get; set; }
+
+        internal Func<Task<UiProgressResult>>? ProgressHandler { get; set; }
+
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
         {
             events.Add("message");
@@ -369,10 +637,13 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default)
+        public Task<UiFolderPickerResult> PickFolderAsync(
+            UiFolderPickerRequest request,
+            CancellationToken cancellationToken = default)
         {
             events.Add("picker");
-            return Task.FromResult(FolderResult);
+            PickerCalls++;
+            return FolderPickerHandler?.Invoke() ?? Task.FromResult(FolderResult);
         }
 
         public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) =>
@@ -385,6 +656,10 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         {
             ProgressLabel = request.Label;
             events.Add("progress");
+            if (ProgressHandler != null)
+            {
+                return await ProgressHandler();
+            }
             if (ProgressResult.Status == UiDialogStatus.Accepted)
             {
                 using var worker = new BackgroundWorker();

@@ -38,26 +38,27 @@ public class BassAudioWriter : BassAudioPlayer
     /// <summary>Initializes the silent BASS graph used by audio conversion.</summary>
     public static void Initialize()
     {
-        InitializeOwnedSession();
+        InitializeOwnedSession(out _);
     }
 
     /// <summary>Initializes the silent BASS graph used by audio conversion.</summary>
     public static void Initialize(DeviceDriver driver = DeviceDriver.WASAPI_EXCLUSIVE, float lParam = 0f)
     {
-        InitializeOwnedSession();
+        InitializeOwnedSession(out _);
     }
 
     /// <summary>
-    /// Initializes conversion output and returns its scoped lifecycle token.
+    /// Initializes conversion output and publishes its scoped lifecycle token as soon as
+    /// native ownership is acquired, including when later initialization fails.
     /// </summary>
-    internal static BassAudioSession InitializeOwnedSession()
+    /// <param name="ownedSession">The session that owns acquired native resources.</param>
+    internal static void InitializeOwnedSession(out BassAudioSession ownedSession)
     {
         BassAudioPlayer.InitializeOwned(
             DeviceDriver.NULL_DEVICE,
             default,
             0f,
-            out BassAudioSession ownedSession);
-        return ownedSession;
+            out ownedSession);
     }
 
     private static string GetEncoderDirectory(EncoderType encodeType)

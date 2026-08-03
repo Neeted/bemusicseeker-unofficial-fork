@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -232,6 +233,8 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
 
     private readonly ISelectedChartAudioConversionExecutor executor;
 
+    private int isRunning;
+
     internal SelectedChartAudioConversionWorkflowOwner(
         Func<SelectedChartAudioConversionSettingsSnapshot> settingsProvider,
         Action<EncoderType> applyEncoderFallback,
@@ -258,113 +261,140 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         {
             return SelectedChartAudioConversionResult.Empty;
         }
+        if (Interlocked.CompareExchange(ref isRunning, 1, 0) != 0)
+        {
+            throw new InvalidOperationException("An audio conversion workflow is already running.");
+        }
 
-        UiFolderPickerResult folderResult = await dialogs.PickFolderAsync(
+        try
+        {
+            UiFolderPickerResult folderResult = await dialogs.PickFolderAsync(
             new UiFolderPickerRequest(BeMusicSeeker.Properties.Resources.Save_to),
             cancellationToken);
-        ThrowIfPickerFailed(folderResult?.Status ?? UiDialogStatus.Failed, folderResult?.Error, "Audio conversion output folder picker");
-        if (folderResult.Status != UiDialogStatus.Accepted)
-        {
-            return SelectedChartAudioConversionResult.Create(
-                SelectedChartAudioConversionStatus.Cancelled,
-                request.Targets.Count,
-                0,
-                0);
-        }
-
-        IReadOnlyList<ModelBmsFile> bmsFiles = request.Targets
-            .Select(target => target.Chart.GetBmsStorageOwner())
-            .Where(ChartFileKindResolver.IsBmsChartFile)
-            .ToArray();
-        if (bmsFiles.Count == 0)
-        {
-            return SelectedChartAudioConversionResult.Empty;
-        }
-
-        SelectedChartAudioConversionSettingsSnapshot settings = settingsProvider();
-        if (settings == null)
-        {
-            throw new InvalidOperationException("Audio conversion settings snapshot was not provided.");
-        }
-        playback.StopPlayback();
-        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        int completedCount = 0;
-        int failedCount = 0;
-        Action<bool> reportFileCompleted = succeeded =>
-        {
-            Interlocked.Increment(ref completedCount);
-            if (!succeeded)
+            ThrowIfPickerFailed(folderResult?.Status ?? UiDialogStatus.Failed, folderResult?.Error, "Audio conversion output folder picker");
+            if (folderResult.Status != UiDialogStatus.Accepted)
             {
-                Interlocked.Increment(ref failedCount);
+                return SelectedChartAudioConversionResult.Create(
+                    SelectedChartAudioConversionStatus.Cancelled,
+                    request.Targets.Count,
+                    0,
+                    0);
             }
-        };
-        Task conversionTask = Task.Run(
-            () => executor.Execute(
-                bmsFiles,
-                folderResult.FolderPath,
-                settings,
-                operationCancellation.Token,
-                applyEncoderFallback,
-                reportFileCompleted),
-            CancellationToken.None).Logging("tableContextMenuItemConvertToAudioFileClick");
 
-        UiProgressResult progressResult = await dialogs.RunWithProgressAsync(
-            new UiProgressRequest(
-                BeMusicSeeker.Properties.Resources.Converting,
-                BuildProgressLabel(settings),
-                new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false)),
-            context => ObserveConversionProgressAsync(
-                conversionTask,
-                operationCancellation,
-                context,
-                () => Volatile.Read(ref completedCount),
-                bmsFiles),
-            operationCancellation.Token);
-        if (progressResult == null)
-        {
-            progressResult = new UiProgressResult(
-                UiDialogStatus.Failed,
-                error: new InvalidOperationException("Audio conversion progress route returned no result."));
-        }
-
-        if (progressResult.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser)
-        {
-            if (progressResult.Status == UiDialogStatus.CancelledByUser)
+            IReadOnlyList<ModelBmsFile> bmsFiles = request.Targets
+                .Select(target => target.Chart.GetBmsStorageOwner())
+                .Where(ChartFileKindResolver.IsBmsChartFile)
+                .ToArray();
+            if (bmsFiles.Count == 0)
             {
-                operationCancellation.Cancel();
+                return SelectedChartAudioConversionResult.Empty;
             }
-            await conversionTask;
-        }
-        else
-        {
-            operationCancellation.Cancel();
-            await AwaitAfterProgressFailureAsync(conversionTask);
-            throw new InvalidOperationException(
-                "Audio conversion progress route failed: " + progressResult.Status,
-                progressResult.Error);
-        }
 
-        bool cancelled = operationCancellation.IsCancellationRequested
-            || progressResult.Status == UiDialogStatus.CancelledByUser;
-        SelectedChartAudioConversionResult result = SelectedChartAudioConversionResult.Create(
-            cancelled ? SelectedChartAudioConversionStatus.Cancelled : SelectedChartAudioConversionStatus.Completed,
-            bmsFiles.Count,
-            Volatile.Read(ref completedCount),
-            Volatile.Read(ref failedCount));
-        UiDialogResult completionResult = await dialogs.ShowMessageAsync(new UiMessageRequest(
-            (cancelled
-                ? BeMusicSeeker.Properties.Resources.Msg_conversion_stopped
-                : BeMusicSeeker.Properties.Resources.Msg_conversion_completed)
-                + Environment.NewLine
-                + BeMusicSeeker.Properties.Resources.Success + ": " + result.SucceededCount
-                + Environment.NewLine
-                + BeMusicSeeker.Properties.Resources.Failure + ": " + (result.UnprocessedCount + result.FailedCount),
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OK,
-            cancelled ? MessageBoxImage.Exclamation : MessageBoxImage.Asterisk,
-            MessageBoxResult.OK));
-        UiDialogRoute.ThrowIfNotShown(completionResult, "Audio conversion completion notification");
-        return result;
+            SelectedChartAudioConversionSettingsSnapshot settings = settingsProvider();
+            if (settings == null)
+            {
+                throw new InvalidOperationException("Audio conversion settings snapshot was not provided.");
+            }
+            playback.StopPlayback();
+            using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            int completedCount = 0;
+            int failedCount = 0;
+            Action<bool> reportFileCompleted = succeeded =>
+            {
+                Interlocked.Increment(ref completedCount);
+                if (!succeeded)
+                {
+                    Interlocked.Increment(ref failedCount);
+                }
+            };
+            Task conversionTask = Task.Run(
+                () => executor.Execute(
+                    bmsFiles,
+                    folderResult.FolderPath,
+                    settings,
+                    operationCancellation.Token,
+                    applyEncoderFallback,
+                    reportFileCompleted),
+                CancellationToken.None);
+            _ = conversionTask.Logging("tableContextMenuItemConvertToAudioFileClick");
+
+            UiProgressResult progressResult;
+            try
+            {
+                progressResult = await dialogs.RunWithProgressAsync(
+                    new UiProgressRequest(
+                        BeMusicSeeker.Properties.Resources.Converting,
+                        BuildProgressLabel(settings),
+                        new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false)),
+                    context => ObserveConversionProgressAsync(
+                        conversionTask,
+                        operationCancellation,
+                        context,
+                        () => Volatile.Read(ref completedCount),
+                        bmsFiles),
+                    operationCancellation.Token);
+            }
+            catch (Exception exception)
+            {
+                await CancelAndDrainConversionAsync(
+                    conversionTask,
+                    operationCancellation,
+                    exception);
+                throw;
+            }
+            if (progressResult == null)
+            {
+                progressResult = new UiProgressResult(
+                    UiDialogStatus.Failed,
+                    error: new InvalidOperationException("Audio conversion progress route returned no result."));
+            }
+
+            if (progressResult.Status == UiDialogStatus.Accepted)
+            {
+                await conversionTask;
+            }
+            else if (progressResult.Status == UiDialogStatus.CancelledByUser)
+            {
+                await CancelAndDrainConversionAsync(conversionTask, operationCancellation);
+            }
+            else
+            {
+                var progressFailure = new InvalidOperationException(
+                    "Audio conversion progress route failed: " + progressResult.Status,
+                    progressResult.Error);
+                await CancelAndDrainConversionAsync(
+                    conversionTask,
+                    operationCancellation,
+                    progressFailure);
+                throw progressFailure;
+            }
+
+            bool cancelled = operationCancellation.IsCancellationRequested
+                || progressResult.Status == UiDialogStatus.CancelledByUser;
+            SelectedChartAudioConversionResult result = SelectedChartAudioConversionResult.Create(
+                cancelled ? SelectedChartAudioConversionStatus.Cancelled : SelectedChartAudioConversionStatus.Completed,
+                bmsFiles.Count,
+                Volatile.Read(ref completedCount),
+                Volatile.Read(ref failedCount));
+            UiDialogResult completionResult = await dialogs.ShowMessageAsync(new UiMessageRequest(
+                (cancelled
+                    ? BeMusicSeeker.Properties.Resources.Msg_conversion_stopped
+                    : BeMusicSeeker.Properties.Resources.Msg_conversion_completed)
+                    + Environment.NewLine
+                    + BeMusicSeeker.Properties.Resources.Success + ": " + result.SucceededCount
+                    + Environment.NewLine
+                    + BeMusicSeeker.Properties.Resources.Failure + ": " + (result.UnprocessedCount + result.FailedCount),
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OK,
+                cancelled ? MessageBoxImage.Exclamation : MessageBoxImage.Asterisk,
+                MessageBoxResult.OK));
+            UiDialogRoute.ThrowIfNotShown(completionResult, "Audio conversion completion notification");
+            return result;
+        }
+        finally
+        {
+            Volatile.Write(ref isRunning, 0);
+        }
     }
 
     private static string BuildProgressLabel(SelectedChartAudioConversionSettingsSnapshot settings)
@@ -380,7 +410,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
             + settings.SampleFormatDisplayName;
     }
 
-    private static Task ObserveConversionProgressAsync(
+    private static async Task ObserveConversionProgressAsync(
         Task conversionTask,
         CancellationTokenSource operationCancellation,
         UiProgressContext context,
@@ -399,34 +429,75 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     bmsFiles.Count,
                     bmsFiles[Math.Min(completedCount, bmsFiles.Count - 1)].path);
             }
-            catch
+            catch (ProgressDialogCancellationExcpetion)
             {
-                operationCancellation.Cancel();
-                WaitForConversionCompletion(conversionTask);
-                break;
+                await CancelAndDrainConversionAsync(conversionTask, operationCancellation);
+                return;
             }
 
-            Thread.Sleep(100);
+            await Task.WhenAny(conversionTask, Task.Delay(100));
         }
-        return Task.CompletedTask;
     }
 
-    private static void WaitForConversionCompletion(Task conversionTask)
+    private static async Task CancelAndDrainConversionAsync(
+        Task conversionTask,
+        CancellationTokenSource cancellation,
+        Exception primaryException = null)
     {
-        while (!conversionTask.IsCompleted)
+        Exception cancellationFailure = null;
+        try
         {
-            Thread.Sleep(100);
+            cancellation.Cancel();
         }
-    }
+        catch (Exception exception)
+        {
+            cancellationFailure = exception;
+        }
 
-    private static async Task AwaitAfterProgressFailureAsync(Task conversionTask)
-    {
+        Exception workerFailure = null;
         try
         {
             await conversionTask;
         }
+        catch (OperationCanceledException exception)
+            when (cancellation.IsCancellationRequested
+                && exception.CancellationToken == cancellation.Token)
+        {
+        }
+        catch (Exception exception)
+        {
+            workerFailure = exception;
+        }
+
+        if (cancellationFailure != null)
+        {
+            TryLogConversionSecondaryFailure("cancellation callback", cancellationFailure);
+        }
+        if (primaryException != null)
+        {
+            if (workerFailure != null)
+            {
+                TryLogConversionSecondaryFailure("worker drain", workerFailure);
+            }
+            ExceptionDispatchInfo.Capture(primaryException).Throw();
+        }
+        if (workerFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(workerFailure).Throw();
+        }
+    }
+
+    private static void TryLogConversionSecondaryFailure(string stage, Exception exception)
+    {
+        try
+        {
+            NLogWrapper.GetLogger(nameof(SelectedChartAudioConversionWorkflowOwner)).Warn(
+                "Audio conversion " + stage + " failed while preserving the terminal result: "
+                + exception.Message);
+        }
         catch
         {
+            // Diagnostics must not replace progress or worker terminal behavior.
         }
     }
 
@@ -442,6 +513,8 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
 
 internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartAudioConversionExecutor
 {
+    private readonly BassAudioSessionLease sessionLease = new();
+
     public void Execute(
         IReadOnlyList<ModelBmsFile> bmsFiles,
         string saveDirectory,
@@ -455,12 +528,22 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
             throw new DirectoryNotFoundException("Directory " + saveDirectory + " not found");
         }
 
+        if (!sessionLease.TryRelease(BassAudioPlayer.Free))
+        {
+            throw new InvalidOperationException(
+                "A previous audio conversion still owns native resources after cleanup failed.");
+        }
+
+        BassAudioSession ownedSession = null;
+        Exception primaryException = null;
         try
         {
             BassAudioPlayer.Frequency = settings.EncoderSampleRate;
             BassAudioPlayer.Format = settings.EncoderFormat;
             BassAudioWriter.EncoderDirectory = settings.EncoderExeDirectory;
-            BassAudioWriter.Initialize();
+            BassAudioWriter.InitializeOwnedSession(out ownedSession);
+            sessionLease.Attach(ownedSession);
+            using BassAudioOperationLease operation = BassNet.EnterAudioOperation();
             EncoderType encoder = settings.Encoder;
             int index = 0;
             int totalCount = bmsFiles.Count;
@@ -530,9 +613,48 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                 }
             }
         }
+        catch (Exception exception)
+        {
+            primaryException = exception;
+            throw;
+        }
         finally
         {
-            BassAudioPlayer.Free();
+            ReleaseConversionSession(ownedSession, primaryException);
+        }
+    }
+
+    private void ReleaseConversionSession(BassAudioSession ownedSession, Exception primaryException)
+    {
+        try
+        {
+            if (ownedSession != null && sessionLease.Session == null)
+            {
+                sessionLease.Attach(ownedSession);
+            }
+            if (!sessionLease.TryRelease(BassAudioPlayer.Free) && primaryException == null)
+            {
+                throw new InvalidOperationException(
+                    "Audio conversion completed without confirming native cleanup.");
+            }
+        }
+        catch (Exception cleanupException) when (primaryException != null)
+        {
+            TryLogSessionCleanupFailure(cleanupException);
+        }
+    }
+
+    private static void TryLogSessionCleanupFailure(Exception exception)
+    {
+        try
+        {
+            NLogWrapper.GetLogger(nameof(BassSelectedChartAudioConversionExecutor)).Warn(
+                "Audio conversion session cleanup failed while preserving the primary error: "
+                + exception.Message);
+        }
+        catch
+        {
+            // Diagnostics must not replace the conversion exception.
         }
     }
 }
