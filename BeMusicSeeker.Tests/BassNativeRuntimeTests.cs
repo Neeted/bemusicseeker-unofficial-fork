@@ -124,4 +124,34 @@ public sealed class BassNativeRuntimeTests
             RibbitBassNet.Shutdown();
         }
     }
+
+    [TestMethod]
+    public void InitializeOwned_ActiveSessionRejectsScopedAndUnscopedReentry()
+    {
+        BassAudioSession ownedSession = null;
+        try
+        {
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out ownedSession);
+
+            Assert.ThrowsException<AudioInitializationException>(() => BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out _));
+            Assert.AreSame(ownedSession, BassAudioPlayer.ActiveSession);
+
+            Assert.ThrowsException<AudioInitializationException>(() => BassAudioPlayer.Initialize(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE));
+            Assert.AreSame(ownedSession, BassAudioPlayer.ActiveSession);
+        }
+        finally
+        {
+            BassAudioPlayer.Free(ownedSession);
+            RibbitBassNet.Shutdown();
+        }
+    }
 }
