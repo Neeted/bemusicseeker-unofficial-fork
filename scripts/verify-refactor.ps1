@@ -39,12 +39,22 @@ $functionalFilter = @(
     'TestCategory!=ReleaseAcceptance') -join '&'
 $functionalTestClassShards = @(
     [pscustomobject]@{
-        Name = 'library-sync'
+        # These large fixtures are class-wide DoNotParallelize. Keeping them in one
+        # testhost serializes hundreds of independent tests and wastes machine capacity.
+        Name = 'library-initialization'
         Classes = @(
-            'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests',
             'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests',
-            'BeMusicSeeker.Tests.ChartInfoMetadataTests',
             'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests')
+    },
+    [pscustomobject]@{
+        Name = 'lr2-songdb-sync'
+        Classes = @(
+            'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests')
+    },
+    [pscustomobject]@{
+        Name = 'chart-info-metadata'
+        Classes = @(
+            'BeMusicSeeker.Tests.ChartInfoMetadataTests')
     },
     [pscustomobject]@{
         Name = 'presentation-workspace'

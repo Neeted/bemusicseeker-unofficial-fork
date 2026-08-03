@@ -131,7 +131,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public async Task StartupPostInitialization_StaleCallbackCannotOpenNewGenerationBarrier()
+    public void StartupPostInitialization_StaleCallbackCannotOpenNewGenerationBarrier()
     {
         var postEntered = new ManualResetEventSlim();
         StartupBackgroundTaskSchedulerOwner scheduler = new(
@@ -172,8 +172,9 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.IsTrue(currentAccepted);
         Assert.IsTrue(scheduler.MarkRequiredInitializationSchedulingComplete(currentGeneration));
         Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
-        await Task.Delay(20).ConfigureAwait(false);
-        Assert.IsTrue(scheduler.IsFullyIdle);
+        Assert.IsTrue(
+            SpinWait.SpinUntil(() => scheduler.IsFullyIdle, TimeSpan.FromSeconds(5)),
+            scheduler.DescribeWaitState());
     }
 
     [TestMethod]
