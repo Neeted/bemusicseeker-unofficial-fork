@@ -73,12 +73,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private static readonly Dictionary<uint, CachedData> OnMemoryFileCache;
 
-    private static readonly ReadOnlyDictionary<BASSWASAPIFormat, SampleFormat> FromBASSWASAPIFormat;
-
-    private static readonly ReadOnlyDictionary<BASSWASAPIFormat, int> FromBASSWASAPIFormatToByte;
-
-    private static readonly ReadOnlyDictionary<SampleFormat, BASSWASAPIFormat> ToBASSWASAPIFormat;
-
     protected static int inputMixer;
 
     protected static int outputMixer;
@@ -559,6 +553,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 Exception primaryException = null;
                 foreach (DeviceDriver backend in GetLegacyInitializationOrder(driver))
                 {
+                    DeviceDescriptor attemptDevice = backend == driver ? desc : default;
                     if (!SessionLifecycle.TryBegin(driver, desc, out BassAudioSession session))
                     {
                         throw new InvalidOperationException("The audio lifecycle already owns a session.");
@@ -577,10 +572,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     {
                         DeviceDescriptor actualDescriptor = backend switch
                         {
-                            DeviceDriver.ASIO => InitializeAsio(desc),
-                            DeviceDriver.WASAPI_EXCLUSIVE => InitializeWasapi(desc, isSharedMode: false, param),
-                            DeviceDriver.WASAPI_SHARED => InitializeWasapi(desc, isSharedMode: true, param),
-                            DeviceDriver.DIRECT_SOUND => InitializeDirectSound(desc),
+                            DeviceDriver.ASIO => InitializeAsio(attemptDevice),
+                            DeviceDriver.WASAPI_EXCLUSIVE => InitializeWasapiNegotiated(attemptDevice, isSharedMode: false, param),
+                            DeviceDriver.WASAPI_SHARED => InitializeWasapiNegotiated(attemptDevice, isSharedMode: true, param),
+                            DeviceDriver.DIRECT_SOUND => InitializeDirectSoundNegotiated(attemptDevice),
                             DeviceDriver.NULL_DEVICE => InitializeNullDevice(),
                             _ => throw new ArgumentOutOfRangeException(nameof(driver))
                         };
@@ -795,87 +790,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         InstanceLocks = [];
         Locks = new NamedLocks<uint>();
         OnMemoryFileCache = [];
-        FromBASSWASAPIFormat = new ReadOnlyDictionary<BASSWASAPIFormat, SampleFormat>(new Dictionary<BASSWASAPIFormat, SampleFormat>
-        {
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_UNKNOWN,
-                SampleFormat.UNKNOWN
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_FLOAT,
-                SampleFormat.SAMPLE_FLOAT_32BIT
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_8BIT,
-                SampleFormat.SAMPLE_INT_8BIT
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_16BIT,
-                SampleFormat.SAMPLE_INT_16BIT
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_24BIT,
-                SampleFormat.SAMPLE_INT_24BIT
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_32BIT,
-                SampleFormat.SAMPLE_INT_32BIT
-            }
-        });
-        FromBASSWASAPIFormatToByte = new ReadOnlyDictionary<BASSWASAPIFormat, int>(new Dictionary<BASSWASAPIFormat, int>
-        {
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_UNKNOWN,
-                0
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_FLOAT,
-                4
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_8BIT,
-                1
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_16BIT,
-                2
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_24BIT,
-                3
-            },
-            {
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_32BIT,
-                4
-            }
-        });
-        ToBASSWASAPIFormat = new ReadOnlyDictionary<SampleFormat, BASSWASAPIFormat>(new Dictionary<SampleFormat, BASSWASAPIFormat>
-        {
-            {
-                SampleFormat.UNKNOWN,
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_UNKNOWN
-            },
-            {
-                SampleFormat.SAMPLE_FLOAT_32BIT,
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_FLOAT
-            },
-            {
-                SampleFormat.SAMPLE_INT_8BIT,
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_8BIT
-            },
-            {
-                SampleFormat.SAMPLE_INT_16BIT,
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_16BIT
-            },
-            {
-                SampleFormat.SAMPLE_INT_24BIT,
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_24BIT
-            },
-            {
-                SampleFormat.SAMPLE_INT_32BIT,
-                BASSWASAPIFormat.BASS_WASAPI_FORMAT_32BIT
-            }
-        });
         WasapiProc = delegate (IntPtr buffer, int length, IntPtr user)
         {
             if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
@@ -1145,206 +1059,63 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
     }
 
-    private static DeviceDescriptor InitializeWasapi(DeviceDescriptor desc = default, bool isSharedMode = false, params object[] param)
+    private static DeviceDescriptor InitializeWasapiNegotiated(
+        DeviceDescriptor desc = default,
+        bool isSharedMode = false,
+        params object[] param)
     {
-        bool num = param != null && param.Length != 0 && param[0] is bool && (bool)param[0];
-        initializationStage = "BASS_Init";
-        if (!Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
-        {
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_Init failed: " + bASSError);
-        }
-        CurrentSession.CoreInitialized = true;
-        CurrentSession.CoreDeviceIndex = Bass.BASS_GetDevice();
-        Bass.BASS_SetConfig(BASSConfig.BASS_CONFIG_UPDATEPERIOD, 0);
-        initializationStage = "BASS_WASAPI_GetDeviceInfos";
-        var array = (from i in BassWasapi.BASS_WASAPI_GetDeviceInfos().Select((info, idx) => new { info, idx })
-                     where !i.info.IsUnplugged && !i.info.IsLoopback && i.info.IsEnabled && !i.info.IsInput
-                     select i).ToArray();
-        if (array.Length == 0)
-        {
-            throw new Exception("WASAPI device not found");
-        }
-        int num2 = 0;
-        bool flag = false;
-        if (!desc.Equals(default(DeviceDescriptor)))
-        {
-            num2 = array.FirstOrDefault(c => desc.Name == c.info.name && desc.Driver == c.info.id)?.idx ?? array.FirstOrDefault(c => desc.Name == c.info.name)?.idx ?? array.First(c => c.info.IsDefault)?.idx ?? 0;
-        }
-        else
-        {
-            flag = true;
-            num2 = array.First(c => c.info.IsDefault).idx;
-        }
-        BASS_WASAPI_DEVICEINFO bASS_WASAPI_DEVICEINFO = BassWasapi.BASS_WASAPI_GetDeviceInfo(num2);
-        desc.Name = bASS_WASAPI_DEVICEINFO.name;
-        desc.Driver = bASS_WASAPI_DEVICEINFO.id;
-        CurrentSession.ActualDevice = desc;
-        CurrentSession.WasapiDeviceIndex = num2;
-        initializationStage = "BASS_WASAPI_CheckFormat";
-        if (isSharedMode)
-        {
-            BASSWASAPIFormat bASSWASAPIFormat = BassWasapi.BASS_WASAPI_CheckFormat(num2, bASS_WASAPI_DEVICEINFO.mixfreq, bASS_WASAPI_DEVICEINFO.mixchans, BASSWASAPIInit.BASS_WASAPI_SHARED);
-            if (bASSWASAPIFormat == BASSWASAPIFormat.BASS_WASAPI_FORMAT_UNKNOWN)
-            {
-                BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-                throw new Exception("BASS_WASAPI_CheckFormat failed: " + bASSError2);
-            }
-            Format = FromBASSWASAPIFormat[bASSWASAPIFormat];
-        }
-        else
-        {
-            BASSWASAPIFormat bASSWASAPIFormat2 = BASSWASAPIFormat.BASS_WASAPI_FORMAT_UNKNOWN;
-            if (Frequency != SampleRate.AUTO)
-            {
-                bASSWASAPIFormat2 = BassWasapi.BASS_WASAPI_CheckFormat(num2, (int)Frequency, 2, BASSWASAPIFormat.BASS_WASAPI_FORMAT_FLOAT);
-                if (bASSWASAPIFormat2 == BASSWASAPIFormat.BASS_WASAPI_FORMAT_UNKNOWN)
-                {
-                    Frequency = SampleRate.AUTO;
-                }
-            }
-            if (Frequency == SampleRate.AUTO)
-            {
-                bASSWASAPIFormat2 = BassWasapi.BASS_WASAPI_CheckFormat(num2, bASS_WASAPI_DEVICEINFO.mixfreq, 2, BASSWASAPIFormat.BASS_WASAPI_FORMAT_FLOAT);
-                if (bASSWASAPIFormat2 == BASSWASAPIFormat.BASS_WASAPI_FORMAT_UNKNOWN)
-                {
-                    BASSError bASSError3 = Bass.BASS_ErrorGetCode();
-                    throw new Exception("BASS_WASAPI_CheckFormat failed: " + bASSError3);
-                }
-                Frequency = (SampleRate)bASS_WASAPI_DEVICEINFO.mixfreq;
-            }
-            if (Format != SampleFormat.AUTO && FromBASSWASAPIFormat[bASSWASAPIFormat2] > Format)
-            {
-                bASSWASAPIFormat2 = BassWasapi.BASS_WASAPI_CheckFormat(num2, (int)Frequency, 2, ToBASSWASAPIFormat[Format]);
-                if (bASSWASAPIFormat2 == BASSWASAPIFormat.BASS_WASAPI_FORMAT_UNKNOWN)
-                {
-                    BASSError bASSError4 = Bass.BASS_ErrorGetCode();
-                    throw new Exception("BASS_WASAPI_CheckFormat failed: " + bASSError4);
-                }
-            }
-            Format = FromBASSWASAPIFormat[bASSWASAPIFormat2];
-        }
-        BASSWASAPIInit bASSWASAPIInit = (isSharedMode ? BASSWASAPIInit.BASS_WASAPI_AUTOFORMAT : (BASSWASAPIInit.BASS_WASAPI_EXCLUSIVE | BASSWASAPIInit.BASS_WASAPI_AUTOFORMAT));
-        if (num)
-        {
-            bASSWASAPIInit |= BASSWASAPIInit.BASS_WASAPI_EVENT;
-        }
-        if (latencyParam <= 0f)
-        {
-            latencyParam = 16f;
-        }
-        initializationStage = "BASS_WASAPI_Init";
-        if (isSharedMode ? (!BassWasapi.BASS_WASAPI_Init(num2, bASS_WASAPI_DEVICEINFO.mixfreq, bASS_WASAPI_DEVICEINFO.mixchans, bASSWASAPIInit, System.Math.Max(bASS_WASAPI_DEVICEINFO.minperiod + 0.001f, latencyParam / 1000f), bASS_WASAPI_DEVICEINFO.minperiod, WasapiProc, IntPtr.Zero)) : (!BassWasapi.BASS_WASAPI_Init(num2, (int)Frequency, 2, bASSWASAPIInit, ToBASSWASAPIFormat[Format], System.Math.Max(bASS_WASAPI_DEVICEINFO.minperiod + 0.001f, latencyParam / 1000f), bASS_WASAPI_DEVICEINFO.minperiod, WasapiProc, IntPtr.Zero)))
-        {
-            BASSError bASSError5 = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_WASAPI_Init failed: " + bASSError5);
-        }
-        CurrentSession.WasapiInitialized = true;
-        CurrentSession.WasapiDeviceIndex = BassWasapi.BASS_WASAPI_GetDevice();
-        BASS_WASAPI_INFO bASS_WASAPI_INFO = BassWasapi.BASS_WASAPI_GetInfo();
-        Frequency = (SampleRate)bASS_WASAPI_INFO.freq;
-        Format = FromBASSWASAPIFormat[bASS_WASAPI_INFO.format];
-        Latency = (float)bASS_WASAPI_INFO.buflen * 1000f / (float)FromBASSWASAPIFormatToByte[bASS_WASAPI_INFO.format] / (float)Frequency / (float)bASS_WASAPI_INFO.chans;
-        BASSFlag flags = BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE;
-        initializationStage = "BASS_Mixer_StreamCreate";
-        inputMixer = BassMix.BASS_Mixer_StreamCreate((int)Frequency, bASS_WASAPI_INFO.chans, flags);
-        if (inputMixer == 0)
-        {
-            BASSError bASSError6 = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_Mixer_StreamCreate failed: " + bASSError6);
-        }
-        outputMixer = inputMixer;
-        CurrentSession.MixerHandle = inputMixer;
-        CurrentSession.OutputHandle = outputMixer;
+        initializationStage = "WASAPI negotiation";
+        bool eventModeRequested = param is { Length: > 0 } && param[0] is true;
+        DeviceDriver backend = isSharedMode
+            ? DeviceDriver.WASAPI_SHARED
+            : DeviceDriver.WASAPI_EXCLUSIVE;
+        var request = new BassAudioNegotiationRequest(
+            backend,
+            desc,
+            _frequency,
+            _format,
+            latencyParam);
+        BassAudioBackendResult result = new BassWasapiNegotiator(
+            new BassWasapiNegotiationNativeBoundary()).Initialize(
+                request,
+                CurrentSession,
+                WasapiProc,
+                eventModeRequested);
+
+        inputMixer = result.MixerHandle;
+        outputMixer = result.MixerHandle;
+        _frequency = result.ActualRate;
+        _format = result.EngineFormat;
+        Latency = result.LatencyMilliseconds;
         if (!isSharedMode)
         {
             volumeEffect = Bass.BASS_ChannelSetFX(inputMixer, BASSFXType.BASS_FX_BFX_VOLUME, 1);
         }
-        initializationStage = "BASS_WASAPI_Start";
-        if (!BassWasapi.BASS_WASAPI_Start())
-        {
-            BASSError bASSError7 = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_WASAPI_Start failed: " + bASSError7);
-        }
-        CurrentSession.IsStarted = true;
-        if (!flag)
-        {
-            return desc;
-        }
-        return default;
+        return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
     }
 
-    private static DeviceDescriptor InitializeDirectSound(DeviceDescriptor desc = default)
+    private static DeviceDescriptor InitializeDirectSoundNegotiated(DeviceDescriptor desc = default)
     {
-        initializationStage = "BASS_GetDeviceInfos";
-        var array = (from i in Bass.BASS_GetDeviceInfos().Select((info, idx) => new { info, idx })
-                     where i.info.IsEnabled
-                     select i).ToArray();
-        if (array.Length == 0)
-        {
-            throw new Exception("DirectSound device not found");
-        }
-        int num = 0;
-        bool flag = false;
-        if (!desc.Equals(default(DeviceDescriptor)))
-        {
-            num = array.FirstOrDefault(c => desc.Name == c.info.name && desc.Driver == c.info.driver)?.idx ?? array.FirstOrDefault(c => desc.Name == c.info.name)?.idx ?? array.First(c => c.info.IsDefault)?.idx ?? 0;
-        }
-        else
-        {
-            flag = true;
-            num = array.First(c => c.info.IsDefault).idx;
-        }
-        desc.Name = array[num].info.name;
-        desc.Driver = array[num].info.driver;
-        CurrentSession.ActualDevice = desc;
-        initializationStage = "BASS_Init";
-        if (!Bass.BASS_Init(num, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
-        {
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_Init failed: " + bASSError);
-        }
-        CurrentSession.CoreInitialized = true;
-        CurrentSession.CoreDeviceIndex = Bass.BASS_GetDevice();
-        initializationStage = "BASS_GetInfo";
-        BASS_INFO bASS_INFO = Bass.BASS_GetInfo();
-        if (latencyParam <= 0f)
-        {
-            latencyParam = 100f;
-        }
-        else
-        {
-            latencyParam += 50f;
-        }
-        Bass.BASS_SetConfig(BASSConfig.BASS_CONFIG_UPDATEPERIOD, 5);
-        Bass.BASS_SetConfig(BASSConfig.BASS_CONFIG_BUFFER, System.Math.Max(Bass.BASS_GetConfig(BASSConfig.BASS_CONFIG_UPDATEPERIOD) + 1, (int)latencyParam));
-        Frequency = (SampleRate)bASS_INFO.freq;
-        Format = SampleFormat.SAMPLE_INT_16BIT;
-        Latency = Bass.BASS_GetConfig(BASSConfig.BASS_CONFIG_BUFFER);
-        BASSFlag flags = BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE;
-        initializationStage = "BASS_Mixer_StreamCreate";
-        inputMixer = BassMix.BASS_Mixer_StreamCreate((int)Frequency, 2, flags);
-        if (inputMixer == 0)
-        {
-            BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_Mixer_StreamCreate failed: " + bASSError2);
-        }
-        CurrentSession.MixerHandle = inputMixer;
-        initializationStage = "BASS_StreamCreate";
-        outputMixer = (procChannel = Bass.BASS_StreamCreate((int)Frequency, 2, BASSFlag.BASS_SAMPLE_FLOAT, StreamProc, IntPtr.Zero));
-        CurrentSession.OutputHandle = outputMixer;
-        initializationStage = "BASS_ChannelPlay";
-        if (!Bass.BASS_ChannelPlay(outputMixer, restart: false))
-        {
-            BASSError bASSError3 = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_ChannelPlay failed: " + bASSError3);
-        }
-        CurrentSession.IsStarted = true;
-        if (!flag)
-        {
-            return desc;
-        }
-        return default;
+        initializationStage = "DirectSound negotiation";
+        var request = new BassAudioNegotiationRequest(
+            DeviceDriver.DIRECT_SOUND,
+            desc,
+            _frequency,
+            _format,
+            latencyParam);
+        BassAudioBackendResult result = new BassDirectSoundNegotiator(
+            new BassDirectSoundNegotiationNativeBoundary()).Initialize(
+                request,
+                CurrentSession,
+                StreamProc);
+
+        inputMixer = result.MixerHandle;
+        outputMixer = CurrentSession.OutputHandle;
+        procChannel = outputMixer;
+        _frequency = result.ActualRate;
+        _format = result.EngineFormat;
+        Latency = result.LatencyMilliseconds;
+        return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
     }
 
     private static DeviceDescriptor InitializeNullDevice(DeviceDescriptor desc = default)
