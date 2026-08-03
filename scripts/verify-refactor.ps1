@@ -886,6 +886,10 @@ try {
         }
 
         Assert-BuiltOutputs
+        Invoke-ParallelFunctionalTestShards `
+            -DiagnosticsDirectory (Join-Path $testDiagnosticsDirectory 'functional') `
+            -TimeoutSeconds 180
+
         Write-Host "Self-contained publish verification output: $scdPublishRoot"
         Invoke-SelfContainedPublishVerification
         Invoke-ExistingDataAcceptance
@@ -893,9 +897,6 @@ try {
         $env:BMS_SCD_APP_PUBLISH_ROOT = $scdAppPublishOutput
         $env:BMS_SCD_UPDATER_PUBLISH_ROOT = $scdUpdaterPublishOutput
 
-        Invoke-ParallelFunctionalTestShards `
-            -DiagnosticsDirectory (Join-Path $testDiagnosticsDirectory 'functional') `
-            -TimeoutSeconds 180
         Invoke-TestLane `
             -Name 'Process integration' `
             -Filter 'TestCategory=ProcessIntegration' `

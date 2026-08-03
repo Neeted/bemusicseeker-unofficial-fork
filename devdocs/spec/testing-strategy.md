@@ -41,6 +41,8 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 
 Full は Functional に加えて、tool / analyzer、`ProcessIntegration`、self-contained publish、既存データ起動受入、update package 受入を実行する。Functional の 180 秒予算とは別の release 検証であり、通常のコード変更ごとには実行しない。Performance、LargeFixture、parser full / slow は Full にも自動では含めず、変更対象に応じて明示実行する。
 
+Full 内でも Functional phase は build の直後、publish や update acceptance より前に実行する。release artifact workload の CPU / I/O の影響を通常機能検証へ持ち込まず、Functional の 180 秒予算を同じ条件で評価するためである。
+
 ## テスト lane
 
 | lane | `TestCategory` | Functional | Full | 用途 |
