@@ -57,6 +57,9 @@ internal interface IWasapiNegotiationNativeBoundary
     /// <summary>Starts WASAPI output.</summary>
     bool StartWasapi();
 
+    /// <summary>Reads the Windows volume scalar for the current shared WASAPI session.</summary>
+    float GetWasapiSessionVolume();
+
     /// <summary>Gets the BASS core error immediately after a failed core or mixer call.</summary>
     BASSError GetCoreError();
 
@@ -156,7 +159,10 @@ internal sealed class BassWasapiNegotiator
                 "WASAPI device not found.");
         }
 
-        (IndexedWasapiDevice selected, string deviceFallback) = SelectDevice(devices, request.Device);
+        (IndexedWasapiDevice selected, string deviceFallback) = SelectDevice(
+            devices,
+            request.Device,
+            useStableIdentityAsAuthoritative: shared);
         if (selected == null)
         {
             throw Failure(
@@ -338,6 +344,10 @@ internal sealed class BassWasapiNegotiator
                 "BASS_WASAPI_Start failed: " + error);
         }
         session.IsStarted = true;
+        if (shared)
+        {
+            session.WasapiSessionVolumeObservation = ObserveSharedSessionVolume();
+        }
 
         double latencyMilliseconds = info.buflen * 1000d
             / bytesPerSample
@@ -398,6 +408,27 @@ internal sealed class BassWasapiNegotiator
         return false;
     }
 
+    private BassWasapiSessionVolumeObservation ObserveSharedSessionVolume()
+    {
+        try
+        {
+            float scalar = native.GetWasapiSessionVolume();
+            if (scalar >= 0f)
+            {
+                return BassWasapiSessionVolumeObservation.Success(scalar);
+            }
+
+            // BASS errors are thread-local, so capture the code before any other native call.
+            return BassWasapiSessionVolumeObservation.NativeFailure(native.GetWasapiError());
+        }
+        catch (Exception exception)
+        {
+            // Session-volume diagnostics must never invalidate an otherwise usable graph.
+            return BassWasapiSessionVolumeObservation.ManagedFailure(
+                exception.GetType().Name + ": " + exception.Message);
+        }
+    }
+
     /// <summary>Builds the deterministic, duplicate-free WASAPI mode and period candidates.</summary>
     internal static IReadOnlyList<BassWasapiInitializationCandidate> GetInitializationCandidates(
         bool eventModeRequested,
@@ -430,25 +461,38 @@ internal sealed class BassWasapiNegotiator
 
     private static (IndexedWasapiDevice Device, string FallbackReason) SelectDevice(
         IReadOnlyList<IndexedWasapiDevice> devices,
-        BassAudioPlayer.DeviceDescriptor requestedDevice)
+        BassAudioPlayer.DeviceDescriptor requestedDevice,
+        bool useStableIdentityAsAuthoritative)
     {
-        if (!requestedDevice.Equals(default(BassAudioPlayer.DeviceDescriptor)))
+        if (useStableIdentityAsAuthoritative
+            && !string.IsNullOrWhiteSpace(requestedDevice.Driver))
         {
             IndexedWasapiDevice exact = devices.FirstOrDefault(device =>
-                requestedDevice.Name == device.Info.name
-                && requestedDevice.Driver == device.Info.id);
+                string.Equals(requestedDevice.Driver, device.Info.id, StringComparison.Ordinal));
+            if (exact != null)
+            {
+                return (exact, null);
+            }
+        }
+        else if (!requestedDevice.Equals(default(BassAudioPlayer.DeviceDescriptor)))
+        {
+            IndexedWasapiDevice exact = devices.FirstOrDefault(device =>
+                string.Equals(requestedDevice.Name, device.Info.name, StringComparison.Ordinal)
+                && string.Equals(requestedDevice.Driver, device.Info.id, StringComparison.Ordinal));
             if (exact != null)
             {
                 return (exact, null);
             }
 
             IndexedWasapiDevice compatibleName = devices.FirstOrDefault(device =>
-                requestedDevice.Name == device.Info.name);
+                string.Equals(requestedDevice.Name, device.Info.name, StringComparison.Ordinal));
             if (compatibleName != null)
             {
                 return (
                     compatibleName,
-                    "Requested WASAPI device identity was stale; a compatible name match was used.");
+                    useStableIdentityAsAuthoritative
+                        ? "Legacy WASAPI device selection had no stable identity; a name match was used."
+                        : "Requested WASAPI device identity was stale; a compatible name match was used.");
             }
         }
 
@@ -607,6 +651,11 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
 
     /// <inheritdoc />
     public bool StartWasapi() => BassWasapi.BASS_WASAPI_Start();
+
+    /// <inheritdoc />
+    public float GetWasapiSessionVolume() => BassWasapi.BASS_WASAPI_GetVolume(
+        BASSWASAPIVolume.BASS_WASAPI_VOL_SESSION
+        | BASSWASAPIVolume.BASS_WASAPI_CURVE_WINDOWS);
 
     /// <inheritdoc />
     public BASSError GetCoreError() => Bass.BASS_ErrorGetCode();

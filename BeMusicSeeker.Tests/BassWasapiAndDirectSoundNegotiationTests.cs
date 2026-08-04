@@ -127,7 +127,14 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             eventModeRequested: false);
 
         CollectionAssert.AreEqual(
-            new[] { "CreateMixer", "CreateVolumeEffect", "SetVolumeEffect", "StartWasapi" },
+            new[]
+            {
+                "CreateMixer",
+                "CreateVolumeEffect",
+                "SetVolumeEffect",
+                "StartWasapi",
+                "GetWasapiSessionVolume"
+            },
             native.GraphCalls);
         Assert.AreEqual((234, 0.35f), native.VolumeEffectCalls.Single());
         Assert.AreEqual(123, session.CallbackOutputHandle);
@@ -267,6 +274,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             eventModeRequested: false);
 
         Assert.AreEqual(0, native.VolumeEffectCalls.Count);
+        Assert.AreEqual(0, native.WasapiSessionVolumeReadCount);
     }
 
     [TestMethod]
@@ -315,6 +323,101 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
     }
 
     [TestMethod]
+    public void WasapiShared_ObservesWindowsSessionVolumeWithoutChangingMixerGainOwnership()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            WasapiSessionVolumeResult = 0.65f
+        };
+        native.InitializationResults.Enqueue(true);
+        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+
+        new BassWasapiNegotiator(native).Initialize(
+            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+            session,
+            WasapiCallback,
+            initialGain: 0.35f,
+            eventModeRequested: false);
+
+        Assert.AreEqual(1, native.WasapiSessionVolumeReadCount);
+        Assert.AreEqual(0.65f, session.WasapiSessionVolumeObservation.Scalar);
+        Assert.AreEqual((234, 0.35f), native.VolumeEffectCalls.Single());
+        string diagnostics = BassAudioPlayer.BuildInitializationSuccessDiagnostics(
+            BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            default,
+            session,
+            SampleRate.AUTO,
+            SampleFormat.AUTO,
+            0f,
+            requestedEventMode: false,
+            "versions");
+        StringAssert.Contains(diagnostics, "wasapiSessionVolume=0.65");
+    }
+
+    [TestMethod]
+    public void WasapiShared_SessionVolumeNativeFailureIsDiagnosticOnly()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            WasapiSessionVolumeResult = -1f,
+            WasapiSessionVolumeError = BASSError.BASS_ERROR_NOTAVAIL
+        };
+        native.InitializationResults.Enqueue(true);
+        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+
+        BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
+            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+            session,
+            WasapiCallback,
+            initialGain: 0.4f,
+            eventModeRequested: false);
+
+        Assert.IsNotNull(result);
+        Assert.IsTrue(session.IsStarted);
+        Assert.AreEqual(
+            BASSError.BASS_ERROR_NOTAVAIL,
+            session.WasapiSessionVolumeObservation.NativeErrorCode);
+        string diagnostics = BassAudioPlayer.BuildInitializationSuccessDiagnostics(
+            BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            default,
+            session,
+            SampleRate.AUTO,
+            SampleFormat.AUTO,
+            0f,
+            requestedEventMode: false,
+            "versions");
+        StringAssert.Contains(
+            diagnostics,
+            "wasapiSessionVolume=unavailable(nativeErrorSource=BASS,nativeErrorCode=BASS_ERROR_NOTAVAIL)");
+    }
+
+    [TestMethod]
+    public void WasapiShared_SessionVolumeManagedFailureIsDiagnosticOnly()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            WasapiSessionVolumeException = new InvalidOperationException("readback failed")
+        };
+        native.InitializationResults.Enqueue(true);
+        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+
+        BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
+            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+            session,
+            WasapiCallback,
+            initialGain: 0.4f,
+            eventModeRequested: false);
+
+        Assert.IsNotNull(result);
+        Assert.IsTrue(session.IsStarted);
+        StringAssert.Contains(
+            session.WasapiSessionVolumeObservation.FailureReason,
+            "InvalidOperationException: readback failed");
+    }
+
+    [TestMethod]
     public void WasapiExactSelection_DoesNotRequireDefaultFlag()
     {
         var native = new RecordingWasapiBoundary
@@ -338,6 +441,139 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
 
         Assert.AreEqual(0, native.InitializationCalls.Single().DeviceIndex);
         Assert.AreEqual("Explicit WASAPI", result.ActualDevice.Name);
+    }
+
+    [TestMethod]
+    public void WasapiStableIdentitySelection_IgnoresChangedDisplayName()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            DeviceInfos =
+            [
+                CreateWasapiDevice(
+                    "Renamed WASAPI",
+                    "stable-id",
+                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED),
+                CreateWasapiDevice(
+                    "Default WASAPI",
+                    "default-id",
+                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT)
+            ]
+        };
+        native.InitializationResults.Enqueue(true);
+
+        BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
+            CreateWasapiRequest(
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                device: new BassAudioPlayer.DeviceDescriptor("Old WASAPI Name", "stable-id")),
+            CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+            WasapiCallback,
+            initialGain: 0.4f,
+            eventModeRequested: false);
+
+        Assert.AreEqual(0, native.InitializationCalls.Single().DeviceIndex);
+        Assert.AreEqual("Renamed WASAPI", result.ActualDevice.Name);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(result.FallbackReason));
+    }
+
+    [TestMethod]
+    public void WasapiStaleStableIdentity_DoesNotSelectSameNameOnAnotherEndpoint()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            DeviceInfos =
+            [
+                CreateWasapiDevice(
+                    "Speakers",
+                    "different-id",
+                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED),
+                CreateWasapiDevice(
+                    "Default WASAPI",
+                    "default-id",
+                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT)
+            ]
+        };
+        native.InitializationResults.Enqueue(true);
+
+        BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
+            CreateWasapiRequest(
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                device: new BassAudioPlayer.DeviceDescriptor("Speakers", "stale-id")),
+            CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+            WasapiCallback,
+            initialGain: 0.4f,
+            eventModeRequested: false);
+
+        Assert.AreEqual(1, native.InitializationCalls.Single().DeviceIndex);
+        Assert.AreEqual("default-id", result.ActualDevice.Driver);
+        StringAssert.Contains(result.FallbackReason, "unavailable");
+    }
+
+    [TestMethod]
+    public void WasapiLegacyNameOnlySelection_UsesNameFallback()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            DeviceInfos =
+            [
+                CreateWasapiDevice(
+                    "Legacy Speakers",
+                    "legacy-id",
+                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED),
+                CreateWasapiDevice(
+                    "Default WASAPI",
+                    "default-id",
+                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT)
+            ]
+        };
+        native.InitializationResults.Enqueue(true);
+
+        BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
+            CreateWasapiRequest(
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                device: new BassAudioPlayer.DeviceDescriptor("Legacy Speakers", null)),
+            CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+            WasapiCallback,
+            initialGain: 0.4f,
+            eventModeRequested: false);
+
+        Assert.AreEqual(0, native.InitializationCalls.Single().DeviceIndex);
+        Assert.AreEqual("legacy-id", result.ActualDevice.Driver);
+        StringAssert.Contains(result.FallbackReason, "no stable identity");
+    }
+
+    [TestMethod]
+    public void WasapiExclusive_StaleIdentityRetainsCompatibleNameFallback()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            DeviceInfos =
+            [
+                CreateWasapiDevice(
+                    "Exclusive Speakers",
+                    "replacement-id",
+                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED),
+                CreateWasapiDevice(
+                    "Default WASAPI",
+                    "default-id",
+                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT)
+            ]
+        };
+        native.InitializationResults.Enqueue(true);
+
+        BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
+            CreateWasapiRequest(
+                BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+                device: new BassAudioPlayer.DeviceDescriptor("Exclusive Speakers", "stale-id")),
+            CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+            WasapiCallback,
+            initialGain: 0.4f,
+            eventModeRequested: false);
+
+        Assert.AreEqual(0, native.InitializationCalls.Single().DeviceIndex);
+        Assert.AreEqual("replacement-id", result.ActualDevice.Driver);
+        StringAssert.Contains(result.FallbackReason, "compatible name match");
+        Assert.AreEqual(0, native.WasapiSessionVolumeReadCount);
     }
 
     [TestMethod]
@@ -623,6 +859,8 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             "wasapi-id",
             BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT);
 
+        internal BASS_WASAPI_DEVICEINFO[]? DeviceInfos { get; set; }
+
         internal BASS_WASAPI_INFO WasapiInfo { get; set; } = new()
         {
             freq = 48000,
@@ -649,6 +887,14 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
 
         internal Action? StartObserver { get; set; }
 
+        internal float WasapiSessionVolumeResult { get; set; } = 1f;
+
+        internal BASSError WasapiSessionVolumeError { get; set; } = BASSError.BASS_ERROR_NOTAVAIL;
+
+        internal Exception? WasapiSessionVolumeException { get; set; }
+
+        internal int WasapiSessionVolumeReadCount { get; private set; }
+
         public bool InitializeCore() => true;
 
         public int GetCoreDevice() => 0;
@@ -657,9 +903,10 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         {
         }
 
-        public BASS_WASAPI_DEVICEINFO[] GetDeviceInfos() => [DeviceInfo];
+        public BASS_WASAPI_DEVICEINFO[] GetDeviceInfos() => DeviceInfos ?? [DeviceInfo];
 
-        public BASS_WASAPI_DEVICEINFO GetDeviceInfo(int deviceIndex) => DeviceInfo;
+        public BASS_WASAPI_DEVICEINFO GetDeviceInfo(int deviceIndex) =>
+            DeviceInfos == null ? DeviceInfo : DeviceInfos[deviceIndex];
 
         public bool InitializeWasapi(
             int deviceIndex,
@@ -720,6 +967,21 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             GraphCalls.Add("StartWasapi");
             StartObserver?.Invoke();
             return true;
+        }
+
+        public float GetWasapiSessionVolume()
+        {
+            GraphCalls.Add("GetWasapiSessionVolume");
+            WasapiSessionVolumeReadCount++;
+            if (WasapiSessionVolumeException != null)
+            {
+                throw WasapiSessionVolumeException;
+            }
+            if (WasapiSessionVolumeResult < 0f)
+            {
+                wasapiError = WasapiSessionVolumeError;
+            }
+            return WasapiSessionVolumeResult;
         }
 
         public BASSError GetCoreError() => CoreError;

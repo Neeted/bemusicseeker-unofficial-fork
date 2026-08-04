@@ -53,7 +53,7 @@ Negotiation always exhausts same-backend degradation before moving to another ba
 - WASAPI shared: requested event/period, non-event with the requested period, non-event with the default period; then DirectSound.
 - DirectSound: requested device, then the backend default; otherwise fail.
 
-Stale identities first use a compatible name match within the same backend when available, then that backend's default. The fallback reason records identity loss, mode/period degradation, format/rate normalization, native error source/code, and any cross-backend destination.
+Shared WASAPI treats a non-empty endpoint ID as authoritative: a changed display name does not lose the endpoint, and a stale ID does not select a different same-name endpoint. Only legacy shared-WASAPI selections without an ID may use a compatible name match. Exclusive WASAPI, ASIO, and DirectSound retain their compatible-name migration behavior before trying the backend default. The fallback reason records identity loss, mode/period degradation, format/rate normalization, native error source/code, and any cross-backend destination.
 
 No matrix ends in NullDevice.
 
@@ -72,7 +72,7 @@ For an explicit sample rate, candidates start with the requested rate, then the 
 
 The WASAPI engine mixer remains Float32. Engine format and endpoint format are separate. Shared mode prioritizes the endpoint mix rate and channel count. Event/custom-period failure first degrades to non-event/default-period operation in the same backend.
 
-In shared mode, application volume is a gain on the BASS Float32 mixer. Because the callback consumes decode data, this gain is implemented by the bundled `BASS_FX_BFX_VOLUME` mixer effect rather than the playback-only `BASS_ATTRIB_VOL` channel attribute. DirectSound uses the same mixer-effect route. The application does not write the Windows audio-session volume during initialization, live updates, or cleanup, so the Windows per-application control remains an independent multiplier. The initial mixer gain and the callback's session-owned source handle are published before `BASS_WASAPI_Start`; tempo graph changes atomically publish the replacement callback source before releasing the previous stream.
+In shared mode, application volume is a gain on the BASS Float32 mixer. Because the callback consumes decode data, this gain is implemented by the bundled `BASS_FX_BFX_VOLUME` mixer effect rather than the playback-only `BASS_ATTRIB_VOL` channel attribute. DirectSound uses the same mixer-effect route. The application does not write the Windows audio-session volume during initialization, live updates, or cleanup, so the Windows per-application control remains an independent multiplier. After shared output starts, its session scalar is read back for diagnostics; readback failure does not invalidate an otherwise usable graph. The initial mixer gain and the callback's session-owned source handle are published before `BASS_WASAPI_Start`; tempo graph changes atomically publish the replacement callback source before releasing the previous stream.
 
 DirectSound catalog entries retain the descriptor and original native index together. Native device index 0, disabled entries, and no-sound entries are not selectable audible devices. A default request uses device `-1` where supported and records the actual selected device after initialization.
 
