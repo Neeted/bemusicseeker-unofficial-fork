@@ -92,6 +92,12 @@ internal sealed class BassAudioSession
     internal int OutputHandle { get; set; }
 
     /// <summary>
+    /// Gets or sets the BASS_FX volume effect attached to the session's decode mixer.
+    /// The effect is owned by the mixer and is released with that mixer.
+    /// </summary>
+    internal int VolumeEffectHandle { get; set; }
+
+    /// <summary>
     /// Gets the stream currently published to callback-driven output without taking the
     /// lifecycle lock.
     /// </summary>
@@ -166,6 +172,7 @@ internal sealed class BassAudioSession
     {
         if (MixerHandle == handle)
         {
+            VolumeEffectHandle = 0;
             MixerHandle = 0;
         }
         if (OutputHandle == handle)

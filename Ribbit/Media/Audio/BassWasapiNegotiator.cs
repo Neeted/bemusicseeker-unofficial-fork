@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Ribbit.Media;
 using Un4seen.Bass;
+using Un4seen.Bass.AddOn.Fx;
 using Un4seen.Bass.AddOn.Mix;
 using Un4seen.BassWasapi;
 
@@ -47,8 +48,11 @@ internal interface IWasapiNegotiationNativeBoundary
     /// <summary>Creates the Float32 decode mixer that supplies the WASAPI callback.</summary>
     int CreateMixer(int rate, int channels, BASSFlag flags);
 
-    /// <summary>Sets the application gain on the Float32 decode mixer.</summary>
-    bool SetMixerVolume(int mixerHandle, float volume);
+    /// <summary>Creates a volume effect on the Float32 decode mixer.</summary>
+    int CreateVolumeEffect(int mixerHandle);
+
+    /// <summary>Sets the application gain on a mixer-owned volume effect.</summary>
+    bool SetVolumeEffect(int effectHandle, float volume);
 
     /// <summary>Starts WASAPI output.</summary>
     bool StartWasapi();
@@ -306,15 +310,20 @@ internal sealed class BassWasapiNegotiator
         session.MixerHandle = mixerHandle;
         session.TrackOutputHandle(mixerHandle);
 
-        if (shared && !TrySetSharedMixerGain(session, initialGain, out BASSError gainError))
+        if (shared
+            && !TrySetSharedMixerGain(
+                session,
+                initialGain,
+                out BASSError gainError,
+                out string gainStage))
         {
             throw Failure(
                 request,
                 session,
-                "BASS_ChannelSetAttribute(BASS_ATTRIB_VOL)",
+                gainStage,
                 "BASS",
                 gainError,
-                "BASS_ChannelSetAttribute for WASAPI shared mixer volume failed: " + gainError);
+                gainStage + " for WASAPI shared mixer volume failed: " + gainError);
         }
 
         if (!native.StartWasapi())
@@ -350,27 +359,41 @@ internal sealed class BassWasapiNegotiator
     }
 
     /// <summary>
-    /// Applies application volume to the primary mixer of an initialized WASAPI shared graph
-    /// and returns the immediately captured BASS error when the native call fails.
+    /// Applies application volume to the volume effect attached to an initialized WASAPI
+    /// shared graph and returns the immediately captured BASS error and failed stage when the
+    /// native call fails.
     /// </summary>
     internal bool TrySetSharedMixerGain(
         BassAudioSession session,
         float volume,
-        out BASSError error)
+        out BASSError error,
+        out string failedStage)
     {
         ArgumentNullException.ThrowIfNull(session);
+        failedStage = "WASAPI shared mixer volume";
         if (session.ActualBackend != BassAudioPlayer.DeviceDriver.WASAPI_SHARED
             || session.MixerHandle == 0)
         {
             error = BASSError.BASS_ERROR_HANDLE;
             return false;
         }
-        if (native.SetMixerVolume(session.MixerHandle, volume))
+        if (session.VolumeEffectHandle == 0)
+        {
+            session.VolumeEffectHandle = native.CreateVolumeEffect(session.MixerHandle);
+            if (session.VolumeEffectHandle == 0)
+            {
+                failedStage = "BASS_ChannelSetFX(BASS_FX_BFX_VOLUME)";
+                error = native.GetCoreError();
+                return false;
+            }
+        }
+        if (native.SetVolumeEffect(session.VolumeEffectHandle, volume))
         {
             error = BASSError.BASS_OK;
             return true;
         }
 
+        failedStage = "BASS_FXSetParameters(BASS_FX_BFX_VOLUME)";
         error = native.GetCoreError();
         return false;
     }
@@ -575,8 +598,12 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
         BassMix.BASS_Mixer_StreamCreate(rate, channels, flags);
 
     /// <inheritdoc />
-    public bool SetMixerVolume(int mixerHandle, float volume) =>
-        Bass.BASS_ChannelSetAttribute(mixerHandle, BASSAttribute.BASS_ATTRIB_VOL, volume);
+    public int CreateVolumeEffect(int mixerHandle) =>
+        Bass.BASS_ChannelSetFX(mixerHandle, BASSFXType.BASS_FX_BFX_VOLUME, 1);
+
+    /// <inheritdoc />
+    public bool SetVolumeEffect(int effectHandle, float volume) =>
+        Bass.BASS_FXSetParameters(effectHandle, new BASS_BFX_VOLUME(volume));
 
     /// <inheritdoc />
     public bool StartWasapi() => BassWasapi.BASS_WASAPI_Start();

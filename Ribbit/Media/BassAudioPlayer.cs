@@ -110,6 +110,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private static readonly BassWasapiNegotiator WasapiNegotiator;
 
+    private static readonly BassDirectSoundNegotiator DirectSoundNegotiator;
+
     private static string initializationStage;
 
     private static float latencyParam;
@@ -980,6 +982,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         SessionLifecycle = new BassAudioSessionLifecycle();
         SessionNative = new BassAudioSessionNativeBoundary();
         WasapiNegotiator = new BassWasapiNegotiator(new BassWasapiNegotiationNativeBoundary());
+        DirectSoundNegotiator = new BassDirectSoundNegotiator(new BassDirectSoundNegotiationNativeBoundary());
         StaticLockObject = new object();
         InstanceLocks = [];
         Locks = new NamedLocks<uint>();
@@ -1270,6 +1273,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         if (!isSharedMode)
         {
             volumeEffect = Bass.BASS_ChannelSetFX(inputMixer, BASSFXType.BASS_FX_BFX_VOLUME, 1);
+            CurrentSession.VolumeEffectHandle = volumeEffect;
         }
         return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
     }
@@ -1283,14 +1287,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             _frequency,
             _format,
             latencyParam);
-        BassAudioBackendResult result = new BassDirectSoundNegotiator(
-            new BassDirectSoundNegotiationNativeBoundary()).Initialize(
-                request,
-                CurrentSession,
-                StreamProc);
+        BassAudioBackendResult result = DirectSoundNegotiator.Initialize(
+            request,
+            CurrentSession,
+            StreamProc,
+            GetEffectiveDeviceVolumeForInitialization(_deviceVolume, IsDeviceMuted));
 
         inputMixer = result.MixerHandle;
         outputMixer = CurrentSession.OutputHandle;
+        volumeEffect = CurrentSession.VolumeEffectHandle;
         procChannel = outputMixer;
         _frequency = result.ActualRate;
         _format = result.EngineFormat;
@@ -1328,6 +1333,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             throw new Exception("BASS_Mixer_StreamCreate failed: " + bASSError2);
         }
         volumeEffect = Bass.BASS_ChannelSetFX(inputMixer, BASSFXType.BASS_FX_BFX_VOLUME, 1);
+        CurrentSession.VolumeEffectHandle = volumeEffect;
         outputMixer = inputMixer;
         CurrentSession.MixerHandle = inputMixer;
         CurrentSession.OutputHandle = outputMixer;
@@ -1821,11 +1827,16 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         ArgumentNullException.ThrowIfNull(negotiator);
         ArgumentNullException.ThrowIfNull(logWarning);
         BASSError error = BASSError.BASS_ERROR_INIT;
+        string failedStage = "WASAPI shared mixer volume";
         if (session == null
-            || !negotiator.TrySetSharedMixerGain(session, volume, out error))
+            || !negotiator.TrySetSharedMixerGain(
+                session,
+                volume,
+                out error,
+                out failedStage))
         {
             logWarning(
-                "BASS_ChannelSetAttribute for WASAPI shared mixer volume failed: "
+                failedStage + " for WASAPI shared mixer volume failed: "
                 + error);
         }
     }
@@ -1846,12 +1857,17 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 }
                 break;
             case DeviceDriver.DIRECT_SOUND:
-                if (!Bass.BASS_ChannelSetAttribute(inputMixer, BASSAttribute.BASS_ATTRIB_VOL, vol))
                 {
-                    BASSError bASSError4 = Bass.BASS_ErrorGetCode();
-                    NLogWrapper.TraceLogger?.Warn("BASS_ChannelSetAttribute failed: " + bASSError4);
+                    BassAudioSession directSoundSession = SessionLifecycle.CurrentSessionForAdmittedOperation;
+                    if (!DirectSoundNegotiator.TrySetMixerGain(
+                            directSoundSession,
+                            vol,
+                            out BASSError directSoundError))
+                    {
+                        NLogWrapper.TraceLogger?.Warn("BASS_FXSetParameters failed: " + directSoundError);
+                    }
+                    break;
                 }
-                break;
             case DeviceDriver.WASAPI_EXCLUSIVE:
                 if (!Bass.BASS_FXSetParameters(volumeEffect, new BASS_BFX_VOLUME(vol)))
                 {

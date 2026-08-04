@@ -473,7 +473,8 @@ public sealed class BassAudioSessionTests
         var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
         {
             MixerHandle = 10,
-            OutputHandle = 20
+            OutputHandle = 20,
+            VolumeEffectHandle = 30
         };
 
         session.ConfirmStreamReleased(20);
@@ -481,7 +482,13 @@ public sealed class BassAudioSessionTests
 
         Assert.AreEqual(10, session.MixerHandle);
         Assert.AreEqual(30, session.OutputHandle);
+        Assert.AreEqual(30, session.VolumeEffectHandle);
         Assert.IsFalse(session.AdditionalStreamHandles.Contains(20));
+
+        session.ConfirmStreamReleased(10);
+
+        Assert.AreEqual(0, session.MixerHandle);
+        Assert.AreEqual(0, session.VolumeEffectHandle);
     }
 
     [TestMethod]

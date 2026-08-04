@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Ribbit.Media;
 using Un4seen.Bass;
+using Un4seen.Bass.AddOn.Fx;
 using Un4seen.Bass.AddOn.Mix;
 
 namespace Ribbit.Media.Audio;
@@ -71,6 +72,12 @@ internal interface IDirectSoundNegotiationNativeBoundary
     /// <summary>Starts the callback output stream.</summary>
     bool Play(int streamHandle);
 
+    /// <summary>Creates a volume effect on the Float32 decode mixer.</summary>
+    int CreateVolumeEffect(int mixerHandle);
+
+    /// <summary>Sets the application gain on a mixer-owned volume effect.</summary>
+    bool SetVolumeEffect(int effectHandle, float volume);
+
     /// <summary>Gets the BASS error immediately after a failed native call.</summary>
     BASSError GetCoreError();
 }
@@ -90,7 +97,8 @@ internal sealed class BassDirectSoundNegotiator
     internal BassAudioBackendResult Initialize(
         BassAudioNegotiationRequest request,
         BassAudioSession session,
-        STREAMPROC callback)
+        STREAMPROC callback,
+        float initialGain)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(session);
@@ -192,6 +200,28 @@ internal sealed class BassDirectSoundNegotiator
         }
         session.MixerHandle = mixerHandle;
 
+        session.VolumeEffectHandle = native.CreateVolumeEffect(mixerHandle);
+        if (session.VolumeEffectHandle == 0)
+        {
+            BASSError error = native.GetCoreError();
+            throw Failure(
+                request,
+                session,
+                "BASS_ChannelSetFX(BASS_FX_BFX_VOLUME)",
+                error,
+                "BASS_ChannelSetFX for DirectSound mixer volume failed: " + error);
+        }
+        if (!native.SetVolumeEffect(session.VolumeEffectHandle, initialGain))
+        {
+            BASSError error = native.GetCoreError();
+            throw Failure(
+                request,
+                session,
+                "BASS_FXSetParameters(BASS_FX_BFX_VOLUME)",
+                error,
+                "BASS_FXSetParameters for DirectSound mixer volume failed: " + error);
+        }
+
         int outputHandle = native.CreateOutputStream(
             info.freq,
             2,
@@ -233,6 +263,33 @@ internal sealed class BassDirectSoundNegotiator
             fallbackReasons.Count == 0 ? null : string.Join(" ", fallbackReasons));
         session.NegotiationResult = result;
         return result;
+    }
+
+    /// <summary>
+    /// Applies application volume to the effect owned by an initialized DirectSound mixer
+    /// and returns the immediately captured BASS error when the native call fails.
+    /// </summary>
+    internal bool TrySetMixerGain(
+        BassAudioSession session,
+        float volume,
+        out BASSError error)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (session.ActualBackend != BassAudioPlayer.DeviceDriver.DIRECT_SOUND
+            || session.MixerHandle == 0
+            || session.VolumeEffectHandle == 0)
+        {
+            error = BASSError.BASS_ERROR_HANDLE;
+            return false;
+        }
+        if (native.SetVolumeEffect(session.VolumeEffectHandle, volume))
+        {
+            error = BASSError.BASS_OK;
+            return true;
+        }
+
+        error = native.GetCoreError();
+        return false;
     }
 
     /// <summary>
@@ -356,6 +413,14 @@ internal sealed class BassDirectSoundNegotiationNativeBoundary
 
     /// <inheritdoc />
     public bool Play(int streamHandle) => Bass.BASS_ChannelPlay(streamHandle, restart: false);
+
+    /// <inheritdoc />
+    public int CreateVolumeEffect(int mixerHandle) =>
+        Bass.BASS_ChannelSetFX(mixerHandle, BASSFXType.BASS_FX_BFX_VOLUME, 1);
+
+    /// <inheritdoc />
+    public bool SetVolumeEffect(int effectHandle, float volume) =>
+        Bass.BASS_FXSetParameters(effectHandle, new BASS_BFX_VOLUME(volume));
 
     /// <inheritdoc />
     public BASSError GetCoreError() => Bass.BASS_ErrorGetCode();
