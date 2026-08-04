@@ -29,8 +29,18 @@ internal interface IWasapiNegotiationNativeBoundary
     /// <summary>Gets one WASAPI endpoint descriptor.</summary>
     BASS_WASAPI_DEVICEINFO GetDeviceInfo(int deviceIndex);
 
-    /// <summary>Initializes one WASAPI endpoint with a Float32 callback.</summary>
-    bool InitializeWasapi(
+    /// <summary>
+    /// Initializes one shared WASAPI endpoint without encoding an exclusive sample format.
+    /// </summary>
+    bool InitializeSharedWasapi(
+        int deviceIndex,
+        int rate,
+        int channels,
+        bool eventDriven,
+        WASAPIPROC callback);
+
+    /// <summary>Initializes one exclusive WASAPI endpoint with a Float32 sample format.</summary>
+    bool InitializeExclusiveWasapi(
         int deviceIndex,
         int rate,
         int channels,
@@ -56,18 +66,6 @@ internal interface IWasapiNegotiationNativeBoundary
 
     /// <summary>Starts WASAPI output.</summary>
     bool StartWasapi();
-
-    /// <summary>Reads the Windows volume scalar for the current shared WASAPI session.</summary>
-    float GetWasapiSessionVolume();
-
-    /// <summary>Reads the Windows mute state for the current shared WASAPI session.</summary>
-    bool GetWasapiSessionMute();
-
-    /// <summary>Reapplies the existing Windows volume scalar to the shared WASAPI session.</summary>
-    bool SetWasapiSessionVolume(float volume);
-
-    /// <summary>Reapplies the existing Windows mute state to the shared WASAPI session.</summary>
-    bool SetWasapiSessionMute(bool muted);
 
     /// <summary>Gets the BASS core error immediately after a failed core or mixer call.</summary>
     BASSError GetCoreError();
@@ -214,6 +212,7 @@ internal sealed class BassWasapiNegotiator
             deviceInfo.minperiod + 0.001f,
             requestedLatencySeconds);
         IReadOnlyList<BassWasapiInitializationCandidate> candidates = GetInitializationCandidates(
+            shared,
             eventModeRequested,
             requestedBufferSeconds,
             deviceInfo.minperiod);
@@ -222,22 +221,29 @@ internal sealed class BassWasapiNegotiator
         BASSError lastError = BASSError.BASS_OK;
         foreach (BassWasapiInitializationCandidate candidate in candidates)
         {
-            BASSWASAPIInit flags = shared
-                ? BASSWASAPIInit.BASS_WASAPI_AUTOFORMAT
-                : BASSWASAPIInit.BASS_WASAPI_EXCLUSIVE | BASSWASAPIInit.BASS_WASAPI_AUTOFORMAT;
+            BASSWASAPIInit exclusiveFlags =
+                BASSWASAPIInit.BASS_WASAPI_EXCLUSIVE | BASSWASAPIInit.BASS_WASAPI_AUTOFORMAT;
             if (candidate.EventDriven)
             {
-                flags |= BASSWASAPIInit.BASS_WASAPI_EVENT;
+                exclusiveFlags |= BASSWASAPIInit.BASS_WASAPI_EVENT;
             }
 
-            if (!native.InitializeWasapi(
+            bool initialized = shared
+                ? native.InitializeSharedWasapi(
                     selected.NativeIndex,
                     requestedRate,
                     requestedChannels,
-                    flags,
+                    candidate.EventDriven,
+                    callback)
+                : native.InitializeExclusiveWasapi(
+                    selected.NativeIndex,
+                    requestedRate,
+                    requestedChannels,
+                    exclusiveFlags,
                     candidate.BufferSeconds,
                     candidate.PeriodSeconds,
-                    callback))
+                    callback);
+            if (!initialized)
             {
                 lastError = native.GetWasapiError();
                 attempts.Add(new BassAudioBackendAttempt(
@@ -353,10 +359,6 @@ internal sealed class BassWasapiNegotiator
                 "BASS_WASAPI_Start failed: " + error);
         }
         session.IsStarted = true;
-        if (shared)
-        {
-            session.WasapiSessionControlActivation = ActivateSharedSessionControls(request, session);
-        }
 
         double latencyMilliseconds = info.buflen * 1000d
             / bytesPerSample
@@ -417,91 +419,9 @@ internal sealed class BassWasapiNegotiator
         return false;
     }
 
-    private BassWasapiSessionControlActivation ActivateSharedSessionControls(
-        BassAudioNegotiationRequest request,
-        BassAudioSession session)
-    {
-        string stage = "BASS_WASAPI_GetVolume(BASS_WASAPI_VOL_SESSION)";
-        try
-        {
-            float scalar = native.GetWasapiSessionVolume();
-            if (scalar < 0f)
-            {
-                BASSError error = native.GetWasapiError();
-                throw Failure(
-                    request,
-                    session,
-                    stage,
-                    "BASSWASAPI",
-                    error,
-                    stage + " failed: " + error);
-            }
-
-            stage = "BASS_WASAPI_GetMute(BASS_WASAPI_VOL_SESSION)";
-            bool muted = native.GetWasapiSessionMute();
-            // Bass.Net exposes BOOL as bool, so native -1 and true are distinguishable only by
-            // capturing the thread-local error immediately after the call.
-            BASSError muteReadError = native.GetWasapiError();
-            if (muteReadError != BASSError.BASS_OK)
-            {
-                throw Failure(
-                    request,
-                    session,
-                    stage,
-                    "BASSWASAPI",
-                    muteReadError,
-                    stage + " failed: " + muteReadError);
-            }
-
-            // The bundled BASSWASAPI requires the persisted controls to be applied to the newly
-            // started shared session. Reapply the values read above; application gain remains on
-            // the BASS_FX mixer and is never substituted for the Windows session scalar.
-            stage = "BASS_WASAPI_SetVolume(BASS_WASAPI_VOL_SESSION)";
-            if (!native.SetWasapiSessionVolume(scalar))
-            {
-                BASSError error = native.GetWasapiError();
-                throw Failure(
-                    request,
-                    session,
-                    stage,
-                    "BASSWASAPI",
-                    error,
-                    stage + " failed: " + error);
-            }
-
-            stage = "BASS_WASAPI_SetMute(BASS_WASAPI_VOL_SESSION)";
-            if (!native.SetWasapiSessionMute(muted))
-            {
-                BASSError error = native.GetWasapiError();
-                throw Failure(
-                    request,
-                    session,
-                    stage,
-                    "BASSWASAPI",
-                    error,
-                    stage + " failed: " + error);
-            }
-
-            return BassWasapiSessionControlActivation.Success(scalar, muted);
-        }
-        catch (AudioInitializationException)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            throw Failure(
-                request,
-                session,
-                stage,
-                "BASSWASAPI",
-                null,
-                stage + " threw " + exception.GetType().Name + ": " + exception.Message);
-        }
-    }
-
     /// <summary>Builds the deterministic, duplicate-free WASAPI mode and period candidates.</summary>
     internal static IReadOnlyList<BassWasapiInitializationCandidate> GetInitializationCandidates(
+        bool shared,
         bool eventModeRequested,
         float requestedBufferSeconds,
         float requestedPeriodSeconds)
@@ -519,6 +439,16 @@ internal sealed class BassWasapiNegotiator
                     periodSeconds,
                     description));
             }
+        }
+
+        if (shared)
+        {
+            if (eventModeRequested)
+            {
+                Add(true, 0f, 0f, "shared event native default buffer/period");
+            }
+            Add(false, 0f, 0f, "shared non-event native default buffer/period");
+            return result.AsReadOnly();
         }
 
         if (eventModeRequested)
@@ -683,7 +613,29 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
         BassWasapi.BASS_WASAPI_GetDeviceInfo(deviceIndex);
 
     /// <inheritdoc />
-    public bool InitializeWasapi(
+    public bool InitializeSharedWasapi(
+        int deviceIndex,
+        int rate,
+        int channels,
+        bool eventDriven,
+        WASAPIPROC callback)
+    {
+        // The bundled Bass.Net explicit-format overload always adds EXCLUSIVE. Shared mode must
+        // use the no-format overload and the endpoint mix shape; BASSWASAPI 2.4.1 also owns the
+        // shared buffer and period, so both timing values remain at their native defaults.
+        return BassWasapi.BASS_WASAPI_Init(
+            deviceIndex,
+            rate,
+            channels,
+            eventDriven ? BASSWASAPIInit.BASS_WASAPI_EVENT : 0,
+            0f,
+            0f,
+            callback,
+            IntPtr.Zero);
+    }
+
+    /// <inheritdoc />
+    public bool InitializeExclusiveWasapi(
         int deviceIndex,
         int rate,
         int channels,
@@ -722,26 +674,6 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
 
     /// <inheritdoc />
     public bool StartWasapi() => BassWasapi.BASS_WASAPI_Start();
-
-    /// <inheritdoc />
-    public float GetWasapiSessionVolume() => BassWasapi.BASS_WASAPI_GetVolume(
-        BASSWASAPIVolume.BASS_WASAPI_VOL_SESSION
-        | BASSWASAPIVolume.BASS_WASAPI_CURVE_WINDOWS);
-
-    /// <inheritdoc />
-    public bool GetWasapiSessionMute() => BassWasapi.BASS_WASAPI_GetMute(
-        BASSWASAPIVolume.BASS_WASAPI_VOL_SESSION);
-
-    /// <inheritdoc />
-    public bool SetWasapiSessionVolume(float volume) => BassWasapi.BASS_WASAPI_SetVolume(
-        BASSWASAPIVolume.BASS_WASAPI_VOL_SESSION
-        | BASSWASAPIVolume.BASS_WASAPI_CURVE_WINDOWS,
-        volume);
-
-    /// <inheritdoc />
-    public bool SetWasapiSessionMute(bool muted) => BassWasapi.BASS_WASAPI_SetMute(
-        BASSWASAPIVolume.BASS_WASAPI_VOL_SESSION,
-        muted);
 
     /// <inheritdoc />
     public BASSError GetCoreError() => Bass.BASS_ErrorGetCode();

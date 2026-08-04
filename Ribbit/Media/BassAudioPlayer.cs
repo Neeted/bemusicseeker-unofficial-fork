@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -803,24 +802,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 + " engineFormat=" + result?.EngineFormat
                 + " endpointFormat=" + result?.EndpointFormat
                 + " latencyMs=" + result?.LatencyMilliseconds
-                + " wasapiSessionControl=" + DescribeWasapiSessionControl(
-                    session.WasapiSessionControlActivation)
                 + " fallbackOccurred=" + fallbackOccurred
                 + " fallbackDestination=" + (fallbackOccurred ? session.ActualBackend.ToString() : "none")
                 + " fallbackReason=" + (fallbackOccurred ? result?.FallbackReason : "none")
                 + " " + runtimeVersionDiagnostics;
-    }
-
-    private static string DescribeWasapiSessionControl(
-        BassWasapiSessionControlActivation activation)
-    {
-        if (!activation.Activated)
-        {
-            return "not-applicable";
-        }
-        return "activated(volume="
-            + activation.Scalar.ToString("0.###", CultureInfo.InvariantCulture)
-            + ",muted=" + activation.Muted + ")";
     }
 
     private static string DescribeDevice(DeviceDescriptor device)

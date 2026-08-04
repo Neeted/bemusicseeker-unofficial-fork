@@ -50,7 +50,7 @@ Negotiation always exhausts same-backend degradation before moving to another ba
 
 - ASIO: requested/default ASIO device, deterministic rate candidates, Float32 then Int16; then WASAPI exclusive, WASAPI shared, DirectSound.
 - WASAPI exclusive: requested event/period, non-event with the requested period, non-event with the default period; then WASAPI shared and DirectSound.
-- WASAPI shared: requested event/period, non-event with the requested period, non-event with the default period; then DirectSound.
+- WASAPI shared: event mode with the native default buffer/period when requested, then non-event mode with the native default buffer/period; then DirectSound.
 - DirectSound: requested device, then the backend default; otherwise fail.
 
 Shared WASAPI treats a non-empty endpoint ID as authoritative: a changed display name does not lose the endpoint, and a stale ID does not select a different same-name endpoint. Only legacy shared-WASAPI selections without an ID may use a compatible name match. Exclusive WASAPI, ASIO, and DirectSound retain their compatible-name migration behavior before trying the backend default. The fallback reason records identity loss, mode/period degradation, format/rate normalization, native error source/code, and any cross-backend destination.
@@ -70,11 +70,13 @@ For an explicit sample rate, candidates start with the requested rate, then the 
 
 ### 7. WASAPI and DirectSound rules
 
-The WASAPI engine mixer remains Float32. Engine format and endpoint format are separate. Shared mode prioritizes the endpoint mix rate and channel count. Event/custom-period failure first degrades to non-event/default-period operation in the same backend.
+The WASAPI engine mixer remains Float32. Engine format and endpoint format are separate. Shared mode uses the endpoint mix rate and channel count with the native default buffer and period. An event-mode failure first degrades to non-event/default-period operation in the same backend. Custom shared periods are not negotiated with the bundled BASSWASAPI 2.4.1.
 
 In shared mode, application volume is a gain on the BASS Float32 mixer. Because the callback consumes decode data, this gain is implemented by the bundled `BASS_FX_BFX_VOLUME` mixer effect rather than the playback-only `BASS_ATTRIB_VOL` channel attribute. DirectSound uses the same mixer-effect route. The initial mixer gain and the callback's session-owned source handle are published before `BASS_WASAPI_Start`; tempo graph changes atomically publish the replacement callback source before releasing the previous stream.
 
-The bundled BASSWASAPI 2.4.1.2 requires the newly started shared session controls to be activated explicitly. After `BASS_WASAPI_Start`, initialization reads the existing `BASS_WASAPI_VOL_SESSION` volume and mute values and reapplies those exact values before reporting success. This preserves the user's Windows mixer state instead of replacing it with the application gain, while ensuring Windows per-application volume and mute govern the shared output. A read or same-value reapply failure makes the shared attempt fail contextually so normal cleanup and reported backend fallback can proceed. Dynamic application volume remains mixer-only; exclusive mode never accesses session controls.
+Shared and exclusive initialization use separate managed boundaries. Shared mode calls the Bass.Net overload without a sample-format argument and never passes `BASS_WASAPI_EXCLUSIVE` or `BASS_WASAPI_AUTOFORMAT`. The bundled explicit-format overload injects `BASS_WASAPI_EXCLUSIVE`, so it is reserved for the explicit exclusive route. `WASAPIPROC` and the decode mixer remain Float32 without encoding an exclusive endpoint format into a shared request.
+
+Windows owns shared-session volume and mute and applies them automatically to a genuine shared stream. Initialization does not read and rewrite those controls. Dynamic application volume remains mixer-only and composes with the Windows per-application scalar and mute; exclusive mode is outside that Windows session-control contract.
 
 DirectSound catalog entries retain the descriptor and original native index together. Native device index 0, disabled entries, and no-sound entries are not selectable audible devices. A default request uses device `-1` where supported and records the actual selected device after initialization.
 
@@ -121,7 +123,7 @@ Known audio initialization exceptions preserve backend, stage, requested and neg
 The following checks are manual/optional and are not part of the normal Functional lane. Run them from a Release artifact on Windows 10 and Windows 11 with at least the built-in endpoint and one attachable USB or ASIO device:
 
 - DirectSound: application gain and Windows per-application volume are independent and both audible.
-- WASAPI shared: application gain and Windows per-application volume are independent and both audible; Windows mute silences output, and initialization logs the same session volume/mute values that it preserved during activation.
+- WASAPI shared: browser or other same-endpoint shared audio continues playing; application gain and Windows per-application volume are independent and both audible; Windows mute silences output.
 - WASAPI exclusive and ASIO: negotiated device/rate/format are reported accurately, and exclusive ownership limitations are not presented as shared-session volume behavior.
 - Device test: `assets/audio/test.mp3` plays exactly once, reaches its natural end, and is not cut short.
 - Persistence/hotplug: an explicit endpoint remains selected after Apply and process restart; disconnect shows the saved endpoint as unavailable; selecting Default or a replacement persists only after Apply.

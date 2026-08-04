@@ -30,33 +30,6 @@ internal enum BassAudioSessionState
 }
 
 /// <summary>
-/// Captures the Windows session controls that were preserved and activated for one initialized
-/// shared WASAPI session.
-/// </summary>
-internal readonly struct BassWasapiSessionControlActivation
-{
-    private BassWasapiSessionControlActivation(bool activated, float scalar, bool muted)
-    {
-        Activated = activated;
-        Scalar = scalar;
-        Muted = muted;
-    }
-
-    /// <summary>Gets whether the existing Windows session controls were reapplied successfully.</summary>
-    internal bool Activated { get; }
-
-    /// <summary>Gets the Windows session scalar that was preserved during activation.</summary>
-    internal float Scalar { get; }
-
-    /// <summary>Gets the Windows session mute state that was preserved during activation.</summary>
-    internal bool Muted { get; }
-
-    /// <summary>Creates a successful shared-session control activation result.</summary>
-    internal static BassWasapiSessionControlActivation Success(float scalar, bool muted) =>
-        new(activated: true, scalar: scalar, muted: muted);
-}
-
-/// <summary>
 /// Records native ownership for one BASS audio graph from the start of initialization
 /// until every acquired layer has been released.
 /// </summary>
@@ -135,11 +108,6 @@ internal sealed class BassAudioSession
 
     /// <summary>Gets or sets whether the backend output was started.</summary>
     internal bool IsStarted { get; set; }
-
-    /// <summary>
-    /// Gets or sets the Windows session controls preserved when shared WASAPI output starts.
-    /// </summary>
-    internal BassWasapiSessionControlActivation WasapiSessionControlActivation { get; set; }
 
     /// <summary>Gets or sets the values accepted by the initialized native backend.</summary>
     internal BassAudioBackendResult NegotiationResult { get; set; }
