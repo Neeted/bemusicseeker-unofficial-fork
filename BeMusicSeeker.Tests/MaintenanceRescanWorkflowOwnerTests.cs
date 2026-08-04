@@ -255,7 +255,11 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                     release.Wait(TimeSpan.FromSeconds(5));
                     return new MaintenanceWorkflowResult { Canceled = token.IsCancellationRequested };
                 },
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action(),
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);

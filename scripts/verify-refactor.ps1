@@ -117,7 +117,9 @@ $functionalMethodLevelPreWaveClasses = @(
     'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
     'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
     'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
-    'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests')
+    'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests',
+    'BeMusicSeeker.Tests.BmsLibraryDuplicateServiceTests',
+    'BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests')
 
 function Assert-FunctionalShardConfiguration {
     $names = @($functionalTestClassShards | ForEach-Object { $_.Name })
@@ -589,7 +591,7 @@ function Invoke-ParallelFunctionalTestShards {
             -TimeoutSeconds $exclusiveTimeoutSeconds `
             -NoBuild
 
-        $preWaveDirectory = Join-Path $DiagnosticsDirectory 'folder-rename-method-level'
+        $preWaveDirectory = Join-Path $DiagnosticsDirectory 'method-level-pre-wave'
         [void](New-Item -ItemType Directory -Path $preWaveDirectory -Force)
         $preWaveRunSettingsPath = Join-Path $preWaveDirectory 'parallel.runsettings'
         Write-MSTestParallelRunSettings `
@@ -604,7 +606,7 @@ function Invoke-ParallelFunctionalTestShards {
             throw "Functional test phase exhausted its ${TimeoutSeconds}-second timeout before the method-level pre-wave."
         }
         Invoke-TestLane `
-            -Name 'Functional folder rename method-level pre-wave' `
+            -Name 'Functional method-level pre-wave' `
             -Filter "($functionalFilter)&($preWaveClassFilter)" `
             -DiagnosticsDirectory $preWaveDirectory `
             -TimeoutSeconds $preWaveTimeoutSeconds `
