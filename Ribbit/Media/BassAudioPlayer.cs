@@ -803,31 +803,24 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 + " engineFormat=" + result?.EngineFormat
                 + " endpointFormat=" + result?.EndpointFormat
                 + " latencyMs=" + result?.LatencyMilliseconds
-                + " wasapiSessionVolume=" + DescribeWasapiSessionVolume(
-                    session.WasapiSessionVolumeObservation)
+                + " wasapiSessionControl=" + DescribeWasapiSessionControl(
+                    session.WasapiSessionControlActivation)
                 + " fallbackOccurred=" + fallbackOccurred
                 + " fallbackDestination=" + (fallbackOccurred ? session.ActualBackend.ToString() : "none")
                 + " fallbackReason=" + (fallbackOccurred ? result?.FallbackReason : "none")
                 + " " + runtimeVersionDiagnostics;
     }
 
-    private static string DescribeWasapiSessionVolume(
-        BassWasapiSessionVolumeObservation observation)
+    private static string DescribeWasapiSessionControl(
+        BassWasapiSessionControlActivation activation)
     {
-        if (!observation.Attempted)
+        if (!activation.Activated)
         {
             return "not-applicable";
         }
-        if (observation.Scalar.HasValue)
-        {
-            return observation.Scalar.Value.ToString("0.###", CultureInfo.InvariantCulture);
-        }
-        if (observation.NativeErrorCode.HasValue)
-        {
-            return "unavailable(nativeErrorSource=BASS,nativeErrorCode="
-                + observation.NativeErrorCode.Value + ")";
-        }
-        return "unavailable(failure=" + observation.FailureReason + ")";
+        return "activated(volume="
+            + activation.Scalar.ToString("0.###", CultureInfo.InvariantCulture)
+            + ",muted=" + activation.Muted + ")";
     }
 
     private static string DescribeDevice(DeviceDescriptor device)

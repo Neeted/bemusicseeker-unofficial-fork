@@ -30,46 +30,30 @@ internal enum BassAudioSessionState
 }
 
 /// <summary>
-/// Captures the non-owning diagnostic observation of the Windows volume scalar for one
-/// initialized shared WASAPI session.
+/// Captures the Windows session controls that were preserved and activated for one initialized
+/// shared WASAPI session.
 /// </summary>
-internal readonly struct BassWasapiSessionVolumeObservation
+internal readonly struct BassWasapiSessionControlActivation
 {
-    private BassWasapiSessionVolumeObservation(
-        bool attempted,
-        float? scalar,
-        BASSError? nativeErrorCode,
-        string failureReason)
+    private BassWasapiSessionControlActivation(bool activated, float scalar, bool muted)
     {
-        Attempted = attempted;
+        Activated = activated;
         Scalar = scalar;
-        NativeErrorCode = nativeErrorCode;
-        FailureReason = failureReason;
+        Muted = muted;
     }
 
-    /// <summary>Gets whether shared-session volume readback was attempted.</summary>
-    internal bool Attempted { get; }
+    /// <summary>Gets whether the existing Windows session controls were reapplied successfully.</summary>
+    internal bool Activated { get; }
 
-    /// <summary>Gets the Windows session scalar when readback succeeded.</summary>
-    internal float? Scalar { get; }
+    /// <summary>Gets the Windows session scalar that was preserved during activation.</summary>
+    internal float Scalar { get; }
 
-    /// <summary>Gets the immediately captured BASS error when native readback failed.</summary>
-    internal BASSError? NativeErrorCode { get; }
+    /// <summary>Gets the Windows session mute state that was preserved during activation.</summary>
+    internal bool Muted { get; }
 
-    /// <summary>Gets the non-native failure description when readback threw.</summary>
-    internal string FailureReason { get; }
-
-    /// <summary>Creates a successful shared-session volume observation.</summary>
-    internal static BassWasapiSessionVolumeObservation Success(float scalar) =>
-        new(attempted: true, scalar: scalar, nativeErrorCode: null, failureReason: null);
-
-    /// <summary>Creates a failed native shared-session volume observation.</summary>
-    internal static BassWasapiSessionVolumeObservation NativeFailure(BASSError error) =>
-        new(attempted: true, scalar: null, nativeErrorCode: error, failureReason: null);
-
-    /// <summary>Creates a failed managed shared-session volume observation.</summary>
-    internal static BassWasapiSessionVolumeObservation ManagedFailure(string failureReason) =>
-        new(attempted: true, scalar: null, nativeErrorCode: null, failureReason: failureReason);
+    /// <summary>Creates a successful shared-session control activation result.</summary>
+    internal static BassWasapiSessionControlActivation Success(float scalar, bool muted) =>
+        new(activated: true, scalar: scalar, muted: muted);
 }
 
 /// <summary>
@@ -153,10 +137,9 @@ internal sealed class BassAudioSession
     internal bool IsStarted { get; set; }
 
     /// <summary>
-    /// Gets or sets the diagnostic Windows session-volume observation captured after shared
-    /// WASAPI output starts. This value does not own or control the native session.
+    /// Gets or sets the Windows session controls preserved when shared WASAPI output starts.
     /// </summary>
-    internal BassWasapiSessionVolumeObservation WasapiSessionVolumeObservation { get; set; }
+    internal BassWasapiSessionControlActivation WasapiSessionControlActivation { get; set; }
 
     /// <summary>Gets or sets the values accepted by the initialized native backend.</summary>
     internal BassAudioBackendResult NegotiationResult { get; set; }

@@ -60,6 +60,15 @@ internal interface IWasapiNegotiationNativeBoundary
     /// <summary>Reads the Windows volume scalar for the current shared WASAPI session.</summary>
     float GetWasapiSessionVolume();
 
+    /// <summary>Reads the Windows mute state for the current shared WASAPI session.</summary>
+    bool GetWasapiSessionMute();
+
+    /// <summary>Reapplies the existing Windows volume scalar to the shared WASAPI session.</summary>
+    bool SetWasapiSessionVolume(float volume);
+
+    /// <summary>Reapplies the existing Windows mute state to the shared WASAPI session.</summary>
+    bool SetWasapiSessionMute(bool muted);
+
     /// <summary>Gets the BASS core error immediately after a failed core or mixer call.</summary>
     BASSError GetCoreError();
 
@@ -314,7 +323,6 @@ internal sealed class BassWasapiNegotiator
                 "BASS_Mixer_StreamCreate failed: " + error);
         }
         session.MixerHandle = mixerHandle;
-        session.TrackOutputHandle(mixerHandle);
 
         if (shared
             && !TrySetSharedMixerGain(
@@ -332,6 +340,7 @@ internal sealed class BassWasapiNegotiator
                 gainStage + " for WASAPI shared mixer volume failed: " + gainError);
         }
 
+        session.TrackOutputHandle(mixerHandle);
         if (!native.StartWasapi())
         {
             BASSError error = native.GetWasapiError();
@@ -346,7 +355,7 @@ internal sealed class BassWasapiNegotiator
         session.IsStarted = true;
         if (shared)
         {
-            session.WasapiSessionVolumeObservation = ObserveSharedSessionVolume();
+            session.WasapiSessionControlActivation = ActivateSharedSessionControls(request, session);
         }
 
         double latencyMilliseconds = info.buflen * 1000d
@@ -408,24 +417,86 @@ internal sealed class BassWasapiNegotiator
         return false;
     }
 
-    private BassWasapiSessionVolumeObservation ObserveSharedSessionVolume()
+    private BassWasapiSessionControlActivation ActivateSharedSessionControls(
+        BassAudioNegotiationRequest request,
+        BassAudioSession session)
     {
+        string stage = "BASS_WASAPI_GetVolume(BASS_WASAPI_VOL_SESSION)";
         try
         {
             float scalar = native.GetWasapiSessionVolume();
-            if (scalar >= 0f)
+            if (scalar < 0f)
             {
-                return BassWasapiSessionVolumeObservation.Success(scalar);
+                BASSError error = native.GetWasapiError();
+                throw Failure(
+                    request,
+                    session,
+                    stage,
+                    "BASSWASAPI",
+                    error,
+                    stage + " failed: " + error);
             }
 
-            // BASS errors are thread-local, so capture the code before any other native call.
-            return BassWasapiSessionVolumeObservation.NativeFailure(native.GetWasapiError());
+            stage = "BASS_WASAPI_GetMute(BASS_WASAPI_VOL_SESSION)";
+            bool muted = native.GetWasapiSessionMute();
+            // Bass.Net exposes BOOL as bool, so native -1 and true are distinguishable only by
+            // capturing the thread-local error immediately after the call.
+            BASSError muteReadError = native.GetWasapiError();
+            if (muteReadError != BASSError.BASS_OK)
+            {
+                throw Failure(
+                    request,
+                    session,
+                    stage,
+                    "BASSWASAPI",
+                    muteReadError,
+                    stage + " failed: " + muteReadError);
+            }
+
+            // The bundled BASSWASAPI requires the persisted controls to be applied to the newly
+            // started shared session. Reapply the values read above; application gain remains on
+            // the BASS_FX mixer and is never substituted for the Windows session scalar.
+            stage = "BASS_WASAPI_SetVolume(BASS_WASAPI_VOL_SESSION)";
+            if (!native.SetWasapiSessionVolume(scalar))
+            {
+                BASSError error = native.GetWasapiError();
+                throw Failure(
+                    request,
+                    session,
+                    stage,
+                    "BASSWASAPI",
+                    error,
+                    stage + " failed: " + error);
+            }
+
+            stage = "BASS_WASAPI_SetMute(BASS_WASAPI_VOL_SESSION)";
+            if (!native.SetWasapiSessionMute(muted))
+            {
+                BASSError error = native.GetWasapiError();
+                throw Failure(
+                    request,
+                    session,
+                    stage,
+                    "BASSWASAPI",
+                    error,
+                    stage + " failed: " + error);
+            }
+
+            return BassWasapiSessionControlActivation.Success(scalar, muted);
+        }
+        catch (AudioInitializationException)
+        {
+            throw;
         }
         catch (Exception exception)
         {
-            // Session-volume diagnostics must never invalidate an otherwise usable graph.
-            return BassWasapiSessionVolumeObservation.ManagedFailure(
-                exception.GetType().Name + ": " + exception.Message);
+            throw Failure(
+                request,
+                session,
+                stage,
+                "BASSWASAPI",
+                null,
+                stage + " threw " + exception.GetType().Name + ": " + exception.Message);
         }
     }
 
@@ -656,6 +727,21 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
     public float GetWasapiSessionVolume() => BassWasapi.BASS_WASAPI_GetVolume(
         BASSWASAPIVolume.BASS_WASAPI_VOL_SESSION
         | BASSWASAPIVolume.BASS_WASAPI_CURVE_WINDOWS);
+
+    /// <inheritdoc />
+    public bool GetWasapiSessionMute() => BassWasapi.BASS_WASAPI_GetMute(
+        BASSWASAPIVolume.BASS_WASAPI_VOL_SESSION);
+
+    /// <inheritdoc />
+    public bool SetWasapiSessionVolume(float volume) => BassWasapi.BASS_WASAPI_SetVolume(
+        BASSWASAPIVolume.BASS_WASAPI_VOL_SESSION
+        | BASSWASAPIVolume.BASS_WASAPI_CURVE_WINDOWS,
+        volume);
+
+    /// <inheritdoc />
+    public bool SetWasapiSessionMute(bool muted) => BassWasapi.BASS_WASAPI_SetMute(
+        BASSWASAPIVolume.BASS_WASAPI_VOL_SESSION,
+        muted);
 
     /// <inheritdoc />
     public BASSError GetCoreError() => Bass.BASS_ErrorGetCode();
