@@ -39,25 +39,27 @@ $functionalFilter = @(
     'TestCategory!=ReleaseAcceptance') -join '&'
 $functionalTestClassShards = @(
     [pscustomobject]@{
-        # These large fixtures are class-wide DoNotParallelize. Keeping them in one
-        # testhost serializes hundreds of independent tests and wastes machine capacity.
-        Name = 'library-initialization'
+        # Class-wide non-parallel fixtures consume one active worker per testhost.
+        # Keep each short-lived external host at one worker while the remaining
+        # host uses every logical processor. This bounded overlap was faster and
+        # stable in repeated Functional runs; subtracting these workers would
+        # leave the remaining host under-provisioned after the external hosts exit.
+        Name = 'library-chart-classwide'
+        Workers = 1
         Classes = @(
             'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests',
-            'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests')
+            'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests',
+            'BeMusicSeeker.Tests.ChartInfoMetadataTests')
     },
     [pscustomobject]@{
         Name = 'lr2-songdb-sync'
+        Workers = 1
         Classes = @(
             'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests')
     },
     [pscustomobject]@{
-        Name = 'chart-info-metadata'
-        Classes = @(
-            'BeMusicSeeker.Tests.ChartInfoMetadataTests')
-    },
-    [pscustomobject]@{
         Name = 'presentation-workspace'
+        Workers = 1
         Classes = @(
             'BeMusicSeeker.Tests.BmsPlaylistUpdateTests',
             'BeMusicSeeker.Tests.PlaybackPanelViewModelTests',
@@ -65,15 +67,128 @@ $functionalTestClassShards = @(
             'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests')
     },
     [pscustomobject]@{
-        Name = 'catalog-maintenance'
+        Name = 'feature-remaining-classwide-dnp'
+        Workers = 1
         Classes = @(
-            'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
-            'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
-            'BeMusicSeeker.Tests.OwnedChartCollectionStateTests',
-            'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
-            'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests',
-            'BeMusicSeeker.Tests.BmsLibraryIrServiceTests')
+            'BeMusicSeeker.Tests.PlaylistViewPipelineTests',
+            'BeMusicSeeker.Tests.PlayHistoryReadModelTests',
+            'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
+            'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests',
+            'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests',
+            'BeMusicSeeker.Tests.PlaylistUrlCompletionTests',
+            'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
+            'BeMusicSeeker.Tests.ChartListVirtualViewTests',
+            'BeMusicSeeker.Tests.BmsLibraryInstallEstimationServiceTests',
+            'BeMusicSeeker.Tests.ApplicationCompositionTests',
+            'BeMusicSeeker.Tests.CatalogMutationOwnerTests',
+            'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests',
+            'BeMusicSeeker.Tests.Lr2PlayHistorySchemaServiceTests',
+            'BeMusicSeeker.Tests.AudioDeviceTestWorkflowOwnerTests',
+            'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests',
+            'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests',
+            'BeMusicSeeker.Tests.AudioContractsTests',
+            'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
+            'BeMusicSeeker.Tests.SettingDialogOpenCommandTests',
+            'BeMusicSeeker.Tests.InstallDestinationStateOwnerTests',
+            'BeMusicSeeker.Tests.BassNativeRuntimeTests',
+            'BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests',
+            'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests',
+            'BeMusicSeeker.Tests.MainWindowViewSettingsBoundaryTests',
+            'BeMusicSeeker.Tests.PlayerSettingsGatewayTests',
+            'BeMusicSeeker.Tests.BmsLibraryOptionsSnapshotTests',
+            'BeMusicSeeker.Tests.BeatorajaBmtOptionsSnapshotTests',
+            'BeMusicSeeker.Tests.NLogWrapperTests',
+            'BeMusicSeeker.Tests.ResourceIconContractTests',
+            'BeMusicSeeker.Tests.StartupSettingsSnapshotTests',
+            'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests',
+            'BeMusicSeeker.Tests.CustomFolderOutputSettingsSnapshotTests')
     })
+$functionalRemainingShardWorkers = [Math]::Max(
+    1,
+    [Environment]::ProcessorCount)
+$functionalExclusiveTestClasses = @(
+    # This test temporarily replaces the repository-local portable user.config.
+    # Run it before any testhost that could read settings from the same file.
+    'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests')
+$functionalMethodLevelPreWaveClasses = @(
+    # These I/O-heavy fixtures own a distinct temporary database and directory per
+    # test. Limit method-level concurrency to this measured set; its explicitly
+    # non-parallel settings tests remain protected by DoNotParallelize.
+    'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
+    'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
+    'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
+    'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests')
+
+function Assert-FunctionalShardConfiguration {
+    $names = @($functionalTestClassShards | ForEach-Object { $_.Name })
+    if (@($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+        throw 'Functional test shard names must not be empty.'
+    }
+    if (($names | Sort-Object -Unique).Count -ne $names.Count) {
+        throw 'Functional test shard names must be unique.'
+    }
+
+    $workers = @($functionalTestClassShards | ForEach-Object { $_.Workers })
+    if (@($workers | Where-Object { $_ -isnot [int] -or $_ -lt 1 }).Count -gt 0) {
+        throw 'Functional test shard workers must be positive integers.'
+    }
+    if (@($workers | Where-Object { $_ -ne 1 }).Count -gt 0) {
+        throw 'Functional external test shards must use exactly one worker each.'
+    }
+    if ($functionalRemainingShardWorkers -ne
+        [Math]::Max(1, [Environment]::ProcessorCount)) {
+        throw 'Functional remaining test shard must use every logical processor.'
+    }
+
+    if (@($functionalTestClassShards | Where-Object { @($_.Classes).Count -eq 0 }).Count -gt 0) {
+        throw 'Functional test shards must contain at least one class selector.'
+    }
+    $shardClasses = @($functionalTestClassShards | ForEach-Object { $_.Classes })
+    if (@($shardClasses | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+        throw 'Functional test shard class selectors must not be empty.'
+    }
+    if (($shardClasses | Sort-Object -Unique).Count -ne $shardClasses.Count) {
+        throw 'Functional test shard classes must belong to exactly one shard.'
+    }
+
+    if (@($functionalExclusiveTestClasses).Count -eq 0) {
+        throw 'Functional exclusive tests must contain at least one class selector.'
+    }
+    if (@($functionalExclusiveTestClasses |
+        Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+        throw 'Functional exclusive test class selectors must not be empty.'
+    }
+    if (@($functionalExclusiveTestClasses | Sort-Object -Unique).Count -ne
+        $functionalExclusiveTestClasses.Count) {
+        throw 'Functional exclusive test classes must be unique.'
+    }
+
+    if (@($functionalMethodLevelPreWaveClasses).Count -eq 0) {
+        throw 'Functional method-level pre-wave must contain at least one class selector.'
+    }
+    if (@($functionalMethodLevelPreWaveClasses |
+        Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+        throw 'Functional method-level pre-wave class selectors must not be empty.'
+    }
+    if (@($functionalMethodLevelPreWaveClasses | Sort-Object -Unique).Count -ne
+        $functionalMethodLevelPreWaveClasses.Count) {
+        throw 'Functional method-level pre-wave classes must be unique.'
+    }
+
+    $allClasses = @($shardClasses) +
+        @($functionalExclusiveTestClasses) +
+        @($functionalMethodLevelPreWaveClasses)
+    for ($leftIndex = 0; $leftIndex -lt $allClasses.Count; $leftIndex++) {
+        for ($rightIndex = $leftIndex + 1; $rightIndex -lt $allClasses.Count; $rightIndex++) {
+            $left = $allClasses[$leftIndex]
+            $right = $allClasses[$rightIndex]
+            if ($left.Contains($right, [StringComparison]::Ordinal) -or
+                $right.Contains($left, [StringComparison]::Ordinal)) {
+                throw "Functional test class selectors overlap: '$left' and '$right'."
+            }
+        }
+    }
+}
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
 
 function Invoke-CheckedCommand {
@@ -301,6 +416,42 @@ function Invoke-BudgetedCommand {
         -IsTestCommand:$IsTestCommand
 }
 
+function Write-MSTestParallelRunSettings {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$Workers,
+
+        [ValidateSet('ClassLevel', 'MethodLevel')]
+        [string]$Scope = 'ClassLevel'
+    )
+
+    $document = [System.Xml.XmlDocument]::new()
+    $document.LoadXml(@"
+<RunSettings>
+  <MSTest>
+    <Parallelize>
+      <Workers>$Workers</Workers>
+      <Scope>$Scope</Scope>
+    </Parallelize>
+  </MSTest>
+</RunSettings>
+"@)
+    $writerSettings = [System.Xml.XmlWriterSettings]::new()
+    $writerSettings.Encoding = [System.Text.UTF8Encoding]::new($false)
+    $writerSettings.Indent = $true
+    $writer = [System.Xml.XmlWriter]::Create($Path, $writerSettings)
+    try {
+        $document.Save($writer)
+    }
+    finally {
+        $writer.Dispose()
+    }
+}
+
 function Get-TestArguments {
     param(
         [Parameter(Mandatory)]
@@ -311,6 +462,8 @@ function Get-TestArguments {
 
         [Parameter(Mandatory)]
         [int]$TimeoutSeconds,
+
+        [string]$RunSettingsPath,
 
         [switch]$NoBuild
     )
@@ -335,6 +488,9 @@ function Get-TestArguments {
         'mini',
         '--filter',
         $Filter)
+    if (-not [string]::IsNullOrWhiteSpace($RunSettingsPath)) {
+        $arguments += @('--settings', $RunSettingsPath)
+    }
     if ($NoBuild) {
         $arguments += '--no-build'
     }
@@ -354,6 +510,8 @@ function Invoke-TestLane {
 
         [int]$TimeoutSeconds = 180,
 
+        [string]$RunSettingsPath,
+
         [switch]$NoBuild
     )
 
@@ -361,6 +519,7 @@ function Invoke-TestLane {
         -Filter $Filter `
         -DiagnosticsDirectory $DiagnosticsDirectory `
         -TimeoutSeconds $TimeoutSeconds `
+        -RunSettingsPath $RunSettingsPath `
         -NoBuild:$NoBuild
     Invoke-MonitoredCommand `
         -Label "$Name test lane" `
@@ -381,13 +540,18 @@ function Invoke-ParallelFunctionalTestShards {
         [int]$TimeoutSeconds
     )
 
-    $assignedClasses = @($functionalTestClassShards | ForEach-Object { $_.Classes })
+    Assert-FunctionalShardConfiguration
+    $assignedClasses = @(
+        @($functionalTestClassShards | ForEach-Object { $_.Classes }) +
+        @($functionalExclusiveTestClasses) +
+        @($functionalMethodLevelPreWaveClasses))
     $remainingClassFilter = ($assignedClasses |
         ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
     $shards = @(
         [pscustomobject]@{
             Name = 'remaining'
             Filter = "($functionalFilter)&($remainingClassFilter)"
+            Workers = $functionalRemainingShardWorkers
         })
     $shards += @(
         $functionalTestClassShards | ForEach-Object {
@@ -396,6 +560,7 @@ function Invoke-ParallelFunctionalTestShards {
             [pscustomobject]@{
                 Name = $_.Name
                 Filter = "($functionalFilter)&($classFilter)"
+                Workers = $_.Workers
             }
         })
 
@@ -411,13 +576,53 @@ function Invoke-ParallelFunctionalTestShards {
     $cleanupFailures = [System.Collections.Generic.List[string]]::new()
 
     try {
+        $exclusiveDirectory = Join-Path $DiagnosticsDirectory 'exclusive-portable-settings'
+        $exclusiveClassFilter = ($functionalExclusiveTestClasses |
+            ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+        $exclusiveTimeoutSeconds = [Math]::Max(
+            1,
+            [int][Math]::Floor($TimeoutSeconds - $stageStopwatch.Elapsed.TotalSeconds))
+        Invoke-TestLane `
+            -Name 'Functional exclusive portable settings' `
+            -Filter "($functionalFilter)&($exclusiveClassFilter)" `
+            -DiagnosticsDirectory $exclusiveDirectory `
+            -TimeoutSeconds $exclusiveTimeoutSeconds `
+            -NoBuild
+
+        $preWaveDirectory = Join-Path $DiagnosticsDirectory 'folder-rename-method-level'
+        [void](New-Item -ItemType Directory -Path $preWaveDirectory -Force)
+        $preWaveRunSettingsPath = Join-Path $preWaveDirectory 'parallel.runsettings'
+        Write-MSTestParallelRunSettings `
+            -Path $preWaveRunSettingsPath `
+            -Workers $functionalRemainingShardWorkers `
+            -Scope 'MethodLevel'
+        $preWaveClassFilter = ($functionalMethodLevelPreWaveClasses |
+            ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+        $preWaveTimeoutSeconds = [int][Math]::Floor(
+            $TimeoutSeconds - $stageStopwatch.Elapsed.TotalSeconds)
+        if ($preWaveTimeoutSeconds -le 0) {
+            throw "Functional test phase exhausted its ${TimeoutSeconds}-second timeout before the method-level pre-wave."
+        }
+        Invoke-TestLane `
+            -Name 'Functional folder rename method-level pre-wave' `
+            -Filter "($functionalFilter)&($preWaveClassFilter)" `
+            -DiagnosticsDirectory $preWaveDirectory `
+            -TimeoutSeconds $preWaveTimeoutSeconds `
+            -RunSettingsPath $preWaveRunSettingsPath `
+            -NoBuild
+
         foreach ($shard in $shards) {
             $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
             [void](New-Item -ItemType Directory -Path $shardDirectory -Force)
+            $runSettingsPath = Join-Path $shardDirectory 'parallel.runsettings'
+            Write-MSTestParallelRunSettings `
+                -Path $runSettingsPath `
+                -Workers $shard.Workers
             $arguments = Get-TestArguments `
                 -Filter $shard.Filter `
                 -DiagnosticsDirectory $shardDirectory `
                 -TimeoutSeconds $TimeoutSeconds `
+                -RunSettingsPath $runSettingsPath `
                 -NoBuild
             $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
             $startInfo.FileName = 'dotnet'
@@ -444,7 +649,10 @@ function Invoke-ParallelFunctionalTestShards {
             }
         }
 
-        Write-Host "Functional test shards (global timeout ${TimeoutSeconds}s): $(($entries.Name) -join ', ')"
+        $shardSummary = ($shards | ForEach-Object {
+            "$($_.Name)=$($_.Workers) workers"
+        }) -join ', '
+        Write-Host "Functional test shards (global timeout ${TimeoutSeconds}s): $shardSummary"
         while ($true) {
             $failedShard = $entries |
                 Where-Object { $_.Process.HasExited -and $_.Process.ExitCode -ne 0 } |
