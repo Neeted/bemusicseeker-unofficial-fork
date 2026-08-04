@@ -67,7 +67,6 @@ internal sealed class AudioDeviceTestResult
         TimeSpan wallClockDuration,
         TimeSpan playbackPositionDuration,
         double? progressRatio,
-        TimeSpan sessionDuration,
         string failureReason)
     {
         Initialization = initialization ?? throw new ArgumentNullException(nameof(initialization));
@@ -76,7 +75,6 @@ internal sealed class AudioDeviceTestResult
         WallClockDuration = wallClockDuration;
         PlaybackPositionDuration = playbackPositionDuration;
         ProgressRatio = progressRatio;
-        SessionDuration = sessionDuration;
         FailureReason = failureReason;
     }
 
@@ -107,9 +105,6 @@ internal sealed class AudioDeviceTestResult
 
     /// <summary>Gets playback-position duration divided by wall-clock duration.</summary>
     internal double? ProgressRatio { get; }
-
-    /// <summary>Gets how long the initialized output session was retained for interaction.</summary>
-    internal TimeSpan SessionDuration { get; }
 
     /// <summary>Gets why stream observation failed, if it failed.</summary>
     internal string FailureReason { get; }
@@ -223,30 +218,11 @@ internal readonly struct AudioDeviceTestStreamObservation
         TimeSpan playbackPositionDuration,
         double? progressRatio,
         string failureReason)
-        : this(
-            succeeded,
-            wallClockDuration,
-            playbackPositionDuration,
-            progressRatio,
-            wallClockDuration,
-            failureReason)
-    {
-    }
-
-    /// <summary>Creates an immutable stream observation with a distinct retained-session duration.</summary>
-    internal AudioDeviceTestStreamObservation(
-        bool succeeded,
-        TimeSpan wallClockDuration,
-        TimeSpan playbackPositionDuration,
-        double? progressRatio,
-        TimeSpan sessionDuration,
-        string failureReason)
     {
         Succeeded = succeeded;
         WallClockDuration = wallClockDuration;
         PlaybackPositionDuration = playbackPositionDuration;
         ProgressRatio = progressRatio;
-        SessionDuration = sessionDuration;
         FailureReason = failureReason;
     }
 
@@ -264,9 +240,6 @@ internal readonly struct AudioDeviceTestStreamObservation
     /// <summary>Gets playback-position duration divided by wall-clock duration.</summary>
     internal double? ProgressRatio { get; }
 
-    /// <summary>Gets how long the initialized output session was retained during sound observation.</summary>
-    internal TimeSpan SessionDuration { get; }
-
     /// <summary>Gets the observation failure reason.</summary>
     internal string FailureReason { get; }
 }
@@ -280,13 +253,9 @@ internal static class AudioDeviceTestStreamObserver
 
     private static readonly TimeSpan ObservationTimeout = TimeSpan.FromSeconds(10);
 
-    private static readonly TimeSpan MinimumInteractiveSessionDuration = TimeSpan.FromSeconds(8);
-
-    private const int MaximumNaturalPlaybacks = 16;
-
     /// <summary>
-    /// Observes complete natural playbacks until the output session has remained interactive for
-    /// the minimum duration, and reports bounded real-time progress after startup pre-roll.
+    /// Observes one test-sound playback through natural completion and reports bounded real-time
+    /// progress after startup pre-roll.
     /// </summary>
     internal static AudioDeviceTestStreamObservation Observe(
         string testSoundPath,
@@ -298,54 +267,6 @@ internal static class AudioDeviceTestStreamObserver
             return Failure("The configured test sound file is unavailable.");
         }
 
-        long sessionStart = soundBoundary.GetTimestamp();
-        TimeSpan measuredWallClockDuration = TimeSpan.Zero;
-        TimeSpan measuredPlaybackDuration = TimeSpan.Zero;
-        for (int playbackNumber = 1; playbackNumber <= MaximumNaturalPlaybacks; playbackNumber++)
-        {
-            AudioDeviceTestStreamObservation playback = ObserveSinglePlayback(
-                testSoundPath,
-                soundBoundary);
-            long now = soundBoundary.GetTimestamp();
-            TimeSpan sessionDuration = soundBoundary.GetElapsedTime(sessionStart, now);
-            if (!playback.Succeeded)
-            {
-                return new AudioDeviceTestStreamObservation(
-                    false,
-                    playback.WallClockDuration,
-                    playback.PlaybackPositionDuration,
-                    playback.ProgressRatio,
-                    sessionDuration,
-                    playback.FailureReason);
-            }
-
-            measuredWallClockDuration += playback.WallClockDuration;
-            measuredPlaybackDuration += playback.PlaybackPositionDuration;
-            if (sessionDuration >= MinimumInteractiveSessionDuration)
-            {
-                return new AudioDeviceTestStreamObservation(
-                    true,
-                    measuredWallClockDuration,
-                    measuredPlaybackDuration,
-                    CalculateRatio(measuredPlaybackDuration, measuredWallClockDuration),
-                    sessionDuration,
-                    null);
-            }
-        }
-
-        return new AudioDeviceTestStreamObservation(
-            false,
-            measuredWallClockDuration,
-            measuredPlaybackDuration,
-            CalculateRatio(measuredPlaybackDuration, measuredWallClockDuration),
-            soundBoundary.GetElapsedTime(sessionStart, soundBoundary.GetTimestamp()),
-            "The test sound could not retain an interactive audio session for the required duration.");
-    }
-
-    private static AudioDeviceTestStreamObservation ObserveSinglePlayback(
-        string testSoundPath,
-        IAudioDeviceTestSoundBoundary soundBoundary)
-    {
         using IAudioPlayer player = soundBoundary.CreatePlayer(testSoundPath);
         TimeSpan duration = player.Duration;
         if (duration <= TimeSpan.Zero)
@@ -664,7 +585,6 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 observation.WallClockDuration,
                 observation.PlaybackPositionDuration,
                 observation.ProgressRatio,
-                observation.SessionDuration,
                 observation.FailureReason);
             TryLogTestResult(result);
             return result;
@@ -733,7 +653,6 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 + " wallClockMs=" + result.WallClockDuration.TotalMilliseconds
                 + " playbackPositionMs=" + result.PlaybackPositionDuration.TotalMilliseconds
                 + " progressRatio=" + result.ProgressRatio
-                + " sessionDurationMs=" + result.SessionDuration.TotalMilliseconds
                 + " fallbackOccurred=" + result.FallbackOccurred
                 + " fallbackReason=" + result.FallbackReason
                 + " isSilentFallback=" + result.IsSilentFallback

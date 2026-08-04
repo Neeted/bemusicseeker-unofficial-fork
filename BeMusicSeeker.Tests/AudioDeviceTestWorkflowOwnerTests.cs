@@ -89,10 +89,10 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.IsTrue(observation.Succeeded);
         Assert.IsTrue(observation.WallClockDuration >= TimeSpan.FromSeconds(1));
         Assert.AreEqual(1d, observation.ProgressRatio.GetValueOrDefault(), 0.001);
-        Assert.IsTrue(observation.SessionDuration >= TimeSpan.FromSeconds(8));
-        Assert.IsTrue(boundary.Elapsed >= TimeSpan.FromSeconds(8));
-        Assert.AreEqual(4, boundary.CreatedPlayerCount);
-        Assert.AreEqual(4, boundary.PlayCount);
+        Assert.AreEqual(1, boundary.CreatedPlayerCount);
+        Assert.AreEqual(1, boundary.PlayCount);
+        Assert.AreEqual(1, boundary.DisposedPlayerCount);
+        Assert.AreEqual(boundary.Duration, boundary.Elapsed);
         Assert.AreEqual(boundary.Elapsed, boundary.DisposedAt.GetValueOrDefault());
     }
 
@@ -109,51 +109,10 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             boundary);
 
         Assert.IsTrue(observation.Succeeded);
-        Assert.IsTrue(observation.SessionDuration >= TimeSpan.FromSeconds(8));
-        Assert.AreEqual(3, boundary.CreatedPlayerCount);
-        Assert.AreEqual(TimeSpan.FromSeconds(9), boundary.DisposedAt.GetValueOrDefault());
-    }
-
-    [TestMethod]
-    public void StreamObserver_SecondPlaybackEarlyStop_FailsOverallObservation()
-    {
-        var boundary = new FakeSoundBoundary(elapsed => elapsed)
-        {
-            PlaybackStateProvider = (playbackNumber, elapsed) =>
-                playbackNumber == 2 && elapsed >= TimeSpan.FromMilliseconds(200)
-                    ? PlayState.Stopped
-                    : elapsed >= TimeSpan.FromSeconds(2)
-                        ? PlayState.Stopped
-                        : PlayState.Playing
-        };
-
-        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
-            "test.wav",
-            boundary);
-
-        Assert.IsFalse(observation.Succeeded);
-        StringAssert.Contains(observation.FailureReason, "reported duration");
-        Assert.AreEqual(2, boundary.CreatedPlayerCount);
-        Assert.AreEqual(2, boundary.DisposedPlayerCount);
-        Assert.AreEqual(boundary.Elapsed, observation.SessionDuration);
-    }
-
-    [TestMethod]
-    public void StreamObserver_SecondPlaybackException_IsNotSwallowedAndDisposesPlayers()
-    {
-        var boundary = new FakeSoundBoundary(elapsed => elapsed)
-        {
-            PlaybackPlayExceptionProvider = playbackNumber => playbackNumber == 2
-                ? new InvalidOperationException("second playback failed")
-                : null
-        };
-
-        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-            () => AudioDeviceTestStreamObserver.Observe("test.wav", boundary));
-
-        Assert.AreEqual("second playback failed", exception.Message);
-        Assert.AreEqual(2, boundary.CreatedPlayerCount);
-        Assert.AreEqual(2, boundary.DisposedPlayerCount);
+        Assert.AreEqual(1, boundary.CreatedPlayerCount);
+        Assert.AreEqual(1, boundary.PlayCount);
+        Assert.AreEqual(1, boundary.DisposedPlayerCount);
+        Assert.AreEqual(TimeSpan.FromSeconds(3), boundary.DisposedAt.GetValueOrDefault());
     }
 
     [TestMethod]
@@ -176,9 +135,10 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         Assert.IsTrue(observation.Succeeded);
         Assert.AreEqual(1d, observation.ProgressRatio.GetValueOrDefault(), 0.001);
-        Assert.IsTrue(observation.SessionDuration >= TimeSpan.FromSeconds(8));
-        Assert.AreEqual(4, boundary.CreatedPlayerCount);
-        Assert.AreEqual(TimeSpan.FromSeconds(8), boundary.DisposedAt.GetValueOrDefault());
+        Assert.AreEqual(1, boundary.CreatedPlayerCount);
+        Assert.AreEqual(1, boundary.PlayCount);
+        Assert.AreEqual(1, boundary.DisposedPlayerCount);
+        Assert.AreEqual(duration, boundary.DisposedAt.GetValueOrDefault());
     }
 
     [TestMethod]
@@ -408,8 +368,6 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         private int positionReadOrdinal;
 
-        private TimeSpan playerStart;
-
         internal FakeSoundBoundary(Func<TimeSpan, TimeSpan> positionProvider)
         {
             this.positionProvider = positionProvider;
@@ -437,31 +395,23 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         internal Func<TimeSpan, PlayState>? StateProvider { get; set; }
 
-        internal Func<int, TimeSpan, PlayState>? PlaybackStateProvider { get; set; }
-
-        internal Func<int, Exception?>? PlaybackPlayExceptionProvider { get; set; }
-
         public bool FileExists(string path) => FileAvailable;
 
         public IAudioPlayer CreatePlayer(string path)
         {
             PlayerCreated = true;
             CreatedPlayerCount++;
-            int playbackNumber = CreatedPlayerCount;
-            playerStart = Elapsed;
             positionReadOrdinal = 0;
             return new FakeAudioPlayer(
                 ReadPosition,
                 () =>
                 {
                     TimeSpan statePosition = ReadPosition();
-                    return PlaybackStateProvider?.Invoke(playbackNumber, PlayerElapsed)
-                        ?? StateProvider?.Invoke(PlayerElapsed)
-                        ?? (statePosition >= Duration
-                            ? PlayState.Stopped
-                            : PlayState.Playing);
+                    return StateProvider?.Invoke(Elapsed) ?? (statePosition >= Duration
+                        ? PlayState.Stopped
+                        : PlayState.Playing);
                 },
-                () => PlaybackPlayExceptionProvider?.Invoke(playbackNumber) ?? PlayException,
+                () => PlayException,
                 () => Duration,
                 () => PlayCount++,
                 () =>
@@ -485,10 +435,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         private TimeSpan ReadPosition()
         {
             int readOrdinal = positionReadOrdinal++;
-            return PositionReadProvider?.Invoke(PlayerElapsed, readOrdinal) ?? positionProvider(PlayerElapsed);
+            return PositionReadProvider?.Invoke(Elapsed, readOrdinal) ?? positionProvider(Elapsed);
         }
-
-        private TimeSpan PlayerElapsed => Elapsed - playerStart;
     }
 
     private sealed class FakeAudioPlayer : IAudioPlayer

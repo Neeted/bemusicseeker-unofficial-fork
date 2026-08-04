@@ -104,9 +104,9 @@ Initialization success and stream progress are separate results. Playback progre
 
 The evaluator ignores startup pre-roll until the first forward playback movement, then requires at least one second of measured wall-clock interval. Positions must be monotonic, playback must continue to advance, and the playback-position/wall-clock ratio must remain within `0.75` through `1.25`, inclusive. Ratios of 1.5x and 2x are failures. Passing that interval is a diagnostic milestone, not the end of the player lifetime: a successful audible test retains the player and native session until the finite test sound reaches its natural end.
 
-The output session remains initialized for at least eight seconds so the user has time to exercise application and Windows per-application volume controls. A shorter test asset is replayed only after each preceding playback reaches its natural end; the bundled approximately two-second asset therefore runs as complete natural repeats rather than being cut off by a fixed delay. Each repeat retains the ten-second progress-observation grace and reported-duration completion checks, and the repeat count has a defensive upper bound of sixteen.
+The test sound is played exactly once. The initialized output session remains alive until that playback reaches its natural end; the application does not repeat a short asset to fill a fixed interaction interval.
 
-A stopped stream counts as naturally complete only when its playback position reaches the reported duration. Missing test audio, no movement, reversal, an out-of-range ratio, early termination, failure to reach the natural end, inability to retain the minimum interactive session, or an exception fails the test and prevents settings changes. The result does not claim that sound was physically audible; it reports device initialization, stream progress, and retained session duration independently.
+A stopped stream counts as naturally complete only when its playback position reaches the reported duration. Missing test audio, no movement, reversal, an out-of-range ratio, early termination, failure to reach the natural end, or an exception fails the test and prevents settings changes. The result does not claim that sound was physically audible; it reports device initialization and stream progress independently.
 
 ### 11. Logging and errors
 
@@ -121,7 +121,7 @@ The following checks are manual/optional and are not part of the normal Function
 - DirectSound: application gain and Windows per-application volume are independent and both audible.
 - WASAPI shared: application gain and Windows per-application volume are independent and both audible; the initial logged session scalar reflects the Windows session state and the application does not overwrite it.
 - WASAPI exclusive and ASIO: negotiated device/rate/format are reported accurately, and exclusive ownership limitations are not presented as shared-session volume behavior.
-- Device test: every repeat reaches the end of `assets/audio/test.mp3`, the native output session remains present for at least eight seconds, and no repeat is cut short.
+- Device test: `assets/audio/test.mp3` plays exactly once, reaches its natural end, and is not cut short.
 - Persistence/hotplug: an explicit endpoint remains selected after Apply and process restart; disconnect shows the saved endpoint as unavailable; selecting Default or a replacement persists only after Apply.
 
 ### 13. Separate Phase 2 migration plan
