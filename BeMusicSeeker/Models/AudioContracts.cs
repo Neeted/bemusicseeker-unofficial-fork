@@ -71,6 +71,59 @@ public readonly struct AudioDeviceInfo
             : string.Format(Resources.AudioDeviceUnavailableFormat, Name);
 }
 
+/// <summary>
+/// Represents one requested output backend and its backend-specific endpoint identity as a
+/// single immutable settings value.
+/// </summary>
+internal readonly struct AudioOutputSelection : IEquatable<AudioOutputSelection>
+{
+    /// <summary>Creates a normalized output selection. A blank identity represents Default.</summary>
+    internal AudioOutputSelection(AudioDriver backend, string deviceIdentity, string deviceName)
+    {
+        Backend = backend;
+        if (string.IsNullOrWhiteSpace(deviceIdentity))
+        {
+            DeviceIdentity = null;
+            DeviceName = null;
+        }
+        else
+        {
+            DeviceIdentity = deviceIdentity;
+            DeviceName = string.IsNullOrWhiteSpace(deviceName) ? null : deviceName;
+        }
+    }
+
+    /// <summary>Gets the requested output backend.</summary>
+    internal AudioDriver Backend { get; }
+
+    /// <summary>Gets the backend-specific stable endpoint identity, or null for Default.</summary>
+    internal string DeviceIdentity { get; }
+
+    /// <summary>Gets the saved endpoint display name, or null for Default.</summary>
+    internal string DeviceName { get; }
+
+    /// <summary>Gets whether this selection requests the backend's current default endpoint.</summary>
+    internal bool IsDefault => DeviceIdentity == null;
+
+    /// <inheritdoc />
+    public bool Equals(AudioOutputSelection other) =>
+        Backend == other.Backend
+        && string.Equals(DeviceIdentity, other.DeviceIdentity, StringComparison.Ordinal)
+        && string.Equals(DeviceName, other.DeviceName, StringComparison.Ordinal);
+
+    /// <inheritdoc />
+    public override bool Equals(object obj) => obj is AudioOutputSelection other && Equals(other);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => HashCode.Combine(Backend, DeviceIdentity, DeviceName);
+
+    /// <summary>Compares two normalized output selections.</summary>
+    public static bool operator ==(AudioOutputSelection left, AudioOutputSelection right) => left.Equals(right);
+
+    /// <summary>Compares two normalized output selections.</summary>
+    public static bool operator !=(AudioOutputSelection left, AudioOutputSelection right) => !left.Equals(right);
+}
+
 internal interface IAudioDeviceCatalog
 {
     /// <summary>Refreshes every audible backend independently while retaining failed backends' last good list.</summary>
@@ -250,7 +303,11 @@ internal sealed class AudioEncodingSettingsSnapshot
 
 internal interface IAudioSettingsGateway
 {
-    AudioDriver PlayerDriver { get; set; }
+    /// <summary>Captures the persisted backend/device/name triple as one normalized value.</summary>
+    AudioOutputSelection CaptureOutputSelection();
+
+    /// <summary>Applies one normalized backend/device/name triple to the settings object.</summary>
+    void ApplyOutputSelection(AudioOutputSelection selection);
 
     AudioNormalization EncoderNormalization { get; set; }
 
@@ -271,10 +328,23 @@ internal sealed class SettingsAudioGateway : IAudioSettingsGateway
     private Settings Values => settingsProvider()
         ?? throw new InvalidOperationException("Audio settings provider returned null.");
 
-    public AudioDriver PlayerDriver
+    /// <inheritdoc />
+    public AudioOutputSelection CaptureOutputSelection()
     {
-        get => BassAudioMapping.FromBassDriver(Values.PlayerDriver);
-        set => Values.PlayerDriver = BassAudioMapping.ToBassDriver(value);
+        Settings values = Values;
+        return new AudioOutputSelection(
+            BassAudioMapping.FromBassDriver(values.PlayerDriver),
+            values.PlayerDevice,
+            values.PlayerDeviceName);
+    }
+
+    /// <inheritdoc />
+    public void ApplyOutputSelection(AudioOutputSelection selection)
+    {
+        Settings values = Values;
+        values.PlayerDriver = BassAudioMapping.ToBassDriver(selection.Backend);
+        values.PlayerDevice = selection.DeviceIdentity;
+        values.PlayerDeviceName = selection.DeviceName;
     }
 
     public AudioNormalization EncoderNormalization

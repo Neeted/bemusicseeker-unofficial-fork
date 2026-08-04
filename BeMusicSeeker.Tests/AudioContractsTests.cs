@@ -16,28 +16,42 @@ public sealed class AudioContractsTests
     {
         BeMusicSeeker.Properties.Settings settings = BeMusicSeeker.Properties.Settings.Default;
         var originalDriver = settings.PlayerDriver;
+        string originalDevice = settings.PlayerDevice;
+        string originalDeviceName = settings.PlayerDeviceName;
         var originalNormalization = settings.EncoderNormalization;
         var originalEncoder = settings.Encoder;
         try
         {
             settings.PlayerDriver = (Ribbit.Media.BassAudioPlayer.DeviceDriver)47;
+            settings.PlayerDevice = "persisted-device";
+            settings.PlayerDeviceName = "Persisted Device";
             settings.EncoderNormalization = (Ribbit.BMS.BMSAutoPlayWriter.Normalization)53;
             SettingsAudioGateway gateway = new(() => settings);
 
-            Assert.AreEqual((AudioDriver)47, gateway.PlayerDriver);
+            AudioOutputSelection selection = gateway.CaptureOutputSelection();
+            Assert.AreEqual((AudioDriver)47, selection.Backend);
+            Assert.AreEqual("persisted-device", selection.DeviceIdentity);
+            Assert.AreEqual("Persisted Device", selection.DeviceName);
             Assert.AreEqual((AudioNormalization)53, gateway.EncoderNormalization);
 
-            gateway.PlayerDriver = (AudioDriver)61;
+            gateway.ApplyOutputSelection(new AudioOutputSelection(
+                (AudioDriver)61,
+                "replacement-device",
+                "Replacement Device"));
             gateway.EncoderNormalization = (AudioNormalization)67;
             gateway.ApplyEncoderFallback(Ribbit.Media.Audio.EncoderType.FLAC);
 
             Assert.AreEqual((Ribbit.Media.BassAudioPlayer.DeviceDriver)61, settings.PlayerDriver);
+            Assert.AreEqual("replacement-device", settings.PlayerDevice);
+            Assert.AreEqual("Replacement Device", settings.PlayerDeviceName);
             Assert.AreEqual((Ribbit.BMS.BMSAutoPlayWriter.Normalization)67, settings.EncoderNormalization);
             Assert.AreEqual(Ribbit.Media.Audio.EncoderType.FLAC, settings.Encoder);
         }
         finally
         {
             settings.PlayerDriver = originalDriver;
+            settings.PlayerDevice = originalDevice;
+            settings.PlayerDeviceName = originalDeviceName;
             settings.EncoderNormalization = originalNormalization;
             settings.Encoder = originalEncoder;
         }

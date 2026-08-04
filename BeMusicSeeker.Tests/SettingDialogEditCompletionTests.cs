@@ -990,7 +990,13 @@ public sealed class SettingDialogEditCompletionTests
             ConfigureExplicitAudioSettings(settings);
             var settingsSession = new CountingSettingsEditSession(settings);
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
-            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.DirectSound };
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.DirectSound,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(request =>
@@ -1029,7 +1035,13 @@ public sealed class SettingDialogEditCompletionTests
             ConfigureExplicitAudioSettings(settings);
             var settingsSession = new CountingSettingsEditSession(settings);
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
-            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.DirectSound };
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.DirectSound,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(request =>
@@ -1121,7 +1133,13 @@ public sealed class SettingDialogEditCompletionTests
             ConfigureExplicitAudioSettings(settings);
             var settingsSession = new CountingSettingsEditSession(settings);
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
-            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.Asio };
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.Asio,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
             var dialogs = new RecordingRootDialogService();
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
@@ -1166,7 +1184,13 @@ public sealed class SettingDialogEditCompletionTests
             ConfigureExplicitAudioSettings(settings);
             var settingsSession = new CountingSettingsEditSession(settings);
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
-            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.DirectSound };
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.DirectSound,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
             using var runtimeStarted = new ManualResetEventSlim();
             using var releaseRuntime = new ManualResetEventSlim();
             var workflow = new AudioDeviceTestWorkflowOwner(
@@ -1188,11 +1212,12 @@ public sealed class SettingDialogEditCompletionTests
 
             Task testTask = dialog.RunAudioDeviceTestAsync();
             Assert.IsTrue(runtimeStarted.Wait(TimeSpan.FromSeconds(5)));
-            settings.PlayerDeviceName = "User changed name";
+            dialog.PlayerDriverIndex = (int)AudioDriver.WasapiShared;
             releaseRuntime.Set();
             await testTask;
 
-            Assert.AreEqual("User changed name", settings.PlayerDeviceName);
+            Assert.AreEqual("Requested device", settings.PlayerDeviceName);
+            Assert.AreEqual((int)AudioDriver.WasapiShared, dialog.PlayerDriverIndex);
             Assert.AreEqual(0d, dialog.PlayerLatency);
         }
         finally
@@ -1912,6 +1937,8 @@ public sealed class SettingDialogEditCompletionTests
         AudioDriver expectedDriver = AudioDriver.DirectSound)
     {
         Assert.AreEqual(expectedDriver, audioGateway.PlayerDriver);
+        Assert.AreEqual("requested-device", audioGateway.OutputSelection.DeviceIdentity);
+        Assert.AreEqual("Requested device", audioGateway.OutputSelection.DeviceName);
         Assert.AreEqual("requested-device", settings.PlayerDevice);
         Assert.AreEqual("Requested device", settings.PlayerDeviceName);
         Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, settings.PlayerSampleRate);

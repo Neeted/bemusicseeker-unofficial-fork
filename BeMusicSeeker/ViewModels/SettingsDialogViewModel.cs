@@ -204,13 +204,13 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         AudioDeviceTestStatusMessage = null;
         audioDeviceCatalog.Refresh();
-        playerDeviceNames = BuildPlayerDeviceNames(audioSettingsGateway.PlayerDriver);
+        playerDeviceNames = BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
         RaisePropertyChanged(nameof(PlayerDriverNames));
         RaisePropertyChanged(nameof(PlayerDriverIndex));
         RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
         RaisePropertyChanged(nameof(PlayerDeviceNames));
         RaisePropertyChanged(nameof(PlayerDevice));
-        RaisePropertyChanged(nameof(PlayerDeviceIndex));
+        RaisePropertyChanged(nameof(SelectedPlayerDevice));
         presentationPort?.OpenSettingsDialog();
     }
 
@@ -722,13 +722,11 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private string tempEncodeFileNameFormat;
 
-    private int tempPlayerDriverIndex;
+    private AudioOutputSelection savedAudioOutputSelection;
+
+    private AudioOutputSelection audioOutputSelectionDraft;
 
     private List<AudioDeviceInfo> playerDeviceNames;
-
-    private string tempPlayerDevice;
-
-    private string tempPlayerDeviceName;
 
     private SampleRate tempPlayerSampleRate;
 
@@ -3605,18 +3603,18 @@ public partial class SettingsDialogViewModel : ViewModel
         ]);
 
     /// <summary>Gets a localized description for a saved backend that is not audible.</summary>
-    public string UnavailablePlayerDriverDescription => IsAudiblePlayerDriver(audioSettingsGateway.PlayerDriver)
+    public string UnavailablePlayerDriverDescription => IsAudiblePlayerDriver(audioOutputSelectionDraft.Backend)
         ? null
         : string.Format(
             BeMusicSeeker.Properties.Resources.AudioDeviceUnavailableFormat,
-            audioSettingsGateway.PlayerDriver);
+            audioOutputSelectionDraft.Backend);
 
     public int PlayerDriverIndex
     {
         get
         {
-            AudioDriver savedDriver = audioSettingsGateway.PlayerDriver;
-            return IsAudiblePlayerDriver(savedDriver) ? (int)savedDriver : -1;
+            AudioDriver draftDriver = audioOutputSelectionDraft.Backend;
+            return IsAudiblePlayerDriver(draftDriver) ? (int)draftDriver : -1;
         }
         set
         {
@@ -3625,16 +3623,16 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 return;
             }
-            if (audioSettingsGateway.PlayerDriver != driver)
+            if (audioOutputSelectionDraft.Backend != driver)
             {
-                audioSettingsGateway.PlayerDriver = driver;
+                audioOutputSelectionDraft = new AudioOutputSelection(driver, null, null);
                 playerDeviceNames = BuildPlayerDeviceNames(driver);
                 RaisePropertyChanged(nameof(PlayerDriverNames));
                 RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
-                RaisePropertyChanged("PlayerDriverIndex");
+                RaisePropertyChanged(nameof(PlayerDriverIndex));
                 RaisePropertyChanged(nameof(PlayerDeviceNames));
                 RaisePropertyChanged(nameof(PlayerDevice));
-                RaisePropertyChanged(nameof(PlayerDeviceIndex));
+                RaisePropertyChanged(nameof(SelectedPlayerDevice));
             }
         }
     }
@@ -3646,7 +3644,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return playerDeviceNames ??= BuildPlayerDeviceNames(audioSettingsGateway.PlayerDriver);
+            return playerDeviceNames ??= BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
         }
         private set
         {
@@ -3662,7 +3660,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ResolvePlayerDeviceDescriptor().Driver ?? ApplicationSettings.PlayerDevice;
+            return ResolvePlayerDeviceDescriptor().Driver ?? audioOutputSelectionDraft.DeviceIdentity;
         }
         set
         {
@@ -3672,25 +3670,29 @@ public partial class SettingsDialogViewModel : ViewModel
                 return;
             }
 
-            PlayerDeviceIndex = selectedIndex;
+            SelectedPlayerDevice = PlayerDeviceNames[selectedIndex];
         }
     }
 
     /// <summary>
-    /// Gets or sets the transient index used by the device ComboBox.
-    /// Invalid values are ignored because WPF can publish -1 while the catalog is rebuilt.
+    /// Gets or sets the device option selected in the settings dialog.
+    /// A transient null published while WPF replaces the catalog is ignored.
     /// </summary>
-    public int PlayerDeviceIndex
+    public AudioDeviceInfo? SelectedPlayerDevice
     {
-        get => FindPlayerDeviceIndex(ApplicationSettings.PlayerDevice);
+        get
+        {
+            int selectedIndex = FindPlayerDeviceIndex(audioOutputSelectionDraft.DeviceIdentity);
+            return selectedIndex < 0 ? null : PlayerDeviceNames[selectedIndex];
+        }
         set
         {
-            if (value < 0 || value >= PlayerDeviceNames.Count)
+            if (!value.HasValue)
             {
                 return;
             }
 
-            AudioDeviceInfo deviceDescriptor = PlayerDeviceNames[value];
+            AudioDeviceInfo deviceDescriptor = value.Value;
             if (!deviceDescriptor.IsDefaultPlaceholder
                 && string.IsNullOrWhiteSpace(deviceDescriptor.Driver))
             {
@@ -3703,16 +3705,18 @@ public partial class SettingsDialogViewModel : ViewModel
             string nextDeviceName = deviceDescriptor.IsDefaultPlaceholder
                 ? null
                 : deviceDescriptor.Name;
-            if (string.Equals(ApplicationSettings.PlayerDevice, nextDevice, StringComparison.Ordinal)
-                && string.Equals(ApplicationSettings.PlayerDeviceName, nextDeviceName, StringComparison.Ordinal))
+            var nextSelection = new AudioOutputSelection(
+                audioOutputSelectionDraft.Backend,
+                nextDevice,
+                nextDeviceName);
+            if (audioOutputSelectionDraft == nextSelection)
             {
                 return;
             }
 
-            ApplicationSettings.PlayerDevice = nextDevice;
-            ApplicationSettings.PlayerDeviceName = nextDeviceName;
+            audioOutputSelectionDraft = nextSelection;
             RaisePropertyChanged(nameof(PlayerDevice));
-            RaisePropertyChanged(nameof(PlayerDeviceIndex));
+            RaisePropertyChanged(nameof(SelectedPlayerDevice));
         }
     }
 
@@ -3731,7 +3735,7 @@ public partial class SettingsDialogViewModel : ViewModel
     private AudioDeviceInfo ResolvePlayerDeviceDescriptor()
     {
         return PlayerDeviceNames.FirstOrDefault(d =>
-            string.Equals(d.Driver, ApplicationSettings.PlayerDevice, StringComparison.Ordinal));
+            string.Equals(d.Driver, audioOutputSelectionDraft.DeviceIdentity, StringComparison.Ordinal));
     }
 
     private List<AudioDeviceInfo> BuildPlayerDeviceNames(AudioDriver driver)
@@ -3739,14 +3743,14 @@ public partial class SettingsDialogViewModel : ViewModel
         var devices = IsAudiblePlayerDriver(driver)
             ? new List<AudioDeviceInfo>(audioDeviceCatalog.GetDevices(driver))
             : [];
-        string savedIdentity = ApplicationSettings.PlayerDevice;
+        string savedIdentity = audioOutputSelectionDraft.DeviceIdentity;
         if (!string.IsNullOrWhiteSpace(savedIdentity)
             && !devices.Any(device => string.Equals(device.Driver, savedIdentity, StringComparison.Ordinal)))
         {
             devices.Add(new AudioDeviceInfo(
-                string.IsNullOrWhiteSpace(ApplicationSettings.PlayerDeviceName)
+                string.IsNullOrWhiteSpace(audioOutputSelectionDraft.DeviceName)
                     ? savedIdentity
-                    : ApplicationSettings.PlayerDeviceName,
+                    : audioOutputSelectionDraft.DeviceName,
                 savedIdentity,
                 -1,
                 isDefaultPlaceholder: false,
@@ -5802,9 +5806,9 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         AudioDeviceTestRequest request = new(
-            audioSettingsGateway.PlayerDriver,
-            ApplicationSettings.PlayerDevice,
-            ApplicationSettings.PlayerDeviceName,
+            audioOutputSelectionDraft.Backend,
+            audioOutputSelectionDraft.DeviceIdentity,
+            audioOutputSelectionDraft.DeviceName,
             ApplicationSettings.PlayerSampleRate,
             ApplicationSettings.PlayerFormat,
             ApplicationSettings.PlayerBufferSize,
@@ -5832,11 +5836,13 @@ public partial class SettingsDialogViewModel : ViewModel
                 return;
             }
 
-            audioSettingsGateway.PlayerDriver = result.ActualBackend;
+            audioOutputSelectionDraft = new AudioOutputSelection(
+                result.ActualBackend,
+                request.PlayerDevice == null ? null : result.ActualDevice,
+                request.PlayerDevice == null ? null : result.ActualDeviceName);
             if (!string.IsNullOrWhiteSpace(request.PlayerDevice))
             {
-                ApplicationSettings.PlayerDevice = result.ActualDevice;
-                ApplicationSettings.PlayerDeviceName = result.ActualDeviceName;
+                playerDeviceNames = BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
             }
             if (request.PlayerSampleRate != SampleRate.AUTO)
             {
@@ -5850,7 +5856,7 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(PlayerDriverIndex));
             RaisePropertyChanged(nameof(PlayerDeviceNames));
             RaisePropertyChanged(nameof(PlayerDevice));
-            RaisePropertyChanged(nameof(PlayerDeviceIndex));
+            RaisePropertyChanged(nameof(SelectedPlayerDevice));
             RaisePropertyChanged(nameof(PlayerSampleRate));
             RaisePropertyChanged(nameof(PlayerFormat));
             RaisePropertyChanged(nameof(PlayerLatency));
@@ -5961,9 +5967,9 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool IsCurrentAudioDeviceTestRequest(AudioDeviceTestRequest request)
     {
-        return audioSettingsGateway.PlayerDriver == request.PlayerDriver
-            && string.Equals(ApplicationSettings.PlayerDevice, request.PlayerDevice, StringComparison.Ordinal)
-            && string.Equals(ApplicationSettings.PlayerDeviceName, request.PlayerDeviceName, StringComparison.Ordinal)
+        return audioOutputSelectionDraft.Backend == request.PlayerDriver
+            && string.Equals(audioOutputSelectionDraft.DeviceIdentity, request.PlayerDevice, StringComparison.Ordinal)
+            && string.Equals(audioOutputSelectionDraft.DeviceName, request.PlayerDeviceName, StringComparison.Ordinal)
             && ApplicationSettings.PlayerSampleRate == request.PlayerSampleRate
             && ApplicationSettings.PlayerFormat == request.PlayerFormat
             && ApplicationSettings.PlayerBufferSize.Equals(request.PlayerBufferSize)
@@ -6148,9 +6154,8 @@ public partial class SettingsDialogViewModel : ViewModel
         tempEncoderAmplifier = ApplicationSettings.EncoderAmplifier;
         tempEncoderQuality = ApplicationSettings.EncoderQuality;
         tempEncodeFileNameFormat = ApplicationSettings.EncodeFileNameFormat;
-        tempPlayerDriverIndex = (int)audioSettingsGateway.PlayerDriver;
-        tempPlayerDevice = ApplicationSettings.PlayerDevice;
-        tempPlayerDeviceName = ApplicationSettings.PlayerDeviceName;
+        savedAudioOutputSelection = audioSettingsGateway.CaptureOutputSelection();
+        audioOutputSelectionDraft = savedAudioOutputSelection;
         tempPlayerSampleRate = ApplicationSettings.PlayerSampleRate;
         tempPlayerFormat = ApplicationSettings.PlayerFormat;
         tempPlayerBufferSize = ApplicationSettings.PlayerBufferSize;
@@ -6273,9 +6278,7 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempEncoderAmplifier != ApplicationSettings.EncoderAmplifier
             || tempEncoderQuality != ApplicationSettings.EncoderQuality
             || !string.Equals(tempEncodeFileNameFormat, ApplicationSettings.EncodeFileNameFormat, StringComparison.Ordinal)
-            || tempPlayerDriverIndex != (int)audioSettingsGateway.PlayerDriver
-            || !string.Equals(tempPlayerDevice, ApplicationSettings.PlayerDevice, StringComparison.Ordinal)
-            || !string.Equals(tempPlayerDeviceName, ApplicationSettings.PlayerDeviceName, StringComparison.Ordinal)
+            || savedAudioOutputSelection != audioOutputSelectionDraft
             || tempPlayerSampleRate != ApplicationSettings.PlayerSampleRate
             || tempPlayerFormat != ApplicationSettings.PlayerFormat
             || tempPlayerBufferSize != ApplicationSettings.PlayerBufferSize
@@ -7136,7 +7139,24 @@ public partial class SettingsDialogViewModel : ViewModel
             if (userConfigNeedsSave)
             {
                 var userConfigStopwatch = Stopwatch.StartNew();
-                settingsEditSession.Save();
+                AudioOutputSelection previousOutputSelection = audioSettingsGateway.CaptureOutputSelection();
+                bool outputSelectionChanged = savedAudioOutputSelection != audioOutputSelectionDraft;
+                if (outputSelectionChanged)
+                {
+                    audioSettingsGateway.ApplyOutputSelection(audioOutputSelectionDraft);
+                }
+                try
+                {
+                    settingsEditSession.Save();
+                }
+                catch
+                {
+                    if (outputSelectionChanged)
+                    {
+                        audioSettingsGateway.ApplyOutputSelection(previousOutputSelection);
+                    }
+                    throw;
+                }
                 userConfigSaveMs = userConfigStopwatch.ElapsedMilliseconds;
                 userConfigSaved = true;
             }
@@ -7305,12 +7325,10 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.EncoderAmplifier = tempEncoderAmplifier;
         ApplicationSettings.EncoderQuality = tempEncoderQuality;
         ApplicationSettings.EncodeFileNameFormat = tempEncodeFileNameFormat;
-        audioSettingsGateway.PlayerDriver = (AudioDriver)tempPlayerDriverIndex;
-        ApplicationSettings.PlayerDevice = tempPlayerDevice;
-        ApplicationSettings.PlayerDeviceName = tempPlayerDeviceName;
+        audioOutputSelectionDraft = savedAudioOutputSelection;
         if (playerDeviceNames != null)
         {
-            playerDeviceNames = BuildPlayerDeviceNames(audioSettingsGateway.PlayerDriver);
+            playerDeviceNames = BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
         }
         ApplicationSettings.PlayerSampleRate = tempPlayerSampleRate;
         ApplicationSettings.PlayerFormat = tempPlayerFormat;
@@ -7424,7 +7442,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
         RaisePropertyChanged(nameof(PlayerDevice));
         RaisePropertyChanged(nameof(PlayerDeviceNames));
-        RaisePropertyChanged(nameof(PlayerDeviceIndex));
+        RaisePropertyChanged(nameof(SelectedPlayerDevice));
         RaisePropertyChanged(nameof(PlayerSampleRate));
         RaisePropertyChanged(nameof(PlayerFormat));
         RaisePropertyChanged(nameof(PlayerBufferSize));

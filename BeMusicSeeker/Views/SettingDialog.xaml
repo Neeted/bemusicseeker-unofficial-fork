@@ -385,7 +385,7 @@
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_driver, Mode=OneWay}" />
                       </DockPanel>
                       <DockPanel Width="229">
-                        <ComboBox DisplayMemberPath="FriendlyName" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerDeviceNames, Mode=OneWay}" SelectedIndex="{Binding PlayerDeviceIndex, Mode=TwoWay}" />
+                        <ComboBox DisplayMemberPath="FriendlyName" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerDeviceNames, Mode=OneWay}" SelectedItem="{Binding SelectedPlayerDevice, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_device, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>

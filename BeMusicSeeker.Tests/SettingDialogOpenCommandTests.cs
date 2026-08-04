@@ -1,6 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker;
 using BeMusicSeeker.Models;
@@ -116,7 +119,7 @@ public sealed class SettingDialogOpenCommandTests
     }
 
     [TestMethod]
-    public void OpenCommand_DeviceIndexPreservesSavedIdentityAcrossRefreshAndNewViewModel()
+    public void OpenCommand_SelectedDevicePreservesSavedIdentityAcrossRefreshAndNewViewModel()
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
@@ -139,14 +142,14 @@ public sealed class SettingDialogOpenCommandTests
         SettingsDialogViewModel firstDialog = firstViewModel.SettingDialog;
         firstDialog.OpenCommand.Execute();
 
-        Assert.AreEqual(1, firstDialog.PlayerDeviceIndex);
+        Assert.AreEqual("saved-device", firstDialog.SelectedPlayerDevice?.Driver);
         Assert.AreEqual("saved-device", settings.PlayerDevice);
         Assert.AreEqual("Saved device", settings.PlayerDeviceName);
 
-        firstDialog.PlayerDeviceIndex = -1;
+        firstDialog.SelectedPlayerDevice = null;
         firstDialog.PlayerDevice = "device-that-is-not-in-the-catalog";
 
-        Assert.AreEqual(1, firstDialog.PlayerDeviceIndex);
+        Assert.AreEqual("saved-device", firstDialog.SelectedPlayerDevice?.Driver);
         Assert.AreEqual("saved-device", settings.PlayerDevice);
         Assert.AreEqual("Saved device", settings.PlayerDeviceName);
 
@@ -156,12 +159,12 @@ public sealed class SettingDialogOpenCommandTests
         SettingsDialogViewModel secondDialog = secondViewModel.SettingDialog;
         secondDialog.OpenCommand.Execute();
 
-        Assert.AreEqual(1, secondDialog.PlayerDeviceIndex);
+        Assert.AreEqual("saved-device", secondDialog.SelectedPlayerDevice?.Driver);
         Assert.AreEqual("saved-device", secondDialog.PlayerDevice);
     }
 
     [TestMethod]
-    public void PlayerDeviceIndex_TreatsEmptyIdentityAsDefaultAndClearsPairOnSelection()
+    public async Task SelectedPlayerDevice_TreatsEmptyIdentityAsDefaultAndPersistsPairOnlyOnSave()
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
@@ -183,16 +186,55 @@ public sealed class SettingDialogOpenCommandTests
         SettingsDialogViewModel dialog = viewModel.SettingDialog;
         dialog.OpenCommand.Execute();
 
-        Assert.AreEqual(0, dialog.PlayerDeviceIndex);
+        Assert.IsTrue(dialog.SelectedPlayerDevice?.IsDefaultPlaceholder);
 
-        dialog.PlayerDeviceIndex = 1;
+        dialog.SelectedPlayerDevice = dialog.PlayerDeviceNames[1];
+        Assert.AreEqual("current-device", dialog.SelectedPlayerDevice?.Driver);
+        Assert.AreEqual(string.Empty, settings.PlayerDevice);
+        Assert.AreEqual("stale default name", settings.PlayerDeviceName);
+
+        await dialog.SaveSettings();
         Assert.AreEqual("current-device", settings.PlayerDevice);
         Assert.AreEqual("Current device", settings.PlayerDeviceName);
 
-        dialog.PlayerDeviceIndex = 0;
+        dialog.SelectedPlayerDevice = dialog.PlayerDeviceNames[0];
+        await dialog.SaveSettings();
         Assert.IsNull(settings.PlayerDevice);
         Assert.IsNull(settings.PlayerDeviceName);
-        Assert.AreEqual(0, dialog.PlayerDeviceIndex);
+        Assert.IsTrue(dialog.SelectedPlayerDevice?.IsDefaultPlaceholder);
+    }
+
+    [TestMethod]
+    public async Task SaveSettings_DevicePersistenceFailureRestoresPersistedTripleAndKeepsDraft()
+    {
+        var settings = new BeMusicSeeker.Properties.Settings
+        {
+            PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            PlayerDevice = "saved-device",
+            PlayerDeviceName = "Saved device"
+        };
+        var catalog = new TestAudioDeviceCatalog
+        {
+            Devices =
+            [
+                new AudioDeviceInfo("Default", string.Empty),
+                new AudioDeviceInfo("Saved device", "saved-device"),
+                new AudioDeviceInfo("Current device", "current-device")
+            ]
+        };
+        var settingsSession = new TestSettingsEditSession(settings)
+        {
+            SaveFailure = new IOException("simulated save failure")
+        };
+        SettingsDialogViewModel dialog = CreateViewModel(catalog, settingsSession).SettingDialog;
+        dialog.OpenCommand.Execute();
+        dialog.SelectedPlayerDevice = dialog.PlayerDeviceNames[2];
+
+        await Assert.ThrowsExceptionAsync<IOException>(() => dialog.SaveSettings());
+
+        Assert.AreEqual("saved-device", settings.PlayerDevice);
+        Assert.AreEqual("Saved device", settings.PlayerDeviceName);
+        Assert.AreEqual("current-device", dialog.SelectedPlayerDevice?.Driver);
     }
 
     [TestMethod]
@@ -290,12 +332,18 @@ public sealed class SettingDialogOpenCommandTests
 
         public BeMusicSeeker.Properties.Settings Values { get; }
 
+        internal Exception? SaveFailure { get; set; }
+
         public void Reload()
         {
         }
 
         public void Save()
         {
+            if (SaveFailure != null)
+            {
+                throw SaveFailure;
+            }
         }
     }
 

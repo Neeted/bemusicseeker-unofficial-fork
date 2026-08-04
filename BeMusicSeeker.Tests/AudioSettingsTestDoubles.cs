@@ -32,7 +32,24 @@ internal sealed class TestAudioDeviceCatalog : IAudioDeviceCatalog
 
 internal sealed class TestAudioSettingsGateway : IAudioSettingsGateway
 {
-    public AudioDriver PlayerDriver { get; set; } = AudioDriver.DirectSound;
+    internal AudioOutputSelection OutputSelection { get; set; }
+        = new(AudioDriver.DirectSound, null, null);
+
+    internal AudioDriver PlayerDriver
+    {
+        get => OutputSelection.Backend;
+        set => OutputSelection = new AudioOutputSelection(
+            value,
+            OutputSelection.DeviceIdentity,
+            OutputSelection.DeviceName);
+    }
+
+    public AudioOutputSelection CaptureOutputSelection() => OutputSelection;
+
+    public void ApplyOutputSelection(AudioOutputSelection selection)
+    {
+        OutputSelection = selection;
+    }
 
     public AudioNormalization EncoderNormalization { get; set; } = AudioNormalization.None;
 

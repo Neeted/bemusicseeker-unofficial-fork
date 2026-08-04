@@ -2565,7 +2565,7 @@ public sealed class MainWindowContextMenuResourceTests
             "internal SettingsDialogViewModel(");
 
         StringAssert.Contains(xaml, "IsChecked=\"{Binding UseInternalPlayer}\"");
-        StringAssert.Contains(xaml, "SelectedIndex=\"{Binding PlayerDeviceIndex, Mode=TwoWay}\"");
+        StringAssert.Contains(xaml, "SelectedItem=\"{Binding SelectedPlayerDevice, Mode=TwoWay}\"");
         Assert.IsFalse(xaml.Contains("SelectedValuePath=\"Driver\" DisplayMemberPath=\"FriendlyName\""));
         StringAssert.Contains(xaml, "IsEnabled=\"{Binding IsAudioDeviceTestAvailable, Mode=OneWay}\"");
         StringAssert.Contains(xaml, "Text=\"{Binding AudioDeviceTestStatusMessage, Mode=OneWay}\"");
@@ -2581,7 +2581,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(playerDriverGetter.Contains("Settings.Default.PlayerDriver ="));
         Assert.IsFalse(playerDeviceGetter.Contains("Settings.Default.PlayerDevice ="));
         Assert.IsFalse(playerDeviceGetter.Contains("Settings.Default.PlayerDeviceName ="));
-        StringAssert.Contains(playerDeviceGetter, "return ResolvePlayerDeviceDescriptor().Driver ?? ApplicationSettings.PlayerDevice;");
+        StringAssert.Contains(playerDeviceGetter, "return ResolvePlayerDeviceDescriptor().Driver ?? audioOutputSelectionDraft.DeviceIdentity;");
         StringAssert.Contains(resetSettings, "if (playerDeviceNames != null)");
         Assert.IsFalse(saveFollowup.Contains("AudioPlayerInitTest(playSound: false)"));
         Assert.IsFalse(tableListUrlGetter.Contains("Settings.Default.TableListURL ="));

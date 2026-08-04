@@ -86,7 +86,9 @@ Phase 1 does not hard-code `BASS_DEVICE_DSOUND` and does not change `IntPtr.Zero
 
 Existing internal names that use `Actual` may be retained only when their documentation identifies whether they mean negotiated or observed. New parallel aliases are not added merely for convenience.
 
-Normal playback never persists negotiated values. A settings device test updates editing values only when the request is still current, initialization and stream progress succeed, no fallback or normalization occurred, and explicit backend/device/rate/format requests match the negotiated values. Default device and Auto rate/format intent remain Default/Auto rather than being replaced with a transient concrete value.
+Normal playback never persists negotiated values. The settings dialog owns an immutable backend/device-identity/device-name draft; catalog refresh and transient WPF selection changes do not write that triple to application settings. Apply persists the complete triple together, Cancel restores the saved draft, and a save failure restores the previous in-memory settings triple while keeping the draft available for retry. The device ComboBox binds the selected catalog object rather than a refresh-dependent array index.
+
+A settings device test updates editing values only when the request is still current, initialization and stream progress succeed, no fallback or normalization occurred, and explicit backend/device/rate/format requests match the negotiated values. Default device and Auto rate/format intent remain Default/Auto rather than being replaced with a transient concrete value.
 
 ### 9. Stale devices and catalog refresh
 
