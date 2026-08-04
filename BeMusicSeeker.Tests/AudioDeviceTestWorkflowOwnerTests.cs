@@ -62,7 +62,10 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     [TestMethod]
     public void StreamObserver_NoPlaybackMovement_ReturnsFailure()
     {
-        var boundary = new FakeSoundBoundary(_ => TimeSpan.Zero);
+        var boundary = new FakeSoundBoundary(_ => TimeSpan.Zero)
+        {
+            StateProvider = _ => PlayState.Playing
+        };
 
         AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
             "test.wav",
@@ -86,12 +89,75 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.IsTrue(observation.Succeeded);
         Assert.IsTrue(observation.WallClockDuration >= TimeSpan.FromSeconds(1));
         Assert.AreEqual(1d, observation.ProgressRatio.GetValueOrDefault(), 0.001);
+        Assert.IsTrue(boundary.Elapsed >= boundary.Duration);
+        Assert.IsTrue(boundary.DisposedAt.GetValueOrDefault() >= boundary.Duration);
+    }
+
+    [TestMethod]
+    public void StreamObserver_ValidatedProgress_DoesNotDisposeBeforeNaturalEnd()
+    {
+        var boundary = new FakeSoundBoundary(elapsed => elapsed)
+        {
+            Duration = TimeSpan.FromSeconds(3)
+        };
+
+        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+            "test.wav",
+            boundary);
+
+        Assert.IsTrue(observation.Succeeded);
+        Assert.AreEqual(TimeSpan.FromSeconds(3), boundary.DisposedAt.GetValueOrDefault());
+    }
+
+    [TestMethod]
+    public void StreamObserver_NaturalEndBetweenPositionAndStateReads_ReturnsSuccess()
+    {
+        TimeSpan duration = TimeSpan.FromSeconds(2);
+        var boundary = new FakeSoundBoundary(elapsed => elapsed)
+        {
+            Duration = duration,
+            PositionReadProvider = (elapsed, readOrdinal) => elapsed < duration
+                ? elapsed
+                : readOrdinal == 0
+                    ? duration - TimeSpan.FromMilliseconds(100)
+                    : duration
+        };
+
+        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+            "test.wav",
+            boundary);
+
+        Assert.IsTrue(observation.Succeeded);
+        Assert.AreEqual(1d, observation.ProgressRatio.GetValueOrDefault(), 0.001);
+        Assert.AreEqual(duration, boundary.DisposedAt.GetValueOrDefault());
+    }
+
+    [TestMethod]
+    public void StreamObserver_NaturalEndTimeout_ReturnsFailureAndDisposesPlayer()
+    {
+        var boundary = new FakeSoundBoundary(elapsed => elapsed)
+        {
+            Duration = TimeSpan.FromSeconds(2),
+            StateProvider = _ => PlayState.Playing
+        };
+
+        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+            "test.wav",
+            boundary);
+
+        Assert.IsFalse(observation.Succeeded);
+        StringAssert.Contains(observation.FailureReason, "natural end");
+        Assert.IsTrue(boundary.Elapsed >= TimeSpan.FromSeconds(12));
+        Assert.AreEqual(boundary.Elapsed, boundary.DisposedAt.GetValueOrDefault());
     }
 
     [TestMethod]
     public void StreamObserver_DoubleSpeedProgress_ReturnsFailure()
     {
-        var boundary = new FakeSoundBoundary(elapsed => elapsed + elapsed);
+        var boundary = new FakeSoundBoundary(elapsed => elapsed + elapsed)
+        {
+            Duration = TimeSpan.FromSeconds(4)
+        };
 
         AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
             "test.wav",
@@ -148,6 +214,28 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     }
 
     [TestMethod]
+    public void StreamObserver_ValidatedProgressThenPlateau_ReturnsFailureAndDisposesPlayer()
+    {
+        TimeSpan plateauPosition = TimeSpan.FromSeconds(1.2);
+        var boundary = new FakeSoundBoundary(elapsed => elapsed <= plateauPosition
+            ? elapsed
+            : plateauPosition)
+        {
+            Duration = TimeSpan.FromSeconds(3),
+            StateProvider = _ => PlayState.Playing
+        };
+
+        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+            "test.wav",
+            boundary);
+
+        Assert.IsFalse(observation.Succeeded);
+        StringAssert.Contains(observation.FailureReason, "stopped advancing");
+        Assert.IsTrue(boundary.Elapsed < boundary.Duration);
+        Assert.AreEqual(boundary.Elapsed, boundary.DisposedAt.GetValueOrDefault());
+    }
+
+    [TestMethod]
     public void StreamObserver_EarlyStop_ReturnsFailure()
     {
         var boundary = new FakeSoundBoundary(elapsed => elapsed)
@@ -162,7 +250,26 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             boundary);
 
         Assert.IsFalse(observation.Succeeded);
-        StringAssert.Contains(observation.FailureReason, "ended before");
+        StringAssert.Contains(observation.FailureReason, "reported duration");
+    }
+
+    [TestMethod]
+    public void StreamObserver_EarlyStopAfterValidatedProgress_ReturnsFailure()
+    {
+        var boundary = new FakeSoundBoundary(elapsed => elapsed)
+        {
+            Duration = TimeSpan.FromSeconds(3),
+            StateProvider = elapsed => elapsed >= TimeSpan.FromSeconds(1.5)
+                ? PlayState.Stopped
+                : PlayState.Playing
+        };
+
+        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+            "test.wav",
+            boundary);
+
+        Assert.IsFalse(observation.Succeeded);
+        StringAssert.Contains(observation.FailureReason, "reported duration");
     }
 
     [DataTestMethod]
@@ -250,6 +357,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         private long timestamp = 1;
 
+        private int positionReadOrdinal;
+
         internal FakeSoundBoundary(Func<TimeSpan, TimeSpan> positionProvider)
         {
             this.positionProvider = positionProvider;
@@ -263,8 +372,13 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         internal bool PlayerCreated { get; private set; }
 
-        internal Func<TimeSpan, PlayState> StateProvider { get; set; }
-            = _ => PlayState.Playing;
+        internal Func<TimeSpan, int, TimeSpan>? PositionReadProvider { get; set; }
+
+        internal TimeSpan Duration { get; set; } = TimeSpan.FromSeconds(2);
+
+        internal TimeSpan? DisposedAt { get; private set; }
+
+        internal Func<TimeSpan, PlayState>? StateProvider { get; set; }
 
         public bool FileExists(string path) => FileAvailable;
 
@@ -272,9 +386,17 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         {
             PlayerCreated = true;
             return new FakeAudioPlayer(
-                () => positionProvider(Elapsed),
-                () => StateProvider(Elapsed),
-                () => PlayException);
+                ReadPosition,
+                () =>
+                {
+                    TimeSpan statePosition = ReadPosition();
+                    return StateProvider?.Invoke(Elapsed) ?? (statePosition >= Duration
+                        ? PlayState.Stopped
+                        : PlayState.Playing);
+                },
+                () => PlayException,
+                () => Duration,
+                () => DisposedAt = Elapsed);
         }
 
         public long GetTimestamp() => timestamp;
@@ -285,6 +407,13 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         public void Wait(TimeSpan interval)
         {
             timestamp += interval.Ticks;
+            positionReadOrdinal = 0;
+        }
+
+        private TimeSpan ReadPosition()
+        {
+            int readOrdinal = positionReadOrdinal++;
+            return PositionReadProvider?.Invoke(Elapsed, readOrdinal) ?? positionProvider(Elapsed);
         }
     }
 
@@ -296,14 +425,22 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         private readonly Func<Exception?> playException;
 
+        private readonly Func<TimeSpan> duration;
+
+        private readonly Action disposed;
+
         internal FakeAudioPlayer(
             Func<TimeSpan> currentTime,
             Func<PlayState> playState,
-            Func<Exception?> playException)
+            Func<Exception?> playException,
+            Func<TimeSpan> duration,
+            Action disposed)
         {
             this.currentTime = currentTime;
             this.playState = playState;
             this.playException = playException;
+            this.duration = duration;
+            this.disposed = disposed;
         }
 
         public bool CanSeek => true;
@@ -314,7 +451,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             set { }
         }
 
-        public TimeSpan Duration => TimeSpan.FromSeconds(30);
+        public TimeSpan Duration => duration();
 
         public PlayState PlayState => playState();
 
@@ -344,6 +481,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         public void Dispose()
         {
+            disposed();
         }
     }
 

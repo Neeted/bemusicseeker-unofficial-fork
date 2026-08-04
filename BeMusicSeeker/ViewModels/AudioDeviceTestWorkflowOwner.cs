@@ -87,7 +87,10 @@ internal sealed class AudioDeviceTestResult
     /// <summary>Gets whether this request required observed test-sound progress.</summary>
     internal bool StreamProgressRequired { get; }
 
-    /// <summary>Gets whether monotonic, real-time stream progress was observed.</summary>
+    /// <summary>
+    /// Gets whether monotonic, real-time stream progress was observed and the test sound reached
+    /// its natural end.
+    /// </summary>
     internal bool StreamProgressSucceeded { get; }
 
     /// <summary>Gets whether every result required by the request succeeded.</summary>
@@ -203,7 +206,9 @@ internal sealed class SystemAudioDeviceTestSoundBoundary : IAudioDeviceTestSound
     public void Wait(TimeSpan interval) => Thread.Sleep(interval);
 }
 
-/// <summary>Contains one bounded observation of playback-position progress.</summary>
+/// <summary>
+/// Contains one bounded observation of playback-position progress and natural completion.
+/// </summary>
 internal readonly struct AudioDeviceTestStreamObservation
 {
     /// <summary>Creates an immutable stream observation.</summary>
@@ -221,7 +226,9 @@ internal readonly struct AudioDeviceTestStreamObservation
         FailureReason = failureReason;
     }
 
-    /// <summary>Gets whether stream movement met every progress criterion.</summary>
+    /// <summary>
+    /// Gets whether stream movement met every progress criterion and playback ended naturally.
+    /// </summary>
     internal bool Succeeded { get; }
 
     /// <summary>Gets the measured wall-clock interval.</summary>
@@ -246,7 +253,10 @@ internal static class AudioDeviceTestStreamObserver
 
     private static readonly TimeSpan ObservationTimeout = TimeSpan.FromSeconds(10);
 
-    /// <summary>Observes a test sound and reports monotonic real-time playback progress.</summary>
+    /// <summary>
+    /// Observes a test sound through natural completion and reports a bounded real-time progress
+    /// measurement taken after startup pre-roll.
+    /// </summary>
     internal static AudioDeviceTestStreamObservation Observe(
         string testSoundPath,
         IAudioDeviceTestSoundBoundary soundBoundary)
@@ -258,11 +268,24 @@ internal static class AudioDeviceTestStreamObserver
         }
 
         using IAudioPlayer player = soundBoundary.CreatePlayer(testSoundPath);
+        TimeSpan duration = player.Duration;
+        if (duration <= TimeSpan.Zero)
+        {
+            return Failure("The test sound did not report a valid duration.");
+        }
+
+        TimeSpan completionTimeout = duration > TimeSpan.MaxValue - ObservationTimeout
+            ? TimeSpan.MaxValue
+            : duration + ObservationTimeout;
         TimeSpan initialPosition = player.CurrentTime;
         TimeSpan previousPosition = initialPosition;
         long overallStart = soundBoundary.GetTimestamp();
         long progressStart = 0;
         TimeSpan progressStartPosition = TimeSpan.Zero;
+        bool progressValidated = false;
+        TimeSpan validatedWallClockDuration = TimeSpan.Zero;
+        TimeSpan validatedPlaybackDuration = TimeSpan.Zero;
+        double? validatedProgressRatio = null;
         player.Play();
         while (true)
         {
@@ -270,6 +293,9 @@ internal static class AudioDeviceTestStreamObserver
             long now = soundBoundary.GetTimestamp();
             TimeSpan currentPosition = player.CurrentTime;
             PlayState playState = player.PlayState;
+            TimeSpan completionPosition = playState == PlayState.Stopped
+                ? player.CurrentTime
+                : currentPosition;
             if (currentPosition < previousPosition)
             {
                 TimeSpan wallClockDuration = progressStart == 0
@@ -309,6 +335,54 @@ internal static class AudioDeviceTestStreamObserver
             {
                 TimeSpan wallClockDuration = soundBoundary.GetElapsedTime(progressStart, now);
                 TimeSpan playbackDuration = currentPosition - progressStartPosition;
+                if (playState == PlayState.Stopped)
+                {
+                    if (completionPosition < duration)
+                    {
+                        return new AudioDeviceTestStreamObservation(
+                            false,
+                            wallClockDuration,
+                            playbackDuration,
+                            CalculateRatio(playbackDuration, wallClockDuration),
+                            "The test sound stopped before reaching its reported duration.");
+                    }
+
+                    if (!progressValidated)
+                    {
+                        if (wallClockDuration < RequiredProgressInterval)
+                        {
+                            return new AudioDeviceTestStreamObservation(
+                                false,
+                                wallClockDuration,
+                                playbackDuration,
+                                CalculateRatio(playbackDuration, wallClockDuration),
+                                "The test sound ended before a complete progress interval was observed.");
+                        }
+
+                        double terminalRatio = CalculateRatio(playbackDuration, wallClockDuration) ?? 0;
+                        if (terminalRatio < 0.75 || terminalRatio > 1.25)
+                        {
+                            return new AudioDeviceTestStreamObservation(
+                                false,
+                                wallClockDuration,
+                                playbackDuration,
+                                terminalRatio,
+                                "The test-sound progress ratio was outside the accepted range.");
+                        }
+
+                        validatedWallClockDuration = wallClockDuration;
+                        validatedPlaybackDuration = playbackDuration;
+                        validatedProgressRatio = terminalRatio;
+                    }
+
+                    return new AudioDeviceTestStreamObservation(
+                        true,
+                        validatedWallClockDuration,
+                        validatedPlaybackDuration,
+                        validatedProgressRatio,
+                        null);
+                }
+
                 if (currentPosition <= previousPosition)
                 {
                     return new AudioDeviceTestStreamObservation(
@@ -318,41 +392,46 @@ internal static class AudioDeviceTestStreamObserver
                         CalculateRatio(playbackDuration, wallClockDuration),
                         "The test-sound playback position stopped advancing.");
                 }
-                if (playState == PlayState.Stopped && wallClockDuration < RequiredProgressInterval)
-                {
-                    return new AudioDeviceTestStreamObservation(
-                        false,
-                        wallClockDuration,
-                        playbackDuration,
-                        CalculateRatio(playbackDuration, wallClockDuration),
-                        "The test sound ended before a complete progress interval was observed.");
-                }
-                if (wallClockDuration >= RequiredProgressInterval)
+                if (!progressValidated && wallClockDuration >= RequiredProgressInterval)
                 {
                     double ratio = CalculateRatio(playbackDuration, wallClockDuration) ?? 0;
-                    bool succeeded = ratio >= 0.75 && ratio <= 1.25;
-                    return new AudioDeviceTestStreamObservation(
-                        succeeded,
-                        wallClockDuration,
-                        playbackDuration,
-                        ratio,
-                        succeeded
-                            ? null
-                            : "The test-sound progress ratio was outside the accepted range.");
+                    if (ratio < 0.75 || ratio > 1.25)
+                    {
+                        return new AudioDeviceTestStreamObservation(
+                            false,
+                            wallClockDuration,
+                            playbackDuration,
+                            ratio,
+                            "The test-sound progress ratio was outside the accepted range.");
+                    }
+
+                    progressValidated = true;
+                    validatedWallClockDuration = wallClockDuration;
+                    validatedPlaybackDuration = playbackDuration;
+                    validatedProgressRatio = ratio;
                 }
             }
 
             previousPosition = currentPosition;
-            if (soundBoundary.GetElapsedTime(overallStart, now) >= ObservationTimeout)
+            TimeSpan overallElapsed = soundBoundary.GetElapsedTime(overallStart, now);
+            if (!progressValidated && overallElapsed >= ObservationTimeout)
             {
-                TimeSpan wallClockDuration = soundBoundary.GetElapsedTime(overallStart, now);
                 TimeSpan playbackDuration = currentPosition - initialPosition;
                 return new AudioDeviceTestStreamObservation(
                     false,
-                    wallClockDuration,
+                    overallElapsed,
                     playbackDuration,
-                    CalculateRatio(playbackDuration, wallClockDuration),
+                    CalculateRatio(playbackDuration, overallElapsed),
                     "The test sound did not produce a complete progress observation before timeout.");
+            }
+            if (progressValidated && overallElapsed >= completionTimeout)
+            {
+                return new AudioDeviceTestStreamObservation(
+                    false,
+                    validatedWallClockDuration,
+                    validatedPlaybackDuration,
+                    validatedProgressRatio,
+                    "The test sound did not reach its natural end before timeout.");
             }
         }
     }

@@ -98,9 +98,9 @@ Catalog options distinguish stable identity, display name, native index, default
 
 Initialization success and stream progress are separate results. Playback progress is measured with `Stopwatch` and playback position.
 
-The evaluator ignores startup pre-roll until the first forward playback movement, then requires at least one second of measured wall-clock interval. Positions must be monotonic, playback must continue to advance, and the playback-position/wall-clock ratio must remain within `0.75` through `1.25`, inclusive. Ratios of 1.5x and 2x are failures.
+The evaluator ignores startup pre-roll until the first forward playback movement, then requires at least one second of measured wall-clock interval. Positions must be monotonic, playback must continue to advance, and the playback-position/wall-clock ratio must remain within `0.75` through `1.25`, inclusive. Ratios of 1.5x and 2x are failures. Passing that interval is a diagnostic milestone, not the end of the player lifetime: a successful audible test retains the player and native session until the finite test sound reaches its natural end.
 
-The overall observation remains bounded. Missing test audio, no movement, reversal, an out-of-range ratio, early termination before a valid interval, or an exception fails the test and prevents settings changes. The result does not claim that sound was physically audible; it reports device initialization and stream progress independently.
+The overall observation remains bounded. Establishing the progress measurement retains the existing ten-second limit, while natural completion is bounded by the reported sound duration plus the same grace period. A stopped stream counts as naturally complete only when its playback position reaches the reported duration. Missing test audio, no movement, reversal, an out-of-range ratio, early termination, failure to reach the natural end, or an exception fails the test and prevents settings changes. The result does not claim that sound was physically audible; it reports device initialization and stream progress independently.
 
 ### 11. Logging and errors
 
