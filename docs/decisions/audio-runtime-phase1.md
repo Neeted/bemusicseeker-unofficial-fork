@@ -104,13 +104,36 @@ Initialization success and stream progress are separate results. Playback progre
 
 The evaluator ignores startup pre-roll until the first forward playback movement, then requires at least one second of measured wall-clock interval. Positions must be monotonic, playback must continue to advance, and the playback-position/wall-clock ratio must remain within `0.75` through `1.25`, inclusive. Ratios of 1.5x and 2x are failures. Passing that interval is a diagnostic milestone, not the end of the player lifetime: a successful audible test retains the player and native session until the finite test sound reaches its natural end.
 
-The overall observation remains bounded. Establishing the progress measurement retains the existing ten-second limit, while natural completion is bounded by the reported sound duration plus the same grace period. A stopped stream counts as naturally complete only when its playback position reaches the reported duration. Missing test audio, no movement, reversal, an out-of-range ratio, early termination, failure to reach the natural end, or an exception fails the test and prevents settings changes. The result does not claim that sound was physically audible; it reports device initialization and stream progress independently.
+The output session remains initialized for at least eight seconds so the user has time to exercise application and Windows per-application volume controls. A shorter test asset is replayed only after each preceding playback reaches its natural end; the bundled approximately two-second asset therefore runs as complete natural repeats rather than being cut off by a fixed delay. Each repeat retains the ten-second progress-observation grace and reported-duration completion checks, and the repeat count has a defensive upper bound of sixteen.
+
+A stopped stream counts as naturally complete only when its playback position reaches the reported duration. Missing test audio, no movement, reversal, an out-of-range ratio, early termination, failure to reach the natural end, inability to retain the minimum interactive session, or an exception fails the test and prevents settings changes. The result does not claim that sound was physically audible; it reports device initialization, stream progress, and retained session duration independently.
 
 ### 11. Logging and errors
 
 Production audio logs use `Ribbit/Logging/NLogWrapper.cs`. Each attempt records OS/build, bundled BASS component versions, requested values, attempted backend/stage, native error source/code, negotiated values, latency, and fallback destination/reason without adding unbounded hot-path logging.
 
 Known audio initialization exceptions preserve backend, stage, requested and negotiated devices, native error source, and native error code. Settings UI messages for these failures are localized in every supported resource source.
+
+### 12. Real-device acceptance gate
+
+The following checks are manual/optional and are not part of the normal Functional lane. Run them from a Release artifact on Windows 10 and Windows 11 with at least the built-in endpoint and one attachable USB or ASIO device:
+
+- DirectSound: application gain and Windows per-application volume are independent and both audible.
+- WASAPI shared: application gain and Windows per-application volume are independent and both audible; the initial logged session scalar reflects the Windows session state and the application does not overwrite it.
+- WASAPI exclusive and ASIO: negotiated device/rate/format are reported accurately, and exclusive ownership limitations are not presented as shared-session volume behavior.
+- Device test: every repeat reaches the end of `assets/audio/test.mp3`, the native output session remains present for at least eight seconds, and no repeat is cut short.
+- Persistence/hotplug: an explicit endpoint remains selected after Apply and process restart; disconnect shows the saved endpoint as unavailable; selecting Default or a replacement persists only after Apply.
+
+### 13. Separate Phase 2 migration plan
+
+Phase 2 is a separate native-dependency change after this code-only phase is accepted on real devices:
+
+1. Select one compatible release set for Bass.Net and BASS, BASSmix, BASSWASAPI, BASSASIO, BASSenc, and BASS_FX; archive upstream version and license references.
+2. Update managed assembly and every x86/x64 native component together, then update version constants, supported-version checks, hashes, package layout, and third-party notices in the same commit series.
+3. Replace compatibility comments with the new ABI surface where appropriate, including evaluating `BASS_DEVICE_DSOUND` for DirectSound and using newly exposed managed APIs only after confirming signatures against upstream headers.
+4. Run native-boundary unit tests, Functional, Full publish/update acceptance, package-layout/hash verification, and a clean-machine load test before device testing.
+5. Execute the Windows 10/11 matrix above across built-in, USB, and ASIO devices, including hotplug/default changes, shared/exclusive busy states, Float32/Int16 negotiation, volume independence, fallback diagnostics, and repeated cleanup.
+6. Keep the previous complete DLL set as the rollback unit; never roll back or ship an individual BASS component independently.
 
 ## Compatibility and exclusions
 

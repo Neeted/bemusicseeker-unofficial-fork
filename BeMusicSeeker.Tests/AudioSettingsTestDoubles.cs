@@ -139,6 +139,7 @@ internal static class AudioDeviceTestResultFactory
             request.PlaySound ? TimeSpan.FromSeconds(1) : TimeSpan.Zero,
             request.PlaySound ? TimeSpan.FromSeconds(1) : TimeSpan.Zero,
             request.PlaySound ? 1d : null,
+            request.PlaySound ? TimeSpan.FromSeconds(8) : TimeSpan.Zero,
             streamProgressSucceeded ? null : "stream did not progress");
     }
 }
