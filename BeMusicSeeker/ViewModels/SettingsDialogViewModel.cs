@@ -210,6 +210,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
         RaisePropertyChanged(nameof(PlayerDeviceNames));
         RaisePropertyChanged(nameof(PlayerDevice));
+        RaisePropertyChanged(nameof(PlayerDeviceIndex));
         presentationPort?.OpenSettingsDialog();
     }
 
@@ -3633,6 +3634,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 RaisePropertyChanged("PlayerDriverIndex");
                 RaisePropertyChanged(nameof(PlayerDeviceNames));
                 RaisePropertyChanged(nameof(PlayerDevice));
+                RaisePropertyChanged(nameof(PlayerDeviceIndex));
             }
         }
     }
@@ -3652,6 +3654,10 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// Gets or sets the persisted device identity represented by the selected device option.
+    /// The Default option is represented by a null identity.
+    /// </summary>
     public string PlayerDevice
     {
         get
@@ -3660,15 +3666,66 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (string.Equals(ApplicationSettings.PlayerDevice, value, StringComparison.Ordinal))
+            int selectedIndex = FindPlayerDeviceIndex(value);
+            if (selectedIndex < 0)
             {
                 return;
             }
-            AudioDeviceInfo deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Driver == value);
-            ApplicationSettings.PlayerDevice = deviceDescriptor.Driver;
-            ApplicationSettings.PlayerDeviceName = deviceDescriptor.Name;
-            RaisePropertyChanged("PlayerDevice");
+
+            PlayerDeviceIndex = selectedIndex;
         }
+    }
+
+    /// <summary>
+    /// Gets or sets the transient index used by the device ComboBox.
+    /// Invalid values are ignored because WPF can publish -1 while the catalog is rebuilt.
+    /// </summary>
+    public int PlayerDeviceIndex
+    {
+        get => FindPlayerDeviceIndex(ApplicationSettings.PlayerDevice);
+        set
+        {
+            if (value < 0 || value >= PlayerDeviceNames.Count)
+            {
+                return;
+            }
+
+            AudioDeviceInfo deviceDescriptor = PlayerDeviceNames[value];
+            if (!deviceDescriptor.IsDefaultPlaceholder
+                && string.IsNullOrWhiteSpace(deviceDescriptor.Driver))
+            {
+                return;
+            }
+
+            string nextDevice = deviceDescriptor.IsDefaultPlaceholder
+                ? null
+                : deviceDescriptor.Driver;
+            string nextDeviceName = deviceDescriptor.IsDefaultPlaceholder
+                ? null
+                : deviceDescriptor.Name;
+            if (string.Equals(ApplicationSettings.PlayerDevice, nextDevice, StringComparison.Ordinal)
+                && string.Equals(ApplicationSettings.PlayerDeviceName, nextDeviceName, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            ApplicationSettings.PlayerDevice = nextDevice;
+            ApplicationSettings.PlayerDeviceName = nextDeviceName;
+            RaisePropertyChanged(nameof(PlayerDevice));
+            RaisePropertyChanged(nameof(PlayerDeviceIndex));
+        }
+    }
+
+    private int FindPlayerDeviceIndex(string deviceIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(deviceIdentity))
+        {
+            return PlayerDeviceNames.FindIndex(device => device.IsDefaultPlaceholder);
+        }
+
+        return PlayerDeviceNames.FindIndex(device =>
+            !device.IsDefaultPlaceholder
+            && string.Equals(device.Driver, deviceIdentity, StringComparison.Ordinal));
     }
 
     private AudioDeviceInfo ResolvePlayerDeviceDescriptor()
@@ -5793,6 +5850,7 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(PlayerDriverIndex));
             RaisePropertyChanged(nameof(PlayerDeviceNames));
             RaisePropertyChanged(nameof(PlayerDevice));
+            RaisePropertyChanged(nameof(PlayerDeviceIndex));
             RaisePropertyChanged(nameof(PlayerSampleRate));
             RaisePropertyChanged(nameof(PlayerFormat));
             RaisePropertyChanged(nameof(PlayerLatency));
@@ -7366,7 +7424,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
         RaisePropertyChanged(nameof(PlayerDevice));
         RaisePropertyChanged(nameof(PlayerDeviceNames));
-        RaisePropertyChanged(nameof(PlayerDevice));
+        RaisePropertyChanged(nameof(PlayerDeviceIndex));
         RaisePropertyChanged(nameof(PlayerSampleRate));
         RaisePropertyChanged(nameof(PlayerFormat));
         RaisePropertyChanged(nameof(PlayerBufferSize));

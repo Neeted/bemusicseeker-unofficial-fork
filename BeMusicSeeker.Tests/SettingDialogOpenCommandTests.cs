@@ -116,6 +116,86 @@ public sealed class SettingDialogOpenCommandTests
     }
 
     [TestMethod]
+    public void OpenCommand_DeviceIndexPreservesSavedIdentityAcrossRefreshAndNewViewModel()
+    {
+        var settings = new BeMusicSeeker.Properties.Settings
+        {
+            PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            PlayerDevice = "saved-device",
+            PlayerDeviceName = "Saved device"
+        };
+        var catalog = new TestAudioDeviceCatalog
+        {
+            Devices =
+            [
+                new AudioDeviceInfo("Default", string.Empty),
+                new AudioDeviceInfo("Saved device", "saved-device")
+            ]
+        };
+
+        MainWindowViewModel firstViewModel = CreateViewModel(
+            catalog,
+            new TestSettingsEditSession(settings));
+        SettingsDialogViewModel firstDialog = firstViewModel.SettingDialog;
+        firstDialog.OpenCommand.Execute();
+
+        Assert.AreEqual(1, firstDialog.PlayerDeviceIndex);
+        Assert.AreEqual("saved-device", settings.PlayerDevice);
+        Assert.AreEqual("Saved device", settings.PlayerDeviceName);
+
+        firstDialog.PlayerDeviceIndex = -1;
+        firstDialog.PlayerDevice = "device-that-is-not-in-the-catalog";
+
+        Assert.AreEqual(1, firstDialog.PlayerDeviceIndex);
+        Assert.AreEqual("saved-device", settings.PlayerDevice);
+        Assert.AreEqual("Saved device", settings.PlayerDeviceName);
+
+        MainWindowViewModel secondViewModel = CreateViewModel(
+            catalog,
+            new TestSettingsEditSession(settings));
+        SettingsDialogViewModel secondDialog = secondViewModel.SettingDialog;
+        secondDialog.OpenCommand.Execute();
+
+        Assert.AreEqual(1, secondDialog.PlayerDeviceIndex);
+        Assert.AreEqual("saved-device", secondDialog.PlayerDevice);
+    }
+
+    [TestMethod]
+    public void PlayerDeviceIndex_TreatsEmptyIdentityAsDefaultAndClearsPairOnSelection()
+    {
+        var settings = new BeMusicSeeker.Properties.Settings
+        {
+            PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            PlayerDevice = string.Empty,
+            PlayerDeviceName = "stale default name"
+        };
+        var catalog = new TestAudioDeviceCatalog
+        {
+            Devices =
+            [
+                new AudioDeviceInfo("Default", string.Empty),
+                new AudioDeviceInfo("Current device", "current-device")
+            ]
+        };
+        MainWindowViewModel viewModel = CreateViewModel(
+            catalog,
+            new TestSettingsEditSession(settings));
+        SettingsDialogViewModel dialog = viewModel.SettingDialog;
+        dialog.OpenCommand.Execute();
+
+        Assert.AreEqual(0, dialog.PlayerDeviceIndex);
+
+        dialog.PlayerDeviceIndex = 1;
+        Assert.AreEqual("current-device", settings.PlayerDevice);
+        Assert.AreEqual("Current device", settings.PlayerDeviceName);
+
+        dialog.PlayerDeviceIndex = 0;
+        Assert.IsNull(settings.PlayerDevice);
+        Assert.IsNull(settings.PlayerDeviceName);
+        Assert.AreEqual(0, dialog.PlayerDeviceIndex);
+    }
+
+    [TestMethod]
     public void CancelCommand_ChangedDraft_ResetsDraftBeforeClosing()
     {
         bool previousShowRecommUpdatedMsg = BeMusicSeeker.Properties.Settings.Default.ShowRecommUpdatedMsg;

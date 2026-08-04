@@ -2565,6 +2565,8 @@ public sealed class MainWindowContextMenuResourceTests
             "internal SettingsDialogViewModel(");
 
         StringAssert.Contains(xaml, "IsChecked=\"{Binding UseInternalPlayer}\"");
+        StringAssert.Contains(xaml, "SelectedIndex=\"{Binding PlayerDeviceIndex, Mode=TwoWay}\"");
+        Assert.IsFalse(xaml.Contains("SelectedValuePath=\"Driver\" DisplayMemberPath=\"FriendlyName\""));
         StringAssert.Contains(xaml, "IsEnabled=\"{Binding IsAudioDeviceTestAvailable, Mode=OneWay}\"");
         StringAssert.Contains(xaml, "Text=\"{Binding AudioDeviceTestStatusMessage, Mode=OneWay}\"");
         StringAssert.Contains(viewModelCode, "public bool IsEditCompletionEnabled => !IsEditCompletionInProgress && !IsAudioDeviceTestInProgress;");
