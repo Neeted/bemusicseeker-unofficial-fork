@@ -373,46 +373,53 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     {
         var firstRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var latestRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var followupBlockerRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var firstEntered = new ManualResetEventSlim();
         var latestEntered = new ManualResetEventSlim();
-        var followupBlockerEntered = new ManualResetEventSlim();
-        var dependentEntered = new ManualResetEventSlim();
+        var dependentAfterLatestEntered = new ManualResetEventSlim();
+        var dependentAfterOlderEntered = new ManualResetEventSlim();
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
-        owner.Queue("playlist_entries_hydration", "first", null, async () =>
+        try
         {
-            firstEntered.Set();
-            await firstRelease.Task.ConfigureAwait(false);
-        });
-        owner.Start();
-        Assert.IsTrue(firstEntered.Wait(TimeSpan.FromSeconds(5)));
-        owner.Queue("playlist_entries_hydration", "latest", null, async () =>
-        {
-            latestEntered.Set();
-            await latestRelease.Task.ConfigureAwait(false);
-        });
-        Assert.IsTrue(latestEntered.Wait(TimeSpan.FromSeconds(5)));
+            owner.Queue("playlist_entries_hydration", "first", null, async () =>
+            {
+                firstEntered.Set();
+                await firstRelease.Task.ConfigureAwait(false);
+            });
+            owner.Start();
+            Assert.IsTrue(firstEntered.Wait(TimeSpan.FromSeconds(5)));
+            owner.Queue("playlist_entries_hydration", "latest", null, async () =>
+            {
+                latestEntered.Set();
+                await latestRelease.Task.ConfigureAwait(false);
+            });
+            Assert.IsTrue(latestEntered.Wait(TimeSpan.FromSeconds(5)));
 
-        owner.Queue("playlist_url_completion", "lane_blocker", null, async () =>
-        {
-            followupBlockerEntered.Set();
-            await followupBlockerRelease.Task.ConfigureAwait(false);
-        });
-        owner.Queue("default_after_entries", "dependent", "playlist_entries_hydration", () =>
-        {
-            dependentEntered.Set();
-            return Task.CompletedTask;
-        });
+            owner.Queue("default_after_latest", "dependent", "playlist_entries_hydration", () =>
+            {
+                dependentAfterLatestEntered.Set();
+                return Task.CompletedTask;
+            });
 
-        latestRelease.SetResult(true);
-        Assert.IsTrue(followupBlockerEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsFalse(dependentEntered.IsSet);
+            latestRelease.SetResult(true);
+            Assert.IsTrue(dependentAfterLatestEntered.Wait(TimeSpan.FromSeconds(5)));
 
-        firstRelease.SetResult(true);
-        Assert.IsTrue(dependentEntered.Wait(TimeSpan.FromSeconds(5)));
-        followupBlockerRelease.SetResult(true);
-        await WaitForFullyIdleAsync(owner);
+            firstRelease.SetResult(true);
+            await WaitForFullyIdleAsync(owner);
+
+            owner.Queue("default_after_older", "dependent", "playlist_entries_hydration", () =>
+            {
+                dependentAfterOlderEntered.Set();
+                return Task.CompletedTask;
+            });
+            Assert.IsTrue(dependentAfterOlderEntered.Wait(TimeSpan.FromSeconds(5)));
+            await WaitForFullyIdleAsync(owner);
+        }
+        finally
+        {
+            latestRelease.TrySetResult(true);
+            firstRelease.TrySetResult(true);
+        }
     }
 
     [TestMethod]
