@@ -108,6 +108,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private static readonly IAudioSessionNativeBoundary SessionNative;
 
+    private static readonly BassWasapiNegotiator WasapiNegotiator;
+
     private static string initializationStage;
 
     private static float latencyParam;
@@ -910,21 +912,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
             try
             {
-                if (session.ActualBackend == DeviceDriver.WASAPI_SHARED)
-                {
-                    SetDeviceMasterVolume(1f);
-                }
-            }
-            catch (Exception exception)
-            {
-                TryLogAudioSessionWarning(
-                    "Audio volume reset during cleanup failed: " + exception.Message);
-            }
-            finally
-            {
                 CaptureManagedHandles(session);
                 BassAudioSessionCleanup.Release(session, SessionNative);
                 SessionLifecycle.CompleteCleanup(session);
+            }
+            finally
+            {
                 ResetManagedState();
             }
 
@@ -986,6 +979,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         SessionLifecycle = new BassAudioSessionLifecycle();
         SessionNative = new BassAudioSessionNativeBoundary();
+        WasapiNegotiator = new BassWasapiNegotiator(new BassWasapiNegotiationNativeBoundary());
         StaticLockObject = new object();
         InstanceLocks = [];
         Locks = new NamedLocks<uint>();
@@ -999,7 +993,13 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             }
             using (operation)
             {
-                int val = Bass.BASS_ChannelGetData(outputMixer, buffer, length);
+                BassAudioSession session = SessionLifecycle.CurrentSessionForAdmittedOperation;
+                int callbackHandle = session?.CallbackOutputHandle ?? 0;
+                if (callbackHandle == 0)
+                {
+                    return 0;
+                }
+                int val = Bass.BASS_ChannelGetData(callbackHandle, buffer, length);
                 return System.Math.Max(0, val);
             }
         };
@@ -1252,11 +1252,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             _frequency,
             _format,
             latencyParam);
-        BassAudioBackendResult result = new BassWasapiNegotiator(
-            new BassWasapiNegotiationNativeBoundary()).Initialize(
+        float initialGain = GetEffectiveDeviceVolumeForInitialization(
+            _deviceVolume,
+            IsDeviceMuted);
+        BassAudioBackendResult result = WasapiNegotiator.Initialize(
                 request,
                 CurrentSession,
                 WasapiProc,
+                initialGain,
                 eventModeRequested);
 
         inputMixer = result.MixerHandle;
@@ -1463,7 +1466,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             return;
         }
         int oldTempoChanger = tempoChanger;
-        if (!TryReleaseTrackedStream(oldTempoChanger, "BASS_StreamFree for ResetTempoChanger"))
+        bool wasapiOutput = DriverType is
+            DeviceDriver.WASAPI_SHARED or DeviceDriver.WASAPI_EXCLUSIVE;
+        bool released = wasapiOutput
+            ? CurrentSession.TryPrepareCallbackOutputReplacement(
+                oldTempoChanger,
+                inputMixer,
+                handle => TryReleaseTrackedStream(handle, "BASS_StreamFree for ResetTempoChanger"))
+            : TryReleaseTrackedStream(oldTempoChanger, "BASS_StreamFree for ResetTempoChanger");
+        if (!released)
         {
             return;
         }
@@ -1791,6 +1802,34 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         MaxVoices = 0;
     }
 
+    /// <summary>Resolves the application gain that must be applied before output starts.</summary>
+    internal static float GetEffectiveDeviceVolumeForInitialization(
+        float deviceVolume,
+        bool isMuted) =>
+        isMuted ? 0f : deviceVolume;
+
+    /// <summary>
+    /// Applies WASAPI shared application volume through the mixer boundary and reports a
+    /// non-fatal native failure through the supplied logging action.
+    /// </summary>
+    internal static void ApplyWasapiSharedDeviceVolume(
+        BassWasapiNegotiator negotiator,
+        BassAudioSession session,
+        float volume,
+        Action<string> logWarning)
+    {
+        ArgumentNullException.ThrowIfNull(negotiator);
+        ArgumentNullException.ThrowIfNull(logWarning);
+        BASSError error = BASSError.BASS_ERROR_INIT;
+        if (session == null
+            || !negotiator.TrySetSharedMixerGain(session, volume, out error))
+        {
+            logWarning(
+                "BASS_ChannelSetAttribute for WASAPI shared mixer volume failed: "
+                + error);
+        }
+    }
+
     private static void SetDeviceMasterVolume(float vol)
     {
         if (!IsInitialized)
@@ -1821,11 +1860,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 }
                 break;
             case DeviceDriver.WASAPI_SHARED:
-                if (!BassWasapi.BASS_WASAPI_SetVolume((BASSWASAPIVolume)10, vol))
-                {
-                    BASSError bASSError3 = Bass.BASS_ErrorGetCode();
-                    NLogWrapper.TraceLogger?.Warn("BASS_WASAPI_SetVolume failed: " + bASSError3);
-                }
+                BassAudioSession session = SessionLifecycle.CurrentSessionForAdmittedOperation;
+                ApplyWasapiSharedDeviceVolume(
+                    WasapiNegotiator,
+                    session,
+                    vol,
+                    TryLogAudioSessionWarning);
                 break;
             case DeviceDriver.ASIO:
                 {

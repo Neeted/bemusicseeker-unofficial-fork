@@ -72,6 +72,8 @@ For an explicit sample rate, candidates start with the requested rate, then the 
 
 The WASAPI engine mixer remains Float32. Engine format and endpoint format are separate. Shared mode prioritizes the endpoint mix rate and channel count. Event/custom-period failure first degrades to non-event/default-period operation in the same backend.
 
+In shared mode, application volume is a gain on the BASS Float32 mixer. The application does not write the Windows audio-session volume during initialization, live updates, or cleanup, so the Windows per-application control remains an independent multiplier. The initial mixer gain and the callback's session-owned source handle are published before `BASS_WASAPI_Start`; tempo graph changes atomically publish the replacement callback source before releasing the previous stream.
+
 DirectSound catalog entries retain the descriptor and original native index together. Native device index 0, disabled entries, and no-sound entries are not selectable audible devices. A default request uses device `-1` where supported and records the actual selected device after initialization.
 
 Phase 1 does not hard-code `BASS_DEVICE_DSOUND` and does not change `IntPtr.Zero` on the assumption that a WPF window handle is the root cause. A future BASS upgrade must evaluate `BASS_DEVICE_DSOUND` for the DirectSound route.

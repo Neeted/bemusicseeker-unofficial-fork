@@ -47,6 +47,9 @@ internal interface IWasapiNegotiationNativeBoundary
     /// <summary>Creates the Float32 decode mixer that supplies the WASAPI callback.</summary>
     int CreateMixer(int rate, int channels, BASSFlag flags);
 
+    /// <summary>Sets the application gain on the Float32 decode mixer.</summary>
+    bool SetMixerVolume(int mixerHandle, float volume);
+
     /// <summary>Starts WASAPI output.</summary>
     bool StartWasapi();
 
@@ -100,12 +103,14 @@ internal sealed class BassWasapiNegotiator
     }
 
     /// <summary>
-    /// Initializes one shared or exclusive WASAPI graph with a Float32 mixer and callback.
+    /// Initializes one shared or exclusive WASAPI graph with a Float32 mixer and callback,
+    /// applying the requested application gain before shared-mode output starts.
     /// </summary>
     internal BassAudioBackendResult Initialize(
         BassAudioNegotiationRequest request,
         BassAudioSession session,
         WASAPIPROC callback,
+        float initialGain,
         bool eventModeRequested)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -299,7 +304,18 @@ internal sealed class BassWasapiNegotiator
                 "BASS_Mixer_StreamCreate failed: " + error);
         }
         session.MixerHandle = mixerHandle;
-        session.OutputHandle = mixerHandle;
+        session.TrackOutputHandle(mixerHandle);
+
+        if (shared && !TrySetSharedMixerGain(session, initialGain, out BASSError gainError))
+        {
+            throw Failure(
+                request,
+                session,
+                "BASS_ChannelSetAttribute(BASS_ATTRIB_VOL)",
+                "BASS",
+                gainError,
+                "BASS_ChannelSetAttribute for WASAPI shared mixer volume failed: " + gainError);
+        }
 
         if (!native.StartWasapi())
         {
@@ -331,6 +347,32 @@ internal sealed class BassWasapiNegotiator
             info.chans);
         session.NegotiationResult = result;
         return result;
+    }
+
+    /// <summary>
+    /// Applies application volume to the primary mixer of an initialized WASAPI shared graph
+    /// and returns the immediately captured BASS error when the native call fails.
+    /// </summary>
+    internal bool TrySetSharedMixerGain(
+        BassAudioSession session,
+        float volume,
+        out BASSError error)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (session.ActualBackend != BassAudioPlayer.DeviceDriver.WASAPI_SHARED
+            || session.MixerHandle == 0)
+        {
+            error = BASSError.BASS_ERROR_HANDLE;
+            return false;
+        }
+        if (native.SetMixerVolume(session.MixerHandle, volume))
+        {
+            error = BASSError.BASS_OK;
+            return true;
+        }
+
+        error = native.GetCoreError();
+        return false;
     }
 
     /// <summary>Builds the deterministic, duplicate-free WASAPI mode and period candidates.</summary>
@@ -531,6 +573,10 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
     /// <inheritdoc />
     public int CreateMixer(int rate, int channels, BASSFlag flags) =>
         BassMix.BASS_Mixer_StreamCreate(rate, channels, flags);
+
+    /// <inheritdoc />
+    public bool SetMixerVolume(int mixerHandle, float volume) =>
+        Bass.BASS_ChannelSetAttribute(mixerHandle, BASSAttribute.BASS_ATTRIB_VOL, volume);
 
     /// <inheritdoc />
     public bool StartWasapi() => BassWasapi.BASS_WASAPI_Start();

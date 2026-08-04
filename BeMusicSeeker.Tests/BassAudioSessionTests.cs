@@ -222,6 +222,101 @@ public sealed class BassAudioSessionTests
     }
 
     [TestMethod]
+    public void CallbackOutputReplacement_PublishesBeforeReleaseAndKeepsReplacementOnSuccess()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        session.TrackOutputHandle(101);
+
+        bool released = session.TryPrepareCallbackOutputReplacement(
+            101,
+            202,
+            handle =>
+            {
+                Assert.AreEqual(202, session.CallbackOutputHandle);
+                session.ConfirmStreamReleased(handle);
+                return true;
+            });
+
+        Assert.IsTrue(released);
+        Assert.AreEqual(202, session.CallbackOutputHandle);
+        Assert.AreEqual(0, session.OutputHandle);
+    }
+
+    [TestMethod]
+    public void CallbackOutputReplacement_RestoresPreviousSourceWhenReleaseFails()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        session.TrackOutputHandle(101);
+
+        bool released = session.TryPrepareCallbackOutputReplacement(
+            101,
+            202,
+            _ =>
+            {
+                Assert.AreEqual(202, session.CallbackOutputHandle);
+                return false;
+            });
+
+        Assert.IsFalse(released);
+        Assert.AreEqual(101, session.CallbackOutputHandle);
+        Assert.AreEqual(101, session.OutputHandle);
+    }
+
+    [TestMethod]
+    public void UnstartedWasapiSession_ReleasesOwnedMixerWithoutStoppingOutput()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
+        {
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            CoreInitialized = true,
+            CoreDeviceIndex = 0,
+            WasapiInitialized = true,
+            WasapiDeviceIndex = 3,
+            MixerHandle = 123
+        };
+        session.TrackOutputHandle(123);
+        var native = new RecordingNativeBoundary();
+
+        Assert.IsTrue(BassAudioSessionCleanup.Release(session, native));
+
+        Assert.AreEqual(0, native.Count("StopWasapi"));
+        Assert.AreEqual(1, native.Count("FreeWasapi"));
+        Assert.AreEqual(1, native.Count("FreeStream"));
+        Assert.AreEqual(1, native.Count("FreeCore"));
+        Assert.AreEqual(0, session.CallbackOutputHandle);
+        Assert.IsTrue(session.IsReleased);
+    }
+
+    [TestMethod]
+    public void WasapiFreeFailure_RetainsCallbackSourceUntilRetrySucceeds()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
+        {
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            CoreInitialized = true,
+            CoreDeviceIndex = 0,
+            WasapiInitialized = true,
+            WasapiDeviceIndex = 3,
+            MixerHandle = 123
+        };
+        session.TrackOutputHandle(123);
+        var native = new RecordingNativeBoundary
+        {
+            FreeWasapiResult = false,
+            WasapiError = BASSError.BASS_ERROR_UNKNOWN
+        };
+
+        Assert.IsFalse(BassAudioSessionCleanup.Release(session, native));
+        Assert.AreEqual(123, session.CallbackOutputHandle);
+        Assert.IsTrue(session.HasNativeOwnership);
+
+        native.FreeWasapiResult = true;
+        Assert.IsTrue(BassAudioSessionCleanup.Release(session, native));
+        Assert.AreEqual(0, session.CallbackOutputHandle);
+        Assert.IsTrue(session.IsReleased);
+    }
+
+    [TestMethod]
     public void CleanupFailure_RemainsOwnedUntilLaterRetrySucceeds()
     {
         var lifecycle = new BassAudioSessionLifecycle();
@@ -759,7 +854,11 @@ public sealed class BassAudioSessionTests
 
         internal bool FreeStreamResult { get; set; } = true;
 
+        internal bool FreeWasapiResult { get; set; } = true;
+
         internal BASSError CoreError { get; set; } = BASSError.BASS_OK;
+
+        internal BASSError WasapiError { get; set; } = BASSError.BASS_OK;
 
         public bool SetCoreDevice(int deviceIndex)
         {
@@ -792,10 +891,10 @@ public sealed class BassAudioSessionTests
         public bool FreeWasapi()
         {
             calls.Add("FreeWasapi");
-            return true;
+            return FreeWasapiResult;
         }
 
-        public BASSError GetWasapiError() => BASSError.BASS_OK;
+        public BASSError GetWasapiError() => WasapiError;
 
         public bool SetAsioDevice(int deviceIndex)
         {

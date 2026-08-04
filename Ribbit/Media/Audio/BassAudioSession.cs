@@ -37,6 +37,7 @@ internal sealed class BassAudioSession
 {
     private readonly object playerStreamSync = new();
     private readonly List<BassAudioOwnedStream> playerStreams = [];
+    private int callbackOutputHandle;
 
     /// <summary>
     /// Creates an initializing session for the requested backend and endpoint.
@@ -90,6 +91,12 @@ internal sealed class BassAudioSession
     /// <summary>Gets or sets the output handle owned by the session.</summary>
     internal int OutputHandle { get; set; }
 
+    /// <summary>
+    /// Gets the stream currently published to callback-driven output without taking the
+    /// lifecycle lock.
+    /// </summary>
+    internal int CallbackOutputHandle => Volatile.Read(ref callbackOutputHandle);
+
     /// <summary>Gets additional stream handles created after initialization.</summary>
     internal IList<int> AdditionalStreamHandles { get; } = new List<int>();
 
@@ -121,7 +128,37 @@ internal sealed class BassAudioSession
     internal void TrackOutputHandle(int handle)
     {
         OutputHandle = handle;
+        PublishCallbackOutputHandle(handle);
         RemoveAdditionalHandle(handle);
+    }
+
+    /// <summary>
+    /// Publishes a valid callback source before replacing or releasing the previously
+    /// tracked output stream.
+    /// </summary>
+    internal void PublishCallbackOutputHandle(int handle)
+    {
+        Volatile.Write(ref callbackOutputHandle, handle);
+    }
+
+    /// <summary>
+    /// Publishes a replacement callback source before releasing the previous stream and
+    /// restores the previous source when release cannot be confirmed.
+    /// </summary>
+    internal bool TryPrepareCallbackOutputReplacement(
+        int previousHandle,
+        int replacementHandle,
+        Func<int, bool> releasePrevious)
+    {
+        ArgumentNullException.ThrowIfNull(releasePrevious);
+        PublishCallbackOutputHandle(replacementHandle);
+        if (releasePrevious(previousHandle))
+        {
+            return true;
+        }
+
+        PublishCallbackOutputHandle(previousHandle);
+        return false;
     }
 
     /// <summary>Records that a stream release was confirmed by the native API.</summary>
@@ -135,6 +172,7 @@ internal sealed class BassAudioSession
         {
             OutputHandle = 0;
         }
+        Interlocked.CompareExchange(ref callbackOutputHandle, 0, handle);
         RemoveAdditionalHandle(handle);
     }
 
@@ -300,6 +338,13 @@ internal sealed class BassAudioSessionLifecycle
     /// <summary>Gets the current session while the caller owns the lifecycle gate.</summary>
     internal BassAudioSession CurrentSession => currentSession;
 
+    /// <summary>
+    /// Gets the current session without the lifecycle lock while the caller owns an admitted
+    /// audio operation that prevents lifecycle replacement and cleanup.
+    /// </summary>
+    internal BassAudioSession CurrentSessionForAdmittedOperation =>
+        Volatile.Read(ref currentSession);
+
     /// <summary>Gets whether an active graph is currently available.</summary>
     internal bool IsActive => currentSession?.State == BassAudioSessionState.Active;
 
@@ -328,7 +373,7 @@ internal sealed class BassAudioSessionLifecycle
         }
 
         session = new BassAudioSession(requestedBackend, requestedDevice);
-        currentSession = session;
+        Volatile.Write(ref currentSession, session);
         return true;
     }
 
@@ -352,7 +397,7 @@ internal sealed class BassAudioSessionLifecycle
         }
 
         session.State = BassAudioSessionState.Released;
-        currentSession = null;
+        Volatile.Write(ref currentSession, null);
     }
 
     /// <summary>
