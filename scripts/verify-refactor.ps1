@@ -58,6 +58,12 @@ $functionalTestClassShards = @(
             'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests')
     },
     [pscustomobject]@{
+        Name = 'owned-chart-collection'
+        Workers = 1
+        Classes = @(
+            'BeMusicSeeker.Tests.OwnedChartCollectionStateTests')
+    },
+    [pscustomobject]@{
         Name = 'presentation-workspace'
         Workers = 1
         Classes = @(
