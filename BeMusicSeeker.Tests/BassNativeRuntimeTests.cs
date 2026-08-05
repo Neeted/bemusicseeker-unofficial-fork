@@ -13,6 +13,7 @@ using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 using Un4seen.Bass;
+using Un4seen.Bass.AddOn.Fx;
 using RibbitBassNet = Ribbit.Media.Audio.BassNet;
 
 namespace BeMusicSeeker.Tests;
@@ -190,6 +191,111 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    [TestMethod]
+    public void EffectiveDeviceVolumeForBackend_SeparatesNullDeviceRenderGainFromAudibleMute()
+    {
+        const float deviceVolume = 0.37f;
+
+        Assert.AreEqual(
+            deviceVolume,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                deviceVolume,
+                isMuted: false));
+        Assert.AreEqual(
+            0f,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                deviceVolume,
+                isMuted: true));
+        Assert.AreEqual(
+            0f,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                deviceVolume,
+                isMuted: true));
+        Assert.AreEqual(
+            0f,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+                deviceVolume,
+                isMuted: true));
+        Assert.AreEqual(
+            0f,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.ASIO,
+                deviceVolume,
+                isMuted: true));
+        Assert.AreEqual(
+            deviceVolume,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                deviceVolume,
+                isMuted: false));
+        Assert.AreEqual(
+            deviceVolume,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                deviceVolume,
+                isMuted: true));
+    }
+
+    [TestMethod]
+    public void NullDevice_MuteDoesNotMuteOfflineRenderGain()
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        float originalDefaultVolume = BassAudioPlayer.DefaultVolume;
+        SampleRate originalFrequency = BassAudioPlayer.Frequency;
+        SampleFormat originalFormat = BassAudioPlayer.Format;
+        BassAudioSession ownedSession = null;
+        try
+        {
+            RibbitBassNet.Shutdown();
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.IsDeviceMuted = true;
+            BassAudioPlayer.DeviceVolume = 0.25f;
+
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out ownedSession);
+
+            Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
+            Assert.AreEqual(0.4f, BassAudioPlayer.DeviceVolume);
+            Assert.AreNotEqual(0, ownedSession.VolumeEffectHandle);
+            Assert.AreEqual(0.4f, ReadVolumeEffectGain(ownedSession.VolumeEffectHandle), 0.0001f);
+
+            BassAudioPlayer.DeviceVolume = 0.25f;
+            Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
+            Assert.AreEqual(0.25f, ReadVolumeEffectGain(ownedSession.VolumeEffectHandle), 0.0001f);
+
+            BassAudioPlayer.IsDeviceMuted = false;
+            Assert.AreEqual(0.25f, ReadVolumeEffectGain(ownedSession.VolumeEffectHandle), 0.0001f);
+
+            BassAudioPlayer.IsDeviceMuted = true;
+            Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
+            Assert.AreEqual(0.25f, ReadVolumeEffectGain(ownedSession.VolumeEffectHandle), 0.0001f);
+        }
+        finally
+        {
+            try
+            {
+                BassAudioPlayer.Free(ownedSession);
+                RibbitBassNet.Shutdown();
+            }
+            finally
+            {
+                BassAudioPlayer.Frequency = originalFrequency;
+                BassAudioPlayer.Format = originalFormat;
+                BassAudioPlayer.DefaultVolume = originalDefaultVolume;
+                RestoreManagedAudioState(originalVolume, originalMute);
+            }
+        }
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void RunStaticInitializationInCollectibleContext(out WeakReference loadContextReference)
     {
@@ -232,6 +338,15 @@ public sealed class BassNativeRuntimeTests
         BassAudioPlayer.IsDeviceMuted = false;
         BassAudioPlayer.DeviceVolume = volume;
         BassAudioPlayer.IsDeviceMuted = muted;
+    }
+
+    private static float ReadVolumeEffectGain(int effectHandle)
+    {
+        var parameters = new BASS_BFX_VOLUME();
+        Assert.IsTrue(
+            Bass.BASS_FXGetParameters(effectHandle, parameters),
+            Bass.BASS_ErrorGetCode().ToString());
+        return parameters.fVolume;
     }
 
     [TestMethod]

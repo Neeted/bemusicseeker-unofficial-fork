@@ -95,7 +95,9 @@ DirectSound の engine format は Float32 とする。ただし、現在の Dire
 
 `DeviceVolume` と `IsDeviceMuted` は、native session の状態ではなく、アプリケーションが保持する希望値とする。runtime、session、設定ダイアログの初期化前でも設定でき、setter は native runtime のロード、デバイス列挙、session 作成、fallback、設定永続化を開始しない。
 
-runtime admission が閉じている、shutdown 中、または cleanup quarantine 中で native operation を取得できない場合は、managed state の更新を成功させ、native への適用だけを保留する。active session が完成して `Active` になった後、保存済みの volume と mute から求めた effective volume（mute 中は `0f`）を backend へ適用する。WASAPI shared の初期 mixer gain、DirectSound の再生開始前 mixer gain、および ASIO の初期 mute もこの契約に従う。
+runtime admission が閉じている、shutdown 中、または cleanup quarantine 中で native operation を取得できない場合は、managed state の更新を成功させ、native への適用だけを保留する。active session が完成して `Active` になった後、可聴 backend では保存済みの volume と mute から求めた effective volume（mute 中は `0f`）を適用する。WASAPI shared の初期 mixer gain、DirectSound の再生開始前 mixer gain、および ASIO の初期 mute もこの契約に従う。
+
+`NullDevice` は可聴 endpoint ではなく、`BassAudioWriter` が使用するオフライン変換 graph である。そのため `IsDeviceMuted` は `NullDevice` のレンダーゲインへ適用せず、`DeviceVolume` をそのまま使用する。`NullDevice` 初期化時のレンダーゲインは既存どおり `0.4f` とし、peak／RMS normalization および normalization amplifier による `DeviceVolume` の変更も mute 状態から独立して変換結果へ反映する。`NullDevice` を初期化するために `IsDeviceMuted` を変更してはならない。
 
 ### 8. Requested、negotiated、observed の値
 

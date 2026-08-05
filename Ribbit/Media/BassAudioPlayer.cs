@@ -1786,11 +1786,23 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         MaxVoices = 0;
     }
 
-    /// <summary>Resolves the application gain that must be applied before output starts.</summary>
+    /// <summary>Resolves the effective gain for an audible backend before output starts.</summary>
     internal static float GetEffectiveDeviceVolumeForInitialization(
         float deviceVolume,
         bool isMuted) =>
         isMuted ? 0f : deviceVolume;
+
+    /// <summary>
+    /// Resolves the effective gain for a backend, keeping the offline NullDevice render gain
+    /// independent from the mute state of an audible device.
+    /// </summary>
+    internal static float GetEffectiveDeviceVolumeForBackend(
+        DeviceDriver backend,
+        float deviceVolume,
+        bool isMuted) =>
+        backend == DeviceDriver.NULL_DEVICE
+            ? deviceVolume
+            : GetEffectiveDeviceVolumeForInitialization(deviceVolume, isMuted);
 
     /// <summary>
     /// Reads the stream published by a callback-driven session and clamps native short reads
@@ -1850,7 +1862,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             }
 
             SetDeviceMasterVolume(
-                GetEffectiveDeviceVolumeForInitialization(_deviceVolume, _isDeviceMuted));
+                GetEffectiveDeviceVolumeForBackend(
+                    session.ActualBackend,
+                    _deviceVolume,
+                    _isDeviceMuted));
         }
     }
 
