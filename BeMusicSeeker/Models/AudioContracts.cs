@@ -464,7 +464,10 @@ internal sealed class AudioPlaybackInitializationResult
     /// <summary>Gets the sample format supplied by the internal mixer.</summary>
     internal SampleFormat EngineFormat { get; }
 
-    /// <summary>Gets the endpoint or callback format reported by the backend.</summary>
+    /// <summary>
+    /// Gets the endpoint format reported by the backend, or <see cref="SampleFormat.UNKNOWN"/>
+    /// when the backend did not observe the endpoint bit depth.
+    /// </summary>
     internal SampleFormat EndpointFormat { get; }
 
     /// <summary>Gets the channel count accepted by the endpoint or callback.</summary>

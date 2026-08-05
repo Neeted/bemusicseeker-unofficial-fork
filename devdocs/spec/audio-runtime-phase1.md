@@ -68,13 +68,18 @@ ASIO コールバック形式と decode mixer 形式のバイト幅を常に一�
 
 Int8、Int24、Int32 の要求は、エンジン形式として Float32 へ正規化する。変換せずにコールバックへ直接渡してはならない。要求フォーマットと交渉済みエンジンフォーマットは、結果内で別々に保持する。
 
+ASIO と WASAPI は callback-driven backend とする。両 backend の callback source は、
+static な mixer 変数ではなく、`BassAudioSession.CallbackOutputHandle` を正本とする。
+ASIO mixer は output channel の enable、join、start より前に session へ publish する。
+これにより、開始処理中に callback が発火しても、session が所有する source を読む。
+
 明示的なサンプルレートでは、要求レート、ドライバーの現在レート、重複しない標準レートの順に候補を作る。Auto では、固定の 48000 Hz ではなく、ドライバーの現在レートから開始する。受理されたレートとフォーマットを readback して、交渉結果に保存する。同梱 Bass.Net に適切な mixer 直接接続 API がない場合でも、Phase 1 では独自 P/Invoke を追加しない。
 
 ### 7. WASAPI と DirectSound の規則
 
 WASAPI の engine mixer は Float32 のままとする。engine format と endpoint format は分離する。共有モードでは、エンドポイントの mix rate と channel count、およびネイティブ既定の buffer／period を使用する。event mode が失敗した場合は、別バックエンドへ移る前に、同一バックエンド内の non-event／default-period 動作へ劣化させる。同梱 BASSWASAPI 2.4.1 では、共有モードのカスタム period を交渉しない。
 
-共有モードのアプリ音量は、BASS Float32 mixer に対する gain とする。コールバックが decode data を消費するため、この gain は再生専用の `BASS_ATTRIB_VOL` channel attribute ではなく、同梱の `BASS_FX_BFX_VOLUME` mixer effect で実装する。DirectSound も同じ mixer-effect 経路を使用する。初期 mixer gain と、セッション所有のコールバック source handle は `BASS_WASAPI_Start` より前に publish する。tempo graph を変更するときは、以前の stream を解放する前に、置換後の callback source を原子的に publish する。
+共有モードのアプリ音量は、BASS Float32 mixer に対する gain とする。コールバックが decode data を消費するため、この gain は再生専用の `BASS_ATTRIB_VOL` channel attribute ではなく、同梱の `BASS_FX_BFX_VOLUME` mixer effect で実装する。DirectSound も同じ mixer-effect 経路を使用する。初期 mixer gain と、セッション所有のコールバック source handle は `BASS_WASAPI_Start` より前に publish する。ASIO でも同じく `BASS_ASIO_ChannelEnable` より前に publish する。tempo graph を変更するときは、以前の stream を解放する前に、置換後の callback source を原子的に publish し、解放を確認できない場合は以前の source へ戻す。
 
 共有モードと排他モードの初期化には別々の managed boundary を使用する。共有モードは sample-format 引数を持たない Bass.Net overload を呼び、`BASS_WASAPI_EXCLUSIVE` および `BASS_WASAPI_AUTOFORMAT` を決して渡さない。同梱の explicit-format overload は `BASS_WASAPI_EXCLUSIVE` を注入するため、明示的な排他経路だけで使用する。共有要求に排他的な endpoint format を埋め込まず、`WASAPIPROC` と decode mixer は Float32 のままとする。
 
@@ -83,6 +88,14 @@ WASAPI の engine mixer は Float32 のままとする。engine format と endpo
 DirectSound カタログ項目では、descriptor と元のネイティブ index を対で保持する。ネイティブデバイス index 0、disabled 項目、no-sound 項目は、選択可能な可聴デバイスに含めない。既定デバイス要求では、対応している場合は device `-1` を使用し、初期化後に実際に選択されたデバイスを記録する。
 
 Phase 1 では `BASS_DEVICE_DSOUND` をハードコードせず、WPF window handle が根本原因だと仮定して `IntPtr.Zero` を変更しない。将来 BASS を更新するときは、DirectSound 経路で `BASS_DEVICE_DSOUND` を使用する必要性を評価する。
+
+DirectSound の engine format は Float32 とする。ただし、現在の DirectSound boundary は Windows endpoint の最終 bit depth を読み戻していない。したがって `EndpointFormat` は `SampleFormat.UNKNOWN` とし、内部 output stream が Float32 であることを endpoint の観測値として扱わない。`UNKNOWN` は初期化失敗、fallback、デバイス選択失敗を意味せず、endpoint format が未観測であることだけを表す。
+
+### 7.1 音量・ミュートの desired managed state
+
+`DeviceVolume` と `IsDeviceMuted` は、native session の状態ではなく、アプリケーションが保持する希望値とする。runtime、session、設定ダイアログの初期化前でも設定でき、setter は native runtime のロード、デバイス列挙、session 作成、fallback、設定永続化を開始しない。
+
+runtime admission が閉じている、shutdown 中、または cleanup quarantine 中で native operation を取得できない場合は、managed state の更新を成功させ、native への適用だけを保留する。active session が完成して `Active` になった後、保存済みの volume と mute から求めた effective volume（mute 中は `0f`）を backend へ適用する。WASAPI shared の初期 mixer gain、DirectSound の再生開始前 mixer gain、および ASIO の初期 mute もこの契約に従う。
 
 ### 8. Requested、negotiated、observed の値
 

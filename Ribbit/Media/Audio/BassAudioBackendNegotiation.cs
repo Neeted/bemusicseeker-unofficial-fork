@@ -114,7 +114,10 @@ internal sealed class BassAudioBackendResult
     /// <summary>Gets the mixer format supplied to the callback.</summary>
     internal SampleFormat EngineFormat { get; }
 
-    /// <summary>Gets the format read back from the endpoint callback channel.</summary>
+    /// <summary>
+    /// Gets the endpoint format observed by the backend, or <see cref="SampleFormat.UNKNOWN"/>
+    /// when this boundary does not read the endpoint bit depth.
+    /// </summary>
     internal SampleFormat EndpointFormat { get; }
 
     /// <summary>Gets the measured output latency in milliseconds.</summary>

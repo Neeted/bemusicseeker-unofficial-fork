@@ -180,6 +180,71 @@ public sealed class BassAsioNegotiationTests
         Assert.IsTrue(session.AsioInitialized);
         Assert.AreEqual(native.MixerHandle, session.MixerHandle);
         Assert.AreEqual(native.MixerHandle, session.OutputHandle);
+        Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
+        Assert.IsFalse(session.IsStarted);
+    }
+
+    [TestMethod]
+    public void AsioMixer_IsPublishedBeforeEnableJoinAndStart()
+    {
+        var native = new RecordingAsioBoundary();
+        var session = CreateSession();
+        native.EnableObserver = () => Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
+        native.JoinObserver = () => Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
+        native.StartObserver = () => Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
+
+        new BassAsioNegotiator(native).Initialize(
+            CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
+            session,
+            Callback);
+
+        Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
+        Assert.IsTrue(session.IsStarted);
+    }
+
+    [TestMethod]
+    public void ChannelJoinFailure_RetainsPublishedMixerOwnership()
+    {
+        var native = new RecordingAsioBoundary
+        {
+            JoinOutputResult = false,
+            AsioError = BASSError.BASS_ERROR_UNKNOWN
+        };
+        var session = CreateSession();
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassAsioNegotiator(native).Initialize(
+                CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
+                session,
+                Callback));
+
+        Assert.AreEqual("BASS_ASIO_ChannelJoin", exception.Stage);
+        Assert.AreEqual(native.MixerHandle, session.MixerHandle);
+        Assert.AreEqual(native.MixerHandle, session.OutputHandle);
+        Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
+        Assert.IsFalse(session.IsStarted);
+    }
+
+    [TestMethod]
+    public void StartFailure_RetainsPublishedMixerOwnership()
+    {
+        var native = new RecordingAsioBoundary
+        {
+            StartResult = false,
+            AsioError = BASSError.BASS_ERROR_UNKNOWN
+        };
+        var session = CreateSession();
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassAsioNegotiator(native).Initialize(
+                CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
+                session,
+                Callback));
+
+        Assert.AreEqual("BASS_ASIO_Start", exception.Stage);
+        Assert.AreEqual(native.MixerHandle, session.MixerHandle);
+        Assert.AreEqual(native.MixerHandle, session.OutputHandle);
+        Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
         Assert.IsFalse(session.IsStarted);
     }
 
@@ -234,7 +299,17 @@ public sealed class BassAsioNegotiationTests
 
         internal bool EnableOutputResult { get; set; } = true;
 
+        internal bool JoinOutputResult { get; set; } = true;
+
+        internal bool StartResult { get; set; } = true;
+
         internal BASSError AsioError { get; set; } = BASSError.BASS_ERROR_FORMAT;
+
+        internal Action? EnableObserver { get; set; }
+
+        internal Action? JoinObserver { get; set; }
+
+        internal Action? StartObserver { get; set; }
 
         public bool InitializeCore() => true;
 
@@ -292,11 +367,23 @@ public sealed class BassAsioNegotiationTests
             return MixerHandle;
         }
 
-        public bool EnableOutputChannel(ASIOPROC callback) => EnableOutputResult;
+        public bool EnableOutputChannel(ASIOPROC callback)
+        {
+            EnableObserver?.Invoke();
+            return EnableOutputResult;
+        }
 
-        public bool JoinOutputChannel(int channel) => true;
+        public bool JoinOutputChannel(int channel)
+        {
+            JoinObserver?.Invoke();
+            return JoinOutputResult;
+        }
 
-        public bool Start(int bufferLength, int threads) => true;
+        public bool Start(int bufferLength, int threads)
+        {
+            StartObserver?.Invoke();
+            return StartResult;
+        }
 
         public int GetOutputLatency() => 480;
 

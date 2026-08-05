@@ -191,7 +191,7 @@ internal sealed class BassAsioNegotiator
                 "BASS_Mixer_StreamCreate failed: " + error);
         }
         session.MixerHandle = mixerHandle;
-        session.OutputHandle = mixerHandle;
+        session.TrackOutputHandle(mixerHandle);
 
         if (!native.EnableOutputChannel(callback))
         {

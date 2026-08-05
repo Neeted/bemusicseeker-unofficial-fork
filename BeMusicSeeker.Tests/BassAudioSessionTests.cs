@@ -83,6 +83,7 @@ public sealed class BassAudioSessionTests
             OutputHandle = 101,
             IsStarted = true
         };
+        session.TrackOutputHandle(101);
         session.AdditionalStreamHandles.Add(202);
         var native = new RecordingNativeBoundary();
 
@@ -97,6 +98,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(4, native.SelectedCoreDeviceIndices.Single());
         Assert.AreEqual(2, native.Count("FreeStream"));
         Assert.AreEqual(1, native.Count("FreeCore"));
+        Assert.AreEqual(0, session.CallbackOutputHandle);
     }
 
     [TestMethod]
@@ -260,6 +262,122 @@ public sealed class BassAudioSessionTests
         Assert.IsFalse(released);
         Assert.AreEqual(101, session.CallbackOutputHandle);
         Assert.AreEqual(101, session.OutputHandle);
+    }
+
+    [TestMethod]
+    public void CallbackOutputReplacement_RestoresPreviousSourceWhenReleaseThrows()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO);
+        session.TrackOutputHandle(101);
+
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            session.TryPrepareCallbackOutputReplacement(
+                101,
+                202,
+                _ => throw new InvalidOperationException("release failed")));
+
+        Assert.AreEqual(101, session.CallbackOutputHandle);
+        Assert.AreEqual(101, session.OutputHandle);
+    }
+
+    [TestMethod]
+    public void PublishedCallbackOutputReader_UsesSessionHandleAndClampsNativeResult()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO);
+        session.TrackOutputHandle(123);
+        int observedHandle = 0;
+
+        int bytesRead = BassAudioPlayer.ReadPublishedCallbackOutput(
+            session,
+            IntPtr.Zero,
+            16,
+            (handle, _, _) =>
+            {
+                observedHandle = handle;
+                return 7;
+            });
+
+        Assert.AreEqual(123, observedHandle);
+        Assert.AreEqual(7, bytesRead);
+
+        Assert.AreEqual(
+            0,
+            BassAudioPlayer.ReadPublishedCallbackOutput(
+                session,
+                IntPtr.Zero,
+                16,
+                (_, _, _) => -1));
+    }
+
+    [TestMethod]
+    public void PublishedCallbackOutputReader_DoesNotReadWithoutSessionHandle()
+    {
+        int readCalls = 0;
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO);
+        Func<int, IntPtr, int, int> readData = (_, _, _) =>
+        {
+            readCalls++;
+            return 1;
+        };
+
+        Assert.AreEqual(0, BassAudioPlayer.ReadPublishedCallbackOutput(null, IntPtr.Zero, 16, readData));
+        Assert.AreEqual(0, BassAudioPlayer.ReadPublishedCallbackOutput(session, IntPtr.Zero, 16, readData));
+        Assert.AreEqual(0, readCalls);
+    }
+
+    [TestMethod]
+    public void AsioTempoReplacement_PublishesBeforeReleaseAndRestoresOnFailure()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO);
+        session.TrackOutputHandle(101);
+
+        bool released = BassAudioPlayer.TryReleaseTempoOutputForReset(
+            session,
+            BassAudioPlayer.DeviceDriver.ASIO,
+            101,
+            202,
+            handle =>
+            {
+                Assert.AreEqual(202, session.CallbackOutputHandle);
+                session.ConfirmStreamReleased(handle);
+                return true;
+            });
+
+        Assert.IsTrue(released);
+        Assert.AreEqual(202, session.CallbackOutputHandle);
+
+        session.TrackOutputHandle(101);
+        released = BassAudioPlayer.TryReleaseTempoOutputForReset(
+            session,
+            BassAudioPlayer.DeviceDriver.ASIO,
+            101,
+            202,
+            _ => false);
+
+        Assert.IsFalse(released);
+        Assert.AreEqual(101, session.CallbackOutputHandle);
+        Assert.AreEqual(101, session.OutputHandle);
+    }
+
+    [TestMethod]
+    public void DirectSoundTempoReplacement_ReleasesWithoutPublishingReplacement()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND);
+        session.TrackOutputHandle(101);
+
+        bool released = BassAudioPlayer.TryReleaseTempoOutputForReset(
+            session,
+            BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            101,
+            202,
+            handle =>
+            {
+                Assert.AreEqual(101, session.CallbackOutputHandle);
+                return handle == 101;
+            });
+
+        Assert.IsTrue(released);
+        Assert.AreEqual(101, session.CallbackOutputHandle);
     }
 
     [TestMethod]

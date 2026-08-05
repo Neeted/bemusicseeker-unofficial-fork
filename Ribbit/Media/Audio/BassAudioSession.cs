@@ -149,7 +149,8 @@ internal sealed class BassAudioSession
 
     /// <summary>
     /// Publishes a replacement callback source before releasing the previous stream and
-    /// restores the previous source when release cannot be confirmed.
+    /// restores the previous source when release cannot be confirmed, including when the
+    /// release delegate throws.
     /// </summary>
     internal bool TryPrepareCallbackOutputReplacement(
         int previousHandle,
@@ -158,9 +159,17 @@ internal sealed class BassAudioSession
     {
         ArgumentNullException.ThrowIfNull(releasePrevious);
         PublishCallbackOutputHandle(replacementHandle);
-        if (releasePrevious(previousHandle))
+        try
         {
-            return true;
+            if (releasePrevious(previousHandle))
+            {
+                return true;
+            }
+        }
+        catch
+        {
+            PublishCallbackOutputHandle(previousHandle);
+            throw;
         }
 
         PublishCallbackOutputHandle(previousHandle);

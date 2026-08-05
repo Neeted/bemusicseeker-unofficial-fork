@@ -93,7 +93,7 @@ internal sealed class BassDirectSoundNegotiator
         this.native = native ?? throw new ArgumentNullException(nameof(native));
     }
 
-    /// <summary>Initializes one DirectSound graph and reads back its actual endpoint and rate.</summary>
+    /// <summary>Initializes one DirectSound graph and reads back its actual device and rate.</summary>
     internal BassAudioBackendResult Initialize(
         BassAudioNegotiationRequest request,
         BassAudioSession session,
@@ -256,7 +256,7 @@ internal sealed class BassDirectSoundNegotiator
             actualDevice,
             (SampleRate)info.freq,
             SampleFormat.SAMPLE_FLOAT_32BIT,
-            SampleFormat.SAMPLE_INT_16BIT,
+            SampleFormat.UNKNOWN,
             actualLatency,
             mixerHandle,
             attempts.AsReadOnly(),

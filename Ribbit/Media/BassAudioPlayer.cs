@@ -270,12 +270,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     _prevMasterVolume = value;
                 }
-                else
-                {
-                    using BassAudioOperationLease operation =
-                        Ribbit.Media.Audio.BassNet.EnterAudioOperation();
-                    SetDeviceMasterVolume(value);
-                }
+                TryApplyEffectiveDeviceVolumeToActiveSession();
             }
         }
     }
@@ -309,16 +304,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 if (value)
                 {
                     _prevMasterVolume = DeviceVolume;
-                    using BassAudioOperationLease operation =
-                        Ribbit.Media.Audio.BassNet.EnterAudioOperation();
-                    SetDeviceMasterVolume(0f);
                 }
-                else
-                {
-                    using BassAudioOperationLease operation =
-                        Ribbit.Media.Audio.BassNet.EnterAudioOperation();
-                    SetDeviceMasterVolume(_prevMasterVolume);
-                }
+                TryApplyEffectiveDeviceVolumeToActiveSession();
             }
         }
     }
@@ -617,8 +604,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         }
                         else
                         {
-                            DeviceVolume = _deviceVolume;
                             DefaultVolume = _defaultVolume;
+                            TryApplyEffectiveDeviceVolumeToActiveSession();
                         }
                         TryLogInitializationSuccess(
                             driver,
@@ -987,38 +974,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         InstanceLocks = [];
         Locks = new NamedLocks<uint>();
         OnMemoryFileCache = [];
-        WasapiProc = delegate (IntPtr buffer, int length, IntPtr user)
-        {
-            if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
-                out BassAudioOperationLease operation))
-            {
-                return 0;
-            }
-            using (operation)
-            {
-                BassAudioSession session = SessionLifecycle.CurrentSessionForAdmittedOperation;
-                int callbackHandle = session?.CallbackOutputHandle ?? 0;
-                if (callbackHandle == 0)
-                {
-                    return 0;
-                }
-                int val = Bass.BASS_ChannelGetData(callbackHandle, buffer, length);
-                return System.Math.Max(0, val);
-            }
-        };
-        AsioProc = delegate (bool input, int channel, IntPtr buffer, int length, IntPtr user)
-        {
-            if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
-                out BassAudioOperationLease operation))
-            {
-                return 0;
-            }
-            using (operation)
-            {
-                int val = Bass.BASS_ChannelGetData(outputMixer, buffer, length);
-                return System.Math.Max(0, val);
-            }
-        };
+        WasapiProc = (buffer, length, user) => ReadCallbackOutput(buffer, length);
+        AsioProc = (input, channel, buffer, length, user) => ReadCallbackOutput(buffer, length);
         StreamProc = delegate (int handle, IntPtr buffer, int length, IntPtr user)
         {
             if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
@@ -1472,14 +1429,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             return;
         }
         int oldTempoChanger = tempoChanger;
-        bool wasapiOutput = DriverType is
-            DeviceDriver.WASAPI_SHARED or DeviceDriver.WASAPI_EXCLUSIVE;
-        bool released = wasapiOutput
-            ? CurrentSession.TryPrepareCallbackOutputReplacement(
-                oldTempoChanger,
-                inputMixer,
-                handle => TryReleaseTrackedStream(handle, "BASS_StreamFree for ResetTempoChanger"))
-            : TryReleaseTrackedStream(oldTempoChanger, "BASS_StreamFree for ResetTempoChanger");
+        bool released = TryReleaseTempoOutputForReset(
+            CurrentSession,
+            DriverType,
+            oldTempoChanger,
+            inputMixer,
+            handle => TryReleaseTrackedStream(handle, "BASS_StreamFree for ResetTempoChanger"));
         if (!released)
         {
             return;
@@ -1533,6 +1488,29 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
         TryLogAudioSessionWarning(operation + " failed: " + error);
         return false;
+    }
+
+    /// <summary>
+    /// Releases a tempo output while preserving a valid callback source for callback-driven
+    /// backends. The callback source is restored when the previous stream cannot be released.
+    /// </summary>
+    internal static bool TryReleaseTempoOutputForReset(
+        BassAudioSession session,
+        DeviceDriver backend,
+        int previousHandle,
+        int replacementHandle,
+        Func<int, bool> releasePrevious)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(releasePrevious);
+        bool callbackDrivenOutput = backend is
+            DeviceDriver.WASAPI_SHARED or DeviceDriver.WASAPI_EXCLUSIVE or DeviceDriver.ASIO;
+        return callbackDrivenOutput
+            ? session.TryPrepareCallbackOutputReplacement(
+                previousHandle,
+                replacementHandle,
+                releasePrevious)
+            : releasePrevious(previousHandle);
     }
 
     private static void TryLogAudioSessionDebug(string message)
@@ -1813,6 +1791,68 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         float deviceVolume,
         bool isMuted) =>
         isMuted ? 0f : deviceVolume;
+
+    /// <summary>
+    /// Reads the stream published by a callback-driven session and clamps native short reads
+    /// or failures to zero. A missing session or published handle produces silence.
+    /// </summary>
+    internal static int ReadPublishedCallbackOutput(
+        BassAudioSession session,
+        IntPtr buffer,
+        int length,
+        Func<int, IntPtr, int, int> readData)
+    {
+        ArgumentNullException.ThrowIfNull(readData);
+        int callbackHandle = session?.CallbackOutputHandle ?? 0;
+        if (callbackHandle == 0)
+        {
+            return 0;
+        }
+
+        return System.Math.Max(0, readData(callbackHandle, buffer, length));
+    }
+
+    private static int ReadCallbackData(int handle, IntPtr buffer, int length) =>
+        Bass.BASS_ChannelGetData(handle, buffer, length);
+
+    private static int ReadCallbackOutput(IntPtr buffer, int length)
+    {
+        if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
+            out BassAudioOperationLease operation))
+        {
+            return 0;
+        }
+
+        using (operation)
+        {
+            return ReadPublishedCallbackOutput(
+                SessionLifecycle.CurrentSessionForAdmittedOperation,
+                buffer,
+                length,
+                ReadCallbackData);
+        }
+    }
+
+    private static void TryApplyEffectiveDeviceVolumeToActiveSession()
+    {
+        if (!Ribbit.Media.Audio.BassNet.TryEnterAudioOperation(
+            out BassAudioOperationLease operation))
+        {
+            return;
+        }
+
+        using (operation)
+        {
+            BassAudioSession session = SessionLifecycle.CurrentSessionForAdmittedOperation;
+            if (session?.State != BassAudioSessionState.Active)
+            {
+                return;
+            }
+
+            SetDeviceMasterVolume(
+                GetEffectiveDeviceVolumeForInitialization(_deviceVolume, _isDeviceMuted));
+        }
+    }
 
     /// <summary>
     /// Applies WASAPI shared application volume through the mixer boundary and reports a

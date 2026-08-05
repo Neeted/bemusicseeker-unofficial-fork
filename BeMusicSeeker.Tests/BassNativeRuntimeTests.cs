@@ -117,6 +117,79 @@ public sealed class BassNativeRuntimeTests
         Assert.IsFalse(loadContextReference.IsAlive, "The collectible audio test context must unload before another WPF test resolves application resources.");
     }
 
+    [TestMethod]
+    public void PreRuntimeVolumeAndMuteChanges_UpdateManagedStateWithoutLoadingNativeRuntime()
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        try
+        {
+            RibbitBassNet.Shutdown();
+            int loadCountBefore = BassNativeRuntime.LoadInvocationCount;
+
+            BassAudioPlayer.IsDeviceMuted = false;
+            BassAudioPlayer.DeviceVolume = 0.73f;
+            BassAudioPlayer.IsDeviceMuted = true;
+
+            Assert.AreEqual(0.73f, BassAudioPlayer.DeviceVolume);
+            Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
+            Assert.AreEqual(loadCountBefore, BassNativeRuntime.LoadInvocationCount);
+        }
+        finally
+        {
+            RestoreManagedAudioState(originalVolume, originalMute);
+            RibbitBassNet.Shutdown();
+        }
+    }
+
+    [TestMethod]
+    public void MutedVolumeChange_IsRestoredWhenDeviceIsUnmutedBeforeRuntimeInitialization()
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        try
+        {
+            RibbitBassNet.Shutdown();
+            BassAudioPlayer.IsDeviceMuted = false;
+            BassAudioPlayer.DeviceVolume = 0.31f;
+            BassAudioPlayer.IsDeviceMuted = true;
+            BassAudioPlayer.DeviceVolume = 0.82f;
+
+            BassAudioPlayer.IsDeviceMuted = false;
+
+            Assert.AreEqual(0.82f, BassAudioPlayer.DeviceVolume);
+            Assert.IsFalse(BassAudioPlayer.IsDeviceMuted);
+        }
+        finally
+        {
+            RestoreManagedAudioState(originalVolume, originalMute);
+            RibbitBassNet.Shutdown();
+        }
+    }
+
+    [TestMethod]
+    public void VolumeAndMuteChangesAfterRuntimeShutdown_DoNotExposeAdmissionFailure()
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        try
+        {
+            RibbitBassNet.Initialize();
+            RibbitBassNet.Shutdown();
+
+            BassAudioPlayer.DeviceVolume = 0.62f;
+            BassAudioPlayer.IsDeviceMuted = true;
+            BassAudioPlayer.IsDeviceMuted = false;
+
+            Assert.AreEqual(0.62f, BassAudioPlayer.DeviceVolume);
+        }
+        finally
+        {
+            RestoreManagedAudioState(originalVolume, originalMute);
+            RibbitBassNet.Shutdown();
+        }
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void RunStaticInitializationInCollectibleContext(out WeakReference loadContextReference)
     {
@@ -152,6 +225,13 @@ public sealed class BassNativeRuntimeTests
             GC.WaitForPendingFinalizers();
             GC.Collect();
         }
+    }
+
+    private static void RestoreManagedAudioState(float volume, bool muted)
+    {
+        BassAudioPlayer.IsDeviceMuted = false;
+        BassAudioPlayer.DeviceVolume = volume;
+        BassAudioPlayer.IsDeviceMuted = muted;
     }
 
     [TestMethod]

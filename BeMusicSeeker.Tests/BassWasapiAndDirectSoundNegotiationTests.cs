@@ -587,6 +587,8 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         CollectionAssert.AreEqual(new[] { 7 }, native.InitializationIndices);
         Assert.AreEqual("Speakers", result.ActualDevice.Name);
         Assert.AreEqual("speaker-driver", result.ActualDevice.Driver);
+        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
+        Assert.AreEqual(SampleFormat.UNKNOWN, result.EndpointFormat);
     }
 
     [TestMethod]
@@ -631,6 +633,8 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         Assert.AreEqual(9, native.ReadbackDeviceIndices.Single());
         Assert.AreEqual("Current Default", result.ActualDevice.Name);
         Assert.AreEqual("current-default-driver", result.ActualDevice.Driver);
+        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
+        Assert.AreEqual(SampleFormat.UNKNOWN, result.EndpointFormat);
     }
 
     [TestMethod]
@@ -639,7 +643,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         var native = CreateDirectSoundBoundary();
         var session = CreateDirectSoundSession();
 
-        new BassDirectSoundNegotiator(native).Initialize(
+        BassAudioBackendResult result = new BassDirectSoundNegotiator(native).Initialize(
             CreateDirectSoundRequest(default),
             session,
             DirectSoundCallback,
@@ -658,6 +662,8 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         CollectionAssert.AreEqual(
             new[] { (789, 0.35f) },
             native.VolumeEffectCalls);
+        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
+        Assert.AreEqual(SampleFormat.UNKNOWN, result.EndpointFormat);
 
         Assert.IsTrue(
             new BassDirectSoundNegotiator(native).TrySetMixerGain(

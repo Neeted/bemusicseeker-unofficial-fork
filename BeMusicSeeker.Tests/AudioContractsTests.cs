@@ -161,6 +161,34 @@ public sealed class AudioContractsTests
     }
 
     [TestMethod]
+    public void UnknownDirectSoundEndpointFormat_DoesNotImplyFallback()
+    {
+        var result = new AudioPlaybackInitializationResult(
+            AudioDriver.DirectSound,
+            string.Empty,
+            "Default DirectSound",
+            SampleRate.AUTO,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            10,
+            false,
+            50,
+            AudioDriver.DirectSound,
+            string.Empty,
+            "Default DirectSound",
+            SampleRate.SAMPLE_RATE_48000Hz,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            SampleFormat.UNKNOWN,
+            2,
+            10,
+            null,
+            isSilentFallback: false);
+
+        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
+        Assert.AreEqual(SampleFormat.UNKNOWN, result.EndpointFormat);
+        Assert.IsFalse(result.FallbackOccurred);
+    }
+
+    [TestMethod]
     public void PlaybackRuntime_NullDeviceRequestFailsBeforeAudibleInitialization()
     {
         var runtime = new BassAudioPlaybackRuntime();
