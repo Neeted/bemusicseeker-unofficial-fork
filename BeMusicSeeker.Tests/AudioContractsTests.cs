@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using BeMusicSeeker.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
@@ -12,6 +13,47 @@ namespace BeMusicSeeker.Tests;
 public sealed class AudioContractsTests
 {
     [TestMethod]
+    public void AudioDriverPolicyExposesThreeSelectableBackendsWithoutLegacyDisplay()
+    {
+        Assert.AreEqual(0, (int)AudioDriver.DirectSound);
+        Assert.AreEqual(0, (int)BassAudioPlayer.DeviceDriver.DIRECT_SOUND);
+        CollectionAssert.AreEqual(
+            new[] { AudioDriver.WasapiShared, AudioDriver.WasapiExclusive, AudioDriver.Asio },
+            AudioDriverPolicy.SelectableDrivers.ToArray());
+        Assert.AreEqual(AudioDriver.WasapiShared, AudioDriverPolicy.DefaultDriver);
+        Assert.AreEqual(
+            "WASAPI (" + BeMusicSeeker.Properties.Resources.Shared + ")",
+            AudioDriverDisplayNames.Get(AudioDriver.DirectSound));
+        var legacyDisplayName = AudioDriverDisplayNames.Get(AudioDriver.DirectSound);
+        Assert.IsFalse(legacyDisplayName.Contains("BASS", System.StringComparison.Ordinal));
+        Assert.IsFalse(legacyDisplayName.Contains("DirectSound", System.StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void AudioDriverPolicy_NormalizesOnlyLegacyDirectSound()
+    {
+        AudioOutputSelection normalized = AudioDriverPolicy.NormalizePersistedSelection(
+            new AudioOutputSelection(AudioDriver.DirectSound, "legacy-id", "Legacy name"));
+
+        Assert.AreEqual(AudioDriver.WasapiShared, normalized.Backend);
+        Assert.IsTrue(normalized.IsDefault);
+        Assert.IsNull(normalized.DeviceIdentity);
+        Assert.IsNull(normalized.DeviceName);
+
+        AudioOutputSelection unknown = new((AudioDriver)47, "unknown-id", "Unknown name");
+        AudioOutputSelection invalid = new(AudioDriver.Invalid, "invalid-id", "Invalid name");
+        AudioOutputSelection nullDevice = new(AudioDriver.NullDevice, "null-id", "Null name");
+        Assert.AreEqual(unknown, AudioDriverPolicy.NormalizePersistedSelection(unknown));
+        Assert.AreEqual(invalid, AudioDriverPolicy.NormalizePersistedSelection(invalid));
+        Assert.AreEqual(nullDevice, AudioDriverPolicy.NormalizePersistedSelection(nullDevice));
+
+        Assert.AreEqual(0, AudioDriverPolicy.IndexOf(AudioDriver.WasapiShared));
+        Assert.AreEqual(1, AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive));
+        Assert.AreEqual(2, AudioDriverPolicy.IndexOf(AudioDriver.Asio));
+        Assert.AreEqual(-1, AudioDriverPolicy.IndexOf(AudioDriver.DirectSound));
+    }
+
+    [TestMethod]
     public void SettingsAudioGateway_PreservesKnownAndUnknownPersistedValues()
     {
         BeMusicSeeker.Properties.Settings settings = BeMusicSeeker.Properties.Settings.Default;
@@ -22,13 +64,22 @@ public sealed class AudioContractsTests
         var originalEncoder = settings.Encoder;
         try
         {
+            settings.PlayerDriver = Ribbit.Media.BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
+            settings.PlayerDevice = "legacy-device";
+            settings.PlayerDeviceName = "Legacy Device";
+            SettingsAudioGateway gateway = new(() => settings);
+
+            AudioOutputSelection selection = gateway.CaptureOutputSelection();
+            Assert.AreEqual(AudioDriver.WasapiShared, selection.Backend);
+            Assert.IsTrue(selection.IsDefault);
+            Assert.AreEqual(Ribbit.Media.BassAudioPlayer.DeviceDriver.DIRECT_SOUND, settings.PlayerDriver);
+
             settings.PlayerDriver = (Ribbit.Media.BassAudioPlayer.DeviceDriver)47;
             settings.PlayerDevice = "persisted-device";
             settings.PlayerDeviceName = "Persisted Device";
             settings.EncoderNormalization = (Ribbit.BMS.BMSAutoPlayWriter.Normalization)53;
-            SettingsAudioGateway gateway = new(() => settings);
 
-            AudioOutputSelection selection = gateway.CaptureOutputSelection();
+            selection = gateway.CaptureOutputSelection();
             Assert.AreEqual((AudioDriver)47, selection.Backend);
             Assert.AreEqual("persisted-device", selection.DeviceIdentity);
             Assert.AreEqual("Persisted Device", selection.DeviceName);
@@ -161,20 +212,20 @@ public sealed class AudioContractsTests
     }
 
     [TestMethod]
-    public void UnknownDirectSoundEndpointFormat_DoesNotImplyFallback()
+    public void UnknownWasapiEndpointFormat_DoesNotImplyFallback()
     {
         var result = new AudioPlaybackInitializationResult(
-            AudioDriver.DirectSound,
+            AudioDriver.WasapiShared,
             string.Empty,
-            "Default DirectSound",
+            "Default WASAPI",
             SampleRate.AUTO,
             SampleFormat.SAMPLE_FLOAT_32BIT,
             10,
             false,
             50,
-            AudioDriver.DirectSound,
+            AudioDriver.WasapiShared,
             string.Empty,
-            "Default DirectSound",
+            "Default WASAPI",
             SampleRate.SAMPLE_RATE_48000Hz,
             SampleFormat.SAMPLE_FLOAT_32BIT,
             SampleFormat.UNKNOWN,

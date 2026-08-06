@@ -295,32 +295,6 @@ internal sealed class editableTextBlockWidthConverter : IValueConverter
     }
 }
 
-internal sealed class playerDriverSelectionEnabledConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-    {
-        return value is int driverIndex ? driverIndex != 0 && driverIndex != 1 : DependencyProperty.UnsetValue;
-    }
-
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-    {
-        return Binding.DoNothing;
-    }
-}
-
-internal sealed class wasapiDriverSelectionEnabledConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-    {
-        return value is int driverIndex ? driverIndex == 1 || driverIndex == 2 : DependencyProperty.UnsetValue;
-    }
-
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-    {
-        return Binding.DoNothing;
-    }
-}
-
 internal sealed class encoderDriverSelectionEnabledConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -331,24 +305,6 @@ internal sealed class encoderDriverSelectionEnabledConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
     {
         return Binding.DoNothing;
-    }
-}
-
-internal sealed class wasapiControlEnabledConverter : IMultiValueConverter
-{
-    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
-    {
-        if (values.Length != 2 || values[0] is not int driverIndex || values[1] is not bool lowLatency)
-        {
-            return DependencyProperty.UnsetValue;
-        }
-
-        return !(driverIndex == 1 && lowLatency);
-    }
-
-    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
-    {
-        throw new NotSupportedException();
     }
 }
 

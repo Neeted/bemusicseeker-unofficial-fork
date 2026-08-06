@@ -880,5 +880,15 @@
   "AudioDeviceTestStreamFailureFormat": "设备初始化成功，但无法确认测试音频的播放进度。选择：{0}；实际：{1}；原因：{2}",
   "AudioDeviceTestStreamProgressFailureReason": "播放位置未按正常速度推进。",
   "AudioDeviceTestFallbackReason": "所选配置不可用，因此已切换到可用配置。",
-  "AudioDeviceTestInitializationErrorFormat": "音频初始化失败。\n选择的后端：{0}\n失败的后端：{1}\n阶段：{2}\n本机错误：{3} ({4})\n选择的设备：{5}\n实际设备：{6}"
+  "AudioDeviceTestInitializationErrorFormat": "音频初始化失败。\n选择的后端：{0}\n失败的后端：{1}\n阶段：{2}\n本机错误：{3} ({4})\n选择的设备：{5}\n实际设备：{6}",
+  "AudioDeviceTestTestSoundUnavailableReason": "无法使用配置的测试音频文件。",
+  "AudioDeviceTestPlayerCreationFailureReason": "无法创建测试音频播放器。",
+  "AudioDeviceTestPlayerCreationFailureReasonFormat": "无法创建测试音频播放器。阶段：{0}；本机错误：{1} ({2})",
+  "AudioDeviceTestInvalidDurationReason": "测试音频报告的时长无效。",
+  "AudioDeviceTestPlaybackStartFailureReasonFormat": "启动测试音频失败。阶段：{0}；本机错误：{1} ({2})",
+  "AudioDeviceTestPlaybackPositionFailureReason": "测试音频的播放位置发生倒退。",
+  "AudioDeviceTestPlaybackStoppedEarlyReason": "测试音频在完成前停止。",
+  "AudioDeviceTestRateFailureReason": "测试音频的播放速率超出允许范围。",
+  "AudioDeviceTestObservationTimeoutReason": "测试音频在观测超时前未完成。",
+  "AudioDeviceTestUnexpectedFailureReason": "播放测试音频时发生意外错误。"
 }

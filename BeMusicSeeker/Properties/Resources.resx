@@ -3061,4 +3061,34 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="AudioDeviceTestInitializationErrorFormat" xml:space="preserve">
     <value>オーディオの初期化に失敗しました。&#xA;選択したバックエンド: {0}&#xA;失敗したバックエンド: {1}&#xA;ステージ: {2}&#xA;ネイティブエラー: {3} ({4})&#xA;選択したデバイス: {5}&#xA;実際のデバイス: {6}</value>
   </data>
+  <data name="AudioDeviceTestTestSoundUnavailableReason" xml:space="preserve">
+    <value>テスト音声ファイルを利用できません。</value>
+  </data>
+  <data name="AudioDeviceTestPlayerCreationFailureReason" xml:space="preserve">
+    <value>テスト音声のプレイヤーを作成できませんでした。</value>
+  </data>
+  <data name="AudioDeviceTestPlayerCreationFailureReasonFormat" xml:space="preserve">
+    <value>テスト音声のプレイヤーを作成できませんでした。ステージ: {0}、ネイティブエラー: {1} ({2})</value>
+  </data>
+  <data name="AudioDeviceTestInvalidDurationReason" xml:space="preserve">
+    <value>テスト音声の長さが不正です。</value>
+  </data>
+  <data name="AudioDeviceTestPlaybackStartFailureReasonFormat" xml:space="preserve">
+    <value>テスト音声の再生開始に失敗しました。ステージ: {0}、ネイティブエラー: {1} ({2})</value>
+  </data>
+  <data name="AudioDeviceTestPlaybackPositionFailureReason" xml:space="preserve">
+    <value>テスト音声の再生位置が逆行しました。</value>
+  </data>
+  <data name="AudioDeviceTestPlaybackStoppedEarlyReason" xml:space="preserve">
+    <value>テスト音声が完了前に停止しました。</value>
+  </data>
+  <data name="AudioDeviceTestRateFailureReason" xml:space="preserve">
+    <value>テスト音声の再生速度が許容範囲外でした。</value>
+  </data>
+  <data name="AudioDeviceTestObservationTimeoutReason" xml:space="preserve">
+    <value>テスト音声の再生完了を確認できないままタイムアウトしました。</value>
+  </data>
+  <data name="AudioDeviceTestUnexpectedFailureReason" xml:space="preserve">
+    <value>テスト音声の再生中に予期しないエラーが発生しました。</value>
+  </data>
 </root>

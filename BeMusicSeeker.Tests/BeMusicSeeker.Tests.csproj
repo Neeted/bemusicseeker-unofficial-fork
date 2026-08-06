@@ -16,9 +16,7 @@
     <PackageReference Include="MSTest.TestFramework" />
     <PackageReference Include="sqlite-net-pcl" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
-    <Reference Include="Bass.Net">
-      <HintPath>..\libs\Bass.Net.dll</HintPath>
-    </Reference>
+    <PackageReference Include="Un4seen.Bass" />
   </ItemGroup>
 
   <ItemGroup>

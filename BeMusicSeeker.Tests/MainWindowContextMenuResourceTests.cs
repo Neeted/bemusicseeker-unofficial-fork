@@ -2518,7 +2518,7 @@ public sealed class MainWindowContextMenuResourceTests
         string playerDriverProperty = ExtractBetween(
             viewModelCode,
             "public int PlayerDriverIndex",
-            "private static bool IsAudiblePlayerDriver");
+            "private void RaisePlayerDriverStateProperties");
         string playerDriverGetter = ExtractBetween(
             playerDriverProperty,
             "get",
@@ -2566,6 +2566,9 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(xaml, "IsChecked=\"{Binding UseInternalPlayer}\"");
         StringAssert.Contains(xaml, "SelectedItem=\"{Binding SelectedPlayerDevice, Mode=TwoWay}\"");
+        StringAssert.Contains(xaml, "IsEnabled=\"{Binding IsPlayerFormatSelectionEnabled}\"");
+        StringAssert.Contains(xaml, "IsEnabled=\"{Binding IsPlayerWasapiDriver}\"");
+        StringAssert.Contains(xaml, "Path=\"IsPlayerBufferControlEnabled\"");
         Assert.IsFalse(xaml.Contains("SelectedValuePath=\"Driver\" DisplayMemberPath=\"FriendlyName\""));
         StringAssert.Contains(xaml, "IsEnabled=\"{Binding IsAudioDeviceTestAvailable, Mode=OneWay}\"");
         StringAssert.Contains(xaml, "Text=\"{Binding AudioDeviceTestStatusMessage, Mode=OneWay}\"");
@@ -5344,7 +5347,8 @@ public sealed class MainWindowContextMenuResourceTests
         string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
 
         Assert.IsFalse(settingDialogXaml.Contains("QuickConverter", StringComparison.Ordinal));
-        StringAssert.Contains(settingDialogXaml, "x:Key=\"wasapiControlEnabledConverter\"");
+        Assert.IsFalse(settingDialogXaml.Contains("wasapiControlEnabledConverter", StringComparison.Ordinal));
+        StringAssert.Contains(settingDialogXaml, "IsPlayerBufferControlEnabled");
         StringAssert.Contains(settingDialogXaml, "Lr2_song_db_sync_data_resync");
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\"");
         Assert.IsFalse(settingDialogXaml.Contains("checkBoxEnableLr2SongDbFullGeneration"));

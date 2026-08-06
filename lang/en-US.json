@@ -880,5 +880,15 @@
   "AudioDeviceTestStreamFailureFormat": "Device initialization succeeded, but test-sound stream progress could not be verified. Selected: {0}; actual: {1}; reason: {2}",
   "AudioDeviceTestStreamProgressFailureReason": "The playback position did not advance at a normal rate.",
   "AudioDeviceTestFallbackReason": "The selected configuration was unavailable, so an available configuration was used.",
-  "AudioDeviceTestInitializationErrorFormat": "Audio initialization failed.\nSelected backend: {0}\nFailed backend: {1}\nStage: {2}\nNative error: {3} ({4})\nSelected device: {5}\nActual device: {6}"
+  "AudioDeviceTestInitializationErrorFormat": "Audio initialization failed.\nSelected backend: {0}\nFailed backend: {1}\nStage: {2}\nNative error: {3} ({4})\nSelected device: {5}\nActual device: {6}",
+  "AudioDeviceTestTestSoundUnavailableReason": "The configured test-sound file is unavailable.",
+  "AudioDeviceTestPlayerCreationFailureReason": "The test-sound player could not be created.",
+  "AudioDeviceTestPlayerCreationFailureReasonFormat": "The test-sound player could not be created. Stage: {0}; native error: {1} ({2})",
+  "AudioDeviceTestInvalidDurationReason": "The test sound reported an invalid duration.",
+  "AudioDeviceTestPlaybackStartFailureReasonFormat": "Starting the test sound failed. Stage: {0}; native error: {1} ({2})",
+  "AudioDeviceTestPlaybackPositionFailureReason": "The test-sound playback position moved backwards.",
+  "AudioDeviceTestPlaybackStoppedEarlyReason": "The test sound stopped before completion.",
+  "AudioDeviceTestRateFailureReason": "The test-sound playback rate was outside the accepted range.",
+  "AudioDeviceTestObservationTimeoutReason": "The test sound did not complete before observation timed out.",
+  "AudioDeviceTestUnexpectedFailureReason": "An unexpected error occurred while playing the test sound."
 }

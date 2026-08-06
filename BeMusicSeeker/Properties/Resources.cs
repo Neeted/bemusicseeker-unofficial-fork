@@ -1964,6 +1964,26 @@ public class Resources
 
     public static string AudioDeviceTestInitializationErrorFormat => ResourceManager.GetString("AudioDeviceTestInitializationErrorFormat", resourceCulture);
 
+    public static string AudioDeviceTestTestSoundUnavailableReason => ResourceManager.GetString("AudioDeviceTestTestSoundUnavailableReason", resourceCulture);
+
+    public static string AudioDeviceTestPlayerCreationFailureReason => ResourceManager.GetString("AudioDeviceTestPlayerCreationFailureReason", resourceCulture);
+
+    public static string AudioDeviceTestPlayerCreationFailureReasonFormat => ResourceManager.GetString("AudioDeviceTestPlayerCreationFailureReasonFormat", resourceCulture);
+
+    public static string AudioDeviceTestInvalidDurationReason => ResourceManager.GetString("AudioDeviceTestInvalidDurationReason", resourceCulture);
+
+    public static string AudioDeviceTestPlaybackStartFailureReasonFormat => ResourceManager.GetString("AudioDeviceTestPlaybackStartFailureReasonFormat", resourceCulture);
+
+    public static string AudioDeviceTestPlaybackPositionFailureReason => ResourceManager.GetString("AudioDeviceTestPlaybackPositionFailureReason", resourceCulture);
+
+    public static string AudioDeviceTestPlaybackStoppedEarlyReason => ResourceManager.GetString("AudioDeviceTestPlaybackStoppedEarlyReason", resourceCulture);
+
+    public static string AudioDeviceTestRateFailureReason => ResourceManager.GetString("AudioDeviceTestRateFailureReason", resourceCulture);
+
+    public static string AudioDeviceTestObservationTimeoutReason => ResourceManager.GetString("AudioDeviceTestObservationTimeoutReason", resourceCulture);
+
+    public static string AudioDeviceTestUnexpectedFailureReason => ResourceManager.GetString("AudioDeviceTestUnexpectedFailureReason", resourceCulture);
+
     internal Resources()
     {
     }

@@ -7,9 +7,9 @@
 
 ## 背景
 
-BeMusicSeeker は、再生およびオフライン音声変換のために、同梱の Bass.Net と、BASS、BASSWASAPI、BASSASIO、BASSmix、BASSenc、BASS_FX の各ネイティブライブラリを使用する。既存コードはデコンパイル由来であり、ネイティブランタイムのロード、デバイス列挙、バックエンド交渉、再生状態、設定の永続化、クリーンアップが static 状態に混在していた。
+BeMusicSeeker は、再生およびオフライン音声変換のために、NuGet の `Un4seen.Bass` 2.4.18.2 と、BASS、BASSWASAPI、BASSASIO、BASSmix、BASSenc、BASS_FX の各 x64 ネイティブライブラリを使用する。既存コードはデコンパイル由来であり、ネイティブランタイムのロード、デバイス列挙、バックエンド交渉、再生状態、設定の永続化、クリーンアップが static 状態に混在していた。
 
-Phase 1 では、Bass.Net、各ネイティブ DLL、対応バージョン定数、ハッシュを変更せずに、これらの挙動を安定化する。マネージド／ネイティブ BASS 一式の更新は Phase 2 とし、必ず別の変更として扱う。
+Phase 1 の現行依存関係セットは、managed package と6つの native DLLを一つの互換セットとして固定する。版、GetVersion、archive／DLL hash、選択した archive member、出力境界は `bass-runtime-dependency-set.md` を正本とする。登録情報、ライセンス本文、third-party notice はこの仕様へ複製しない。
 
 ## 決定事項
 
@@ -18,17 +18,25 @@ Phase 1 では、Bass.Net、各ネイティブ DLL、対応バージョン定数
 Phase 1 は、依存関係の順序に従って実装・レビューする。
 
 1. ランタイム、セッション所有権、操作ゲート、クリーンアップ。
-2. ASIO、WASAPI、DirectSound の交渉。
+2. ASIO と WASAPI の交渉、および NullDevice のオフライン変換境界。
 3. 再生／デバイステストにおける requested、negotiated、observed の契約。
 4. デバイスカタログ、設定 UI、多言語化。
 
 各単位は、次の単位をコミットする前に、その単位の所有権と失敗契約を完結させなければならない。最終統合検証は、単位ごとのレビューを代替しない。
+
+### 1.1 現行依存関係と出力境界
+
+`Un4seen.Bass` は中央 package version と各プロジェクトの lock file で管理する。通常の framework-dependent build では package が `Bass.Net.dll` をアプリケーション出力ルートへ供給し、native DLL は `libs/x64` に配置する。single-file publish では standalone の `Bass.Net.dll` を別配置せず、native DLLだけを既存の `libs/x64` publish 境界へコピーする。
+
+native DLL は `vendor/native/x64` の6ファイルを一式として所有し、アプリケーションの load／publish path も `libs/x64` に限定する。各ファイルは AMD64 PE と component-specific GetVersion を検証し、いずれかの検証またはコピーが失敗した場合は6ファイル全体を rollback unit として扱う。詳細な provenance は `devdocs/spec/bass-runtime-dependency-set.md` を参照する。
 
 ### 2. 永続的なネイティブセッション所有者を一つにする
 
 音声ライフサイクルマネージャーは、最初のネイティブリソース取得成功からクリーンアップ確認まで、ネイティブ音声セッションを永続的に所有する唯一の主体とする。再生、デバイステスト、変換、設定の各コンシューマーは、immutable なセッショントークンまたは結果を保持してよいが、それぞれが独立したクリーンアップ保留状態を保持してはならない。
 
 ライフサイクルマネージャーは initialize と free を直列化し、セッションが active または隔離状態にある間の再入を拒否し、解放確認できていない所有権を後続のクリーンアップ再試行用に保持する。ランタイム終了時は、まず操作ゲートを閉じ、実行中の操作完了を待ち、セッションのクリーンアップを要求し、所有権が解消された後にだけネイティブモジュールをアンロードする。
+
+`BassNet.Initialize` は、native DLL の load、既存の BASS.NET registration、component version validation の順に実行する。registration 前に BASS.NET wrapper API を呼び出してはならない。各段階の失敗は `NLogWrapper` を通して stage、component、native error source／code、runtime load 状態を記録し、native handle の解放に失敗しても最初の初期化例外を主例外として保持する。core の process-wide default-device 設定をこの bootstrap で変更・readbackして endpoint を合成してはならない。デバイス列挙および `BASS_Init` は各選択 backend の native boundary に限定する。
 
 ### 3. クリーンアップと主例外
 
@@ -46,16 +54,21 @@ Phase 1 は、依存関係の順序に従って実装・レビューする。
 
 永続化済みの旧 `NullDevice` 値を暗黙に書き換えない。設定 UI では、ユーザーが可聴バックエンドを選択するまで、利用不能な保存済みバックエンドとして表示する。通常再生またはデバイステストでこの旧値が要求された場合、ネイティブ初期化前に失敗させる。
 
-### 5. 決定的なフォールバックマトリクス
+### 5. 選択可能 backend と決定的なフォールバックマトリクス
+
+新規の可聴出力として選択できる backend は、WASAPI shared、WASAPI exclusive、ASIO の三つだけとする。表示順および新規設定の既定値は WASAPI shared、WASAPI exclusive、ASIO の順であり、既存の enum numeric value は変更しない。`DirectSound = 0` は旧設定を読むためだけの legacy identifier で、設定 UI、カタログ、再生、デバイステスト、fallback の候補に含めない。`NullDevice = -1` は `BassAudioWriter` のオフライン変換専用である。
+
+旧 `DirectSound` の設定を読み込んだ場合だけ、backend を WASAPI shared、endpoint を Default（identity と name は空）へ正規化する。endpoint name の一致によって旧 DirectSound 設定を移行してはならない。未知値、`INVALID`、`NullDevice` は暗黙に書き換えず、利用不能な保存値または専用経路として既存の意味を保持する。gateway、player snapshot、デバイステスト request はこの正規化境界を共有し、通常の設定保存時には正規化済みの三つ組を保存する。設定ダイアログを開いただけでは保存しない。
+
+デバイスカタログは BASSWASAPI と BASSASIO の endpoint enumeration だけを使用し、BASS core の DirectSound／既定デバイス列挙を行わない。カタログには三つの選択可能 backend の Default placeholder と、その backend が返した endpoint だけを公開する。UI の backend index は enum の数値 cast ではなく、上記の typed policy list として扱う。
 
 別バックエンドへ移る前に、同一バックエンド内の劣化候補を必ずすべて試す。バックエンド固有のデバイス ID を別バックエンドへ流用しない。バックエンドをまたぐ試行では、移動先バックエンドの既定エンドポイントから開始する。
 
-- ASIO: 要求された／既定の ASIO デバイス、決定的なサンプルレート候補、Float32、次に Int16。その後、WASAPI 排他、WASAPI 共有、DirectSound。
-- WASAPI 排他: 要求された event／period、要求 period の non-event、既定 period の non-event。その後、WASAPI 共有、DirectSound。
-- WASAPI 共有: event mode が要求された場合はネイティブ既定 buffer／period の event mode、次にネイティブ既定 buffer／period の non-event mode。その後、DirectSound。
-- DirectSound: 要求デバイス、次にバックエンド既定デバイス。それでも失敗した場合は終了する。
+- ASIO: 要求された／既定の ASIO デバイス、決定的なサンプルレート候補、Float32、次に Int16。その後、WASAPI 排他、WASAPI 共有。
+- WASAPI 排他: 要求された event／period、要求 period の non-event、既定 period の non-event。その後、WASAPI 共有。
+- WASAPI 共有: event mode が要求された場合はネイティブ既定 buffer／period の event mode、次にネイティブ既定 buffer／period の non-event mode。それでも失敗した場合は終了する。
 
-WASAPI 共有では、空でないエンドポイント ID を正本とする。表示名が変わっても同じエンドポイントを失わず、古い ID が同名の別エンドポイントを選択することもない。ID を持たない旧形式の WASAPI 共有設定に限り、互換名一致を使用してよい。WASAPI 排他、ASIO、DirectSound は、バックエンド既定を試す前に、従来互換の名前一致移行を維持する。フォールバック理由には、ID 消失、mode／period の劣化、format／rate の正規化、ネイティブエラーの source／code、バックエンドをまたいだ移動先を記録する。
+WASAPI 共有では、空でないエンドポイント ID を正本とする。表示名が変わっても同じエンドポイントを失わず、古い ID が同名の別エンドポイントを選択することもない。ID を持たない旧形式の WASAPI 共有設定に限り、互換名一致を使用してよい。WASAPI 排他と ASIO は、バックエンド既定を試す前に、従来互換の名前一致移行を維持する。別 backend への試行では移動先の device identity を流用せず、移動先の Default endpoint から開始する。フォールバック理由には、ID 消失、mode／period の劣化、format／rate の正規化、ネイティブエラーの source／code、バックエンドをまたいだ移動先を記録する。
 
 どのマトリクスも `NullDevice` で終了しない。
 
@@ -75,27 +88,25 @@ ASIO mixer は output channel の enable、join、start より前に session へ
 
 明示的なサンプルレートでは、要求レート、ドライバーの現在レート、重複しない標準レートの順に候補を作る。Auto では、固定の 48000 Hz ではなく、ドライバーの現在レートから開始する。受理されたレートとフォーマットを readback して、交渉結果に保存する。同梱 Bass.Net に適切な mixer 直接接続 API がない場合でも、Phase 1 では独自 P/Invoke を追加しない。
 
-### 7. WASAPI と DirectSound の規則
+### 7. WASAPI の規則と endpoint format の境界
 
-WASAPI の engine mixer は Float32 のままとする。engine format と endpoint format は分離する。共有モードでは、エンドポイントの mix rate と channel count、およびネイティブ既定の buffer／period を使用する。event mode が失敗した場合は、別バックエンドへ移る前に、同一バックエンド内の non-event／default-period 動作へ劣化させる。同梱 BASSWASAPI 2.4.1 では、共有モードのカスタム period を交渉しない。
+WASAPI の engine mixer は Float32 のままとする。engine format と endpoint format は分離する。共有モードでは、エンドポイントの mix rate と channel count、およびネイティブ既定の buffer／period を使用する。event mode が失敗した場合は、別バックエンドへ移る前に、同一バックエンド内の non-event／default-period 動作へ劣化させる。BASSWASAPI 2.4.4.1 では、共有モードのカスタム period を交渉しない。
 
-共有モードのアプリ音量は、BASS Float32 mixer に対する gain とする。コールバックが decode data を消費するため、この gain は再生専用の `BASS_ATTRIB_VOL` channel attribute ではなく、同梱の `BASS_FX_BFX_VOLUME` mixer effect で実装する。DirectSound も同じ mixer-effect 経路を使用する。初期 mixer gain と、セッション所有のコールバック source handle は `BASS_WASAPI_Start` より前に publish する。ASIO でも同じく `BASS_ASIO_ChannelEnable` より前に publish する。tempo graph を変更するときは、以前の stream を解放する前に、置換後の callback source を原子的に publish し、解放を確認できない場合は以前の source へ戻す。
+共有モードのアプリ音量は、BASS Float32 mixer に対する gain とする。コールバックが decode data を消費するため、この gain は再生専用の `BASS_ATTRIB_VOL` channel attribute ではなく、同梱の `BASS_FX_BFX_VOLUME` mixer effect で実装する。初期 mixer gain と、セッション所有のコールバック source handle は `BASS_WASAPI_Start` より前に publish する。ASIO でも同じく `BASS_ASIO_ChannelEnable` より前に publish する。tempo graph を変更するときは、以前の stream を解放する前に、置換後の callback source を原子的に publish し、解放を確認できない場合は以前の source へ戻す。WASAPI と ASIO の callback は static mixer 変数を読まず、`BassAudioSession.CallbackOutputHandle` だけを読む。
 
 共有モードと排他モードの初期化には別々の managed boundary を使用する。共有モードは sample-format 引数を持たない Bass.Net overload を呼び、`BASS_WASAPI_EXCLUSIVE` および `BASS_WASAPI_AUTOFORMAT` を決して渡さない。同梱の explicit-format overload は `BASS_WASAPI_EXCLUSIVE` を注入するため、明示的な排他経路だけで使用する。共有要求に排他的な endpoint format を埋め込まず、`WASAPIPROC` と decode mixer は Float32 のままとする。
 
 正しい共有ストリームでは、Windows が共有セッションの音量とミュートを所有し、自動的に適用する。初期化処理はこれらの値を読み取って書き戻さない。動的なアプリ音量は mixer のみに適用し、Windows のアプリ別音量スカラーおよびミュートと合成される。排他モードは、この Windows セッション制御契約の対象外である。
 
-DirectSound カタログ項目では、descriptor と元のネイティブ index を対で保持する。ネイティブデバイス index 0、disabled 項目、no-sound 項目は、選択可能な可聴デバイスに含めない。既定デバイス要求では、対応している場合は device `-1` を使用し、初期化後に実際に選択されたデバイスを記録する。
+設定の backend dropdown、デバイステスト結果、初期化／fallback diagnostics は、numeric value と永続化値を変更せず、旧 `DirectSound` の表示も WASAPI shared として扱う。新しい表示順は WASAPI shared、WASAPI exclusive、ASIO であり、BASS core または DirectSound の名称を選択肢として公開しない。
 
-Phase 1 では `BASS_DEVICE_DSOUND` をハードコードせず、WPF window handle が根本原因だと仮定して `IntPtr.Zero` を変更しない。将来 BASS を更新するときは、DirectSound 経路で `BASS_DEVICE_DSOUND` を使用する必要性を評価する。
-
-DirectSound の engine format は Float32 とする。ただし、現在の DirectSound boundary は Windows endpoint の最終 bit depth を読み戻していない。したがって `EndpointFormat` は `SampleFormat.UNKNOWN` とし、内部 output stream が Float32 であることを endpoint の観測値として扱わない。`UNKNOWN` は初期化失敗、fallback、デバイス選択失敗を意味せず、endpoint format が未観測であることだけを表す。
+現行の DirectSound negotiator は legacy source として残り得るが、production の selectable backend、catalog、playback、device test、fallback からは到達しない。DirectSound の旧 boundary を個別に観測する場合、その internal engine format は Float32、Windows endpoint bit depth は未観測のため `EndpointFormat = SampleFormat.UNKNOWN` とする。`UNKNOWN` は初期化失敗、fallback、デバイス選択失敗を意味せず、endpoint format が未観測であることだけを表す。現行の可聴 playback result では WASAPI または ASIO が報告する endpoint／callback format を使用する。
 
 ### 7.1 音量・ミュートの desired managed state
 
 `DeviceVolume` と `IsDeviceMuted` は、native session の状態ではなく、アプリケーションが保持する希望値とする。runtime、session、設定ダイアログの初期化前でも設定でき、setter は native runtime のロード、デバイス列挙、session 作成、fallback、設定永続化を開始しない。
 
-runtime admission が閉じている、shutdown 中、または cleanup quarantine 中で native operation を取得できない場合は、managed state の更新を成功させ、native への適用だけを保留する。active session が完成して `Active` になった後、可聴 backend では保存済みの volume と mute から求めた effective volume（mute 中は `0f`）を適用する。WASAPI shared の初期 mixer gain、DirectSound の再生開始前 mixer gain、および ASIO の初期 mute もこの契約に従う。
+runtime admission が閉じている、shutdown 中、または cleanup quarantine 中で native operation を取得できない場合は、managed state の更新を成功させ、native への適用だけを保留する。active session が完成して `Active` になった後、WASAPI shared／exclusive と ASIO では保存済みの volume と mute から求めた effective volume（mute 中は `0f`）を適用する。WASAPI shared の初期 mixer gain、WASAPI exclusive の volume effect、ASIO の初期 mute もこの契約に従う。setter は native runtime の load、デバイス列挙、session 作成、fallback、設定永続化を開始しない。
 
 `NullDevice` は可聴 endpoint ではなく、`BassAudioWriter` が使用するオフライン変換 graph である。そのため `IsDeviceMuted` は `NullDevice` のレンダーゲインへ適用せず、`DeviceVolume` をそのまま使用する。`NullDevice` 初期化時のレンダーゲインは既存どおり `0.4f` とし、peak／RMS normalization および normalization amplifier による `DeviceVolume` の変更も mute 状態から独立して変換結果へ反映する。`NullDevice` を初期化するために `IsDeviceMuted` を変更してはならない。
 
@@ -129,36 +140,51 @@ runtime admission が閉じている、shutdown 中、または cleanup quaranti
 
 停止したストリームを自然終了とみなすのは、playback position が報告済み duration に到達している場合だけとする。テスト音源がない、進行しない、逆行する、比率が範囲外、早期終了する、自然終了へ到達しない、例外が発生する、のいずれかでテストを失敗させ、設定変更を行わない。結果は、物理的に音が聞こえたとは主張しない。デバイス初期化とストリーム進行を独立して報告する。
 
+### 10.1 曲再生の mixer source ownership
+
+曲の source がどの mixer に接続されているかは、`BASS_Mixer_ChannelGetMixer` の戻り値を正本として判定する。`BASS_Mixer_ChannelIsActive` は mixer 所属の判定に使用しない。未接続 source は `BASS_MIXER_CHAN_PAUSE` を指定して owning session の `MixerHandle` へ一度だけ追加し、追加後に `ChannelGetMixer` で所属を確認する。`BASS_ERROR_ALREADY` は再確認で期待 mixer が観測できた場合だけ benign race として受理し、それ以外の native error は型付き playback failure とする。
+
+再生と一時停止は `BASS_Mixer_ChannelFlags` で pause flag を除去／設定して行い、managed `PlayState` は native 操作が成功した後にだけ変更する。source 作成前に admitted active session の core device context を選択し、その session の mixer 以外へ勝手に移動または remove してはならない。attach／detach が native readback で確認できた遷移だけを対象に、`CurrentVoices` を各一回増減させる。Play の attach 後の resume 失敗では、確認できた remove の後だけ voice count を戻し、元の failure を rollback failure で置き換えない。
+
+自然終了 callback は session が所有する stream owner から player instance を解決し、例外を callback の外へ投げない。各再生世代は `BASS_SYNC_ONETIME` と世代番号で識別し、古い callback または古い pending cleanup が新しい再生を停止させてはならない。instance lock を取得できない場合は、世代番号を単一の atomic pending state として記録し、古い callback が新しい世代の pending cleanup を上書きしてはならない。次の Play、Pause、Stop、Dispose では current generation に一致する pending cleanup だけを再試行する。`Play` は `RESTART`、`PAUSE`、`DEFAULT` のフラグにかかわらず新しい論理再生世代を開始し、旧 end sync と旧 pending cleanup を無効化してから新しい end sync を登録する。自然終了位置は duration のまま保持する。Dispose は mixer lifecycle lock を保持して stream free より前に mixer 所属解除を試み、`ConfirmNativeStreamReleased` で session ownership、pending cleanup、voice count を解消する。Dispose と Play の競合はこの同じ instance 境界で直列化し、解放確認済みの handle を後続の Play が再利用してはならない。
+
+再生操作の native failure は `BassAudioPlaybackException` として stage、source handle、expected／actual mixer、native error source／code、backend、session state、core device、inner exception を保持し、失敗時だけ `NLogWrapper` へ記録する。source tracking が失敗した場合は session の cleanup ownership を再取得し、解放確認できるまで handle と managed owner を保持する。`BASS_STREAM_AUTOFREE` によって session ownership を native の非同期解放へ移してはならない。
+
+### 10.2 デバイステストの playback failure boundary
+
+テスト音声は、デバイス初期化、test-sound file の有無、player creation、playback start、position／stream progress、rate abnormality、natural-end timeout を別々の `AudioDeviceTestResult` failure kind として返す。player creation／playback start の型付き native failure は stage、source／expected／actual handle、native error source／code、backend、session state、core device、diagnostic reason を result とログへ引き継ぎ、設定ダイアログでは full path を表示せず、利用可能な stage と native error をローカライズされた理由へ含める。失敗結果では編集中の audio settings を変更しない。
+
+音声テストの失敗処理は feature boundary と `SettingsDialogViewModel` で完結させ、global WPF Dispatcher の unhandled-exception suppression に依存しない。予期しない例外は `NLogWrapper` へ記録し、generic なローカライズ済みエラーを設定画面へ表示する。結果の failure kind は呼び出し側が明示し、未分類の失敗を別の progress failure へ暗黙変換しない。
+
 ### 11. ログとエラー
 
 production の音声ログは `Ribbit/Logging/NLogWrapper.cs` を使用する。各試行について、OS／build、同梱 BASS component version、requested values、試行した backend／stage、native error source／code、negotiated values、latency、fallback destination／reason を記録する。ただし hot path に無制限なログを追加しない。
 
-既知の音声初期化例外は、backend、stage、requested／negotiated device、native error source、native error code を保持する。設定 UI で表示するこれらの失敗メッセージは、対応するすべてのリソースへ多言語化する。
+既知の音声初期化例外は、backend、stage、requested／negotiated device、native error source、native error code を保持する。曲再生およびデバイステストの playback failure は、source／expected／actual handle、session state、core device も保持して NLogWrapper へ記録する。設定 UI で表示するこれらの失敗メッセージは、対応するすべてのリソースへ多言語化する。
 
 ### 12. 実デバイス受入ゲート
 
 以下は手動／任意の確認であり、通常の Functional lane には含めない。Windows 10 と Windows 11 の Release artifact で、少なくとも内蔵エンドポイントと、接続可能な USB または ASIO デバイス一つを使って実行する。
 
-- DirectSound: アプリ gain と Windows のアプリ別音量が独立しており、両方が実際の音量へ反映される。
 - WASAPI 共有: ブラウザーなど、同じエンドポイントを使う別の共有音声が再生継続できる。アプリ gain と Windows のアプリ別音量が独立しており、両方が実際の音量へ反映される。Windows のミュートで出力が消音される。
 - WASAPI 排他および ASIO: negotiated device／rate／format が正確に報告され、排他的所有の制約を共有セッション音量の挙動として説明しない。
+- NullDevice: 物理 endpoint を使用せず、`DeviceVolume` を render gain として使用する。`IsDeviceMuted` は変換 gain に影響しない。
 - デバイステスト: `assets/audio/test.mp3` が正確に一度だけ再生され、途中で切れずに自然終了する。
 - 永続化／hotplug: 明示指定したエンドポイントが Apply 後とプロセス再起動後も選択される。切断時は保存済みエンドポイントが利用不能として表示される。Default または代替エンドポイントの選択は、Apply 後にだけ永続化される。
 
-### 13. Phase 2 の移行計画を分離する
+### 13. 将来の依存関係更新を分離する
 
-Phase 2 は、このコードのみの Phase 1 が実デバイスで受け入れられた後に行う、独立したネイティブ依存関係変更とする。
+今後 BASS 一式を更新する場合は、現在の6 native DLLと managed package を一つの互換セットとして、別の reviewable change で扱う。
 
-1. Bass.Net と BASS、BASSmix、BASSWASAPI、BASSASIO、BASSenc、BASS_FX について、一つの互換リリースセットを選定し、上流の version および license reference を保存する。
-2. managed assembly とすべての x86／x64 native component をまとめて更新し、version constant、supported-version check、hash、package layout、third-party notice も同じ commit series で更新する。
-3. 必要に応じて互換性コメントを新しい ABI surface に置き換える。これには、DirectSound 用 `BASS_DEVICE_DSOUND` の評価、および上流 header と signature を照合した後にだけ新たに公開された managed API を使うことを含む。
-4. デバイステスト前に、native-boundary unit test、Functional、Full publish／update acceptance、package-layout／hash verification、clean-machine load test を実行する。
-5. 内蔵、USB、ASIO デバイスで、前述の Windows 10／11 マトリクスを実行する。hotplug／default change、shared／exclusive busy state、Float32／Int16 negotiation、volume independence、fallback diagnostics、repeated cleanup を含める。
-6. 以前の完全な DLL 一式を rollback unit として保持する。BASS component を一つだけ個別に rollback または配布しない。
+1. version、GetVersion、archive／DLL hash、PE machine、selected member、package lock、出力境界を同時に更新する。
+2. load -> BASS.NET registration -> version validation の bootstrap、ASIO／WASAPI callback source、Float32／Int16 negotiation、NullDevice、fallback matrix を既存契約どおり再検証する。BASS core の decode -> mixer -> PCM pull smoke test は物理デバイスなしで実行する。
+3. native-boundary unit test、Functional、Full publish／update acceptance、package-layout／hash verification、clean-machine load test を実行する。
+4. 内蔵、USB、ASIO デバイスで、前述の Windows 10／11 マトリクスを実行する。hotplug／default change、shared／exclusive busy state、Float32／Int16 negotiation、volume independence、fallback diagnostics、repeated cleanup を含める。
+5. 以前の完全な DLL 一式を rollback unit として保持する。BASS component を一つだけ個別に rollback または配布しない。
 
 ## 互換性と対象外
 
 - 永続化済み setting name と enum numeric value の互換性を維持する。
-- Phase 1 では、native DLL、Bass.Net、supported-version constant、hash、package metadata、application version を変更しない。
+- 現行の managed package、native DLL、supported-version constant、hash、package metadata、application version の対応は、同一の依存関係セットとして検証する。
 - Windows 10／11 および実デバイスの確認範囲は外部テストマトリクスとして記録する。unit test では、狭い native boundary と決定的な fake を使用する。
-- Phase 2 では、Bass.Net とすべての BASS native component を一つの互換セットとして更新し、ABI／constant／hash／packaging をまとめて変更し、rollback と Windows／device matrix を別変更として検証する。
+- 将来の依存関係更新では、Bass.Net とすべての BASS native component を一つの互換セットとして更新し、ABI／constant／hash／packaging をまとめて変更し、rollback と Windows／device matrix を別変更として検証する。

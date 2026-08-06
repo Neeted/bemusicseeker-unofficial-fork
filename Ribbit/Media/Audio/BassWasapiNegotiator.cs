@@ -621,7 +621,7 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
         WASAPIPROC callback)
     {
         // The bundled Bass.Net explicit-format overload always adds EXCLUSIVE. Shared mode must
-        // use the no-format overload and the endpoint mix shape; BASSWASAPI 2.4.1 also owns the
+        // use the no-format overload and the endpoint mix shape; the native backend owns the
         // shared buffer and period, so both timing values remain at their native defaults.
         return BassWasapi.BASS_WASAPI_Init(
             deviceIndex,

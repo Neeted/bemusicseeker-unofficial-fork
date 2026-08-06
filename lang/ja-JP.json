@@ -880,5 +880,15 @@
   "AudioDeviceTestStreamFailureFormat": "デバイスの初期化には成功しましたが、テスト音声の再生進行を確認できませんでした。選択: {0}、実際: {1}、理由: {2}",
   "AudioDeviceTestStreamProgressFailureReason": "再生位置が正常な速度で進みませんでした。",
   "AudioDeviceTestFallbackReason": "選択した構成をそのまま使用できなかったため、利用可能な構成へ切り替えました。",
-  "AudioDeviceTestInitializationErrorFormat": "オーディオの初期化に失敗しました。\n選択したバックエンド: {0}\n失敗したバックエンド: {1}\nステージ: {2}\nネイティブエラー: {3} ({4})\n選択したデバイス: {5}\n実際のデバイス: {6}"
+  "AudioDeviceTestInitializationErrorFormat": "オーディオの初期化に失敗しました。\n選択したバックエンド: {0}\n失敗したバックエンド: {1}\nステージ: {2}\nネイティブエラー: {3} ({4})\n選択したデバイス: {5}\n実際のデバイス: {6}",
+  "AudioDeviceTestTestSoundUnavailableReason": "設定されたテスト音声ファイルを利用できません。",
+  "AudioDeviceTestPlayerCreationFailureReason": "テスト音声のプレイヤーを作成できませんでした。",
+  "AudioDeviceTestPlayerCreationFailureReasonFormat": "テスト音声のプレイヤーを作成できませんでした。ステージ: {0}、ネイティブエラー: {1} ({2})",
+  "AudioDeviceTestInvalidDurationReason": "テスト音声の長さが不正です。",
+  "AudioDeviceTestPlaybackStartFailureReasonFormat": "テスト音声の再生開始に失敗しました。ステージ: {0}、ネイティブエラー: {1} ({2})",
+  "AudioDeviceTestPlaybackPositionFailureReason": "テスト音声の再生位置が逆行しました。",
+  "AudioDeviceTestPlaybackStoppedEarlyReason": "テスト音声が完了前に停止しました。",
+  "AudioDeviceTestRateFailureReason": "テスト音声の再生速度が許容範囲外でした。",
+  "AudioDeviceTestObservationTimeoutReason": "テスト音声の再生完了を確認できないまま観測がタイムアウトしました。",
+  "AudioDeviceTestUnexpectedFailureReason": "テスト音声の再生中に予期しないエラーが発生しました。"
 }

@@ -880,5 +880,15 @@
   "AudioDeviceTestStreamFailureFormat": "裝置初始化成功，但無法確認測試音訊的播放進度。選取：{0}；實際：{1}；原因：{2}",
   "AudioDeviceTestStreamProgressFailureReason": "播放位置未以正常速度前進。",
   "AudioDeviceTestFallbackReason": "所選設定無法使用，因此已切換至可用設定。",
-  "AudioDeviceTestInitializationErrorFormat": "音訊初始化失敗。\n選取的後端：{0}\n失敗的後端：{1}\n階段：{2}\n原生錯誤：{3} ({4})\n選取的裝置：{5}\n實際裝置：{6}"
+  "AudioDeviceTestInitializationErrorFormat": "音訊初始化失敗。\n選取的後端：{0}\n失敗的後端：{1}\n階段：{2}\n原生錯誤：{3} ({4})\n選取的裝置：{5}\n實際裝置：{6}",
+  "AudioDeviceTestTestSoundUnavailableReason": "無法使用設定的測試音訊檔案。",
+  "AudioDeviceTestPlayerCreationFailureReason": "無法建立測試音訊播放器。",
+  "AudioDeviceTestPlayerCreationFailureReasonFormat": "無法建立測試音訊播放器。階段：{0}；原生錯誤：{1} ({2})",
+  "AudioDeviceTestInvalidDurationReason": "測試音訊回報的長度無效。",
+  "AudioDeviceTestPlaybackStartFailureReasonFormat": "啟動測試音訊失敗。階段：{0}；原生錯誤：{1} ({2})",
+  "AudioDeviceTestPlaybackPositionFailureReason": "測試音訊的播放位置向後移動。",
+  "AudioDeviceTestPlaybackStoppedEarlyReason": "測試音訊在完成前停止。",
+  "AudioDeviceTestRateFailureReason": "測試音訊的播放速度超出允許範圍。",
+  "AudioDeviceTestObservationTimeoutReason": "測試音訊在觀測逾時前未完成。",
+  "AudioDeviceTestUnexpectedFailureReason": "播放測試音訊時發生未預期的錯誤。"
 }

@@ -49,17 +49,8 @@ public sealed class QuickConverterReplacementTests
     }
 
     [TestMethod]
-    public void SettingsConvertersPreserveDriverAndBackupValues()
+    public void SettingsConvertersPreserveBackupValues()
     {
-        var driver = new playerDriverSelectionEnabledConverter();
-        Assert.IsFalse((bool)driver.Convert(0, typeof(bool), null, Culture));
-        Assert.IsFalse((bool)driver.Convert(1, typeof(bool), null, Culture));
-        Assert.IsTrue((bool)driver.Convert(2, typeof(bool), null, Culture));
-
-        var wasapi = new wasapiControlEnabledConverter();
-        Assert.IsFalse((bool)wasapi.Convert(new object[] { 1, true }, typeof(bool), null, Culture));
-        Assert.IsTrue((bool)wasapi.Convert(new object[] { 2, true }, typeof(bool), null, Culture));
-
         var backup = new backupSpanRadioConverter();
         Assert.IsTrue((bool)backup.Convert(7, typeof(bool), "7", Culture));
         Assert.IsFalse((bool)backup.Convert(1, typeof(bool), "7", Culture));

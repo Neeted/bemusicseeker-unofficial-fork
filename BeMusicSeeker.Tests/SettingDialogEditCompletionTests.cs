@@ -993,7 +993,7 @@ public sealed class SettingDialogEditCompletionTests
             var audioGateway = new TestAudioSettingsGateway
             {
                 OutputSelection = new AudioOutputSelection(
-                    AudioDriver.DirectSound,
+                    AudioDriver.WasapiShared,
                     settings.PlayerDevice,
                     settings.PlayerDeviceName)
             };
@@ -1038,7 +1038,7 @@ public sealed class SettingDialogEditCompletionTests
             var audioGateway = new TestAudioSettingsGateway
             {
                 OutputSelection = new AudioOutputSelection(
-                    AudioDriver.DirectSound,
+                    AudioDriver.WasapiShared,
                     settings.PlayerDevice,
                     settings.PlayerDeviceName)
             };
@@ -1063,8 +1063,8 @@ public sealed class SettingDialogEditCompletionTests
 
             AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
             Assert.AreEqual(0d, dialog.PlayerLatency);
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "DirectSound");
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "WasapiShared");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "WASAPI");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.Shared);
             StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.AudioDeviceTestFallbackReason);
             Assert.IsFalse(dialog.AudioDeviceTestStatusMessage.Contains("fallbackDestination=WASAPI_SHARED", StringComparison.Ordinal));
         }
@@ -1090,7 +1090,7 @@ public sealed class SettingDialogEditCompletionTests
             settings.uBMplayVolume = 50;
             var settingsSession = new CountingSettingsEditSession(settings);
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
-            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.DirectSound };
+            var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.WasapiShared };
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(request =>
@@ -1115,7 +1115,7 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(SampleRate.AUTO, settings.PlayerSampleRate);
             Assert.AreEqual(SampleFormat.AUTO, settings.PlayerFormat);
             Assert.AreEqual(17d, dialog.PlayerLatency);
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "DirectSound");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "WASAPI");
         }
         finally
         {
@@ -1175,6 +1175,145 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public async Task AudioDeviceTest_PlaybackStartFailureIsShownWithStageAndNativeError()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.WasapiShared,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
+            var dialogs = new RecordingRootDialogService();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(request =>
+                    AudioDeviceTestResultFactory.CreateSuccessful(
+                        request,
+                        streamProgressSucceeded: false,
+                        failureKind: AudioDeviceTestFailureKind.PlaybackStartFailed,
+                        playbackStage: BassAudioPlaybackStage.MixerAttach,
+                        nativeErrorSource: "BASS_Mixer_StreamAddChannel",
+                        nativeErrorCode: BASSError.BASS_ERROR_HANDLE)));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway,
+                dialogs);
+
+            await dialog.RunAudioDeviceTestAsync();
+
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "MixerAttach");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "BASS_Mixer_StreamAddChannel");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "BASS_ERROR_HANDLE");
+            Assert.AreEqual(0, dialogs.MessageCount);
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTest_PlayerCreationFailureIsShownWithStageAndNativeError()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.WasapiShared,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
+            var dialogs = new RecordingRootDialogService();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(request =>
+                    AudioDeviceTestResultFactory.CreateSuccessful(
+                        request,
+                        streamProgressSucceeded: false,
+                        failureKind: AudioDeviceTestFailureKind.PlayerCreationFailed,
+                        playbackStage: BassAudioPlaybackStage.SourceCreate,
+                        nativeErrorSource: "BASS_StreamCreateFile",
+                        nativeErrorCode: BASSError.BASS_ERROR_FILEOPEN)));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway,
+                dialogs);
+
+            await dialog.RunAudioDeviceTestAsync();
+
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "SourceCreate");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "BASS_StreamCreateFile");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "BASS_ERROR_FILEOPEN");
+            Assert.AreEqual(0, dialogs.MessageCount);
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTest_UnexpectedRuntimeFailureIsLoggedAndShownLocally()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.WasapiShared,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
+            var dialogs = new RecordingRootDialogService();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("unexpected test failure")));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway,
+                dialogs);
+
+            await dialog.RunAudioDeviceTestAsync();
+
+            Assert.AreEqual(Resources.AudioDeviceTestUnexpectedFailureReason, dialog.AudioDeviceTestStatusMessage);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.AreEqual(dialog.AudioDeviceTestStatusMessage, dialogs.LastMessageText);
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task AudioDeviceTest_RequestChangedWhileRunning_DoesNotApplyStaleResult()
     {
         string root = CreateTemporaryRoot();
@@ -1187,7 +1326,7 @@ public sealed class SettingDialogEditCompletionTests
             var audioGateway = new TestAudioSettingsGateway
             {
                 OutputSelection = new AudioOutputSelection(
-                    AudioDriver.DirectSound,
+                    AudioDriver.WasapiShared,
                     settings.PlayerDevice,
                     settings.PlayerDeviceName)
             };
@@ -1212,12 +1351,12 @@ public sealed class SettingDialogEditCompletionTests
 
             Task testTask = dialog.RunAudioDeviceTestAsync();
             Assert.IsTrue(runtimeStarted.Wait(TimeSpan.FromSeconds(5)));
-            dialog.PlayerDriverIndex = (int)AudioDriver.WasapiShared;
+            dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive);
             releaseRuntime.Set();
             await testTask;
 
             Assert.AreEqual("Requested device", settings.PlayerDeviceName);
-            Assert.AreEqual((int)AudioDriver.WasapiShared, dialog.PlayerDriverIndex);
+            Assert.AreEqual(AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive), dialog.PlayerDriverIndex);
             Assert.AreEqual(0d, dialog.PlayerLatency);
         }
         finally
@@ -1934,7 +2073,7 @@ public sealed class SettingDialogEditCompletionTests
     private static void AssertExplicitAudioSettingsUnchanged(
         Settings settings,
         TestAudioSettingsGateway audioGateway,
-        AudioDriver expectedDriver = AudioDriver.DirectSound)
+        AudioDriver expectedDriver = AudioDriver.WasapiShared)
     {
         Assert.AreEqual(expectedDriver, audioGateway.PlayerDriver);
         Assert.AreEqual("requested-device", audioGateway.OutputSelection.DeviceIdentity);

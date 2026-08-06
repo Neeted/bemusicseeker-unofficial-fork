@@ -33,9 +33,9 @@ public sealed class PlayerSettingsGatewayTests
             var gateway = new SettingsPlayerSettingsGateway(() => settings);
             PlayerSettingsSnapshot snapshot = gateway.CaptureSnapshot();
 
-            Assert.AreEqual(AudioDriver.DirectSound, snapshot.PlayerDriver);
-            Assert.AreEqual("device-before", snapshot.PlayerDevice);
-            Assert.AreEqual("Device before", snapshot.PlayerDeviceName);
+            Assert.AreEqual(AudioDriver.WasapiShared, snapshot.PlayerDriver);
+            Assert.IsNull(snapshot.PlayerDevice);
+            Assert.IsNull(snapshot.PlayerDeviceName);
             Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, snapshot.PlayerSampleRate);
             Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, snapshot.PlayerFormat);
             Assert.AreEqual(37, snapshot.PlayerVolume);

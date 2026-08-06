@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Ribbit.Media.Audio;
+using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -33,7 +34,7 @@ internal sealed class TestAudioDeviceCatalog : IAudioDeviceCatalog
 internal sealed class TestAudioSettingsGateway : IAudioSettingsGateway
 {
     internal AudioOutputSelection OutputSelection { get; set; }
-        = new(AudioDriver.DirectSound, null, null);
+        = new(AudioDriver.WasapiShared, null, null);
 
     internal AudioDriver PlayerDriver
     {
@@ -111,7 +112,11 @@ internal static class AudioDeviceTestResultFactory
         SampleFormat? endpointFormat = null,
         double latency = 0,
         string? fallbackReason = null,
-        bool streamProgressSucceeded = true)
+        bool streamProgressSucceeded = true,
+        AudioDeviceTestFailureKind failureKind = AudioDeviceTestFailureKind.None,
+        BassAudioPlaybackStage? playbackStage = null,
+        string? nativeErrorSource = null,
+        BASSError? nativeErrorCode = null)
     {
         var initialization = new AudioPlaybackInitializationResult(
             request.PlayerDriver,
@@ -132,6 +137,11 @@ internal static class AudioDeviceTestResultFactory
             latency,
             fallbackReason,
             isSilentFallback: false);
+        AudioDeviceTestFailureKind effectiveFailureKind = failureKind != AudioDeviceTestFailureKind.None
+            ? failureKind
+            : request.PlaySound && !streamProgressSucceeded
+                ? AudioDeviceTestFailureKind.PlaybackDidNotAdvance
+                : AudioDeviceTestFailureKind.None;
         return new AudioDeviceTestResult(
             initialization,
             request.PlaySound,
@@ -139,6 +149,10 @@ internal static class AudioDeviceTestResultFactory
             request.PlaySound ? TimeSpan.FromSeconds(1) : TimeSpan.Zero,
             request.PlaySound ? TimeSpan.FromSeconds(1) : TimeSpan.Zero,
             request.PlaySound ? 1d : null,
-            streamProgressSucceeded ? null : "stream did not progress");
+            streamProgressSucceeded ? null : "stream did not progress",
+            effectiveFailureKind,
+            playbackStage,
+            nativeErrorSource,
+            nativeErrorCode);
     }
 }

@@ -13,6 +13,13 @@ namespace Ribbit.Media.Audio;
 
 internal static class BassNativeRuntime
 {
+    private const int RequiredBassVersion = 0x02041203;
+    private const int RequiredBassAsioVersion = 0x01040300;
+    private const int RequiredBassWasapiVersion = 0x02040401;
+    private const int RequiredBassMixVersion = 0x02040C00;
+    private const int RequiredBassFxVersion = 0x02040C06;
+    private const int RequiredBassEncVersion = 0x02041100;
+
     private static readonly IReadOnlyList<string> RequiredFileNames = Array.AsReadOnly(new[]
     {
         "bass.dll",
@@ -101,15 +108,21 @@ internal static class BassNativeRuntime
 
     internal static void ValidateSupportedVersions()
     {
-        if (Bass.BASS_GetVersion() != 0x02040C01 ||
-            BassMix.BASS_Mixer_GetVersion() != 0x02040800 ||
-            BassFx.BASS_FX_GetVersion() != 0x02040B01 ||
-            BassWasapi.BASS_WASAPI_GetVersion() != 0x02040102 ||
-            BassAsio.BASS_ASIO_GetVersion() != 0x01030100 ||
-            BassEnc.BASS_Encode_GetVersion() != 0x02040D00)
+        ValidateVersion("bass.dll", Bass.BASS_GetVersion(), RequiredBassVersion);
+        ValidateVersion("bassasio.dll", BassAsio.BASS_ASIO_GetVersion(), RequiredBassAsioVersion);
+        ValidateVersion("basswasapi.dll", BassWasapi.BASS_WASAPI_GetVersion(), RequiredBassWasapiVersion);
+        ValidateVersion("bassmix.dll", BassMix.BASS_Mixer_GetVersion(), RequiredBassMixVersion);
+        ValidateVersion("bass_fx.dll", BassFx.BASS_FX_GetVersion(), RequiredBassFxVersion);
+        ValidateVersion("bassenc.dll", BassEnc.BASS_Encode_GetVersion(), RequiredBassEncVersion);
+    }
+
+    private static void ValidateVersion(string componentName, int actualVersion, int requiredVersion)
+    {
+        if (actualVersion != requiredVersion)
         {
             throw new InvalidOperationException(
-                "The loaded BASS native family does not match the supported x64 ABI set.");
+                $"BASS native component '{componentName}' version mismatch. " +
+                $"Expected 0x{requiredVersion:X8}, loaded 0x{actualVersion:X8}.");
         }
     }
 

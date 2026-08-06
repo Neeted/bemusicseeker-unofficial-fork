@@ -69,9 +69,11 @@ internal sealed class PlayerSettingsSnapshot
         bool isSaveLr2bodyWindowPosition,
         WindowPlacement lr2bodyWindowPlacement)
     {
-        PlayerDriver = playerDriver;
-        PlayerDevice = playerDevice;
-        PlayerDeviceName = playerDeviceName;
+        AudioOutputSelection normalized = AudioDriverPolicy.NormalizePersistedSelection(
+            new AudioOutputSelection(playerDriver, playerDevice, playerDeviceName));
+        PlayerDriver = normalized.Backend;
+        PlayerDevice = normalized.DeviceIdentity;
+        PlayerDeviceName = normalized.DeviceName;
         PlayerSampleRate = playerSampleRate;
         PlayerFormat = playerFormat;
         PlayerBufferSize = playerBufferSize;
@@ -133,10 +135,14 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
     public PlayerSettingsSnapshot CaptureSnapshot()
     {
         Settings values = Values;
-        return new PlayerSettingsSnapshot(
+        AudioOutputSelection selection = AudioDriverPolicy.NormalizePersistedSelection(new AudioOutputSelection(
             BassAudioMapping.FromBassDriver(values.PlayerDriver),
             values.PlayerDevice,
-            values.PlayerDeviceName,
+            values.PlayerDeviceName));
+        return new PlayerSettingsSnapshot(
+            selection.Backend,
+            selection.DeviceIdentity,
+            selection.DeviceName,
             values.PlayerSampleRate,
             values.PlayerFormat,
             values.PlayerBufferSize,

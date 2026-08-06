@@ -53,6 +53,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             "The host runtime configuration must be emitted beside the application.");
         string dependencyGraph = File.ReadAllText(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.deps.json"));
         StringAssert.Contains(dependencyGraph, "\"Newtonsoft.Json/13.0.4\"");
+        StringAssert.Contains(dependencyGraph, "\"Un4seen.Bass/2.4.18.2\"");
 
         foreach (string dependencyName in new[]
         {
@@ -65,7 +66,8 @@ public sealed class ManagedDependencyOutputPolicyTests
             "NLog.dll",
             "NVorbis.dll",
             "SevenZipExtractor.dll",
-            "SgmlReaderDll.dll"
+            "SgmlReaderDll.dll",
+            "Bass.Net.dll"
         })
         {
             Assert.IsTrue(
@@ -209,7 +211,8 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "sqlite-net-pcl", Version = "1.11.285" },
             new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" },
             new { Id = "SevenZipExtractor", Version = "1.0.19" },
-            new { Id = "NVorbis", Version = "0.10.5" }
+            new { Id = "NVorbis", Version = "0.10.5" },
+            new { Id = "Un4seen.Bass", Version = "2.4.18.2" }
         }.ToDictionary(item => item.Id, item => item.Version, StringComparer.Ordinal);
 
         XDocument centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
@@ -253,7 +256,8 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "sqlite-net-pcl",
                     "SQLitePCLRaw.bundle_e_sqlite3",
                     "SevenZipExtractor",
-                    "NVorbis"
+                    "NVorbis",
+                    "Un4seen.Bass"
                 }
             },
             new
@@ -268,7 +272,8 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "sqlite-net-pcl",
                     "SQLitePCLRaw.bundle_e_sqlite3",
                     "SevenZipExtractor",
-                    "NVorbis"
+                    "NVorbis",
+                    "Un4seen.Bass"
                 }
             }
         };

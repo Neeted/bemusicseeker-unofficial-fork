@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Ribbit.Media;
-using Un4seen.Bass;
 using Un4seen.BassAsio;
 using Un4seen.BassWasapi;
 
@@ -55,28 +54,14 @@ internal sealed class BassAudioDeviceEnumerator : IBassAudioDeviceEnumerator
         using BassAudioOperationLease operation = BassNet.EnterAudioOperation();
         return backend switch
         {
-            BassAudioPlayer.DeviceDriver.DIRECT_SOUND => EnumerateDirectSound(),
             BassAudioPlayer.DeviceDriver.WASAPI_SHARED => EnumerateWasapi(),
             BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE => EnumerateWasapi(),
             BassAudioPlayer.DeviceDriver.ASIO => EnumerateAsio(),
-            _ => throw new ArgumentOutOfRangeException(nameof(backend), backend, "An audible backend is required.")
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(backend),
+                backend,
+                "A selectable WASAPI or ASIO backend is required.")
         };
-    }
-
-    private static IReadOnlyList<BassAudioEnumeratedDevice> EnumerateDirectSound()
-    {
-        BASS_DEVICEINFO[] devices = Bass.BASS_GetDeviceInfos() ?? [];
-        var result = new List<BassAudioEnumeratedDevice>();
-        for (int index = 1; index < devices.Length; index++)
-        {
-            BASS_DEVICEINFO device = devices[index];
-            if (device == null || !device.IsEnabled || string.IsNullOrWhiteSpace(device.driver))
-            {
-                continue;
-            }
-            result.Add(new BassAudioEnumeratedDevice(device.name, device.driver, index, device.IsDefault));
-        }
-        return result.AsReadOnly();
     }
 
     private static IReadOnlyList<BassAudioEnumeratedDevice> EnumerateWasapi()

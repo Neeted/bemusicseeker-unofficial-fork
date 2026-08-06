@@ -16,7 +16,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void CoreInitializationFailure_DoesNotFreeUninitializedCore()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND);
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         var native = new RecordingNativeBoundary();
 
         bool released = BassAudioSessionCleanup.Release(
@@ -33,9 +33,9 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void CleanupFailure_DoesNotReplacePrimaryInitializationFailure()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
-            ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             CoreInitialized = true,
             CoreDeviceIndex = 2
         };
@@ -104,9 +104,9 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void DeviceSelectionFailure_RetainsOwnershipWithoutFreeingUnknownDevice()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
-            ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             CoreInitialized = true,
             CoreDeviceIndex = 3,
             MixerHandle = 77
@@ -129,9 +129,9 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void AlreadyReleasedNativeLayer_IsAnIdempotentCleanupSuccess()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
-            ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             CoreInitialized = true,
             CoreDeviceIndex = 2
         };
@@ -151,9 +151,9 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void ReleasedState_WithRecordedNativeOwnershipStillPerformsCleanup()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
-            ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             CoreInitialized = true,
             CoreDeviceIndex = 6,
             State = BassAudioSessionState.Released
@@ -173,9 +173,9 @@ public sealed class BassAudioSessionTests
     public void CoreDeviceAlreadyReleased_ClearsRecordedOwnershipWithoutFreeingUnknownDevice()
     {
         int playerReleaseNotifications = 0;
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
-            ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             CoreInitialized = true,
             CoreDeviceIndex = 7,
             MixerHandle = 41,
@@ -203,9 +203,9 @@ public sealed class BassAudioSessionTests
     public void AliasedStreamHandle_IsFreedAndConfirmedExactlyOnce()
     {
         int playerReleaseNotifications = 0;
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
-            ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             CoreInitialized = true,
             CoreDeviceIndex = 8,
             MixerHandle = 51,
@@ -360,14 +360,14 @@ public sealed class BassAudioSessionTests
     }
 
     [TestMethod]
-    public void DirectSoundTempoReplacement_ReleasesWithoutPublishingReplacement()
+    public void NonCallbackTempoReplacement_ReleasesWithoutPublishingReplacement()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND);
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.NULL_DEVICE);
         session.TrackOutputHandle(101);
 
         bool released = BassAudioPlayer.TryReleaseTempoOutputForReset(
             session,
-            BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            BassAudioPlayer.DeviceDriver.NULL_DEVICE,
             101,
             202,
             handle =>
@@ -447,10 +447,10 @@ public sealed class BassAudioSessionTests
         using (lifecycle.Enter())
         {
             Assert.IsTrue(lifecycle.TryBegin(
-                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                 default,
                 out BassAudioSession session));
-            session.ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
+            session.ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
             session.CoreInitialized = true;
             session.CoreDeviceIndex = 2;
             lifecycle.MarkActive(session);
@@ -466,7 +466,7 @@ public sealed class BassAudioSessionTests
             Assert.IsNull(lifecycle.CurrentSession);
 
             Assert.IsTrue(lifecycle.TryBegin(
-                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                 default,
                 out BassAudioSession replacement));
             Assert.AreNotSame(session, replacement);
@@ -484,10 +484,10 @@ public sealed class BassAudioSessionTests
         using (lifecycle.Enter())
         {
             Assert.IsTrue(lifecycle.TryBegin(
-                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                 default,
                 out BassAudioSession ownedSession));
-            ownedSession.ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
+            ownedSession.ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
             lifecycle.MarkActive(ownedSession);
 
             Assert.IsFalse(lifecycle.TryGetForRelease(
@@ -531,7 +531,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void SessionLease_ReleasedTokenCanBeReplacedByRecoveredSession()
     {
-        var released = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        var released = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
             State = BassAudioSessionState.Released
         };
@@ -557,7 +557,7 @@ public sealed class BassAudioSessionTests
                      BassAudioSessionState.CleanupPending
                  })
         {
-            var owned = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+            var owned = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
             {
                 State = state
             };
@@ -573,7 +573,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void SessionLease_ReleaseExceptionRetainsTokenForRetry()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND);
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         var lease = new BassAudioSessionLease();
         var failure = new InvalidOperationException("release failed");
         lease.Attach(session);
@@ -588,7 +588,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void OutputHandleReplacement_ForgetsOnlyConfirmedRelease()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
             MixerHandle = 10,
             OutputHandle = 20,
@@ -697,7 +697,7 @@ public sealed class BassAudioSessionTests
         using (lifecycle.Enter())
         {
             Assert.IsTrue(lifecycle.TryBegin(
-                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                 default,
                 out BassAudioSession session));
             Assert.IsTrue(lifecycle.HasUnconfirmedOwnership);
@@ -899,9 +899,9 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void PlayerStreamCleanup_RetainsManagedOwnerUntilNativeReleaseSucceeds()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
-            ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             CoreInitialized = true,
             CoreDeviceIndex = 2
         };
@@ -926,6 +926,33 @@ public sealed class BassAudioSessionTests
     }
 
     [TestMethod]
+    public void PlayerStreamCleanupFallback_RetainsOnlyUnownedHandle()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        var owner = new object();
+        int notifications = 0;
+
+        Assert.IsTrue(session.TryTrackPlayerStreamForCleanup(
+            92,
+            owner,
+            _ => notifications++,
+            out bool alreadyOwned));
+        Assert.IsFalse(alreadyOwned);
+        Assert.IsFalse(session.TryTrackPlayerStreamForCleanup(
+            92,
+            new object(),
+            _ => notifications++,
+            out alreadyOwned));
+        Assert.IsTrue(alreadyOwned);
+        Assert.AreEqual(1, session.GetPlayerStreams().Count);
+
+        session.ConfirmPlayerStreamReleased(92);
+        Assert.AreEqual(1, notifications);
+        Assert.AreEqual(0, session.GetPlayerStreams().Count);
+        GC.KeepAlive(owner);
+    }
+
+    [TestMethod]
     public async Task ConcurrentInitialization_OnlyOneSessionAcquiresNativeOwnership()
     {
         var lifecycle = new BassAudioSessionLifecycle();
@@ -940,7 +967,7 @@ public sealed class BassAudioSessionTests
                 using (lifecycle.Enter())
                 {
                     if (!lifecycle.TryBegin(
-                        BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                        BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                         default,
                         out BassAudioSession session))
                     {
@@ -948,7 +975,7 @@ public sealed class BassAudioSessionTests
                     }
 
                     Interlocked.Increment(ref nativeInitializationCount);
-                    session.ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
+                    session.ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
                     session.CoreInitialized = true;
                     session.CoreDeviceIndex = 1;
                     lifecycle.MarkActive(session);

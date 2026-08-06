@@ -45,8 +45,8 @@ internal interface IDirectSoundNegotiationNativeBoundary
     /// <summary>Gets DirectSound catalog entries with their original native indices.</summary>
     IReadOnlyList<BassDirectSoundDevice> GetDevices();
 
-    /// <summary>Initializes the selected BASS output device.</summary>
-    bool InitializeCore(int deviceIndex, int rate);
+    /// <summary>Initializes the selected BASS output device with explicit core flags.</summary>
+    bool InitializeCore(int deviceIndex, int rate, BASSInit flags);
 
     /// <summary>Gets the BASS device selected by initialization.</summary>
     int GetCoreDevice();
@@ -129,7 +129,7 @@ internal sealed class BassDirectSoundNegotiator
         session.CoreDeviceIndex = initializationIndex;
         AddFallbackReason(fallbackReasons, deviceFallback);
 
-        if (!native.InitializeCore(initializationIndex, 44100))
+        if (!native.InitializeCore(initializationIndex, 44100, BASSInit.BASS_DEVICE_DEFAULT))
         {
             BASSError error = native.GetCoreError();
             throw Failure(request, session, "BASS_Init", error, "BASS_Init failed: " + error);
@@ -383,10 +383,8 @@ internal sealed class BassDirectSoundNegotiationNativeBoundary
             .ToArray();
 
     /// <inheritdoc />
-    public bool InitializeCore(int deviceIndex, int rate) =>
-        // Phase 2 must evaluate BASS_DEVICE_DSOUND with an upgraded compatible BASS set.
-        // The bundled API keeps the established flags and WPF-independent null window handle.
-        Bass.BASS_Init(deviceIndex, rate, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero);
+    public bool InitializeCore(int deviceIndex, int rate, BASSInit flags) =>
+        Bass.BASS_Init(deviceIndex, rate, flags, IntPtr.Zero);
 
     /// <inheritdoc />
     public int GetCoreDevice() => Bass.BASS_GetDevice();

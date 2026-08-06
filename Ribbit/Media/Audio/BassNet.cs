@@ -7,6 +7,14 @@ namespace Ribbit.Media.Audio;
 
 public static class BassNet
 {
+    private enum InitializationStage
+    {
+        NativeLoad,
+        WrapperRegistration,
+        VersionValidation,
+        Completed
+    }
+
     private static readonly object SessionOwnerSync = new();
     private static readonly BassAudioOperationGate RuntimeGate = new();
 
@@ -32,27 +40,129 @@ public static class BassNet
             return;
         }
 
+        InitializationStage stage = InitializationStage.NativeLoad;
+        bool wrapperRegistered = false;
         try
         {
-            BassNativeRuntime.Load();
-            BassNativeRuntime.ValidateSupportedVersions();
-            ((Action<Action<string, string>, string, string>)delegate (Action<string, string> f, string i, string j)
-            {
-                f(new string([.. (from n in "d7cbxdba4x22b9xd7daxdf35xd7cexdf3fxd7caxdc65xd7d8xdc43xd7d2xdc78x2689xd7dcxdbbcxd7d8xdca8xd7d6xdbddxd7dcxdddexd7d0xded6xd7d9xdf53xd7d0".Split('x')
-                                      select Convert.ToInt32(n, 16)).Zip(i.ToCharArray(), (w, v) => v - w).Select(Convert.ToChar)]), new string([.. (from n in "d80axdf58xd80axdc26xd80bxddc5xd80axdf2fxd80axdf79xd80bxdf2dxd80axdfbcxd80bxddcc".Split('x')
-                                      select Convert.ToInt32(n, 16)).Zip(j.ToCharArray(), (w, v) => v - w).Select(Convert.ToChar)]));
-            })(Un4seen.Bass.BassNet.Registration, "\ud83d\udc0d⌛\ud83c\udfa4\ud83c\udfa4\ud83d\udcd9\ud83d\udca4\ud83d\udce8⛵\ud83d\udc1f\ud83d\udce8\ud83d\udc4a\ud83d\ude47\ud83c\udf04\ud83c\udfc2\ud83d\udc4a\ud83c\udf74\ud83d\udce8\ud83d\udc63\ud83d\udc11\ud83c\udf68\ud83d\udc4a⌛\ud83c\udfc2\ud83d\udc0d\ud83c\udf74\ud83d\udcd9\ud83c\udf68", "\ud83c\udfb0\ud83d\udc5d\ud83d\uddfe\ud83c\udf62\ud83c\udfb0\ud83c\udf62\ud83c\udfee\ud83d\uddfe\ud83c\udfb0\ud83c\udf62\ud83d\ude93\ud83c\udf70\ud83c\udfb0\ud83d\udc70\ud83d\ude0f\ud83c\udfb0");
+            InitializeRuntimeCore(
+                () =>
+                {
+                    stage = InitializationStage.NativeLoad;
+                    BassNativeRuntime.Load();
+                },
+                () =>
+                {
+                    stage = InitializationStage.WrapperRegistration;
+                    RegisterBassNetWrapper();
+                    wrapperRegistered = true;
+                },
+                () =>
+                {
+                    stage = InitializationStage.VersionValidation;
+                    BassNativeRuntime.ValidateSupportedVersions();
+                });
+            stage = InitializationStage.Completed;
             _isInitialized = true;
             lifecycle.Complete(success: true);
         }
-        catch
+        catch (Exception exception)
         {
-            BassNativeRuntime.Free();
+            TryLogInitializationFailure(stage, wrapperRegistered, exception);
+            TryFreeAfterInitializationFailure(stage);
             _isInitialized = false;
             lifecycle.Complete(success: false);
             throw;
         }
     }
+
+    /// <summary>
+    /// Runs the native bootstrap stages in the order required by the BASS.NET wrapper.
+    /// The callbacks keep registration arguments outside the orchestration seam.
+    /// </summary>
+    internal static void InitializeRuntimeCore(
+        Action loadNative,
+        Action registerWrapper,
+        Action validateVersions)
+    {
+        ArgumentNullException.ThrowIfNull(loadNative);
+        ArgumentNullException.ThrowIfNull(registerWrapper);
+        ArgumentNullException.ThrowIfNull(validateVersions);
+        loadNative();
+        registerWrapper();
+        validateVersions();
+    }
+
+    private static void RegisterBassNetWrapper()
+    {
+        ((Action<Action<string, string>, string, string>)delegate (Action<string, string> f, string i, string j)
+        {
+            f(new string([.. (from n in "d7cbxdba4x22b9xd7daxdf35xd7cexdf3fxd7caxdc65xd7d8xdc43xd7d2xdc78x2689xd7dcxdbbcxd7d8xdca8xd7d6xdbddxd7dcxdddexd7d0xded6xd7d9xdf53xd7d0".Split('x')
+                                  select Convert.ToInt32(n, 16)).Zip(i.ToCharArray(), (w, v) => v - w).Select(Convert.ToChar)]), new string([.. (from n in "d80axdf58xd80axdc26xd80bxddc5xd80axdf2fxd80axdf79xd80bxdf2dxd80axdfbcxd80bxddcc".Split('x')
+                                  select Convert.ToInt32(n, 16)).Zip(j.ToCharArray(), (w, v) => v - w).Select(Convert.ToChar)]));
+        })(Un4seen.Bass.BassNet.Registration, "\ud83d\udc0d⌛\ud83c\udfa4\ud83c\udfa4\ud83d\udcd9\ud83d\udca4\ud83d\udce8⛵\ud83d\udc1f\ud83d\udce8\ud83d\udc4a\ud83d\ude47\ud83c\udf04\ud83c\udfc2\ud83d\udc4a\ud83c\udf74\ud83d\udce8\ud83d\udc63\ud83d\udc11\ud83c\udf68\ud83d\udc4a⌛\ud83c\udfc2\ud83d\udc0d\ud83c\udf74\ud83d\udcd9\ud83c\udf68", "\ud83c\udfb0\ud83d\udc5d\ud83d\uddfe\ud83c\udf62\ud83c\udfb0\ud83c\udf62\ud83c\udfee\ud83d\uddfe\ud83c\udfb0\ud83c\udf62\ud83d\ude93\ud83c\udf70\ud83c\udfb0\ud83d\udc70\ud83d\ude0f\ud83c\udfb0");
+    }
+
+    private static void TryLogInitializationFailure(
+        InitializationStage stage,
+        bool wrapperRegistered,
+        Exception exception)
+    {
+        try
+        {
+            string nativeErrorSource = "none";
+            string nativeError = "none";
+            if (wrapperRegistered
+                && (stage == InitializationStage.VersionValidation
+                    || stage == InitializationStage.Completed))
+            {
+                nativeErrorSource = "BASS";
+                nativeError = Bass.BASS_ErrorGetCode().ToString();
+            }
+
+            NLogWrapper.GetLogger(nameof(BassNet)).Error(
+                "BASS native bootstrap failed. stage=" + stage
+                + " component=" + GetStageComponent(stage)
+                + " exceptionType=" + exception.GetType().FullName
+                + " nativeErrorSource=" + nativeErrorSource
+                + " nativeErrorCode=" + nativeError
+                + " nativeRuntimeLoaded=" + BassNativeRuntime.IsLoaded);
+        }
+        catch
+        {
+            // Bootstrap diagnostics must not replace the primary initialization error.
+        }
+    }
+
+    private static void TryFreeAfterInitializationFailure(InitializationStage stage)
+    {
+        try
+        {
+            BassNativeRuntime.Free();
+        }
+        catch (Exception cleanupException)
+        {
+            try
+            {
+                NLogWrapper.GetLogger(nameof(BassNet)).Warn(
+                    "BASS native bootstrap cleanup failed. stage=" + stage
+                    + " exceptionType=" + cleanupException.GetType().FullName
+                    + " nativeRuntimeLoaded=" + BassNativeRuntime.IsLoaded);
+            }
+            catch
+            {
+                // Cleanup diagnostics must not replace the primary initialization error.
+            }
+        }
+    }
+
+    private static string GetStageComponent(InitializationStage stage) => stage switch
+    {
+        InitializationStage.NativeLoad => nameof(BassNativeRuntime),
+        InitializationStage.WrapperRegistration => "BASS.NET",
+        InitializationStage.VersionValidation => nameof(BassNativeRuntime),
+        InitializationStage.Completed => nameof(BassNet),
+        _ => nameof(BassNet)
+    };
 
     /// <summary>
     /// Registers the one audio-session owner that must release its graph before native unload.

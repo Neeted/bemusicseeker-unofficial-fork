@@ -59,16 +59,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public enum DeviceDriver
     {
         INVALID = -2,
-        NULL_DEVICE,
-        DIRECT_SOUND,
-        WASAPI_SHARED,
-        WASAPI_EXCLUSIVE,
-        ASIO
+        NULL_DEVICE = -1,
+        DIRECT_SOUND = 0,
+        WASAPI_SHARED = 1,
+        WASAPI_EXCLUSIVE = 2,
+        ASIO = 3
     }
 
     private static readonly object StaticLockObject;
-
-    private static readonly Dictionary<int, object> InstanceLocks;
 
     private static readonly NamedLocks<uint> Locks;
 
@@ -77,8 +75,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     protected static int inputMixer;
 
     protected static int outputMixer;
-
-    protected static int procChannel;
 
     protected static int tempoChanger;
 
@@ -89,8 +85,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     private static readonly WASAPIPROC WasapiProc;
 
     private static readonly ASIOPROC AsioProc;
-
-    private static readonly STREAMPROC StreamProc;
 
     private static readonly SYNCPROC EndProc;
 
@@ -109,8 +103,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     private static readonly IAudioSessionNativeBoundary SessionNative;
 
     private static readonly BassWasapiNegotiator WasapiNegotiator;
-
-    private static readonly BassDirectSoundNegotiator DirectSoundNegotiator;
 
     private static string initializationStage;
 
@@ -150,7 +142,19 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private readonly object disposeSync = new();
 
+    private readonly object mixerSourceSync = new();
+
+    private readonly BassMixerSourceController mixerSourceController;
+
     private BassAudioSession owningSession;
+
+    private bool voiceCounted;
+
+    private int pendingEndGeneration;
+
+    private int playbackGeneration;
+
+    private int endSyncHandle;
 
     private bool disposedValue;
 
@@ -212,7 +216,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         Latency = 0.0;
         CurrentVoices = 0;
         ClearMaxVoices();
-        inputMixer = (outputMixer = (procChannel = (tempoChanger = 0)));
+        inputMixer = (outputMixer = (tempoChanger = 0));
         volumeEffect = (equalizer = 0);
         playbackRate = 1f;
         FxParameters.Clear();
@@ -326,7 +330,25 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             using BassAudioOperationLease operation =
                 Ribbit.Media.Audio.BassNet.EnterAudioOperation();
             long pos = Bass.BASS_ChannelSeconds2Bytes(_handle, value.TotalSeconds);
-            Bass.BASS_ChannelSetPosition(_handle, pos);
+            if (pos < 0)
+            {
+                BASSError error = Bass.BASS_ErrorGetCode();
+                throw CreatePlaybackException(
+                    BassAudioPlaybackStage.SetPosition,
+                    FileName,
+                    _handle,
+                    owningSession?.MixerHandle ?? 0,
+                    0,
+                    "BASS_ChannelSeconds2Bytes",
+                    error,
+                    "Converting the requested source position failed.");
+            }
+
+            mixerSourceController.SetPosition(
+                _handle,
+                pos,
+                FileName,
+                owningSession?.MixerHandle ?? 0);
         }
     }
 
@@ -454,10 +476,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     }
 
     /// <summary>
-    /// Initializes one audio session while preserving the legacy backend order.
+    /// Initializes one audio session using the selected backend's supported fallback order.
     /// </summary>
     public static DeviceDescriptor Initialize(
-        DeviceDriver driver = DeviceDriver.WASAPI_EXCLUSIVE,
+        DeviceDriver driver = DeviceDriver.WASAPI_SHARED,
         DeviceDescriptor desc = default,
         float lParam = 0f,
         params object[] param)
@@ -477,6 +499,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         params object[] param)
     {
         ownedSession = null;
+        if (driver == DeviceDriver.DIRECT_SOUND)
+        {
+            driver = DeviceDriver.WASAPI_SHARED;
+            desc = default;
+        }
         try
         {
             Ribbit.Media.Audio.BassNet.Initialize();
@@ -546,7 +573,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 Exception primaryException = null;
                 var earlierAttempts = new List<BassAudioBackendAttempt>();
                 var crossBackendFallbackReasons = new List<string>();
-                foreach (DeviceDriver backend in GetLegacyInitializationOrder(driver))
+                foreach (DeviceDriver backend in GetInitializationOrder(driver))
                 {
                     DeviceDescriptor attemptDevice = backend == driver ? desc : default;
                     if (!SessionLifecycle.TryBegin(driver, desc, out BassAudioSession session))
@@ -579,7 +606,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             DeviceDriver.ASIO => InitializeAsio(attemptDevice),
                             DeviceDriver.WASAPI_EXCLUSIVE => InitializeWasapiNegotiated(attemptDevice, isSharedMode: false, param),
                             DeviceDriver.WASAPI_SHARED => InitializeWasapiNegotiated(attemptDevice, isSharedMode: true, param),
-                            DeviceDriver.DIRECT_SOUND => InitializeDirectSoundNegotiated(attemptDevice),
                             DeviceDriver.NULL_DEVICE => InitializeNullDevice(),
                             _ => throw new ArgumentOutOfRangeException(nameof(driver))
                         };
@@ -588,7 +614,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             string earlierFallbackReason = string.Join(
                                 "; ",
                                 crossBackendFallbackReasons)
-                                + "; fallbackDestination=" + backend;
+                                + "; fallbackDestination=" + DescribeBackendForDiagnostics(backend);
                             session.NegotiationResult = session.NegotiationResult.WithEarlierAttempts(
                                 earlierAttempts,
                                 earlierFallbackReason);
@@ -626,9 +652,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             contextual.Stage,
                             contextual.NativeErrorSource,
                             contextual.NativeErrorCode,
-                            "backend=" + backend + " failed: " + contextual.Message));
+                            "backend=" + DescribeBackendForDiagnostics(backend) + " failed: " + contextual.Message));
                         crossBackendFallbackReasons.Add(
-                            "attemptedBackend=" + backend
+                            "attemptedBackend=" + DescribeBackendForDiagnostics(backend)
                             + " stage=" + contextual.Stage
                             + " nativeErrorSource=" + contextual.NativeErrorSource
                             + " nativeErrorCode=" + contextual.NativeErrorCode);
@@ -675,13 +701,13 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         try
         {
             TryLogAudioSessionWarning(
-                "Audio initialization attempt failed. requestedBackend=" + requestedBackend
+                "Audio initialization attempt failed. requestedBackend=" + DescribeBackendForDiagnostics(requestedBackend)
                 + " requestedDevice=" + DescribeDevice(requestedDevice)
                 + " requestedRate=" + requestedRate
                 + " requestedFormat=" + requestedFormat
                 + " requestedBufferMs=" + requestedBuffer
                 + " requestedEventMode=" + requestedEventMode
-                + " attemptedBackend=" + attemptedBackend
+                + " attemptedBackend=" + DescribeBackendForDiagnostics(attemptedBackend)
                 + " stage=" + exception.Stage
                 + " actualDevice=" + DescribeDevice(exception.ActualDevice)
                 + " nativeErrorSource=" + exception.NativeErrorSource
@@ -708,13 +734,13 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         try
         {
             TryLogAudioSessionInfo(
-                "Audio initialization attempt started. requestedBackend=" + requestedBackend
+                "Audio initialization attempt started. requestedBackend=" + DescribeBackendForDiagnostics(requestedBackend)
                 + " requestedDevice=" + DescribeDevice(requestedDevice)
                 + " requestedRate=" + requestedRate
                 + " requestedFormat=" + requestedFormat
                 + " requestedBufferMs=" + requestedBuffer
                 + " requestedEventMode=" + requestedEventMode
-                + " attemptedBackend=" + attemptedBackend
+                + " attemptedBackend=" + DescribeBackendForDiagnostics(attemptedBackend)
                 + " attemptedDevice=" + DescribeDevice(attemptedDevice)
                 + " stage=begin nativeErrorSource=none nativeErrorCode=none "
                 + GetRuntimeVersionDiagnostics());
@@ -774,15 +800,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 && !string.Equals(requestedDevice.Driver, session.ActualDevice.Driver, StringComparison.Ordinal))
             || (requestedRate != SampleRate.AUTO && requestedRate != result?.ActualRate)
             || (requestedFormat != SampleFormat.AUTO && requestedFormat != result?.EngineFormat);
-        return "Audio initialization attempt succeeded. requestedBackend=" + requestedBackend
+        return "Audio initialization attempt succeeded. requestedBackend=" + DescribeBackendForDiagnostics(requestedBackend)
                 + " requestedDevice=" + DescribeDevice(requestedDevice)
                 + " requestedRate=" + requestedRate
                 + " requestedFormat=" + requestedFormat
                 + " requestedBufferMs=" + requestedBuffer
                 + " requestedEventMode=" + requestedEventMode
-                + " attemptedBackend=" + attemptedBackend
+                + " attemptedBackend=" + DescribeBackendForDiagnostics(attemptedBackend)
                 + " stage=completed nativeErrorSource=none nativeErrorCode=none"
-                + " actualBackend=" + session.ActualBackend
+                + " actualBackend=" + DescribeBackendForDiagnostics(session.ActualBackend)
                 + " actualDevice=" + DescribeDevice(session.ActualDevice)
                 + " actualRate=" + result?.ActualRate
                 + " actualChannels=" + result?.ActualChannels
@@ -790,7 +816,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 + " endpointFormat=" + result?.EndpointFormat
                 + " latencyMs=" + result?.LatencyMilliseconds
                 + " fallbackOccurred=" + fallbackOccurred
-                + " fallbackDestination=" + (fallbackOccurred ? session.ActualBackend.ToString() : "none")
+                + " fallbackDestination=" + (fallbackOccurred ? DescribeBackendForDiagnostics(session.ActualBackend) : "none")
                 + " fallbackReason=" + (fallbackOccurred ? result?.FallbackReason : "none")
                 + " " + runtimeVersionDiagnostics;
     }
@@ -801,6 +827,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             ? "<default>"
             : "[name=" + device.Name + ",identity=" + device.Driver + "]";
     }
+
+    private static string DescribeBackendForDiagnostics(DeviceDriver backend) =>
+        backend == DeviceDriver.DIRECT_SOUND ? "WASAPI_SHARED" : backend.ToString();
 
     private static string GetRuntimeVersionDiagnostics()
     {
@@ -856,17 +885,20 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
     }
 
-    private static IReadOnlyList<DeviceDriver> GetLegacyInitializationOrder(DeviceDriver driver)
+    /// <summary>
+    /// Returns the supported backend fallback order. Audible playback never falls back to the
+    /// legacy BASS core identifier or to the offline-only NullDevice.
+    /// </summary>
+    internal static IReadOnlyList<DeviceDriver> GetInitializationOrder(DeviceDriver driver)
     {
         return driver switch
         {
             DeviceDriver.ASIO =>
-                [DeviceDriver.ASIO, DeviceDriver.WASAPI_EXCLUSIVE, DeviceDriver.WASAPI_SHARED, DeviceDriver.DIRECT_SOUND],
+                [DeviceDriver.ASIO, DeviceDriver.WASAPI_EXCLUSIVE, DeviceDriver.WASAPI_SHARED],
             DeviceDriver.WASAPI_EXCLUSIVE =>
-                [DeviceDriver.WASAPI_EXCLUSIVE, DeviceDriver.WASAPI_SHARED, DeviceDriver.DIRECT_SOUND],
+                [DeviceDriver.WASAPI_EXCLUSIVE, DeviceDriver.WASAPI_SHARED],
             DeviceDriver.WASAPI_SHARED =>
-                [DeviceDriver.WASAPI_SHARED, DeviceDriver.DIRECT_SOUND],
-            DeviceDriver.DIRECT_SOUND => [DeviceDriver.DIRECT_SOUND],
+                [DeviceDriver.WASAPI_SHARED],
             DeviceDriver.NULL_DEVICE => [DeviceDriver.NULL_DEVICE],
             _ => []
         };
@@ -918,10 +950,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         session.MixerHandle = session.MixerHandle == 0 ? inputMixer : session.MixerHandle;
         session.OutputHandle = session.OutputHandle == 0 ? outputMixer : session.OutputHandle;
-        if (procChannel != 0 && !session.AdditionalStreamHandles.Contains(procChannel))
-        {
-            session.AdditionalStreamHandles.Add(procChannel);
-        }
         if (tempoChanger != 0 && !session.AdditionalStreamHandles.Contains(tempoChanger))
         {
             session.AdditionalStreamHandles.Add(tempoChanger);
@@ -969,66 +997,48 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         SessionLifecycle = new BassAudioSessionLifecycle();
         SessionNative = new BassAudioSessionNativeBoundary();
         WasapiNegotiator = new BassWasapiNegotiator(new BassWasapiNegotiationNativeBoundary());
-        DirectSoundNegotiator = new BassDirectSoundNegotiator(new BassDirectSoundNegotiationNativeBoundary());
         StaticLockObject = new object();
-        InstanceLocks = [];
         Locks = new NamedLocks<uint>();
         OnMemoryFileCache = [];
         WasapiProc = (buffer, length, user) => ReadCallbackOutput(buffer, length);
         AsioProc = (input, channel, buffer, length, user) => ReadCallbackOutput(buffer, length);
-        StreamProc = delegate (int handle, IntPtr buffer, int length, IntPtr user)
-        {
-            if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
-                out BassAudioOperationLease operation))
-            {
-                return 0;
-            }
-            using (operation)
-            {
-                int val = Bass.BASS_ChannelGetData(inputMixer, buffer, length);
-                return System.Math.Max(0, val);
-            }
-        };
         EndProc = delegate (int handle, int channel, int data, IntPtr user)
         {
-            if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
-                out BassAudioOperationLease operation))
+            try
             {
-                return;
-            }
-            using (operation)
-            {
-                object obj2;
-                lock (StaticLockObject)
+                if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
+                    out BassAudioOperationLease operation))
                 {
-                    obj2 = InstanceLocks[channel];
-                }
-                if (!Monitor.TryEnter(obj2))
-                {
-                    NLogWrapper.TraceLogger?.Trace("EndProc get lock failed");
                     return;
                 }
-                try
+                using (operation)
                 {
-                    if (BassMix.BASS_Mixer_ChannelRemove(channel))
+                    BassAudioSession session = SessionLifecycle.CurrentSessionForAdmittedOperation;
+                    if (session == null
+                        || !session.TryGetPlayerStreamOwner(channel, out BassAudioPlayer player))
                     {
-                        lock (StaticLockObject)
-                        {
-                            CurrentVoices--;
-                            return;
-                        }
+                        return;
                     }
-                    BASSError bASSError = Bass.BASS_ErrorGetCode();
-                    NLogWrapper.TraceLogger?.Warn(string.Concat("BASS_Mixer_ChannelRemove failed: ", bASSError, channel.ToString()));
+
+                    player.HandleNaturalEndCallback(session, channel, user.ToInt32());
                 }
-                catch
-                {
-                    throw;
-                }
-                finally
-                {
-                    Monitor.Exit(obj2);
-                }
+            }
+            catch (Exception exception)
+            {
+                TryLogPlayerPlaybackFailure(
+                    "BASS source end callback failed",
+                    exception,
+                    fileName: null,
+                    sourceHandle: channel,
+                    expectedMixerHandle: 0,
+                    actualMixerHandle: 0,
+                    session: null,
+                    managedPlayState: null,
+                    voiceCounted: false,
+                    endCleanupPending: false,
+                    newlyAttached: false,
+                    rollbackAttempted: false,
+                    rollbackSucceeded: false);
             }
         };
         playbackRate = 1f;
@@ -1235,31 +1245,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
     }
 
-    private static DeviceDescriptor InitializeDirectSoundNegotiated(DeviceDescriptor desc = default)
-    {
-        initializationStage = "DirectSound negotiation";
-        var request = new BassAudioNegotiationRequest(
-            DeviceDriver.DIRECT_SOUND,
-            desc,
-            _frequency,
-            _format,
-            latencyParam);
-        BassAudioBackendResult result = DirectSoundNegotiator.Initialize(
-            request,
-            CurrentSession,
-            StreamProc,
-            GetEffectiveDeviceVolumeForInitialization(_deviceVolume, IsDeviceMuted));
-
-        inputMixer = result.MixerHandle;
-        outputMixer = CurrentSession.OutputHandle;
-        volumeEffect = CurrentSession.VolumeEffectHandle;
-        procChannel = outputMixer;
-        _frequency = result.ActualRate;
-        _format = result.EngineFormat;
-        Latency = result.LatencyMilliseconds;
-        return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
-    }
-
     private static DeviceDescriptor InitializeNullDevice(DeviceDescriptor desc = default)
     {
         SampleRate requestedRate = Frequency;
@@ -1363,28 +1348,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     }
                     CurrentSession.TrackOutputHandle(outputMixer);
                     break;
-                case DeviceDriver.DIRECT_SOUND:
-                    flags = BASSFlag.BASS_DEFAULT;
-                    int oldProcChannel = procChannel;
-                    if (!TryReleaseTrackedStream(oldProcChannel, "BASS_StreamFree for procChannel"))
-                    {
-                        return;
-                    }
-                    procChannel = 0;
-                    outputMixer = (tempoChanger = BassFx.BASS_FX_TempoCreate(inputMixer, flags));
-                    if (tempoChanger == 0)
-                    {
-                        BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-                        throw new Exception("BASS_FX_TempoCreate failed: " + bASSError2);
-                    }
-                    CurrentSession.TrackOutputHandle(outputMixer);
-                    if (!Bass.BASS_ChannelPlay(outputMixer, restart: false))
-                    {
-                        BASSError bASSError3 = Bass.BASS_ErrorGetCode();
-                        throw new Exception("BASS_ChannelPlay failed: " + bASSError3);
-                    }
-                    CurrentSession.IsStarted = true;
-                    break;
                 default:
                     throw new ArgumentOutOfRangeException();
             }
@@ -1448,16 +1411,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             case DeviceDriver.ASIO:
                 outputMixer = inputMixer;
                 CurrentSession.TrackOutputHandle(outputMixer);
-                break;
-            case DeviceDriver.DIRECT_SOUND:
-                outputMixer = (procChannel = Bass.BASS_StreamCreate((int)Frequency, 2, BASSFlag.BASS_SAMPLE_FLOAT, StreamProc, IntPtr.Zero));
-                CurrentSession.TrackOutputHandle(outputMixer);
-                if (!Bass.BASS_ChannelPlay(outputMixer, restart: false))
-                {
-                    BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-                    throw new Exception("BASS_ChannelPlay failed: " + bASSError2);
-                }
-                CurrentSession.IsStarted = true;
                 break;
             default:
                 throw new ArgumentOutOfRangeException();
@@ -1862,6 +1815,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             }
 
             SetDeviceMasterVolume(
+                session,
                 GetEffectiveDeviceVolumeForBackend(
                     session.ActualBackend,
                     _deviceVolume,
@@ -1896,42 +1850,29 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
     }
 
-    private static void SetDeviceMasterVolume(float vol)
+    private static void SetDeviceMasterVolume(BassAudioSession session, float vol)
     {
-        if (!IsInitialized)
+        if (!IsInitialized || session?.State != BassAudioSessionState.Active)
         {
             return;
         }
-        switch (DriverType)
+        switch (session.ActualBackend)
         {
             case DeviceDriver.NULL_DEVICE:
-                if (!Bass.BASS_FXSetParameters(volumeEffect, new BASS_BFX_VOLUME(vol)))
+                if (!Bass.BASS_FXSetParameters(session.VolumeEffectHandle, new BASS_BFX_VOLUME(vol)))
                 {
                     BASSError bASSError5 = Bass.BASS_ErrorGetCode();
                     NLogWrapper.TraceLogger?.Warn("BASS_FXSetParameters failed: " + bASSError5);
                 }
                 break;
-            case DeviceDriver.DIRECT_SOUND:
-                {
-                    BassAudioSession directSoundSession = SessionLifecycle.CurrentSessionForAdmittedOperation;
-                    if (!DirectSoundNegotiator.TrySetMixerGain(
-                            directSoundSession,
-                            vol,
-                            out BASSError directSoundError))
-                    {
-                        NLogWrapper.TraceLogger?.Warn("BASS_FXSetParameters failed: " + directSoundError);
-                    }
-                    break;
-                }
             case DeviceDriver.WASAPI_EXCLUSIVE:
-                if (!Bass.BASS_FXSetParameters(volumeEffect, new BASS_BFX_VOLUME(vol)))
+                if (!Bass.BASS_FXSetParameters(session.VolumeEffectHandle, new BASS_BFX_VOLUME(vol)))
                 {
                     BASSError bASSError2 = Bass.BASS_ErrorGetCode();
                     NLogWrapper.TraceLogger?.Warn("BASS_FXSetParameters failed: " + bASSError2);
                 }
                 break;
             case DeviceDriver.WASAPI_SHARED:
-                BassAudioSession session = SessionLifecycle.CurrentSessionForAdmittedOperation;
                 ApplyWasapiSharedDeviceVolume(
                     WasapiNegotiator,
                     session,
@@ -1956,12 +1897,33 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     }
 
     public BassAudioPlayer(string fileName, bool onMemory = true)
+        : this(fileName, onMemory, new BassMixerSourceNativeBoundary())
     {
+    }
+
+    /// <summary>Creates a player over a replaceable mixer-source native boundary.</summary>
+    internal BassAudioPlayer(
+        string fileName,
+        bool onMemory,
+        IBassMixerSourceNativeBoundary mixerSourceNative)
+    {
+        mixerSourceController = new BassMixerSourceController(
+            mixerSourceNative,
+            () => owningSession);
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassNet.EnterAudioOperation();
-        if (!IsInitialized)
+        owningSession = SessionLifecycle.CurrentSessionForAdmittedOperation;
+        if (owningSession?.State != BassAudioSessionState.Active)
         {
-            throw new InvalidOperationException("BassAudioPlayer is not initialized.");
+            throw CreatePlaybackException(
+                BassAudioPlaybackStage.SourceDeviceSelection,
+                fileName,
+                0,
+                0,
+                0,
+                "BassAudioSession",
+                null,
+                "BassAudioPlayer is not owned by an active audio session.");
         }
         if (fileName == null)
         {
@@ -1972,84 +1934,254 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             throw new FileNotFoundException(fileName);
         }
         FileName = fileName;
-        fileNameHash = xxHash32.CalculateHash(fileName.ToUpperInvariant());
-        lock (Locks.GetLockObject(fileNameHash))
+        int expectedMixerHandle = owningSession.MixerHandle;
+        if (expectedMixerHandle == 0)
         {
-            if (OnMemoryFileCache.ContainsKey(fileNameHash))
+            throw CreatePlaybackException(
+                BassAudioPlaybackStage.SourceDeviceSelection,
+                fileName,
+                0,
+                expectedMixerHandle,
+                0,
+                "BassAudioSession",
+                null,
+                "The active audio session does not expose a mixer handle.");
+        }
+
+        if (owningSession.CoreDeviceIndex >= 0
+            && !Bass.BASS_SetDevice(owningSession.CoreDeviceIndex))
+        {
+            BASSError error = Bass.BASS_ErrorGetCode();
+            throw CreatePlaybackException(
+                BassAudioPlaybackStage.SourceDeviceSelection,
+                fileName,
+                0,
+                expectedMixerHandle,
+                0,
+                "BASS_SetDevice",
+                error,
+                "Selecting the owning BASS core device failed.");
+        }
+
+        fileNameHash = xxHash32.CalculateHash(fileName.ToUpperInvariant());
+        bool cacheReferenceHeld = false;
+        bool streamTracked = false;
+        try
+        {
+            lock (Locks.GetLockObject(fileNameHash))
             {
-                lock (StaticLockObject)
+                if (OnMemoryFileCache.ContainsKey(fileNameHash))
                 {
-                    CachedData cachedData = OnMemoryFileCache[fileNameHash];
-                    _sampleBuffer = cachedData.Data;
-                    cachedData.RefCount++;
+                    lock (StaticLockObject)
+                    {
+                        CachedData cachedData = OnMemoryFileCache[fileNameHash];
+                        _sampleBuffer = cachedData.Data;
+                        cachedData.RefCount++;
+                        cacheReferenceHeld = true;
+                    }
+                }
+                else if (onMemory)
+                {
+                    string text = Path.GetExtension(fileName).ToLowerInvariant();
+                    if (text == ".ogg")
+                    {
+                        try
+                        {
+                            using FileStream fileStream = LongPathFileSystem.OpenRead(fileName);
+                            _sampleBuffer = DecodeOggToWave(fileStream);
+                        }
+                        catch (Exception ex)
+                        {
+                            NLogWrapper.GetLogger()?.Warn("Ogg Decode failed: " + ex);
+                            _sampleBuffer = null;
+                        }
+                    }
+                    else
+                    {
+                        _sampleBuffer = LongPathFileSystem.ReadAllBytes(fileName);
+                    }
+
+                    if (_sampleBuffer != null)
+                    {
+                        lock (StaticLockObject)
+                        {
+                            OnMemoryFileCache[fileNameHash] = new CachedData(_sampleBuffer);
+                            cacheReferenceHeld = true;
+                        }
+                    }
                 }
             }
-            else if (onMemory)
+
+            if (_sampleBuffer != null)
             {
-                string text = Path.GetExtension(fileName).ToLowerInvariant();
-                if (text == ".ogg")
+                fileProc = new BASS_FILEPROCS(FileProcClose, FileProcLength, FileProcRead, fileProcSeek);
+                _handle = Bass.BASS_StreamCreateFileUser(
+                    BASSStreamSystem.STREAMFILE_NOBUFFER,
+                    BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE,
+                    fileProc,
+                    IntPtr.Zero);
+                if (_handle == 0)
                 {
-                    try
+                    BASSError error = Bass.BASS_ErrorGetCode();
+                    throw CreatePlaybackException(
+                        BassAudioPlaybackStage.SourceCreate,
+                        fileName,
+                        0,
+                        expectedMixerHandle,
+                        0,
+                        "BASS_StreamCreateFileUser",
+                        error,
+                        "Creating the in-memory BASS source stream failed.");
+                }
+            }
+            else
+            {
+                _handle = Bass.BASS_StreamCreateFile(
+                    LongPathFileSystem.ToExtendedPath(fileName),
+                    0L,
+                    0L,
+                    BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE);
+                if (_handle == 0)
+                {
+                    BASSError error = Bass.BASS_ErrorGetCode();
+                    throw CreatePlaybackException(
+                        BassAudioPlaybackStage.SourceCreate,
+                        fileName,
+                        0,
+                        expectedMixerHandle,
+                        0,
+                        "BASS_StreamCreateFile",
+                        error,
+                        "Creating the disk-backed BASS source stream failed.");
+                }
+            }
+
+            try
+            {
+                owningSession.TrackPlayerStream(_handle, this, ConfirmNativeStreamReleased);
+                streamTracked = true;
+            }
+            catch (Exception exception)
+            {
+                throw CreatePlaybackException(
+                    BassAudioPlaybackStage.SourceTracking,
+                    fileName,
+                    _handle,
+                    expectedMixerHandle,
+                    0,
+                    nameof(BassAudioSession.TrackPlayerStream),
+                    null,
+                    "Retaining the BASS source stream in its owning session failed.",
+                    exception);
+            }
+
+            long pos = Bass.BASS_ChannelGetLength(_handle);
+            double value = Bass.BASS_ChannelBytes2Seconds(_handle, pos);
+            Duration = TimeSpan.FromSeconds(value);
+            Volume = DefaultVolume;
+            playState = PlayState.Stopped;
+        }
+        catch
+        {
+            bool nativeStreamReleasedOrAlreadyOwned = false;
+            bool streamAlreadyOwned = false;
+            if (_handle != 0 && !streamTracked && owningSession != null)
+            {
+                try
+                {
+                    streamTracked = owningSession.TryTrackPlayerStreamForCleanup(
+                        _handle,
+                        this,
+                        ConfirmNativeStreamReleased,
+                        out streamAlreadyOwned);
+                }
+                catch (Exception exception)
+                {
+                    TryLogPlayerCleanupFailure(
+                        "Failed to retain a source stream for construction cleanup",
+                        exception);
+                }
+            }
+
+            if (_handle != 0 && streamTracked)
+            {
+                int trackedHandle = _handle;
+                bool released = false;
+                try
+                {
+                    released = Bass.BASS_StreamFree(trackedHandle);
+                    if (!released)
                     {
-                        using FileStream fileStream = LongPathFileSystem.OpenRead(fileName);
-                        _sampleBuffer = DecodeOggToWave(fileStream);
+                        BASSError error = Bass.BASS_ErrorGetCode();
+                        released = error == BASSError.BASS_ERROR_INIT;
+                        if (!released)
+                        {
+                            TryLogPlayerCleanupFailure(
+                                "Failed to clean up a tracked source stream during construction: " + error,
+                                null);
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        NLogWrapper.GetLogger()?.Warn("Ogg Decode failed: " + ex);
-                        _sampleBuffer = null;
-                        goto end_IL_0060;
-                    }
+                }
+                catch (Exception exception)
+                {
+                    TryLogPlayerCleanupFailure(
+                        "Failed to clean up a tracked source stream during construction",
+                        exception);
+                }
+
+                if (released)
+                {
+                    owningSession.ConfirmPlayerStreamReleased(trackedHandle);
+                }
+            }
+            else if (_handle != 0)
+            {
+                if (streamAlreadyOwned)
+                {
+                    nativeStreamReleasedOrAlreadyOwned = true;
                 }
                 else
                 {
-                    _sampleBuffer = LongPathFileSystem.ReadAllBytes(fileName);
+                    bool released = false;
+                    try
+                    {
+                        released = Bass.BASS_StreamFree(_handle);
+                        if (!released)
+                        {
+                            BASSError error = Bass.BASS_ErrorGetCode();
+                            released = error == BASSError.BASS_ERROR_INIT;
+                            if (!released)
+                            {
+                                TryLogPlayerCleanupFailure(
+                                    "Failed to clean up an untracked source stream: " + error,
+                                    null);
+                            }
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        TryLogPlayerCleanupFailure(
+                            "Failed to clean up an untracked source stream",
+                            exception);
+                    }
+
+                    nativeStreamReleasedOrAlreadyOwned = released;
                 }
-                lock (StaticLockObject)
+
+                if (nativeStreamReleasedOrAlreadyOwned)
                 {
-                    OnMemoryFileCache[fileNameHash] = new CachedData(_sampleBuffer);
+                    _handle = 0;
                 }
             }
-        end_IL_0060:;
-        }
-        if (_sampleBuffer != null)
-        {
-            fileProc = new BASS_FILEPROCS(FileProcClose, FileProcLength, FileProcRead, fileProcSeek);
-            _handle = Bass.BASS_StreamCreateFileUser(BASSStreamSystem.STREAMFILE_NOBUFFER, BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE, fileProc, IntPtr.Zero);
-            if (_handle == 0)
+
+            if (!streamTracked
+                && nativeStreamReleasedOrAlreadyOwned
+                && cacheReferenceHeld)
             {
-                BASSError bASSError = Bass.BASS_ErrorGetCode();
-                throw new Exception("BASS_StreamCreateFileUser failed: " + fileName + " " + bASSError);
+                ReleaseCachedDataReference();
             }
-        }
-        else
-        {
-            _handle = Bass.BASS_StreamCreateFile(LongPathFileSystem.ToExtendedPath(fileName), 0L, 0L, BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE);
-            if (_handle == 0)
-            {
-                BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-                throw new Exception("BASS_StreamCreateFile failed: " + fileName + " " + bASSError2);
-            }
-        }
-        using (SessionLifecycle.Enter())
-        {
-            owningSession = SessionLifecycle.CurrentSession;
-            if (owningSession?.State != BassAudioSessionState.Active)
-            {
-                throw new InvalidOperationException(
-                    "The BASS source stream was created without an active audio session owner.");
-            }
-            owningSession.TrackPlayerStream(_handle, this, ConfirmNativeStreamReleased);
-        }
-        long pos = Bass.BASS_ChannelGetLength(_handle);
-        double value = Bass.BASS_ChannelBytes2Seconds(_handle, pos);
-        Duration = TimeSpan.FromSeconds(value);
-        Volume = DefaultVolume;
-        Bass.BASS_ChannelSetSync(_handle, BASSSync.BASS_SYNC_END | BASSSync.BASS_SYNC_MIXTIME, 0L, EndProc, IntPtr.Zero);
-        playState = PlayState.Stopped;
-        lock (StaticLockObject)
-        {
-            InstanceLocks[_handle] = new object();
+
+            throw;
         }
     }
 
@@ -2212,94 +2344,123 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassNet.EnterAudioOperation();
-        if (playState != PlayState.Stopped)
+        lock (mixerSourceSync)
         {
+            ProcessPendingEndCleanup();
+            if (playState == PlayState.Stopped)
+            {
+                return;
+            }
+
+            BassAudioSession session = GetOwningSessionForOperation();
             if (playState == PlayState.Playing)
             {
+                mixerSourceController.Pause(
+                    session.MixerHandle,
+                    _handle,
+                    FileName);
                 playState = PlayState.Paused;
-                BassMix.BASS_Mixer_ChannelPause(_handle);
             }
             else if (playState == PlayState.Paused)
             {
+                mixerSourceController.Resume(
+                    session.MixerHandle,
+                    _handle,
+                    FileName);
                 playState = PlayState.Playing;
-                BassMix.BASS_Mixer_ChannelPlay(_handle);
             }
         }
     }
 
     /// <summary>
-    /// Starts or pauses this stream and fails after a bounded retry when the mixer rejects it.
+    /// Starts or pauses this stream after verifying its owning mixer membership.
     /// </summary>
     public void Play(PlayWith flagPlayWith = PlayWith.RESTART)
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassNet.EnterAudioOperation();
-        IsMuted = flagPlayWith.HasFlag(PlayWith.MUTE);
-        bool flag = false;
-        lock (InstanceLocks[_handle])
+        lock (mixerSourceSync)
         {
-            for (int attempt = 0; attempt < 2; attempt++)
+            ProcessPendingEndCleanup();
+            BassAudioSession session = GetOwningSessionForOperation();
+            IsMuted = flagPlayWith.HasFlag(PlayWith.MUTE);
+            BassMixerSourceAttachment attachment;
+            try
             {
-                BASSActive bASSActive = BassMix.BASS_Mixer_ChannelIsActive(_handle);
-                if (bASSActive == BASSActive.BASS_ACTIVE_STOPPED)
+                attachment = mixerSourceController.EnsureAttachedPaused(
+                    session.MixerHandle,
+                    _handle,
+                    FileName);
+            }
+            catch (BassAudioPlaybackException exception)
+            {
+                TryLogPlayerPlaybackFailure(
+                    "BASS player mixer attachment failed",
+                    exception,
+                    FileName,
+                    _handle,
+                    session.MixerHandle,
+                    exception.ActualMixerHandle,
+                    session,
+                    playState,
+                    voiceCounted,
+                    HasPendingEndCleanup,
+                    newlyAttached: false,
+                    rollbackAttempted: false,
+                    rollbackSucceeded: false);
+                throw;
+            }
+            // A verified existing membership may be the result of a benign add race.  Voice
+            // accounting is idempotent and must reflect the observed membership, not which
+            // thread won the native add call.
+            MarkVoiceAttachedOnce();
+
+            try
+            {
+                bool resetGeneration = flagPlayWith.HasFlag(PlayWith.RESTART);
+                if (resetGeneration)
                 {
-                    if (BassMix.BASS_Mixer_StreamAddChannel(inputMixer, _handle, BASSFlag.BASS_STREAM_PRESCAN))
-                    {
-                        lock (StaticLockObject)
-                        {
-                            CurrentVoices++;
-                            if (MaxVoices < CurrentVoices)
-                            {
-                                MaxVoices = CurrentVoices;
-                            }
-                        }
-                        flag = true;
-                    }
-                    else
-                    {
-                        BASSError bASSError = Bass.BASS_ErrorGetCode();
-                        NLogWrapper.TraceLogger?.Warn(string.Concat("BASS_Mixer_StreamAddChannel failed: ", bASSError, " :", FileName));
-                        throw new InvalidOperationException(
-                            "BASS_Mixer_StreamAddChannel failed: " + bASSError + " :" + FileName);
-                    }
-                    bASSActive = BASSActive.BASS_ACTIVE_PAUSED;
+                    SetPositionCore(TimeSpan.Zero, session);
                 }
-                if (playState == PlayState.Playing && flagPlayWith.HasFlag(PlayWith.RESTART))
-                {
-                    CurrentTime = TimeSpan.Zero;
-                }
+
+                EnsureEndSyncForPlayback(session);
                 if (flagPlayWith.HasFlag(PlayWith.PAUSE))
                 {
-                    if (bASSActive == BASSActive.BASS_ACTIVE_PLAYING)
-                    {
-                        BassMix.BASS_Mixer_ChannelPause(_handle);
-                    }
+                    mixerSourceController.Pause(session.MixerHandle, _handle, FileName);
                     playState = PlayState.Paused;
                     return;
                 }
-                if (!BassMix.BASS_Mixer_ChannelPlay(_handle))
-                {
-                    BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-                    NLogWrapper.TraceLogger?.Warn(string.Concat("BASS_Mixer_ChannelPlay failed: ", bASSError2, " :", FileName, flag ? " add channel failed?" : " channel is removed?"));
-                    if (flag)
-                    {
-                        lock (StaticLockObject)
-                        {
-                            CurrentVoices--;
-                        }
-                        throw new InvalidOperationException(
-                            "BASS_Mixer_ChannelPlay failed after adding the channel: "
-                            + bASSError2 + " :" + FileName);
-                    }
-                    continue;
-                }
+
+                mixerSourceController.Resume(session.MixerHandle, _handle, FileName);
                 playState = PlayState.Playing;
                 return;
             }
+            catch (BassAudioPlaybackException exception)
+            {
+                bool rollbackAttempted = false;
+                bool rollbackSucceeded = false;
+                if (attachment.NewlyAttached)
+                {
+                    rollbackAttempted = true;
+                    rollbackSucceeded = TryRollbackNewAttachment(attachment, session, exception);
+                }
 
-            BASSError error = Bass.BASS_ErrorGetCode();
-            throw new InvalidOperationException(
-                "BASS_Mixer_ChannelPlay failed after a bounded retry: " + error + " :" + FileName);
+                TryLogPlayerPlaybackFailure(
+                    "BASS player playback operation failed",
+                    exception,
+                    FileName,
+                    _handle,
+                    session.MixerHandle,
+                    attachment.ActualMixerHandle,
+                    session,
+                    playState,
+                    voiceCounted,
+                    HasPendingEndCleanup,
+                    attachment.NewlyAttached,
+                    rollbackAttempted,
+                    rollbackSucceeded);
+                throw;
+            }
         }
     }
 
@@ -2307,28 +2468,467 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassNet.EnterAudioOperation();
-        if (playState == PlayState.Stopped)
+        lock (mixerSourceSync)
         {
-            return;
-        }
-        playState = PlayState.Stopped;
-        CurrentTime = TimeSpan.Zero;
-        lock (InstanceLocks[_handle])
-        {
-            if (BassMix.BASS_Mixer_ChannelIsActive(_handle) == BASSActive.BASS_ACTIVE_STOPPED)
+            ProcessPendingEndCleanup();
+            if (_handle == 0)
             {
                 return;
             }
-            if (BassMix.BASS_Mixer_ChannelRemove(_handle))
+
+            BassAudioSession session = GetOwningSessionForOperation();
+            InvalidateEndSync(session);
+            BassMixerSourceRemoval removal = mixerSourceController.RemoveFromExpectedMixer(
+                session.MixerHandle,
+                _handle,
+                FileName);
+            if (removal.AlreadyDetached)
             {
-                lock (StaticLockObject)
+                MarkVoiceDetachedOnce();
+                playState = PlayState.Stopped;
+                SetPositionCore(TimeSpan.Zero, session);
+                return;
+            }
+
+            MarkVoiceDetachedOnce();
+            playState = PlayState.Stopped;
+            SetPositionCore(TimeSpan.Zero, session);
+        }
+    }
+
+    private BassAudioSession GetOwningSessionForOperation()
+    {
+        BassAudioSession admittedSession = SessionLifecycle.CurrentSessionForAdmittedOperation;
+        if (admittedSession == null
+            || !ReferenceEquals(admittedSession, owningSession)
+            || admittedSession.State != BassAudioSessionState.Active)
+        {
+            throw CreatePlaybackException(
+                BassAudioPlaybackStage.MixerMembership,
+                FileName,
+                _handle,
+                owningSession?.MixerHandle ?? 0,
+                0,
+                nameof(BassAudioSessionLifecycle),
+                null,
+                "The player no longer belongs to the admitted active audio session.");
+        }
+
+        if (admittedSession.MixerHandle == 0)
+        {
+            throw CreatePlaybackException(
+                BassAudioPlaybackStage.MixerMembership,
+                FileName,
+                _handle,
+                0,
+                0,
+                nameof(BassAudioSession),
+                null,
+                "The owning audio session does not expose a mixer handle.");
+        }
+
+        return admittedSession;
+    }
+
+    private void SetPositionCore(TimeSpan position, BassAudioSession session)
+    {
+        long nativePosition = Bass.BASS_ChannelSeconds2Bytes(_handle, position.TotalSeconds);
+        if (nativePosition < 0)
+        {
+            BASSError error = Bass.BASS_ErrorGetCode();
+            throw CreatePlaybackException(
+                BassAudioPlaybackStage.SetPosition,
+                FileName,
+                _handle,
+                session?.MixerHandle ?? 0,
+                0,
+                "BASS_ChannelSeconds2Bytes",
+                error,
+                "Converting the requested source position failed.");
+        }
+
+        mixerSourceController.SetPosition(
+            _handle,
+            nativePosition,
+            FileName,
+            session?.MixerHandle ?? 0);
+    }
+
+    private void EnsureEndSyncForPlayback(BassAudioSession session)
+    {
+        // Every Play call establishes a new logical playback activation.  This is required even
+        // for PAUSE/DEFAULT: a callback that lost the mixer lock during the previous activation
+        // may publish pending cleanup after this method's initial pending check.
+        AdvancePlaybackGeneration();
+        RemoveEndSync(session);
+        ClearStalePendingEndCleanup();
+
+        int syncHandle = Bass.BASS_ChannelSetSync(
+            _handle,
+            BASSSync.BASS_SYNC_END | BASSSync.BASS_SYNC_MIXTIME | BASSSync.BASS_SYNC_ONETIME,
+            0L,
+            EndProc,
+            new IntPtr(playbackGeneration));
+        if (syncHandle == 0)
+        {
+            BASSError error = Bass.BASS_ErrorGetCode();
+            throw CreatePlaybackException(
+                BassAudioPlaybackStage.SourceTracking,
+                FileName,
+                _handle,
+                session?.MixerHandle ?? 0,
+                0,
+                "BASS_ChannelSetSync",
+                error,
+                "Registering the source end callback failed.",
+                session: session);
+        }
+
+        endSyncHandle = syncHandle;
+    }
+
+    private void InvalidateEndSync(BassAudioSession session)
+    {
+        AdvancePlaybackGeneration();
+        RemoveEndSync(session);
+        ClearStalePendingEndCleanup();
+    }
+
+    private void RemoveEndSync(BassAudioSession session)
+    {
+        if (endSyncHandle == 0)
+        {
+            return;
+        }
+
+        int syncHandle = endSyncHandle;
+        if (!Bass.BASS_ChannelRemoveSync(_handle, syncHandle))
+        {
+            BASSError error = Bass.BASS_ErrorGetCode();
+            if (error != BASSError.BASS_ERROR_HANDLE
+                && error != BASSError.BASS_ERROR_INIT)
+            {
+                throw CreatePlaybackException(
+                    BassAudioPlaybackStage.SourceTracking,
+                    FileName,
+                    _handle,
+                    session?.MixerHandle ?? 0,
+                    0,
+                    "BASS_ChannelRemoveSync",
+                    error,
+                    "Removing the previous source end callback failed.",
+                    session: session);
+            }
+        }
+
+        endSyncHandle = 0;
+    }
+
+    private void AdvancePlaybackGeneration()
+    {
+        Volatile.Write(
+            ref playbackGeneration,
+            GetNextPlaybackGeneration(Volatile.Read(ref playbackGeneration)));
+    }
+
+    /// <summary>
+    /// Returns the next non-zero playback generation used to reject stale end callbacks.
+    /// </summary>
+    internal static int GetNextPlaybackGeneration(int currentGeneration)
+    {
+        int nextGeneration = unchecked(currentGeneration + 1);
+        return nextGeneration == 0 ? 1 : nextGeneration;
+    }
+
+    /// <summary>
+    /// Determines whether a native end callback belongs to the current playback generation.
+    /// </summary>
+    internal static bool IsCurrentPlaybackGeneration(int currentGeneration, int callbackGeneration)
+        => currentGeneration == callbackGeneration;
+
+    /// <summary>
+    /// Determines whether a pending end cleanup may publish without replacing a newer callback.
+    /// </summary>
+    internal static bool ShouldPublishPendingEndCleanup(
+        int currentGeneration,
+        int pendingGeneration,
+        int callbackGeneration)
+    {
+        if (callbackGeneration == 0
+            || (!IsCurrentPlaybackGeneration(currentGeneration, callbackGeneration)
+                && !IsPlaybackGenerationNewer(callbackGeneration, currentGeneration)))
+        {
+            return false;
+        }
+
+        return pendingGeneration == 0
+            || pendingGeneration == callbackGeneration
+            || IsPlaybackGenerationNewer(callbackGeneration, pendingGeneration);
+    }
+
+    private static bool IsPlaybackGenerationNewer(int candidateGeneration, int existingGeneration)
+        => unchecked(candidateGeneration - existingGeneration) > 0;
+
+    private bool HasPendingEndCleanup => Volatile.Read(ref pendingEndGeneration) != 0;
+
+    private void PublishPendingEndCleanup(int callbackGeneration)
+    {
+        while (true)
+        {
+            int currentGeneration = Volatile.Read(ref playbackGeneration);
+            int pendingGeneration = Volatile.Read(ref pendingEndGeneration);
+            if (!ShouldPublishPendingEndCleanup(
+                    currentGeneration,
+                    pendingGeneration,
+                    callbackGeneration))
+            {
+                return;
+            }
+
+            if (pendingGeneration == callbackGeneration)
+            {
+                return;
+            }
+
+            if (Interlocked.CompareExchange(
+                    ref pendingEndGeneration,
+                    callbackGeneration,
+                    pendingGeneration) != pendingGeneration)
+            {
+                continue;
+            }
+
+            // A new Play may have advanced the generation immediately after the CAS.  Clear
+            // only our own stale value; a newer callback's pending value is never overwritten.
+            int observedGeneration = Volatile.Read(ref playbackGeneration);
+            if (!IsCurrentPlaybackGeneration(observedGeneration, callbackGeneration)
+                && IsPlaybackGenerationNewer(observedGeneration, callbackGeneration))
+            {
+                Interlocked.CompareExchange(
+                    ref pendingEndGeneration,
+                    0,
+                    callbackGeneration);
+            }
+
+            return;
+        }
+    }
+
+    private void ClearStalePendingEndCleanup()
+    {
+        int currentGeneration = Volatile.Read(ref playbackGeneration);
+        int pendingGeneration = Volatile.Read(ref pendingEndGeneration);
+        if (pendingGeneration != 0
+            && !IsCurrentPlaybackGeneration(currentGeneration, pendingGeneration))
+        {
+            Interlocked.CompareExchange(
+                ref pendingEndGeneration,
+                0,
+                pendingGeneration);
+        }
+    }
+
+    private bool ProcessPendingEndCleanup()
+    {
+        int pendingGeneration = Volatile.Read(ref pendingEndGeneration);
+        if (pendingGeneration == 0)
+        {
+            return false;
+        }
+
+        if (!IsCurrentPlaybackGeneration(
+                Volatile.Read(ref playbackGeneration),
+                pendingGeneration))
+        {
+            Interlocked.CompareExchange(ref pendingEndGeneration, 0, pendingGeneration);
+            return false;
+        }
+
+        if (_handle == 0)
+        {
+            MarkVoiceDetachedOnce();
+            playState = PlayState.Stopped;
+            Interlocked.CompareExchange(ref pendingEndGeneration, 0, pendingGeneration);
+            return true;
+        }
+
+        BassAudioSession session = GetOwningSessionForOperation();
+        BassMixerSourceRemoval removal = mixerSourceController.RemoveFromExpectedMixer(
+            session.MixerHandle,
+            _handle,
+            FileName);
+        MarkVoiceDetachedOnce();
+        playState = PlayState.Stopped;
+        Interlocked.CompareExchange(ref pendingEndGeneration, 0, pendingGeneration);
+        _ = removal;
+        return true;
+    }
+
+    private bool TryRollbackNewAttachment(
+        BassMixerSourceAttachment attachment,
+        BassAudioSession session,
+        BassAudioPlaybackException primaryException)
+    {
+        try
+        {
+            InvalidateEndSync(session);
+            BassMixerSourceRemoval removal = mixerSourceController.RemoveFromExpectedMixer(
+                session.MixerHandle,
+                _handle,
+                FileName);
+            MarkVoiceDetachedOnce();
+            return true;
+        }
+        catch (Exception rollbackException)
+        {
+            TryLogPlayerPlaybackFailure(
+                "BASS player playback rollback failed",
+                rollbackException,
+                FileName,
+                _handle,
+                session.MixerHandle,
+                attachment.ActualMixerHandle,
+                session,
+                playState,
+                voiceCounted,
+                HasPendingEndCleanup,
+                attachment.NewlyAttached,
+                rollbackAttempted: true,
+                rollbackSucceeded: false);
+            TryLogPlayerPlaybackFailure(
+                "BASS player playback primary failure retained after rollback failure",
+                primaryException,
+                FileName,
+                _handle,
+                session.MixerHandle,
+                attachment.ActualMixerHandle,
+                session,
+                playState,
+                voiceCounted,
+                HasPendingEndCleanup,
+                attachment.NewlyAttached,
+                 rollbackAttempted: true,
+                 rollbackSucceeded: false);
+            return false;
+        }
+    }
+
+    private void HandleNaturalEndCallback(
+        BassAudioSession callbackSession,
+        int callbackHandle,
+        int callbackGeneration)
+    {
+        if (!ReferenceEquals(callbackSession, owningSession)
+            || _handle != callbackHandle
+            || !IsCurrentPlaybackGeneration(
+                Volatile.Read(ref playbackGeneration),
+                callbackGeneration))
+        {
+            return;
+        }
+
+        if (!Monitor.TryEnter(mixerSourceSync))
+        {
+            PublishPendingEndCleanup(callbackGeneration);
+            return;
+        }
+
+        try
+        {
+            try
+            {
+                if (!ReferenceEquals(callbackSession, owningSession)
+                    || _handle != callbackHandle
+                    || !IsCurrentPlaybackGeneration(playbackGeneration, callbackGeneration))
                 {
-                    CurrentVoices--;
                     return;
                 }
+
+                // BASS_SYNC_ONETIME removes the native synchronizer before invoking us.  Drop
+                // only the matching managed handle; a newer playback may already have armed
+                // another synchronizer.
+                endSyncHandle = 0;
+                BassMixerSourceRemoval removal = mixerSourceController.RemoveFromExpectedMixer(
+                    callbackSession.MixerHandle,
+                    callbackHandle,
+                    FileName);
+                MarkVoiceDetachedOnce();
+                playState = PlayState.Stopped;
+                Interlocked.CompareExchange(
+                    ref pendingEndGeneration,
+                    0,
+                    callbackGeneration);
+                _ = removal;
             }
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            NLogWrapper.TraceLogger?.Warn("BASS_Mixer_ChannelRemove failed: " + bASSError);
+            catch (Exception exception)
+            {
+                PublishPendingEndCleanup(callbackGeneration);
+                TryLogPlayerPlaybackFailure(
+                    "BASS source natural-end cleanup failed",
+                    exception,
+                    FileName,
+                    callbackHandle,
+                    callbackSession.MixerHandle,
+                    0,
+                    callbackSession,
+                    playState,
+                    voiceCounted,
+                    HasPendingEndCleanup,
+                    newlyAttached: false,
+                    rollbackAttempted: false,
+                    rollbackSucceeded: false);
+            }
+        }
+        finally
+        {
+            Monitor.Exit(mixerSourceSync);
+        }
+    }
+
+    private void MarkVoiceAttachedOnce()
+    {
+        lock (mixerSourceSync)
+        {
+            if (voiceCounted)
+            {
+                return;
+            }
+
+            voiceCounted = true;
+            lock (StaticLockObject)
+            {
+                CurrentVoices++;
+                if (MaxVoices < CurrentVoices)
+                {
+                    MaxVoices = CurrentVoices;
+                }
+            }
+        }
+    }
+
+    private void MarkVoiceDetachedOnce()
+    {
+        lock (mixerSourceSync)
+        {
+            if (!voiceCounted)
+            {
+                return;
+            }
+
+            voiceCounted = false;
+            lock (StaticLockObject)
+            {
+                if (CurrentVoices > 0)
+                {
+                    CurrentVoices--;
+                }
+                else
+                {
+                    TryLogPlayerCleanupFailure(
+                        "BASS player voice-count invariant was already zero while detaching",
+                        null);
+                }
+            }
         }
     }
 
@@ -2357,62 +2957,65 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         using (operation)
             try
             {
-                int ownedHandle;
-                lock (disposeSync)
+                // Keep the same instance lifecycle boundary from Stop through native free.  A
+                // concurrent Play must either finish before disposal enters this lock or observe
+                // the confirmed disposed handle afterwards; it must not reattach between them.
+                lock (mixerSourceSync)
                 {
-                    if (disposedValue)
+                    int ownedHandle;
+                    lock (disposeSync)
                     {
-                        return true;
-                    }
-                    ownedHandle = _handle;
-                }
-
-                if (ownedHandle != 0)
-                {
-                    try
-                    {
-                        Stop();
-                    }
-                    catch (Exception exception)
-                    {
-                        TryLogPlayerCleanupFailure("BASS source stream stop failed", exception);
+                        if (disposedValue)
+                        {
+                            return true;
+                        }
+                        ownedHandle = _handle;
                     }
 
-                    bool released = Bass.BASS_StreamFree(ownedHandle);
-                    if (!released)
+                    if (ownedHandle != 0)
                     {
-                        BASSError error = Bass.BASS_ErrorGetCode();
-                        released = error == BASSError.BASS_ERROR_INIT;
+                        try
+                        {
+                            Stop();
+                        }
+                        catch (Exception exception)
+                        {
+                            TryLogPlayerCleanupFailure("BASS source stream stop failed", exception);
+                        }
+
+                        bool released = Bass.BASS_StreamFree(ownedHandle);
                         if (!released)
                         {
-                            TryLogPlayerCleanupFailure(
-                                "BASS_StreamFree(" + ownedHandle + ") failed: " + error,
-                                null);
+                            BASSError error = Bass.BASS_ErrorGetCode();
+                            released = error == BASSError.BASS_ERROR_INIT;
+                            if (!released)
+                            {
+                                TryLogPlayerCleanupFailure(
+                                    "BASS_StreamFree(" + ownedHandle + ") failed: " + error,
+                                    null);
+                            }
                         }
-                    }
 
-                    if (!released)
-                    {
-                        return false;
-                    }
+                        if (!released)
+                        {
+                            return false;
+                        }
 
-                    if (owningSession != null)
-                    {
-                        owningSession.ConfirmPlayerStreamReleased(ownedHandle);
+                        if (owningSession != null)
+                        {
+                            owningSession.ConfirmPlayerStreamReleased(ownedHandle);
+                        }
+                        ConfirmNativeStreamReleased(ownedHandle);
                     }
                     else
                     {
                         ConfirmNativeStreamReleased(ownedHandle);
                     }
-                }
-                else
-                {
-                    ConfirmNativeStreamReleased(ownedHandle);
-                }
 
-                lock (disposeSync)
-                {
-                    return disposedValue;
+                    lock (disposeSync)
+                    {
+                        return disposedValue;
+                    }
                 }
             }
             catch (Exception exception) when (!disposing)
@@ -2437,30 +3040,130 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
             _handle = 0;
             owningSession = null;
+            Interlocked.Exchange(ref pendingEndGeneration, 0);
             disposedValue = true;
         }
 
-        if (_sampleBuffer != null)
+        MarkVoiceDetachedOnce();
+        ReleaseCachedDataReference();
+        GC.SuppressFinalize(this);
+    }
+
+    private void ReleaseCachedDataReference()
+    {
+        if (_sampleBuffer == null)
         {
-            _sampleBuffer = null;
-            lock (StaticLockObject)
-            {
-                if (OnMemoryFileCache.ContainsKey(fileNameHash))
-                {
-                    CachedData cachedData = OnMemoryFileCache[fileNameHash];
-                    cachedData.RefCount--;
-                    if (cachedData.RefCount == 0)
-                    {
-                        OnMemoryFileCache.Remove(fileNameHash);
-                    }
-                }
-            }
+            return;
         }
+
+        _sampleBuffer = null;
         lock (StaticLockObject)
         {
-            InstanceLocks.Remove(releasedHandle);
+            if (!OnMemoryFileCache.TryGetValue(fileNameHash, out CachedData cachedData))
+            {
+                return;
+            }
+
+            cachedData.RefCount--;
+            if (cachedData.RefCount == 0)
+            {
+                OnMemoryFileCache.Remove(fileNameHash);
+            }
         }
-        GC.SuppressFinalize(this);
+    }
+
+    private static BassAudioPlaybackException CreatePlaybackException(
+        BassAudioPlaybackStage stage,
+        string fileName,
+        int sourceHandle,
+        int expectedMixerHandle,
+        int actualMixerHandle,
+        string nativeErrorSource,
+        BASSError? nativeErrorCode,
+        string message,
+        Exception innerException = null,
+        BassAudioSession session = null)
+        => new(
+            stage,
+            fileName,
+            sourceHandle,
+            expectedMixerHandle,
+            actualMixerHandle,
+            nativeErrorSource,
+            nativeErrorCode,
+            message,
+            session ?? TryGetCurrentSessionForDiagnostics(),
+            innerException);
+
+    private static BassAudioSession TryGetCurrentSessionForDiagnostics()
+    {
+        try
+        {
+            return SessionLifecycle.CurrentSessionForAdmittedOperation;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void TryLogPlayerPlaybackFailure(
+        string operation,
+        Exception exception,
+        string fileName,
+        int sourceHandle,
+        int expectedMixerHandle,
+        int actualMixerHandle,
+        BassAudioSession session,
+        PlayState? managedPlayState,
+        bool voiceCounted,
+        bool endCleanupPending,
+        bool newlyAttached,
+        bool rollbackAttempted,
+        bool rollbackSucceeded)
+    {
+        try
+        {
+            BassAudioPlaybackException playbackException = exception as BassAudioPlaybackException;
+            string nativeErrorSource = playbackException?.NativeErrorSource ?? "none";
+            BASSError? nativeErrorCode = playbackException?.NativeErrorCode;
+            string stage = playbackException?.Stage.ToString() ?? "unknown";
+            string backend = playbackException?.Backend?.ToString()
+                ?? session?.ActualBackend.ToString()
+                ?? "unknown";
+            string sessionState = playbackException?.SessionState?.ToString()
+                ?? session?.State.ToString()
+                ?? "unknown";
+            string coreDevice = playbackException?.CoreDeviceIndex?.ToString()
+                ?? session?.CoreDeviceIndex.ToString()
+                ?? "unknown";
+            NLogWrapper.GetLogger(nameof(BassAudioPlayer)).Warn(
+                operation
+                + " stage=" + stage
+                + " file=" + fileName
+                + " sourceHandle=" + sourceHandle
+                + " expectedMixerHandle=" + expectedMixerHandle
+                + " actualMixerHandle=" + actualMixerHandle
+                + " backend=" + backend
+                + " sessionState=" + sessionState
+                + " coreDevice=" + coreDevice
+                + " owningBackend=" + (session?.ActualBackend.ToString() ?? "unknown")
+                + " owningSessionState=" + (session?.State.ToString() ?? "unknown")
+                + " coreDeviceIndex=" + (session?.CoreDeviceIndex.ToString() ?? "unknown")
+                + " managedPlayState=" + (managedPlayState?.ToString() ?? "unknown")
+                + " voiceCounted=" + voiceCounted
+                + " endCleanupPending=" + endCleanupPending
+                + " nativeErrorSource=" + nativeErrorSource
+                + " nativeErrorCode=" + nativeErrorCode
+                + " newlyAttached=" + newlyAttached
+                + " rollbackAttempted=" + rollbackAttempted
+                + " rollbackSucceeded=" + rollbackSucceeded
+                + " error=" + (exception?.Message ?? "none"));
+        }
+        catch
+        {
+            // Playback diagnostics must never replace the primary playback failure.
+        }
     }
 
     private static void TryLogPlayerCleanupFailure(string message, Exception exception)

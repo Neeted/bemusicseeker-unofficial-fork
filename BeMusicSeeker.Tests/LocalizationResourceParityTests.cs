@@ -89,12 +89,22 @@ public sealed class LocalizationResourceParityTests
             [nameof(Resources.AudioDeviceTestSuccessFormat)] = 7,
             [nameof(Resources.AudioDeviceTestFallbackFormat)] = 5,
             [nameof(Resources.AudioDeviceTestStreamFailureFormat)] = 3,
-            [nameof(Resources.AudioDeviceTestInitializationErrorFormat)] = 7
+            [nameof(Resources.AudioDeviceTestInitializationErrorFormat)] = 7,
+            [nameof(Resources.AudioDeviceTestPlayerCreationFailureReasonFormat)] = 3,
+            [nameof(Resources.AudioDeviceTestPlaybackStartFailureReasonFormat)] = 3
         };
         string[] plainKeys =
         [
             nameof(Resources.AudioDeviceTestStreamProgressFailureReason),
-            nameof(Resources.AudioDeviceTestFallbackReason)
+            nameof(Resources.AudioDeviceTestFallbackReason),
+            nameof(Resources.AudioDeviceTestTestSoundUnavailableReason),
+            nameof(Resources.AudioDeviceTestPlayerCreationFailureReason),
+            nameof(Resources.AudioDeviceTestInvalidDurationReason),
+            nameof(Resources.AudioDeviceTestPlaybackPositionFailureReason),
+            nameof(Resources.AudioDeviceTestPlaybackStoppedEarlyReason),
+            nameof(Resources.AudioDeviceTestRateFailureReason),
+            nameof(Resources.AudioDeviceTestObservationTimeoutReason),
+            nameof(Resources.AudioDeviceTestUnexpectedFailureReason)
         ];
 
         foreach (string languagePath in Directory.GetFiles(langDirectory, "*.json").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))

@@ -7,6 +7,7 @@ using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
+using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -178,17 +179,146 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void StreamObserver_PlayerException_IsNotSwallowed()
+    public void StreamObserver_PlayerException_IsConvertedToUnexpectedFailure()
     {
         var boundary = new FakeSoundBoundary(_ => TimeSpan.Zero)
         {
             PlayException = new InvalidOperationException("play failed")
         };
 
-        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-            () => AudioDeviceTestStreamObserver.Observe("test.wav", boundary));
+        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+            "test.wav",
+            boundary);
 
-        Assert.AreEqual("play failed", exception.Message);
+        Assert.IsFalse(observation.Succeeded);
+        Assert.AreEqual(AudioDeviceTestFailureKind.Unexpected, observation.FailureKind);
+        StringAssert.Contains(observation.DiagnosticReason, "play failed");
+    }
+
+    [TestMethod]
+    public void StreamObserver_TypedPlayerExceptionPreservesPlaybackDiagnostics()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
+        {
+            ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            CoreDeviceIndex = 6,
+            State = BassAudioSessionState.Active
+        };
+        var boundary = new FakeSoundBoundary(_ => TimeSpan.Zero)
+        {
+            PlayException = new BassAudioPlaybackException(
+                BassAudioPlaybackStage.MixerAttach,
+                "test.wav",
+                12,
+                77,
+                0,
+                "BASS_Mixer_StreamAddChannel",
+                BASSError.BASS_ERROR_HANDLE,
+                "play failed",
+                session: session)
+        };
+
+        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+            "test.wav",
+            boundary);
+
+        Assert.IsFalse(observation.Succeeded);
+        Assert.AreEqual(AudioDeviceTestFailureKind.PlaybackStartFailed, observation.FailureKind);
+        Assert.AreEqual(BassAudioPlaybackStage.MixerAttach, observation.PlaybackStage);
+        Assert.AreEqual("BASS_Mixer_StreamAddChannel", observation.NativeErrorSource);
+        Assert.AreEqual(BASSError.BASS_ERROR_HANDLE, observation.NativeErrorCode);
+        Assert.AreEqual(12, observation.PlaybackSourceHandle);
+        Assert.AreEqual(77, observation.PlaybackExpectedMixerHandle);
+        Assert.AreEqual(0, observation.PlaybackActualMixerHandle);
+        Assert.AreEqual(BassAudioPlayer.DeviceDriver.WASAPI_SHARED, observation.PlaybackBackend);
+        Assert.AreEqual(BassAudioSessionState.Active, observation.PlaybackSessionState);
+        Assert.AreEqual(6, observation.PlaybackCoreDeviceIndex);
+    }
+
+    [TestMethod]
+    public void AudioDeviceTestResult_PreservesTypedPlaybackDiagnostics()
+    {
+        AudioPlaybackInitializationResult initialization = CreateResult().Initialization;
+        var result = new AudioDeviceTestResult(
+            initialization,
+            streamProgressRequired: true,
+            streamProgressSucceeded: false,
+            wallClockDuration: TimeSpan.Zero,
+            playbackPositionDuration: TimeSpan.Zero,
+            progressRatio: null,
+            failureReason: "play failed",
+            failureKind: AudioDeviceTestFailureKind.PlaybackStartFailed,
+            playbackStage: BassAudioPlaybackStage.MixerAttach,
+            nativeErrorSource: "BASS_Mixer_StreamAddChannel",
+            nativeErrorCode: BASSError.BASS_ERROR_HANDLE,
+            diagnosticReason: "play failed",
+            playbackSourceHandle: 12,
+            playbackExpectedMixerHandle: 77,
+            playbackActualMixerHandle: 0,
+            playbackBackend: BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            playbackSessionState: BassAudioSessionState.Active,
+            playbackCoreDeviceIndex: 6);
+
+        Assert.AreEqual(12, result.PlaybackSourceHandle);
+        Assert.AreEqual(77, result.PlaybackExpectedMixerHandle);
+        Assert.AreEqual(0, result.PlaybackActualMixerHandle);
+        Assert.AreEqual(BassAudioPlayer.DeviceDriver.WASAPI_SHARED, result.PlaybackBackend);
+        Assert.AreEqual(BassAudioSessionState.Active, result.PlaybackSessionState);
+        Assert.AreEqual(6, result.PlaybackCoreDeviceIndex);
+    }
+
+    [TestMethod]
+    public void StreamObserver_TypedObservationExceptionPreservesPlaybackDiagnostics()
+    {
+        var boundary = new FakeSoundBoundary(_ => TimeSpan.Zero)
+        {
+            PositionReadExceptionAfterPlay = new BassAudioPlaybackException(
+                BassAudioPlaybackStage.SetPosition,
+                "test.wav",
+                12,
+                77,
+                77,
+                "BASS_ChannelSetPosition",
+                BASSError.BASS_ERROR_HANDLE,
+                "observation failed")
+        };
+
+        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+            "test.wav",
+            boundary);
+
+        Assert.IsFalse(observation.Succeeded);
+        Assert.AreEqual(AudioDeviceTestFailureKind.Unexpected, observation.FailureKind);
+        Assert.AreEqual(BassAudioPlaybackStage.SetPosition, observation.PlaybackStage);
+        Assert.AreEqual("BASS_ChannelSetPosition", observation.NativeErrorSource);
+        Assert.AreEqual(BASSError.BASS_ERROR_HANDLE, observation.NativeErrorCode);
+    }
+
+    [TestMethod]
+    public void StreamObserver_PlayerCreationFailureIsReportedBeforePlayback()
+    {
+        var boundary = new FakeSoundBoundary(_ => TimeSpan.Zero)
+        {
+            CreateException = new BassAudioPlaybackException(
+                BassAudioPlaybackStage.SourceCreate,
+                "test.wav",
+                0,
+                77,
+                0,
+                "BASS_StreamCreateFile",
+                BASSError.BASS_ERROR_FILEOPEN,
+                "create failed")
+        };
+
+        AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+            "test.wav",
+            boundary);
+
+        Assert.IsFalse(observation.Succeeded);
+        Assert.AreEqual(AudioDeviceTestFailureKind.PlayerCreationFailed, observation.FailureKind);
+        Assert.AreEqual(BassAudioPlaybackStage.SourceCreate, observation.PlaybackStage);
+        Assert.AreEqual(BASSError.BASS_ERROR_FILEOPEN, observation.NativeErrorCode);
+        Assert.AreEqual(0, boundary.CreatedPlayerCount);
     }
 
     [TestMethod]
@@ -302,7 +432,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     private static AudioDeviceTestRequest CreateRequest()
     {
         return new AudioDeviceTestRequest(
-            AudioDriver.DirectSound,
+            AudioDriver.WasapiShared,
             "driver",
             "Device",
             SampleRate.AUTO,
@@ -314,7 +444,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     }
 
     private static AudioDeviceTestResult CreateResult(
-        AudioDriver driver = AudioDriver.DirectSound)
+        AudioDriver driver = AudioDriver.WasapiShared)
     {
         AudioDeviceTestRequest request = CreateRequest();
         return AudioDeviceTestResultFactory.CreateSuccessful(
@@ -377,6 +507,10 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         internal Exception? PlayException { get; set; }
 
+        internal Exception? CreateException { get; set; }
+
+        internal Exception? PositionReadExceptionAfterPlay { get; set; }
+
         internal bool FileAvailable { get; set; } = true;
 
         internal bool PlayerCreated { get; private set; }
@@ -399,6 +533,10 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         public IAudioPlayer CreatePlayer(string path)
         {
+            if (CreateException is Exception createException)
+            {
+                throw createException;
+            }
             PlayerCreated = true;
             CreatedPlayerCount++;
             positionReadOrdinal = 0;
@@ -434,6 +572,10 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         private TimeSpan ReadPosition()
         {
+            if (PlayCount > 0 && PositionReadExceptionAfterPlay is Exception exception)
+            {
+                throw exception;
+            }
             int readOrdinal = positionReadOrdinal++;
             return PositionReadProvider?.Invoke(Elapsed, readOrdinal) ?? positionProvider(Elapsed);
         }

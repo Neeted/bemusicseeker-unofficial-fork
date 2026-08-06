@@ -880,5 +880,15 @@
   "AudioDeviceTestStreamFailureFormat": "장치 초기화에는 성공했지만 테스트 사운드의 재생 진행을 확인하지 못했습니다. 선택: {0}, 실제: {1}, 이유: {2}",
   "AudioDeviceTestStreamProgressFailureReason": "재생 위치가 정상 속도로 진행되지 않았습니다.",
   "AudioDeviceTestFallbackReason": "선택한 구성을 사용할 수 없어 사용 가능한 구성으로 전환했습니다.",
-  "AudioDeviceTestInitializationErrorFormat": "오디오 초기화에 실패했습니다.\n선택한 백엔드: {0}\n실패한 백엔드: {1}\n단계: {2}\n네이티브 오류: {3} ({4})\n선택한 장치: {5}\n실제 장치: {6}"
+  "AudioDeviceTestInitializationErrorFormat": "오디오 초기화에 실패했습니다.\n선택한 백엔드: {0}\n실패한 백엔드: {1}\n단계: {2}\n네이티브 오류: {3} ({4})\n선택한 장치: {5}\n실제 장치: {6}",
+  "AudioDeviceTestTestSoundUnavailableReason": "설정된 테스트 사운드 파일을 사용할 수 없습니다.",
+  "AudioDeviceTestPlayerCreationFailureReason": "테스트 사운드 플레이어를 만들 수 없습니다.",
+  "AudioDeviceTestPlayerCreationFailureReasonFormat": "테스트 사운드 플레이어를 만들 수 없습니다. 단계: {0}; 네이티브 오류: {1} ({2})",
+  "AudioDeviceTestInvalidDurationReason": "테스트 사운드의 재생 시간이 올바르지 않습니다.",
+  "AudioDeviceTestPlaybackStartFailureReasonFormat": "테스트 사운드 시작에 실패했습니다. 단계: {0}; 네이티브 오류: {1} ({2})",
+  "AudioDeviceTestPlaybackPositionFailureReason": "테스트 사운드 재생 위치가 뒤로 이동했습니다.",
+  "AudioDeviceTestPlaybackStoppedEarlyReason": "테스트 사운드가 완료되기 전에 중지되었습니다.",
+  "AudioDeviceTestRateFailureReason": "테스트 사운드 재생 속도가 허용 범위를 벗어났습니다.",
+  "AudioDeviceTestObservationTimeoutReason": "관찰 시간이 초과되기 전에 테스트 사운드가 완료되지 않았습니다.",
+  "AudioDeviceTestUnexpectedFailureReason": "테스트 사운드 재생 중 예기치 않은 오류가 발생했습니다."
 }

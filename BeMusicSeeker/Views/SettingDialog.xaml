@@ -8,10 +8,7 @@
         <v:backupTargetConverter x:Key="backupTargetConverter" />
         <v:lr2DetailedPathAutoExpandConverter x:Key="lr2DetailedPathAutoExpandConverter" />
         <v:notOperatorBoolConverter x:Key="notOperatorBoolConverter" />
-        <v:playerDriverSelectionEnabledConverter x:Key="playerDriverSelectionEnabledConverter" />
-        <v:wasapiDriverSelectionEnabledConverter x:Key="wasapiDriverSelectionEnabledConverter" />
         <v:encoderDriverSelectionEnabledConverter x:Key="encoderDriverSelectionEnabledConverter" />
-        <v:wasapiControlEnabledConverter x:Key="wasapiControlEnabledConverter" />
         <v:backupSpanRadioConverter x:Key="backupSpanRadioConverter" />
         <Style TargetType="{x:Type TabControl}" BasedOn="{StaticResource {x:Type TabControl}}">
           <Setter Property="Margin" Value="0,0,0,10" />
@@ -391,24 +388,21 @@
                     </DockPanel>
                     <TextBlock Margin="8,0,8,4" Foreground="DarkOrange" Text="{Binding UnavailablePlayerDriverDescription, Mode=OneWay}" />
                     <DockPanel Height="35">
-                      <DockPanel Width="229" IsEnabled="{Binding SelectedIndex, ElementName=comboBoxPlayerDriver, Converter={StaticResource playerDriverSelectionEnabledConverter}}">
+                      <DockPanel Width="229" IsEnabled="{Binding IsPlayerFormatSelectionEnabled}">
                         <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerSampleRateNames, Mode=OneWay}" SelectedValue="{Binding PlayerSampleRate, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_samplerate, Mode=OneWay}" />
                       </DockPanel>
-                      <DockPanel Width="229" IsEnabled="{Binding SelectedIndex, ElementName=comboBoxPlayerDriver, Converter={StaticResource playerDriverSelectionEnabledConverter}}">
+                      <DockPanel Width="229" IsEnabled="{Binding IsPlayerFormatSelectionEnabled}">
                         <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" Height="24" IsReadOnly="True" HorizontalAlignment="Center" Width="150" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding PlayerFormatNames, Mode=OneWay}" SelectedValue="{Binding PlayerFormat, Mode=TwoWay}" />
                         <Label DockPanel.Dock="Left" HorizontalAlignment="Right" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_format, Mode=OneWay}" />
                       </DockPanel>
                     </DockPanel>
                     <DockPanel Margin="0,5">
                       <StackPanel>
-                        <CheckBox Name="checkBoxWasapiLowLatency" Margin="0,0,0,10" HorizontalAlignment="Right" IsEnabled="{Binding SelectedIndex, ElementName=comboBoxPlayerDriver, Converter={StaticResource wasapiDriverSelectionEnabledConverter}}" IsChecked="{Binding PlayerWASAPIParam, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency, Mode=OneWay}" />
+                        <CheckBox Name="checkBoxWasapiLowLatency" Margin="0,0,0,10" HorizontalAlignment="Right" IsEnabled="{Binding IsPlayerWasapiDriver}" IsChecked="{Binding PlayerWASAPIParam, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency, Mode=OneWay}" />
                          <DockPanel Width="315" Margin="0,0,0,5">
                            <DockPanel.IsEnabled>
-                             <MultiBinding Converter="{StaticResource wasapiControlEnabledConverter}">
-                               <Binding Path="SelectedIndex" ElementName="comboBoxPlayerDriver" />
-                               <Binding Path="IsChecked" ElementName="checkBoxWasapiLowLatency" />
-                             </MultiBinding>
+                             <Binding Path="IsPlayerBufferControlEnabled" />
                            </DockPanel.IsEnabled>
                           <TextBlock DockPanel.Dock="Right" Width="35" TextAlignment="Center" VerticalAlignment="Center" Text="{Binding PlayerBufferSize, Mode=OneWay}">
                             <FrameworkElement.Style>

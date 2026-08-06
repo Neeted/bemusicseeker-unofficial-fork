@@ -197,6 +197,23 @@ internal sealed class BassAudioSession
     /// </summary>
     internal void TrackPlayerStream(int handle, object owner, Action<int> releaseConfirmed)
     {
+        if (!TryTrackPlayerStreamForCleanup(handle, owner, releaseConfirmed, out _))
+        {
+            throw new InvalidOperationException("The BASS source stream is already owned by this session.");
+        }
+    }
+
+    /// <summary>
+    /// Retains a newly created source for cleanup after the normal tracking path has failed.
+    /// The result distinguishes an existing owner so cleanup never claims another player's
+    /// native handle.
+    /// </summary>
+    internal bool TryTrackPlayerStreamForCleanup(
+        int handle,
+        object owner,
+        Action<int> releaseConfirmed,
+        out bool alreadyOwned)
+    {
         if (handle == 0)
         {
             throw new ArgumentOutOfRangeException(nameof(handle));
@@ -206,12 +223,14 @@ internal sealed class BassAudioSession
 
         lock (playerStreamSync)
         {
-            if (playerStreams.Any(stream => stream.Handle == handle))
+            alreadyOwned = playerStreams.Any(stream => stream.Handle == handle);
+            if (alreadyOwned)
             {
-                throw new InvalidOperationException("The BASS source stream is already owned by this session.");
+                return false;
             }
 
             playerStreams.Add(new BassAudioOwnedStream(handle, owner, releaseConfirmed));
+            return true;
         }
     }
 
@@ -222,6 +241,28 @@ internal sealed class BassAudioSession
         {
             return [.. playerStreams];
         }
+    }
+
+    /// <summary>
+    /// Resolves a retained player owner for a native source callback without creating a
+    /// separate unmanaged handle registry.
+    /// </summary>
+    internal bool TryGetPlayerStreamOwner<T>(int handle, out T owner)
+        where T : class
+    {
+        lock (playerStreamSync)
+        {
+            foreach (BassAudioOwnedStream stream in playerStreams)
+            {
+                if (stream.Handle == handle && stream.TryGetOwner(out owner))
+                {
+                    return true;
+                }
+            }
+        }
+
+        owner = null;
+        return false;
     }
 
     /// <summary>
@@ -283,6 +324,14 @@ internal sealed class BassAudioOwnedStream
 
     /// <summary>Gets the native stream handle.</summary>
     internal int Handle { get; }
+
+    /// <summary>Tries to expose the retained managed owner to a lifecycle-safe callback.</summary>
+    internal bool TryGetOwner<T>(out T typedOwner)
+        where T : class
+    {
+        typedOwner = owner as T;
+        return typedOwner != null;
+    }
 
     /// <summary>Notifies the managed owner that native callbacks can no longer occur.</summary>
     internal void NotifyReleased()

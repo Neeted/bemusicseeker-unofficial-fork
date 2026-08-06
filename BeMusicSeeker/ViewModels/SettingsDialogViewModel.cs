@@ -205,8 +205,7 @@ public partial class SettingsDialogViewModel : ViewModel
         AudioDeviceTestStatusMessage = null;
         audioDeviceCatalog.Refresh();
         playerDeviceNames = BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
-        RaisePropertyChanged(nameof(PlayerDriverNames));
-        RaisePropertyChanged(nameof(PlayerDriverIndex));
+        RaisePlayerDriverStateProperties();
         RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
         RaisePropertyChanged(nameof(PlayerDeviceNames));
         RaisePropertyChanged(nameof(PlayerDevice));
@@ -3593,17 +3592,25 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>Gets the localized names in the selectable backend order.</summary>
     public ReadOnlyObservableCollection<string> PlayerDriverNames
         => new(
-        [
-            "DirectSound",
-            "WASAPI (" + BeMusicSeeker.Properties.Resources.Shared + ")",
-            "WASAPI (" + BeMusicSeeker.Properties.Resources.Exclusive + ")",
-            "ASIO"
-        ]);
+        [.. AudioDriverPolicy.SelectableDrivers.Select(AudioDriverDisplayNames.Get)]);
+
+    /// <summary>Gets whether sample-rate and format selection applies to the current backend.</summary>
+    public bool IsPlayerFormatSelectionEnabled
+        => audioOutputSelectionDraft.Backend is AudioDriver.WasapiExclusive or AudioDriver.Asio;
+
+    /// <summary>Gets whether the WASAPI low-latency option applies to the current backend.</summary>
+    public bool IsPlayerWasapiDriver
+        => audioOutputSelectionDraft.Backend is AudioDriver.WasapiShared or AudioDriver.WasapiExclusive;
+
+    /// <summary>Gets whether the player buffer slider is active for the current latency mode.</summary>
+    public bool IsPlayerBufferControlEnabled
+        => audioOutputSelectionDraft.Backend != AudioDriver.WasapiShared || !PlayerWASAPIParam;
 
     /// <summary>Gets a localized description for a saved backend that is not audible.</summary>
-    public string UnavailablePlayerDriverDescription => IsAudiblePlayerDriver(audioOutputSelectionDraft.Backend)
+    public string UnavailablePlayerDriverDescription => AudioDriverPolicy.IsSelectable(audioOutputSelectionDraft.Backend)
         ? null
         : string.Format(
             BeMusicSeeker.Properties.Resources.AudioDeviceUnavailableFormat,
@@ -3614,22 +3621,21 @@ public partial class SettingsDialogViewModel : ViewModel
         get
         {
             AudioDriver draftDriver = audioOutputSelectionDraft.Backend;
-            return IsAudiblePlayerDriver(draftDriver) ? (int)draftDriver : -1;
+            return AudioDriverPolicy.IndexOf(draftDriver);
         }
         set
         {
-            AudioDriver driver = (AudioDriver)value;
-            if (!IsAudiblePlayerDriver(driver))
+            if (value < 0 || value >= AudioDriverPolicy.SelectableDrivers.Count)
             {
                 return;
             }
+            AudioDriver driver = AudioDriverPolicy.SelectableDrivers[value];
             if (audioOutputSelectionDraft.Backend != driver)
             {
                 audioOutputSelectionDraft = new AudioOutputSelection(driver, null, null);
                 playerDeviceNames = BuildPlayerDeviceNames(driver);
-                RaisePropertyChanged(nameof(PlayerDriverNames));
+                RaisePlayerDriverStateProperties();
                 RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
-                RaisePropertyChanged(nameof(PlayerDriverIndex));
                 RaisePropertyChanged(nameof(PlayerDeviceNames));
                 RaisePropertyChanged(nameof(PlayerDevice));
                 RaisePropertyChanged(nameof(SelectedPlayerDevice));
@@ -3637,8 +3643,14 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private static bool IsAudiblePlayerDriver(AudioDriver driver)
-        => driver >= AudioDriver.DirectSound && driver <= AudioDriver.Asio;
+    private void RaisePlayerDriverStateProperties()
+    {
+        RaisePropertyChanged(nameof(PlayerDriverNames));
+        RaisePropertyChanged(nameof(PlayerDriverIndex));
+        RaisePropertyChanged(nameof(IsPlayerFormatSelectionEnabled));
+        RaisePropertyChanged(nameof(IsPlayerWasapiDriver));
+        RaisePropertyChanged(nameof(IsPlayerBufferControlEnabled));
+    }
 
     public List<AudioDeviceInfo> PlayerDeviceNames
     {
@@ -3740,7 +3752,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private List<AudioDeviceInfo> BuildPlayerDeviceNames(AudioDriver driver)
     {
-        var devices = IsAudiblePlayerDriver(driver)
+        var devices = AudioDriverPolicy.IsSelectable(driver)
             ? new List<AudioDeviceInfo>(audioDeviceCatalog.GetDevices(driver))
             : [];
         string savedIdentity = audioOutputSelectionDraft.DeviceIdentity;
@@ -3822,6 +3834,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 ApplicationSettings.PlayerWASAPIParam = value;
                 RaisePropertyChanged("PlayerWASAPIParam");
+                RaisePropertyChanged(nameof(IsPlayerBufferControlEnabled));
             }
         }
     }
@@ -5853,7 +5866,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 ApplicationSettings.PlayerFormat = result.EngineFormat;
             }
             PlayerLatency = result.Latency;
-            RaisePropertyChanged(nameof(PlayerDriverIndex));
+            RaisePlayerDriverStateProperties();
             RaisePropertyChanged(nameof(PlayerDeviceNames));
             RaisePropertyChanged(nameof(PlayerDevice));
             RaisePropertyChanged(nameof(SelectedPlayerDevice));
@@ -5873,6 +5886,41 @@ public partial class SettingsDialogViewModel : ViewModel
                 MessageBoxResult.OK));
             UiDialogRoute.ThrowIfNotShown(dialogResult, "Audio device initialization failure notification");
         }
+        catch (BassAudioPlaybackException exception)
+        {
+            string message = FormatAudioPlaybackFailure(exception);
+            AudioDeviceTestStatusMessage = message;
+            UiDialogResult dialogResult = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
+                message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK));
+            UiDialogRoute.ThrowIfNotShown(dialogResult, "Audio device playback failure notification");
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                NLogWrapper.GetLogger(nameof(SettingsDialogViewModel)).Error(
+                    exception,
+                    "Audio device test failed outside its result boundary.");
+            }
+            catch
+            {
+                // Diagnostics must not replace the settings-dialog failure message.
+            }
+
+            string message = BeMusicSeeker.Properties.Resources.AudioDeviceTestUnexpectedFailureReason;
+            AudioDeviceTestStatusMessage = message;
+            UiDialogResult dialogResult = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
+                message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK));
+            UiDialogRoute.ThrowIfNotShown(dialogResult, "Audio device unexpected failure notification");
+        }
         finally
         {
             RaisePropertyChanged(nameof(IsAudioDeviceTestInProgress));
@@ -5890,23 +5938,23 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return string.Format(
                 BeMusicSeeker.Properties.Resources.AudioDeviceTestStreamFailureFormat,
-                result.RequestedBackend,
-                result.ActualBackend,
-                BeMusicSeeker.Properties.Resources.AudioDeviceTestStreamProgressFailureReason);
+                AudioDriverDisplayNames.Get(result.RequestedBackend),
+                AudioDriverDisplayNames.Get(result.ActualBackend),
+                FormatAudioDeviceTestFailureReason(result));
         }
         if (result.FallbackOccurred)
         {
             return string.Format(
                 BeMusicSeeker.Properties.Resources.AudioDeviceTestFallbackFormat,
-                result.RequestedBackend,
+                AudioDriverDisplayNames.Get(result.RequestedBackend),
                 requestedDevice,
-                result.ActualBackend,
+                AudioDriverDisplayNames.Get(result.ActualBackend),
                 actualDevice,
                 BeMusicSeeker.Properties.Resources.AudioDeviceTestFallbackReason);
         }
         return string.Format(
             BeMusicSeeker.Properties.Resources.AudioDeviceTestSuccessFormat,
-            result.ActualBackend,
+            AudioDriverDisplayNames.Get(result.ActualBackend),
             actualDevice,
             result.ActualRate,
             result.EngineFormat,
@@ -5915,12 +5963,59 @@ public partial class SettingsDialogViewModel : ViewModel
             result.Latency);
     }
 
+    private static string FormatAudioDeviceTestFailureReason(AudioDeviceTestResult result)
+    {
+        return result.FailureKind switch
+        {
+            AudioDeviceTestFailureKind.TestSoundUnavailable
+                => BeMusicSeeker.Properties.Resources.AudioDeviceTestTestSoundUnavailableReason,
+            AudioDeviceTestFailureKind.PlayerCreationFailed
+                => result.PlaybackStage.HasValue
+                    || !string.IsNullOrWhiteSpace(result.NativeErrorSource)
+                    || result.NativeErrorCode.HasValue
+                    ? string.Format(
+                        BeMusicSeeker.Properties.Resources.AudioDeviceTestPlayerCreationFailureReasonFormat,
+                        result.PlaybackStage?.ToString() ?? "-",
+                        result.NativeErrorSource ?? "-",
+                        result.NativeErrorCode?.ToString() ?? "-")
+                    : BeMusicSeeker.Properties.Resources.AudioDeviceTestPlayerCreationFailureReason,
+            AudioDeviceTestFailureKind.InvalidDuration
+                => BeMusicSeeker.Properties.Resources.AudioDeviceTestInvalidDurationReason,
+            AudioDeviceTestFailureKind.PlaybackStartFailed
+                => string.Format(
+                    BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackStartFailureReasonFormat,
+                    result.PlaybackStage?.ToString() ?? "-",
+                    result.NativeErrorSource ?? "-",
+                    result.NativeErrorCode?.ToString() ?? "-"),
+            AudioDeviceTestFailureKind.PlaybackPositionMovedBackwards
+                => BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackPositionFailureReason,
+            AudioDeviceTestFailureKind.PlaybackStoppedEarly
+                => BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackStoppedEarlyReason,
+            AudioDeviceTestFailureKind.PlaybackRateOutOfRange
+                => BeMusicSeeker.Properties.Resources.AudioDeviceTestRateFailureReason,
+            AudioDeviceTestFailureKind.ObservationTimedOut
+                => BeMusicSeeker.Properties.Resources.AudioDeviceTestObservationTimeoutReason,
+            AudioDeviceTestFailureKind.PlaybackDidNotAdvance
+                => BeMusicSeeker.Properties.Resources.AudioDeviceTestStreamProgressFailureReason,
+            _ => BeMusicSeeker.Properties.Resources.AudioDeviceTestUnexpectedFailureReason
+        };
+    }
+
+    private static string FormatAudioPlaybackFailure(BassAudioPlaybackException exception)
+    {
+        return string.Format(
+            BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackStartFailureReasonFormat,
+            exception.Stage,
+            exception.NativeErrorSource ?? "-",
+            exception.NativeErrorCode?.ToString() ?? "-");
+    }
+
     private static string FormatAudioInitializationFailure(AudioInitializationException exception)
     {
         return string.Format(
             BeMusicSeeker.Properties.Resources.AudioDeviceTestInitializationErrorFormat,
-            exception.RequestedBackend,
-            exception.ActualBackend,
+            AudioDriverDisplayNames.Get(exception.RequestedBackend),
+            AudioDriverDisplayNames.Get(exception.ActualBackend),
             exception.Stage,
             exception.NativeErrorSource,
             exception.NativeErrorCode?.ToString() ?? "-",
@@ -6154,7 +6249,8 @@ public partial class SettingsDialogViewModel : ViewModel
         tempEncoderAmplifier = ApplicationSettings.EncoderAmplifier;
         tempEncoderQuality = ApplicationSettings.EncoderQuality;
         tempEncodeFileNameFormat = ApplicationSettings.EncodeFileNameFormat;
-        savedAudioOutputSelection = audioSettingsGateway.CaptureOutputSelection();
+        savedAudioOutputSelection = AudioDriverPolicy.NormalizePersistedSelection(
+            audioSettingsGateway.CaptureOutputSelection());
         audioOutputSelectionDraft = savedAudioOutputSelection;
         tempPlayerSampleRate = ApplicationSettings.PlayerSampleRate;
         tempPlayerFormat = ApplicationSettings.PlayerFormat;
@@ -7139,22 +7235,17 @@ public partial class SettingsDialogViewModel : ViewModel
             if (userConfigNeedsSave)
             {
                 var userConfigStopwatch = Stopwatch.StartNew();
-                AudioOutputSelection previousOutputSelection = audioSettingsGateway.CaptureOutputSelection();
-                bool outputSelectionChanged = savedAudioOutputSelection != audioOutputSelectionDraft;
-                if (outputSelectionChanged)
-                {
-                    audioSettingsGateway.ApplyOutputSelection(audioOutputSelectionDraft);
-                }
+                AudioOutputSelection previousOutputSelection = AudioDriverPolicy.NormalizePersistedSelection(
+                    audioSettingsGateway.CaptureOutputSelection());
+                audioSettingsGateway.ApplyOutputSelection(
+                    AudioDriverPolicy.NormalizePersistedSelection(audioOutputSelectionDraft));
                 try
                 {
                     settingsEditSession.Save();
                 }
                 catch
                 {
-                    if (outputSelectionChanged)
-                    {
-                        audioSettingsGateway.ApplyOutputSelection(previousOutputSelection);
-                    }
+                    audioSettingsGateway.ApplyOutputSelection(previousOutputSelection);
                     throw;
                 }
                 userConfigSaveMs = userConfigStopwatch.ElapsedMilliseconds;
@@ -7438,7 +7529,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(EncoderAmplifier));
         RaisePropertyChanged(nameof(EncoderQuality));
         RaisePropertyChanged(nameof(EncodeFileNameFormat));
-        RaisePropertyChanged(nameof(PlayerDriverIndex));
+        RaisePlayerDriverStateProperties();
         RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
         RaisePropertyChanged(nameof(PlayerDevice));
         RaisePropertyChanged(nameof(PlayerDeviceNames));

@@ -546,8 +546,8 @@ internal sealed class BassAsioNegotiationNativeBoundary : IAsioNegotiationNative
 
     /// <inheritdoc />
     public bool EnableOutputChannel(ASIOPROC callback) =>
-        // Bass.Net 2.4.12.1 does not expose BASS_ASIO_ChannelEnableBASS. Keep the existing
-        // callback boundary and guarantee its byte width by negotiating the mixer format above.
+        // Keep the callback boundary on the ASIO channel API and guarantee its byte width by
+        // negotiating the mixer format above.
         BassAsio.BASS_ASIO_ChannelEnable(input: false, 0, callback, IntPtr.Zero);
 
     /// <inheritdoc />

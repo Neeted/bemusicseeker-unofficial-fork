@@ -1364,7 +1364,7 @@ internal sealed class Settings : ApplicationSettingsBase
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
-    [DefaultSettingValue("0")]
+    [DefaultSettingValue("1")]
     public BassAudioPlayer.DeviceDriver PlayerDriver
     {
         get

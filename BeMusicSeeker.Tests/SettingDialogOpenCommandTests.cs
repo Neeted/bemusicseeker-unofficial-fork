@@ -41,6 +41,38 @@ public sealed class SettingDialogOpenCommandTests
     }
 
     [TestMethod]
+    public void PlayerDriverSelection_UsesTypedBackendCapabilities()
+    {
+        var settings = new BeMusicSeeker.Properties.Settings
+        {
+            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+            PlayerWASAPIParam = false
+        };
+        SettingsDialogViewModel dialog = CreateViewModel(
+            settingsEditSession: new TestSettingsEditSession(settings)).SettingDialog;
+
+        Assert.AreEqual(3, dialog.PlayerDriverNames.Count);
+        Assert.IsFalse(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerWasapiDriver);
+        Assert.IsTrue(dialog.IsPlayerBufferControlEnabled);
+
+        dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive);
+        Assert.IsTrue(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerWasapiDriver);
+
+        dialog.PlayerWASAPIParam = true;
+        Assert.IsTrue(dialog.IsPlayerBufferControlEnabled);
+
+        dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiShared);
+        Assert.IsFalse(dialog.IsPlayerBufferControlEnabled);
+
+        dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.Asio);
+        Assert.IsTrue(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsFalse(dialog.IsPlayerWasapiDriver);
+        Assert.IsTrue(dialog.IsPlayerBufferControlEnabled);
+    }
+
+    [TestMethod]
     public void OpenAndCancel_UnavailableBackendReissuesWarningNotification()
     {
         var settings = new BeMusicSeeker.Properties.Settings
@@ -80,7 +112,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
-            PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerDevice = "saved-missing-device",
             PlayerDeviceName = "Saved missing device"
         };
@@ -123,7 +155,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
-            PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerDevice = "saved-device",
             PlayerDeviceName = "Saved device"
         };
@@ -168,7 +200,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
-            PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerDevice = string.Empty,
             PlayerDeviceName = "stale default name"
         };
@@ -209,7 +241,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
-            PlayerDriver = BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerDevice = "saved-device",
             PlayerDeviceName = "Saved device"
         };

@@ -2,9 +2,11 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
 using NLog.Config;
@@ -13,7 +15,11 @@ using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 using Un4seen.Bass;
+using Un4seen.Bass.AddOn.Enc;
 using Un4seen.Bass.AddOn.Fx;
+using Un4seen.Bass.AddOn.Mix;
+using Un4seen.BassAsio;
+using Un4seen.BassWasapi;
 using RibbitBassNet = Ribbit.Media.Audio.BassNet;
 
 namespace BeMusicSeeker.Tests;
@@ -42,12 +48,12 @@ public sealed class BassNativeRuntimeTests
         };
         string[] expectedHashes =
         {
-            "93A913CA11A3466C73A0984F23FEE570BCB29576A00FABE39E3CA1565588BEF3",
-            "CA830E47D2F7DBED9EE9F885EA4387A9AB20FF20261F82258B3F48043CDCDE80",
-            "C0FE6416A6F59EE33CF617FB9C05D3F0BCB05EF47D6B71759710D2BB5BE5C0B0",
-            "9D207EAF880CB5C401285CC75CDF8430C0CD274D8C31D1B02B597F790C99BF34",
-            "572F29C568F05EF2E0FE689B5D928A0B546D902E3D6A673D33D7F61F3BC7BCDB",
-            "02CD21F2D47244FD0EF15D652524B5A4BEB3A986AC1BF64A756F901C6633E53A"
+            "FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4",
+            "73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96",
+            "6F0869C11431E01F759FBE1CD6080299C833C519EB8AB1FEAE12106907B1FBD1",
+            "F782CAE8090700A456C9E7AEAA7770C3B90CB60A1E765C4B3CBAE739D3B4D58D",
+            "A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A",
+            "9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8"
         };
 
         string nativeDirectory = Path.Combine(AppContext.BaseDirectory, "libs", "x64");
@@ -58,16 +64,24 @@ public sealed class BassNativeRuntimeTests
             string path = Path.Combine(nativeDirectory, expectedNames[index]);
             Assert.IsTrue(File.Exists(path), path);
             Assert.AreEqual(expectedHashes[index], Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+            using FileStream stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            Assert.AreEqual(Machine.Amd64, peReader.PEHeaders.CoffHeader.Machine, path);
         }
 
-        BassNativeRuntime.Load();
+        RibbitBassNet.Initialize();
         try
         {
-            BassNativeRuntime.ValidateSupportedVersions();
+            Assert.AreEqual(0x02041203, Bass.BASS_GetVersion());
+            Assert.AreEqual(0x01040300, BassAsio.BASS_ASIO_GetVersion());
+            Assert.AreEqual(0x02040401, BassWasapi.BASS_WASAPI_GetVersion());
+            Assert.AreEqual(0x02040C00, BassMix.BASS_Mixer_GetVersion());
+            Assert.AreEqual(0x02040C06, BassFx.BASS_FX_GetVersion());
+            Assert.AreEqual(0x02041100, BassEnc.BASS_Encode_GetVersion());
         }
         finally
         {
-            BassNativeRuntime.Free();
+            RibbitBassNet.Shutdown();
         }
 
     }
@@ -81,25 +95,580 @@ public sealed class BassNativeRuntimeTests
         {
             bassInitialized = Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_NOSPEAKER, IntPtr.Zero);
             Assert.IsTrue(bassInitialized, Bass.BASS_ErrorGetCode().ToString());
-            BassNativeRuntime.ValidateSupportedVersions();
             RibbitBassNet.FreeDevice();
             bassInitialized = false;
-            Assert.AreEqual(0x02040C01, Bass.BASS_GetVersion());
+            Assert.AreEqual(0x02041203, Bass.BASS_GetVersion());
             bassInitialized = Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_NOSPEAKER, IntPtr.Zero);
             Assert.IsTrue(bassInitialized, Bass.BASS_ErrorGetCode().ToString());
         }
         finally
         {
-            if (bassInitialized)
+            RibbitBassNet.Shutdown();
+        }
+
+    }
+
+    [TestMethod]
+    public void BassNet_InitializationCoreOrdersRegistrationBeforeVersionValidation()
+    {
+        var events = new System.Collections.Generic.List<string>();
+
+        RibbitBassNet.InitializeRuntimeCore(
+            () => events.Add("LoadNative"),
+            () => events.Add("RegisterWrapper"),
+            () => events.Add("ValidateVersions"));
+
+        CollectionAssert.AreEqual(
+            new[] { "LoadNative", "RegisterWrapper", "ValidateVersions" },
+            events);
+    }
+
+    [TestMethod]
+    public void BassNet_InitializationCoreStopsAfterNativeLoadFailure()
+    {
+        var events = new System.Collections.Generic.List<string>();
+
+        Assert.ThrowsException<InvalidOperationException>(() => RibbitBassNet.InitializeRuntimeCore(
+            () =>
+            {
+                events.Add("LoadNative");
+                throw new InvalidOperationException("load failed");
+            },
+            () => events.Add("RegisterWrapper"),
+            () => events.Add("ValidateVersions")));
+
+        CollectionAssert.AreEqual(new[] { "LoadNative" }, events);
+    }
+
+    [TestMethod]
+    public void BassNet_InitializationCoreStopsAfterRegistrationFailure()
+    {
+        var events = new System.Collections.Generic.List<string>();
+
+        Assert.ThrowsException<InvalidOperationException>(() => RibbitBassNet.InitializeRuntimeCore(
+            () => events.Add("LoadNative"),
+            () =>
+            {
+                events.Add("RegisterWrapper");
+                throw new InvalidOperationException("registration failed");
+            },
+            () => events.Add("ValidateVersions")));
+
+        CollectionAssert.AreEqual(new[] { "LoadNative", "RegisterWrapper" }, events);
+    }
+
+    [TestMethod]
+    public void NativeRuntime_NoSoundDecodeMixerPullProducesNonZeroPcm()
+    {
+        string wavePath = CreateNativeSmokeWaveFile();
+        int sourceHandle = 0;
+        int mixerHandle = 0;
+        BassMixerSourceController sourceController = null;
+        bool coreInitialized = false;
+        string stage = "not started";
+        Exception primaryException = null;
+        Exception cleanupException = null;
+        try
+        {
+            stage = "BassNet.Initialize";
+            RibbitBassNet.Initialize();
+
+            stage = "BASS_Init";
+            Assert.IsTrue(
+                Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero),
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+            coreInitialized = true;
+
+            stage = "BASS_StreamCreateFile";
+            sourceHandle = Bass.BASS_StreamCreateFile(
+                wavePath,
+                0L,
+                0L,
+                BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE);
+            Assert.AreNotEqual(
+                0,
+                sourceHandle,
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+
+            stage = "BASS_Mixer_StreamCreate";
+            mixerHandle = BassMix.BASS_Mixer_StreamCreate(
+                44100,
+                1,
+                BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_DECODE);
+            Assert.AreNotEqual(
+                0,
+                mixerHandle,
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+
+            stage = "BASS_Mixer_ChannelGetMixer before attach";
+            Assert.AreEqual(
+                0,
+                BassMix.BASS_Mixer_ChannelGetMixer(sourceHandle),
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+            Assert.AreEqual(BASSError.BASS_ERROR_HANDLE, Bass.BASS_ErrorGetCode());
+
+            sourceController = new BassMixerSourceController(new BassMixerSourceNativeBoundary());
+            stage = "BASS_Mixer_StreamAddChannel paused";
+            BassMixerSourceAttachment attachment = sourceController.EnsureAttachedPaused(
+                mixerHandle,
+                sourceHandle,
+                wavePath);
+            Assert.IsTrue(attachment.NewlyAttached);
+            Assert.AreEqual(
+                mixerHandle,
+                BassMix.BASS_Mixer_ChannelGetMixer(sourceHandle),
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+
+            stage = "BASS_Mixer_ChannelFlags resume";
+            sourceController.Resume(mixerHandle, sourceHandle, wavePath);
+
+            long sourcePositionBefore = Bass.BASS_ChannelGetPosition(sourceHandle);
+            const int requestedBytes = 4096 * sizeof(float);
+            byte[] buffer = new byte[requestedBytes];
+            stage = "BASS_ChannelGetData";
+            int returnedBytes = Bass.BASS_ChannelGetData(mixerHandle, buffer, requestedBytes);
+            long sourcePositionAfter = Bass.BASS_ChannelGetPosition(sourceHandle);
+            Assert.IsTrue(
+                returnedBytes > 0,
+                NativeSmokeDiagnostic(
+                    stage,
+                    sourceHandle,
+                    mixerHandle,
+                    requestedBytes,
+                    returnedBytes,
+                    sourcePositionBefore,
+                    sourcePositionAfter));
+            Assert.IsTrue(
+                sourcePositionAfter > sourcePositionBefore,
+                NativeSmokeDiagnostic(
+                    stage,
+                    sourceHandle,
+                    mixerHandle,
+                    requestedBytes,
+                    returnedBytes,
+                    sourcePositionBefore,
+                    sourcePositionAfter));
+
+            int finiteSamples = 0;
+            int nonZeroSamples = 0;
+            double energy = 0d;
+            int sampleCount = returnedBytes / sizeof(float);
+            for (int index = 0; index < sampleCount; index++)
+            {
+                float sample = BitConverter.ToSingle(buffer, index * sizeof(float));
+                Assert.IsTrue(
+                    float.IsFinite(sample),
+                    NativeSmokeDiagnostic(
+                        stage,
+                        sourceHandle,
+                        mixerHandle,
+                        requestedBytes,
+                        returnedBytes,
+                        sourcePositionBefore,
+                        sourcePositionAfter));
+                finiteSamples++;
+                if (sample != 0f)
+                {
+                    nonZeroSamples++;
+                }
+                energy += sample * sample;
+            }
+
+            Assert.AreEqual(sampleCount, finiteSamples);
+            Assert.IsTrue(nonZeroSamples > 0);
+            Assert.IsTrue(energy > 0d);
+        }
+        catch (Exception exception)
+        {
+            primaryException = exception;
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                if (sourceController != null && sourceHandle != 0 && mixerHandle != 0)
+                {
+                    sourceController.RemoveFromExpectedMixer(mixerHandle, sourceHandle, wavePath);
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            try
+            {
+                if (mixerHandle != 0 && !Bass.BASS_StreamFree(mixerHandle))
+                {
+                    cleanupException = new InvalidOperationException(
+                        "BASS mixer cleanup failed: " + Bass.BASS_ErrorGetCode());
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            try
+            {
+                if (sourceHandle != 0 && !Bass.BASS_StreamFree(sourceHandle))
+                {
+                    cleanupException ??= new InvalidOperationException(
+                        "BASS source cleanup failed: " + Bass.BASS_ErrorGetCode());
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            try
+            {
+                if (coreInitialized
+                    && !Bass.BASS_Free()
+                    && Bass.BASS_ErrorGetCode() != BASSError.BASS_ERROR_INIT)
+                {
+                    cleanupException ??= new InvalidOperationException(
+                        "BASS core cleanup failed: " + Bass.BASS_ErrorGetCode());
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            try
             {
                 RibbitBassNet.Shutdown();
             }
-            else
+            catch (Exception exception)
             {
-                BassNativeRuntime.Free();
+                cleanupException ??= exception;
+            }
+
+            try
+            {
+                File.Delete(wavePath);
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            if (primaryException == null && cleanupException != null)
+            {
+                throw cleanupException;
+            }
+        }
+    }
+
+    private static string CreateNativeSmokeWaveFile()
+    {
+        const int sampleRate = 44100;
+        const int channelCount = 1;
+        const int sampleCount = sampleRate / 4;
+        const short bitsPerSample = 16;
+        int dataLength = sampleCount * channelCount * sizeof(short);
+        byte[] wave = new byte[44 + dataLength];
+        using (var stream = new MemoryStream(wave))
+        using (var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true))
+        {
+            writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+            writer.Write(36 + dataLength);
+            writer.Write(Encoding.ASCII.GetBytes("WAVE"));
+            writer.Write(Encoding.ASCII.GetBytes("fmt "));
+            writer.Write(16);
+            writer.Write((short)1);
+            writer.Write((short)channelCount);
+            writer.Write(sampleRate);
+            writer.Write(sampleRate * channelCount * (bitsPerSample / 8));
+            writer.Write((short)(channelCount * (bitsPerSample / 8)));
+            writer.Write(bitsPerSample);
+            writer.Write(Encoding.ASCII.GetBytes("data"));
+            writer.Write(dataLength);
+            for (int index = 0; index < sampleCount; index++)
+            {
+                double phase = (2d * Math.PI * 440d * index) / sampleRate;
+                writer.Write((short)Math.Round(Math.Sin(phase) * short.MaxValue * 0.5d));
             }
         }
 
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker.BassNativeSmoke." + Guid.NewGuid().ToString("N") + ".wav");
+        File.WriteAllBytes(path, wave);
+        return path;
+    }
+
+    [TestMethod]
+    public void BassAudioPlayer_MemoryWavPlayPullsNonZeroPcmThroughOwningMixer()
+    {
+        string wavePath = CreateNativeSmokeWaveFile();
+        try
+        {
+            AssertBassAudioPlayerPlayProducesNonZeroPcm(wavePath, onMemory: true);
+        }
+        finally
+        {
+            File.Delete(wavePath);
+        }
+    }
+
+    [TestMethod]
+    public void BassAudioPlayer_MemoryOggPlayPullsNonZeroPcmThroughOwningMixer()
+    {
+        string oggPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "TestData",
+            "audio",
+            "nvorbis-1test.ogg");
+        Assert.IsTrue(File.Exists(oggPath), oggPath);
+        AssertBassAudioPlayerPlayProducesNonZeroPcm(oggPath, onMemory: true);
+    }
+
+    [TestMethod]
+    public void BassAudioPlayer_VerifiedMembershipRaceCountsVoiceAndLifecycleIsIdempotent()
+    {
+        string wavePath = CreateNativeSmokeWaveFile();
+        BassAudioSession session = null;
+        BassAudioPlayer player = null;
+        int initialVoices = BassAudioPlayer.CurrentVoices;
+        try
+        {
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out session);
+
+            var native = new PlayerMixerSourceNativeBoundary(
+                () => session.MixerHandle,
+                initiallyAttached: true);
+            player = new BassAudioPlayer(wavePath, onMemory: true, native);
+
+            player.Play();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+            player.Pause();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+            player.Pause();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+
+            player.Stop();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+            player.Stop();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+
+            player.Play();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+            player.Dispose();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                RibbitBassNet.Shutdown();
+                File.Delete(wavePath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void BassAudioPlayer_NaturalEndCanBeReenteredWithoutStaleCleanup()
+    {
+        string wavePath = CreateNativeSmokeWaveFile();
+        BassAudioSession session = null;
+        BassAudioPlayer player = null;
+        int initialVoices = BassAudioPlayer.CurrentVoices;
+        try
+        {
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out session);
+
+            player = new BassAudioPlayer(wavePath, onMemory: true);
+            player.Play();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+
+            byte[] drainBuffer = new byte[1024 * 1024];
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                int returnedBytes = Bass.BASS_ChannelGetData(
+                    session.MixerHandle,
+                    drainBuffer,
+                    drainBuffer.Length);
+                if (returnedBytes <= 0 || returnedBytes < drainBuffer.Length)
+                {
+                    break;
+                }
+            }
+
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+            player.Play();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+            player.Stop();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                RibbitBassNet.Shutdown();
+                File.Delete(wavePath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void BassAudioPlayer_NaturalEndGenerationRejectsStaleCallback()
+    {
+        Assert.AreEqual(8, BassAudioPlayer.GetNextPlaybackGeneration(7));
+        Assert.AreNotEqual(7, BassAudioPlayer.GetNextPlaybackGeneration(7));
+        Assert.IsTrue(BassAudioPlayer.IsCurrentPlaybackGeneration(7, 7));
+        Assert.IsFalse(BassAudioPlayer.IsCurrentPlaybackGeneration(8, 7));
+        Assert.IsFalse(BassAudioPlayer.ShouldPublishPendingEndCleanup(8, 8, 7));
+        Assert.IsTrue(BassAudioPlayer.ShouldPublishPendingEndCleanup(8, 7, 8));
+        Assert.IsFalse(BassAudioPlayer.ShouldPublishPendingEndCleanup(8, 9, 8));
+    }
+
+    private static void AssertBassAudioPlayerPlayProducesNonZeroPcm(string path, bool onMemory)
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        SampleRate originalFrequency = BassAudioPlayer.Frequency;
+        SampleFormat originalFormat = BassAudioPlayer.Format;
+        BassAudioSession session = null;
+        BassAudioPlayer player = null;
+        try
+        {
+            RibbitBassNet.Shutdown();
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.IsDeviceMuted = false;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out session);
+
+            player = new BassAudioPlayer(path, onMemory);
+            player.Play();
+
+            BassAudioOwnedStream source = session.GetPlayerStreams().Single();
+            Assert.AreEqual(
+                session.MixerHandle,
+                BassMix.BASS_Mixer_ChannelGetMixer(source.Handle),
+                Bass.BASS_ErrorGetCode().ToString());
+
+            byte[] buffer = new byte[4096 * sizeof(float)];
+            int returnedBytes = Bass.BASS_ChannelGetData(session.MixerHandle, buffer, buffer.Length);
+            Assert.IsTrue(returnedBytes > 0, Bass.BASS_ErrorGetCode().ToString());
+
+            int finiteSamples = 0;
+            int nonZeroSamples = 0;
+            double energy = 0d;
+            for (int index = 0; index + sizeof(float) <= returnedBytes; index += sizeof(float))
+            {
+                float sample = BitConverter.ToSingle(buffer, index);
+                Assert.IsTrue(float.IsFinite(sample));
+                finiteSamples++;
+                if (sample != 0f)
+                {
+                    nonZeroSamples++;
+                }
+                energy += sample * sample;
+            }
+
+            Assert.IsTrue(finiteSamples > 0);
+            Assert.IsTrue(nonZeroSamples > 0);
+            Assert.IsTrue(energy > 0d);
+            player.Stop();
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                RibbitBassNet.Shutdown();
+                BassAudioPlayer.Frequency = originalFrequency;
+                BassAudioPlayer.Format = originalFormat;
+                RestoreManagedAudioState(originalVolume, originalMute);
+            }
+        }
+    }
+
+    private sealed class PlayerMixerSourceNativeBoundary : IBassMixerSourceNativeBoundary
+    {
+        private readonly Func<int> expectedMixer;
+        private bool attached;
+
+        internal PlayerMixerSourceNativeBoundary(Func<int> expectedMixer, bool initiallyAttached)
+        {
+            this.expectedMixer = expectedMixer;
+            attached = initiallyAttached;
+        }
+
+        public int GetMixer(int sourceHandle) => attached ? expectedMixer() : 0;
+
+        public bool AddChannel(int mixerHandle, int sourceHandle, BASSFlag flags)
+        {
+            attached = true;
+            return true;
+        }
+
+        public BASSFlag SetMixerChannelFlags(int sourceHandle, BASSFlag flags, BASSFlag mask)
+            => BASSFlag.BASS_DEFAULT;
+
+        public bool RemoveChannel(int sourceHandle)
+        {
+            attached = false;
+            return true;
+        }
+
+        public bool SetPosition(int sourceHandle, long position) => true;
+
+        public BASSError GetError() => BASSError.BASS_ERROR_HANDLE;
+    }
+
+    private static string NativeSmokeDiagnostic(
+        string stage,
+        int sourceHandle,
+        int mixerHandle,
+        int requestedBytes,
+        int returnedBytes,
+        long sourcePositionBefore,
+        long sourcePositionAfter)
+    {
+        return "BASS native smoke test failed. stage=" + stage
+            + " sourceHandle=" + sourceHandle
+            + " mixerHandle=" + mixerHandle
+            + " nativeErrorSource=BASS"
+            + " nativeErrorCode=" + Bass.BASS_ErrorGetCode()
+            + " requestedBytes=" + requestedBytes
+            + " returnedBytes=" + returnedBytes
+            + " sourcePositionBefore=" + sourcePositionBefore
+            + " sourcePositionAfter=" + sourcePositionAfter;
     }
 
     [TestMethod]
@@ -199,13 +768,13 @@ public sealed class BassNativeRuntimeTests
         Assert.AreEqual(
             deviceVolume,
             BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
-                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                 deviceVolume,
                 isMuted: false));
         Assert.AreEqual(
             0f,
             BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
-                BassAudioPlayer.DeviceDriver.DIRECT_SOUND,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                 deviceVolume,
                 isMuted: true));
         Assert.AreEqual(
@@ -238,6 +807,35 @@ public sealed class BassNativeRuntimeTests
                 BassAudioPlayer.DeviceDriver.NULL_DEVICE,
                 deviceVolume,
                 isMuted: true));
+    }
+
+    [TestMethod]
+    public void AudibleInitializationOrder_UsesOnlySupportedBackendFallbacks()
+    {
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                BassAudioPlayer.DeviceDriver.ASIO,
+                BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED
+            },
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.ASIO).ToArray());
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED
+            },
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { BassAudioPlayer.DeviceDriver.WASAPI_SHARED },
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.WASAPI_SHARED).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { BassAudioPlayer.DeviceDriver.NULL_DEVICE },
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.NULL_DEVICE).ToArray());
+        Assert.AreEqual(
+            0,
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.DIRECT_SOUND).Count);
     }
 
     [TestMethod]

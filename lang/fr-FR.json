@@ -880,5 +880,15 @@
   "AudioDeviceTestStreamFailureFormat": "L'initialisation du périphérique a réussi, mais la progression du son de test n'a pas pu être vérifiée. Sélection : {0} ; réel : {1} ; raison : {2}",
   "AudioDeviceTestStreamProgressFailureReason": "La position de lecture n'a pas progressé à une vitesse normale.",
   "AudioDeviceTestFallbackReason": "La configuration sélectionnée n'était pas disponible ; une configuration disponible a donc été utilisée.",
-  "AudioDeviceTestInitializationErrorFormat": "Échec de l'initialisation audio.\nMoteur sélectionné : {0}\nMoteur en échec : {1}\nÉtape : {2}\nErreur native : {3} ({4})\nPériphérique sélectionné : {5}\nPériphérique réel : {6}"
+  "AudioDeviceTestInitializationErrorFormat": "Échec de l'initialisation audio.\nMoteur sélectionné : {0}\nMoteur en échec : {1}\nÉtape : {2}\nErreur native : {3} ({4})\nPériphérique sélectionné : {5}\nPériphérique réel : {6}",
+  "AudioDeviceTestTestSoundUnavailableReason": "Le fichier son de test configuré est indisponible.",
+  "AudioDeviceTestPlayerCreationFailureReason": "Le lecteur du son de test n'a pas pu être créé.",
+  "AudioDeviceTestPlayerCreationFailureReasonFormat": "Le lecteur du son de test n'a pas pu être créé. Étape : {0} ; erreur native : {1} ({2})",
+  "AudioDeviceTestInvalidDurationReason": "Le son de test a signalé une durée invalide.",
+  "AudioDeviceTestPlaybackStartFailureReasonFormat": "Le démarrage du son de test a échoué. Étape : {0} ; erreur native : {1} ({2})",
+  "AudioDeviceTestPlaybackPositionFailureReason": "La position de lecture du son de test a reculé.",
+  "AudioDeviceTestPlaybackStoppedEarlyReason": "Le son de test s'est arrêté avant la fin.",
+  "AudioDeviceTestRateFailureReason": "La vitesse de lecture du son de test est hors de la plage acceptée.",
+  "AudioDeviceTestObservationTimeoutReason": "Le son de test ne s'est pas terminé avant l'expiration de l'observation.",
+  "AudioDeviceTestUnexpectedFailureReason": "Une erreur inattendue s'est produite lors de la lecture du son de test."
 }

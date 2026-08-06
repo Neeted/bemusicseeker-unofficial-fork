@@ -17,6 +17,84 @@ public enum AudioDriver
     Asio = 3
 }
 
+/// <summary>
+/// Provides user-facing backend names without changing persisted enum values or internal identifiers.
+/// </summary>
+internal static class AudioDriverDisplayNames
+{
+    /// <summary>Returns the localized display name for one persisted audio backend.</summary>
+    internal static string Get(AudioDriver driver) => driver switch
+    {
+        AudioDriver.DirectSound or AudioDriver.WasapiShared => "WASAPI (" + Resources.Shared + ")",
+        AudioDriver.WasapiExclusive => "WASAPI (" + Resources.Exclusive + ")",
+        AudioDriver.Asio => "ASIO",
+        _ => driver.ToString()
+    };
+
+    /// <summary>Returns the display name for a native BASS backend identifier.</summary>
+    internal static string Get(Ribbit.Media.BassAudioPlayer.DeviceDriver driver) =>
+        Get(BassAudioMapping.FromBassDriver(driver));
+}
+
+/// <summary>
+/// Defines the selectable audible backends and the safe migration for the legacy value 0.
+/// </summary>
+internal static class AudioDriverPolicy
+{
+    private static readonly IReadOnlyList<AudioDriver> selectableDrivers = Array.AsReadOnly(
+        new[]
+        {
+            AudioDriver.WasapiShared,
+            AudioDriver.WasapiExclusive,
+            AudioDriver.Asio
+        });
+
+    /// <summary>Gets the ordered list exposed by settings and device-test selection.</summary>
+    internal static IReadOnlyList<AudioDriver> SelectableDrivers => selectableDrivers;
+
+    /// <summary>Gets the default audible backend for new settings.</summary>
+    internal static AudioDriver DefaultDriver => AudioDriver.WasapiShared;
+
+    /// <summary>Returns whether a backend is selectable as an audible output.</summary>
+    internal static bool IsSelectable(AudioDriver driver)
+    {
+        for (int index = 0; index < selectableDrivers.Count; index++)
+        {
+            if (selectableDrivers[index] == driver)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Returns the zero-based settings index for a selectable backend, or -1.</summary>
+    internal static int IndexOf(AudioDriver driver)
+    {
+        for (int index = 0; index < selectableDrivers.Count; index++)
+        {
+            if (selectableDrivers[index] == driver)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Migrates only the legacy DirectSound identifier to shared WASAPI Default.
+    /// Unknown, invalid, and NullDevice values remain unchanged.
+    /// </summary>
+    internal static AudioOutputSelection NormalizePersistedSelection(AudioOutputSelection selection)
+    {
+        return selection.Backend == AudioDriver.DirectSound
+            ? new AudioOutputSelection(DefaultDriver, null, null)
+            : selection;
+    }
+}
+
 public enum AudioNormalization
 {
     None = 0,
@@ -136,13 +214,7 @@ internal interface IAudioDeviceCatalog
 
 internal sealed class BassAudioDeviceCatalog : IAudioDeviceCatalog
 {
-    private static readonly AudioDriver[] AudibleBackends =
-    [
-        AudioDriver.DirectSound,
-        AudioDriver.WasapiShared,
-        AudioDriver.WasapiExclusive,
-        AudioDriver.Asio
-    ];
+    private static IReadOnlyList<AudioDriver> AudibleBackends => AudioDriverPolicy.SelectableDrivers;
 
     private readonly object syncRoot = new();
     private readonly IBassAudioDeviceEnumerator enumerator;
@@ -253,7 +325,9 @@ internal static class BassAudioMapping
 
     internal static Ribbit.Media.BassAudioPlayer.DeviceDriver ToBassDriver(AudioDriver driver)
     {
-        return (Ribbit.Media.BassAudioPlayer.DeviceDriver)(int)driver;
+        AudioOutputSelection normalized = AudioDriverPolicy.NormalizePersistedSelection(
+            new AudioOutputSelection(driver, null, null));
+        return (Ribbit.Media.BassAudioPlayer.DeviceDriver)(int)normalized.Backend;
     }
 
     internal static AudioDriver FromBassDriver(Ribbit.Media.BassAudioPlayer.DeviceDriver driver)
@@ -332,19 +406,20 @@ internal sealed class SettingsAudioGateway : IAudioSettingsGateway
     public AudioOutputSelection CaptureOutputSelection()
     {
         Settings values = Values;
-        return new AudioOutputSelection(
+        return AudioDriverPolicy.NormalizePersistedSelection(new AudioOutputSelection(
             BassAudioMapping.FromBassDriver(values.PlayerDriver),
             values.PlayerDevice,
-            values.PlayerDeviceName);
+            values.PlayerDeviceName));
     }
 
     /// <inheritdoc />
     public void ApplyOutputSelection(AudioOutputSelection selection)
     {
         Settings values = Values;
-        values.PlayerDriver = BassAudioMapping.ToBassDriver(selection.Backend);
-        values.PlayerDevice = selection.DeviceIdentity;
-        values.PlayerDeviceName = selection.DeviceName;
+        AudioOutputSelection normalized = AudioDriverPolicy.NormalizePersistedSelection(selection);
+        values.PlayerDriver = BassAudioMapping.ToBassDriver(normalized.Backend);
+        values.PlayerDevice = normalized.DeviceIdentity;
+        values.PlayerDeviceName = normalized.DeviceName;
     }
 
     public AudioNormalization EncoderNormalization
