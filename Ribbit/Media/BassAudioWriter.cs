@@ -1,10 +1,9 @@
 using System;
 using System.IO;
-using System.Linq;
 using BeMusicSeeker.Models.Utils;
+using ManagedBass;
 using ManagedBass.Enc;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
 
 namespace Ribbit.Media;
 
@@ -244,39 +243,21 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("Not recording started");
         }
+        if (encoder == null)
+        {
+            throw new InvalidOperationException("Encoder is not set");
+        }
         if (time <= TimeSpan.Zero)
         {
             return;
         }
-        long num = Bass.BASS_ChannelSeconds2Bytes(BassAudioPlayer.outputMixer, time.TotalSeconds);
-        if (num < 0)
-        {
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_ChannelSeconds2Bytes failed: " + bASSError);
-        }
-        if (num == 0L)
-        {
-            return;
-        }
-        long num2 = num / AudioWriterBuffer.Length;
-        long num3 = num % AudioWriterBuffer.Length;
-        static void action(int size)
-        {
-            if (Bass.BASS_ChannelGetData(BassAudioPlayer.outputMixer, AudioWriterBuffer, size) >= 0)
-            {
-                return;
-            }
-            BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_ChannelGetData failed: " + bASSError2);
-        }
-        for (int num4 = 0; num4 < num2; num4++)
-        {
-            action(AudioWriterBuffer.Length);
-        }
-        if (num3 != 0L)
-        {
-            action((int)num3);
-        }
+
+        new AudioWriterPullRenderer(
+            BassAudioPlayer.outputMixer,
+            AudioWriterBuffer,
+            ManagedBassAudioWriterNative.Instance,
+            encoder)
+            .Render(time);
     }
 
     public static void StopRecording()
@@ -309,7 +290,7 @@ public class BassAudioWriter : BassAudioPlayer
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         try
         {
-            if (RecordState == PlayState.Playing)
+            if (RecordState == PlayState.Playing && encoder.State == AudioEncoderSessionState.Started)
             {
                 encoder.Stop();
                 RecordState = PlayState.Stopped;
@@ -337,38 +318,346 @@ public class BassAudioWriter : BassAudioPlayer
         {
             return 0f;
         }
-        long num = Bass.BASS_ChannelSeconds2Bytes(BassAudioPlayer.outputMixer, time.TotalSeconds);
-        if (num < 0)
+        return new AudioWriterPullRenderer(
+            BassAudioPlayer.outputMixer,
+            AudioWriterBuffer,
+            ManagedBassAudioWriterNative.Instance)
+            .GetLevel(time, isRMSVolume);
+    }
+}
+
+/// <summary>Identifies the native operation that failed during PCM rendering or level scan.</summary>
+internal enum AudioWriterRenderStage
+{
+    SecondsToBytes,
+    DataPull,
+    BytesToSeconds,
+    LevelPull
+}
+
+/// <summary>Typed failure raised by the writer's ManagedBass core pull boundary.</summary>
+internal sealed class AudioWriterRenderException : Exception
+{
+    /// <summary>Initializes a writer render failure with its native context.</summary>
+    internal AudioWriterRenderException(
+        int channel,
+        AudioWriterRenderStage stage,
+        Errors? nativeError,
+        Exception innerException = null)
+        : base(
+            "Audio writer channel " + channel
+            + " failed at " + stage
+            + (nativeError.HasValue ? " nativeError=" + nativeError.Value : string.Empty),
+            innerException)
+    {
+        Channel = channel;
+        Stage = stage;
+        NativeError = nativeError;
+    }
+
+    /// <summary>Gets the channel involved in the failed operation.</summary>
+    internal int Channel { get; }
+
+    /// <summary>Gets the failed native operation.</summary>
+    internal AudioWriterRenderStage Stage { get; }
+
+    /// <summary>Gets the ManagedBass error captured at the native boundary, when available.</summary>
+    internal Errors? NativeError { get; }
+}
+
+/// <summary>Narrow ManagedBass core boundary owned by the audio writer.</summary>
+internal interface IAudioWriterNative
+{
+    /// <summary>Converts channel seconds to native byte position.</summary>
+    long ChannelSeconds2Bytes(int channel, double seconds);
+
+    /// <summary>Converts native byte position to channel seconds.</summary>
+    double ChannelBytes2Seconds(int channel, long bytes);
+
+    /// <summary>Pulls PCM data from a channel into the supplied buffer.</summary>
+    int ChannelGetData(int channel, byte[] buffer, int length);
+
+    /// <summary>Pulls channel levels for the requested duration.</summary>
+    float[] ChannelGetLevel(int channel, float seconds, LevelRetrievalFlags flags);
+
+    /// <summary>Gets the error reported by the most recent native call.</summary>
+    Errors LastError { get; }
+}
+
+/// <summary>ManagedBass implementation of the writer's narrow native boundary.</summary>
+internal sealed class ManagedBassAudioWriterNative : IAudioWriterNative
+{
+    /// <summary>Gets the process-wide stateless native boundary.</summary>
+    internal static ManagedBassAudioWriterNative Instance { get; } = new();
+
+    private ManagedBassAudioWriterNative()
+    {
+    }
+
+    /// <inheritdoc />
+    public long ChannelSeconds2Bytes(int channel, double seconds) => Bass.ChannelSeconds2Bytes(channel, seconds);
+
+    /// <inheritdoc />
+    public double ChannelBytes2Seconds(int channel, long bytes) => Bass.ChannelBytes2Seconds(channel, bytes);
+
+    /// <inheritdoc />
+    public int ChannelGetData(int channel, byte[] buffer, int length) => Bass.ChannelGetData(channel, buffer, length);
+
+    /// <inheritdoc />
+    public float[] ChannelGetLevel(int channel, float seconds, LevelRetrievalFlags flags) =>
+        Bass.ChannelGetLevel(channel, seconds, flags);
+
+    /// <inheritdoc />
+    public Errors LastError => Bass.LastError;
+}
+
+/// <summary>Pulls PCM data and levels while preserving the writer's chunk geometry.</summary>
+internal sealed class AudioWriterPullRenderer
+{
+    private enum DataPullResult
+    {
+        Full,
+        Partial
+    }
+
+    private readonly int channel;
+    private readonly byte[] buffer;
+    private readonly IAudioWriterNative native;
+    private readonly AudioEncoderSession encoder;
+
+    /// <summary>Creates a deterministic pull renderer for one source channel.</summary>
+    internal AudioWriterPullRenderer(
+        int channel,
+        byte[] buffer,
+        IAudioWriterNative native,
+        AudioEncoderSession encoder = null)
+    {
+        if (channel == 0)
         {
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_ChannelSeconds2Bytes failed: " + bASSError);
+            throw new ArgumentOutOfRangeException(nameof(channel));
         }
-        if (num == 0L)
+
+        this.channel = channel;
+        this.buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
+        if (buffer.Length == 0)
+        {
+            throw new ArgumentException("The pull buffer must not be empty.", nameof(buffer));
+        }
+
+        this.native = native ?? throw new ArgumentNullException(nameof(native));
+        this.encoder = encoder;
+    }
+
+    /// <summary>Pulls the requested duration and stops at the first partial or natural end.</summary>
+    internal void Render(TimeSpan time)
+    {
+        if (time <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        long requestedBytes = ConvertSecondsToBytes(time.TotalSeconds);
+        if (requestedBytes <= 0)
+        {
+            return;
+        }
+
+        long fullChunks = requestedBytes / buffer.Length;
+        int remainder = (int)(requestedBytes % buffer.Length);
+        for (long index = 0; index < fullChunks; index++)
+        {
+            if (PullData(buffer.Length) == DataPullResult.Partial)
+            {
+                return;
+            }
+        }
+
+        if (remainder != 0)
+        {
+            PullData(remainder);
+        }
+    }
+
+    /// <summary>Scans levels using the existing data-pull then level-pull consumption order.</summary>
+    internal float GetLevel(TimeSpan time, bool isRms)
+    {
+        if (time <= TimeSpan.Zero)
         {
             return 0f;
         }
-        long num2 = System.Math.Min(AudioWriterBuffer.Length, Bass.BASS_ChannelSeconds2Bytes(BassAudioPlayer.outputMixer, 1.0));
-        long num3 = num / num2;
-        long num4 = num % num2;
-        float func(int size)
+
+        long requestedBytes = ConvertSecondsToBytes(time.TotalSeconds);
+        if (requestedBytes <= 0)
         {
-            double num7 = Bass.BASS_ChannelBytes2Seconds(BassAudioPlayer.outputMixer, size);
-            if (Bass.BASS_ChannelGetData(BassAudioPlayer.outputMixer, AudioWriterBuffer, size) >= 0)
+            return 0f;
+        }
+
+        long oneSecondBytes = ConvertSecondsToBytes(1d);
+        long levelChunkBytes = System.Math.Min(buffer.Length, oneSecondBytes);
+        if (levelChunkBytes <= 0)
+        {
+            throw new AudioWriterRenderException(channel, AudioWriterRenderStage.SecondsToBytes, nativeError: null);
+        }
+
+        LevelRetrievalFlags flags = isRms ? LevelRetrievalFlags.RMS : LevelRetrievalFlags.All;
+        long fullChunks = requestedBytes / levelChunkBytes;
+        int remainder = (int)(requestedBytes % levelChunkBytes);
+        float maximum = 0f;
+        for (long index = 0; index < fullChunks; index++)
+        {
+            if (!PullLevel((int)levelChunkBytes, flags, ref maximum))
             {
-                return Bass.BASS_ChannelGetLevels(BassAudioPlayer.outputMixer, (float)num7, isRMSVolume ? BASSLevel.BASS_LEVEL_RMS : BASSLevel.BASS_LEVEL_ALL).Max();
+                return maximum;
             }
-            BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_ChannelGetData failed: " + bASSError2);
         }
-        float num5 = 0f;
-        for (int num6 = 0; num6 < num3; num6++)
+
+        if (remainder != 0)
         {
-            num5 = System.Math.Max(num5, func((int)num2));
+            PullLevel(remainder, flags, ref maximum);
         }
-        if (num4 != 0L)
+
+        return maximum;
+    }
+
+    private DataPullResult PullData(int requestedBytes)
+    {
+        int actualBytes;
+        try
         {
-            num5 = System.Math.Max(num5, func((int)num4));
+            actualBytes = native.ChannelGetData(channel, buffer, requestedBytes);
         }
-        return num5;
+        catch (Exception exception)
+        {
+            throw CreateException(AudioWriterRenderStage.DataPull, exception);
+        }
+
+        Errors nativeError = CaptureLastError();
+        if (actualBytes < 0)
+        {
+            if (nativeError == Errors.Ended)
+            {
+                return DataPullResult.Partial;
+            }
+
+            throw CreateException(AudioWriterRenderStage.DataPull, nativeError);
+        }
+
+        if (actualBytes > 0)
+        {
+            encoder?.EnsureActiveAfterRender();
+        }
+
+        return actualBytes == requestedBytes ? DataPullResult.Full : DataPullResult.Partial;
+    }
+
+    private bool PullLevel(int requestedBytes, LevelRetrievalFlags flags, ref float maximum)
+    {
+        DataPullResult dataResult = PullData(requestedBytes);
+        if (dataResult == DataPullResult.Partial)
+        {
+            return false;
+        }
+
+        float seconds = ConvertBytesToSeconds(requestedBytes);
+        float[] levels;
+        try
+        {
+            levels = native.ChannelGetLevel(channel, seconds, flags);
+        }
+        catch (Exception exception)
+        {
+            throw CreateException(AudioWriterRenderStage.LevelPull, exception);
+        }
+
+        Errors nativeError = CaptureLastError();
+        if (levels == null)
+        {
+            if (nativeError == Errors.Ended)
+            {
+                return false;
+            }
+
+            throw CreateException(AudioWriterRenderStage.LevelPull, nativeError);
+        }
+        if (levels.Length == 0)
+        {
+            throw CreateException(AudioWriterRenderStage.LevelPull, nativeError: (Errors?)null);
+        }
+
+        foreach (float level in levels)
+        {
+            maximum = System.Math.Max(maximum, level);
+        }
+
+        return true;
+    }
+
+    private long ConvertSecondsToBytes(double seconds)
+    {
+        long bytes;
+        try
+        {
+            bytes = native.ChannelSeconds2Bytes(channel, seconds);
+        }
+        catch (Exception exception)
+        {
+            throw CreateException(AudioWriterRenderStage.SecondsToBytes, exception);
+        }
+
+        Errors nativeError = CaptureLastError();
+        if (bytes < 0)
+        {
+            throw CreateException(AudioWriterRenderStage.SecondsToBytes, nativeError);
+        }
+
+        return bytes;
+    }
+
+    private float ConvertBytesToSeconds(int bytes)
+    {
+        double seconds;
+        try
+        {
+            seconds = native.ChannelBytes2Seconds(channel, bytes);
+        }
+        catch (Exception exception)
+        {
+            throw CreateException(AudioWriterRenderStage.BytesToSeconds, exception);
+        }
+
+        Errors nativeError = CaptureLastError();
+        if (seconds < 0d || double.IsNaN(seconds) || double.IsInfinity(seconds))
+        {
+            throw CreateException(AudioWriterRenderStage.BytesToSeconds, nativeError);
+        }
+
+        return (float)seconds;
+    }
+
+    private Errors CaptureLastError()
+    {
+        try
+        {
+            return native.LastError;
+        }
+        catch
+        {
+            return Errors.Unknown;
+        }
+    }
+
+    private AudioWriterRenderException CreateException(
+        AudioWriterRenderStage stage,
+        Exception innerException = null)
+    {
+        return new AudioWriterRenderException(channel, stage, CaptureLastError(), innerException);
+    }
+
+    private AudioWriterRenderException CreateException(
+        AudioWriterRenderStage stage,
+        Errors? nativeError,
+        Exception innerException = null)
+    {
+        return new AudioWriterRenderException(channel, stage, nativeError, innerException);
     }
 }

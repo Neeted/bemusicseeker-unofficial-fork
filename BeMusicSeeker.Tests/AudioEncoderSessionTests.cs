@@ -107,6 +107,80 @@ public sealed class AudioEncoderSessionTests
     }
 
     [TestMethod]
+    public void EnsureActiveAfterRenderAcceptsAPlayingEncoder()
+    {
+        FakeNative native = new();
+        using AudioEncoderSession session = CreateSession(native);
+        session.Start();
+
+        session.EnsureActiveAfterRender();
+
+        Assert.AreEqual(AudioEncoderSessionState.Started, session.State);
+        Assert.AreEqual(1, native.EncodeIsActiveCalls);
+    }
+
+    [TestMethod]
+    public void EnsureActiveAfterRenderRaisesTypedFailureWhenEncoderStops()
+    {
+        FakeNative native = new()
+        {
+            ActiveState = PlaybackState.Stopped,
+            LastError = Errors.Handle
+        };
+        using AudioEncoderSession session = CreateSession(native);
+        session.Start();
+
+        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(
+            session.EnsureActiveAfterRender);
+
+        Assert.AreEqual(AudioEncoderFailureStage.EncoderDied, exception.Stage);
+        Assert.AreEqual(Errors.Handle, exception.NativeError);
+        Assert.AreEqual(AudioEncoderSessionState.Faulted, session.State);
+    }
+
+    [TestMethod]
+    public void EnsureActiveAfterRenderRaisesTypedFailureWhenNotifyReportsEncoderDeath()
+    {
+        FakeNative native = new();
+        using AudioEncoderSession session = CreateSession(native);
+        session.Start();
+        native.NotifyProcedure(7, EncodeNotifyStatus.EncoderDied, IntPtr.Zero);
+
+        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(
+            session.EnsureActiveAfterRender);
+
+        Assert.AreEqual(AudioEncoderFailureStage.EncoderDied, exception.Stage);
+        Assert.AreEqual(EncodeNotifyStatus.EncoderDied, exception.NotifyStatus);
+        Assert.AreEqual(AudioEncoderSessionState.Faulted, session.State);
+        Assert.AreEqual(0, native.EncodeIsActiveCalls);
+    }
+
+    [TestMethod]
+    public void DisposeFailureAfterEncoderDeathRetainsFaultedStateAndHandleForRetry()
+    {
+        FakeNative native = new()
+        {
+            ActiveState = PlaybackState.Stopped,
+            LastError = Errors.Handle
+        };
+        AudioEncoderSession session = CreateSession(native);
+        session.Start();
+        Assert.ThrowsException<AudioEncoderException>(session.EnsureActiveAfterRender);
+
+        native.StopSucceeds = false;
+        Assert.ThrowsException<AudioEncoderException>(session.Dispose);
+
+        Assert.AreEqual(AudioEncoderSessionState.Faulted, session.State);
+        Assert.AreEqual(7, session.EncoderHandle);
+
+        native.StopSucceeds = true;
+        session.Dispose();
+
+        Assert.AreEqual(AudioEncoderSessionState.Disposed, session.State);
+        Assert.AreEqual(0, session.EncoderHandle);
+    }
+
+    [TestMethod]
     public void DoubleStartAndStopAreRejected()
     {
         FakeNative native = new();
@@ -158,9 +232,13 @@ public sealed class AudioEncoderSessionTests
 
         internal int StopCalls { get; private set; }
 
+        internal int EncodeIsActiveCalls { get; private set; }
+
         internal EncodeNotifyProcedure NotifyProcedure { get; private set; }
 
-        public Errors LastError { get; init; } = Errors.OK;
+        internal PlaybackState ActiveState { get; init; } = PlaybackState.Playing;
+
+        public Errors LastError { get; set; } = Errors.OK;
 
         public int EncodeStart(int channel, string commandLine, EncodeFlags flags, EncodeProcedure procedure)
         {
@@ -175,7 +253,8 @@ public sealed class AudioEncoderSessionTests
 
         public PlaybackState EncodeIsActive(int encoderHandle)
         {
-            return PlaybackState.Playing;
+            EncodeIsActiveCalls++;
+            return ActiveState;
         }
 
         public bool EncodeStop(int encoderHandle)

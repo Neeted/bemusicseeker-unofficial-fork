@@ -264,6 +264,50 @@ internal sealed class AudioEncoderSession : IDisposable
     }
 
     /// <summary>
+    /// Verifies that the encoder remained active after a source pull and retains notify or
+    /// native activity failures as typed encoder-death errors.
+    /// </summary>
+    internal void EnsureActiveAfterRender()
+    {
+        EnsureNotDisposed();
+        if (State != AudioEncoderSessionState.Started || encoderHandle == 0)
+        {
+            State = AudioEncoderSessionState.Faulted;
+            throw CreateException(AudioEncoderFailureStage.EncoderDied);
+        }
+
+        if (LastNotifyStatus == EncodeNotifyStatus.EncoderDied)
+        {
+            State = AudioEncoderSessionState.Faulted;
+            throw CreateException(AudioEncoderFailureStage.EncoderDied);
+        }
+
+        PlaybackState active;
+        try
+        {
+            active = native.EncodeIsActive(encoderHandle);
+        }
+        catch (Exception exception)
+        {
+            State = AudioEncoderSessionState.Faulted;
+            throw CreateException(AudioEncoderFailureStage.EncoderDied, exception);
+        }
+
+        Errors activeError = native.LastError;
+        if (active != PlaybackState.Playing)
+        {
+            State = AudioEncoderSessionState.Faulted;
+            throw CreateException(AudioEncoderFailureStage.EncoderDied, nativeError: activeError);
+        }
+
+        if (LastNotifyStatus == EncodeNotifyStatus.EncoderDied)
+        {
+            State = AudioEncoderSessionState.Faulted;
+            throw CreateException(AudioEncoderFailureStage.EncoderDied);
+        }
+    }
+
+    /// <summary>
     /// Stops native encoding and keeps the started state when native ownership remains unresolved.
     /// </summary>
     internal void Stop()
@@ -310,6 +354,9 @@ internal sealed class AudioEncoderSession : IDisposable
 
         if (encoderHandle != 0)
         {
+            AudioEncoderSessionState failureState = State == AudioEncoderSessionState.Faulted
+                ? AudioEncoderSessionState.Faulted
+                : AudioEncoderSessionState.Started;
             try
             {
                 if (!native.EncodeStop(encoderHandle))
@@ -322,12 +369,12 @@ internal sealed class AudioEncoderSession : IDisposable
             }
             catch (AudioEncoderException)
             {
-                State = AudioEncoderSessionState.Started;
+                State = failureState;
                 throw;
             }
             catch (Exception exception)
             {
-                State = AudioEncoderSessionState.Started;
+                State = failureState;
                 throw CreateException(AudioEncoderFailureStage.Dispose, exception);
             }
         }

@@ -408,17 +408,23 @@ public sealed class BassNetMigrationCharacterizationTests
     public void AudioWriterStartsAndStopsWavRecordingWithoutPhysicalDevice()
     {
         string directoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerEncoderCharacterization", Guid.NewGuid().ToString("N"));
+        string outputWithoutExtension = Path.Combine(directoryPath, "recording");
         Directory.CreateDirectory(directoryPath);
         try
         {
             using RegistrationFreeWriterSession session = RegistrationFreeWriterSession.Start();
-            BassAudioWriter.CreateEncoderWAV(Path.Combine(directoryPath, "recording"));
+            BassAudioWriter.CreateEncoderWAV(outputWithoutExtension);
 
             BassAudioWriter.StartRecording();
             Assert.AreEqual(PlayState.Playing, BassAudioWriter.RecordState);
+            BassAudioWriter.RecordToFile(TimeSpan.FromMilliseconds(50));
 
             BassAudioWriter.StopRecording();
             Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
+
+            string outputPath = outputWithoutExtension + ".wav";
+            Assert.IsTrue(File.Exists(outputPath));
+            Assert.IsTrue(new FileInfo(outputPath).Length >= 44);
         }
         finally
         {

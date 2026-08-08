@@ -587,7 +587,7 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                     break;
                 }
 
-                bool succeeded = true;
+                Exception fileException = null;
                 RibbitBmsAutoPlayWriter writer = null;
                 try
                 {
@@ -633,17 +633,35 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                 }
                 catch (Exception ex)
                 {
-                    succeeded = false;
-                    NLogWrapper.GetLogger()?.Warn(ex.ToString());
+                    fileException = ex;
+                    TryLogConversionSecondaryFailure("file", ex);
                 }
                 finally
                 {
-                    writer?.Dispose();
+                    try
+                    {
+                        writer?.Dispose();
+                    }
+                    catch (Exception disposeException)
+                    {
+                        if (fileException == null)
+                        {
+                            fileException = disposeException;
+                        }
+                        else
+                        {
+                            TryLogConversionSecondaryFailure("writer disposal", disposeException);
+                        }
+                    }
                     GC.Collect();
                     GC.WaitForPendingFinalizers();
                     GC.Collect();
-                    reportFileCompleted?.Invoke(succeeded);
                 }
+
+                CompleteFile(
+                    fileException,
+                    tryReleaseEncoder,
+                    reportFileCompleted);
             }
         }
         catch (Exception exception)
@@ -734,5 +752,67 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
         {
             // Diagnostics must not replace the conversion exception.
         }
+    }
+
+    private static void TryLogConversionSecondaryFailure(string stage, Exception exception)
+    {
+        try
+        {
+            NLogWrapper.GetLogger(nameof(BassSelectedChartAudioConversionExecutor)).Warn(
+                "Audio conversion " + stage + " failed while preserving the terminal result: "
+                + exception.Message);
+        }
+        catch
+        {
+            // Diagnostics must not replace progress or worker terminal behavior.
+        }
+    }
+
+    /// <summary>
+    /// Confirms per-file encoder cleanup before reporting the result or allowing the batch to
+    /// continue. A cleanup failure stops the batch while preserving the file's primary error.
+    /// </summary>
+    internal static void CompleteFile(
+        Exception fileException,
+        Func<bool> tryReleaseEncoder,
+        Action<bool> reportFileCompleted)
+    {
+        ArgumentNullException.ThrowIfNull(tryReleaseEncoder);
+
+        Exception cleanupException = null;
+        try
+        {
+            if (!tryReleaseEncoder())
+            {
+                cleanupException = new InvalidOperationException(
+                    "Audio conversion encoder cleanup failed; stopping before the next file.");
+            }
+        }
+        catch (Exception exception)
+        {
+            cleanupException = exception;
+        }
+
+        if (cleanupException != null)
+        {
+            try
+            {
+                reportFileCompleted?.Invoke(false);
+            }
+            catch (Exception reportException)
+            {
+                TryLogConversionSecondaryFailure("file completion report", reportException);
+            }
+
+            if (fileException != null)
+            {
+                TryLogConversionSecondaryFailure("encoder cleanup", cleanupException);
+                ExceptionDispatchInfo.Capture(fileException).Throw();
+            }
+
+            ExceptionDispatchInfo.Capture(cleanupException).Throw();
+        }
+
+        reportFileCompleted?.Invoke(fileException == null);
     }
 }

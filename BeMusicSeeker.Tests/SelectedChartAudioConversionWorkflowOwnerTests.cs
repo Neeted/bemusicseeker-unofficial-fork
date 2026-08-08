@@ -129,6 +129,36 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     }
 
     [TestMethod]
+    public void FileCleanup_ReportsFailureAndContinuesWhenEncoderReleaseSucceeds()
+    {
+        var reports = new List<bool>();
+        var fileException = new InvalidOperationException("render failed");
+
+        BassSelectedChartAudioConversionExecutor.CompleteFile(
+            fileException,
+            () => true,
+            reports.Add);
+
+        CollectionAssert.AreEqual(new[] { false }, reports);
+    }
+
+    [TestMethod]
+    public void FileCleanup_PreservesPrimaryFailureWhenEncoderReleaseFails()
+    {
+        var reports = new List<bool>();
+        var fileException = new InvalidOperationException("render failed");
+
+        InvalidOperationException observed = Assert.ThrowsException<InvalidOperationException>(
+            () => BassSelectedChartAudioConversionExecutor.CompleteFile(
+                fileException,
+                () => false,
+                reports.Add));
+
+        Assert.AreSame(fileException, observed);
+        CollectionAssert.AreEqual(new[] { false }, reports);
+    }
+
+    [TestMethod]
     public async Task RunAsync_PickerCancellationDoesNotStopPlaybackOrStartWriter()
     {
         string root = CreateRoot();
