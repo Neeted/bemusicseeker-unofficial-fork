@@ -58,4 +58,22 @@ internal static class EncodeTypeExt
     {
         return extensions[(int)encoderType];
     }
+
+    /// <summary>
+    /// Gets the extension produced by the selected encoder binary.
+    /// This remains separate from the application setting extension for Nero AAC.
+    /// </summary>
+    internal static string GetEncoderOutputExtension(this EncoderType encoderType)
+    {
+        return encoderType switch
+        {
+            EncoderType.WAVE => ".wav",
+            EncoderType.MP3_LAME => ".mp3",
+            EncoderType.AAC_NERO => ".m4a",
+            EncoderType.OPUS => ".opus",
+            EncoderType.FLAC => ".flac",
+            EncoderType.OGG_VORBIS => ".ogg",
+            _ => throw new ArgumentOutOfRangeException(nameof(encoderType), encoderType, "Unknown encoder type.")
+        };
+    }
 }

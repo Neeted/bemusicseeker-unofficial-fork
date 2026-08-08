@@ -513,7 +513,32 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
 
 internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartAudioConversionExecutor
 {
-    private readonly BassAudioSessionLease sessionLease = new();
+    private readonly BassAudioSessionLease sessionLease;
+    private readonly Func<bool> tryReleaseEncoder;
+    private readonly Func<BassAudioSession, bool> releaseSession;
+
+    /// <summary>Creates an executor backed by the production audio cleanup boundaries.</summary>
+    internal BassSelectedChartAudioConversionExecutor()
+        : this(
+            BassAudioWriter.TryReleaseEncoder,
+            session => BassAudioPlayer.Free(session),
+            new BassAudioSessionLease())
+    {
+    }
+
+    /// <summary>
+    /// Creates an executor with explicit cleanup boundaries so native ownership behavior can
+    /// be verified without replacing the workflow's session lease.
+    /// </summary>
+    internal BassSelectedChartAudioConversionExecutor(
+        Func<bool> tryReleaseEncoder,
+        Func<BassAudioSession, bool> releaseSession,
+        BassAudioSessionLease sessionLease)
+    {
+        this.tryReleaseEncoder = tryReleaseEncoder ?? throw new ArgumentNullException(nameof(tryReleaseEncoder));
+        this.releaseSession = releaseSession ?? throw new ArgumentNullException(nameof(releaseSession));
+        this.sessionLease = sessionLease ?? throw new ArgumentNullException(nameof(sessionLease));
+    }
 
     public void Execute(
         IReadOnlyList<ModelBmsFile> bmsFiles,
@@ -528,7 +553,12 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
             throw new DirectoryNotFoundException("Directory " + saveDirectory + " not found");
         }
 
-        if (!sessionLease.TryRelease(BassAudioPlayer.Free))
+        if (!tryReleaseEncoder())
+        {
+            throw new InvalidOperationException(
+                "A previous audio conversion encoder still owns native resources after cleanup failed.");
+        }
+        if (!sessionLease.TryRelease(releaseSession))
         {
             throw new InvalidOperationException(
                 "A previous audio conversion still owns native resources after cleanup failed.");
@@ -536,6 +566,8 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
 
         BassAudioSession ownedSession = null;
         Exception primaryException = null;
+        BassAudioOperationLease operation = default;
+        bool operationEntered = false;
         try
         {
             BassAudioPlayer.Frequency = settings.EncoderSampleRate;
@@ -543,7 +575,8 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
             BassAudioWriter.EncoderDirectory = settings.EncoderExeDirectory;
             BassAudioWriter.InitializeOwnedSession(out ownedSession);
             sessionLease.Attach(ownedSession);
-            using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
+            operation = BassAudioRuntime.EnterAudioOperation();
+            operationEntered = true;
             EncoderType encoder = settings.Encoder;
             int index = 0;
             int totalCount = bmsFiles.Count;
@@ -620,11 +653,29 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
         }
         finally
         {
-            ReleaseConversionSession(ownedSession, primaryException);
+            ReleaseConversionSession(ownedSession, primaryException, ref operation, operationEntered);
         }
     }
 
-    private void ReleaseConversionSession(BassAudioSession ownedSession, Exception primaryException)
+    /// <summary>
+    /// Releases the encoder before the source session and retains the session lease when the
+    /// encoder still owns native resources.
+    /// </summary>
+    internal void ReleaseConversionSession(BassAudioSession ownedSession, Exception primaryException)
+    {
+        BassAudioOperationLease operation = default;
+        ReleaseConversionSession(ownedSession, primaryException, ref operation, operationEntered: false);
+    }
+
+    /// <summary>
+    /// Releases conversion resources while an already-entered shared operation is still held.
+    /// The operation is disposed before the source session can be released.
+    /// </summary>
+    internal void ReleaseConversionSession(
+        BassAudioSession ownedSession,
+        Exception primaryException,
+        ref BassAudioOperationLease operation,
+        bool operationEntered)
     {
         try
         {
@@ -632,7 +683,26 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
             {
                 sessionLease.Attach(ownedSession);
             }
-            if (!sessionLease.TryRelease(BassAudioPlayer.Free) && primaryException == null)
+            if (!tryReleaseEncoder())
+            {
+                InvalidOperationException encoderCleanupException = new(
+                    "Audio conversion encoder cleanup failed; retaining the native audio session for retry.");
+                if (primaryException == null)
+                {
+                    throw encoderCleanupException;
+                }
+
+                TryLogSessionCleanupFailure(encoderCleanupException);
+                return;
+            }
+
+            if (operationEntered)
+            {
+                operationEntered = false;
+                operation.Dispose();
+            }
+
+            if (!sessionLease.TryRelease(releaseSession) && primaryException == null)
             {
                 throw new InvalidOperationException(
                     "Audio conversion completed without confirming native cleanup.");
@@ -641,6 +711,14 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
         catch (Exception cleanupException) when (primaryException != null)
         {
             TryLogSessionCleanupFailure(cleanupException);
+        }
+        finally
+        {
+            if (operationEntered)
+            {
+                operationEntered = false;
+                operation.Dispose();
+            }
         }
     }
 

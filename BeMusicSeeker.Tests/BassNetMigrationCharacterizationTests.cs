@@ -4,13 +4,10 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
+using ManagedBass.Enc;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
-using Un4seen.Bass.AddOn.Fx;
-using Un4seen.Bass.AddOn.Tags;
-using Un4seen.Bass.Misc;
 using BassAudioRuntime = Ribbit.Media.Audio.BassAudioRuntime;
 
 namespace BeMusicSeeker.Tests;
@@ -97,12 +94,9 @@ public sealed class BassNetMigrationCharacterizationTests
             Enum.GetValues<EncoderType>().Select(value => value.GetExtension()).ToArray());
 
         Assert.AreEqual(string.Empty, EncoderType.WAVE.SearchEncoderBinary());
-        Assert.AreEqual(".m4a", new EncoderNeroAAC(0).DefaultOutputExtension);
-        Assert.AreEqual(".wav", new EncoderWAV(0).DefaultOutputExtension);
-        Assert.AreEqual(".mp3", new EncoderLAME(0).DefaultOutputExtension);
-        Assert.AreEqual(".opus", new EncoderOPUS(0).DefaultOutputExtension);
-        Assert.AreEqual(".flac", new EncoderFLAC(0).DefaultOutputExtension);
-        Assert.AreEqual(".ogg", new EncoderOGG(0).DefaultOutputExtension);
+        CollectionAssert.AreEqual(
+            new[] { ".wav", ".mp3", ".m4a", ".opus", ".flac", ".ogg" },
+            Enum.GetValues<EncoderType>().Select(value => value.GetEncoderOutputExtension()).ToArray());
     }
 
     [TestMethod]
@@ -246,6 +240,55 @@ public sealed class BassNetMigrationCharacterizationTests
     }
 
     [TestMethod]
+    public void ExternalEncodersUseTheNativeFloatMixerFormat()
+    {
+        string directoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerEncoderCharacterization", Guid.NewGuid().ToString("N"));
+        string previousEncoderDirectory = BassAudioWriter.EncoderDirectory;
+        SampleFormat previousFormat = BassAudioPlayer.Format;
+        Directory.CreateDirectory(directoryPath);
+        foreach (string encoderFileName in new[] { "lame.exe", "neroAacEnc.exe", "opusenc.exe", "flac.exe", "oggenc2.exe" })
+        {
+            File.WriteAllText(Path.Combine(directoryPath, encoderFileName), string.Empty);
+        }
+
+        try
+        {
+            using RegistrationFreeWriterSession session = RegistrationFreeWriterSession.Start();
+            BassAudioPlayer.Format = SampleFormat.SAMPLE_INT_16BIT;
+            BassAudioWriter.EncoderDirectory = directoryPath;
+
+            BassAudioWriter.CreateEncoderLAME(Path.Combine(directoryPath, "lame-float"));
+            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bitwidth 32");
+
+            BassAudioWriter.CreateEncoderFLAC(Path.Combine(directoryPath, "flac-float"));
+            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bps=24");
+
+            BassAudioWriter.CreateEncoderOPUS(Path.Combine(directoryPath, "opus-float"));
+            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--raw-bits 24");
+
+            BassAudioWriter.CreateEncoderOGG(Path.Combine(directoryPath, "ogg-float"));
+            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-r -F 3 -C");
+
+            BassAudioWriter.CreateEncoderNeroAAC(Path.Combine(directoryPath, "nero-float"));
+            Assert.IsFalse(BassAudioWriter.EncoderFlags.HasFlag(EncodeFlags.NoHeader));
+            Assert.IsFalse(BassAudioWriter.EncoderFlags.HasFlag(EncodeFlags.ConvertFloatTo16BitInt));
+
+            BassAudioWriter.CreateEncoderWAV(Path.Combine(directoryPath, "wav-int16"));
+            Assert.IsTrue(BassAudioWriter.EncoderFlags.HasFlag(EncodeFlags.PCM));
+            Assert.IsTrue(BassAudioWriter.EncoderFlags.HasFlag(EncodeFlags.ConvertFloatTo16BitInt));
+        }
+        finally
+        {
+            BassAudioPlayer.Format = previousFormat;
+            BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void EncoderCommandLinesPreserveQualityAndTagMapping()
     {
         CultureInfo originalCulture = CultureInfo.CurrentCulture;
@@ -254,83 +297,48 @@ public sealed class BassNetMigrationCharacterizationTests
         {
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
             CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
-            TAG_INFO tags = new()
+            AudioTagInfo tags = new("artist value", "title value", "genre value", 12.5, "120", "source.bms", "comment value");
+            AudioEncoderCommandRequest CreateRequest(EncoderType encoderType, string outputFile, float quality, AudioTagInfo tagInfo = null)
             {
-                title = "title value",
-                artist = "artist value",
-                genre = "genre value",
-                comment = "comment value",
-                bpm = "120"
-            };
+                return new AudioEncoderCommandRequest(
+                    encoderType,
+                    @"C:\encoder tools",
+                    outputFile,
+                    44100,
+                    2,
+                    SampleFormat.SAMPLE_INT_16BIT,
+                    quality,
+                    tagInfo ?? AudioTagInfo.Empty);
+            }
 
-            var lame = new EncoderLAME(0)
-            {
-                EncoderDirectory = @"C:\encoder tools",
-                InputFile = null,
-                OutputFile = @"C:\output folder\sample file.mp3",
-                LAME_UseVBR = true,
-                LAME_ReplayGain = EncoderLAME.LAMEReplayGain.Accurate,
-                LAME_VBRQuality = (EncoderLAME.LAMEVBRQuality)4,
-                TAGs = tags
-            };
             Assert.AreEqual(
                 @"""C:\encoder tools\lame.exe"" -r -s 44.1 --bitwidth 16 -h --replaygain-accurate -V 4 --ignore-tag-errors --tt ""title value"" --ta ""artist value"" --tc ""comment value"" --tg ""genre value"" - ""C:\output folder\sample file.mp3""",
-                lame.EncoderCommandLine);
+                AudioEncoderCommandFactory.Create(CreateRequest(EncoderType.MP3_LAME, @"C:\output folder\sample file.mp3", 0.6f, tags)).CommandLine);
 
-            var nero = new EncoderNeroAAC(0)
-            {
-                EncoderDirectory = @"C:\encoder tools",
-                InputFile = null,
-                OutputFile = @"C:\output folder\sample file.m4a",
-                NERO_UseQualityMode = true,
-                NERO_Quality = 0.6f
-            };
             Assert.AreEqual(
                 @"""C:\encoder tools\neroAacEnc.exe"" -q 0.6 -if - -of ""C:\output folder\sample file.m4a""",
-                nero.EncoderCommandLine);
+                AudioEncoderCommandFactory.Create(CreateRequest(EncoderType.AAC_NERO, @"C:\output folder\sample file.m4a", 0.6f, tags)).CommandLine);
 
-            var opus = new EncoderOPUS(0)
-            {
-                EncoderDirectory = @"C:\encoder tools",
-                InputFile = null,
-                OutputFile = @"C:\output folder\sample file.opus",
-                OPUS_Bitrate = 106
-            };
             Assert.AreEqual(
                 @"""C:\encoder tools\opusenc.exe"" --raw --raw-bits 16 --raw-rate 44100 --raw-chan 2 --ignorelength --bitrate 106 - ""C:\output folder\sample file.opus""",
-                opus.EncoderCommandLine);
+                AudioEncoderCommandFactory.Create(CreateRequest(EncoderType.OPUS, @"C:\output folder\sample file.opus", 0.4f, tags)).CommandLine);
 
-            var flac = new EncoderFLAC(0)
-            {
-                EncoderDirectory = @"C:\encoder tools",
-                InputFile = null,
-                OutputFile = @"C:\output folder\sample file.flac",
-                FLAC_ReplayGain = true,
-                FLAC_CompressionLevel = 4
-            };
             Assert.AreEqual(
                 @"""C:\encoder tools\flac.exe"" -f --force-raw-format --endian=little --sample-rate=44100 --channels=2 --bps=16 --sign=signed --replay-gain -4 -o ""C:\output folder\sample file.flac"" -- -",
-                flac.EncoderCommandLine);
+                AudioEncoderCommandFactory.Create(CreateRequest(EncoderType.FLAC, @"C:\output folder\sample file.flac", 0.4f, tags)).CommandLine);
 
-            var ogg = new EncoderOGG(0)
-            {
-                EncoderDirectory = @"C:\encoder tools",
-                InputFile = null,
-                OGG_UseQualityMode = true,
-                OGG_Quality = 4
-            };
-            string commandBeforeOutput = ogg.EncoderCommandLine;
-            ogg.OutputFile = @"C:\output folder\sample file.ogg";
-            Assert.AreNotEqual(commandBeforeOutput, ogg.EncoderCommandLine);
             Assert.AreEqual(
                 @"""C:\encoder tools\oggenc2.exe"" -r -F 1 -B 16 -C 2 -R 44100 -q 4.0 -o ""C:\output folder\sample file.ogg"" -",
-                ogg.EncoderCommandLine);
+                AudioEncoderCommandFactory.Create(CreateRequest(EncoderType.OGG_VORBIS, @"C:\output folder\sample file.ogg", 0.4f)).CommandLine);
 
-            string commandBeforeTags = ogg.EncoderCommandLine;
-            ogg.TAGs = tags;
-            StringAssert.Contains(ogg.EncoderCommandLine, "--utf8 -t \"title value\" -a \"artist value\"");
-            StringAssert.Contains(ogg.EncoderCommandLine, "-c \"COMMENT=comment value\" -c \"BPM=120\"");
-            Assert.AreNotEqual(commandBeforeTags, ogg.EncoderCommandLine);
+            string oggWithTags = AudioEncoderCommandFactory.Create(CreateRequest(EncoderType.OGG_VORBIS, @"C:\output folder\sample file.ogg", 0.4f, tags)).CommandLine;
+            StringAssert.Contains(oggWithTags, "--utf8 -t \"title value\" -a \"artist value\"");
+            StringAssert.Contains(oggWithTags, "-c \"COMMENT=comment value\" -c \"BPM=120\"");
+            Assert.AreNotEqual(
+                AudioEncoderCommandFactory.Create(CreateRequest(EncoderType.OGG_VORBIS, @"C:\output folder\sample file.ogg", 0.4f)).CommandLine,
+                oggWithTags);
+
+            Assert.IsTrue(AudioEncoderCommandFactory.Create(CreateRequest(EncoderType.WAVE, @"C:\output folder\sample file.wav", 0f)).Flags.HasFlag(EncodeFlags.PCM));
         }
         finally
         {

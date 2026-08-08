@@ -170,7 +170,13 @@ ManagedBass の `PitchShiftParameters` は FFT／oversampling が 64-bit で定�
 
 volume-envelope の `FXGetParameters` は、返された node count と pointer の整合性、および native block の checked byte span を検証してから全 node を直ちに managed state へコピーする。既存の managed 配列長で結果を切り捨てず、負数、過大 count、non-zero count と null pointer の組み合わせは成功扱いにしない。pointer lease の pin ownership は call boundary 内の一主体だけが持ち、lease 作成失敗または cleanup 失敗で主例外を置き換えない。
 
-この段階では offline encoder／metadata helper と legacy wrapper registration がまだ残るため、BASS.NET の managed package と registration stage は Unit 3／4 の完了まで依存関係から除去しない。再生、backend、session、mixer、device-test の production route からは BASS.NET API を使用しない。
+### 10.1.2 ManagedBass の encoder、metadata、writer 境界
+
+`BassAudioWriter` は BASS.NET の `BaseEncoder`／`TAG_INFO` を使用せず、project-owned の immutable `AudioTagInfo`、`AudioEncoderCommandFactory`、`AudioEncoderSession` を通して ManagedBass.Enc を使用する。command factory は shell を経由せず、executable path、output path、metadata を Windows の引数規則で quote する。WAV、LAME、Nero AAC、Opus、FLAC、OGG の six format と quality clamp／tag option は Unit 0 の characterization contract に合わせる。アプリケーション設定上の AAC 拡張子 `.aac` と、Nero encoder が生成する実ファイル拡張子 `.m4a` は別の契約として維持する。
+
+WAV は output path を直接 `EncodeStart` へ渡し、requested output sample format に対応する conversion flag を使用する。raw external encoder と Nero は command／header が宣言する実 source format と bytes を一致させるため、native mixer の channel info を source format の正本とする。Float32 source は LAME では signed 32-bit、FLAC／Opus では signed 24-bit へ conversion し、Ogg では `-F 3` の IEEE Float raw input、Nero では Float32 WAV header として渡す。現行 behavior に RIFF metadata がないため、WAV command へ INFO chunk を追加しない。writer は non-zero encoder handle の生成と `EncodeSetNotify` の成功後にだけ `RecordState.Playing` を公開する。stop が失敗した場合は encoder handle の ownership と Playing state を保持し、失敗を隠して解放済みとして扱わない。conversion workflow は writer-owned encoder の停止／dispose を core audio session の `BassAudioPlayer.Free` より先に行い、失敗時は session lease も保持して次回 cleanup で再試行する。
+
+この段階では pull-driven render loop、encoder の early-exit／render failure handling、conversion workflow の ManagedBass core 化、および legacy wrapper registration がまだ残るため、BASS.NET の managed package と registration stage は Unit 3／4 の完了まで依存関係から除去しない。再生、backend、session、mixer、device-test の production route からは BASS.NET API を使用しない。
 
 ### 10.2 デバイステストの playback failure boundary
 

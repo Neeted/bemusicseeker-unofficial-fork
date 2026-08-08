@@ -11,6 +11,7 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Parago.Windows;
+using Ribbit.Media;
 using Ribbit.Media.Audio;
 using ModelBmsFile = BeMusicSeeker.Models.BMSFile;
 
@@ -40,6 +41,90 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         finally
         {
             DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public void ConversionCleanup_RetainsSessionWhenEncoderReleaseFailsAndRetriesInOrder()
+    {
+        var events = new List<string>();
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.NULL_DEVICE)
+        {
+            State = BassAudioSessionState.Active
+        };
+        var lease = new BassAudioSessionLease();
+        lease.Attach(session);
+        int encoderReleaseAttempts = 0;
+        var executor = new BassSelectedChartAudioConversionExecutor(
+            () =>
+            {
+                events.Add("encoder");
+                return ++encoderReleaseAttempts > 1;
+            },
+            _ =>
+            {
+                events.Add("session");
+                return true;
+            },
+            lease);
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => executor.ReleaseConversionSession(session, primaryException: null));
+        Assert.AreSame(session, lease.Session);
+        CollectionAssert.AreEqual(new[] { "encoder" }, events);
+
+        executor.ReleaseConversionSession(session, primaryException: null);
+
+        Assert.IsNull(lease.Session);
+        CollectionAssert.AreEqual(new[] { "encoder", "encoder", "session" }, events);
+    }
+
+    [TestMethod]
+    public void ConversionCleanup_HoldsOperationDuringEncoderAndReleasesItBeforeSession()
+    {
+        var gate = new BassAudioOperationGate(initiallyOpen: true);
+        Assert.IsTrue(gate.TryEnterOperation(out BassAudioOperationLease operation));
+        try
+        {
+            var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.NULL_DEVICE)
+            {
+                State = BassAudioSessionState.Active
+            };
+            var lease = new BassAudioSessionLease();
+            lease.Attach(session);
+            var executor = new BassSelectedChartAudioConversionExecutor(
+                () =>
+                {
+                    try
+                    {
+                        using BassAudioExclusiveLease shutdown = gate.EnterRuntimeShutdown();
+                        Assert.Fail("Encoder cleanup ran after the shared operation was released.");
+                        return false;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        return true;
+                    }
+                },
+                _ =>
+                {
+                    using BassAudioExclusiveLease shutdown = gate.EnterRuntimeShutdown();
+                    shutdown.Complete(success: true);
+                    return true;
+                },
+                lease);
+
+            executor.ReleaseConversionSession(
+                session,
+                primaryException: null,
+                ref operation,
+                operationEntered: true);
+
+            Assert.IsNull(lease.Session);
+        }
+        finally
+        {
+            operation.Dispose();
         }
     }
 

@@ -8,7 +8,6 @@ using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 using Ribbit.Util.Extensions;
-using Un4seen.Bass.AddOn.Tags;
 
 namespace Ribbit.BMS;
 
@@ -43,23 +42,21 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
             Stop();
         }
         normalizationAmplifier = System.Math.Max(0f, normalizationAmplifier);
-        var tAG_INFO = new TAG_INFO
-        {
-            artist = ((base.Bms.Artist.Trim() ?? string.Empty) + " " + (base.Bms.Subartist?.Trim() ?? string.Empty)).Trim(),
-            title = ((base.Bms.Title.Trim() ?? string.Empty) + " " + (base.Bms.Subtitle?.Trim() ?? string.Empty)).Trim(),
-            genre = (base.Bms.Genre.Trim() ?? string.Empty),
-            duration = base.Duration.TotalSeconds,
-            bpm = (base.Bms.Bpm?.ToDecimal().ToString() ?? string.Empty),
-            filename = base.Bms.Path,
-            comment = base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0) ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())])) : string.Empty)
-        };
+        AudioTagInfo tagInfo = new(
+            artist: ((base.Bms.Artist.Trim() ?? string.Empty) + " " + (base.Bms.Subartist?.Trim() ?? string.Empty)).Trim(),
+            title: ((base.Bms.Title.Trim() ?? string.Empty) + " " + (base.Bms.Subtitle?.Trim() ?? string.Empty)).Trim(),
+            genre: base.Bms.Genre.Trim() ?? string.Empty,
+            durationSeconds: base.Duration.TotalSeconds,
+            bpm: base.Bms.Bpm?.ToDecimal().ToString() ?? string.Empty,
+            fileName: base.Bms.Path,
+            comment: base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0) ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())])) : string.Empty));
         if (string.IsNullOrWhiteSpace(filePathWithoutExtension))
         {
             filePathWithoutExtension = AppContext.BaseDirectory;
         }
         if (LongPathFileSystem.DirectoryExists(filePathWithoutExtension))
         {
-            string input = "[" + tAG_INFO.artist + "] " + tAG_INFO.title;
+            string input = "[" + tagInfo.Artist + "] " + tagInfo.Title;
             filePathWithoutExtension = Path.Combine(filePathWithoutExtension, input.NaturalNormalizationForFileName().ReplaceInvalidFileNameCharsByWide().RemoveInvalidFileNameChars());
         }
         TimeSpan[] first = [.. (from t in new IEnumerable<TimeSpan>[5]
@@ -118,16 +115,7 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
                 BassAudioWriter.CreateEncoderWAV(filePathWithoutExtension);
                 break;
         }
-        BassAudioWriter.SetTagInfo(new TAG_INFO
-        {
-            artist = ((base.Bms.Artist.Trim() ?? string.Empty) + " " + (base.Bms.Subartist?.Trim() ?? string.Empty)).Trim(),
-            title = ((base.Bms.Title.Trim() ?? string.Empty) + " " + (base.Bms.Subtitle?.Trim() ?? string.Empty)).Trim(),
-            genre = (base.Bms.Genre.Trim() ?? string.Empty),
-            duration = base.Duration.TotalSeconds,
-            bpm = base.Bms.Bpm?.ToDecimal().ToString(),
-            filename = base.Bms.Path,
-            comment = base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0) ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())])) : string.Empty)
-        });
+        BassAudioWriter.SetTagInfo(tagInfo);
         NLogWrapper.DebuggerLogger?.Trace(BassAudioWriter.EncoderCommandLine);
         BassAudioWriter.StartRecording();
         foreach (TimeSpan item2 in first.Concat([base.Duration]))

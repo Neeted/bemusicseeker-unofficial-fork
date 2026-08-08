@@ -2,10 +2,9 @@ using System;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
+using ManagedBass.Enc;
 using Ribbit.Media.Audio;
 using Un4seen.Bass;
-using Un4seen.Bass.AddOn.Tags;
-using Un4seen.Bass.Misc;
 
 namespace Ribbit.Media;
 
@@ -13,7 +12,7 @@ public class BassAudioWriter : BassAudioPlayer
 {
     private static readonly byte[] AudioWriterBuffer = new byte[4194304];
 
-    private static BaseEncoder encoder;
+    private static AudioEncoderSession encoder;
 
     public string OutputFile => encoder?.OutputFile;
 
@@ -23,7 +22,10 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static string EncoderDirectory { get; set; } = AppContext.BaseDirectory;
 
-    public static string EncoderCommandLine => encoder?.EncoderCommandLine;
+    public static string EncoderCommandLine => encoder?.CommandLine;
+
+    /// <summary>Gets the BASSenc flags selected for the current encoder diagnostics.</summary>
+    internal static EncodeFlags EncoderFlags => encoder?.Flags ?? EncodeFlags.Default;
 
     public BassAudioWriter(string fileName)
         : base(fileName, onMemory: false)
@@ -71,7 +73,8 @@ public class BassAudioWriter : BassAudioPlayer
         return GetEncoderDirectory(encodeType) != null;
     }
 
-    public static void SetTagInfo(TAG_INFO tagInfo)
+    /// <summary>Sets immutable metadata used when the encoder command line is rebuilt.</summary>
+    public static void SetTagInfo(AudioTagInfo tagInfo)
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (RecordState != PlayState.Stopped)
@@ -82,7 +85,7 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("Encoder is not set");
         }
-        encoder.TAGs = tagInfo;
+        encoder.SetTagInfo(tagInfo);
     }
 
     public static void StartRecording()
@@ -92,11 +95,20 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("Recording has started already");
         }
-        RecordState = ((!encoder.Start(null, IntPtr.Zero, paused: false)) ? PlayState.Stopped : PlayState.Playing);
-        if (RecordState != PlayState.Playing)
+        if (encoder == null)
         {
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            throw new Exception("Encoder.Start failed: " + bASSError);
+            throw new InvalidOperationException("Encoder is not set");
+        }
+
+        try
+        {
+            encoder.Start();
+            RecordState = PlayState.Playing;
+        }
+        catch
+        {
+            RecordState = PlayState.Stopped;
+            throw;
         }
     }
 
@@ -109,43 +121,10 @@ public class BassAudioWriter : BassAudioPlayer
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
-        bool wAV_Use32BitInteger = false;
-        int num;
-        switch (BassAudioPlayer.Format)
-        {
-            case SampleFormat.SAMPLE_INT_8BIT:
-                num = 8;
-                break;
-            case SampleFormat.SAMPLE_INT_16BIT:
-                num = 16;
-                break;
-            case SampleFormat.SAMPLE_INT_24BIT:
-                num = 24;
-                break;
-            case SampleFormat.SAMPLE_INT_32BIT:
-                num = 32;
-                wAV_Use32BitInteger = true;
-                break;
-            case SampleFormat.SAMPLE_FLOAT_32BIT:
-                num = 32;
-                break;
-            default:
-                throw new NotSupportedException("Format must be either 8, 16, 24 or 32 bit integer");
-        }
-        encoder = new EncoderWAV(BassAudioPlayer.outputMixer)
-        {
-            InputFile = null,
-            WAV_BitsPerSample = num,
-            WAV_Use32BitInteger = wAV_Use32BitInteger
-        };
-        int num2 = 1;
-        string text = filePathWithoutExtension;
-        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
-        {
-            num2++;
-            filePathWithoutExtension = text + " (" + num2 + ")";
-        }
-        encoder.OutputFile = filePathWithoutExtension + encoder.DefaultOutputExtension;
+        ReplaceEncoder(CreateSession(
+            EncoderType.WAVE,
+            GetAvailableOutputFile(filePathWithoutExtension, EncoderType.WAVE.GetEncoderOutputExtension()),
+            quality: 0f));
     }
 
     public static void CreateEncoderLAME(string filePathWithoutExtension, float quality = 0.4f)
@@ -156,25 +135,9 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
-        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
-        quality = System.Math.Max(System.Math.Min(1f, quality), 0.1f);
-        encoder = new EncoderLAME(BassAudioPlayer.outputMixer)
-        {
-            InputFile = null,
-            EncoderDirectory = encoderDirectory,
-            LAME_UseVBR = true,
-            LAME_ReplayGain = EncoderLAME.LAMEReplayGain.Accurate,
-            LAME_VBRQuality = (EncoderLAME.LAMEVBRQuality)(10 - (int)(10f * quality))
-        };
-        int num = 1;
-        string text = filePathWithoutExtension;
-        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
-        {
-            num++;
-            filePathWithoutExtension = text + " (" + num + ")";
-        }
-        encoder.OutputFile = filePathWithoutExtension + encoder.DefaultOutputExtension;
+        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
+        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
     }
 
     public static void CreateEncoderNeroAAC(string filePathWithoutExtension, float quality = 0.4f)
@@ -185,24 +148,9 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
-        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
-        quality = System.Math.Max(System.Math.Min(1f, quality), 0f);
-        encoder = new EncoderNeroAAC(BassAudioPlayer.outputMixer)
-        {
-            InputFile = null,
-            EncoderDirectory = encoderDirectory,
-            NERO_UseQualityMode = true,
-            NERO_Quality = quality
-        };
-        int num = 1;
-        string text = filePathWithoutExtension;
-        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
-        {
-            num++;
-            filePathWithoutExtension = text + " (" + num + ")";
-        }
-        encoder.OutputFile = filePathWithoutExtension + encoder.DefaultOutputExtension;
+        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
+        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
     }
 
     public static void CreateEncoderOPUS(string filePathWithoutExtension, float quality = 0.4f)
@@ -213,23 +161,9 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
-        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
-        quality = System.Math.Max(System.Math.Min(1f, quality), 0f);
-        encoder = new EncoderOPUS(BassAudioPlayer.outputMixer)
-        {
-            InputFile = null,
-            EncoderDirectory = encoderDirectory,
-            OPUS_Bitrate = (int)(6f + 250f * quality)
-        };
-        int num = 1;
-        string text = filePathWithoutExtension;
-        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
-        {
-            num++;
-            filePathWithoutExtension = text + " (" + num + ")";
-        }
-        encoder.OutputFile = filePathWithoutExtension + encoder.DefaultOutputExtension;
+        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
+        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
     }
 
     public static void CreateEncoderFLAC(string filePathWithoutExtension, float quality = 0.4f)
@@ -240,24 +174,9 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
-        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
-        quality = System.Math.Max(System.Math.Min(0.8f, quality), 0f);
-        encoder = new EncoderFLAC(BassAudioPlayer.outputMixer)
-        {
-            InputFile = null,
-            EncoderDirectory = encoderDirectory,
-            FLAC_ReplayGain = true,
-            FLAC_CompressionLevel = (int)(10f * quality)
-        };
-        int num = 1;
-        string text = filePathWithoutExtension;
-        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
-        {
-            num++;
-            filePathWithoutExtension = text + " (" + num + ")";
-        }
-        encoder.OutputFile = filePathWithoutExtension + encoder.DefaultOutputExtension;
+        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
+        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
     }
 
     public static void CreateEncoderOGG(string filePathWithoutExtension, float quality = 0.4f)
@@ -268,24 +187,54 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
-        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
-        quality = System.Math.Max(System.Math.Min(0.8f, quality), 0f);
-        encoder = new EncoderOGG(BassAudioPlayer.outputMixer)
+        string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
+        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
+    }
+
+    private static AudioEncoderSession CreateSession(
+        EncoderType encoderType,
+        string outputFile,
+        float quality,
+        string encoderDirectory = "")
+    {
+        ManagedBass.ChannelInfo channelInfo = ManagedBass.Bass.ChannelGetInfo(BassAudioPlayer.outputMixer);
+        SampleFormat sourceFormat = channelInfo.Flags.HasFlag(ManagedBass.BassFlags.Float)
+            ? SampleFormat.SAMPLE_FLOAT_32BIT
+            : SampleFormat.SAMPLE_INT_16BIT;
+
+        var request = new AudioEncoderCommandRequest(
+            encoderType,
+            encoderDirectory,
+            outputFile,
+            channelInfo.Frequency,
+            channelInfo.Channels,
+            sourceFormat,
+            quality,
+            AudioTagInfo.Empty,
+            BassAudioPlayer.Format);
+        return new AudioEncoderSession(BassAudioPlayer.outputMixer, request);
+    }
+
+    private static string GetAvailableOutputFile(string filePathWithoutExtension, string extension)
+    {
+        string originalPath = filePathWithoutExtension;
+        int suffix = 1;
+        string outputFile = originalPath + extension;
+        while (LongPathFileSystem.EntryExists(outputFile))
         {
-            InputFile = null,
-            EncoderDirectory = encoderDirectory,
-            OGG_UseQualityMode = true,
-            OGG_Quality = (int)(10f * quality)
-        };
-        int num = 1;
-        string text = filePathWithoutExtension;
-        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
-        {
-            num++;
-            filePathWithoutExtension = text + " (" + num + ")";
+            suffix++;
+            outputFile = originalPath + " (" + suffix + ")" + extension;
         }
-        encoder.OutputFile = filePathWithoutExtension + encoder.DefaultOutputExtension;
+
+        return outputFile;
+    }
+
+    private static void ReplaceEncoder(AudioEncoderSession nextEncoder)
+    {
+        encoder?.Dispose();
+        encoder = nextEncoder;
+        RecordState = PlayState.Stopped;
     }
 
     public static void RecordToFile(TimeSpan time)
@@ -337,7 +286,44 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("Not recording started");
         }
-        RecordState = (encoder.Stop() ? PlayState.Stopped : PlayState.Playing);
+        if (encoder == null)
+        {
+            throw new InvalidOperationException("Encoder is not set");
+        }
+
+        encoder.Stop();
+        RecordState = PlayState.Stopped;
+    }
+
+    /// <summary>
+    /// Attempts to release the writer-owned encoder before its source audio session is freed.
+    /// </summary>
+    /// <returns><see langword="true" /> only after the encoder handle and managed owner are released.</returns>
+    internal static bool TryReleaseEncoder()
+    {
+        if (encoder == null)
+        {
+            return true;
+        }
+
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
+        try
+        {
+            if (RecordState == PlayState.Playing)
+            {
+                encoder.Stop();
+                RecordState = PlayState.Stopped;
+            }
+
+            encoder.Dispose();
+            encoder = null;
+            RecordState = PlayState.Stopped;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static float GetLevel(TimeSpan time, bool isRMSVolume = false)
