@@ -4,10 +4,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
+using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -213,7 +213,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
                 77,
                 0,
                 "BASS_Mixer_StreamAddChannel",
-                BASSError.BASS_ERROR_HANDLE,
+                Errors.Handle,
                 "play failed",
                 session: session)
         };
@@ -226,7 +226,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(AudioDeviceTestFailureKind.PlaybackStartFailed, observation.FailureKind);
         Assert.AreEqual(BassAudioPlaybackStage.MixerAttach, observation.PlaybackStage);
         Assert.AreEqual("BASS_Mixer_StreamAddChannel", observation.NativeErrorSource);
-        Assert.AreEqual(BASSError.BASS_ERROR_HANDLE, observation.NativeErrorCode);
+        Assert.AreEqual(Errors.Handle, observation.NativeErrorCode);
         Assert.AreEqual(12, observation.PlaybackSourceHandle);
         Assert.AreEqual(77, observation.PlaybackExpectedMixerHandle);
         Assert.AreEqual(0, observation.PlaybackActualMixerHandle);
@@ -250,7 +250,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             failureKind: AudioDeviceTestFailureKind.PlaybackStartFailed,
             playbackStage: BassAudioPlaybackStage.MixerAttach,
             nativeErrorSource: "BASS_Mixer_StreamAddChannel",
-            nativeErrorCode: BASSError.BASS_ERROR_HANDLE,
+            nativeErrorCode: Errors.Handle,
             diagnosticReason: "play failed",
             playbackSourceHandle: 12,
             playbackExpectedMixerHandle: 77,
@@ -279,7 +279,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
                 77,
                 77,
                 "BASS_ChannelSetPosition",
-                BASSError.BASS_ERROR_HANDLE,
+                Errors.Handle,
                 "observation failed")
         };
 
@@ -291,7 +291,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(AudioDeviceTestFailureKind.Unexpected, observation.FailureKind);
         Assert.AreEqual(BassAudioPlaybackStage.SetPosition, observation.PlaybackStage);
         Assert.AreEqual("BASS_ChannelSetPosition", observation.NativeErrorSource);
-        Assert.AreEqual(BASSError.BASS_ERROR_HANDLE, observation.NativeErrorCode);
+        Assert.AreEqual(Errors.Handle, observation.NativeErrorCode);
     }
 
     [TestMethod]
@@ -306,7 +306,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
                 77,
                 0,
                 "BASS_StreamCreateFile",
-                BASSError.BASS_ERROR_FILEOPEN,
+                Errors.FileOpen,
                 "create failed")
         };
 
@@ -317,7 +317,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.IsFalse(observation.Succeeded);
         Assert.AreEqual(AudioDeviceTestFailureKind.PlayerCreationFailed, observation.FailureKind);
         Assert.AreEqual(BassAudioPlaybackStage.SourceCreate, observation.PlaybackStage);
-        Assert.AreEqual(BASSError.BASS_ERROR_FILEOPEN, observation.NativeErrorCode);
+        Assert.AreEqual(Errors.FileOpen, observation.NativeErrorCode);
         Assert.AreEqual(0, boundary.CreatedPlayerCount);
     }
 

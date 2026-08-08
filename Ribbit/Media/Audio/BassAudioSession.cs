@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using ManagedBass;
+using ManagedBass.Asio;
+using ManagedBass.Wasapi;
 using Ribbit.Logging;
 using Ribbit.Media;
-using Un4seen.Bass;
-using Un4seen.BassAsio;
-using Un4seen.BassWasapi;
 
 namespace Ribbit.Media.Audio;
 
@@ -999,7 +999,7 @@ internal interface IAudioSessionNativeBoundary
     bool FreeCore();
 
     /// <summary>Gets the last BASS core error.</summary>
-    BASSError GetCoreError();
+    Errors GetCoreError();
 
     /// <summary>Selects the BASSWASAPI device.</summary>
     bool SetWasapiDevice(int deviceIndex);
@@ -1011,7 +1011,7 @@ internal interface IAudioSessionNativeBoundary
     bool FreeWasapi();
 
     /// <summary>Gets the last BASSWASAPI error exposed through BASS.</summary>
-    BASSError GetWasapiError();
+    Errors GetWasapiError();
 
     /// <summary>Selects the BASSASIO device.</summary>
     bool SetAsioDevice(int deviceIndex);
@@ -1023,56 +1023,171 @@ internal interface IAudioSessionNativeBoundary
     bool FreeAsio();
 
     /// <summary>Gets the last BASSASIO error from the ASIO API.</summary>
-    BASSError GetAsioError();
+    Errors GetAsioError();
 
     /// <summary>Frees a stream on the selected BASS core device.</summary>
     bool FreeStream(int handle);
 
     /// <summary>Gets the last BASS stream error.</summary>
-    BASSError GetStreamError();
+    Errors GetStreamError();
 }
 
-/// <summary>Binds session cleanup to the currently bundled Bass.Net API.</summary>
+/// <summary>Binds session cleanup to the ManagedBass API.</summary>
 internal sealed class BassAudioSessionNativeBoundary : IAudioSessionNativeBoundary
 {
-    /// <inheritdoc />
-    public bool SetCoreDevice(int deviceIndex) => Bass.BASS_SetDevice(deviceIndex);
+    private Errors? coreErrorOverride;
+    private Errors? wasapiErrorOverride;
+    private Errors? asioErrorOverride;
 
     /// <inheritdoc />
-    public bool FreeCore() => Bass.BASS_Free();
+    public bool SetCoreDevice(int deviceIndex)
+    {
+        coreErrorOverride = null;
+        try
+        {
+            Bass.CurrentDevice = deviceIndex;
+            return true;
+        }
+        catch (BassException exception)
+        {
+            coreErrorOverride = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public BASSError GetCoreError() => Bass.BASS_ErrorGetCode();
+    public bool FreeCore()
+    {
+        coreErrorOverride = null;
+        try
+        {
+            return Bass.Free();
+        }
+        catch (BassException exception)
+        {
+            coreErrorOverride = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public bool SetWasapiDevice(int deviceIndex) => BassWasapi.BASS_WASAPI_SetDevice(deviceIndex);
+    public Errors GetCoreError() => coreErrorOverride ?? Bass.LastError;
 
     /// <inheritdoc />
-    public bool StopWasapi(bool reset) => BassWasapi.BASS_WASAPI_Stop(reset);
+    public bool SetWasapiDevice(int deviceIndex)
+    {
+        wasapiErrorOverride = null;
+        try
+        {
+            BassWasapi.CurrentDevice = deviceIndex;
+            return true;
+        }
+        catch (BassException exception)
+        {
+            wasapiErrorOverride = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public bool FreeWasapi() => BassWasapi.BASS_WASAPI_Free();
+    public bool StopWasapi(bool reset)
+    {
+        wasapiErrorOverride = null;
+        try
+        {
+            return BassWasapi.Stop(reset);
+        }
+        catch (BassException exception)
+        {
+            wasapiErrorOverride = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public BASSError GetWasapiError() => Bass.BASS_ErrorGetCode();
+    public bool FreeWasapi()
+    {
+        wasapiErrorOverride = null;
+        try
+        {
+            return BassWasapi.Free();
+        }
+        catch (BassException exception)
+        {
+            wasapiErrorOverride = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public bool SetAsioDevice(int deviceIndex) => BassAsio.BASS_ASIO_SetDevice(deviceIndex);
+    public Errors GetWasapiError() => wasapiErrorOverride ?? Bass.LastError;
 
     /// <inheritdoc />
-    public bool StopAsio() => BassAsio.BASS_ASIO_Stop();
+    public bool SetAsioDevice(int deviceIndex)
+    {
+        asioErrorOverride = null;
+        try
+        {
+            BassAsio.CurrentDevice = deviceIndex;
+            return true;
+        }
+        catch (BassException exception)
+        {
+            asioErrorOverride = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public bool FreeAsio() => BassAsio.BASS_ASIO_Free();
+    public bool StopAsio()
+    {
+        asioErrorOverride = null;
+        try
+        {
+            return BassAsio.Stop();
+        }
+        catch (BassException exception)
+        {
+            asioErrorOverride = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public BASSError GetAsioError() => BassAsio.BASS_ASIO_ErrorGetCode();
+    public bool FreeAsio()
+    {
+        asioErrorOverride = null;
+        try
+        {
+            return BassAsio.Free();
+        }
+        catch (BassException exception)
+        {
+            asioErrorOverride = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public bool FreeStream(int handle) => Bass.BASS_StreamFree(handle);
+    public Errors GetAsioError() => asioErrorOverride ?? BassAsio.LastError;
 
     /// <inheritdoc />
-    public BASSError GetStreamError() => Bass.BASS_ErrorGetCode();
+    public bool FreeStream(int handle)
+    {
+        coreErrorOverride = null;
+        try
+        {
+            return Bass.StreamFree(handle);
+        }
+        catch (BassException exception)
+        {
+            coreErrorOverride = exception.ErrorCode;
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public Errors GetStreamError() => coreErrorOverride ?? Bass.LastError;
 }
 
 /// <summary>
@@ -1277,7 +1392,7 @@ internal static class BassAudioSessionCleanup
     private static DeviceSelectionResult TrySelect(
         Func<bool> select,
         string operation,
-        Func<BASSError> getError,
+        Func<Errors> getError,
         List<string> failures)
     {
         try
@@ -1287,14 +1402,14 @@ internal static class BassAudioSessionCleanup
                 return DeviceSelectionResult.Selected;
             }
 
-            BASSError error = getError();
-            if (error == BASSError.BASS_ERROR_INIT)
+            Errors error = getError();
+            if (error == Errors.Init)
             {
                 TryLogAlreadyReleased(operation);
                 return DeviceSelectionResult.AlreadyReleased;
             }
 
-            failures.Add(operation + " failed: " + error);
+            failures.Add(operation + " failed: " + BassNativeErrorFormatter.Format(error));
         }
         catch (Exception exception)
         {
@@ -1323,7 +1438,7 @@ internal static class BassAudioSessionCleanup
     private static bool TryReleaseCall(
         Func<bool> release,
         string operation,
-        Func<BASSError> getError,
+        Func<Errors> getError,
         List<string> failures)
     {
         try
@@ -1333,14 +1448,14 @@ internal static class BassAudioSessionCleanup
                 return true;
             }
 
-            BASSError error = getError();
-            if (error == BASSError.BASS_ERROR_INIT)
+            Errors error = getError();
+            if (error == Errors.Init)
             {
                 TryLogAlreadyReleased(operation);
                 return true;
             }
 
-            failures.Add(operation + " failed: " + error);
+            failures.Add(operation + " failed: " + BassNativeErrorFormatter.Format(error));
         }
         catch (Exception exception)
         {
@@ -1435,7 +1550,7 @@ internal sealed class AudioInitializationException : Exception
         BassAudioPlayer.DeviceDescriptor requestedDevice,
         BassAudioPlayer.DeviceDescriptor actualDevice,
         string nativeErrorSource,
-        BASSError? nativeErrorCode,
+        Errors? nativeErrorCode,
         string message,
         Exception innerException = null)
         : base(message, innerException)
@@ -1468,5 +1583,5 @@ internal sealed class AudioInitializationException : Exception
     internal string NativeErrorSource { get; }
 
     /// <summary>Gets the captured native error code.</summary>
-    internal BASSError? NativeErrorCode { get; }
+    internal Errors? NativeErrorCode { get; }
 }

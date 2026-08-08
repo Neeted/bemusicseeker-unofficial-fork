@@ -5,10 +5,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
+using ManagedBass;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 using Ribbit.Logging;
-using Un4seen.Bass;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -114,7 +114,7 @@ internal sealed class AudioDeviceTestResult
         AudioDeviceTestFailureKind failureKind = AudioDeviceTestFailureKind.None,
         BassAudioPlaybackStage? playbackStage = null,
         string nativeErrorSource = null,
-        BASSError? nativeErrorCode = null,
+        Errors? nativeErrorCode = null,
         string diagnosticReason = null,
         int? playbackSourceHandle = null,
         int? playbackExpectedMixerHandle = null,
@@ -192,7 +192,7 @@ internal sealed class AudioDeviceTestResult
     internal string NativeErrorSource { get; }
 
     /// <summary>Gets the native playback error code captured at the failure boundary.</summary>
-    internal BASSError? NativeErrorCode { get; }
+    internal Errors? NativeErrorCode { get; }
 
     /// <summary>Gets the source handle captured at the playback failure boundary.</summary>
     internal int? PlaybackSourceHandle { get; }
@@ -327,7 +327,7 @@ internal readonly struct AudioDeviceTestStreamObservation
         AudioDeviceTestFailureKind failureKind = AudioDeviceTestFailureKind.None,
         BassAudioPlaybackStage? playbackStage = null,
         string nativeErrorSource = null,
-        BASSError? nativeErrorCode = null,
+        Errors? nativeErrorCode = null,
         string diagnosticReason = null,
         int? playbackSourceHandle = null,
         int? playbackExpectedMixerHandle = null,
@@ -381,7 +381,7 @@ internal readonly struct AudioDeviceTestStreamObservation
     internal string NativeErrorSource { get; }
 
     /// <summary>Gets the native playback error code captured at the failure boundary.</summary>
-    internal BASSError? NativeErrorCode { get; }
+    internal Errors? NativeErrorCode { get; }
 
     /// <summary>Gets the source handle captured at the playback failure boundary.</summary>
     internal int? PlaybackSourceHandle { get; }
@@ -978,7 +978,8 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                  + " failureKind=" + result.FailureKind
                  + " playbackStage=" + result.PlaybackStage
                  + " nativeErrorSource=" + result.NativeErrorSource
-                 + " nativeErrorCode=" + result.NativeErrorCode
+                 + " nativeErrorCode="
+                 + BassNativeErrorFormatter.Format(result.NativeErrorCode)
                  + " playbackSourceHandle=" + result.PlaybackSourceHandle
                  + " playbackExpectedMixerHandle=" + result.PlaybackExpectedMixerHandle
                  + " playbackActualMixerHandle=" + result.PlaybackActualMixerHandle

@@ -5977,7 +5977,7 @@ public partial class SettingsDialogViewModel : ViewModel
                         BeMusicSeeker.Properties.Resources.AudioDeviceTestPlayerCreationFailureReasonFormat,
                         result.PlaybackStage?.ToString() ?? "-",
                         result.NativeErrorSource ?? "-",
-                        result.NativeErrorCode?.ToString() ?? "-")
+                        BassNativeErrorFormatter.Format(result.NativeErrorCode))
                     : BeMusicSeeker.Properties.Resources.AudioDeviceTestPlayerCreationFailureReason,
             AudioDeviceTestFailureKind.InvalidDuration
                 => BeMusicSeeker.Properties.Resources.AudioDeviceTestInvalidDurationReason,
@@ -5986,7 +5986,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackStartFailureReasonFormat,
                     result.PlaybackStage?.ToString() ?? "-",
                     result.NativeErrorSource ?? "-",
-                    result.NativeErrorCode?.ToString() ?? "-"),
+                    BassNativeErrorFormatter.Format(result.NativeErrorCode)),
             AudioDeviceTestFailureKind.PlaybackPositionMovedBackwards
                 => BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackPositionFailureReason,
             AudioDeviceTestFailureKind.PlaybackStoppedEarly
@@ -6007,7 +6007,7 @@ public partial class SettingsDialogViewModel : ViewModel
             BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackStartFailureReasonFormat,
             exception.Stage,
             exception.NativeErrorSource ?? "-",
-            exception.NativeErrorCode?.ToString() ?? "-");
+            BassNativeErrorFormatter.Format(exception.NativeErrorCode));
     }
 
     private static string FormatAudioInitializationFailure(AudioInitializationException exception)
@@ -6018,7 +6018,7 @@ public partial class SettingsDialogViewModel : ViewModel
             AudioDriverDisplayNames.Get(exception.ActualBackend),
             exception.Stage,
             exception.NativeErrorSource,
-            exception.NativeErrorCode?.ToString() ?? "-",
+            BassNativeErrorFormatter.Format(exception.NativeErrorCode),
             DescribeAudioDevice(exception.RequestedDevice.Driver, exception.RequestedDevice.Name),
             DescribeAudioDevice(exception.ActualDevice.Driver, exception.ActualDevice.Name));
     }

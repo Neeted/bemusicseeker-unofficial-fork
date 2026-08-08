@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -42,7 +42,7 @@ public sealed class BassAudioSessionTests
         var native = new RecordingNativeBoundary
         {
             FreeCoreResult = false,
-            CoreError = BASSError.BASS_ERROR_UNKNOWN
+            CoreError = Errors.Unknown
         };
         var primary = new InvalidOperationException("primary initialization failure");
 
@@ -114,7 +114,7 @@ public sealed class BassAudioSessionTests
         var native = new RecordingNativeBoundary
         {
             SetCoreDeviceResult = false,
-            CoreError = BASSError.BASS_ERROR_DEVICE
+            CoreError = Errors.Device
         };
 
         Assert.IsFalse(BassAudioSessionCleanup.Release(session, native));
@@ -138,7 +138,7 @@ public sealed class BassAudioSessionTests
         var native = new RecordingNativeBoundary
         {
             FreeCoreResult = false,
-            CoreError = BASSError.BASS_ERROR_INIT
+            CoreError = Errors.Init
         };
 
         Assert.IsTrue(BassAudioSessionCleanup.Release(session, native));
@@ -187,7 +187,7 @@ public sealed class BassAudioSessionTests
         var native = new RecordingNativeBoundary
         {
             SetCoreDeviceResult = false,
-            CoreError = BASSError.BASS_ERROR_INIT
+            CoreError = Errors.Init
         };
 
         Assert.IsTrue(BassAudioSessionCleanup.Release(session, native));
@@ -421,7 +421,7 @@ public sealed class BassAudioSessionTests
         var native = new RecordingNativeBoundary
         {
             FreeWasapiResult = false,
-            WasapiError = BASSError.BASS_ERROR_UNKNOWN
+            WasapiError = Errors.Unknown
         };
 
         Assert.IsFalse(BassAudioSessionCleanup.Release(session, native));
@@ -441,7 +441,7 @@ public sealed class BassAudioSessionTests
         var native = new RecordingNativeBoundary
         {
             FreeCoreResult = false,
-            CoreError = BASSError.BASS_ERROR_UNKNOWN
+            CoreError = Errors.Unknown
         };
 
         using (lifecycle.Enter())
@@ -911,7 +911,7 @@ public sealed class BassAudioSessionTests
         var native = new RecordingNativeBoundary
         {
             FreeStreamResult = false,
-            CoreError = BASSError.BASS_ERROR_UNKNOWN
+            CoreError = Errors.Unknown
         };
 
         Assert.IsFalse(BassAudioSessionCleanup.Release(session, native));
@@ -1008,9 +1008,9 @@ public sealed class BassAudioSessionTests
 
         internal bool FreeWasapiResult { get; set; } = true;
 
-        internal BASSError CoreError { get; set; } = BASSError.BASS_OK;
+        internal Errors CoreError { get; set; } = Errors.OK;
 
-        internal BASSError WasapiError { get; set; } = BASSError.BASS_OK;
+        internal Errors WasapiError { get; set; } = Errors.OK;
 
         public bool SetCoreDevice(int deviceIndex)
         {
@@ -1025,7 +1025,7 @@ public sealed class BassAudioSessionTests
             return FreeCoreResult;
         }
 
-        public BASSError GetCoreError() => CoreError;
+        public Errors GetCoreError() => CoreError;
 
         public bool SetWasapiDevice(int deviceIndex)
         {
@@ -1046,7 +1046,7 @@ public sealed class BassAudioSessionTests
             return FreeWasapiResult;
         }
 
-        public BASSError GetWasapiError() => WasapiError;
+        public Errors GetWasapiError() => WasapiError;
 
         public bool SetAsioDevice(int deviceIndex)
         {
@@ -1067,7 +1067,7 @@ public sealed class BassAudioSessionTests
             return true;
         }
 
-        public BASSError GetAsioError() => BASSError.BASS_OK;
+        public Errors GetAsioError() => Errors.OK;
 
         public bool FreeStream(int handle)
         {
@@ -1075,7 +1075,7 @@ public sealed class BassAudioSessionTests
             return FreeStreamResult;
         }
 
-        public BASSError GetStreamError() => BASSError.BASS_OK;
+        public Errors GetStreamError() => Errors.OK;
 
         internal int Count(string operation) => calls.Count(call => call == operation);
     }

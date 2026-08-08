@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
+using ManagedBass;
 using Ribbit.Logging;
-using Un4seen.Bass;
 
 namespace Ribbit.Media.Audio;
 
@@ -94,7 +94,8 @@ public static class BassAudioRuntime
         }
         catch (Exception exception)
         {
-            TryLogInitializationFailure(stage, wrapperRegistered, exception);
+            Errors? nativeError = CaptureInitializationNativeError(stage, wrapperRegistered);
+            TryLogInitializationFailure(stage, nativeError, exception);
             TryFreeAfterInitializationFailure(stage);
             _isInitialized = false;
             lifecycle.Complete(success: false);
@@ -129,29 +130,45 @@ public static class BassAudioRuntime
         })(Un4seen.Bass.BassNet.Registration, "\ud83d\udc0d⌛\ud83c\udfa4\ud83c\udfa4\ud83d\udcd9\ud83d\udca4\ud83d\udce8⛵\ud83d\udc1f\ud83d\udce8\ud83d\udc4a\ud83d\ude47\ud83c\udf04\ud83c\udfc2\ud83d\udc4a\ud83c\udf74\ud83d\udce8\ud83d\udc63\ud83d\udc11\ud83c\udf68\ud83d\udc4a⌛\ud83c\udfc2\ud83d\udc0d\ud83c\udf74\ud83d\udcd9\ud83c\udf68", "\ud83c\udfb0\ud83d\udc5d\ud83d\uddfe\ud83c\udf62\ud83c\udfb0\ud83c\udf62\ud83c\udfee\ud83d\uddfe\ud83c\udfb0\ud83c\udf62\ud83d\ude93\ud83c\udf70\ud83c\udfb0\ud83d\udc70\ud83d\ude0f\ud83c\udfb0");
     }
 
+    private static Errors? CaptureInitializationNativeError(
+        InitializationStage stage,
+        bool wrapperRegistered)
+    {
+        if (!wrapperRegistered
+            || (stage != InitializationStage.VersionValidation
+                && stage != InitializationStage.Completed))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Bass.LastError;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static void TryLogInitializationFailure(
         InitializationStage stage,
-        bool wrapperRegistered,
+        Errors? nativeError,
         Exception exception)
     {
         try
         {
-            string nativeErrorSource = "none";
-            string nativeError = "none";
-            if (wrapperRegistered
-                && (stage == InitializationStage.VersionValidation
-                    || stage == InitializationStage.Completed))
-            {
-                nativeErrorSource = "BASS";
-                nativeError = Bass.BASS_ErrorGetCode().ToString();
-            }
+            string nativeErrorSource = nativeError.HasValue ? "BASS" : "none";
+            string nativeErrorDescription = nativeError.HasValue
+                ? BassNativeErrorFormatter.Format(nativeError.Value)
+                : "none";
 
             NLogWrapper.GetLogger(nameof(BassAudioRuntime)).Error(
                 "BASS native bootstrap failed. stage=" + stage
                 + " component=" + GetStageComponent(stage)
                 + " exceptionType=" + exception.GetType().FullName
                 + " nativeErrorSource=" + nativeErrorSource
-                + " nativeErrorCode=" + nativeError
+                + " nativeErrorCode=" + nativeErrorDescription
                 + " nativeRuntimeLoaded=" + BassNativeRuntime.IsLoaded);
         }
         catch
@@ -249,18 +266,54 @@ public static class BassAudioRuntime
     internal static void FreeDevice()
     {
         using BassAudioOperationLease operation = EnterAudioOperation();
-        if (Bass.BASS_Free())
+        FreeCoreDevice(Bass.Free, () => Bass.LastError, TryLogAlreadyFreedCore);
+    }
+
+    /// <summary>
+    /// Executes one core-device release and captures its error before any diagnostic or cleanup
+    /// operation can overwrite it. This narrow seam keeps the runtime lifecycle deterministic
+    /// under tests while production callers pass the ManagedBass boundary directly.
+    /// </summary>
+    internal static void FreeCoreDevice(
+        Func<bool> freeCore,
+        Func<Errors> getLastError,
+        Action logAlreadyFreed)
+    {
+        ArgumentNullException.ThrowIfNull(freeCore);
+        ArgumentNullException.ThrowIfNull(getLastError);
+        ArgumentNullException.ThrowIfNull(logAlreadyFreed);
+
+        bool freed;
+        try
+        {
+            freed = freeCore();
+        }
+        catch
+        {
+            try
+            {
+                _ = getLastError();
+            }
+            catch
+            {
+                // Preserve the release exception when error retrieval is unavailable.
+            }
+
+            throw;
+        }
+
+        if (freed)
         {
             return;
         }
 
-        BASSError error = Bass.BASS_ErrorGetCode();
-        if (error != BASSError.BASS_ERROR_INIT)
+        Errors error = getLastError();
+        if (error != Errors.Init)
         {
-            throw new Exception("BASS_Free failed: " + error);
+            throw new Exception("BASS_Free failed: " + BassNativeErrorFormatter.Format(error));
         }
 
-        TryLogAlreadyFreedCore();
+        logAlreadyFreed();
     }
 
     /// <summary>
@@ -285,13 +338,9 @@ public static class BassAudioRuntime
                     "BASS native runtime shutdown was deferred because audio cleanup was not confirmed.");
             }
 
-            if (_isInitialized && !Bass.BASS_Free())
+            if (_isInitialized)
             {
-                BASSError error = Bass.BASS_ErrorGetCode();
-                if (error != BASSError.BASS_ERROR_INIT)
-                {
-                    throw new Exception("BASS_Free failed: " + error);
-                }
+                FreeCoreDevice(Bass.Free, () => Bass.LastError, TryLogAlreadyFreedCore);
             }
 
             BassNativeRuntime.Free();

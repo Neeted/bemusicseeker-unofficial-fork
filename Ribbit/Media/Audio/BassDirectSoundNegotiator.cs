@@ -1,12 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ManagedBass;
+using ManagedBass.Mix;
 using Ribbit.Media;
-using Un4seen.Bass;
-using Un4seen.Bass.AddOn.Fx;
-using Un4seen.Bass.AddOn.Mix;
 
 namespace Ribbit.Media.Audio;
+
+/// <summary>Copies the DirectSound device identity returned after initialization.</summary>
+internal readonly record struct BassDirectSoundDeviceSnapshot(string Name, string Driver);
+
+/// <summary>Copies the initialized DirectSound sample rate.</summary>
+internal readonly record struct BassDirectSoundInfoSnapshot(int SampleRate);
 
 /// <summary>Retains one DirectSound descriptor with its original BASS native index.</summary>
 internal sealed class BassDirectSoundDevice
@@ -42,32 +47,35 @@ internal sealed class BassDirectSoundDevice
 /// </summary>
 internal interface IDirectSoundNegotiationNativeBoundary
 {
-    /// <summary>Gets DirectSound catalog entries with their original native indices.</summary>
-    IReadOnlyList<BassDirectSoundDevice> GetDevices();
+    /// <summary>Gets DirectSound catalog entries and captures the native failure on false.</summary>
+    bool TryGetDevices(out IReadOnlyList<BassDirectSoundDevice> devices, out Errors error);
 
     /// <summary>Initializes the selected BASS output device with explicit core flags.</summary>
-    bool InitializeCore(int deviceIndex, int rate, BASSInit flags);
+    bool InitializeCore(int deviceIndex, int rate, DeviceInitFlags flags);
 
     /// <summary>Gets the BASS device selected by initialization.</summary>
     int GetCoreDevice();
 
-    /// <summary>Gets one device descriptor after initialization readback.</summary>
-    BASS_DEVICEINFO GetDeviceInfo(int deviceIndex);
+    /// <summary>Gets one device descriptor and captures the native failure on false.</summary>
+    bool TryGetDeviceInfo(
+        int deviceIndex,
+        out BassDirectSoundDeviceSnapshot deviceInfo,
+        out Errors error);
 
-    /// <summary>Gets the initialized output capabilities and actual rate.</summary>
-    BASS_INFO GetInfo();
+    /// <summary>Gets the initialized output rate and captures the native failure on false.</summary>
+    bool TryGetInfo(out BassDirectSoundInfoSnapshot info, out Errors error);
 
     /// <summary>Sets one integer BASS configuration value.</summary>
-    bool SetConfig(BASSConfig option, int value);
+    bool SetConfig(Configuration option, int value);
 
     /// <summary>Gets one integer BASS configuration value.</summary>
-    int GetConfig(BASSConfig option);
+    int GetConfig(Configuration option);
 
     /// <summary>Creates the Float32 decode mixer.</summary>
-    int CreateMixer(int rate, int channels, BASSFlag flags);
+    int CreateMixer(int rate, int channels, BassFlags flags);
 
     /// <summary>Creates the Float32 callback output stream.</summary>
-    int CreateOutputStream(int rate, int channels, BASSFlag flags, STREAMPROC callback);
+    int CreateOutputStream(int rate, int channels, BassFlags flags, StreamProcedure callback);
 
     /// <summary>Starts the callback output stream.</summary>
     bool Play(int streamHandle);
@@ -79,7 +87,7 @@ internal interface IDirectSoundNegotiationNativeBoundary
     bool SetVolumeEffect(int effectHandle, float volume);
 
     /// <summary>Gets the BASS error immediately after a failed native call.</summary>
-    BASSError GetCoreError();
+    Errors GetCoreError();
 }
 
 /// <summary>Negotiates DirectSound device selection without losing native catalog indices.</summary>
@@ -97,7 +105,7 @@ internal sealed class BassDirectSoundNegotiator
     internal BassAudioBackendResult Initialize(
         BassAudioNegotiationRequest request,
         BassAudioSession session,
-        STREAMPROC callback,
+        StreamProcedure callback,
         float initialGain)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -112,7 +120,20 @@ internal sealed class BassDirectSoundNegotiator
 
         var attempts = new List<BassAudioBackendAttempt>();
         var fallbackReasons = new List<string>();
-        BassDirectSoundDevice[] devices = GetSelectableDevices(native.GetDevices()).ToArray();
+        if (!native.TryGetDevices(
+                out IReadOnlyList<BassDirectSoundDevice> availableDevices,
+                out Errors devicesError))
+        {
+            throw Failure(
+                request,
+                session,
+                "BASS_GetDeviceInfos",
+                devicesError,
+                "BASS_GetDeviceInfos failed: "
+                + BassNativeErrorFormatter.Format(devicesError));
+        }
+
+        BassDirectSoundDevice[] devices = GetSelectableDevices(availableDevices).ToArray();
         if (devices.Length == 0)
         {
             throw Failure(
@@ -129,52 +150,75 @@ internal sealed class BassDirectSoundNegotiator
         session.CoreDeviceIndex = initializationIndex;
         AddFallbackReason(fallbackReasons, deviceFallback);
 
-        if (!native.InitializeCore(initializationIndex, 44100, BASSInit.BASS_DEVICE_DEFAULT))
+        if (!native.InitializeCore(initializationIndex, 44100, DeviceInitFlags.Default))
         {
-            BASSError error = native.GetCoreError();
-            throw Failure(request, session, "BASS_Init", error, "BASS_Init failed: " + error);
+            Errors error = native.GetCoreError();
+            throw Failure(
+                request,
+                session,
+                "BASS_Init",
+                error,
+                "BASS_Init failed: " + BassNativeErrorFormatter.Format(error));
         }
 
         // BASS_Init succeeded, so cleanup owns the selected core before any readback can fail.
         session.CoreInitialized = true;
         session.CoreDeviceIndex = native.GetCoreDevice();
-        BASS_DEVICEINFO actualInfo = native.GetDeviceInfo(session.CoreDeviceIndex);
-        if (actualInfo == null)
+        if (!native.TryGetDeviceInfo(
+                session.CoreDeviceIndex,
+                out BassDirectSoundDeviceSnapshot actualInfo,
+                out Errors deviceInfoError))
         {
-            BASSError error = native.GetCoreError();
             throw Failure(
                 request,
                 session,
                 "BASS_GetDeviceInfo",
-                error,
-                "BASS_GetDeviceInfo failed: " + error);
+                deviceInfoError,
+                "BASS_GetDeviceInfo failed: "
+                + BassNativeErrorFormatter.Format(deviceInfoError));
         }
-        var actualDevice = new BassAudioPlayer.DeviceDescriptor(actualInfo.name, actualInfo.driver);
+        var actualDevice = new BassAudioPlayer.DeviceDescriptor(actualInfo.Name, actualInfo.Driver);
         session.ActualDevice = actualDevice;
 
-        BASS_INFO info = native.GetInfo();
-        if (info == null || info.freq <= 0)
+        if (!native.TryGetInfo(
+                out BassDirectSoundInfoSnapshot info,
+                out Errors infoError))
         {
-            BASSError error = native.GetCoreError();
-            throw Failure(request, session, "BASS_GetInfo", error, "BASS_GetInfo failed: " + error);
+            throw Failure(
+                request,
+                session,
+                "BASS_GetInfo",
+                infoError,
+                "BASS_GetInfo failed: "
+                + BassNativeErrorFormatter.Format(infoError));
+        }
+        if (info.SampleRate <= 0)
+        {
+            Errors error = native.GetCoreError();
+            throw Failure(
+                request,
+                session,
+                "BASS_GetInfo",
+                error,
+                "BASS_GetInfo failed: " + BassNativeErrorFormatter.Format(error));
         }
 
         int configuredLatency = request.LatencyMilliseconds <= 0f
             ? 100
             : (int)System.Math.Ceiling(request.LatencyMilliseconds + 50f);
-        native.SetConfig(BASSConfig.BASS_CONFIG_UPDATEPERIOD, 5);
-        int updatePeriod = native.GetConfig(BASSConfig.BASS_CONFIG_UPDATEPERIOD);
+        native.SetConfig(Configuration.UpdatePeriod, 5);
+        int updatePeriod = native.GetConfig(Configuration.UpdatePeriod);
         native.SetConfig(
-            BASSConfig.BASS_CONFIG_BUFFER,
+            Configuration.PlaybackBufferLength,
             System.Math.Max(updatePeriod + 1, configuredLatency));
-        int actualLatency = native.GetConfig(BASSConfig.BASS_CONFIG_BUFFER);
+        int actualLatency = native.GetConfig(Configuration.PlaybackBufferLength);
 
-        if (request.Rate != SampleRate.AUTO && (int)request.Rate != info.freq)
+        if (request.Rate != SampleRate.AUTO && (int)request.Rate != info.SampleRate)
         {
             AddFallbackReason(
                 fallbackReasons,
                 "Requested DirectSound rate " + (int)request.Rate
-                + " was normalized to device rate " + info.freq + ".");
+                + " was normalized to device rate " + info.SampleRate + ".");
         }
         if (request.Format is not SampleFormat.AUTO and not SampleFormat.SAMPLE_FLOAT_32BIT)
         {
@@ -184,77 +228,79 @@ internal sealed class BassDirectSoundNegotiator
                 + " was normalized to Float32.");
         }
 
-        BASSFlag mixerFlags = BASSFlag.BASS_SAMPLE_FLOAT
-            | BASSFlag.BASS_STREAM_PRESCAN
-            | BASSFlag.BASS_STREAM_DECODE;
-        int mixerHandle = native.CreateMixer(info.freq, 2, mixerFlags);
+        BassFlags mixerFlags = BassFlags.Float
+            | BassFlags.Prescan
+            | BassFlags.Decode;
+        int mixerHandle = native.CreateMixer(info.SampleRate, 2, mixerFlags);
         if (mixerHandle == 0)
         {
-            BASSError error = native.GetCoreError();
+            Errors error = native.GetCoreError();
             throw Failure(
                 request,
                 session,
                 "BASS_Mixer_StreamCreate",
                 error,
-                "BASS_Mixer_StreamCreate failed: " + error);
+                "BASS_Mixer_StreamCreate failed: " + BassNativeErrorFormatter.Format(error));
         }
         session.MixerHandle = mixerHandle;
 
         session.VolumeEffectHandle = native.CreateVolumeEffect(mixerHandle);
         if (session.VolumeEffectHandle == 0)
         {
-            BASSError error = native.GetCoreError();
+            Errors error = native.GetCoreError();
             throw Failure(
                 request,
                 session,
                 "BASS_ChannelSetFX(BASS_FX_BFX_VOLUME)",
                 error,
-                "BASS_ChannelSetFX for DirectSound mixer volume failed: " + error);
+                "BASS_ChannelSetFX for DirectSound mixer volume failed: "
+                + BassNativeErrorFormatter.Format(error));
         }
         if (!native.SetVolumeEffect(session.VolumeEffectHandle, initialGain))
         {
-            BASSError error = native.GetCoreError();
+            Errors error = native.GetCoreError();
             throw Failure(
                 request,
                 session,
                 "BASS_FXSetParameters(BASS_FX_BFX_VOLUME)",
                 error,
-                "BASS_FXSetParameters for DirectSound mixer volume failed: " + error);
+                "BASS_FXSetParameters for DirectSound mixer volume failed: "
+                + BassNativeErrorFormatter.Format(error));
         }
 
         int outputHandle = native.CreateOutputStream(
-            info.freq,
+            info.SampleRate,
             2,
-            BASSFlag.BASS_SAMPLE_FLOAT,
+            BassFlags.Float,
             callback);
         if (outputHandle == 0)
         {
-            BASSError error = native.GetCoreError();
+            Errors error = native.GetCoreError();
             throw Failure(
                 request,
                 session,
                 "BASS_StreamCreate",
                 error,
-                "BASS_StreamCreate failed: " + error);
+                "BASS_StreamCreate failed: " + BassNativeErrorFormatter.Format(error));
         }
         session.OutputHandle = outputHandle;
 
         if (!native.Play(outputHandle))
         {
-            BASSError error = native.GetCoreError();
+            Errors error = native.GetCoreError();
             throw Failure(
                 request,
                 session,
                 "BASS_ChannelPlay",
                 error,
-                "BASS_ChannelPlay failed: " + error);
+                "BASS_ChannelPlay failed: " + BassNativeErrorFormatter.Format(error));
         }
         session.IsStarted = true;
 
         var result = new BassAudioBackendResult(
             request,
             actualDevice,
-            (SampleRate)info.freq,
+            (SampleRate)info.SampleRate,
             SampleFormat.SAMPLE_FLOAT_32BIT,
             SampleFormat.UNKNOWN,
             actualLatency,
@@ -272,19 +318,19 @@ internal sealed class BassDirectSoundNegotiator
     internal bool TrySetMixerGain(
         BassAudioSession session,
         float volume,
-        out BASSError error)
+        out Errors error)
     {
         ArgumentNullException.ThrowIfNull(session);
         if (session.ActualBackend != BassAudioPlayer.DeviceDriver.DIRECT_SOUND
             || session.MixerHandle == 0
             || session.VolumeEffectHandle == 0)
         {
-            error = BASSError.BASS_ERROR_HANDLE;
+            error = Errors.Handle;
             return false;
         }
         if (native.SetVolumeEffect(session.VolumeEffectHandle, volume))
         {
-            error = BASSError.BASS_OK;
+            error = Errors.OK;
             return true;
         }
 
@@ -355,7 +401,7 @@ internal sealed class BassDirectSoundNegotiator
         BassAudioNegotiationRequest request,
         BassAudioSession session,
         string stage,
-        BASSError? error,
+        Errors? error,
         string message) =>
         new(
             request.Backend,
@@ -368,58 +414,139 @@ internal sealed class BassDirectSoundNegotiator
             message);
 }
 
-/// <summary>Forwards DirectSound negotiation calls to the currently bundled Bass.Net API.</summary>
+/// <summary>Forwards DirectSound negotiation calls to ManagedBass.</summary>
 internal sealed class BassDirectSoundNegotiationNativeBoundary
     : IDirectSoundNegotiationNativeBoundary
 {
     /// <inheritdoc />
-    public IReadOnlyList<BassDirectSoundDevice> GetDevices() =>
-        Bass.BASS_GetDeviceInfos()
-            .Select((info, index) => new BassDirectSoundDevice(
+    public bool TryGetDevices(
+        out IReadOnlyList<BassDirectSoundDevice> devices,
+        out Errors error)
+    {
+        if (!BassAudioDeviceEnumeration.TryEnumerate(
+                TryReadDeviceInfo,
+                out DeviceInfo[] nativeDevices,
+                out error))
+        {
+            devices = [];
+            return false;
+        }
+
+        var result = new List<BassDirectSoundDevice>(nativeDevices.Length);
+        for (int index = 0; index < nativeDevices.Length; index++)
+        {
+            DeviceInfo info = nativeDevices[index];
+            result.Add(new BassDirectSoundDevice(
                 index,
-                new BassAudioPlayer.DeviceDescriptor(info.name, info.driver),
+                new BassAudioPlayer.DeviceDescriptor(info.Name, info.Driver),
                 info.IsEnabled,
-                info.IsDefault))
-            .ToArray();
+                info.IsDefault));
+        }
+
+        devices = result.AsReadOnly();
+        return true;
+    }
+
+    private static bool TryReadDeviceInfo(
+        int index,
+        out DeviceInfo deviceInfo,
+        out Errors error)
+    {
+        if (Bass.GetDeviceInfo(index, out deviceInfo))
+        {
+            error = Errors.OK;
+            return true;
+        }
+
+        error = Bass.LastError;
+        return false;
+    }
 
     /// <inheritdoc />
-    public bool InitializeCore(int deviceIndex, int rate, BASSInit flags) =>
-        Bass.BASS_Init(deviceIndex, rate, flags, IntPtr.Zero);
+    public bool InitializeCore(int deviceIndex, int rate, DeviceInitFlags flags) =>
+        Bass.Init(deviceIndex, rate, flags, IntPtr.Zero, IntPtr.Zero);
 
     /// <inheritdoc />
-    public int GetCoreDevice() => Bass.BASS_GetDevice();
+    public int GetCoreDevice() => Bass.CurrentDevice;
 
     /// <inheritdoc />
-    public BASS_DEVICEINFO GetDeviceInfo(int deviceIndex) => Bass.BASS_GetDeviceInfo(deviceIndex);
+    public bool TryGetDeviceInfo(
+        int deviceIndex,
+        out BassDirectSoundDeviceSnapshot deviceInfo,
+        out Errors error)
+    {
+        deviceInfo = default;
+        error = Errors.Unknown;
+        try
+        {
+            if (!Bass.GetDeviceInfo(deviceIndex, out DeviceInfo info))
+            {
+                error = Bass.LastError;
+                return false;
+            }
+
+            deviceInfo = new BassDirectSoundDeviceSnapshot(info.Name, info.Driver);
+            error = Errors.OK;
+            return true;
+        }
+        catch (BassException exception)
+        {
+            error = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public BASS_INFO GetInfo() => Bass.BASS_GetInfo();
+    public bool TryGetInfo(
+        out BassDirectSoundInfoSnapshot infoSnapshot,
+        out Errors error)
+    {
+        infoSnapshot = default;
+        error = Errors.Unknown;
+        try
+        {
+            if (!Bass.GetInfo(out BassInfo info))
+            {
+                error = Bass.LastError;
+                return false;
+            }
+
+            infoSnapshot = new BassDirectSoundInfoSnapshot(info.SampleRate);
+            error = Errors.OK;
+            return true;
+        }
+        catch (BassException exception)
+        {
+            error = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public bool SetConfig(BASSConfig option, int value) => Bass.BASS_SetConfig(option, value);
+    public bool SetConfig(Configuration option, int value) => Bass.Configure(option, value);
 
     /// <inheritdoc />
-    public int GetConfig(BASSConfig option) => Bass.BASS_GetConfig(option);
+    public int GetConfig(Configuration option) => Bass.GetConfig(option);
 
     /// <inheritdoc />
-    public int CreateMixer(int rate, int channels, BASSFlag flags) =>
-        BassMix.BASS_Mixer_StreamCreate(rate, channels, flags);
+    public int CreateMixer(int rate, int channels, BassFlags flags) =>
+        BassMix.CreateMixerStream(rate, channels, flags);
 
     /// <inheritdoc />
-    public int CreateOutputStream(int rate, int channels, BASSFlag flags, STREAMPROC callback) =>
-        Bass.BASS_StreamCreate(rate, channels, flags, callback, IntPtr.Zero);
+    public int CreateOutputStream(int rate, int channels, BassFlags flags, StreamProcedure callback) =>
+        Bass.CreateStream(rate, channels, flags, callback, IntPtr.Zero);
 
     /// <inheritdoc />
-    public bool Play(int streamHandle) => Bass.BASS_ChannelPlay(streamHandle, restart: false);
+    public bool Play(int streamHandle) => Bass.ChannelPlay(streamHandle, false);
 
     /// <inheritdoc />
     public int CreateVolumeEffect(int mixerHandle) =>
-        Bass.BASS_ChannelSetFX(mixerHandle, BASSFXType.BASS_FX_BFX_VOLUME, 1);
+        Bass.ChannelSetFX(mixerHandle, EffectType.VolumeBfx, 1);
 
     /// <inheritdoc />
     public bool SetVolumeEffect(int effectHandle, float volume) =>
-        Bass.BASS_FXSetParameters(effectHandle, new BASS_BFX_VOLUME(volume));
+        ManagedBassVolumeEffect.SetParameters(effectHandle, volume);
 
     /// <inheritdoc />
-    public BASSError GetCoreError() => Bass.BASS_ErrorGetCode();
+    public Errors GetCoreError() => Bass.LastError;
 }

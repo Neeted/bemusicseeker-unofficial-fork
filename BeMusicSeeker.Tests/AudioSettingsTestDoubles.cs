@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
+using ManagedBass;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -116,7 +116,7 @@ internal static class AudioDeviceTestResultFactory
         AudioDeviceTestFailureKind failureKind = AudioDeviceTestFailureKind.None,
         BassAudioPlaybackStage? playbackStage = null,
         string? nativeErrorSource = null,
-        BASSError? nativeErrorCode = null)
+        Errors? nativeErrorCode = null)
     {
         var initialization = new AudioPlaybackInitializationResult(
             request.PlayerDriver,

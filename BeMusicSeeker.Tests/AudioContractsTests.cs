@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models;
+using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -147,6 +147,15 @@ public sealed class AudioContractsTests
     }
 
     [TestMethod]
+    public void NativeErrorFormatter_PreservesLegacyBassSpellings()
+    {
+        Assert.AreEqual("BASS_ERROR_MEM", BassNativeErrorFormatter.Format(Errors.Memory));
+        Assert.AreEqual("BASS_ERROR_NOPAUSE", BassNativeErrorFormatter.Format(Errors.NotPaused));
+        Assert.AreEqual("BASS_ERROR_ILLTYPE", BassNativeErrorFormatter.Format(Errors.Type));
+        Assert.AreEqual("BASS_ERROR_NOPLAY", BassNativeErrorFormatter.Format(Errors.NotPlaying));
+    }
+
+    [TestMethod]
     public void InternalPlayer_DelegatesVolumeAndCloseLifecycleToPlaybackRuntime()
     {
         BeMusicSeeker.Properties.Settings settings = BeMusicSeeker.Properties.Settings.Default;
@@ -276,7 +285,7 @@ public sealed class AudioContractsTests
         var failedAttempt = new BassAudioBackendAttempt(
             "BASS_WASAPI_Init",
             "BASSWASAPI",
-            BASSError.BASS_ERROR_BUSY,
+            Errors.Busy,
             "exclusive failed");
 
         BassAudioBackendResult fallback = result.WithEarlierAttempts(

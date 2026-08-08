@@ -20,9 +20,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
+using ManagedBass;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -1150,7 +1150,7 @@ public sealed class SettingDialogEditCompletionTests
                     new BassAudioPlayer.DeviceDescriptor("Requested device", "requested-device"),
                     default,
                     "BASSASIO",
-                    BASSError.BASS_ERROR_DEVICE,
+                    Errors.Device,
                     "ASIO initialization failed")));
             SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
@@ -1201,7 +1201,7 @@ public sealed class SettingDialogEditCompletionTests
                         failureKind: AudioDeviceTestFailureKind.PlaybackStartFailed,
                         playbackStage: BassAudioPlaybackStage.MixerAttach,
                         nativeErrorSource: "BASS_Mixer_StreamAddChannel",
-                        nativeErrorCode: BASSError.BASS_ERROR_HANDLE)));
+                        nativeErrorCode: Errors.Handle)));
             SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1250,7 +1250,7 @@ public sealed class SettingDialogEditCompletionTests
                         failureKind: AudioDeviceTestFailureKind.PlayerCreationFailed,
                         playbackStage: BassAudioPlaybackStage.SourceCreate,
                         nativeErrorSource: "BASS_StreamCreateFile",
-                        nativeErrorCode: BASSError.BASS_ERROR_FILEOPEN)));
+                        nativeErrorCode: Errors.FileOpen)));
             SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,

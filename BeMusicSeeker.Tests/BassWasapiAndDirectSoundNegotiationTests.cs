@@ -1,18 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ManagedBass;
+using ManagedBass.Wasapi;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
-using Un4seen.BassWasapi;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
 public sealed class BassWasapiAndDirectSoundNegotiationTests
 {
-    private static readonly WASAPIPROC WasapiCallback = (buffer, length, user) => length;
+    private static readonly WasapiProcedure WasapiCallback = (buffer, length, user) => length;
 
     [TestMethod]
     public void WasapiCandidates_UseNativeDefaultsForSharedAndRetainExclusiveDegradation()
@@ -51,9 +51,9 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
     {
         var native = new RecordingWasapiBoundary();
         native.InitializationResults.Enqueue(false);
-        native.InitializationErrors.Enqueue(BASSError.BASS_ERROR_BUSY);
+        native.InitializationErrors.Enqueue(Errors.Busy);
         native.InitializationResults.Enqueue(false);
-        native.InitializationErrors.Enqueue(BASSError.BASS_ERROR_FORMAT);
+        native.InitializationErrors.Enqueue(Errors.SampleFormat);
         native.InitializationResults.Enqueue(true);
         var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE);
 
@@ -68,10 +68,10 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         Assert.IsTrue(native.InitializationCalls.All(call =>
             call.Kind == WasapiInitializationKind.ExclusiveFormatted));
         Assert.IsTrue(native.InitializationCalls.All(call =>
-            call.Flags.HasFlag(BASSWASAPIInit.BASS_WASAPI_EXCLUSIVE)
-            && call.Flags.HasFlag(BASSWASAPIInit.BASS_WASAPI_AUTOFORMAT)));
-        Assert.IsTrue(native.InitializationCalls[0].Flags.HasFlag(BASSWASAPIInit.BASS_WASAPI_EVENT));
-        Assert.IsFalse(native.InitializationCalls[1].Flags.HasFlag(BASSWASAPIInit.BASS_WASAPI_EVENT));
+            call.Flags.HasFlag(WasapiInitFlags.Exclusive)
+            && call.Flags.HasFlag(WasapiInitFlags.AutoFormat)));
+        Assert.IsTrue(native.InitializationCalls[0].Flags.HasFlag(WasapiInitFlags.EventDriven));
+        Assert.IsFalse(native.InitializationCalls[1].Flags.HasFlag(WasapiInitFlags.EventDriven));
         Assert.AreEqual(0f, native.InitializationCalls[2].BufferSeconds);
         Assert.AreEqual(0f, native.InitializationCalls[2].PeriodSeconds);
         Assert.AreEqual(3, result.Attempts.Count(attempt => attempt.Stage == "BASS_WASAPI_Init"));
@@ -90,16 +90,10 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             DeviceInfo = CreateWasapiDevice(
                 "Shared Device",
                 "shared-id",
-                BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT,
+                isDefault: true,
                 mixRate: 48000,
                 mixChannels: 6),
-            WasapiInfo = new BASS_WASAPI_INFO
-            {
-                freq = 96000,
-                chans = 4,
-                format = BASSWASAPIFormat.BASS_WASAPI_FORMAT_FLOAT,
-                buflen = 7680
-            }
+            WasapiInfo = new BassWasapiInfoSnapshot(96000, 4, WasapiFormat.Float, 7680)
         };
         native.InitializationResults.Enqueue(true);
 
@@ -121,7 +115,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         Assert.AreEqual(0f, call.PeriodSeconds);
         Assert.AreEqual(96000, native.MixerRate);
         Assert.AreEqual(4, native.MixerChannels);
-        Assert.IsTrue(native.MixerFlags.HasFlag(BASSFlag.BASS_SAMPLE_FLOAT));
+        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
         Assert.AreEqual(SampleRate.SAMPLE_RATE_96000Hz, result.ActualRate);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EndpointFormat);
@@ -165,7 +159,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         var native = new RecordingWasapiBoundary
         {
             SetVolumeEffectResult = false,
-            CoreError = BASSError.BASS_ERROR_HANDLE
+            CoreError = Errors.Handle
         };
         var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         native.InitializationResults.Enqueue(true);
@@ -180,7 +174,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
 
         Assert.AreEqual("BASS_FXSetParameters(BASS_FX_BFX_VOLUME)", exception.Stage);
         Assert.AreEqual("BASS", exception.NativeErrorSource);
-        Assert.AreEqual(BASSError.BASS_ERROR_HANDLE, exception.NativeErrorCode);
+        Assert.AreEqual(Errors.Handle, exception.NativeErrorCode);
         CollectionAssert.AreEqual(
             new[] { "CreateMixer", "CreateVolumeEffect", "SetVolumeEffect" },
             native.GraphCalls);
@@ -198,7 +192,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         var native = new RecordingWasapiBoundary
         {
             CreateVolumeEffectResult = 0,
-            CoreError = BASSError.BASS_ERROR_HANDLE
+            CoreError = Errors.Handle
         };
         var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         native.InitializationResults.Enqueue(true);
@@ -212,7 +206,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
                 eventModeRequested: false));
 
         Assert.AreEqual("BASS_ChannelSetFX(BASS_FX_BFX_VOLUME)", exception.Stage);
-        Assert.AreEqual(BASSError.BASS_ERROR_HANDLE, exception.NativeErrorCode);
+        Assert.AreEqual(Errors.Handle, exception.NativeErrorCode);
         CollectionAssert.AreEqual(
             new[] { "CreateMixer", "CreateVolumeEffect" },
             native.GraphCalls);
@@ -251,7 +245,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         var native = new RecordingWasapiBoundary
         {
             SetVolumeEffectResult = false,
-            CoreError = BASSError.BASS_ERROR_HANDLE
+            CoreError = Errors.Handle
         };
         var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         session.MixerHandle = 123;
@@ -299,9 +293,9 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
     {
         var native = new RecordingWasapiBoundary();
         native.InitializationResults.Enqueue(false);
-        native.InitializationErrors.Enqueue(BASSError.BASS_ERROR_BUSY);
+        native.InitializationErrors.Enqueue(Errors.Busy);
         native.InitializationResults.Enqueue(false);
-        native.InitializationErrors.Enqueue(BASSError.BASS_ERROR_NOTAVAIL);
+        native.InitializationErrors.Enqueue(Errors.NotAvailable);
         var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
@@ -315,7 +309,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         Assert.IsTrue(session.CoreInitialized);
         Assert.IsFalse(session.WasapiInitialized);
         Assert.AreEqual("BASSWASAPI", exception.NativeErrorSource);
-        Assert.AreEqual(BASSError.BASS_ERROR_NOTAVAIL, exception.NativeErrorCode);
+        Assert.AreEqual(Errors.NotAvailable, exception.NativeErrorCode);
         Assert.AreEqual("BASS_WASAPI_Init", exception.Stage);
     }
 
@@ -340,11 +334,37 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
     }
 
     [TestMethod]
+    public void WasapiInfoFailure_ReportsBoundaryErrorAfterClaimingOwnership()
+    {
+        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        var native = new RecordingWasapiBoundary
+        {
+            GetWasapiInfoResult = false,
+            WasapiInfoError = Errors.Init
+        };
+        native.InitializationResults.Enqueue(true);
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassWasapiNegotiator(native).Initialize(
+                CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+                session,
+                WasapiCallback,
+                initialGain: 0.4f,
+                eventModeRequested: false));
+
+        Assert.IsTrue(session.CoreInitialized);
+        Assert.IsTrue(session.WasapiInitialized);
+        Assert.AreEqual("BASS_WASAPI_GetInfo", exception.Stage);
+        Assert.AreEqual("BASSWASAPI", exception.NativeErrorSource);
+        Assert.AreEqual(Errors.Init, exception.NativeErrorCode);
+    }
+
+    [TestMethod]
     public void WasapiShared_EventFailureFallsBackToNonEventNativeDefaults()
     {
         var native = new RecordingWasapiBoundary();
         native.InitializationResults.Enqueue(false);
-        native.InitializationErrors.Enqueue(BASSError.BASS_ERROR_BUSY);
+        native.InitializationErrors.Enqueue(Errors.Busy);
         native.InitializationResults.Enqueue(true);
         var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
 
@@ -358,11 +378,11 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         Assert.AreEqual(2, native.InitializationCalls.Count);
         Assert.IsTrue(native.InitializationCalls.All(call =>
             call.Kind == WasapiInitializationKind.SharedNoFormat));
-        Assert.IsTrue(native.InitializationCalls[0].Flags.HasFlag(BASSWASAPIInit.BASS_WASAPI_EVENT));
-        Assert.IsFalse(native.InitializationCalls[1].Flags.HasFlag(BASSWASAPIInit.BASS_WASAPI_EVENT));
+        Assert.IsTrue(native.InitializationCalls[0].Flags.HasFlag(WasapiInitFlags.EventDriven));
+        Assert.IsFalse(native.InitializationCalls[1].Flags.HasFlag(WasapiInitFlags.EventDriven));
         Assert.IsTrue(native.InitializationCalls.All(call =>
-            !call.Flags.HasFlag(BASSWASAPIInit.BASS_WASAPI_EXCLUSIVE)
-            && !call.Flags.HasFlag(BASSWASAPIInit.BASS_WASAPI_AUTOFORMAT)));
+            !call.Flags.HasFlag(WasapiInitFlags.Exclusive)
+            && !call.Flags.HasFlag(WasapiInitFlags.AutoFormat)));
         Assert.IsTrue(native.InitializationCalls.All(call =>
             call.BufferSeconds == 0f && call.PeriodSeconds == 0f));
         Assert.AreEqual((234, 0.35f), native.VolumeEffectCalls.Single());
@@ -377,8 +397,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         {
             DeviceInfo = CreateWasapiDevice(
                 "Explicit WASAPI",
-                "explicit-id",
-                BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED)
+                "explicit-id")
         };
         native.InitializationResults.Enqueue(true);
         var request = CreateWasapiRequest(
@@ -405,12 +424,11 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             [
                 CreateWasapiDevice(
                     "Renamed WASAPI",
-                    "stable-id",
-                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED),
+                    "stable-id"),
                 CreateWasapiDevice(
                     "Default WASAPI",
                     "default-id",
-                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT)
+                    isDefault: true)
             ]
         };
         native.InitializationResults.Enqueue(true);
@@ -438,12 +456,11 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             [
                 CreateWasapiDevice(
                     "Speakers",
-                    "different-id",
-                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED),
+                    "different-id"),
                 CreateWasapiDevice(
                     "Default WASAPI",
                     "default-id",
-                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT)
+                    isDefault: true)
             ]
         };
         native.InitializationResults.Enqueue(true);
@@ -471,12 +488,11 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             [
                 CreateWasapiDevice(
                     "Legacy Speakers",
-                    "legacy-id",
-                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED),
+                    "legacy-id"),
                 CreateWasapiDevice(
                     "Default WASAPI",
                     "default-id",
-                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT)
+                    isDefault: true)
             ]
         };
         native.InitializationResults.Enqueue(true);
@@ -504,12 +520,11 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             [
                 CreateWasapiDevice(
                     "Exclusive Speakers",
-                    "replacement-id",
-                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED),
+                    "replacement-id"),
                 CreateWasapiDevice(
                     "Default WASAPI",
                     "default-id",
-                    BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT)
+                    isDefault: true)
             ]
         };
         native.InitializationResults.Enqueue(true);
@@ -535,8 +550,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         {
             DeviceInfo = CreateWasapiDevice(
                 "Non-default WASAPI",
-                "non-default-id",
-                BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED)
+                "non-default-id")
         };
         var request = CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
 
@@ -554,6 +568,80 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         Assert.AreEqual("BASSWASAPI", exception.NativeErrorSource);
     }
 
+    [TestMethod]
+    public void DirectSoundReadback_UsesActualDeviceAndRateForGraphAndResult()
+    {
+        var native = new RecordingDirectSoundBoundary
+        {
+            CoreDevice = 7,
+            ActualDevice = new BassDirectSoundDeviceSnapshot("Actual DirectSound", "actual-driver"),
+            Info = new BassDirectSoundInfoSnapshot(48000)
+        };
+        native.Devices.Add(new BassDirectSoundDevice(
+            0,
+            new BassAudioPlayer.DeviceDescriptor("No sound", ""),
+            isEnabled: false,
+            isDefault: false));
+        native.Devices.Add(new BassDirectSoundDevice(
+            2,
+            new BassAudioPlayer.DeviceDescriptor("Requested DirectSound", "requested-driver"),
+            isEnabled: true,
+            isDefault: true));
+
+        BassAudioSession session = CreateDirectSoundSession();
+        BassAudioBackendResult result = new BassDirectSoundNegotiator(native).Initialize(
+            CreateDirectSoundRequest(
+                device: new BassAudioPlayer.DeviceDescriptor(
+                    "Requested DirectSound",
+                    "requested-driver")),
+            session,
+            (handle, buffer, length, user) => length,
+            initialGain: 0.4f);
+
+        Assert.AreEqual(2, native.InitializeDeviceIndex);
+        Assert.AreEqual(7, session.CoreDeviceIndex);
+        Assert.AreEqual("Actual DirectSound", result.ActualDevice.Name);
+        Assert.AreEqual("actual-driver", result.ActualDevice.Driver);
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, result.ActualRate);
+        Assert.AreEqual(48000, native.MixerRate);
+        Assert.AreEqual(48000, native.OutputRate);
+        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
+        Assert.IsTrue(native.OutputFlags.HasFlag(BassFlags.Float));
+        Assert.IsTrue(session.IsStarted);
+    }
+
+    [TestMethod]
+    public void DirectSoundInvalidInfoReadback_RetainsCoreOwnershipAndReportsContext()
+    {
+        var native = new RecordingDirectSoundBoundary
+        {
+            CoreDevice = 4,
+            ActualDevice = new BassDirectSoundDeviceSnapshot("Actual DirectSound", "actual-driver"),
+            Info = new BassDirectSoundInfoSnapshot(48000),
+            GetInfoResult = false,
+            InfoError = Errors.Init
+        };
+        native.Devices.Add(new BassDirectSoundDevice(
+            1,
+            new BassAudioPlayer.DeviceDescriptor("Default DirectSound", "default-driver"),
+            isEnabled: true,
+            isDefault: true));
+
+        BassAudioSession session = CreateDirectSoundSession();
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassDirectSoundNegotiator(native).Initialize(
+                CreateDirectSoundRequest(),
+                session,
+                (handle, buffer, length, user) => length,
+                initialGain: 0.4f));
+
+        Assert.IsTrue(session.CoreInitialized);
+        Assert.AreEqual(4, session.CoreDeviceIndex);
+        Assert.AreEqual("BASS_GetInfo", exception.Stage);
+        Assert.AreEqual("BASS", exception.NativeErrorSource);
+        Assert.AreEqual(Errors.Init, exception.NativeErrorCode);
+    }
+
     private static BassAudioNegotiationRequest CreateWasapiRequest(
         BassAudioPlayer.DeviceDriver backend,
         SampleRate rate = SampleRate.AUTO,
@@ -563,29 +651,42 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
     private static BassAudioSession CreateWasapiSession(BassAudioPlayer.DeviceDriver backend) =>
         new(backend) { ActualBackend = backend };
 
-    private static BASS_WASAPI_DEVICEINFO CreateWasapiDevice(
+    private static BassAudioNegotiationRequest CreateDirectSoundRequest(
+        SampleRate rate = SampleRate.AUTO,
+        BassAudioPlayer.DeviceDescriptor device = default) =>
+        new(BassAudioPlayer.DeviceDriver.DIRECT_SOUND, device, rate, SampleFormat.AUTO, 20f);
+
+    private static BassAudioSession CreateDirectSoundSession() =>
+        new(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
+        {
+            ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND
+        };
+
+    private static BassWasapiDeviceSnapshot CreateWasapiDevice(
         string name,
         string id,
-        BASSWASAPIDeviceInfo flags,
+        bool isDefault = false,
         int mixRate = 48000,
         int mixChannels = 2) =>
-        new()
-        {
-            name = name,
-            id = id,
-            flags = flags,
-            mixfreq = mixRate,
-            mixchans = mixChannels,
-            minperiod = 0.005f
-        };
+        new(
+            name,
+            id,
+            isDefault,
+            IsEnabled: true,
+            IsInput: false,
+            IsLoopback: false,
+            IsUnplugged: false,
+            MinimumUpdatePeriod: 0.005d,
+            MixFrequency: mixRate,
+            MixChannels: mixChannels);
 
     private sealed class RecordingWasapiBoundary : IWasapiNegotiationNativeBoundary
     {
-        private BASSError wasapiError;
+        private Errors wasapiError;
 
         internal Queue<bool> InitializationResults { get; } = new();
 
-        internal Queue<BASSError> InitializationErrors { get; } = new();
+        internal Queue<Errors> InitializationErrors { get; } = new();
 
         internal List<WasapiInitializationCall> InitializationCalls { get; } = [];
 
@@ -593,26 +694,33 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
 
         internal List<(int EffectHandle, float Volume)> VolumeEffectCalls { get; } = [];
 
-        internal BASS_WASAPI_DEVICEINFO DeviceInfo { get; set; } = CreateWasapiDevice(
+        internal BassWasapiDeviceSnapshot DeviceInfo { get; set; } = CreateWasapiDevice(
             "WASAPI Device",
             "wasapi-id",
-            BASSWASAPIDeviceInfo.BASS_DEVICE_ENABLED | BASSWASAPIDeviceInfo.BASS_DEVICE_DEFAULT);
+            isDefault: true);
 
-        internal BASS_WASAPI_DEVICEINFO[]? DeviceInfos { get; set; }
+        internal BassWasapiDeviceSnapshot[]? DeviceInfos { get; set; }
 
-        internal BASS_WASAPI_INFO WasapiInfo { get; set; } = new()
-        {
-            freq = 48000,
-            chans = 2,
-            format = BASSWASAPIFormat.BASS_WASAPI_FORMAT_FLOAT,
-            buflen = 3840
-        };
+        internal bool GetDeviceInfosResult { get; set; } = true;
+
+        internal Errors DeviceInfosError { get; set; } = Errors.Device;
+
+        internal bool GetDeviceInfoResult { get; set; } = true;
+
+        internal Errors DeviceInfoError { get; set; } = Errors.Device;
+
+        internal BassWasapiInfoSnapshot WasapiInfo { get; set; } =
+            new(48000, 2, WasapiFormat.Float, 3840);
+
+        internal bool GetWasapiInfoResult { get; set; } = true;
+
+        internal Errors WasapiInfoError { get; set; } = Errors.Init;
 
         internal int MixerRate { get; private set; }
 
         internal int MixerChannels { get; private set; }
 
-        internal BASSFlag MixerFlags { get; private set; }
+        internal BassFlags MixerFlags { get; private set; }
 
         internal Action? GetInfoObserver { get; set; }
 
@@ -624,7 +732,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
 
         internal int CreateVolumeEffectResult { get; set; } = 234;
 
-        internal BASSError CoreError { get; set; } = BASSError.BASS_OK;
+        internal Errors CoreError { get; set; } = Errors.OK;
 
         internal Action? StartObserver { get; set; }
 
@@ -636,23 +744,37 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         {
         }
 
-        public BASS_WASAPI_DEVICEINFO[] GetDeviceInfos() => DeviceInfos ?? [DeviceInfo];
+        public bool TryGetDeviceInfos(
+            out BassWasapiDeviceSnapshot[] deviceInfos,
+            out Errors error)
+        {
+            deviceInfos = DeviceInfos ?? [DeviceInfo];
+            error = GetDeviceInfosResult ? Errors.OK : DeviceInfosError;
+            return GetDeviceInfosResult;
+        }
 
-        public BASS_WASAPI_DEVICEINFO GetDeviceInfo(int deviceIndex) =>
-            DeviceInfos == null ? DeviceInfo : DeviceInfos[deviceIndex];
+        public bool TryGetDeviceInfo(
+            int deviceIndex,
+            out BassWasapiDeviceSnapshot deviceInfo,
+            out Errors error)
+        {
+            deviceInfo = DeviceInfos == null ? DeviceInfo : DeviceInfos[deviceIndex];
+            error = GetDeviceInfoResult ? Errors.OK : DeviceInfoError;
+            return GetDeviceInfoResult;
+        }
 
         public bool InitializeSharedWasapi(
             int deviceIndex,
             int rate,
             int channels,
             bool eventDriven,
-            WASAPIPROC callback) =>
+            WasapiProcedure callback) =>
             RecordInitialization(
                 WasapiInitializationKind.SharedNoFormat,
                 deviceIndex,
                 rate,
                 channels,
-                eventDriven ? BASSWASAPIInit.BASS_WASAPI_EVENT : 0,
+                eventDriven ? WasapiInitFlags.EventDriven : WasapiInitFlags.Shared,
                 0f,
                 0f);
 
@@ -660,10 +782,10 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             int deviceIndex,
             int rate,
             int channels,
-            BASSWASAPIInit flags,
+            WasapiInitFlags flags,
             float bufferSeconds,
             float periodSeconds,
-            WASAPIPROC callback) =>
+            WasapiProcedure callback) =>
             RecordInitialization(
                 WasapiInitializationKind.ExclusiveFormatted,
                 deviceIndex,
@@ -678,7 +800,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             int deviceIndex,
             int rate,
             int channels,
-            BASSWASAPIInit flags,
+            WasapiInitFlags flags,
             float bufferSeconds,
             float periodSeconds)
         {
@@ -692,21 +814,25 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
                 periodSeconds));
             bool result = InitializationResults.Count == 0 || InitializationResults.Dequeue();
             wasapiError = result || InitializationErrors.Count == 0
-                ? BASSError.BASS_OK
+                ? Errors.OK
                 : InitializationErrors.Dequeue();
             return result;
         }
 
         public int GetWasapiDevice() => 0;
 
-        public BASS_WASAPI_INFO GetWasapiInfo()
+        public bool TryGetWasapiInfo(
+            out BassWasapiInfoSnapshot info,
+            out Errors error)
         {
             GetInfoObserver?.Invoke();
             GetInfoObserved = true;
-            return WasapiInfo;
+            info = WasapiInfo;
+            error = GetWasapiInfoResult ? Errors.OK : WasapiInfoError;
+            return GetWasapiInfoResult;
         }
 
-        public int CreateMixer(int rate, int channels, BASSFlag flags)
+        public int CreateMixer(int rate, int channels, BassFlags flags)
         {
             GraphCalls.Add("CreateMixer");
             MixerRate = rate;
@@ -736,9 +862,9 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             return true;
         }
 
-        public BASSError GetCoreError() => CoreError;
+        public Errors GetCoreError() => CoreError;
 
-        public BASSError GetWasapiError() => wasapiError;
+        public Errors GetWasapiError() => wasapiError;
     }
 
     private enum WasapiInitializationKind
@@ -752,7 +878,106 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         int DeviceIndex,
         int Rate,
         int Channels,
-        BASSWASAPIInit Flags,
+        WasapiInitFlags Flags,
         float BufferSeconds,
         float PeriodSeconds);
+
+    private sealed class RecordingDirectSoundBoundary : IDirectSoundNegotiationNativeBoundary
+    {
+        internal List<BassDirectSoundDevice> Devices { get; } = [];
+
+        internal int CoreDevice { get; set; }
+
+        internal BassDirectSoundDeviceSnapshot ActualDevice { get; set; }
+
+        internal BassDirectSoundInfoSnapshot Info { get; set; }
+
+        internal Errors CoreError { get; set; } = Errors.OK;
+
+        internal bool GetInfoResult { get; set; } = true;
+
+        internal Errors InfoError { get; set; } = Errors.Init;
+
+        internal int InitializeDeviceIndex { get; private set; } = -1;
+
+        internal int MixerRate { get; private set; }
+
+        internal int OutputRate { get; private set; }
+
+        internal BassFlags MixerFlags { get; private set; }
+
+        internal BassFlags OutputFlags { get; private set; }
+
+        private readonly Dictionary<Configuration, int> configurations = new()
+        {
+            [Configuration.UpdatePeriod] = 5,
+            [Configuration.PlaybackBufferLength] = 70
+        };
+
+        public bool TryGetDevices(
+            out IReadOnlyList<BassDirectSoundDevice> devices,
+            out Errors error)
+        {
+            devices = Devices;
+            error = Errors.OK;
+            return true;
+        }
+
+        public bool InitializeCore(int deviceIndex, int rate, DeviceInitFlags flags)
+        {
+            InitializeDeviceIndex = deviceIndex;
+            return true;
+        }
+
+        public int GetCoreDevice() => CoreDevice;
+
+        public bool TryGetDeviceInfo(
+            int deviceIndex,
+            out BassDirectSoundDeviceSnapshot deviceInfo,
+            out Errors error)
+        {
+            deviceInfo = ActualDevice;
+            error = Errors.OK;
+            return true;
+        }
+
+        public bool TryGetInfo(
+            out BassDirectSoundInfoSnapshot info,
+            out Errors error)
+        {
+            info = Info;
+            error = GetInfoResult ? Errors.OK : InfoError;
+            return GetInfoResult;
+        }
+
+        public bool SetConfig(Configuration option, int value)
+        {
+            configurations[option] = value;
+            return true;
+        }
+
+        public int GetConfig(Configuration option) => configurations[option];
+
+        public int CreateMixer(int rate, int channels, BassFlags flags)
+        {
+            MixerRate = rate;
+            MixerFlags = flags;
+            return 123;
+        }
+
+        public int CreateOutputStream(int rate, int channels, BassFlags flags, StreamProcedure callback)
+        {
+            OutputRate = rate;
+            OutputFlags = flags;
+            return 234;
+        }
+
+        public bool Play(int streamHandle) => true;
+
+        public int CreateVolumeEffect(int mixerHandle) => 345;
+
+        public bool SetVolumeEffect(int effectHandle, float volume) => true;
+
+        public Errors GetCoreError() => CoreError;
+    }
 }

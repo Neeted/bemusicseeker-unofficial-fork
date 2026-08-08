@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using ManagedBass;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
 
 namespace BeMusicSeeker.Tests;
 
@@ -16,11 +16,11 @@ public sealed class BassMixerSourceControllerTests
         var native = new FakeNativeBoundary
         {
             MixerHandle = 0,
-            Error = BASSError.BASS_ERROR_HANDLE
+            Error = Errors.Handle
         };
         native.MixerReads.Enqueue(0);
         native.MixerReads.Enqueue(77);
-        native.ErrorReads.Enqueue(BASSError.BASS_ERROR_HANDLE);
+        native.ErrorReads.Enqueue(Errors.Handle);
         var controller = new BassMixerSourceController(native);
 
         BassMixerSourceAttachment attachment = controller.EnsureAttachedPaused(77, 12, "test.wav");
@@ -28,7 +28,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.IsTrue(attachment.NewlyAttached);
         Assert.AreEqual(77, attachment.ActualMixerHandle);
         Assert.AreEqual(1, native.AddCalls);
-        Assert.AreEqual(BASSFlag.BASS_MIXER_CHAN_PAUSE, native.LastAddFlags);
+        Assert.AreEqual(BassFlags.MixerChanPause, native.LastAddFlags);
         Assert.AreEqual(77, native.MixerHandle);
     }
 
@@ -87,13 +87,13 @@ public sealed class BassMixerSourceControllerTests
         var native = new FakeNativeBoundary
         {
             MixerHandle = 0,
-            Error = BASSError.BASS_ERROR_ALREADY,
+            Error = Errors.Already,
             AddResult = false
         };
         native.MixerReads.Enqueue(0);
         native.MixerReads.Enqueue(77);
-        native.ErrorReads.Enqueue(BASSError.BASS_ERROR_HANDLE);
-        native.ErrorReads.Enqueue(BASSError.BASS_ERROR_ALREADY);
+        native.ErrorReads.Enqueue(Errors.Handle);
+        native.ErrorReads.Enqueue(Errors.Already);
         var controller = new BassMixerSourceController(native);
 
         BassMixerSourceAttachment attachment = controller.EnsureAttachedPaused(77, 12, "test.wav");
@@ -109,18 +109,18 @@ public sealed class BassMixerSourceControllerTests
         var native = new FakeNativeBoundary
         {
             MixerHandle = 0,
-            Error = BASSError.BASS_ERROR_FILEOPEN,
+            Error = Errors.FileOpen,
             AddResult = false
         };
         native.MixerReads.Enqueue(0);
-        native.ErrorReads.Enqueue(BASSError.BASS_ERROR_HANDLE);
+        native.ErrorReads.Enqueue(Errors.Handle);
         var controller = new BassMixerSourceController(native);
 
         BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
             () => controller.EnsureAttachedPaused(77, 12, "test.wav"));
 
         Assert.AreEqual(BassAudioPlaybackStage.MixerAttach, exception.Stage);
-        Assert.AreEqual(BASSError.BASS_ERROR_FILEOPEN, exception.NativeErrorCode);
+        Assert.AreEqual(Errors.FileOpen, exception.NativeErrorCode);
     }
 
     [TestMethod]
@@ -133,7 +133,7 @@ public sealed class BassMixerSourceControllerTests
         };
         native.MixerReads.Enqueue(0);
         native.MixerReads.Enqueue(88);
-        native.ErrorReads.Enqueue(BASSError.BASS_ERROR_HANDLE);
+        native.ErrorReads.Enqueue(Errors.Handle);
         var controller = new BassMixerSourceController(native);
 
         BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
@@ -150,18 +150,37 @@ public sealed class BassMixerSourceControllerTests
         var controller = new BassMixerSourceController(native);
 
         controller.Pause(77, 12, "test.wav");
-        Assert.AreEqual(BASSFlag.BASS_MIXER_CHAN_PAUSE, native.LastFlags);
-        Assert.AreEqual(BASSFlag.BASS_MIXER_CHAN_PAUSE, native.LastMask);
+        Assert.AreEqual(BassFlags.MixerChanPause, native.LastFlags);
+        Assert.AreEqual(BassFlags.MixerChanPause, native.LastMask);
 
         controller.Resume(77, 12, "test.wav");
-        Assert.AreEqual(BASSFlag.BASS_DEFAULT, native.LastFlags);
+        Assert.AreEqual(BassFlags.Default, native.LastFlags);
 
-        native.FlagsResult = (BASSFlag)(-1);
-        native.Error = BASSError.BASS_ERROR_HANDLE;
+        native.FlagsResult = unchecked((BassFlags)(-1));
+        native.Error = Errors.Handle;
         BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
             () => controller.Resume(77, 12, "test.wav"));
         Assert.AreEqual(BassAudioPlaybackStage.MixerResume, exception.Stage);
-        Assert.AreEqual(BASSError.BASS_ERROR_HANDLE, exception.NativeErrorCode);
+        Assert.AreEqual(Errors.Handle, exception.NativeErrorCode);
+    }
+
+    [TestMethod]
+    public void SetPositionUsesByteModeAndPreservesNativeFailure()
+    {
+        var native = new FakeNativeBoundary
+        {
+            SetPositionResult = false,
+            Error = Errors.Position
+        };
+        var controller = new BassMixerSourceController(native);
+
+        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+            () => controller.SetPosition(12, 4096, "test.wav", 77));
+
+        Assert.AreEqual(PositionFlags.Bytes, native.LastPositionFlags);
+        Assert.AreEqual(4096L, native.LastPosition);
+        Assert.AreEqual(BassAudioPlaybackStage.SetPosition, exception.Stage);
+        Assert.AreEqual(Errors.Position, exception.NativeErrorCode);
     }
 
     [TestMethod]
@@ -170,12 +189,12 @@ public sealed class BassMixerSourceControllerTests
         var native = new FakeNativeBoundary
         {
             MixerHandle = 77,
-            Error = BASSError.BASS_ERROR_HANDLE
+            Error = Errors.Handle
         };
         native.MixerReads.Enqueue(77);
         native.MixerReads.Enqueue(0);
-        native.ErrorReads.Enqueue(BASSError.BASS_ERROR_HANDLE);
-        native.ErrorReads.Enqueue(BASSError.BASS_ERROR_HANDLE);
+        native.ErrorReads.Enqueue(Errors.Handle);
+        native.ErrorReads.Enqueue(Errors.Handle);
         var controller = new BassMixerSourceController(native);
 
         BassMixerSourceRemoval removed = controller.RemoveFromExpectedMixer(77, 12, "test.wav");
@@ -192,30 +211,36 @@ public sealed class BassMixerSourceControllerTests
     {
         internal int MixerHandle { get; set; }
 
-        internal BASSError Error { get; set; } = BASSError.BASS_OK;
+        internal Errors Error { get; set; } = Errors.OK;
 
         internal bool AddResult { get; set; } = true;
 
-        internal BASSFlag FlagsResult { get; set; } = BASSFlag.BASS_DEFAULT;
+        internal BassFlags FlagsResult { get; set; } = BassFlags.Default;
+
+        internal bool SetPositionResult { get; set; } = true;
 
         internal Queue<int> MixerReads { get; } = new();
 
-        internal Queue<BASSError> ErrorReads { get; } = new();
+        internal Queue<Errors> ErrorReads { get; } = new();
 
         internal int AddCalls { get; private set; }
 
         internal int RemoveCalls { get; private set; }
 
-        internal BASSFlag LastAddFlags { get; private set; }
+        internal BassFlags LastAddFlags { get; private set; }
 
-        internal BASSFlag LastFlags { get; private set; }
+        internal BassFlags LastFlags { get; private set; }
 
-        internal BASSFlag LastMask { get; private set; }
+        internal BassFlags LastMask { get; private set; }
+
+        internal long LastPosition { get; private set; }
+
+        internal PositionFlags LastPositionFlags { get; private set; }
 
         public int GetMixer(int sourceHandle)
             => MixerReads.Count == 0 ? MixerHandle : MixerReads.Dequeue();
 
-        public bool AddChannel(int mixerHandle, int sourceHandle, BASSFlag flags)
+        public bool AddChannel(int mixerHandle, int sourceHandle, BassFlags flags)
         {
             AddCalls++;
             LastAddFlags = flags;
@@ -226,7 +251,7 @@ public sealed class BassMixerSourceControllerTests
             return AddResult;
         }
 
-        public BASSFlag SetMixerChannelFlags(int sourceHandle, BASSFlag flags, BASSFlag mask)
+        public BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask)
         {
             LastFlags = flags;
             LastMask = mask;
@@ -240,9 +265,14 @@ public sealed class BassMixerSourceControllerTests
             return true;
         }
 
-        public bool SetPosition(int sourceHandle, long position) => true;
+        public bool SetPosition(int sourceHandle, long position, PositionFlags mode)
+        {
+            LastPosition = position;
+            LastPositionFlags = mode;
+            return SetPositionResult;
+        }
 
-        public BASSError GetError()
+        public Errors GetError()
             => ErrorReads.Count == 0 ? Error : ErrorReads.Dequeue();
     }
 }

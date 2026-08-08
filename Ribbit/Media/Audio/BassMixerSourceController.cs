@@ -1,6 +1,6 @@
 using System;
-using Un4seen.Bass;
-using Un4seen.Bass.AddOn.Mix;
+using ManagedBass;
+using ManagedBass.Mix;
 
 namespace Ribbit.Media.Audio;
 
@@ -65,7 +65,7 @@ internal sealed class BassAudioPlaybackException : InvalidOperationException
         int expectedMixerHandle,
         int actualMixerHandle,
         string nativeErrorSource,
-        BASSError? nativeErrorCode,
+        Errors? nativeErrorCode,
         string message,
         Exception innerException = null)
         : this(
@@ -90,7 +90,7 @@ internal sealed class BassAudioPlaybackException : InvalidOperationException
         int expectedMixerHandle,
         int actualMixerHandle,
         string nativeErrorSource,
-        BASSError? nativeErrorCode,
+        Errors? nativeErrorCode,
         string message,
         BassAudioSession session,
         Exception innerException = null)
@@ -127,7 +127,7 @@ internal sealed class BassAudioPlaybackException : InvalidOperationException
     internal string NativeErrorSource { get; }
 
     /// <summary>Gets the native error captured immediately after the failed API call.</summary>
-    internal BASSError? NativeErrorCode { get; }
+    internal Errors? NativeErrorCode { get; }
 
     /// <summary>Gets the backend selected by the owning session when the failure occurred.</summary>
     internal BassAudioPlayer.DeviceDriver? Backend { get; }
@@ -139,51 +139,51 @@ internal sealed class BassAudioPlaybackException : InvalidOperationException
     internal int? CoreDeviceIndex { get; }
 }
 
-/// <summary>Provides the small BASS native surface needed by mixer-source lifecycle code.</summary>
+/// <summary>Provides the small ManagedBass surface needed by mixer-source lifecycle code.</summary>
 internal interface IBassMixerSourceNativeBoundary
 {
     /// <summary>Gets the mixer that currently owns a source, or zero when it is not attached.</summary>
     int GetMixer(int sourceHandle);
 
     /// <summary>Adds a source to a mixer with the supplied mixer-channel flags.</summary>
-    bool AddChannel(int mixerHandle, int sourceHandle, BASSFlag flags);
+    bool AddChannel(int mixerHandle, int sourceHandle, BassFlags flags);
 
     /// <summary>Sets or retrieves mixer-channel flags.</summary>
-    BASSFlag SetMixerChannelFlags(int sourceHandle, BASSFlag flags, BASSFlag mask);
+    BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask);
 
     /// <summary>Removes a source from its mixer.</summary>
     bool RemoveChannel(int sourceHandle);
 
-    /// <summary>Sets a source position in bytes.</summary>
-    bool SetPosition(int sourceHandle, long position);
+    /// <summary>Sets a source position using the supplied native position mode.</summary>
+    bool SetPosition(int sourceHandle, long position, PositionFlags mode);
 
     /// <summary>Reads the BASS error immediately after a failed native call.</summary>
-    BASSError GetError();
+    Errors GetError();
 }
 
-/// <summary>Calls BASS mixer-source APIs without hiding their failure contracts.</summary>
+/// <summary>Calls ManagedBass mixer-source APIs without hiding their failure contracts.</summary>
 internal sealed class BassMixerSourceNativeBoundary : IBassMixerSourceNativeBoundary
 {
     /// <inheritdoc />
-    public int GetMixer(int sourceHandle) => BassMix.BASS_Mixer_ChannelGetMixer(sourceHandle);
+    public int GetMixer(int sourceHandle) => BassMix.ChannelGetMixer(sourceHandle);
 
     /// <inheritdoc />
-    public bool AddChannel(int mixerHandle, int sourceHandle, BASSFlag flags)
-        => BassMix.BASS_Mixer_StreamAddChannel(mixerHandle, sourceHandle, flags);
+    public bool AddChannel(int mixerHandle, int sourceHandle, BassFlags flags)
+        => BassMix.MixerAddChannel(mixerHandle, sourceHandle, flags);
 
     /// <inheritdoc />
-    public BASSFlag SetMixerChannelFlags(int sourceHandle, BASSFlag flags, BASSFlag mask)
-        => BassMix.BASS_Mixer_ChannelFlags(sourceHandle, flags, mask);
+    public BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask)
+        => BassMix.ChannelFlags(sourceHandle, flags, mask);
 
     /// <inheritdoc />
-    public bool RemoveChannel(int sourceHandle) => BassMix.BASS_Mixer_ChannelRemove(sourceHandle);
+    public bool RemoveChannel(int sourceHandle) => BassMix.MixerRemoveChannel(sourceHandle);
 
     /// <inheritdoc />
-    public bool SetPosition(int sourceHandle, long position)
-        => Bass.BASS_ChannelSetPosition(sourceHandle, position);
+    public bool SetPosition(int sourceHandle, long position, PositionFlags mode)
+        => Bass.ChannelSetPosition(sourceHandle, position, mode);
 
     /// <inheritdoc />
-    public BASSError GetError() => Bass.BASS_ErrorGetCode();
+    public Errors GetError() => Bass.LastError;
 }
 
 /// <summary>Reports whether a source was newly attached to an expected mixer.</summary>
@@ -226,7 +226,7 @@ internal readonly struct BassMixerSourceRemoval
 /// </summary>
 internal sealed class BassMixerSourceController
 {
-    private const BASSFlag MixerPauseFlag = BASSFlag.BASS_MIXER_CHAN_PAUSE;
+    private const BassFlags MixerPauseFlag = BassFlags.MixerChanPause;
 
     private readonly IBassMixerSourceNativeBoundary native;
 
@@ -260,7 +260,7 @@ internal sealed class BassMixerSourceController
             fileName,
             BassAudioPlaybackStage.MixerMembership,
             allowDetached: true,
-            out BASSError? membershipError);
+            out Errors? membershipError);
         if (actualMixerHandle == expectedMixerHandle)
         {
             return new BassMixerSourceAttachment(newlyAttached: false, actualMixerHandle);
@@ -300,8 +300,8 @@ internal sealed class BassMixerSourceController
 
         if (!added)
         {
-            BASSError addError = native.GetError();
-            if (addError == BASSError.BASS_ERROR_ALREADY)
+            Errors addError = native.GetError();
+            if (addError == Errors.Already)
             {
                 int racedMixer = ReadMixer(
                     sourceHandle,
@@ -309,7 +309,7 @@ internal sealed class BassMixerSourceController
                     fileName,
                     BassAudioPlaybackStage.MixerMembership,
                     allowDetached: true,
-                    out BASSError? racedMembershipError);
+                    out Errors? racedMembershipError);
                 if (racedMixer == expectedMixerHandle)
                 {
                     return new BassMixerSourceAttachment(newlyAttached: false, racedMixer);
@@ -346,7 +346,7 @@ internal sealed class BassMixerSourceController
             fileName,
             BassAudioPlaybackStage.MixerAttach,
             allowDetached: true,
-            out BASSError? verifyError);
+            out Errors? verifyError);
         if (verifiedMixer != expectedMixerHandle)
         {
             throw Failure(
@@ -377,7 +377,7 @@ internal sealed class BassMixerSourceController
             fileName,
             stage,
             allowDetached: true,
-            out BASSError? membershipError);
+            out Errors? membershipError);
         if (actualMixerHandle == expectedMixerHandle)
         {
             return actualMixerHandle;
@@ -409,7 +409,7 @@ internal sealed class BassMixerSourceController
             fileName,
             BassAudioPlaybackStage.MixerMembership,
             allowDetached: true,
-            out BASSError? membershipError);
+            out Errors? membershipError);
         if (actualMixerHandle == 0)
         {
             return new BassMixerSourceRemoval(alreadyDetached: true, actualMixerHandle);
@@ -448,7 +448,7 @@ internal sealed class BassMixerSourceController
 
         if (!removed)
         {
-            BASSError removeError = native.GetError();
+            Errors removeError = native.GetError();
             int afterFailedRemove = ReadMixer(
                 sourceHandle,
                 expectedMixerHandle,
@@ -456,7 +456,7 @@ internal sealed class BassMixerSourceController
                 BassAudioPlaybackStage.MixerRemove,
                 allowDetached: true,
                 out _);
-            if (removeError == BASSError.BASS_ERROR_HANDLE && afterFailedRemove == 0)
+            if (removeError == Errors.Handle && afterFailedRemove == 0)
             {
                 return new BassMixerSourceRemoval(alreadyDetached: true, afterFailedRemove);
             }
@@ -478,7 +478,7 @@ internal sealed class BassMixerSourceController
             fileName,
             BassAudioPlaybackStage.MixerRemove,
             allowDetached: true,
-            out BASSError? verifyError);
+            out Errors? verifyError);
         if (verifiedMixer != 0)
         {
             throw Failure(
@@ -522,7 +522,7 @@ internal sealed class BassMixerSourceController
         bool succeeded;
         try
         {
-            succeeded = native.SetPosition(sourceHandle, position);
+            succeeded = native.SetPosition(sourceHandle, position, PositionFlags.Bytes);
         }
         catch (Exception exception)
         {
@@ -540,7 +540,7 @@ internal sealed class BassMixerSourceController
 
         if (!succeeded)
         {
-            BASSError error = native.GetError();
+            Errors error = native.GetError();
             throw Failure(
                 BassAudioPlaybackStage.SetPosition,
                 fileName,
@@ -564,8 +564,8 @@ internal sealed class BassMixerSourceController
             sourceHandle,
             fileName,
             paused ? BassAudioPlaybackStage.MixerPause : BassAudioPlaybackStage.MixerResume);
-        BASSFlag flags = paused ? MixerPauseFlag : BASSFlag.BASS_DEFAULT;
-        BASSFlag updatedFlags;
+        BassFlags flags = paused ? MixerPauseFlag : BassFlags.Default;
+        BassFlags updatedFlags;
         try
         {
             updatedFlags = native.SetMixerChannelFlags(sourceHandle, flags, MixerPauseFlag);
@@ -586,7 +586,7 @@ internal sealed class BassMixerSourceController
 
         if (unchecked((int)updatedFlags) == -1)
         {
-            BASSError error = native.GetError();
+            Errors error = native.GetError();
             throw Failure(
                 paused ? BassAudioPlaybackStage.MixerPause : BassAudioPlaybackStage.MixerResume,
                 fileName,
@@ -605,7 +605,7 @@ internal sealed class BassMixerSourceController
         string fileName,
         BassAudioPlaybackStage stage,
         bool allowDetached,
-        out BASSError? error)
+        out Errors? error)
     {
         int actualMixerHandle;
         try
@@ -634,7 +634,7 @@ internal sealed class BassMixerSourceController
         }
 
         error = native.GetError();
-        if (allowDetached && error == BASSError.BASS_ERROR_HANDLE)
+        if (allowDetached && error == Errors.Handle)
         {
             return 0;
         }
@@ -673,7 +673,7 @@ internal sealed class BassMixerSourceController
         int expectedMixerHandle,
         int actualMixerHandle,
         string nativeErrorSource,
-        BASSError? nativeErrorCode,
+        Errors? nativeErrorCode,
         string message,
         Exception innerException = null)
         => new(

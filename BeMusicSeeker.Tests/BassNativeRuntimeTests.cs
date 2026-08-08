@@ -111,6 +111,93 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
+    public void FreeCoreDevice_SuccessDoesNotReadLastError()
+    {
+        var events = new List<string>();
+
+        BassAudioRuntime.FreeCoreDevice(
+            () =>
+            {
+                events.Add("free");
+                return true;
+            },
+            () =>
+            {
+                events.Add("error");
+                return ManagedBass.Errors.Handle;
+            },
+            () => events.Add("already-free"));
+
+        CollectionAssert.AreEqual(new[] { "free" }, events);
+    }
+
+    [TestMethod]
+    public void FreeCoreDevice_CapturesInitAfterFalseAndTreatsItAsIdempotent()
+    {
+        var events = new List<string>();
+
+        BassAudioRuntime.FreeCoreDevice(
+            () =>
+            {
+                events.Add("free");
+                return false;
+            },
+            () =>
+            {
+                events.Add("error");
+                return ManagedBass.Errors.Init;
+            },
+            () => events.Add("already-free"));
+
+        CollectionAssert.AreEqual(new[] { "free", "error", "already-free" }, events);
+    }
+
+    [TestMethod]
+    public void FreeCoreDevice_ReportsNonInitErrorWithLegacyDiagnosticSpelling()
+    {
+        var events = new List<string>();
+
+        Exception exception = Assert.ThrowsException<Exception>(() => BassAudioRuntime.FreeCoreDevice(
+            () =>
+            {
+                events.Add("free");
+                return false;
+            },
+            () =>
+            {
+                events.Add("error");
+                return ManagedBass.Errors.Handle;
+            },
+            () => events.Add("already-free")));
+
+        StringAssert.Contains(exception.Message, "BASS_ERROR_HANDLE");
+        CollectionAssert.AreEqual(new[] { "free", "error" }, events);
+    }
+
+    [TestMethod]
+    public void FreeCoreDevice_PreservesReleaseExceptionWhenErrorReadFails()
+    {
+        var events = new List<string>();
+        var expected = new InvalidOperationException("free failed");
+
+        Exception actual = Assert.ThrowsException<InvalidOperationException>(() => BassAudioRuntime.FreeCoreDevice(
+            () =>
+            {
+                events.Add("free");
+                throw expected;
+            },
+            () =>
+            {
+                events.Add("error");
+                throw new InvalidOperationException("error read failed");
+            },
+            () => events.Add("already-free")));
+
+        Assert.AreSame(expected, actual);
+        CollectionAssert.AreEqual(new[] { "free", "error" }, events);
+    }
+
+    [TestMethod]
     public void BassAudioRuntime_CharacterizationBootstrapReusesNativeOwnershipWithoutRegistration()
     {
         for (int cycle = 0; cycle < 2; cycle++)
@@ -611,6 +698,71 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
+    public void BassAudioPlayer_MemoryFileProceduresSurviveForcedFullGc()
+    {
+        string wavePath = CreateNativeSmokeWaveFile();
+        BassAudioSession session = null;
+        BassAudioPlayer player = null;
+        int initialVoices = BassAudioPlayer.CurrentVoices;
+        try
+        {
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out session);
+
+            player = new BassAudioPlayer(wavePath, onMemory: true);
+            ForceFullCollection();
+
+            player.Play();
+            BassAudioOwnedStream source = session.GetPlayerStreams().Single();
+            int sourceHandle = source.Handle;
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+
+            byte[] buffer = new byte[4096 * sizeof(float)];
+            int returnedBytes = Bass.BASS_ChannelGetData(
+                session.MixerHandle,
+                buffer,
+                buffer.Length);
+            Assert.IsTrue(returnedBytes > 0, Bass.BASS_ErrorGetCode().ToString());
+
+            player.CurrentTime = TimeSpan.FromMilliseconds(50);
+            Assert.IsTrue(player.CurrentTime > TimeSpan.Zero);
+            returnedBytes = Bass.BASS_ChannelGetData(
+                session.MixerHandle,
+                buffer,
+                buffer.Length);
+            Assert.IsTrue(returnedBytes > 0, Bass.BASS_ErrorGetCode().ToString());
+
+            player.Dispose();
+            player.Dispose();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+            Assert.AreEqual(0, session.GetPlayerStreams().Count);
+            Assert.AreEqual(
+                -1L,
+                ManagedBass.Bass.ChannelGetPosition(
+                    sourceHandle,
+                    ManagedBass.PositionFlags.Bytes));
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                BassAudioRuntime.Shutdown();
+                File.Delete(wavePath);
+            }
+        }
+    }
+
+    [TestMethod]
     public void BassAudioPlayer_MemoryOggPlayPullsNonZeroPcmThroughOwningMixer()
     {
         string oggPath = Path.Combine(
@@ -826,14 +978,17 @@ public sealed class BassNativeRuntimeTests
 
         public int GetMixer(int sourceHandle) => attached ? expectedMixer() : 0;
 
-        public bool AddChannel(int mixerHandle, int sourceHandle, BASSFlag flags)
+        public bool AddChannel(int mixerHandle, int sourceHandle, ManagedBass.BassFlags flags)
         {
             attached = true;
             return true;
         }
 
-        public BASSFlag SetMixerChannelFlags(int sourceHandle, BASSFlag flags, BASSFlag mask)
-            => BASSFlag.BASS_DEFAULT;
+        public ManagedBass.BassFlags SetMixerChannelFlags(
+            int sourceHandle,
+            ManagedBass.BassFlags flags,
+            ManagedBass.BassFlags mask)
+            => ManagedBass.BassFlags.Default;
 
         public bool RemoveChannel(int sourceHandle)
         {
@@ -841,9 +996,9 @@ public sealed class BassNativeRuntimeTests
             return true;
         }
 
-        public bool SetPosition(int sourceHandle, long position) => true;
+        public bool SetPosition(int sourceHandle, long position, ManagedBass.PositionFlags mode) => true;
 
-        public BASSError GetError() => BASSError.BASS_ERROR_HANDLE;
+        public ManagedBass.Errors GetError() => ManagedBass.Errors.Handle;
     }
 
     private static string NativeSmokeDiagnostic(
@@ -1126,6 +1281,13 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    private static void ForceFullCollection()
+    {
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+    }
+
     private static void RestoreManagedAudioState(float volume, bool muted)
     {
         BassAudioPlayer.IsDeviceMuted = false;
@@ -1135,11 +1297,14 @@ public sealed class BassNativeRuntimeTests
 
     private static float ReadVolumeEffectGain(int effectHandle)
     {
-        var parameters = new BASS_BFX_VOLUME();
+        var parameters = new ManagedBassBfxVolumeParameters
+        {
+            Channel = -1
+        };
         Assert.IsTrue(
-            Bass.BASS_FXGetParameters(effectHandle, parameters),
-            Bass.BASS_ErrorGetCode().ToString());
-        return parameters.fVolume;
+            ManagedBassEffectParameters.GetParameters(effectHandle, parameters),
+            Ribbit.Media.Audio.BassNativeErrorFormatter.Format(ManagedBass.Bass.LastError));
+        return parameters.Volume;
     }
 
     [TestMethod]

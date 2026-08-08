@@ -1,18 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ManagedBass;
+using ManagedBass.Asio;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
-using Un4seen.BassAsio;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
 public sealed class BassAsioNegotiationTests
 {
-    private static readonly ASIOPROC Callback =
+    private static readonly AsioProcedure Callback =
         (input, channel, buffer, length, user) => length;
 
     [TestMethod]
@@ -24,17 +24,17 @@ public sealed class BassAsioNegotiationTests
 
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EndpointFormat);
-        Assert.AreEqual(BASSASIOFormat.BASS_ASIO_FORMAT_FLOAT, native.SetFormats.Single());
-        Assert.IsTrue(native.MixerFlags.HasFlag(BASSFlag.BASS_SAMPLE_FLOAT));
-        Assert.IsTrue(native.MixerFlags.HasFlag(BASSFlag.BASS_STREAM_DECODE));
-        Assert.IsTrue(native.MixerFlags.HasFlag(BASSFlag.BASS_MIXER_NONSTOP));
+        Assert.AreEqual(AsioSampleFormat.Float, native.SetFormats.Single());
+        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
+        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Decode));
+        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.MixerNonStop));
     }
 
     [TestMethod]
     public void Float32Unavailable_RetriesWithInt16MixerAndCallbackFormat()
     {
         var native = new RecordingAsioBoundary();
-        native.AcceptedFormats.Remove(BASSASIOFormat.BASS_ASIO_FORMAT_FLOAT);
+        native.AcceptedFormats.Remove(AsioSampleFormat.Float);
 
         BassAudioBackendResult result = Initialize(
             native,
@@ -44,13 +44,13 @@ public sealed class BassAsioNegotiationTests
         CollectionAssert.AreEqual(
             new[]
             {
-                BASSASIOFormat.BASS_ASIO_FORMAT_FLOAT,
-                BASSASIOFormat.BASS_ASIO_FORMAT_16BIT
+                AsioSampleFormat.Float,
+                AsioSampleFormat.Bit16
             },
             native.SetFormats);
         Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, result.EndpointFormat);
-        Assert.IsFalse(native.MixerFlags.HasFlag(BASSFlag.BASS_SAMPLE_FLOAT));
+        Assert.IsFalse(native.MixerFlags.HasFlag(BassFlags.Float));
         StringAssert.Contains(result.FallbackReason, "Int16");
         StringAssert.Contains(result.FallbackReason, "nativeErrorSource=BASSASIO");
         StringAssert.Contains(result.FallbackReason, "nativeErrorCode=BASS_ERROR_FORMAT");
@@ -71,11 +71,11 @@ public sealed class BassAsioNegotiationTests
             requestedFormat);
 
         CollectionAssert.AreEqual(
-            new[] { BASSASIOFormat.BASS_ASIO_FORMAT_FLOAT },
+                new[] { AsioSampleFormat.Float },
             native.SetFormats);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EndpointFormat);
-        Assert.IsTrue(native.MixerFlags.HasFlag(BASSFlag.BASS_SAMPLE_FLOAT));
+        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
         StringAssert.Contains(result.FallbackReason, "normalized");
     }
 
@@ -143,7 +143,7 @@ public sealed class BassAsioNegotiationTests
     {
         var native = new RecordingAsioBoundary
         {
-            AsioError = BASSError.BASS_ERROR_FORMAT
+            AsioError = Errors.SampleFormat
         };
         native.AcceptedFormats.Clear();
         var session = CreateSession();
@@ -153,11 +153,34 @@ public sealed class BassAsioNegotiationTests
             () => new BassAsioNegotiator(native).Initialize(request, session, Callback));
 
         Assert.AreEqual("BASSASIO", exception.NativeErrorSource);
-        Assert.AreEqual(BASSError.BASS_ERROR_FORMAT, exception.NativeErrorCode);
+        Assert.AreEqual(Errors.SampleFormat, exception.NativeErrorCode);
         Assert.AreEqual("BASS_ASIO_ChannelSetFormat", exception.Stage);
         Assert.IsTrue(session.CoreInitialized);
         Assert.IsTrue(session.AsioInitialized);
         Assert.AreEqual(0, session.MixerHandle);
+    }
+
+    [TestMethod]
+    public void AsioDeviceInfoFailure_ReportsBoundaryErrorBeforeAsioOwnership()
+    {
+        var native = new RecordingAsioBoundary
+        {
+            GetDeviceInfosResult = false,
+            DeviceInfosError = Errors.Device
+        };
+        var session = CreateSession();
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassAsioNegotiator(native).Initialize(
+                CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
+                session,
+                Callback));
+
+        Assert.AreEqual("BASS_ASIO_GetDeviceInfos", exception.Stage);
+        Assert.AreEqual("BASSASIO", exception.NativeErrorSource);
+        Assert.AreEqual(Errors.Device, exception.NativeErrorCode);
+        Assert.IsTrue(session.CoreInitialized);
+        Assert.IsFalse(session.AsioInitialized);
     }
 
     [TestMethod]
@@ -166,7 +189,7 @@ public sealed class BassAsioNegotiationTests
         var native = new RecordingAsioBoundary
         {
             EnableOutputResult = false,
-            AsioError = BASSError.BASS_ERROR_UNKNOWN
+            AsioError = Errors.Unknown
         };
         var session = CreateSession();
 
@@ -208,7 +231,7 @@ public sealed class BassAsioNegotiationTests
         var native = new RecordingAsioBoundary
         {
             JoinOutputResult = false,
-            AsioError = BASSError.BASS_ERROR_UNKNOWN
+            AsioError = Errors.Unknown
         };
         var session = CreateSession();
 
@@ -231,7 +254,7 @@ public sealed class BassAsioNegotiationTests
         var native = new RecordingAsioBoundary
         {
             StartResult = false,
-            AsioError = BASSError.BASS_ERROR_UNKNOWN
+            AsioError = Errors.Unknown
         };
         var session = CreateSession();
 
@@ -277,23 +300,23 @@ public sealed class BassAsioNegotiationTests
 
     private sealed class RecordingAsioBoundary : IAsioNegotiationNativeBoundary
     {
-        private BASSASIOFormat currentFormat = BASSASIOFormat.BASS_ASIO_FORMAT_UNKNOWN;
+        private AsioSampleFormat currentFormat = AsioSampleFormat.Unknown;
 
         internal HashSet<int> AcceptedRates { get; } =
             [11025, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000];
 
-        internal HashSet<BASSASIOFormat> AcceptedFormats { get; } =
-            [BASSASIOFormat.BASS_ASIO_FORMAT_FLOAT, BASSASIOFormat.BASS_ASIO_FORMAT_16BIT];
+        internal HashSet<AsioSampleFormat> AcceptedFormats { get; } =
+            [AsioSampleFormat.Float, AsioSampleFormat.Bit16];
 
         internal List<int> CheckedRates { get; } = [];
 
         internal List<int> SetRates { get; } = [];
 
-        internal List<BASSASIOFormat> SetFormats { get; } = [];
+        internal List<AsioSampleFormat> SetFormats { get; } = [];
 
         internal double CurrentRate { get; set; } = 48000;
 
-        internal BASSFlag MixerFlags { get; private set; }
+        internal BassFlags MixerFlags { get; private set; }
 
         internal int MixerHandle { get; set; } = 123;
 
@@ -303,7 +326,11 @@ public sealed class BassAsioNegotiationTests
 
         internal bool StartResult { get; set; } = true;
 
-        internal BASSError AsioError { get; set; } = BASSError.BASS_ERROR_FORMAT;
+        internal Errors AsioError { get; set; } = Errors.SampleFormat;
+
+        internal bool GetDeviceInfosResult { get; set; } = true;
+
+        internal Errors DeviceInfosError { get; set; } = Errors.Device;
 
         internal Action? EnableObserver { get; set; }
 
@@ -319,10 +346,24 @@ public sealed class BassAsioNegotiationTests
         {
         }
 
-        public BASS_ASIO_DEVICEINFO[] GetDeviceInfos() =>
-            [new BASS_ASIO_DEVICEINFO { name = "ASIO Device", driver = "asio.dll" }];
+        public bool TryGetDeviceInfos(
+            out BassAsioDeviceSnapshot[] deviceInfos,
+            out Errors error)
+        {
+            deviceInfos = [new BassAsioDeviceSnapshot("ASIO Device", "asio.dll")];
+            error = GetDeviceInfosResult ? Errors.OK : DeviceInfosError;
+            return GetDeviceInfosResult;
+        }
 
-        public BASS_ASIO_DEVICEINFO GetDeviceInfo(int deviceIndex) => GetDeviceInfos()[deviceIndex];
+        public bool TryGetDeviceInfo(
+            int deviceIndex,
+            out BassAsioDeviceSnapshot deviceInfo,
+            out Errors error)
+        {
+            deviceInfo = new BassAsioDeviceSnapshot("ASIO Device", "asio.dll");
+            error = Errors.OK;
+            return true;
+        }
 
         public bool InitializeAsio(int deviceIndex) => true;
 
@@ -347,7 +388,7 @@ public sealed class BassAsioNegotiationTests
 
         public bool SetChannelRate(double rate) => true;
 
-        public bool SetChannelFormat(BASSASIOFormat format)
+        public bool SetChannelFormat(AsioSampleFormat format)
         {
             SetFormats.Add(format);
             if (!AcceptedFormats.Contains(format))
@@ -359,15 +400,15 @@ public sealed class BassAsioNegotiationTests
             return true;
         }
 
-        public BASSASIOFormat GetChannelFormat() => currentFormat;
+        public AsioSampleFormat GetChannelFormat() => currentFormat;
 
-        public int CreateMixer(int rate, int channels, BASSFlag flags)
+        public int CreateMixer(int rate, int channels, BassFlags flags)
         {
             MixerFlags = flags;
             return MixerHandle;
         }
 
-        public bool EnableOutputChannel(ASIOPROC callback)
+        public bool EnableOutputChannel(AsioProcedure callback)
         {
             EnableObserver?.Invoke();
             return EnableOutputResult;
@@ -387,8 +428,8 @@ public sealed class BassAsioNegotiationTests
 
         public int GetOutputLatency() => 480;
 
-        public BASSError GetCoreError() => BASSError.BASS_OK;
+        public Errors GetCoreError() => Errors.OK;
 
-        public BASSError GetAsioError() => AsioError;
+        public Errors GetAsioError() => AsioError;
     }
 }

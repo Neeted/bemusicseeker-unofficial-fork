@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using ManagedBass;
 using Ribbit.Media;
-using Un4seen.Bass;
 
 namespace Ribbit.Media.Audio;
 
@@ -50,7 +50,7 @@ internal sealed class BassAudioBackendAttempt
     internal BassAudioBackendAttempt(
         string stage,
         string nativeErrorSource,
-        BASSError? nativeErrorCode,
+        Errors? nativeErrorCode,
         string outcome)
     {
         Stage = stage;
@@ -66,7 +66,7 @@ internal sealed class BassAudioBackendAttempt
     internal string NativeErrorSource { get; }
 
     /// <summary>Gets the error captured immediately after failure, if any.</summary>
-    internal BASSError? NativeErrorCode { get; }
+    internal Errors? NativeErrorCode { get; }
 
     /// <summary>Gets a compact description of the accepted or rejected value.</summary>
     internal string Outcome { get; }
