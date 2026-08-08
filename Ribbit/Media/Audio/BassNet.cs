@@ -27,6 +27,24 @@ public static class BassNet
     /// </summary>
     public static void Initialize()
     {
+        InitializeRuntime(includeWrapperRegistration: true);
+    }
+
+    /// <summary>
+    /// Loads and validates the bundled native runtime for registration-free characterization.
+    /// </summary>
+    /// <remarks>
+    /// This internal seam is limited to Unit 0 tests so native/session behavior can be
+    /// characterized without entering the legacy wrapper-registration stage. It reuses the
+    /// production runtime gate, native owner, validation, and shutdown path.
+    /// </remarks>
+    internal static void InitializeWithoutWrapperRegistrationForCharacterization()
+    {
+        InitializeRuntime(includeWrapperRegistration: false);
+    }
+
+    private static void InitializeRuntime(bool includeWrapperRegistration)
+    {
         using BassAudioExclusiveLease lifecycle = RuntimeGate.EnterRuntimeInitialization();
         if (_isInitialized)
         {
@@ -52,6 +70,11 @@ public static class BassNet
                 },
                 () =>
                 {
+                    if (!includeWrapperRegistration)
+                    {
+                        return;
+                    }
+
                     stage = InitializationStage.WrapperRegistration;
                     RegisterBassNetWrapper();
                     wrapperRegistered = true;

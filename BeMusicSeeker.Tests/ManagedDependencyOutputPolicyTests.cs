@@ -53,6 +53,12 @@ public sealed class ManagedDependencyOutputPolicyTests
             "The host runtime configuration must be emitted beside the application.");
         string dependencyGraph = File.ReadAllText(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.deps.json"));
         StringAssert.Contains(dependencyGraph, "\"Newtonsoft.Json/13.0.4\"");
+        StringAssert.Contains(dependencyGraph, "\"ManagedBass/4.0.2\"");
+        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Mix/4.0.2\"");
+        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Fx/4.0.2\"");
+        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Enc/4.0.2\"");
+        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Asio/4.0.2\"");
+        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Wasapi/4.0.2\"");
         StringAssert.Contains(dependencyGraph, "\"Un4seen.Bass/2.4.18.2\"");
 
         foreach (string dependencyName in new[]
@@ -67,7 +73,13 @@ public sealed class ManagedDependencyOutputPolicyTests
             "NVorbis.dll",
             "SevenZipExtractor.dll",
             "SgmlReaderDll.dll",
-            "Bass.Net.dll"
+            "Bass.Net.dll",
+            "ManagedBass.dll",
+            "ManagedBass.Mix.dll",
+            "ManagedBass.Fx.dll",
+            "ManagedBass.Enc.dll",
+            "ManagedBass.Asio.dll",
+            "ManagedBass.Wasapi.dll"
         })
         {
             Assert.IsTrue(
@@ -203,6 +215,12 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "Microsoft.Xml.SgmlReader", Version = "1.8.30" },
             new { Id = "NLog", Version = "6.1.4" },
             new { Id = "Newtonsoft.Json", Version = "13.0.4" },
+            new { Id = "ManagedBass", Version = "4.0.2" },
+            new { Id = "ManagedBass.Mix", Version = "4.0.2" },
+            new { Id = "ManagedBass.Fx", Version = "4.0.2" },
+            new { Id = "ManagedBass.Enc", Version = "4.0.2" },
+            new { Id = "ManagedBass.Asio", Version = "4.0.2" },
+            new { Id = "ManagedBass.Wasapi", Version = "4.0.2" },
             new { Id = "Roslynator.Analyzers", Version = "4.15.0" },
             new { Id = "Roslynator.CodeAnalysis.Analyzers", Version = "4.15.0" },
             new { Id = "Roslynator.Formatting.Analyzers", Version = "4.15.0" },
@@ -231,7 +249,11 @@ public sealed class ManagedDependencyOutputPolicyTests
         CollectionAssert.AreEquivalent(expectedVersions.Keys.ToArray(), centralVersions.Keys.ToArray());
         foreach (var expected in expectedVersions)
         {
-            Assert.AreEqual(expected.Value, centralVersions[expected.Key]);
+            Assert.AreEqual(
+                expected.Key.StartsWith("ManagedBass", StringComparison.Ordinal)
+                    ? "[4.0.2]"
+                    : expected.Value,
+                centralVersions[expected.Key]);
         }
 
         var projectPackages = new[]
@@ -257,6 +279,12 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "SQLitePCLRaw.bundle_e_sqlite3",
                     "SevenZipExtractor",
                     "NVorbis",
+                    "ManagedBass",
+                    "ManagedBass.Mix",
+                    "ManagedBass.Fx",
+                    "ManagedBass.Enc",
+                    "ManagedBass.Asio",
+                    "ManagedBass.Wasapi",
                     "Un4seen.Bass"
                 }
             },
@@ -273,6 +301,12 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "SQLitePCLRaw.bundle_e_sqlite3",
                     "SevenZipExtractor",
                     "NVorbis",
+                    "ManagedBass",
+                    "ManagedBass.Mix",
+                    "ManagedBass.Fx",
+                    "ManagedBass.Enc",
+                    "ManagedBass.Asio",
+                    "ManagedBass.Wasapi",
                     "Un4seen.Bass"
                 }
             }
@@ -301,6 +335,10 @@ public sealed class ManagedDependencyOutputPolicyTests
                 Assert.IsTrue(target.TryGetProperty(packageId, out JsonElement dependency), $"Lock entry is missing: {packageId}");
                 Assert.AreEqual("Direct", dependency.GetProperty("type").GetString());
                 Assert.AreEqual(expectedVersions[packageId], dependency.GetProperty("resolved").GetString());
+                if (packageId.StartsWith("ManagedBass", StringComparison.Ordinal))
+                {
+                    Assert.AreEqual("[4.0.2, 4.0.2]", dependency.GetProperty("requested").GetString());
+                }
             }
         }
 

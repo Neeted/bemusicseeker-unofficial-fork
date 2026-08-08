@@ -102,6 +102,12 @@
     <PackageReference Include="NLog" />
     <PackageReference Include="System.Resources.Extensions" />
     <PackageReference Include="System.Configuration.ConfigurationManager" />
+    <PackageReference Include="ManagedBass" />
+    <PackageReference Include="ManagedBass.Mix" />
+    <PackageReference Include="ManagedBass.Fx" />
+    <PackageReference Include="ManagedBass.Enc" />
+    <PackageReference Include="ManagedBass.Asio" />
+    <PackageReference Include="ManagedBass.Wasapi" />
   </ItemGroup>
 
   <ItemGroup>

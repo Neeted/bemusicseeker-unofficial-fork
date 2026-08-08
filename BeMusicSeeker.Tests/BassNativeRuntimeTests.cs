@@ -109,6 +109,28 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
+    public void BassNet_CharacterizationBootstrapReusesNativeOwnershipWithoutRegistration()
+    {
+        for (int cycle = 0; cycle < 2; cycle++)
+        {
+            RibbitBassNet.InitializeWithoutWrapperRegistrationForCharacterization();
+            try
+            {
+                Assert.IsTrue(BassNativeRuntime.IsLoaded);
+                using BassAudioOperationLease operation = RibbitBassNet.EnterAudioOperation();
+                Assert.IsTrue(BassNativeRuntime.IsLoaded);
+                Assert.AreEqual(0x02041203, Bass.BASS_GetVersion());
+            }
+            finally
+            {
+                RibbitBassNet.Shutdown();
+            }
+
+            Assert.IsFalse(BassNativeRuntime.IsLoaded);
+        }
+    }
+
+    [TestMethod]
     public void BassNet_InitializationCoreOrdersRegistrationBeforeVersionValidation()
     {
         var events = new System.Collections.Generic.List<string>();

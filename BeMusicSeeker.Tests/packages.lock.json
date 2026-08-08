@@ -2,6 +2,57 @@
   "version": 2,
   "dependencies": {
     "net10.0-windows7.0": {
+      "ManagedBass": {
+        "type": "Direct",
+        "requested": "[4.0.2, 4.0.2]",
+        "resolved": "4.0.2",
+        "contentHash": "EzVnBGxqjSzRgLuo94Muauvk1SPwD3LOOHp+4c33iC1EBez+mDW71+gJL35E9V5U5Sb/WNeJxnzHtUNOeOfqdw=="
+      },
+      "ManagedBass.Asio": {
+        "type": "Direct",
+        "requested": "[4.0.2, 4.0.2]",
+        "resolved": "4.0.2",
+        "contentHash": "wf+TnwkXb4ho2gebkRe38nQZYrL8wR54SunVaXon6oOab1RyLJxmhPiyvFz/hPgNO5zvVroxlSlYeXLk4OE50A==",
+        "dependencies": {
+          "ManagedBass": "4.0.2"
+        }
+      },
+      "ManagedBass.Enc": {
+        "type": "Direct",
+        "requested": "[4.0.2, 4.0.2]",
+        "resolved": "4.0.2",
+        "contentHash": "kb5VIdvmGdmJ5UsUMnJwjiYkl95qSBZBvIZNBjb6zLWi2Or3P8aCIK+2mbTfg+XQY0/EL33TkVrhCtB0mZCdiQ==",
+        "dependencies": {
+          "ManagedBass": "4.0.2"
+        }
+      },
+      "ManagedBass.Fx": {
+        "type": "Direct",
+        "requested": "[4.0.2, 4.0.2]",
+        "resolved": "4.0.2",
+        "contentHash": "kG7pGxrICvytN3yXuM+z5CJqiEbGyGFndVyBax556rSW+vDyyZ8+UCShA8ampaqdoWoIj7K/seAOoe/r0Uen/w==",
+        "dependencies": {
+          "ManagedBass": "4.0.2"
+        }
+      },
+      "ManagedBass.Mix": {
+        "type": "Direct",
+        "requested": "[4.0.2, 4.0.2]",
+        "resolved": "4.0.2",
+        "contentHash": "LKhcTeFRFKKNntpCTrmYWBUeU3kyv/h6Z0iu3OxavnV0wkBmSXp2kyQKk9NLNO7oNMbwP1uNr5CKYYdY3vtfyw==",
+        "dependencies": {
+          "ManagedBass": "4.0.2"
+        }
+      },
+      "ManagedBass.Wasapi": {
+        "type": "Direct",
+        "requested": "[4.0.2, 4.0.2]",
+        "resolved": "4.0.2",
+        "contentHash": "1vX5LZBquYm08FHXQo+6f3HMKbHZqMVQ+NbhzzePP9ftXbgZvjSez6mNbtkdnfYc0a0IwVD0jQ/JJQctUH0gKw==",
+        "dependencies": {
+          "ManagedBass": "4.0.2"
+        }
+      },
       "Microsoft.NET.Test.Sdk": {
         "type": "Direct",
         "requested": "[18.8.1, )",
@@ -179,6 +230,12 @@
           "LivetCask.Core": "[4.0.2, )",
           "LivetCask.EventListeners": "[4.0.2, )",
           "LivetCask.Mvvm": "[4.0.2, )",
+          "ManagedBass": "[4.0.2, 4.0.2]",
+          "ManagedBass.Asio": "[4.0.2, 4.0.2]",
+          "ManagedBass.Enc": "[4.0.2, 4.0.2]",
+          "ManagedBass.Fx": "[4.0.2, 4.0.2]",
+          "ManagedBass.Mix": "[4.0.2, 4.0.2]",
+          "ManagedBass.Wasapi": "[4.0.2, 4.0.2]",
           "Microsoft.Xml.SgmlReader": "[1.8.30, )",
           "NLog": "[6.1.4, )",
           "NVorbis": "[0.10.5, )",

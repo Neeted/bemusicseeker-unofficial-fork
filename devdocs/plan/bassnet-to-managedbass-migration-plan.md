@@ -651,7 +651,7 @@ migration 前後で enum numeric values を比較する architecture test を追
 
 | Unit | Status | Commit | Progress Notes |
 | --- | --- | --- | --- |
-| Unit 0: Characterization and dependency foundation | Not started |  |  |
+| Unit 0: Characterization and dependency foundation | Passed; commit pending | pending | ManagedBass six packagesをexact `4.0.2`で同居。BASS.NET production route、native six-DLL layout、updater legacy cleanup entryは維持。characterization 11 testsとtransition-aware output policyを追加。初回 review の3件と、登録処理を介さない特性テスト用 bootstrap に関する追加 P2 は修正済み。fresh review は blocking finding なし。 |
 | Unit 1: ManagedBass native bootstrap and runtime owner | Not started |  |  |
 | Unit 2A: Backend, session, device and mixer migration | Not started |  |  |
 | Unit 2B: Player, stream, callback and effect migration | Not started |  |  |
@@ -672,7 +672,6 @@ BASS.NET をまだ production route として維持したまま、移行後に�
 - `packages.lock.json`
 - `BeMusicSeeker.Tests/packages.lock.json`
 - `BeMusicSeeker.Tests/*BassNetMigrationCharacterizationTests.cs` または責務別 test file
-- `BeMusicSeeker.Tests/*AudioEncoder*Tests.cs`
 - `devdocs/plan/bassnet-to-managedbass-migration-plan.md`
 
 ### Steps
@@ -711,7 +710,7 @@ BASS.NET をまだ production route として維持したまま、移行後に�
 ### Verification
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'BassNetMigrationCharacterizationTests|AudioEncoderCommandFactoryTests|AudioContractsTests|ManagedDependencyOutputPolicyTests|UpdaterDeploymentBoundaryTests|UpdaterPackageSyncTests'
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'BassNetMigrationCharacterizationTests|AudioContractsTests|ManagedDependencyOutputPolicyTests|UpdaterDeploymentBoundaryTests|UpdaterPackageSyncTests'
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ```
 
@@ -1340,6 +1339,19 @@ Codex は migration 中に key を decode / display せず、vendor account 操�
 | Unit | Check | Result | Duration / Count | Notes |
 | --- | --- | --- | --- | --- |
 | Planning | Repository inventory / license / API research | Passed | 2026-08-06 | ManagedBass `4.0.2` selected。BASS.NET `Misc` encoder gap identified。 |
+| Unit 0 | Clean baseline | Passed | 2026-08-08 | Branch `refactor`、開始 HEAD `dc3002801dd9`、worktree / index clean。 |
+| Unit 0 | ManagedBass package restore | Passed | restore 3.7s; locked restore 2.9s | Six direct packages resolved at exact `4.0.2`。Assets are managed `net8.0` assemblies (`ManagedBass*.dll`); no native BASS assets or `ManagedBass.Tags`。Package metadata identifies a MIT license file。 |
+| Unit 0 | Characterization Quick | Passed | 49.4s / 11 passed | `BassNetMigrationCharacterizationTests`; artifact `artifacts/verification/tests-quick-20260808-135508/functional/results.trx`。 |
+| Unit 0 | Related Quick | Passed | 30.7s / 52 total, 50 passed, 2 skipped | `BassNetMigrationCharacterizationTests|AudioContractsTests|ManagedDependencyOutputPolicyTests|UpdaterDeploymentBoundaryTests|UpdaterPackageSyncTests`; artifact `artifacts/verification/tests-quick-20260808-135602/functional/results.trx`。Skips are existing self-contained publish configuration and reparse-ancestor fixture conditions。 |
+| Unit 0 | Functional build and test | Passed | 132.7s / 803 passed | Build 0 errors。artifact root `artifacts/verification/tests-functional-20260808-135637/`。 |
+| Unit 0 | Whitespace verification | Passed | 21.3s | `dotnet format whitespace .\BeMusicSeeker.sln --no-restore --verify-no-changes`。 |
+| Unit 0 | Roslynator analysis | Not run: tool incompatible | 1.9s | Local `roslynator.dotnet.cli 0.12.0` cannot load `Microsoft.Build.Framework.FileUtilities` under SDK `10.0.302`。Compiler build and all required test lanes passed。 |
+| Unit 0 | Initial static review | Findings fixed | 2026-08-08 | `repo-static-review` reported P2 for non-exact package requests, missing Start/Stop characterization, and set-only enum assertions。Central exact ranges, lock-request assertions, no-device WAV Start/Stop, and named enum mappings were added。 |
+| Unit 0 | Corrective characterization Quick | Passed | 30.7s / 31 passed | `BassNetMigrationCharacterizationTests|BassNativeRuntimeTests`; artifact `artifacts/verification/tests-quick-20260808-141821/functional/results.trx`。Registration-free bootstrap lifecycle and existing production initialization tests passed。 |
+| Unit 0 | Related Quick after corrective seam | Passed | 23.8s / 41 total, 39 passed, 2 skipped | `AudioContractsTests|ManagedDependencyOutputPolicyTests|UpdaterDeploymentBoundaryTests|UpdaterPackageSyncTests`; artifact `artifacts/verification/tests-quick-20260808-142157/functional/results.trx`。Skips are existing self-contained publish configuration and reparse-ancestor fixture conditions。 |
+| Unit 0 | Functional build and test after corrective seam | Passed | 142.6s / 804 passed | Build 0 errors。command elapsed under the 180s acceptance limit。artifact root `artifacts/verification/tests-functional-20260808-142335/`。 |
+| Unit 0 | Corrective static review | Finding fixed | 2026-08-08 | `repo-static-review` identified that characterization tests directly entered the public legacy registration route。A private fixture now uses the internal registration-free bootstrap while reusing production native ownership and shutdown; public initialization remains unchanged。 |
+| Unit 0 | Fresh static review | Passed | 2026-08-08 | `repo-static-review` found no blocking P0/P1 or acceptance-blocking P2, no pre-existing/out-of-scope issue, and no recommendations。 |
 
 ## Completion Gate
 
