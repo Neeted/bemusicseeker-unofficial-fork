@@ -655,7 +655,7 @@ migration 前後で enum numeric values を比較する architecture test を追
 | Unit 1: ManagedBass native bootstrap and runtime owner | Passed | `68c0175f` | Exact-handle resolver、ManagedBass version validation、wrapper-neutral runtime rename、legacy registration orderingを実装。CLR の cached P/Invoke pointer を安全に保持するため、成功済み native generation を process lifetime pin とし、shutdown は logical active publication の解除へ補正。初回 Functional の native access violation をこの invariant で修正。補正 Functional は 812 tests passed。静的 review の P2（旧 unload 説明）は周辺 code/spec/plan まで修正し、final fresh review は blocking finding なし。 |
 | Unit 2A: Backend, session, device and mixer migration | Passed | `fd5e880f` | ManagedBass backend/session/device/mixer route、enumeration error boundary、runtime cleanup correctionを実装。関連 Quick と Functional は成功し、fresh static review は blocking finding なし。 |
 | Unit 2B: Player, stream, callback and effect migration | Passed | `ca00a0e9` | `BassAudioPlayer` の stream／callback／tempo／effect を ManagedBass へ移行。32 effect inventory と custom native ABI adapter、legacy effect defaults、memory WAV／OGG、natural-end／ownership testsを追加。fresh static review は blocking finding なし。 |
-| Unit 3: Encoder and metadata migration | Not started |  |  |
+| Unit 3: Encoder and metadata migration | In progress (Unit 3A passed) | `1b743e6f` | Unit 3A の command／metadata／lifecycle／cleanup ownership を完了。Unit 3B の pull rendering、early exit、conversion integration が残る。 |
 | Unit 4: BASS.NET retirement, compliance and publish acceptance | Not started |  |  |
 
 ## Unit 0: Characterization and dependency foundation
@@ -997,6 +997,15 @@ Filter 名は実在 test class / trait に合わせて planner が確定し、�
 ### Intent
 
 BASS.NET `Misc` helper と `TAG_INFO` を project-owned model/lifecycle へ置換し、six output format を ManagedBass.Enc で維持する。
+
+### 実行分割
+
+unit-planner の再評価により、Unit 3 は次の reviewable unit へ分割して実行する。
+
+- **Unit 3A: encoder command、metadata、encoder lifecycle、writer cleanup ownership** — 完了。`AudioEncoderCommandFactory`、`AudioTagInfo`、`AudioEncoderSession` と writer／conversion workflow の境界を実装する。
+- **Unit 3B: pull-driven render、partial read／early exit、ManagedBass core conversion cleanup** — 未完了。Unit 3A の session boundary を使用して実装する。
+
+したがって Unit 3A の commit は buildable な中間 snapshot だが、Unit 3 全体および migration 全体の完了を意味しない。
 
 ### Planned paths
 
@@ -1402,6 +1411,17 @@ Codex は migration 中に key を decode / display せず、vendor account 操�
 | Unit 2B | Final fresh static review | Passed | 2026-08-08 | 前回の acceptance-direct P2（legacy effect defaults）を修正した snapshot を再確認。`repo-static-review` は blocking finding、pre-existing/out-of-scope、recommendationなし。 |
 | Unit 2A | Local implementation commit | Passed | `fd5e880f` | `refactor(audio): migrate audio backends to ManagedBass`。 |
 | Unit 2B | Local implementation commit | Passed | `ca00a0e9` | `refactor(audio): migrate audio player effects to ManagedBass`。 |
+| Unit 3A | Planner split | Passed | 2026-08-08 | `unit-planner` により encoder command／metadata／lifecycle／writer cleanup ownership と、pull-driven render／conversion integration を 3A／3B へ分割。3B は未完了。 |
+| Unit 3A | Related Quick before final review | Passed | 66.7s / 24 passed | command factory、encoder session、characterization、WAV writer。artifact `artifacts/verification/tests-quick-20260808-225504/functional/results.trx`。 |
+| Unit 3A | Functional before final review | Passed | 139.9s / 818 passed | Build 0 errors、command elapsed は180秒以内。artifact root `artifacts/verification/tests-functional-20260808-225812/`。 |
+| Unit 3A | Review-correction Quick | Passed | 70.2s / 35 passed | cleanup failure の session lease 保持／retry と `AudioEncoderSession.Dispose` failure retention を追加。artifact `artifacts/verification/tests-quick-20260808-231214/functional/results.trx`。 |
+| Unit 3A | Static review correction | Fixed | 2026-08-08 | review の acceptance-direct P2（encoder cleanup failure branch の behavior coverage）を delegate cleanup seam、workflow retry test、Dispose retry testで修正。 |
+| Unit 3A | Shutdown-order correction Quick | Passed | 31.3s / 35 passed | operation lease を encoder cleanup 完了まで保持する P1 を修正。artifact `artifacts/verification/tests-quick-20260808-232210/functional/results.trx`。 |
+| Unit 3A | Operation-order correction Quick | Passed | 69.4s / 36 passed | `operationEntered: true` の gate testを追加し、encoder中のexclusive遷移拒否とsession前のlease解放を固定。artifact `artifacts/verification/tests-quick-20260808-233311/functional/results.trx`。 |
+| Unit 3A | Final fresh static review | Passed | 2026-08-08 | 13変更ファイルと failure／cleanup path を確認。blocking finding、pre-existing/out-of-scope、recommendationなし。 |
+| Unit 3A | Final Functional | Passed | 140.4s / 818 passed | P1修正後。Build 0 errors、command elapsed は180秒以内、tracked tree fingerprint unchanged。artifact root `artifacts/verification/tests-functional-20260808-233934/`。 |
+| Unit 3A | Whitespace verification | Passed | 22.2s | `dotnet format whitespace .\BeMusicSeeker.sln --no-restore --verify-no-changes` と `git diff --check`。 |
+| Unit 3A | Local implementation commit | Passed | `1b743e6f` | `refactor(audio): replace BASS.NET encoder helpers`。Unit 3B は次 unit として継続。 |
 
 ## Completion Gate
 
