@@ -102,7 +102,7 @@ WASAPI の engine mixer は Float32 のままとする。engine format と endpo
 
 共有モードのアプリ音量は、BASS Float32 mixer に対する gain とする。コールバックが decode data を消費するため、この gain は再生専用の `BASS_ATTRIB_VOL` channel attribute ではなく、同梱の `BASS_FX_BFX_VOLUME` mixer effect で実装する。初期 mixer gain と、セッション所有のコールバック source handle は `BASS_WASAPI_Start` より前に publish する。ASIO でも同じく `BASS_ASIO_ChannelEnable` より前に publish する。tempo graph を変更するときは、以前の stream を解放する前に、置換後の callback source を原子的に publish し、解放を確認できない場合は以前の source へ戻す。WASAPI と ASIO の callback は static mixer 変数を読まず、`BassAudioSession.CallbackOutputHandle` だけを読む。
 
-共有モードと排他モードの初期化には別々の managed boundary を使用する。共有モードは sample-format 引数を持たない Bass.Net overload を呼び、`BASS_WASAPI_EXCLUSIVE` および `BASS_WASAPI_AUTOFORMAT` を決して渡さない。同梱の explicit-format overload は `BASS_WASAPI_EXCLUSIVE` を注入するため、明示的な排他経路だけで使用する。共有要求に排他的な endpoint format を埋め込まず、`WASAPIPROC` と decode mixer は Float32 のままとする。
+共有モードと排他モードの初期化には別々の managed boundary を使用する。共有モードは ManagedBass の `BassWasapi.Init` に `WasapiInitFlags.Exclusive` を渡さず、event／non-event に応じて `WasapiInitFlags.EventDriven` または `WasapiInitFlags.Shared` を指定し、buffer／period は `0` としてネイティブ既定値に委ねる。排他モードは `WasapiInitFlags.Exclusive | WasapiInitFlags.AutoFormat`（event 時は `WasapiInitFlags.EventDriven` も追加）と、候補の buffer／period を渡す。共有要求に排他的な endpoint format を埋め込まず、`WASAPIPROC` と decode mixer は Float32 のままとする。
 
 正しい共有ストリームでは、Windows が共有セッションの音量とミュートを所有し、自動的に適用する。初期化処理はこれらの値を読み取って書き戻さない。動的なアプリ音量は mixer のみに適用し、Windows のアプリ別音量スカラーおよびミュートと合成される。排他モードは、この Windows セッション制御契約の対象外である。
 
@@ -157,6 +157,20 @@ runtime admission が閉じている、shutdown 中、または cleanup quaranti
 自然終了 callback は session が所有する stream owner から player instance を解決し、例外を callback の外へ投げない。各再生世代は `BASS_SYNC_ONETIME` と世代番号で識別し、古い callback または古い pending cleanup が新しい再生を停止させてはならない。instance lock を取得できない場合は、世代番号を単一の atomic pending state として記録し、古い callback が新しい世代の pending cleanup を上書きしてはならない。次の Play、Pause、Stop、Dispose では current generation に一致する pending cleanup だけを再試行する。`Play` は `RESTART`、`PAUSE`、`DEFAULT` のフラグにかかわらず新しい論理再生世代を開始し、旧 end sync と旧 pending cleanup を無効化してから新しい end sync を登録する。自然終了位置は duration のまま保持する。Dispose は mixer lifecycle lock を保持して stream free より前に mixer 所属解除を試み、`ConfirmNativeStreamReleased` で session ownership、pending cleanup、voice count を解消する。Dispose と Play の競合はこの同じ instance 境界で直列化し、解放確認済みの handle を後続の Play が再利用してはならない。
 
 再生操作の native failure は `BassAudioPlaybackException` として stage、source handle、expected／actual mixer、native error source／code、backend、session state、core device、inner exception を保持し、失敗時だけ `NLogWrapper` へ記録する。source tracking が失敗した場合は session の cleanup ownership を再取得し、解放確認できるまで handle と managed owner を保持する。`BASS_STREAM_AUTOFREE` によって session ownership を native の非同期解放へ移してはならない。
+
+### 10.1.1 ManagedBass の player、callback、tempo、effect 境界
+
+`BassAudioPlayer` の core stream、memory／file stream、position、length、seconds／bytes 変換、data pull、attribute、playback、end sync は ManagedBass 4.0.2 の API を使用する。memory stream の `FileProcedures` は player が強参照を保持し、read／seek callback の引数順と、EOF 位置への seek を含む native callback contract を守る。stream handle は player と session が明示的に所有し、`AutoFree` や非同期の自動解放へ所有権を移さない。
+
+tempo graph は `BassFx.TempoCreate` と ManagedBass の tempo attributes で構成する。tempo stream の置換、mixer attach、callback source の publish、旧 stream の解放確認は既存の session ownership と同じ境界で直列化する。ASIO／WASAPI callback は引き続き `BassAudioSession.CallbackOutputHandle` だけを読み、player や static field から mixer handle を推測しない。
+
+effect の supported set は DX8 9 種と BASS_FX 23 種の合計 32 種を維持する。persisted／application enum は ManagedBass の numeric value と共有せず、明示的な catalog mapping で `EffectType` へ変換する。ManagedBass の `IEffectParameter` が提供する型はその marshaller を使用し、native pointer を含む BASS_FX parameter は call-duration の unmanaged block と pinned array を owner-local adapter で管理して `FXSetParameters`／`FXGetParameters` に渡す。volume effect と peak EQ はこの同じ境界で初期化・更新し、parameter failure は native error と stage を記録して隠さない。
+
+ManagedBass の `PitchShiftParameters` は FFT／oversampling が 64-bit で定義されているため使用せず、BASS_FX の legacy ABI に合わせた 32-bit の owner-local adapter を使用する。これにより pitch shift の native block は 5 フィールド、20 bytes の layout を維持する。
+
+volume-envelope の `FXGetParameters` は、返された node count と pointer の整合性、および native block の checked byte span を検証してから全 node を直ちに managed state へコピーする。既存の managed 配列長で結果を切り捨てず、負数、過大 count、non-zero count と null pointer の組み合わせは成功扱いにしない。pointer lease の pin ownership は call boundary 内の一主体だけが持ち、lease 作成失敗または cleanup 失敗で主例外を置き換えない。
+
+この段階では offline encoder／metadata helper と legacy wrapper registration がまだ残るため、BASS.NET の managed package と registration stage は Unit 3／4 の完了まで依存関係から除去しない。再生、backend、session、mixer、device-test の production route からは BASS.NET API を使用しない。
 
 ### 10.2 デバイステストの playback failure boundary
 

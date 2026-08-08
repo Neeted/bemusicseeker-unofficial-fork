@@ -9,16 +9,13 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
 using NVorbis;
+using ManagedBass;
+using ManagedBass.Fx;
+using ManagedBass.Mix;
 using Ribbit.Cryptography;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
 using Ribbit.Util;
-using Un4seen.Bass;
-using Un4seen.Bass.AddOn.Enc;
-using Un4seen.Bass.AddOn.Fx;
-using Un4seen.Bass.AddOn.Mix;
-using Un4seen.BassAsio;
-using Un4seen.BassWasapi;
 
 namespace Ribbit.Media;
 
@@ -82,17 +79,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     protected static int equalizer;
 
-    private static readonly WASAPIPROC WasapiProc;
+    private static readonly ManagedBass.Wasapi.WasapiProcedure WasapiProc;
 
-    private static readonly ASIOPROC AsioProc;
+    private static readonly ManagedBass.Asio.AsioProcedure AsioProc;
 
-    private static readonly SYNCPROC EndProc;
+    private static readonly SyncProcedure EndProc;
 
     private static float playbackRate;
 
-    private static readonly ReadOnlyDictionary<Type, BASSFXType> FxParameterTypeToBASSFXType;
-
-    private static readonly ConcurrentDictionary<BASSFXType, Tuple<int, object>> FxParameters;
+    private static readonly ConcurrentDictionary<BassAudioEffectType, Tuple<int, IEffectParameter>> FxParameters;
 
     public static readonly ReadOnlyCollection<float> EqualizerFrequencies;
 
@@ -126,7 +121,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private int _sampleBufferPos;
 
-    private readonly BASS_FILEPROCS fileProc;
+    private readonly FileProcedures fileProc;
 
     private PlayState playState;
 
@@ -322,17 +317,17 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             using BassAudioOperationLease operation =
                 Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
-            long pos = Bass.BASS_ChannelGetPosition(_handle);
-            return TimeSpan.FromSeconds(Bass.BASS_ChannelBytes2Seconds(_handle, pos));
+            long pos = Bass.ChannelGetPosition(_handle, PositionFlags.Bytes);
+            return TimeSpan.FromSeconds(Bass.ChannelBytes2Seconds(_handle, pos));
         }
         set
         {
             using BassAudioOperationLease operation =
                 Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
-            long pos = Bass.BASS_ChannelSeconds2Bytes(_handle, value.TotalSeconds);
+            long pos = Bass.ChannelSeconds2Bytes(_handle, value.TotalSeconds);
             if (pos < 0)
             {
-                BASSError error = Bass.BASS_ErrorGetCode();
+                Errors error = Bass.LastError;
                 throw CreatePlaybackException(
                     BassAudioPlaybackStage.SetPosition,
                     FileName,
@@ -385,7 +380,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     using BassAudioOperationLease operation =
                         Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
-                    Bass.BASS_ChannelSetAttribute(_handle, BASSAttribute.BASS_ATTRIB_VOL, value);
+                    Bass.ChannelSetAttribute(_handle, ChannelAttribute.Volume, value);
                 }
             }
         }
@@ -407,13 +402,13 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     prevVolume = Volume;
                     using BassAudioOperationLease operation =
                         Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
-                    Bass.BASS_ChannelSetAttribute(_handle, BASSAttribute.BASS_ATTRIB_VOL, 0f);
+                    Bass.ChannelSetAttribute(_handle, ChannelAttribute.Volume, 0f);
                 }
                 else
                 {
                     using BassAudioOperationLease operation =
                         Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
-                    Bass.BASS_ChannelSetAttribute(_handle, BASSAttribute.BASS_ATTRIB_VOL, prevVolume);
+                    Bass.ChannelSetAttribute(_handle, ChannelAttribute.Volume, prevVolume);
                 }
             }
         }
@@ -657,7 +652,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             "attemptedBackend=" + DescribeBackendForDiagnostics(backend)
                             + " stage=" + contextual.Stage
                             + " nativeErrorSource=" + contextual.NativeErrorSource
-                            + " nativeErrorCode=" + contextual.NativeErrorCode);
+                            + " nativeErrorCode="
+                            + Ribbit.Media.Audio.BassNativeErrorFormatter.Format(
+                                contextual.NativeErrorCode));
                         TryLogInitializationAttemptFailure(
                             driver,
                             backend,
@@ -711,7 +708,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 + " stage=" + exception.Stage
                 + " actualDevice=" + DescribeDevice(exception.ActualDevice)
                 + " nativeErrorSource=" + exception.NativeErrorSource
-                + " nativeErrorCode=" + exception.NativeErrorCode
+                + " nativeErrorCode="
+                + Ribbit.Media.Audio.BassNativeErrorFormatter.Format(exception.NativeErrorCode)
                 + " " + GetRuntimeVersionDiagnostics()
                 + " error=" + exception.Message);
         }
@@ -966,18 +964,18 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
 
         string source;
-        BASSError? error;
+        ManagedBass.Errors error;
         if (initializationStage.StartsWith("BASS_ASIO", StringComparison.Ordinal))
         {
             source = "BASSASIO";
-            error = BassAsio.BASS_ASIO_ErrorGetCode();
+            error = ManagedBass.Asio.BassAsio.LastError;
         }
         else
         {
             source = initializationStage.StartsWith("BASS_WASAPI", StringComparison.Ordinal)
                 ? "BASSWASAPI/BASS_ErrorGetCode"
                 : "BASS";
-            error = Bass.BASS_ErrorGetCode();
+            error = ManagedBass.Bass.LastError;
         }
 
         return new AudioInitializationException(
@@ -1042,140 +1040,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             }
         };
         playbackRate = 1f;
-#pragma warning disable CS0618
-        FxParameterTypeToBASSFXType = new ReadOnlyDictionary<Type, BASSFXType>(new Dictionary<Type, BASSFXType>
-        {
-            {
-                typeof(BASS_DX8_CHORUS),
-                BASSFXType.BASS_FX_DX8_CHORUS
-            },
-            {
-                typeof(BASS_DX8_COMPRESSOR),
-                BASSFXType.BASS_FX_DX8_COMPRESSOR
-            },
-            {
-                typeof(BASS_DX8_DISTORTION),
-                BASSFXType.BASS_FX_DX8_DISTORTION
-            },
-            {
-                typeof(BASS_DX8_ECHO),
-                BASSFXType.BASS_FX_DX8_ECHO
-            },
-            {
-                typeof(BASS_DX8_FLANGER),
-                BASSFXType.BASS_FX_DX8_FLANGER
-            },
-            {
-                typeof(BASS_DX8_GARGLE),
-                BASSFXType.BASS_FX_DX8_GARGLE
-            },
-            {
-                typeof(BASS_DX8_I3DL2REVERB),
-                BASSFXType.BASS_FX_DX8_I3DL2REVERB
-            },
-            {
-                typeof(BASS_DX8_PARAMEQ),
-                BASSFXType.BASS_FX_DX8_PARAMEQ
-            },
-            {
-                typeof(BASS_DX8_REVERB),
-                BASSFXType.BASS_FX_DX8_REVERB
-            },
-            {
-                typeof(BASS_BFX_ROTATE),
-                BASSFXType.BASS_FX_BFX_ROTATE
-            },
-            {
-                typeof(BASS_BFX_ECHO),
-                BASSFXType.BASS_FX_BFX_ECHO
-            },
-            {
-                typeof(BASS_BFX_FLANGER),
-                BASSFXType.BASS_FX_BFX_FLANGER
-            },
-            {
-                typeof(BASS_BFX_VOLUME),
-                BASSFXType.BASS_FX_BFX_VOLUME
-            },
-            {
-                typeof(BASS_BFX_PEAKEQ),
-                BASSFXType.BASS_FX_BFX_PEAKEQ
-            },
-            {
-                typeof(BASS_BFX_REVERB),
-                BASSFXType.BASS_FX_BFX_REVERB
-            },
-            {
-                typeof(BASS_BFX_LPF),
-                BASSFXType.BASS_FX_BFX_LPF
-            },
-            {
-                typeof(BASS_BFX_MIX),
-                BASSFXType.BASS_FX_BFX_MIX
-            },
-            {
-                typeof(BASS_BFX_DAMP),
-                BASSFXType.BASS_FX_BFX_DAMP
-            },
-            {
-                typeof(BASS_BFX_AUTOWAH),
-                BASSFXType.BASS_FX_BFX_AUTOWAH
-            },
-            {
-                typeof(BASS_BFX_ECHO2),
-                BASSFXType.BASS_FX_BFX_ECHO2
-            },
-            {
-                typeof(BASS_BFX_PHASER),
-                BASSFXType.BASS_FX_BFX_PHASER
-            },
-            {
-                typeof(BASS_BFX_ECHO3),
-                BASSFXType.BASS_FX_BFX_ECHO3
-            },
-            {
-                typeof(BASS_BFX_CHORUS),
-                BASSFXType.BASS_FX_BFX_CHORUS
-            },
-            {
-                typeof(BASS_BFX_APF),
-                BASSFXType.BASS_FX_BFX_APF
-            },
-            {
-                typeof(BASS_BFX_COMPRESSOR),
-                BASSFXType.BASS_FX_BFX_COMPRESSOR
-            },
-            {
-                typeof(BASS_BFX_DISTORTION),
-                BASSFXType.BASS_FX_BFX_DISTORTION
-            },
-            {
-                typeof(BASS_BFX_COMPRESSOR2),
-                BASSFXType.BASS_FX_BFX_COMPRESSOR2
-            },
-            {
-                typeof(BASS_BFX_VOLUME_ENV),
-                BASSFXType.BASS_FX_BFX_VOLUME_ENV
-            },
-            {
-                typeof(BASS_BFX_BQF),
-                BASSFXType.BASS_FX_BFX_BQF
-            },
-            {
-                typeof(BASS_BFX_ECHO4),
-                BASSFXType.BASS_FX_BFX_ECHO4
-            },
-            {
-                typeof(BASS_BFX_PITCHSHIFT),
-                BASSFXType.BASS_FX_BFX_PITCHSHIFT
-            },
-            {
-                typeof(BASS_BFX_FREEVERB),
-                BASSFXType.BASS_FX_BFX_FREEVERB
-            }
-        });
-#pragma warning restore CS0618
-        FxParameters = new ConcurrentDictionary<BASSFXType, Tuple<int, object>>();
+        FxParameters = new ConcurrentDictionary<BassAudioEffectType, Tuple<int, IEffectParameter>>();
         EqualizerFrequencies = new List<float> { 32f, 64f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f }.AsReadOnly();
         equalizerGains = new float[10].ToList();
         DriverType = DeviceDriver.INVALID;
@@ -1239,7 +1104,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         Latency = result.LatencyMilliseconds;
         if (!isSharedMode)
         {
-            volumeEffect = Bass.BASS_ChannelSetFX(inputMixer, BASSFXType.BASS_FX_BFX_VOLUME, 1);
+            volumeEffect = Bass.ChannelSetFX(inputMixer, EffectType.VolumeBfx, 1);
             CurrentSession.VolumeEffectHandle = volumeEffect;
         }
         return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
@@ -1256,25 +1121,25 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             requestedFormat,
             latencyParam);
         initializationStage = "BASS_Init";
-        if (!Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
+        if (!Bass.Init(0, 44100, DeviceInitFlags.Default, IntPtr.Zero, IntPtr.Zero))
         {
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_Init failed: " + bASSError);
+            Errors error = Bass.LastError;
+            throw new Exception("BASS_Init failed: " + BassNativeErrorFormatter.Format(error));
         }
         CurrentSession.CoreInitialized = true;
-        CurrentSession.CoreDeviceIndex = Bass.BASS_GetDevice();
+        CurrentSession.CoreDeviceIndex = Bass.CurrentDevice;
         Frequency = ((Frequency == SampleRate.AUTO) ? SampleRate.SAMPLE_RATE_44100Hz : Frequency);
         Format = ((Format == SampleFormat.AUTO) ? SampleFormat.SAMPLE_INT_16BIT : Format);
         Latency = 0.0;
-        BASSFlag flags = BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE;
+        BassFlags flags = BassFlags.Float | BassFlags.Prescan | BassFlags.Decode;
         initializationStage = "BASS_Mixer_StreamCreate";
-        inputMixer = BassMix.BASS_Mixer_StreamCreate((int)Frequency, 2, flags);
+        inputMixer = BassMix.CreateMixerStream((int)Frequency, 2, flags);
         if (inputMixer == 0)
         {
-            BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-            throw new Exception("BASS_Mixer_StreamCreate failed: " + bASSError2);
+            Errors error = Bass.LastError;
+            throw new Exception("BASS_Mixer_StreamCreate failed: " + BassNativeErrorFormatter.Format(error));
         }
-        volumeEffect = Bass.BASS_ChannelSetFX(inputMixer, BASSFXType.BASS_FX_BFX_VOLUME, 1);
+        volumeEffect = Bass.ChannelSetFX(inputMixer, EffectType.VolumeBfx, 1);
         CurrentSession.VolumeEffectHandle = volumeEffect;
         outputMixer = inputMixer;
         CurrentSession.MixerHandle = inputMixer;
@@ -1333,36 +1198,36 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
         if (tempoChanger == 0)
         {
-            BASSFlag flags = BASSFlag.BASS_STREAM_DECODE;
+            BassFlags flags = BassFlags.Decode;
             switch (DriverType)
             {
                 case DeviceDriver.NULL_DEVICE:
                 case DeviceDriver.WASAPI_SHARED:
                 case DeviceDriver.WASAPI_EXCLUSIVE:
                 case DeviceDriver.ASIO:
-                    outputMixer = (tempoChanger = BassFx.BASS_FX_TempoCreate(inputMixer, flags));
+                    outputMixer = (tempoChanger = BassFx.TempoCreate(inputMixer, flags));
                     if (outputMixer == 0)
                     {
-                        BASSError bASSError4 = Bass.BASS_ErrorGetCode();
-                        throw new Exception("BASS_FX_TempoCreate failed: " + bASSError4);
+                        Errors error = Bass.LastError;
+                        throw new Exception("BASS_FX_TempoCreate failed: " + BassNativeErrorFormatter.Format(error));
                     }
                     CurrentSession.TrackOutputHandle(outputMixer);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException();
             }
-            Bass.BASS_ChannelSetAttribute(tempoChanger, BASSAttribute.BASS_ATTRIB_TEMPO_OPTION_SEQUENCE_MS, 33f);
-            Bass.BASS_ChannelSetAttribute(tempoChanger, BASSAttribute.BASS_ATTRIB_TEMPO_OPTION_SEEKWINDOW_MS, 10f);
+            Bass.ChannelSetAttribute(tempoChanger, ChannelAttribute.TempoSequenceMilliseconds, 33f);
+            Bass.ChannelSetAttribute(tempoChanger, ChannelAttribute.TempoSeekWindowMilliseconds, 10f);
         }
         if (changeFreq)
         {
-            float value = -1f;
-            Bass.BASS_ChannelGetAttribute(inputMixer, BASSAttribute.BASS_ATTRIB_FREQ, ref value);
-            Bass.BASS_ChannelSetAttribute(tempoChanger, BASSAttribute.BASS_ATTRIB_TEMPO_FREQ, speed * value);
+            float value;
+            Bass.ChannelGetAttribute(inputMixer, ChannelAttribute.Frequency, out value);
+            Bass.ChannelSetAttribute(tempoChanger, ChannelAttribute.TempoFrequency, speed * value);
         }
         else
         {
-            Bass.BASS_ChannelSetAttribute(tempoChanger, BASSAttribute.BASS_ATTRIB_TEMPO, 100f * (speed - 1f));
+            Bass.ChannelSetAttribute(tempoChanger, ChannelAttribute.Tempo, 100f * (speed - 1f));
         }
         playbackRate = speed;
     }
@@ -1424,14 +1289,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             return true;
         }
-        if (Bass.BASS_StreamFree(handle))
+        if (Bass.StreamFree(handle))
         {
             CurrentSession.ConfirmStreamReleased(handle);
             return true;
         }
 
-        BASSError error = Bass.BASS_ErrorGetCode();
-        if (error == BASSError.BASS_ERROR_INIT)
+        Errors error = Bass.LastError;
+        if (error == Errors.Init)
         {
             TryLogAudioSessionDebug(
                 operation + " returned BASS_ERROR_INIT and was treated as already released.");
@@ -1439,7 +1304,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             return true;
         }
 
-        TryLogAudioSessionWarning(operation + " failed: " + error);
+        TryLogAudioSessionWarning(
+            operation + " failed: " + BassNativeErrorFormatter.Format(error));
         return false;
     }
 
@@ -1502,7 +1368,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
     }
 
-    public static void CreateFX(object parameter)
+    internal static void CreateFX(IEffectParameter parameter)
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -1510,138 +1376,154 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             return;
         }
-        if (parameter == null)
-        {
-            throw new ArgumentNullException("parameter");
-        }
-        if (!FxParameterTypeToBASSFXType.TryGetValue(parameter.GetType(), out BASSFXType value))
+        ArgumentNullException.ThrowIfNull(parameter);
+        BassAudioEffectDefinition definition = BassAudioEffectCatalog.Definitions
+            .FirstOrDefault(candidate => candidate.ParameterType == parameter.GetType());
+        if (definition is null)
         {
             return;
         }
-        if (FxParameters.TryGetValue(value, out Tuple<int, object> value2) && value2.Item1 != 0)
+        BassAudioEffectType effectType = definition.Type;
+        if (FxParameters.TryGetValue(
+                effectType,
+                out Tuple<int, IEffectParameter> value)
+            && value.Item1 != 0)
         {
-            FxParameters[value] = new Tuple<int, object>(value2.Item1, parameter);
-            if (!Bass.BASS_FXSetParameters(value2.Item1, parameter))
+            FxParameters[effectType] = new Tuple<int, IEffectParameter>(value.Item1, parameter);
+            if (!BassAudioEffectCatalog.SetParameters(value.Item1, parameter))
             {
-                BASSError bASSError = Bass.BASS_ErrorGetCode();
-                NLogWrapper.TraceLogger?.Warn("BASS_FXSetParameters failed: " + bASSError);
+                LogEffectFailure("Bass.FXSetParameters", Bass.LastError);
             }
         }
         else
         {
-            value2 = new Tuple<int, object>(0, parameter);
-            FxParameters[value] = value2;
+            FxParameters[effectType] = new Tuple<int, IEffectParameter>(0, parameter);
         }
     }
 
-    public static void RemoveFX(BASSFXType fxType)
+    internal static void RemoveFX(BassAudioEffectType fxType)
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
-        if (IsInitialized && FxParameters.TryRemove(fxType, out Tuple<int, object> value) && value.Item1 != 0 && !Bass.BASS_ChannelRemoveFX(inputMixer, value.Item1))
+        if (IsInitialized
+            && FxParameters.TryRemove(
+                fxType,
+                out Tuple<int, IEffectParameter> value)
+            && value.Item1 != 0
+            && !Bass.ChannelRemoveFX(inputMixer, value.Item1))
         {
-            BASSError bASSError = Bass.BASS_ErrorGetCode();
-            NLogWrapper.TraceLogger?.Warn("BASS_ChannelRemoveFX failed: " + bASSError);
+            LogEffectFailure("Bass.ChannelRemoveFX", Bass.LastError);
         }
     }
 
-    public static void RemoveFX()
+    internal static void RemoveFX()
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized)
         {
-            KeyValuePair<BASSFXType, Tuple<int, object>>[] array = [.. FxParameters];
-            foreach (KeyValuePair<BASSFXType, Tuple<int, object>> keyValuePair in array)
+            KeyValuePair<BassAudioEffectType, Tuple<int, IEffectParameter>>[] array = [.. FxParameters];
+            foreach (KeyValuePair<BassAudioEffectType, Tuple<int, IEffectParameter>> keyValuePair in array)
             {
                 RemoveFX(keyValuePair.Key);
             }
         }
     }
 
-    public static void DisableFX(BASSFXType fxType)
+    internal static void DisableFX(BassAudioEffectType fxType)
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
-        if (IsInitialized && FxParameters.TryGetValue(fxType, out Tuple<int, object> value) && value.Item1 != 0)
+        if (IsInitialized
+            && FxParameters.TryGetValue(
+                fxType,
+                out Tuple<int, IEffectParameter> value)
+            && value.Item1 != 0)
         {
-            if (!Bass.BASS_ChannelRemoveFX(inputMixer, value.Item1))
+            if (!Bass.ChannelRemoveFX(inputMixer, value.Item1))
             {
-                BASSError bASSError = Bass.BASS_ErrorGetCode();
-                NLogWrapper.TraceLogger?.Warn("BASS_ChannelRemoveFX failed: " + bASSError);
+                LogEffectFailure("Bass.ChannelRemoveFX", Bass.LastError);
             }
             else
             {
-                value = new Tuple<int, object>(0, value.Item2);
+                value = new Tuple<int, IEffectParameter>(0, value.Item2);
                 FxParameters[fxType] = value;
             }
         }
     }
 
-    public static void DisableFX()
+    internal static void DisableFX()
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized)
         {
-            KeyValuePair<BASSFXType, Tuple<int, object>>[] array = [.. FxParameters];
-            foreach (KeyValuePair<BASSFXType, Tuple<int, object>> keyValuePair in array)
+            KeyValuePair<BassAudioEffectType, Tuple<int, IEffectParameter>>[] array = [.. FxParameters];
+            foreach (KeyValuePair<BassAudioEffectType, Tuple<int, IEffectParameter>> keyValuePair in array)
             {
                 DisableFX(keyValuePair.Key);
             }
         }
     }
 
-    public static void EnableFX(BASSFXType fxType)
+    internal static void EnableFX(BassAudioEffectType fxType)
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
-        if (IsInitialized && FxParameters.TryGetValue(fxType, out Tuple<int, object> value) && value.Item1 == 0)
+        if (IsInitialized
+            && FxParameters.TryGetValue(
+                fxType,
+                out Tuple<int, IEffectParameter> value)
+            && value.Item1 == 0)
         {
-            value = new Tuple<int, object>(Bass.BASS_ChannelSetFX(inputMixer, fxType, 0), value.Item2);
-            if (value.Item1 == 0)
+            int effectHandle = BassAudioEffectCatalog.ChannelSetFX(inputMixer, fxType, 0);
+            if (effectHandle == 0)
             {
-                BASSError bASSError = Bass.BASS_ErrorGetCode();
-                NLogWrapper.TraceLogger?.Warn("BASS_ChannelSetFX failed: " + bASSError);
+                LogEffectFailure("Bass.ChannelSetFX", Bass.LastError);
             }
             else
             {
+                value = new Tuple<int, IEffectParameter>(effectHandle, value.Item2);
                 FxParameters[fxType] = value;
-                Bass.BASS_FXSetParameters(value.Item1, value.Item2);
+                if (!BassAudioEffectCatalog.SetParameters(value.Item1, value.Item2))
+                {
+                    LogEffectFailure("Bass.FXSetParameters", Bass.LastError);
+                }
             }
         }
     }
 
-    public static void EnableFX()
+    internal static void EnableFX()
     {
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized)
         {
-            KeyValuePair<BASSFXType, Tuple<int, object>>[] array = [.. FxParameters];
-            foreach (KeyValuePair<BASSFXType, Tuple<int, object>> keyValuePair in array)
+            KeyValuePair<BassAudioEffectType, Tuple<int, IEffectParameter>>[] array = [.. FxParameters];
+            foreach (KeyValuePair<BassAudioEffectType, Tuple<int, IEffectParameter>> keyValuePair in array)
             {
                 EnableFX(keyValuePair.Key);
             }
         }
     }
 
-    public static bool FXCreated(BASSFXType fxType)
+    internal static bool FXCreated(BassAudioEffectType fxType)
     {
-        if (FxParameters.TryGetValue(fxType, out Tuple<int, object> _))
-        {
-            return true;
-        }
-        return false;
+        return FxParameters.ContainsKey(fxType);
     }
 
-    public static bool FXEnabled(BASSFXType fxType)
+    internal static bool FXEnabled(BassAudioEffectType fxType)
     {
-        if (FxParameters.TryGetValue(fxType, out Tuple<int, object> value) && value.Item1 != 0)
-        {
-            return true;
-        }
-        return false;
+        return FxParameters.TryGetValue(
+            fxType,
+            out Tuple<int, IEffectParameter> value)
+            && value.Item1 != 0;
+    }
+
+    private static void LogEffectFailure(string operation, Errors error)
+    {
+        NLogWrapper.TraceLogger?.Warn(
+            operation + " failed: " + BassNativeErrorFormatter.Format(error));
     }
 
     public static void EnableEQ()
@@ -1652,22 +1534,30 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             return;
         }
-        equalizer = Bass.BASS_ChannelSetFX(inputMixer, BASSFXType.BASS_FX_BFX_PEAKEQ, 0);
-        var bASS_BFX_PEAKEQ = new BASS_BFX_PEAKEQ
+        equalizer = BassAudioEffectCatalog.ChannelSetFX(
+            inputMixer,
+            BassAudioEffectType.BfxPeakEq,
+            0);
+        if (equalizer == 0)
+        {
+            LogEffectFailure("Bass.ChannelSetFX (EQ)", Bass.LastError);
+            return;
+        }
+
+        var peakEqParameters = new PeakEQParameters
         {
             fQ = 0f,
             fBandwidth = 2.5f,
-            lChannel = BASSFXChan.BASS_BFX_CHANALL
+            lChannel = FXChannelFlags.All
         };
         for (int i = 0; i < EqualizerFrequencies.Count; i++)
         {
-            bASS_BFX_PEAKEQ.lBand = i;
-            bASS_BFX_PEAKEQ.fCenter = EqualizerFrequencies[i];
-            bASS_BFX_PEAKEQ.fGain = equalizerGains[i];
-            if (!Bass.BASS_FXSetParameters(equalizer, bASS_BFX_PEAKEQ))
+            peakEqParameters.lBand = i;
+            peakEqParameters.fCenter = EqualizerFrequencies[i];
+            peakEqParameters.fGain = equalizerGains[i];
+            if (!BassAudioEffectCatalog.SetParameters(equalizer, peakEqParameters))
             {
-                BASSError bASSError = Bass.BASS_ErrorGetCode();
-                NLogWrapper.TraceLogger?.Warn("BASS_FXSetParameters (EQ) failed: " + bASSError);
+                LogEffectFailure("Bass.FXSetParameters (EQ)", Bass.LastError);
             }
         }
     }
@@ -1678,10 +1568,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized && EQEnabled)
         {
-            if (!Bass.BASS_ChannelRemoveFX(inputMixer, equalizer))
+            if (!Bass.ChannelRemoveFX(inputMixer, equalizer))
             {
-                BASSError bASSError = Bass.BASS_ErrorGetCode();
-                NLogWrapper.TraceLogger?.Warn("BASS_ChannelRemoveFX (EQ) failed: " + bASSError);
+                LogEffectFailure("Bass.ChannelRemoveFX (EQ)", Bass.LastError);
             }
             else
             {
@@ -1692,7 +1581,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     public static void UpdateEQ(int slot, float gain)
     {
-        if (slot < 0 || slot > EqualizerFrequencies.Count)
+        if (slot < 0 || slot >= EqualizerFrequencies.Count)
         {
             throw new ArgumentOutOfRangeException("slot");
         }
@@ -1700,21 +1589,19 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (EQEnabled)
         {
-            var bASS_BFX_PEAKEQ = new BASS_BFX_PEAKEQ
+            var peakEqParameters = new PeakEQParameters
             {
                 lBand = slot
             };
-            if (!Bass.BASS_FXGetParameters(equalizer, bASS_BFX_PEAKEQ))
+            if (!BassAudioEffectCatalog.GetParameters(equalizer, peakEqParameters))
             {
-                BASSError bASSError = Bass.BASS_ErrorGetCode();
-                NLogWrapper.TraceLogger?.Warn("BASS_FXGetParameters (EQ) failed: " + bASSError);
+                LogEffectFailure("Bass.FXGetParameters (EQ)", Bass.LastError);
                 return;
             }
-            bASS_BFX_PEAKEQ.fGain = gain;
-            if (!Bass.BASS_FXSetParameters(equalizer, bASS_BFX_PEAKEQ))
+            peakEqParameters.fGain = gain;
+            if (!BassAudioEffectCatalog.SetParameters(equalizer, peakEqParameters))
             {
-                BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-                NLogWrapper.TraceLogger?.Warn("BASS_FXSetParameters (EQ) failed: " + bASSError2);
+                LogEffectFailure("Bass.FXSetParameters (EQ)", Bass.LastError);
                 return;
             }
         }
@@ -1778,7 +1665,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     }
 
     private static int ReadCallbackData(int handle, IntPtr buffer, int length) =>
-        Bass.BASS_ChannelGetData(handle, buffer, length);
+        Bass.ChannelGetData(handle, buffer, length);
 
     private static int ReadCallbackOutput(IntPtr buffer, int length)
     {
@@ -1835,7 +1722,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         ArgumentNullException.ThrowIfNull(negotiator);
         ArgumentNullException.ThrowIfNull(logWarning);
-        BASSError error = BASSError.BASS_ERROR_INIT;
+        ManagedBass.Errors error = ManagedBass.Errors.Init;
         string failedStage = "WASAPI shared mixer volume";
         if (session == null
             || !negotiator.TrySetSharedMixerGain(
@@ -1846,7 +1733,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             logWarning(
                 failedStage + " for WASAPI shared mixer volume failed: "
-                + error);
+                + Ribbit.Media.Audio.BassNativeErrorFormatter.Format(error));
         }
     }
 
@@ -1859,17 +1746,21 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         switch (session.ActualBackend)
         {
             case DeviceDriver.NULL_DEVICE:
-                if (!Bass.BASS_FXSetParameters(session.VolumeEffectHandle, new BASS_BFX_VOLUME(vol)))
+                if (!ManagedBassVolumeEffect.SetParameters(session.VolumeEffectHandle, vol))
                 {
-                    BASSError bASSError5 = Bass.BASS_ErrorGetCode();
-                    NLogWrapper.TraceLogger?.Warn("BASS_FXSetParameters failed: " + bASSError5);
+                    Errors error = Bass.LastError;
+                    NLogWrapper.TraceLogger?.Warn(
+                        "BASS_FXSetParameters failed: "
+                        + BassNativeErrorFormatter.Format(error));
                 }
                 break;
             case DeviceDriver.WASAPI_EXCLUSIVE:
-                if (!Bass.BASS_FXSetParameters(session.VolumeEffectHandle, new BASS_BFX_VOLUME(vol)))
+                if (!ManagedBassVolumeEffect.SetParameters(session.VolumeEffectHandle, vol))
                 {
-                    BASSError bASSError2 = Bass.BASS_ErrorGetCode();
-                    NLogWrapper.TraceLogger?.Warn("BASS_FXSetParameters failed: " + bASSError2);
+                    Errors error = Bass.LastError;
+                    NLogWrapper.TraceLogger?.Warn(
+                        "BASS_FXSetParameters failed: "
+                        + BassNativeErrorFormatter.Format(error));
                 }
                 break;
             case DeviceDriver.WASAPI_SHARED:
@@ -1883,10 +1774,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     for (int i = 0; i < 2; i++)
                     {
-                        if (!BassAsio.BASS_ASIO_ChannelSetVolume(input: false, i, vol))
+                        if (!ManagedBass.Asio.BassAsio.ChannelSetVolume(false, i, vol))
                         {
-                            BASSError bASSError = BassAsio.BASS_ASIO_ErrorGetCode();
-                            NLogWrapper.TraceLogger?.Warn("BASS_ASIO_ChannelSetVolume failed: " + bASSError);
+                            ManagedBass.Errors bASIOError = ManagedBass.Asio.BassAsio.LastError;
+                            NLogWrapper.TraceLogger?.Warn(
+                                "BASS_ASIO_ChannelSetVolume failed: "
+                                + Ribbit.Media.Audio.BassNativeErrorFormatter.Format(bASIOError));
                         }
                     }
                     break;
@@ -1948,19 +1841,25 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 "The active audio session does not expose a mixer handle.");
         }
 
-        if (owningSession.CoreDeviceIndex >= 0
-            && !Bass.BASS_SetDevice(owningSession.CoreDeviceIndex))
+        if (owningSession.CoreDeviceIndex >= 0)
         {
-            BASSError error = Bass.BASS_ErrorGetCode();
-            throw CreatePlaybackException(
-                BassAudioPlaybackStage.SourceDeviceSelection,
-                fileName,
-                0,
-                expectedMixerHandle,
-                0,
-                "BASS_SetDevice",
-                error,
-                "Selecting the owning BASS core device failed.");
+            try
+            {
+                Bass.CurrentDevice = owningSession.CoreDeviceIndex;
+            }
+            catch (BassException exception)
+            {
+                throw CreatePlaybackException(
+                    BassAudioPlaybackStage.SourceDeviceSelection,
+                    fileName,
+                    0,
+                    expectedMixerHandle,
+                    0,
+                    "BASS_SetDevice",
+                    exception.ErrorCode,
+                    "Selecting the owning BASS core device failed.",
+                    exception);
+            }
         }
 
         fileNameHash = xxHash32.CalculateHash(fileName.ToUpperInvariant());
@@ -2014,15 +1913,21 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
             if (_sampleBuffer != null)
             {
-                fileProc = new BASS_FILEPROCS(FileProcClose, FileProcLength, FileProcRead, fileProcSeek);
-                _handle = Bass.BASS_StreamCreateFileUser(
-                    BASSStreamSystem.STREAMFILE_NOBUFFER,
-                    BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE,
+                fileProc = new FileProcedures
+                {
+                    Close = FileProcClose,
+                    Length = FileProcLength,
+                    Read = (buffer, length, user) => FileProcRead(buffer, length, user),
+                    Seek = fileProcSeek
+                };
+                _handle = Bass.CreateStream(
+                    StreamSystem.NoBuffer,
+                    BassFlags.Float | BassFlags.Prescan | BassFlags.Decode,
                     fileProc,
                     IntPtr.Zero);
                 if (_handle == 0)
                 {
-                    BASSError error = Bass.BASS_ErrorGetCode();
+                    Errors error = Bass.LastError;
                     throw CreatePlaybackException(
                         BassAudioPlaybackStage.SourceCreate,
                         fileName,
@@ -2036,14 +1941,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             }
             else
             {
-                _handle = Bass.BASS_StreamCreateFile(
+                _handle = Bass.CreateStream(
                     LongPathFileSystem.ToExtendedPath(fileName),
                     0L,
                     0L,
-                    BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE);
+                    BassFlags.Float | BassFlags.Prescan | BassFlags.Decode);
                 if (_handle == 0)
                 {
-                    BASSError error = Bass.BASS_ErrorGetCode();
+                    Errors error = Bass.LastError;
                     throw CreatePlaybackException(
                         BassAudioPlaybackStage.SourceCreate,
                         fileName,
@@ -2075,8 +1980,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     exception);
             }
 
-            long pos = Bass.BASS_ChannelGetLength(_handle);
-            double value = Bass.BASS_ChannelBytes2Seconds(_handle, pos);
+            long pos = Bass.ChannelGetLength(_handle, PositionFlags.Bytes);
+            double value = Bass.ChannelBytes2Seconds(_handle, pos);
             Duration = TimeSpan.FromSeconds(value);
             Volume = DefaultVolume;
             playState = PlayState.Stopped;
@@ -2109,15 +2014,16 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 bool released = false;
                 try
                 {
-                    released = Bass.BASS_StreamFree(trackedHandle);
+                    released = Bass.StreamFree(trackedHandle);
                     if (!released)
                     {
-                        BASSError error = Bass.BASS_ErrorGetCode();
-                        released = error == BASSError.BASS_ERROR_INIT;
+                        Errors error = Bass.LastError;
+                        released = error == Errors.Init;
                         if (!released)
                         {
                             TryLogPlayerCleanupFailure(
-                                "Failed to clean up a tracked source stream during construction: " + error,
+                                "Failed to clean up a tracked source stream during construction: "
+                                + BassNativeErrorFormatter.Format(error),
                                 null);
                         }
                     }
@@ -2145,15 +2051,16 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     bool released = false;
                     try
                     {
-                        released = Bass.BASS_StreamFree(_handle);
+                        released = Bass.StreamFree(_handle);
                         if (!released)
                         {
-                            BASSError error = Bass.BASS_ErrorGetCode();
-                            released = error == BASSError.BASS_ERROR_INIT;
+                            Errors error = Bass.LastError;
+                            released = error == Errors.Init;
                             if (!released)
                             {
                                 TryLogPlayerCleanupFailure(
-                                    "Failed to clean up an untracked source stream: " + error,
+                                    "Failed to clean up an untracked source stream: "
+                                    + BassNativeErrorFormatter.Format(error),
                                     null);
                             }
                         }
@@ -2332,7 +2239,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             return false;
         }
-        if (offset >= _sampleBuffer.Length)
+        if (offset < 0 || offset > _sampleBuffer.Length)
         {
             return false;
         }
@@ -2532,10 +2439,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private void SetPositionCore(TimeSpan position, BassAudioSession session)
     {
-        long nativePosition = Bass.BASS_ChannelSeconds2Bytes(_handle, position.TotalSeconds);
+        long nativePosition = Bass.ChannelSeconds2Bytes(_handle, position.TotalSeconds);
         if (nativePosition < 0)
         {
-            BASSError error = Bass.BASS_ErrorGetCode();
+            Errors error = Bass.LastError;
             throw CreatePlaybackException(
                 BassAudioPlaybackStage.SetPosition,
                 FileName,
@@ -2563,15 +2470,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         RemoveEndSync(session);
         ClearStalePendingEndCleanup();
 
-        int syncHandle = Bass.BASS_ChannelSetSync(
+        int syncHandle = Bass.ChannelSetSync(
             _handle,
-            BASSSync.BASS_SYNC_END | BASSSync.BASS_SYNC_MIXTIME | BASSSync.BASS_SYNC_ONETIME,
+            SyncFlags.End | SyncFlags.Mixtime | SyncFlags.Onetime,
             0L,
             EndProc,
             new IntPtr(playbackGeneration));
         if (syncHandle == 0)
         {
-            BASSError error = Bass.BASS_ErrorGetCode();
+            Errors error = Bass.LastError;
             throw CreatePlaybackException(
                 BassAudioPlaybackStage.SourceTracking,
                 FileName,
@@ -2602,11 +2509,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
 
         int syncHandle = endSyncHandle;
-        if (!Bass.BASS_ChannelRemoveSync(_handle, syncHandle))
+        if (!Bass.ChannelRemoveSync(_handle, syncHandle))
         {
-            BASSError error = Bass.BASS_ErrorGetCode();
-            if (error != BASSError.BASS_ERROR_HANDLE
-                && error != BASSError.BASS_ERROR_INIT)
+            Errors error = Bass.LastError;
+            if (error != Errors.Handle
+                && error != Errors.Init)
             {
                 throw CreatePlaybackException(
                     BassAudioPlaybackStage.SourceTracking,
@@ -2983,15 +2890,16 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             TryLogPlayerCleanupFailure("BASS source stream stop failed", exception);
                         }
 
-                        bool released = Bass.BASS_StreamFree(ownedHandle);
+                        bool released = Bass.StreamFree(ownedHandle);
                         if (!released)
                         {
-                            BASSError error = Bass.BASS_ErrorGetCode();
-                            released = error == BASSError.BASS_ERROR_INIT;
+                            Errors error = Bass.LastError;
+                            released = error == Errors.Init;
                             if (!released)
                             {
                                 TryLogPlayerCleanupFailure(
-                                    "BASS_StreamFree(" + ownedHandle + ") failed: " + error,
+                                    "BASS_StreamFree(" + ownedHandle + ") failed: "
+                                    + BassNativeErrorFormatter.Format(error),
                                     null);
                             }
                         }
@@ -3079,7 +2987,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         int expectedMixerHandle,
         int actualMixerHandle,
         string nativeErrorSource,
-        BASSError? nativeErrorCode,
+        Errors? nativeErrorCode,
         string message,
         Exception innerException = null,
         BassAudioSession session = null)
@@ -3126,7 +3034,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             BassAudioPlaybackException playbackException = exception as BassAudioPlaybackException;
             string nativeErrorSource = playbackException?.NativeErrorSource ?? "none";
-            BASSError? nativeErrorCode = playbackException?.NativeErrorCode;
+            ManagedBass.Errors? nativeErrorCode = playbackException?.NativeErrorCode;
             string stage = playbackException?.Stage.ToString() ?? "unknown";
             string backend = playbackException?.Backend?.ToString()
                 ?? session?.ActualBackend.ToString()
@@ -3154,7 +3062,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 + " voiceCounted=" + voiceCounted
                 + " endCleanupPending=" + endCleanupPending
                 + " nativeErrorSource=" + nativeErrorSource
-                + " nativeErrorCode=" + nativeErrorCode
+                + " nativeErrorCode="
+                + Ribbit.Media.Audio.BassNativeErrorFormatter.Format(nativeErrorCode)
                 + " newlyAttached=" + newlyAttached
                 + " rollbackAttempted=" + rollbackAttempted
                 + " rollbackSucceeded=" + rollbackSucceeded

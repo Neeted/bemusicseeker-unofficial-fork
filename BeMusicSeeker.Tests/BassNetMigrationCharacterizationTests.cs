@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using BeMusicSeeker.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
@@ -341,54 +340,52 @@ public sealed class BassNetMigrationCharacterizationTests
     }
 
     [TestMethod]
-    public void EffectParameterMapRetainsAllSupportedTypes()
+    public void ManagedBassEffectCatalogRetainsAllSupportedTypes()
     {
-        FieldInfo field = typeof(BassAudioPlayer).GetField(
-            "FxParameterTypeToBASSFXType",
-            BindingFlags.NonPublic | BindingFlags.Static)
-            ?? throw new AssertFailedException("The effect parameter map is missing.");
-        var map = (IReadOnlyDictionary<Type, BASSFXType>)field.GetValue(null)!;
+        IReadOnlyList<BassAudioEffectDefinition> definitions = BassAudioEffectCatalog.Definitions;
 
-        Assert.AreEqual(32, map.Count);
-#pragma warning disable CS0618
+        Assert.AreEqual(32, definitions.Count);
         CollectionAssert.AreEquivalent(
             new[]
             {
-                BASSFXType.BASS_FX_DX8_CHORUS,
-                BASSFXType.BASS_FX_DX8_COMPRESSOR,
-                BASSFXType.BASS_FX_DX8_DISTORTION,
-                BASSFXType.BASS_FX_DX8_ECHO,
-                BASSFXType.BASS_FX_DX8_FLANGER,
-                BASSFXType.BASS_FX_DX8_GARGLE,
-                BASSFXType.BASS_FX_DX8_I3DL2REVERB,
-                BASSFXType.BASS_FX_DX8_PARAMEQ,
-                BASSFXType.BASS_FX_DX8_REVERB,
-                BASSFXType.BASS_FX_BFX_ROTATE,
-                BASSFXType.BASS_FX_BFX_ECHO,
-                BASSFXType.BASS_FX_BFX_FLANGER,
-                BASSFXType.BASS_FX_BFX_VOLUME,
-                BASSFXType.BASS_FX_BFX_PEAKEQ,
-                BASSFXType.BASS_FX_BFX_REVERB,
-                BASSFXType.BASS_FX_BFX_LPF,
-                BASSFXType.BASS_FX_BFX_MIX,
-                BASSFXType.BASS_FX_BFX_DAMP,
-                BASSFXType.BASS_FX_BFX_AUTOWAH,
-                BASSFXType.BASS_FX_BFX_ECHO2,
-                BASSFXType.BASS_FX_BFX_PHASER,
-                BASSFXType.BASS_FX_BFX_ECHO3,
-                BASSFXType.BASS_FX_BFX_CHORUS,
-                BASSFXType.BASS_FX_BFX_APF,
-                BASSFXType.BASS_FX_BFX_COMPRESSOR,
-                BASSFXType.BASS_FX_BFX_DISTORTION,
-                BASSFXType.BASS_FX_BFX_COMPRESSOR2,
-                BASSFXType.BASS_FX_BFX_VOLUME_ENV,
-                BASSFXType.BASS_FX_BFX_BQF,
-                BASSFXType.BASS_FX_BFX_ECHO4,
-                BASSFXType.BASS_FX_BFX_PITCHSHIFT,
-                BASSFXType.BASS_FX_BFX_FREEVERB
+                BassAudioEffectType.Dx8Chorus,
+                BassAudioEffectType.Dx8Compressor,
+                BassAudioEffectType.Dx8Distortion,
+                BassAudioEffectType.Dx8Echo,
+                BassAudioEffectType.Dx8Flanger,
+                BassAudioEffectType.Dx8Gargle,
+                BassAudioEffectType.Dx8I3dl2Reverb,
+                BassAudioEffectType.Dx8ParamEq,
+                BassAudioEffectType.Dx8Reverb,
+                BassAudioEffectType.BfxRotate,
+                BassAudioEffectType.BfxEcho,
+                BassAudioEffectType.BfxFlanger,
+                BassAudioEffectType.BfxVolume,
+                BassAudioEffectType.BfxPeakEq,
+                BassAudioEffectType.BfxReverb,
+                BassAudioEffectType.BfxLpf,
+                BassAudioEffectType.BfxMix,
+                BassAudioEffectType.BfxDamp,
+                BassAudioEffectType.BfxAutoWah,
+                BassAudioEffectType.BfxEcho2,
+                BassAudioEffectType.BfxPhaser,
+                BassAudioEffectType.BfxEcho3,
+                BassAudioEffectType.BfxChorus,
+                BassAudioEffectType.BfxApf,
+                BassAudioEffectType.BfxCompressor,
+                BassAudioEffectType.BfxDistortion,
+                BassAudioEffectType.BfxCompressor2,
+                BassAudioEffectType.BfxVolumeEnvelope,
+                BassAudioEffectType.BfxBqf,
+                BassAudioEffectType.BfxEcho4,
+                BassAudioEffectType.BfxPitchShift,
+                BassAudioEffectType.BfxFreeverb
             },
-            map.Values.ToArray());
-#pragma warning restore CS0618
+            definitions.Select(definition => definition.Type).ToArray());
+
+        Assert.AreEqual(
+            definitions.Count,
+            definitions.Select(definition => definition.ParameterType).Distinct().Count());
     }
 
     [TestMethod]
