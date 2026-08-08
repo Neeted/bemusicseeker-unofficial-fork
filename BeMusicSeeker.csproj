@@ -95,7 +95,6 @@
     <PackageReference Include="Microsoft.Xml.SgmlReader" />
     <PackageReference Include="sqlite-net-pcl" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
-    <PackageReference Include="Un4seen.Bass" />
     <PackageReference Include="SevenZipExtractor" GeneratePathProperty="true" ExcludeAssets="build" />
     <PackageReference Include="NVorbis" />
     <PackageReference Include="Newtonsoft.Json" />

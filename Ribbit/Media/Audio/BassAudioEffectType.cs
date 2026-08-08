@@ -7,7 +7,7 @@ using ManagedBass.Fx;
 namespace Ribbit.Media.Audio;
 
 /// <summary>
-/// The wrapper-neutral effect categories retained from the BASS.NET effect catalog.
+/// The wrapper-neutral effect categories retained from the legacy BASS effect catalog.
 /// These values are logical catalog identities and are deliberately independent from
 /// ManagedBass/native effect IDs.
 /// </summary>

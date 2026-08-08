@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.Serialization;
 using BeMusicSeeker.Models.Utils;
 using ManagedBass;
 using ManagedBass.Enc;
@@ -336,8 +337,26 @@ internal enum AudioWriterRenderStage
 }
 
 /// <summary>Typed failure raised by the writer's ManagedBass core pull boundary.</summary>
+[Serializable]
 internal sealed class AudioWriterRenderException : Exception
 {
+    /// <summary>Initializes an empty writer render failure.</summary>
+    public AudioWriterRenderException()
+    {
+    }
+
+    /// <summary>Initializes a writer render failure with a message.</summary>
+    public AudioWriterRenderException(string message)
+        : base(message)
+    {
+    }
+
+    /// <summary>Initializes a writer render failure with a message and inner exception.</summary>
+    public AudioWriterRenderException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
     /// <summary>Initializes a writer render failure with its native context.</summary>
     internal AudioWriterRenderException(
         int channel,
@@ -353,6 +372,11 @@ internal sealed class AudioWriterRenderException : Exception
         Channel = channel;
         Stage = stage;
         NativeError = nativeError;
+    }
+
+    private AudioWriterRenderException(SerializationInfo info, StreamingContext context)
+        : base(info, context)
+    {
     }
 
     /// <summary>Gets the channel involved in the failed operation.</summary>

@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using ManagedBass;
 using Ribbit.Logging;
 
@@ -11,7 +10,6 @@ public static class BassAudioRuntime
     {
         NativeLoad,
         ResolverInstallation,
-        LegacyWrapperRegistration,
         VersionValidation,
         Completed
     }
@@ -28,23 +26,10 @@ public static class BassAudioRuntime
     /// </summary>
     public static void Initialize()
     {
-        InitializeRuntime(includeWrapperRegistration: true);
+        InitializeRuntime();
     }
 
-    /// <summary>
-    /// Loads and validates the bundled native runtime for registration-free characterization.
-    /// </summary>
-    /// <remarks>
-    /// This internal seam is limited to Unit 0 tests so native/session behavior can be
-    /// characterized without entering the legacy wrapper-registration stage. It reuses the
-    /// production runtime gate, native owner, validation, and shutdown path.
-    /// </remarks>
-    internal static void InitializeWithoutWrapperRegistrationForCharacterization()
-    {
-        InitializeRuntime(includeWrapperRegistration: false);
-    }
-
-    private static void InitializeRuntime(bool includeWrapperRegistration)
+    private static void InitializeRuntime()
     {
         using BassAudioExclusiveLease lifecycle = RuntimeGate.EnterRuntimeInitialization();
         if (_isInitialized)
@@ -60,7 +45,6 @@ public static class BassAudioRuntime
         }
 
         InitializationStage stage = InitializationStage.NativeLoad;
-        bool wrapperRegistered = false;
         try
         {
             InitializeRuntimeCore(
@@ -74,17 +58,6 @@ public static class BassAudioRuntime
                 },
                 () =>
                 {
-                    if (!includeWrapperRegistration)
-                    {
-                        return;
-                    }
-
-                    stage = InitializationStage.LegacyWrapperRegistration;
-                    RegisterLegacyBassNetWrapper();
-                    wrapperRegistered = true;
-                },
-                () =>
-                {
                     stage = InitializationStage.VersionValidation;
                     BassNativeRuntime.ValidateSupportedVersions();
                 });
@@ -94,7 +67,7 @@ public static class BassAudioRuntime
         }
         catch (Exception exception)
         {
-            Errors? nativeError = CaptureInitializationNativeError(stage, wrapperRegistered);
+            Errors? nativeError = CaptureInitializationNativeError(stage);
             TryLogInitializationFailure(stage, nativeError, exception);
             TryFreeAfterInitializationFailure(stage);
             _isInitialized = false;
@@ -104,39 +77,22 @@ public static class BassAudioRuntime
     }
 
     /// <summary>
-    /// Runs the native bootstrap stages in the order required by the BASS.NET wrapper.
-    /// The callbacks keep registration arguments outside the orchestration seam.
+    /// Runs the native bootstrap stages in the order required by the ManagedBass binding.
     /// </summary>
     internal static void InitializeRuntimeCore(
         Action loadNative,
-        Action registerWrapper,
         Action validateVersions)
     {
         ArgumentNullException.ThrowIfNull(loadNative);
-        ArgumentNullException.ThrowIfNull(registerWrapper);
         ArgumentNullException.ThrowIfNull(validateVersions);
         loadNative();
-        registerWrapper();
         validateVersions();
     }
 
-    private static void RegisterLegacyBassNetWrapper()
+    private static Errors? CaptureInitializationNativeError(InitializationStage stage)
     {
-        ((Action<Action<string, string>, string, string>)delegate (Action<string, string> f, string i, string j)
-        {
-            f(new string([.. (from n in "d7cbxdba4x22b9xd7daxdf35xd7cexdf3fxd7caxdc65xd7d8xdc43xd7d2xdc78x2689xd7dcxdbbcxd7d8xdca8xd7d6xdbddxd7dcxdddexd7d0xded6xd7d9xdf53xd7d0".Split('x')
-                                  select Convert.ToInt32(n, 16)).Zip(i.ToCharArray(), (w, v) => v - w).Select(Convert.ToChar)]), new string([.. (from n in "d80axdf58xd80axdc26xd80bxddc5xd80axdf2fxd80axdf79xd80bxdf2dxd80axdfbcxd80bxddcc".Split('x')
-                                  select Convert.ToInt32(n, 16)).Zip(j.ToCharArray(), (w, v) => v - w).Select(Convert.ToChar)]));
-        })(Un4seen.Bass.BassNet.Registration, "\ud83d\udc0d⌛\ud83c\udfa4\ud83c\udfa4\ud83d\udcd9\ud83d\udca4\ud83d\udce8⛵\ud83d\udc1f\ud83d\udce8\ud83d\udc4a\ud83d\ude47\ud83c\udf04\ud83c\udfc2\ud83d\udc4a\ud83c\udf74\ud83d\udce8\ud83d\udc63\ud83d\udc11\ud83c\udf68\ud83d\udc4a⌛\ud83c\udfc2\ud83d\udc0d\ud83c\udf74\ud83d\udcd9\ud83c\udf68", "\ud83c\udfb0\ud83d\udc5d\ud83d\uddfe\ud83c\udf62\ud83c\udfb0\ud83c\udf62\ud83c\udfee\ud83d\uddfe\ud83c\udfb0\ud83c\udf62\ud83d\ude93\ud83c\udf70\ud83c\udfb0\ud83d\udc70\ud83d\ude0f\ud83c\udfb0");
-    }
-
-    private static Errors? CaptureInitializationNativeError(
-        InitializationStage stage,
-        bool wrapperRegistered)
-    {
-        if (!wrapperRegistered
-            || (stage != InitializationStage.VersionValidation
-                && stage != InitializationStage.Completed))
+        if (stage != InitializationStage.VersionValidation
+            && stage != InitializationStage.Completed)
         {
             return null;
         }
@@ -203,7 +159,6 @@ public static class BassAudioRuntime
     {
         InitializationStage.NativeLoad => nameof(BassNativeRuntime),
         InitializationStage.ResolverInstallation => nameof(ManagedBassNativeLibraryResolver),
-        InitializationStage.LegacyWrapperRegistration => "BASS.NET",
         InitializationStage.VersionValidation => nameof(BassNativeRuntime),
         InitializationStage.Completed => nameof(BassAudioRuntime),
         _ => nameof(BassAudioRuntime)

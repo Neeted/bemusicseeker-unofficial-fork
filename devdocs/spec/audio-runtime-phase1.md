@@ -7,7 +7,7 @@
 
 ## 背景
 
-BeMusicSeeker は、再生およびオフライン音声変換のために、NuGet の `Un4seen.Bass` 2.4.18.2 と、BASS、BASSWASAPI、BASSASIO、BASSmix、BASSenc、BASS_FX の各 x64 ネイティブライブラリを使用する。既存コードはデコンパイル由来であり、ネイティブランタイムのロード、デバイス列挙、バックエンド交渉、再生状態、設定の永続化、クリーンアップが static 状態に混在していた。
+BeMusicSeeker は、再生およびオフライン音声変換のために、NuGet の ManagedBass six-package set exact `4.0.2` と、BASS、BASSWASAPI、BASSASIO、BASSmix、BASSenc、BASS_FX の各 x64 ネイティブライブラリを使用する。既存コードはデコンパイル由来であり、ネイティブランタイムのロード、デバイス列挙、バックエンド交渉、再生状態、設定の永続化、クリーンアップが static 状態に混在していた。
 
 Phase 1 の現行依存関係セットは、managed package と6つの native DLLを一つの互換セットとして固定する。版、GetVersion、archive／DLL hash、選択した archive member、出力境界は `bass-runtime-dependency-set.md` を正本とする。登録情報、ライセンス本文、third-party notice はこの仕様へ複製しない。
 
@@ -26,7 +26,7 @@ Phase 1 は、依存関係の順序に従って実装・レビューする。
 
 ### 1.1 現行依存関係と出力境界
 
-`Un4seen.Bass` は中央 package version と各プロジェクトの lock file で管理する。通常の framework-dependent build では package が `Bass.Net.dll` をアプリケーション出力ルートへ供給し、native DLL は `libs/x64` に配置する。single-file publish では standalone の `Bass.Net.dll` を別配置せず、native DLLだけを既存の `libs/x64` publish 境界へコピーする。
+ManagedBass six-package set は中央 package version と各プロジェクトの lock file で exact `4.0.2` として管理する。通常の framework-dependent build では six managed assemblies をアプリケーション出力ルートへ供給し、native DLL は `libs/x64` に配置する。single-file publish では managed assemblies を bundle し、native DLLだけを既存の `libs/x64` publish 境界へコピーする。
 
 native DLL は `vendor/native/x64` の6ファイルを一式として所有し、アプリケーションの load／publish path も `libs/x64` に限定する。各ファイルは AMD64 PE と component-specific GetVersion を検証し、いずれかの検証またはコピーが失敗した場合は6ファイル全体を rollback unit として扱う。詳細な provenance は `devdocs/spec/bass-runtime-dependency-set.md` を参照する。
 
@@ -36,7 +36,7 @@ native DLL は `vendor/native/x64` の6ファイルを一式として所有し�
 
 ライフサイクルマネージャーは initialize と free を直列化し、セッションが active または隔離状態にある間の再入を拒否し、解放確認できていない所有権を後続のクリーンアップ再試行用に保持する。ランタイム終了時は、まず操作ゲートを閉じ、実行中の操作完了を待ち、セッションのクリーンアップを要求し、所有権が解消された後にだけ active native generation を非公開化する。
 
-`BassAudioRuntime.Initialize` は、native DLL の load、ManagedBass resolver installation、既存の BASS.NET registration、ManagedBass による component version validation の順に実行する。registration 前に BASS.NET wrapper API を呼び出してはならない。各段階の失敗は `NLogWrapper` を通して stage、component、native error source／code、runtime load 状態を記録し、native handle の解放に失敗しても最初の初期化例外を主例外として保持する。core の process-wide default-device 設定をこの bootstrap で変更・readbackして endpoint を合成してはならない。デバイス列挙および `BASS_Init` は各選択 backend の native boundary に限定する。
+`BassAudioRuntime.Initialize` は、native DLL の load、ManagedBass resolver installation、ManagedBass による component version validation の順に実行する。各段階の失敗は `NLogWrapper` を通して stage、component、native error source／code、runtime load 状態を記録し、native handle の解放に失敗しても最初の初期化例外を主例外として保持する。core の process-wide default-device 設定をこの bootstrap で変更・readbackして endpoint を合成してはならない。デバイス列挙および `BASS_Init` は各選択 backend の native boundary に限定する。
 
 ### 2.1 ManagedBass exact-handle bootstrap
 
@@ -44,7 +44,7 @@ Unit 1 以降の runtime owner は `BassAudioRuntime` とする。`BassNativeRun
 
 native generation の publication は6つすべての load 成功後に行い、partial load failure は当該 candidate generation の成功済み handle だけを reverse order で解放する。最初の ManagedBass DllImport binding より前に、CLR に unbind API がないことを前提として成功済み generation を process lifetime pin として保持する。shutdown は audio operation / callback admission を閉じて active root を drain した後、session と core device を解放し、active generation の publication だけを clear する。resolver の static installation lifetime、process-pinned handle lifetime、logical active publication は別であり、shutdown 後の再初期化は同じ pinned handle を current generation として再公開する。in-process の native DLL 差し替えは process restart 境界で行う。
 
-ManagedBass `Version` properties を `BassVersionPacking` で既存の packed version 形式へ変換して検証する。移行期間中は残存 BASS.NET 呼出しのため legacy registration を保持するが、registration material は source、log、test artifact、specification に複製しない。registration-free characterization seam は Unit 0 のテスト用途に限定し、production fallback には使用しない。
+ManagedBass `Version` properties を `BassVersionPacking` で既存の packed version 形式へ変換して検証する。runtime bootstrap に wrapper registration stage や registration material は存在せず、characterization は通常の ManagedBass runtime owner を使用する。
 
 ### 3. クリーンアップと主例外
 
@@ -94,7 +94,7 @@ static な mixer 変数ではなく、`BassAudioSession.CallbackOutputHandle` �
 ASIO mixer は output channel の enable、join、start より前に session へ publish する。
 これにより、開始処理中に callback が発火しても、session が所有する source を読む。
 
-明示的なサンプルレートでは、要求レート、ドライバーの現在レート、重複しない標準レートの順に候補を作る。Auto では、固定の 48000 Hz ではなく、ドライバーの現在レートから開始する。受理されたレートとフォーマットを readback して、交渉結果に保存する。同梱 Bass.Net に適切な mixer 直接接続 API がない場合でも、Phase 1 では独自 P/Invoke を追加しない。
+明示的なサンプルレートでは、要求レート、ドライバーの現在レート、重複しない標準レートの順に候補を作る。Auto では、固定の 48000 Hz ではなく、ドライバーの現在レートから開始する。受理されたレートとフォーマットを readback して、交渉結果に保存する。ManagedBass に適切な mixer 直接接続 API がない場合でも、Phase 1 では独自 P/Invoke を追加しない。
 
 ### 7. WASAPI の規則と endpoint format の境界
 
@@ -172,7 +172,7 @@ volume-envelope の `FXGetParameters` は、返された node count と pointer 
 
 ### 10.1.2 ManagedBass の encoder、metadata、writer 境界
 
-`BassAudioWriter` は BASS.NET の `BaseEncoder`／`TAG_INFO` を使用せず、project-owned の immutable `AudioTagInfo`、`AudioEncoderCommandFactory`、`AudioEncoderSession` を通して ManagedBass.Enc を使用する。command factory は shell を経由せず、executable path、output path、metadata を Windows の引数規則で quote する。WAV、LAME、Nero AAC、Opus、FLAC、OGG の six format と quality clamp／tag option は Unit 0 の characterization contract に合わせる。アプリケーション設定上の AAC 拡張子 `.aac` と、Nero encoder が生成する実ファイル拡張子 `.m4a` は別の契約として維持する。
+`BassAudioWriter` は legacy helper の `BaseEncoder`／`TAG_INFO` を使用せず、project-owned の immutable `AudioTagInfo`、`AudioEncoderCommandFactory`、`AudioEncoderSession` を通して ManagedBass.Enc を使用する。command factory は shell を経由せず、executable path、output path、metadata を Windows の引数規則で quote する。WAV、LAME、Nero AAC、Opus、FLAC、OGG の six format と quality clamp／tag option は Unit 0 の characterization contract に合わせる。アプリケーション設定上の AAC 拡張子 `.aac` と、Nero encoder が生成する実ファイル拡張子 `.m4a` は別の契約として維持する。
 
 WAV は output path を直接 `EncodeStart` へ渡し、requested output sample format に対応する conversion flag を使用する。raw external encoder と Nero は command／header が宣言する実 source format と bytes を一致させるため、native mixer の channel info を source format の正本とする。Float32 source は LAME では signed 32-bit、FLAC／Opus では signed 24-bit へ conversion し、Ogg では `-F 3` の IEEE Float raw input、Nero では Float32 WAV header として渡す。現行 behavior に RIFF metadata がないため、WAV command へ INFO chunk を追加しない。writer は non-zero encoder handle の生成と `EncodeSetNotify` の成功後にだけ `RecordState.Playing` を公開する。stop が失敗した場合は encoder handle の ownership と Playing state を保持し、失敗を隠して解放済みとして扱わない。conversion workflow は shared audio operation lease を保持したまま writer-owned encoder の停止／dispose と結果判定を完了し、その lease を破棄してから core audio session の `BassAudioPlayer.Free` を行う。encoder cleanup 失敗時は session lease も保持して次回 cleanup で再試行する。
 
@@ -180,7 +180,7 @@ pull-driven render は `Bass.ChannelSeconds2Bytes`、`Bass.ChannelGetData`、`Ba
 
 各 data pull が正の bytes を返した後、`AudioEncoderSession` は notify 状態と `EncodeIsActive` を確認する。encoder が停止または死亡した場合は `AudioEncoderException`（`EncoderDied`）を返して session を `Faulted` とし、残存 handle を cleanup retry の ownership として保持する。conversion workflow はファイルごとに writer disposal 後の encoder cleanup を確認し、cleanup が確認できたファイルの render failure は失敗として報告して次のファイルへ進む。cleanup が確認できない場合はバッチを停止し、render failure があればそれを primary exception として保持する。
 
-pull-driven render、encoder の early-exit／render failure handling、conversion workflow の ManagedBass core 化は Unit 3B で完了した。legacy wrapper registration と BASS.NET の managed package は Unit 4 で撤去するまで依存関係に残るが、再生、backend、session、mixer、device-test、writer の production route から BASS.NET API を使用しない。
+pull-driven render、encoder の early-exit／render failure handling、conversion workflow の ManagedBass core 化は Unit 3B で完了した。ManagedBass six-package set と native six-DLL set は Unit 4 の retirement／publish acceptance を通過した final dependency contract であり、再生、backend、session、mixer、device-test、writer の production route はすべて ManagedBass API を使用する。
 
 ### 10.2 デバイステストの playback failure boundary
 
@@ -209,7 +209,7 @@ production の音声ログは `Ribbit/Logging/NLogWrapper.cs` を使用する。
 今後 BASS 一式を更新する場合は、現在の6 native DLLと managed package を一つの互換セットとして、別の reviewable change で扱う。
 
 1. version、GetVersion、archive／DLL hash、PE machine、selected member、package lock、出力境界を同時に更新する。
-2. load -> ManagedBass resolver installation -> BASS.NET registration -> ManagedBass version validation の bootstrap、ASIO／WASAPI callback source、Float32／Int16 negotiation、NullDevice、fallback matrix を既存契約どおり再検証する。BASS core の decode -> mixer -> PCM pull smoke test は物理デバイスなしで実行する。
+2. load -> ManagedBass resolver installation -> ManagedBass version validation の bootstrap、ASIO／WASAPI callback source、Float32／Int16 negotiation、NullDevice、fallback matrix を既存契約どおり再検証する。BASS core の decode -> mixer -> PCM pull smoke test は物理デバイスなしで実行する。
 3. native-boundary unit test、Functional、Full publish／update acceptance、package-layout／hash verification、clean-machine load test を実行する。
 4. 内蔵、USB、ASIO デバイスで、前述の Windows 10／11 マトリクスを実行する。hotplug／default change、shared／exclusive busy state、Float32／Int16 negotiation、volume independence、fallback diagnostics、repeated cleanup を含める。
 5. 以前の完全な DLL 一式を rollback unit として保持する。BASS component を一つだけ個別に rollback または配布しない。
@@ -219,4 +219,4 @@ production の音声ログは `Ribbit/Logging/NLogWrapper.cs` を使用する。
 - 永続化済み setting name と enum numeric value の互換性を維持する。
 - 現行の managed package、native DLL、supported-version constant、hash、package metadata、application version の対応は、同一の依存関係セットとして検証する。
 - Windows 10／11 および実デバイスの確認範囲は外部テストマトリクスとして記録する。unit test では、狭い native boundary と決定的な fake を使用する。
-- 将来の依存関係更新では、Bass.Net とすべての BASS native component を一つの互換セットとして更新し、ABI／constant／hash／packaging をまとめて変更し、rollback と Windows／device matrix を別変更として検証する。
+- 将来の依存関係更新では、ManagedBass six-package set とすべての BASS native component を一つの互換セットとして更新し、ABI／constant／hash／packaging をまとめて変更し、rollback と Windows／device matrix を別変更として検証する。

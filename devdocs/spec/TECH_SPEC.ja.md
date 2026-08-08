@@ -11,7 +11,7 @@
 - NLog 6系
 - Everything SDK 3 + `EverythingBridge_x64.dll`
 - SevenZipExtractor / NVorbis
-- BASS.NET + x64 native BASS family
+- ManagedBass `4.0.2` six-package set + x64 native BASS family
 
 projectはSDK-styleで、app、tests、updater、chart-info toolsを.NET 10へ移行済みである。
 

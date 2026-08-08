@@ -16,7 +16,6 @@
     <PackageReference Include="MSTest.TestFramework" />
     <PackageReference Include="sqlite-net-pcl" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
-    <PackageReference Include="Un4seen.Bass" />
     <PackageReference Include="ManagedBass" />
     <PackageReference Include="ManagedBass.Mix" />
     <PackageReference Include="ManagedBass.Fx" />

@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.Serialization;
 using ManagedBass;
 using ManagedBass.Enc;
 
@@ -33,8 +34,26 @@ internal enum AudioEncoderSessionState
 /// <summary>
 /// Typed failure raised at an encoder boundary while retaining native diagnostics.
 /// </summary>
+[Serializable]
 internal sealed class AudioEncoderException : Exception
 {
+    /// <summary>Initializes an empty encoder failure.</summary>
+    public AudioEncoderException()
+    {
+    }
+
+    /// <summary>Initializes an encoder failure with a message.</summary>
+    public AudioEncoderException(string message)
+        : base(message)
+    {
+    }
+
+    /// <summary>Initializes an encoder failure with a message and inner exception.</summary>
+    public AudioEncoderException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
     /// <summary>
     /// Initializes an encoder failure with its observable context.
     /// </summary>
@@ -57,6 +76,11 @@ internal sealed class AudioEncoderException : Exception
         OutputFile = outputFile;
         NativeError = nativeError;
         NotifyStatus = notifyStatus;
+    }
+
+    private AudioEncoderException(SerializationInfo info, StreamingContext context)
+        : base(info, context)
+    {
     }
 
     /// <summary>Gets the encoder format involved in the failure.</summary>

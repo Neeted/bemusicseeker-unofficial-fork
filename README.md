@@ -103,4 +103,4 @@ First-party source code newly created and published in this repository, such as 
 ### Important Notice About BASS
 
 The release package includes `BASS`-related audio components that are outside the scope of the MIT License.
-These binaries are not open source. Commercial use requires an appropriate commercial license from the provider, such as un4seen. Non-commercial personal use may be allowed as freeware in some cases, but you must always comply with the official license terms of native BASS and the `Bass.Net` wrapper.
+These native binaries are not open source. Commercial use requires an appropriate commercial license from the provider, such as un4seen. Non-commercial personal use may be allowed as freeware in some cases, but you must always comply with the official license terms of native BASS. The ManagedBass bindings are MIT licensed; see the third-party notices for the separate terms.

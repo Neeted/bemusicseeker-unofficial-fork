@@ -13,11 +13,11 @@ using BassAudioRuntime = Ribbit.Media.Audio.BassAudioRuntime;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Fixes the observable BASS.NET behavior that the ManagedBass implementation must preserve.
+/// Fixes the observable audio behavior that the ManagedBass implementation must preserve.
 /// </summary>
 [TestClass]
 [DoNotParallelize]
-public sealed class BassNetMigrationCharacterizationTests
+public sealed class AudioMigrationCharacterizationTests
 {
     [TestMethod]
     public void PersistedAudioValuesRemainStable()
@@ -133,7 +133,7 @@ public sealed class BassNetMigrationCharacterizationTests
 
         try
         {
-            using RegistrationFreeWriterSession session = RegistrationFreeWriterSession.Start();
+            using ManagedBassWriterSession session = ManagedBassWriterSession.Start();
             BassAudioWriter.EncoderDirectory = directoryPath;
 
             BassAudioWriter.CreateEncoderLAME(Path.Combine(directoryPath, "lame-low"), quality: -1f);
@@ -193,7 +193,7 @@ public sealed class BassNetMigrationCharacterizationTests
 
         try
         {
-            using RegistrationFreeWriterSession session = RegistrationFreeWriterSession.Start();
+            using ManagedBassWriterSession session = ManagedBassWriterSession.Start();
             BassAudioWriter.EncoderDirectory = directoryPath;
 
             foreach ((string name, string extension, Action<string> create) in factories)
@@ -225,7 +225,7 @@ public sealed class BassNetMigrationCharacterizationTests
         File.WriteAllText(outputWithoutExtension + ".wav", string.Empty);
         try
         {
-            using RegistrationFreeWriterSession session = RegistrationFreeWriterSession.Start();
+            using ManagedBassWriterSession session = ManagedBassWriterSession.Start();
             BassAudioWriter.CreateEncoderWAV(outputWithoutExtension);
 
             StringAssert.EndsWith(BassAudioWriter.EncoderCommandLine, "sample (2).wav");
@@ -253,7 +253,7 @@ public sealed class BassNetMigrationCharacterizationTests
 
         try
         {
-            using RegistrationFreeWriterSession session = RegistrationFreeWriterSession.Start();
+            using ManagedBassWriterSession session = ManagedBassWriterSession.Start();
             BassAudioPlayer.Format = SampleFormat.SAMPLE_INT_16BIT;
             BassAudioWriter.EncoderDirectory = directoryPath;
 
@@ -412,7 +412,7 @@ public sealed class BassNetMigrationCharacterizationTests
         Directory.CreateDirectory(directoryPath);
         try
         {
-            using RegistrationFreeWriterSession session = RegistrationFreeWriterSession.Start();
+            using ManagedBassWriterSession session = ManagedBassWriterSession.Start();
             BassAudioWriter.CreateEncoderWAV(outputWithoutExtension);
 
             BassAudioWriter.StartRecording();
@@ -442,24 +442,24 @@ public sealed class BassNetMigrationCharacterizationTests
     }
 
     /// <summary>
-    /// Owns one registration-free native runtime and ordinary null-device writer session.
+    /// Owns the ordinary ManagedBass native runtime and null-device writer session.
     /// </summary>
-    private sealed class RegistrationFreeWriterSession : IDisposable
+    private sealed class ManagedBassWriterSession : IDisposable
     {
         private bool disposed;
 
-        private RegistrationFreeWriterSession()
+        private ManagedBassWriterSession()
         {
         }
 
-        internal static RegistrationFreeWriterSession Start()
+        internal static ManagedBassWriterSession Start()
         {
             try
             {
                 BassAudioRuntime.Shutdown();
-                BassAudioRuntime.InitializeWithoutWrapperRegistrationForCharacterization();
+                BassAudioRuntime.Initialize();
                 BassAudioWriter.Initialize();
-                return new RegistrationFreeWriterSession();
+                return new ManagedBassWriterSession();
             }
             catch
             {

@@ -9,7 +9,7 @@
 - LivetCask MVVM components
 - SQLite (`sqlite-net-pcl` / `SQLitePCLRaw`)
 - Everything SDK 3 native bridge
-- NLog、BASS.NET、SevenZipExtractor、NVorbis等
+- NLog、ManagedBass、SevenZipExtractor、NVorbis等
 
 ## レイヤとownership
 

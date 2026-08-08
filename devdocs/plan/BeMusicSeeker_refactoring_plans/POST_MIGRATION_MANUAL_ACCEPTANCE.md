@@ -25,4 +25,4 @@ playlist summary、playlist detail、full libraryの画面遷移は体感上問�
 
 ## RELEASE-01 — Distribution rights — Pending release prerequisite
 
-BASS.NET等のproprietary / vendor componentについて、licensee、registration、redistribution証跡を公開前に確認する。
+BASS native等のproprietary / vendor componentについて、licensee、registration、redistribution証跡を公開前に確認する。ManagedBassのMIT noticeとは分離して扱う。

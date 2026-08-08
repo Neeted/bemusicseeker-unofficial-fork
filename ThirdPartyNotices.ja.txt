@@ -1,7 +1,7 @@
 BeMusicSeeker サードパーティ・ノーティス
 
-最終更新: 2026-07-27
-適用範囲: BeMusicSeeker.csproj によって参照され、bin/Release/net472、vendor/native/{x86,x64}、native/、および resources/ 下で配布されるサードパーティ製ファイル。
+最終更新: 2026-08-09
+適用範囲: 現行の .NET 10 x64 プロジェクトによって参照され、self-contained x64 publish/package 出力、native/、および resources/ 下で配布されるサードパーティ製ファイル。
 
 ステータスの凡例:
 - GREEN (緑): 一次情報と再配布の条件が確認されています。
@@ -16,12 +16,12 @@ BeMusicSeeker サードパーティ・ノーティス
 1) BASS Audio Library (ネイティブバイナリ)
 ================================================================================
 ステータス: GREEN
-コンポーネント: bass.dll, bass_fx.dll, bassasio.dll, bassenc.dll, bassmix.dll, basswasapi.dll (x86/x64)
+コンポーネント: bass.dll, bass_fx.dll, bassasio.dll, bassenc.dll, bassmix.dll, basswasapi.dll (x64)
 著作権所有者: un4seen developments
 ライセンス: プロプライエタリ（非商用利用は無料、商用利用はライセンスが必要）
 ソース: https://www.un4seen.com/bass.html, https://www.un4seen.com/doc/bass/bass.html
 ライセンス本文: third_party/licenses/01-BASS-NOTICE.txt
-NET10でretainするx64セット: bass.dll 2.4.12（API 0x02040C01、SHA-256 93A913CA11A3466C73A0984F23FEE570BCB29576A00FABE39E3CA1565588BEF3）、bassmix.dll 2.4.8（API 0x02040800、SHA-256 9D207EAF880CB5C401285CC75CDF8430C0CD274D8C31D1B02B597F790C99BF34）、bass_fx.dll 2.4（API 0x02040B01、SHA-256 572F29C568F05EF2E0FE689B5D928A0B546D902E3D6A673D33D7F61F3BC7BCDB）、basswasapi.dll 2.4.1（API 0x02040102、SHA-256 C0FE6416A6F59EE33CF617FB9C05D3F0BCB05EF47D6B71759710D2BB5BE5C0B0）、bassasio.dll 1.3.1（API 0x01030100、SHA-256 CA830E47D2F7DBED9EE9F885EA4387A9AB20FF20261F82258B3F48043CDCDE80）、bassenc.dll 2.4.13（API 0x02040D00、SHA-256 02CD21F2D47244FD0EF15D652524B5A4BEB3A986AC1BF64A756F901C6633E53A）
+NET10で保持するx64セット: bass.dll 2.4.18.3（API 0x02041203、SHA-256 FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4）、bassmix.dll 2.4.12.0（API 0x02040C00、SHA-256 F782CAE8090700A456C9E7AEAA7770C3B90CB60A1E765C4B3CBAE739D3B4D58D）、bassenc.dll 2.4.17.0（API 0x02041100、SHA-256 9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8）、basswasapi.dll 2.4.4.1（API 0x02040401、SHA-256 6F0869C11431E01F759FBE1CD6080299C833C519EB8AB1FEAE12106907B1FBD1）、bass_fx.dll 2.4.12.6（API 0x02040C06、SHA-256 A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A）、bassasio.dll 1.4.3.0（API 0x01040300、SHA-256 73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96）
 再配布時の注意事項:
 - 本リポジトリのMITライセンス適用外です。
 - 原則として非商用利用はアップストリームの条項により許可されています。
@@ -29,21 +29,19 @@ NET10でretainするx64セット: bass.dll 2.4.12（API 0x02040C01、SHA-256 93A
 - 配布パッケージにはBASS特有のノーティスを残してください。
 
 ================================================================================
-2) Bass.Net (マネージドラッパー)
+2) ManagedBass（マネージドバインディング）
 ================================================================================
-ステータス: YELLOW
-コンポーネント: Bass.Net.dll
-著作権所有者: radio42（PE metadata: Copyright © 2005-2016 by radio42: Bernd Niedergesaess）
-ライセンス: ベンダー提供ラッパー利用許諾条項 (MIT ではありません)
-ソース: https://www.radio42.com/bass/bass_purchase.html, https://www.radio42.com/bass/bass_register.html
-ライセンス本文: third_party/licenses/02-BASS.NET-NOTICE.txt
-NET10でretainするマネージドラッパー: file/product version 2.4.12.1、SHA-256 25F8BE949CF9A805A4E549590CF06D8937460DF0ABDEE4BFD712C17570E2F065
-出自: PE metadataからradio42とversion 2.4.12.1は確認できるが、取得元archive、正式なLICENSE.rtf、licensee scope、既存registration entitlementは本リポジトリにない。証跡が揃うまでYELLOWとし、`NATIVE-01` external gateとして扱う。
+ステータス: GREEN
+コンポーネント: ManagedBass, ManagedBass.Mix, ManagedBass.Fx, ManagedBass.Enc, ManagedBass.Asio, ManagedBass.Wasapi 4.0.2
+著作権所有者: Mathew Sachin
+ライセンス: MIT
+ソース: https://www.nuget.org/packages/ManagedBass/4.0.2
+ライセンス本文: third_party/licenses/02-ManagedBass-MIT.txt
+正規化したライセンス本文 SHA-256: 41810CB2403489DB4FB5B2F961B78DC3629CE5B9DF06251D939A89ED3FB05063
 再配布時の注意事項:
-- マネージドラッパーはネイティブのBASSバイナリとは別物であり、個別に管理する必要があります。
-- 個人による非商用かつ非収益の（利益を得ない）エンドユーザー向けソフトウェアの場合、アップストリーム条項によりフリーウェアとしての利用が許可されている見込みです。
-- 利用条件は厳格であり（個人利用の範囲、再配布時の制限、サブライセンス不可等）、ノーティスを保持する必要があります。
-- 同梱するBASSのDLL（ネイティブ版）のライセンス条項も同時に満たす必要があります。
+- ManagedBassアセンブリはexact 4.0.2のパッケージセットから供給し、プロプライエタリなネイティブBASSとは別に扱います。
+- framework-dependent buildでは6つのマネージドアセンブリを配置し、single-file publishではbundleします。
+- ネイティブBASSのライセンスは別契約であり、1) のノーティスを適用します。
 
 ================================================================================
 3) 7-Zip コアライブラリ
@@ -239,13 +237,12 @@ GitHub リリース準備状況におけるアクション・サマリー
 (なし)
 
 追加対応を行うことにより条件付きでリリース可能（YELLOW）:
-- Bass.Net.dll（正確なソースアーカイブ、正式なライセンス本文、
-  ライセンス対象者の範囲、既存登録の権利を未確認。NATIVE-01 参照）
+- 想定するリリースについて、ネイティブBASSの商用再配布権限を確認する必要があります。
 
 準備完了（GREEN）:
 - 7z.dll, Livet, NLog, .NET の MIT ランタイム依存関係,
+  ManagedBass 4.0.2,
   Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
   SgmlReaderDll.dll, NVorbis.dll,
-   フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
-   BASS ネイティブバイナリ群
+   フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf

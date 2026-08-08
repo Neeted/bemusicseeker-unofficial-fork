@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -59,7 +61,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         StringAssert.Contains(dependencyGraph, "\"ManagedBass.Enc/4.0.2\"");
         StringAssert.Contains(dependencyGraph, "\"ManagedBass.Asio/4.0.2\"");
         StringAssert.Contains(dependencyGraph, "\"ManagedBass.Wasapi/4.0.2\"");
-        StringAssert.Contains(dependencyGraph, "\"Un4seen.Bass/2.4.18.2\"");
+        Assert.IsFalse(dependencyGraph.Contains("Un4seen.Bass/", StringComparison.Ordinal));
 
         foreach (string dependencyName in new[]
         {
@@ -73,7 +75,6 @@ public sealed class ManagedDependencyOutputPolicyTests
             "NVorbis.dll",
             "SevenZipExtractor.dll",
             "SgmlReaderDll.dll",
-            "Bass.Net.dll",
             "ManagedBass.dll",
             "ManagedBass.Mix.dll",
             "ManagedBass.Fx.dll",
@@ -86,6 +87,9 @@ public sealed class ManagedDependencyOutputPolicyTests
                 File.Exists(Path.Combine(releaseOutputDirectory, dependencyName)),
                 $"The host layout must place {dependencyName} beside the application.");
         }
+        Assert.IsFalse(
+            File.Exists(Path.Combine(releaseOutputDirectory, "Bass.Net.dll")),
+            "The final host layout must not deploy the retired BASS.NET assembly.");
 
         Assert.IsTrue(
             File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "7z.dll")),
@@ -230,7 +234,6 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" },
             new { Id = "SevenZipExtractor", Version = "1.0.19" },
             new { Id = "NVorbis", Version = "0.10.5" },
-            new { Id = "Un4seen.Bass", Version = "2.4.18.2" }
         }.ToDictionary(item => item.Id, item => item.Version, StringComparer.Ordinal);
 
         XDocument centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
@@ -284,8 +287,7 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "ManagedBass.Fx",
                     "ManagedBass.Enc",
                     "ManagedBass.Asio",
-                    "ManagedBass.Wasapi",
-                    "Un4seen.Bass"
+                    "ManagedBass.Wasapi"
                 }
             },
             new
@@ -306,8 +308,7 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "ManagedBass.Fx",
                     "ManagedBass.Enc",
                     "ManagedBass.Asio",
-                    "ManagedBass.Wasapi",
-                    "Un4seen.Bass"
+                    "ManagedBass.Wasapi"
                 }
             }
         };
@@ -374,6 +375,40 @@ public sealed class ManagedDependencyOutputPolicyTests
             File.Exists(Path.Combine(releaseOutputDirectory, "OggVorbis.NET64.dll")),
             "The retired OggVorbis native and managed assets must not remain in the release output.");
 
+    }
+
+    [TestMethod]
+    public void FinalManagedBassLicenseAndNativeNoticeAreTrackedSeparately()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string managedBassLicensePath = Path.Combine(repositoryRoot, "third_party", "licenses", "02-ManagedBass-MIT.txt");
+        Assert.IsTrue(File.Exists(managedBassLicensePath), managedBassLicensePath);
+        string managedBassLicense = File.ReadAllText(managedBassLicensePath);
+        string canonicalManagedBassLicense = managedBassLicense
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .TrimEnd('\n');
+        Assert.AreEqual(
+            "41810CB2403489DB4FB5B2F961B78DC3629CE5B9DF06251D939A89ED3FB05063",
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                canonicalManagedBassLicense))));
+        StringAssert.Contains(managedBassLicense, "The MIT License");
+        StringAssert.Contains(managedBassLicense, "Mathew Sachin");
+
+        Assert.IsFalse(
+            File.Exists(Path.Combine(repositoryRoot, "third_party", "licenses", "02-BASS.NET-NOTICE.txt")),
+            "The retired managed wrapper notice must not remain in the current license inventory.");
+        StringAssert.Contains(
+            File.ReadAllText(Path.Combine(repositoryRoot, "third_party", "licenses", "01-BASS-NOTICE.txt")),
+            "BASS is proprietary");
+
+        foreach (string noticeName in new[] { "ThirdPartyNotices.txt", "ThirdPartyNotices.ja.txt" })
+        {
+            string notice = File.ReadAllText(Path.Combine(repositoryRoot, noticeName));
+            StringAssert.Contains(notice, "ManagedBass");
+            Assert.IsFalse(notice.Contains("Bass.Net.dll", StringComparison.Ordinal));
+            Assert.IsFalse(notice.Contains("BASS.NET", StringComparison.Ordinal));
+        }
     }
 
     private static string FindRepositoryRoot()

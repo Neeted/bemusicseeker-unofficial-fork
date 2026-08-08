@@ -16,12 +16,8 @@ using NLog.Targets;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Un4seen.Bass;
-using Un4seen.Bass.AddOn.Enc;
-using Un4seen.Bass.AddOn.Fx;
-using Un4seen.Bass.AddOn.Mix;
-using Un4seen.BassAsio;
-using Un4seen.BassWasapi;
+using ManagedBass;
+using ManagedBass.Mix;
 using BassAudioRuntime = Ribbit.Media.Audio.BassAudioRuntime;
 
 namespace BeMusicSeeker.Tests;
@@ -95,13 +91,23 @@ public sealed class BassNativeRuntimeTests
         bool bassInitialized = false;
         try
         {
-            bassInitialized = Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_NOSPEAKER, IntPtr.Zero);
-            Assert.IsTrue(bassInitialized, Bass.BASS_ErrorGetCode().ToString());
+            bassInitialized = Bass.Init(
+                0,
+                44100,
+                DeviceInitFlags.NoSpeakerAssignment,
+                IntPtr.Zero,
+                IntPtr.Zero);
+            Assert.IsTrue(bassInitialized, Bass.LastError.ToString());
             BassAudioRuntime.FreeDevice();
             bassInitialized = false;
             Assert.AreEqual(0x02041203u, BassVersionPacking.Pack(ManagedBass.Bass.Version));
-            bassInitialized = Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_NOSPEAKER, IntPtr.Zero);
-            Assert.IsTrue(bassInitialized, Bass.BASS_ErrorGetCode().ToString());
+            bassInitialized = Bass.Init(
+                0,
+                44100,
+                DeviceInitFlags.NoSpeakerAssignment,
+                IntPtr.Zero,
+                IntPtr.Zero);
+            Assert.IsTrue(bassInitialized, Bass.LastError.ToString());
         }
         finally
         {
@@ -198,11 +204,11 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
-    public void BassAudioRuntime_CharacterizationBootstrapReusesNativeOwnershipWithoutRegistration()
+    public void BassAudioRuntime_InitializeReusesNativeOwnershipAcrossCycles()
     {
         for (int cycle = 0; cycle < 2; cycle++)
         {
-            BassAudioRuntime.InitializeWithoutWrapperRegistrationForCharacterization();
+            BassAudioRuntime.Initialize();
             try
             {
                 Assert.IsTrue(BassNativeRuntime.IsLoaded);
@@ -391,17 +397,16 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
-    public void BassAudioRuntime_InitializationCoreOrdersRegistrationBeforeVersionValidation()
+    public void BassAudioRuntime_InitializationCoreOrdersNativeLoadBeforeVersionValidation()
     {
         var events = new System.Collections.Generic.List<string>();
 
         BassAudioRuntime.InitializeRuntimeCore(
             () => events.Add("LoadNative"),
-            () => events.Add("RegisterWrapper"),
             () => events.Add("ValidateVersions"));
 
         CollectionAssert.AreEqual(
-            new[] { "LoadNative", "RegisterWrapper", "ValidateVersions" },
+            new[] { "LoadNative", "ValidateVersions" },
             events);
     }
 
@@ -416,27 +421,9 @@ public sealed class BassNativeRuntimeTests
                 events.Add("LoadNative");
                 throw new InvalidOperationException("load failed");
             },
-            () => events.Add("RegisterWrapper"),
             () => events.Add("ValidateVersions")));
 
         CollectionAssert.AreEqual(new[] { "LoadNative" }, events);
-    }
-
-    [TestMethod]
-    public void BassAudioRuntime_InitializationCoreStopsAfterRegistrationFailure()
-    {
-        var events = new System.Collections.Generic.List<string>();
-
-        Assert.ThrowsException<InvalidOperationException>(() => BassAudioRuntime.InitializeRuntimeCore(
-            () => events.Add("LoadNative"),
-            () =>
-            {
-                events.Add("RegisterWrapper");
-                throw new InvalidOperationException("registration failed");
-            },
-            () => events.Add("ValidateVersions")));
-
-        CollectionAssert.AreEqual(new[] { "LoadNative", "RegisterWrapper" }, events);
     }
 
     [TestMethod]
@@ -455,42 +442,42 @@ public sealed class BassNativeRuntimeTests
             stage = "BassAudioRuntime.Initialize";
             BassAudioRuntime.Initialize();
 
-            stage = "BASS_Init";
+            stage = "Bass.Init";
             Assert.IsTrue(
-                Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero),
+                Bass.Init(0, 44100, DeviceInitFlags.Default, IntPtr.Zero, IntPtr.Zero),
                 NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
             coreInitialized = true;
 
-            stage = "BASS_StreamCreateFile";
-            sourceHandle = Bass.BASS_StreamCreateFile(
+            stage = "Bass.CreateStream";
+            sourceHandle = Bass.CreateStream(
                 wavePath,
                 0L,
                 0L,
-                BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE);
+                BassFlags.Float | BassFlags.Prescan | BassFlags.Decode);
             Assert.AreNotEqual(
                 0,
                 sourceHandle,
                 NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
 
-            stage = "BASS_Mixer_StreamCreate";
-            mixerHandle = BassMix.BASS_Mixer_StreamCreate(
+            stage = "BassMix.CreateMixerStream";
+            mixerHandle = BassMix.CreateMixerStream(
                 44100,
                 1,
-                BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_DECODE);
+                BassFlags.Float | BassFlags.Decode);
             Assert.AreNotEqual(
                 0,
                 mixerHandle,
                 NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
 
-            stage = "BASS_Mixer_ChannelGetMixer before attach";
+            stage = "BassMix.ChannelGetMixer before attach";
             Assert.AreEqual(
                 0,
-                BassMix.BASS_Mixer_ChannelGetMixer(sourceHandle),
+                BassMix.ChannelGetMixer(sourceHandle),
                 NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
-            Assert.AreEqual(BASSError.BASS_ERROR_HANDLE, Bass.BASS_ErrorGetCode());
+            Assert.AreEqual(Errors.Handle, Bass.LastError);
 
             sourceController = new BassMixerSourceController(new BassMixerSourceNativeBoundary());
-            stage = "BASS_Mixer_StreamAddChannel paused";
+            stage = "BassMix.ChannelAdd paused";
             BassMixerSourceAttachment attachment = sourceController.EnsureAttachedPaused(
                 mixerHandle,
                 sourceHandle,
@@ -498,18 +485,18 @@ public sealed class BassNativeRuntimeTests
             Assert.IsTrue(attachment.NewlyAttached);
             Assert.AreEqual(
                 mixerHandle,
-                BassMix.BASS_Mixer_ChannelGetMixer(sourceHandle),
+                BassMix.ChannelGetMixer(sourceHandle),
                 NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
 
-            stage = "BASS_Mixer_ChannelFlags resume";
+            stage = "BassMix.ChannelFlags resume";
             sourceController.Resume(mixerHandle, sourceHandle, wavePath);
 
-            long sourcePositionBefore = Bass.BASS_ChannelGetPosition(sourceHandle);
+            long sourcePositionBefore = Bass.ChannelGetPosition(sourceHandle, PositionFlags.Bytes);
             const int requestedBytes = 4096 * sizeof(float);
             byte[] buffer = new byte[requestedBytes];
-            stage = "BASS_ChannelGetData";
-            int returnedBytes = Bass.BASS_ChannelGetData(mixerHandle, buffer, requestedBytes);
-            long sourcePositionAfter = Bass.BASS_ChannelGetPosition(sourceHandle);
+            stage = "Bass.ChannelGetData";
+            int returnedBytes = Bass.ChannelGetData(mixerHandle, buffer, requestedBytes);
+            long sourcePositionAfter = Bass.ChannelGetPosition(sourceHandle, PositionFlags.Bytes);
             Assert.IsTrue(
                 returnedBytes > 0,
                 NativeSmokeDiagnostic(
@@ -581,10 +568,10 @@ public sealed class BassNativeRuntimeTests
 
             try
             {
-                if (mixerHandle != 0 && !Bass.BASS_StreamFree(mixerHandle))
+                if (mixerHandle != 0 && !Bass.StreamFree(mixerHandle))
                 {
                     cleanupException = new InvalidOperationException(
-                        "BASS mixer cleanup failed: " + Bass.BASS_ErrorGetCode());
+                        "BASS mixer cleanup failed: " + Bass.LastError);
                 }
             }
             catch (Exception exception)
@@ -594,10 +581,10 @@ public sealed class BassNativeRuntimeTests
 
             try
             {
-                if (sourceHandle != 0 && !Bass.BASS_StreamFree(sourceHandle))
+                if (sourceHandle != 0 && !Bass.StreamFree(sourceHandle))
                 {
                     cleanupException ??= new InvalidOperationException(
-                        "BASS source cleanup failed: " + Bass.BASS_ErrorGetCode());
+                        "BASS source cleanup failed: " + Bass.LastError);
                 }
             }
             catch (Exception exception)
@@ -608,11 +595,11 @@ public sealed class BassNativeRuntimeTests
             try
             {
                 if (coreInitialized
-                    && !Bass.BASS_Free()
-                    && Bass.BASS_ErrorGetCode() != BASSError.BASS_ERROR_INIT)
+                    && !Bass.Free()
+                    && Bass.LastError != Errors.Init)
                 {
                     cleanupException ??= new InvalidOperationException(
-                        "BASS core cleanup failed: " + Bass.BASS_ErrorGetCode());
+                        "BASS core cleanup failed: " + Bass.LastError);
                 }
             }
             catch (Exception exception)
@@ -723,19 +710,19 @@ public sealed class BassNativeRuntimeTests
             Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
 
             byte[] buffer = new byte[4096 * sizeof(float)];
-            int returnedBytes = Bass.BASS_ChannelGetData(
+            int returnedBytes = Bass.ChannelGetData(
                 session.MixerHandle,
                 buffer,
                 buffer.Length);
-            Assert.IsTrue(returnedBytes > 0, Bass.BASS_ErrorGetCode().ToString());
+            Assert.IsTrue(returnedBytes > 0, Bass.LastError.ToString());
 
             player.CurrentTime = TimeSpan.FromMilliseconds(50);
             Assert.IsTrue(player.CurrentTime > TimeSpan.Zero);
-            returnedBytes = Bass.BASS_ChannelGetData(
+            returnedBytes = Bass.ChannelGetData(
                 session.MixerHandle,
                 buffer,
                 buffer.Length);
-            Assert.IsTrue(returnedBytes > 0, Bass.BASS_ErrorGetCode().ToString());
+            Assert.IsTrue(returnedBytes > 0, Bass.LastError.ToString());
 
             player.Dispose();
             player.Dispose();
@@ -852,7 +839,7 @@ public sealed class BassNativeRuntimeTests
             byte[] drainBuffer = new byte[1024 * 1024];
             for (int attempt = 0; attempt < 4; attempt++)
             {
-                int returnedBytes = Bass.BASS_ChannelGetData(
+                int returnedBytes = Bass.ChannelGetData(
                     session.MixerHandle,
                     drainBuffer,
                     drainBuffer.Length);
@@ -921,12 +908,12 @@ public sealed class BassNativeRuntimeTests
             BassAudioOwnedStream source = session.GetPlayerStreams().Single();
             Assert.AreEqual(
                 session.MixerHandle,
-                BassMix.BASS_Mixer_ChannelGetMixer(source.Handle),
-                Bass.BASS_ErrorGetCode().ToString());
+                BassMix.ChannelGetMixer(source.Handle),
+                Bass.LastError.ToString());
 
             byte[] buffer = new byte[4096 * sizeof(float)];
-            int returnedBytes = Bass.BASS_ChannelGetData(session.MixerHandle, buffer, buffer.Length);
-            Assert.IsTrue(returnedBytes > 0, Bass.BASS_ErrorGetCode().ToString());
+            int returnedBytes = Bass.ChannelGetData(session.MixerHandle, buffer, buffer.Length);
+            Assert.IsTrue(returnedBytes > 0, Bass.LastError.ToString());
 
             int finiteSamples = 0;
             int nonZeroSamples = 0;
@@ -1014,7 +1001,7 @@ public sealed class BassNativeRuntimeTests
             + " sourceHandle=" + sourceHandle
             + " mixerHandle=" + mixerHandle
             + " nativeErrorSource=BASS"
-            + " nativeErrorCode=" + Bass.BASS_ErrorGetCode()
+            + " nativeErrorCode=" + Bass.LastError
             + " requestedBytes=" + requestedBytes
             + " returnedBytes=" + returnedBytes
             + " sourcePositionBefore=" + sourcePositionBefore

@@ -158,12 +158,6 @@
         "resolved": "10.0.10",
         "contentHash": "xUBGLR+HPujL5k3LmHIJSS6xFsKECOGO52nurXMDADkLRFNVVUxCH4ng2WBD1YTxGHkE/s2kJs1I2B89DJJyLA=="
       },
-      "Un4seen.Bass": {
-        "type": "Direct",
-        "requested": "[2.4.18.2, )",
-        "resolved": "2.4.18.2",
-        "contentHash": "CmiO4xoO0K7bvRpzsXRkbBlfQ5gxRCfw3X3OArUfDSM27kegiac0n9Prlh3luGTjhXxjEky5hz8QngL74/hGww=="
-      },
       "LivetCask.Messaging": {
         "type": "Transitive",
         "resolved": "4.0.2",

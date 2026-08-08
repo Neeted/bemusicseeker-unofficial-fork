@@ -5,11 +5,10 @@
 ## 固定する依存関係
 
 - 対象アーキテクチャ: Windows x64 / AMD64 PE
-- managed package: `Un4seen.Bass` 2.4.18.2
-- package page: https://www.nuget.org/packages/Un4seen.Bass/2.4.18.2
-- package archive: https://api.nuget.org/v3-flatcontainer/un4seen.bass/2.4.18.2/un4seen.bass.2.4.18.2.nupkg
-- package lock content hash: `CmiO4xoO0K7bvRpzsXRkbBlfQ5gxRCfw3X3OArUfDSM27kegiac0n9Prlh3luGTjhXxjEky5hz8QngL74/hGww==`
-- managed assembly output: framework-dependent build root `Bass.Net.dll`; single-file publish does not expose a standalone managed DLL
+- managed package set: `ManagedBass`, `ManagedBass.Mix`, `ManagedBass.Fx`, `ManagedBass.Enc`, `ManagedBass.Asio`, `ManagedBass.Wasapi` exact `4.0.2`
+- package pages: https://www.nuget.org/packages/ManagedBass/4.0.2 and the matching `ManagedBass.*` packages
+- normalized managed license text SHA-256: `41810CB2403489DB4FB5B2F961B78DC3629CE5B9DF06251D939A89ED3FB05063`
+- managed assembly output: framework-dependent build root contains the six `ManagedBass*.dll` assemblies; single-file publish bundles managed assemblies and does not expose companion wrapper DLLs
 - native output: `libs/x64`
 - publish native output: `libs/x64`
 - rollback unit: the complete six-file native set is backed up and restored as one set when validation or copy fails; a partial version set is not accepted
@@ -27,6 +26,6 @@ All selected archive members are under the unique `x64` path, have an AMD64 PE m
 | `bass_fx.dll` | 2.4.12.6 / `0x02040C06` | https://www.un4seen.com/files/z/0/bass_fx24.zip | `A4BAF602865941963127ACB15ED12627D108189F99C2757970432AE7DA0366CD` | `bass_fx24\x64\bass_fx.dll` | `A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A` | `libs/x64/bass_fx.dll` |
 | `bassasio.dll` | 1.4.3.0 / `0x01040300` | https://www.un4seen.com/files/bassasio14.zip | `54BFE2F051338BB016B4CA08F840B93E72EE7EDFC9BF0245F08D7EDC6C72F45D` | `bassasio14\x64\bassasio.dll` | `73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96` | `libs/x64/bassasio.dll` |
 
-The six DLLs are also copied from `vendor/native/x64` to the application publish directory by the existing publish target. The managed package lock and native provenance are intentionally separate: the package supplies `Bass.Net.dll`, while the application owns and validates the x64 native set.
+The six DLLs are also copied from `vendor/native/x64` to the application publish directory by the existing publish target. Managed package provenance and native provenance are intentionally separate: the six ManagedBass packages supply the managed bindings, while the application owns and validates the x64 native set.
 
 No registration credentials, registration values, license text, or third-party notice content is recorded in this specification.
