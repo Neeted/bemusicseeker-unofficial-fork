@@ -656,7 +656,7 @@ migration 前後で enum numeric values を比較する architecture test を追
 | Unit 2A: Backend, session, device and mixer migration | Passed | `fd5e880f` | ManagedBass backend/session/device/mixer route、enumeration error boundary、runtime cleanup correctionを実装。関連 Quick と Functional は成功し、fresh static review は blocking finding なし。 |
 | Unit 2B: Player, stream, callback and effect migration | Passed | `ca00a0e9` | `BassAudioPlayer` の stream／callback／tempo／effect を ManagedBass へ移行。32 effect inventory と custom native ABI adapter、legacy effect defaults、memory WAV／OGG、natural-end／ownership testsを追加。fresh static review は blocking finding なし。 |
 | Unit 3: Encoder and metadata migration | Passed (Unit 3A/3B) | `1b743e6f`, `cfaf53ec` | Unit 3A の command／metadata／lifecycle／cleanup ownership と、Unit 3B の ManagedBass pull rendering、early exit、per-file conversion cleanup を完了。 |
-| Unit 4: BASS.NET retirement, compliance and publish acceptance | Not started |  |  |
+| Unit 4: BASS.NET retirement, compliance and publish acceptance | Passed | `f57a4721` | Retired BASS.NET package/API/registration/current notice, preserved native x64 six-DLL set and updater cleanup, adopted exact ManagedBass 4.0.2 six-package output, and completed Full/publish/update acceptance. Final fresh static review has no findings. |
 
 ## Unit 0: Characterization and dependency foundation
 
@@ -671,7 +671,7 @@ BASS.NET をまだ production route として維持したまま、移行後に�
 - `BeMusicSeeker.Tests/BeMusicSeeker.Tests.csproj`
 - `packages.lock.json`
 - `BeMusicSeeker.Tests/packages.lock.json`
-- `BeMusicSeeker.Tests/*BassNetMigrationCharacterizationTests.cs` または責務別 test file
+- `BeMusicSeeker.Tests/AudioMigrationCharacterizationTests.cs` または責務別 test file
 - `devdocs/plan/bassnet-to-managedbass-migration-plan.md`
 
 ### Steps
@@ -710,7 +710,7 @@ BASS.NET をまだ production route として維持したまま、移行後に�
 ### Verification
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'BassNetMigrationCharacterizationTests|AudioContractsTests|ManagedDependencyOutputPolicyTests|UpdaterDeploymentBoundaryTests|UpdaterPackageSyncTests'
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'AudioMigrationCharacterizationTests|AudioContractsTests|ManagedDependencyOutputPolicyTests|UpdaterDeploymentBoundaryTests|UpdaterPackageSyncTests'
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ```
 
@@ -923,7 +923,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 - player / playback / mixer / device-test tests
 - effect-specific tests
 - `BeMusicSeeker.Tests/BassAudioEffectTests.cs`
-- `BeMusicSeeker.Tests/BassNetMigrationCharacterizationTests.cs`
+- `BeMusicSeeker.Tests/AudioMigrationCharacterizationTests.cs`
 - `BeMusicSeeker.Tests/BassNativeRuntimeTests.cs`
 - `devdocs/plan/bassnet-to-managedbass-migration-plan.md`
 
@@ -1069,7 +1069,7 @@ Unit 3 は Unit 3A／3B の二つの buildable な local commit で完了して�
 ### Verification
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'AudioEncoderCommandFactoryTests|AudioEncoderSessionTests|BassAudioWriterTests|BMSAutoPlayWriterTests|SelectedChartAudioConversionWorkflowOwnerTests|BassNetMigrationCharacterizationTests|AudioContractsTests'
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'AudioEncoderCommandFactoryTests|AudioEncoderSessionTests|BassAudioWriterTests|BMSAutoPlayWriterTests|SelectedChartAudioConversionWorkflowOwnerTests|AudioMigrationCharacterizationTests|AudioContractsTests'
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ```
 
@@ -1095,6 +1095,8 @@ available tool を要求する smoke test は通常 Functional に含めず opt-
 ### Intent
 
 temporary coexistence を終了し、BASS.NET dependency、registration、secret material、managed output、license notice を current tree から撤去する。spec、dependency policy、updater compatibility、publish artifact を final state へ揃える。
+
+**Current status: Passed.** Unit 4 implementation commit `f57a4721` and the plan follow-up are complete. Initial review findings (line-ending-stable license hash, current x64 notice scope, stale plan status, characterization file identity, stale Debug output, and native BASS release classification) were corrected; final fresh static review found no blocking or acceptance-direct findings.
 
 ### Planned paths
 
@@ -1434,6 +1436,15 @@ Codex は migration 中に key を decode / display せず、vendor account 操�
 | Unit 3B | Final Functional | Passed | 3,746 passed / 10 skipped | Build 0 errors、failed 0、command elapsed は180秒以内、tracked tree fingerprint unchanged。既知の環境依存 skip は cross-volume／symbolic-link fixture と chart dump tool。artifact root `artifacts/verification/tests-functional-20260809-003234/`。 |
 | Unit 3B | Whitespace verification | Passed | 2026-08-09 | `dotnet format whitespace .\BeMusicSeeker.sln --no-restore --verify-no-changes` と `git diff --check`。 |
 | Unit 3B | Local implementation commit | Passed | `cfaf53ec` | `refactor(audio): migrate writer pull rendering to ManagedBass`。 |
+| Unit 4 | Planner | Passed | 2026-08-09 | `unit-planner` が dependency retirement、native six-DLL preservation、notice/license separation、updater compatibility、Full lane を確定。未決事項なし。 |
+| Unit 4 | Initial implementation Quick | Passed | 84 passed / 1 skipped | Exact ManagedBass 4.0.2 output policy、runtime、writer、encoder、updater boundary。artifact `artifacts/verification/tests-quick-20260809-010811/functional/results.trx`。 |
+| Unit 4 | Full lane | Passed | 2026-08-09 | Functional shards: 3,756 executed / 0 failed with existing skips、process integration 35 passed / 1 skipped、release acceptance 2 passed、NET10 update receipt `status: passed`、Roslynator 0 diagnostics。artifact root `artifacts/verification/tests-full-20260809-012516/`。 |
+| Unit 4 | Review-correction Quick | Passed | 84 passed / 1 skipped | License hash line-ending canonicalization、current x64 notice scope、wrapper-neutral characterization file/name を含む correction。artifact `artifacts/verification/tests-quick-20260809-014415/functional/results.trx`。 |
+| Unit 4 | Initial static review | Fixed | 2026-08-09 | P0/P1なし。acceptance-direct P2 4件（license hash、notice scope、plan status、test file identity）を修正済み。 |
+| Unit 4 | Output cleanup correction | Passed | 2026-08-09 | stale Debug output を `dotnet clean` で除去。documented recursive output scan は旧 managed wrapper 0件、Debug旧ファイル 0件、Release framework-dependent ManagedBass 6種類。 |
+| Unit 4 | Notice classification correction Quick | Passed | 4 passed | English/Japanese third-party notice から native BASS を GREEN 一覧から外し、redistribution entitlement を YELLOW prerequisite に統一。artifact `artifacts/verification/tests-quick-20260809-015954/functional/results.trx`。 |
+| Unit 4 | Final fresh static review | Passed | 2026-08-09 | `repo-static-review` が全差分、untracked ADR/license、notice分類、output scan、runtime ownership、plan consistencyを再確認。P0/P1、acceptance-direct P2、pre-existing/out-of-scope、recommendationなし。 |
+| Unit 4 | Local implementation commit | Passed | `f57a4721` | `chore(deps): retire BASS.NET`。 |
 
 ## Completion Gate
 
@@ -1441,52 +1452,52 @@ Codex は migration 中に key を decode / display せず、vendor account 操�
 
 ### Dependency / source
 
-- [ ] `Un4seen.Bass` package reference がゼロ。
-- [ ] lock files に `Un4seen.Bass` がない。
-- [ ] production / test source に `using Un4seen.Bass...` がない。
-- [ ] BASS.NET API call がない。
-- [ ] registration call / reconstruction code / non-secret unique marker がない。
-- [ ] `BassNet` lifecycle class name が `BassAudioRuntime` へ移行済み。
-- [ ] ManagedBass six packagesがexact `4.0.2`。
-- [ ] `ManagedBass.Tags`を追加していない。
+- [x] `Un4seen.Bass` package reference がゼロ。
+- [x] lock files に `Un4seen.Bass` がない。
+- [x] production / test source に `using Un4seen.Bass...` がない。
+- [x] BASS.NET API call がない。
+- [x] registration call / reconstruction code / non-secret unique marker がない。
+- [x] `BassNet` lifecycle class name が `BassAudioRuntime` へ移行済み。
+- [x] ManagedBass six packagesがexact `4.0.2`。
+- [x] `ManagedBass.Tags`を追加していない。
 
 ### Runtime behavior
 
-- [ ] exact native six-DLL resolver が機能する。
-- [ ] native version/hash/layoutがmigration前と同じ。
-- [ ] DirectSound/core、WASAPI shared/exclusive、ASIO、NullDevice contractsが維持される。
-- [ ] mixer ownership、callback lifetime、shutdown、cleanup quarantine testsがpass。
-- [ ] effect supported setが狭まっていない。
+- [x] exact native six-DLL resolver が機能する。
+- [x] native version/hash/layoutがmigration前と同じ。
+- [x] DirectSound/core、WASAPI shared/exclusive、ASIO、NullDevice contractsが維持される。
+- [x] mixer ownership、callback lifetime、shutdown、cleanup quarantine testsがpass。
+- [x] effect supported setが狭まっていない。
 
 ### Encoder
 
-- [ ] WAV / LAME / Nero AAC / Opus / FLAC / Ogg Vorbisが維持される。
-- [ ] quality mapping、tag、extension、collision suffix、command diagnosticsがgolden match。
-- [ ] start/stop/error/cleanup testsがpass。
-- [ ] shell injection pathがない。
+- [x] WAV / LAME / Nero AAC / Opus / FLAC / Ogg Vorbisが維持される。
+- [x] quality mapping、tag、extension、collision suffix、command diagnosticsがgolden match。
+- [x] start/stop/error/cleanup testsがpass。
+- [x] shell injection pathがない。
 
 ### Distribution / license
 
-- [ ] build / publish outputに`Bass.Net.dll`がない。
-- [ ] outputにexpected ManagedBass assembliesがある。
-- [ ] updater legacy cleanup entryだけは残る。
-- [ ] ManagedBass MIT noticeが追加済み。
-- [ ] BASS.NET current-distribution noticeが撤去済み。
-- [ ] BASS native noticeが維持されている。
-- [ ] public release prerequisiteとしてhistory/key noteが記録されている。
+- [x] build / publish outputに`Bass.Net.dll`がない。
+- [x] outputにexpected ManagedBass assembliesがある。
+- [x] updater legacy cleanup entryだけは残る。
+- [x] ManagedBass MIT noticeが追加済み。
+- [x] BASS.NET current-distribution noticeが撤去済み。
+- [x] BASS native noticeが維持されている。
+- [x] public release prerequisiteとしてhistory/key noteが記録されている。
 
 ### Verification / review / Git
 
-- [ ] all related Quick tests pass。
-- [ ] Functional command total <= 180 seconds and pass。
-- [ ] Full lane pass、またはpre-existing unrelated build・test failureがevidence付きで分離され、introduced failureはゼロ。
-- [ ] `git diff --check` pass。
-- [ ] final static reviewにblocking findingなし。
-- [ ] unitごとのlocal commitが存在する。
-- [ ] Unit 0開始前のworktree / indexがcleanであったことをVerification Logに記録済み。
-- [ ] 各unit commit後と最終時点のworktree / indexがclean。
-- [ ] push / tag / release / history rewriteを実行していない。
-- [ ] ProgressとVerification Logが実結果へ更新済み。
+- [x] all related Quick tests pass。
+- [x] Functional command total <= 180 seconds and pass。
+- [x] Full lane pass、またはpre-existing unrelated build・test failureがevidence付きで分離され、introduced failureはゼロ。
+- [x] `git diff --check` pass。
+- [x] final static reviewにblocking findingなし。
+- [x] unitごとのlocal commitが存在する。
+- [x] Unit 0開始前のworktree / indexがcleanであったことをVerification Logに記録済み。
+- [x] 各unit commit後と最終時点のworktree / indexがclean。
+- [x] push / tag / release / history rewriteを実行していない。
+- [x] ProgressとVerification Logが実結果へ更新済み。
 
 ## Final response contents
 
