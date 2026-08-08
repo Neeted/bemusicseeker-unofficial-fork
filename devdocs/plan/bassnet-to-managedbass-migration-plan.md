@@ -652,7 +652,7 @@ migration 前後で enum numeric values を比較する architecture test を追
 | Unit | Status | Commit | Progress Notes |
 | --- | --- | --- | --- |
 | Unit 0: Characterization and dependency foundation | Passed | `5574a3b8` | ManagedBass six packagesをexact `4.0.2`で同居。BASS.NET production route、native six-DLL layout、updater legacy cleanup entryは維持。characterization 11 testsとtransition-aware output policyを追加。初回 review の3件と、登録処理を介さない特性テスト用 bootstrap に関する追加 P2 は修正済み。fresh review は blocking finding なし。 |
-| Unit 1: ManagedBass native bootstrap and runtime owner | Passed; commit pending |  | Exact-handle resolver、ManagedBass version validation、wrapper-neutral runtime rename、legacy registration orderingを実装。CLR の cached P/Invoke pointer を安全に保持するため、成功済み native generation を process lifetime pin とし、shutdown は logical active publication の解除へ補正。初回 Functional の native access violation をこの invariant で修正。補正 Functional は 812 tests passed。静的 review の P2（旧 unload 説明）は周辺 code/spec/plan まで修正し、final fresh review は blocking finding なし。 |
+| Unit 1: ManagedBass native bootstrap and runtime owner | Passed | `68c0175f` | Exact-handle resolver、ManagedBass version validation、wrapper-neutral runtime rename、legacy registration orderingを実装。CLR の cached P/Invoke pointer を安全に保持するため、成功済み native generation を process lifetime pin とし、shutdown は logical active publication の解除へ補正。初回 Functional の native access violation をこの invariant で修正。補正 Functional は 812 tests passed。静的 review の P2（旧 unload 説明）は周辺 code/spec/plan まで修正し、final fresh review は blocking finding なし。 |
 | Unit 2A: Backend, session, device and mixer migration | Not started |  |  |
 | Unit 2B: Player, stream, callback and effect migration | Not started |  |  |
 | Unit 3: Encoder and metadata migration | Not started |  |  |
@@ -1371,6 +1371,7 @@ Codex は migration 中に key を decode / display せず、vendor account 操�
 | Unit 1 | Corrective fresh static review | Finding fixed | 2026-08-08 | `repo-static-review` が周辺 code/spec/plan に残った successful-generation unload 表現をP2として指摘。shutdown/deactivation、candidate rollback、process-exit mappingへ統一。 |
 | Unit 1 | Final fresh static review | Passed | 2026-08-08 | `repo-static-review` は blocking finding、pre-existing/out-of-scope、recommendationなし。成功 generation の shutdown unload を示す残存記述なし。 |
 | Unit 1 | Final whitespace verification | Passed | 21.3s | `dotnet format whitespace .\BeMusicSeeker.sln --no-restore --verify-no-changes`、`git diff --check`。 |
+| Unit 1 | Local implementation commit | Passed | `68c0175f` | `refactor(audio): add ManagedBass runtime bootstrap`。 |
 
 ## Completion Gate
 
