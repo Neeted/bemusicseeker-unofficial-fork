@@ -653,8 +653,8 @@ migration 前後で enum numeric values を比較する architecture test を追
 | --- | --- | --- | --- |
 | Unit 0: Characterization and dependency foundation | Passed | `5574a3b8` | ManagedBass six packagesをexact `4.0.2`で同居。BASS.NET production route、native six-DLL layout、updater legacy cleanup entryは維持。characterization 11 testsとtransition-aware output policyを追加。初回 review の3件と、登録処理を介さない特性テスト用 bootstrap に関する追加 P2 は修正済み。fresh review は blocking finding なし。 |
 | Unit 1: ManagedBass native bootstrap and runtime owner | Passed | `68c0175f` | Exact-handle resolver、ManagedBass version validation、wrapper-neutral runtime rename、legacy registration orderingを実装。CLR の cached P/Invoke pointer を安全に保持するため、成功済み native generation を process lifetime pin とし、shutdown は logical active publication の解除へ補正。初回 Functional の native access violation をこの invariant で修正。補正 Functional は 812 tests passed。静的 review の P2（旧 unload 説明）は周辺 code/spec/plan まで修正し、final fresh review は blocking finding なし。 |
-| Unit 2A: Backend, session, device and mixer migration | Not started |  |  |
-| Unit 2B: Player, stream, callback and effect migration | Not started |  |  |
+| Unit 2A: Backend, session, device and mixer migration | Passed | `fd5e880f` | ManagedBass backend/session/device/mixer route、enumeration error boundary、runtime cleanup correctionを実装。関連 Quick と Functional は成功し、fresh static review は blocking finding なし。 |
+| Unit 2B: Player, stream, callback and effect migration | Passed | `ca00a0e9` | `BassAudioPlayer` の stream／callback／tempo／effect を ManagedBass へ移行。32 effect inventory と custom native ABI adapter、legacy effect defaults、memory WAV／OGG、natural-end／ownership testsを追加。fresh static review は blocking finding なし。 |
 | Unit 3: Encoder and metadata migration | Not started |  |  |
 | Unit 4: BASS.NET retirement, compliance and publish acceptance | Not started |  |  |
 
@@ -915,10 +915,16 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ### Planned paths
 
 - `Ribbit/Media/BassAudioPlayer.cs`
+- `Ribbit/Media/Audio/BassAudioEffectType.cs`
+- `Ribbit/Media/Audio/ManagedBassEffectParameters.cs`
+- `Ribbit/Media/Audio/ManagedBassVolumeEffect.cs`
 - `BeMusicSeeker/ViewModels/AudioDeviceTestWorkflowOwner.cs`
 - `BeMusicSeeker/ViewModels/MainWindow/SelectedChartAudioConversionWorkflowOwner.cs`
 - player / playback / mixer / device-test tests
 - effect-specific tests
+- `BeMusicSeeker.Tests/BassAudioEffectTests.cs`
+- `BeMusicSeeker.Tests/BassNetMigrationCharacterizationTests.cs`
+- `BeMusicSeeker.Tests/BassNativeRuntimeTests.cs`
 - `devdocs/plan/bassnet-to-managedbass-migration-plan.md`
 
 ### Steps
@@ -930,7 +936,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 5. tempo stream を `BassFx.TempoCreate` へ移す。
 6. effect type / parameter map を ManagedBass `EffectType` と `IEffectParameter` 実装へ置換する。
 7. current DX8 / BASS_FX mapping 全体を inventory test で固定し、同じ count / semantic set を実装する。
-8. `Bass.FXSetParameters(handle, IEffectParameter)` / `FXGetParameters` を使い、不要な manual pinning は追加しない。
+8. `Bass.FXSetParameters(handle, IEffectParameter)` / `FXGetParameters` を使う。ManagedBass に対応する `IEffectParameter` がない pointer parameter だけは、owner-local の最小 adapter で native layout、pinning、copy-back を管理する。
 9. volume effect と peak EQ の current initialization / update order を維持する。
 10. WASAPI / ASIO callback delegate を ManagedBass signature へ移し、static strong reference を維持する。
 11. callback は `BassAudioSession.CallbackOutputHandle` だけを読み、static mixer field を source-of-truth にしない。
@@ -942,7 +948,8 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
     - dispose/play race
     を既存 test どおり維持する。
 13. stream create / attach / resume / rollback failure の typed diagnostic を維持する。
-14. Unit 0 characterization と既存 test を ManagedBass implementation へ向ける。
+14. File callback delegate、custom effect parameter、pointer array の lifetime を強制 GC と native boundary test で固定する。
+15. Unit 0 characterization と既存 test を ManagedBass implementation へ向ける。
 
 ### Effect migration rule
 
@@ -1372,6 +1379,29 @@ Codex は migration 中に key を decode / display せず、vendor account 操�
 | Unit 1 | Final fresh static review | Passed | 2026-08-08 | `repo-static-review` は blocking finding、pre-existing/out-of-scope、recommendationなし。成功 generation の shutdown unload を示す残存記述なし。 |
 | Unit 1 | Final whitespace verification | Passed | 21.3s | `dotnet format whitespace .\BeMusicSeeker.sln --no-restore --verify-no-changes`、`git diff --check`。 |
 | Unit 1 | Local implementation commit | Passed | `68c0175f` | `refactor(audio): add ManagedBass runtime bootstrap`。 |
+| Unit 2A | Corrective related Quick | Passed | 2026-08-08 / 151 + 76 passed | Backend、session、device、mixer、runtime cleanup の関連 lane。artifacts `artifacts/verification/tests-quick-20260808-182503/functional/results.trx`、`artifacts/verification/tests-quick-20260808-184720/functional/results.trx`。 |
+| Unit 2A | Corrective Functional | Passed | 134.9s / 817 passed | Build 0 errors。artifact root `artifacts/verification/tests-functional-20260808-184837/`。既知の NU1510 以外の新規 build failure なし。 |
+| Unit 2A | Initial static review / fresh review | Findings fixed / Passed | 2026-08-08 | 初回 review の ManagedBass error formatter、info getter、device enumeration、mixer route、spec stale wording、runtime free/error source の P2 を修正。fresh `repo-static-review` は blocking finding、pre-existing/out-of-scope、recommendationなし。 |
+| Unit 2B | Initial related Quick | Failed then fixed | 2026-08-08 / 204 total, 198 passed, 6 failed | artifact `artifacts/verification/tests-quick-20260808-193142/functional/results.trx`。ManagedBass `FileProcedures` callback 引数順、EffectType native ID、pointer parameter layout を修正。 |
+| Unit 2B | Corrective effect Quick | Passed | 15.1s / 5 passed | effect inventory、native ABI size／offset、pointer pinning／copy-back。artifact `artifacts/verification/tests-quick-20260808-194003/functional/results.trx`。 |
+| Unit 2B | Related Quick | Passed | 37.9s / 204 passed | stream、callback、natural-end、runtime、backend、device-test、effect、characterization。artifact `artifacts/verification/tests-quick-20260808-194314/functional/results.trx`。 |
+| Unit 2B | Functional build and test | Passed | 134.9s / 817 passed | Build 0 errors。artifact root `artifacts/verification/tests-functional-20260808-194428/`。既知の NU1510 以外の新規 build failure なし。 |
+| Unit 2B | Corrective effect Quick | Failed then fixed | 2026-08-08 / 7 total, 6 passed, 1 failed | artifact `artifacts/verification/tests-quick-20260808-201433/functional/results.trx`。解放済み `GCHandle` の観測を値型コピーの `IsAllocated` から native handle target の null readbackへ修正。 |
+| Unit 2B | Corrective effect Quick | Passed | 17.0s / 7 passed | 明示 effect mapping、envelope node reconstruction、cleanup primary-error preservation。artifact `artifacts/verification/tests-quick-20260808-201711/functional/results.trx`。 |
+| Unit 2B | Forced-GC callback Quick | Passed | 12.8s / 1 passed | Memory `FileProcedures` の full GC 後 pull／seek／dispose／double-dispose。artifact `artifacts/verification/tests-quick-20260808-201734/functional/results.trx`。 |
+| Unit 2B | Corrective related Quick | Passed | 13.6s / 207 passed | Unit 2A/2B 関連 lane と forced-GC callback を含む。artifact `artifacts/verification/tests-quick-20260808-201759/functional/results.trx`。 |
+| Unit 2B | Corrective Functional | Passed | 136.5s / 818 passed | Build 0 errors。artifact root `artifacts/verification/tests-functional-20260808-201828/`。既知の NU1510 以外の新規 build failure なし。 |
+| Unit 2B | Corrective effect／migration Quick | Passed | 72.4s / 19 passed | DX8 explicit native mapping、Pitch Shift 32-bit layout、pointer／cleanup contract、encoder characterization。artifact `artifacts/verification/tests-quick-20260808-204124/functional/results.trx`。 |
+| Unit 2B | Corrective related Quick | Passed | 15.3s / 212 passed | Unit 2A/2B 関連 lane と latest effect correction を含む。artifact `artifacts/verification/tests-quick-20260808-204256/functional/results.trx`。 |
+| Unit 2B | Corrective Functional | Passed | 139.0s / 818 passed | Build 0 errors。artifact root `artifacts/verification/tests-functional-20260808-204317/`。既知の NU1510 以外の新規 build failure なし。 |
+| Unit 2B | Static review corrective finding | Fixed | 2026-08-08 | `repo-static-review` の acceptance-direct P2（BASS.NET legacy effect default の欠落）を、DX8／BFX catalog factory と custom adapter constructor の明示値、および literal-based default test で修正。 |
+| Unit 2B | Review-correction effect Quick | Passed | 68.1s / 9 passed | legacy effect default、explicit mapping、Pitch Shift 32-bit layout、pointer／cleanup contract。artifact `artifacts/verification/tests-quick-20260808-210305/functional/results.trx`。 |
+| Unit 2B | Review-correction related Quick | Passed | 16.3s / 213 passed | Unit 2A/2B 関連 lane と legacy default correction を含む。artifact `artifacts/verification/tests-quick-20260808-210425/functional/results.trx`。 |
+| Unit 2B | Review-correction Functional | Passed | 139.3s / 818 passed | Build 0 errors。artifact root `artifacts/verification/tests-functional-20260808-210445/`。既知の NU1510 以外の新規 build failure なし。 |
+| Unit 2B | Review-correction whitespace verification | Passed | 25.4s | `dotnet format whitespace .\BeMusicSeeker.sln --no-restore --verify-no-changes` と `git diff --check`。 |
+| Unit 2B | Final fresh static review | Passed | 2026-08-08 | 前回の acceptance-direct P2（legacy effect defaults）を修正した snapshot を再確認。`repo-static-review` は blocking finding、pre-existing/out-of-scope、recommendationなし。 |
+| Unit 2A | Local implementation commit | Passed | `fd5e880f` | `refactor(audio): migrate audio backends to ManagedBass`。 |
+| Unit 2B | Local implementation commit | Passed | `ca00a0e9` | `refactor(audio): migrate audio player effects to ManagedBass`。 |
 
 ## Completion Gate
 
