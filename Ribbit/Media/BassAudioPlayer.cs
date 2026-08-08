@@ -321,14 +321,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         get
         {
             using BassAudioOperationLease operation =
-                Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+                Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
             long pos = Bass.BASS_ChannelGetPosition(_handle);
             return TimeSpan.FromSeconds(Bass.BASS_ChannelBytes2Seconds(_handle, pos));
         }
         set
         {
             using BassAudioOperationLease operation =
-                Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+                Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
             long pos = Bass.BASS_ChannelSeconds2Bytes(_handle, value.TotalSeconds);
             if (pos < 0)
             {
@@ -384,7 +384,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 else
                 {
                     using BassAudioOperationLease operation =
-                        Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+                        Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
                     Bass.BASS_ChannelSetAttribute(_handle, BASSAttribute.BASS_ATTRIB_VOL, value);
                 }
             }
@@ -406,13 +406,13 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     prevVolume = Volume;
                     using BassAudioOperationLease operation =
-                        Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+                        Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
                     Bass.BASS_ChannelSetAttribute(_handle, BASSAttribute.BASS_ATTRIB_VOL, 0f);
                 }
                 else
                 {
                     using BassAudioOperationLease operation =
-                        Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+                        Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
                     Bass.BASS_ChannelSetAttribute(_handle, BASSAttribute.BASS_ATTRIB_VOL, prevVolume);
                 }
             }
@@ -458,7 +458,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             return true;
         }
 
-        if (!Ribbit.Media.Audio.BassNet.TryEnterAudioSessionCleanup(
+        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioSessionCleanup(
             out BassAudioExclusiveLease lifecycle))
         {
             return expectedSession?.IsReleased == true;
@@ -506,7 +506,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
         try
         {
-            Ribbit.Media.Audio.BassNet.Initialize();
+            Ribbit.Media.Audio.BassAudioRuntime.Initialize();
         }
         catch (Exception exception)
         {
@@ -835,12 +835,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         return BuildRuntimeVersionDiagnostics(
             Environment.OSVersion.VersionString,
-            Bass.BASS_GetVersion(),
-            BassWasapi.BASS_WASAPI_GetVersion(),
-            BassAsio.BASS_ASIO_GetVersion(),
-            BassMix.BASS_Mixer_GetVersion(),
-            BassFx.BASS_FX_GetVersion(),
-            BassEnc.BASS_Encode_GetVersion());
+            unchecked((int)BassVersionPacking.Pack(ManagedBass.Bass.Version)),
+            unchecked((int)BassVersionPacking.Pack(ManagedBass.Wasapi.BassWasapi.Version)),
+            unchecked((int)BassVersionPacking.Pack(ManagedBass.Asio.BassAsio.Version)),
+            unchecked((int)BassVersionPacking.Pack(ManagedBass.Mix.BassMix.Version)),
+            unchecked((int)BassVersionPacking.Pack(ManagedBass.Fx.BassFx.Version)),
+            unchecked((int)BassVersionPacking.Pack(ManagedBass.Enc.BassEnc.Version)));
     }
 
     /// <summary>Formats the OS and complete supported BASS native-family version snapshot.</summary>
@@ -868,7 +868,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         try
         {
-            return Ribbit.Media.Audio.BassNet.EnterAudioSessionInitialization();
+            return Ribbit.Media.Audio.BassAudioRuntime.EnterAudioSessionInitialization();
         }
         catch (Exception exception)
         {
@@ -1006,7 +1006,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             try
             {
-                if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
+                if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioCallbackOperation(
                     out BassAudioOperationLease operation))
                 {
                     return;
@@ -1183,7 +1183,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         _format = SampleFormat.AUTO;
         _defaultVolume = 0.4f;
         _deviceVolume = 0.4f;
-        Ribbit.Media.Audio.BassNet.RegisterAudioSessionShutdown(ReleaseCurrentSessionUnderExclusive);
+        Ribbit.Media.Audio.BassAudioRuntime.RegisterAudioSessionShutdown(ReleaseCurrentSessionUnderExclusive);
     }
 
     private static DeviceDescriptor InitializeAsio(DeviceDescriptor desc = default)
@@ -1301,7 +1301,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     /// <summary>Updates the active output graph to play at the requested tempo.</summary>
     public static void SetTempoChange(float speed, bool changeFreq = false)
     {
-        if (!Ribbit.Media.Audio.BassNet.TryEnterAudioOperation(
+        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioOperation(
             out BassAudioOperationLease operation))
         {
             return;
@@ -1370,7 +1370,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     /// <summary>Restores the active output graph to its original tempo.</summary>
     public static void ResetTempoChange()
     {
-        if (!Ribbit.Media.Audio.BassNet.TryEnterAudioOperation(
+        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioOperation(
             out BassAudioOperationLease operation))
         {
             return;
@@ -1505,7 +1505,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void CreateFX(object parameter)
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (!IsInitialized)
         {
             return;
@@ -1537,7 +1537,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void RemoveFX(BASSFXType fxType)
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized && FxParameters.TryRemove(fxType, out Tuple<int, object> value) && value.Item1 != 0 && !Bass.BASS_ChannelRemoveFX(inputMixer, value.Item1))
         {
             BASSError bASSError = Bass.BASS_ErrorGetCode();
@@ -1548,7 +1548,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void RemoveFX()
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized)
         {
             KeyValuePair<BASSFXType, Tuple<int, object>>[] array = [.. FxParameters];
@@ -1562,7 +1562,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void DisableFX(BASSFXType fxType)
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized && FxParameters.TryGetValue(fxType, out Tuple<int, object> value) && value.Item1 != 0)
         {
             if (!Bass.BASS_ChannelRemoveFX(inputMixer, value.Item1))
@@ -1581,7 +1581,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void DisableFX()
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized)
         {
             KeyValuePair<BASSFXType, Tuple<int, object>>[] array = [.. FxParameters];
@@ -1595,7 +1595,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void EnableFX(BASSFXType fxType)
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized && FxParameters.TryGetValue(fxType, out Tuple<int, object> value) && value.Item1 == 0)
         {
             value = new Tuple<int, object>(Bass.BASS_ChannelSetFX(inputMixer, fxType, 0), value.Item2);
@@ -1615,7 +1615,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void EnableFX()
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized)
         {
             KeyValuePair<BASSFXType, Tuple<int, object>>[] array = [.. FxParameters];
@@ -1647,7 +1647,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void EnableEQ()
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (!IsInitialized || EQEnabled)
         {
             return;
@@ -1675,7 +1675,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void DisableEQ()
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized && EQEnabled)
         {
             if (!Bass.BASS_ChannelRemoveFX(inputMixer, equalizer))
@@ -1697,7 +1697,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             throw new ArgumentOutOfRangeException("slot");
         }
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (EQEnabled)
         {
             var bASS_BFX_PEAKEQ = new BASS_BFX_PEAKEQ
@@ -1724,7 +1724,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public static void ResetEQ()
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (IsInitialized)
         {
             for (int i = 0; i < EqualizerFrequencies.Count; i++)
@@ -1782,7 +1782,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private static int ReadCallbackOutput(IntPtr buffer, int length)
     {
-        if (!Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(
+        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioCallbackOperation(
             out BassAudioOperationLease operation))
         {
             return 0;
@@ -1800,7 +1800,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private static void TryApplyEffectiveDeviceVolumeToActiveSession()
     {
-        if (!Ribbit.Media.Audio.BassNet.TryEnterAudioOperation(
+        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioOperation(
             out BassAudioOperationLease operation))
         {
             return;
@@ -1911,7 +1911,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             mixerSourceNative,
             () => owningSession);
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         owningSession = SessionLifecycle.CurrentSessionForAdmittedOperation;
         if (owningSession?.State != BassAudioSessionState.Active)
         {
@@ -2343,7 +2343,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public void Pause()
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         lock (mixerSourceSync)
         {
             ProcessPendingEndCleanup();
@@ -2378,7 +2378,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public void Play(PlayWith flagPlayWith = PlayWith.RESTART)
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         lock (mixerSourceSync)
         {
             ProcessPendingEndCleanup();
@@ -2467,7 +2467,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     public void Stop()
     {
         using BassAudioOperationLease operation =
-            Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         lock (mixerSourceSync)
         {
             ProcessPendingEndCleanup();
@@ -2944,8 +2944,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
         BassAudioOperationLease operation;
         bool entered = disposing
-            ? Ribbit.Media.Audio.BassNet.TryEnterAudioOperation(out operation)
-            : Ribbit.Media.Audio.BassNet.TryEnterAudioCallbackOperation(out operation);
+            ? Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioOperation(out operation)
+            : Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioCallbackOperation(out operation);
         if (!entered)
         {
             lock (disposeSync)

@@ -543,7 +543,7 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
             BassAudioWriter.EncoderDirectory = settings.EncoderExeDirectory;
             BassAudioWriter.InitializeOwnedSession(out ownedSession);
             sessionLease.Attach(ownedSession);
-            using BassAudioOperationLease operation = BassNet.EnterAudioOperation();
+            using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
             EncoderType encoder = settings.Encoder;
             int index = 0;
             int totalCount = bmsFiles.Count;

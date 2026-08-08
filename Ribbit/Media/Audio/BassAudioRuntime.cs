@@ -5,12 +5,13 @@ using Un4seen.Bass;
 
 namespace Ribbit.Media.Audio;
 
-public static class BassNet
+public static class BassAudioRuntime
 {
     private enum InitializationStage
     {
         NativeLoad,
-        WrapperRegistration,
+        ResolverInstallation,
+        LegacyWrapperRegistration,
         VersionValidation,
         Completed
     }
@@ -67,6 +68,9 @@ public static class BassNet
                 {
                     stage = InitializationStage.NativeLoad;
                     BassNativeRuntime.Load();
+                    stage = InitializationStage.ResolverInstallation;
+                    ManagedBassNativeLibraryResolver.EnsureInstalled();
+                    BassNativeRuntime.PinManagedBassGeneration();
                 },
                 () =>
                 {
@@ -75,8 +79,8 @@ public static class BassNet
                         return;
                     }
 
-                    stage = InitializationStage.WrapperRegistration;
-                    RegisterBassNetWrapper();
+                    stage = InitializationStage.LegacyWrapperRegistration;
+                    RegisterLegacyBassNetWrapper();
                     wrapperRegistered = true;
                 },
                 () =>
@@ -115,7 +119,7 @@ public static class BassNet
         validateVersions();
     }
 
-    private static void RegisterBassNetWrapper()
+    private static void RegisterLegacyBassNetWrapper()
     {
         ((Action<Action<string, string>, string, string>)delegate (Action<string, string> f, string i, string j)
         {
@@ -142,7 +146,7 @@ public static class BassNet
                 nativeError = Bass.BASS_ErrorGetCode().ToString();
             }
 
-            NLogWrapper.GetLogger(nameof(BassNet)).Error(
+            NLogWrapper.GetLogger(nameof(BassAudioRuntime)).Error(
                 "BASS native bootstrap failed. stage=" + stage
                 + " component=" + GetStageComponent(stage)
                 + " exceptionType=" + exception.GetType().FullName
@@ -166,7 +170,7 @@ public static class BassNet
         {
             try
             {
-                NLogWrapper.GetLogger(nameof(BassNet)).Warn(
+                NLogWrapper.GetLogger(nameof(BassAudioRuntime)).Warn(
                     "BASS native bootstrap cleanup failed. stage=" + stage
                     + " exceptionType=" + cleanupException.GetType().FullName
                     + " nativeRuntimeLoaded=" + BassNativeRuntime.IsLoaded);
@@ -181,14 +185,15 @@ public static class BassNet
     private static string GetStageComponent(InitializationStage stage) => stage switch
     {
         InitializationStage.NativeLoad => nameof(BassNativeRuntime),
-        InitializationStage.WrapperRegistration => "BASS.NET",
+        InitializationStage.ResolverInstallation => nameof(ManagedBassNativeLibraryResolver),
+        InitializationStage.LegacyWrapperRegistration => "BASS.NET",
         InitializationStage.VersionValidation => nameof(BassNativeRuntime),
-        InitializationStage.Completed => nameof(BassNet),
-        _ => nameof(BassNet)
+        InitializationStage.Completed => nameof(BassAudioRuntime),
+        _ => nameof(BassAudioRuntime)
     };
 
     /// <summary>
-    /// Registers the one audio-session owner that must release its graph before native unload.
+    /// Registers the one audio-session owner that must release its graph before runtime deactivation.
     /// </summary>
     internal static void RegisterAudioSessionShutdown(Func<bool> releaseAudioSessionForShutdown)
     {
@@ -208,7 +213,8 @@ public static class BassNet
         RuntimeGate.TryEnterNonBlockingOperation(out lease);
 
     /// <summary>
-    /// Enters a native operation that must finish before runtime shutdown can unload the DLLs.
+    /// Enters a native operation that must finish before runtime shutdown deactivates the
+    /// active native generation.
     /// </summary>
     internal static BassAudioOperationLease EnterAudioOperation()
     {
@@ -233,6 +239,10 @@ public static class BassNet
     internal static void WaitForAudioShutdownCompletion() =>
         RuntimeGate.WaitForShutdownCompletion();
 
+    /// <summary>Waits until shutdown has closed new native operation admission.</summary>
+    internal static bool WaitForAudioShutdownRequest(TimeSpan timeout) =>
+        RuntimeGate.WaitForShutdownRequest(timeout);
+
     /// <summary>
     /// Frees the current BASS core device. An already-free device is an idempotent no-op.
     /// </summary>
@@ -254,7 +264,9 @@ public static class BassNet
     }
 
     /// <summary>
-    /// Drains audio operations, releases the owned graph, and unloads the native runtime.
+    /// Drains audio operations, releases the owned graph, and deactivates the native runtime.
+    /// ManagedBass-bound modules remain mapped until process exit because the CLR caches their
+    /// resolved native function pointers.
     /// </summary>
     internal static void Shutdown()
     {

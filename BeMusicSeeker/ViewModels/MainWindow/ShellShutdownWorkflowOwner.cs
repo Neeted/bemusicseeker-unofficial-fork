@@ -271,7 +271,7 @@ internal sealed class ShellShutdownWorkflowOwner
             logShutdown("regularChartListStop_final_failed message=" + exception.Message);
         }
         TryShutdownStep("player_close", playbackPanel.CloseProcess);
-        TryShutdownStep("audio_native_runtime", Ribbit.Media.Audio.BassNet.Shutdown);
+        TryShutdownStep("audio_native_runtime", Ribbit.Media.Audio.BassAudioRuntime.Shutdown);
         try
         {
             WaitForLr2DbProcessLocksAsync(new ShutdownWaitTracker()).GetAwaiter().GetResult();

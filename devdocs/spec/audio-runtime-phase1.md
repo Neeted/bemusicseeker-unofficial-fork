@@ -34,9 +34,17 @@ native DLL は `vendor/native/x64` の6ファイルを一式として所有し�
 
 音声ライフサイクルマネージャーは、最初のネイティブリソース取得成功からクリーンアップ確認まで、ネイティブ音声セッションを永続的に所有する唯一の主体とする。再生、デバイステスト、変換、設定の各コンシューマーは、immutable なセッショントークンまたは結果を保持してよいが、それぞれが独立したクリーンアップ保留状態を保持してはならない。
 
-ライフサイクルマネージャーは initialize と free を直列化し、セッションが active または隔離状態にある間の再入を拒否し、解放確認できていない所有権を後続のクリーンアップ再試行用に保持する。ランタイム終了時は、まず操作ゲートを閉じ、実行中の操作完了を待ち、セッションのクリーンアップを要求し、所有権が解消された後にだけネイティブモジュールをアンロードする。
+ライフサイクルマネージャーは initialize と free を直列化し、セッションが active または隔離状態にある間の再入を拒否し、解放確認できていない所有権を後続のクリーンアップ再試行用に保持する。ランタイム終了時は、まず操作ゲートを閉じ、実行中の操作完了を待ち、セッションのクリーンアップを要求し、所有権が解消された後にだけ active native generation を非公開化する。
 
-`BassNet.Initialize` は、native DLL の load、既存の BASS.NET registration、component version validation の順に実行する。registration 前に BASS.NET wrapper API を呼び出してはならない。各段階の失敗は `NLogWrapper` を通して stage、component、native error source／code、runtime load 状態を記録し、native handle の解放に失敗しても最初の初期化例外を主例外として保持する。core の process-wide default-device 設定をこの bootstrap で変更・readbackして endpoint を合成してはならない。デバイス列挙および `BASS_Init` は各選択 backend の native boundary に限定する。
+`BassAudioRuntime.Initialize` は、native DLL の load、ManagedBass resolver installation、既存の BASS.NET registration、ManagedBass による component version validation の順に実行する。registration 前に BASS.NET wrapper API を呼び出してはならない。各段階の失敗は `NLogWrapper` を通して stage、component、native error source／code、runtime load 状態を記録し、native handle の解放に失敗しても最初の初期化例外を主例外として保持する。core の process-wide default-device 設定をこの bootstrap で変更・readbackして endpoint を合成してはならない。デバイス列挙および `BASS_Init` は各選択 backend の native boundary に限定する。
+
+### 2.1 ManagedBass exact-handle bootstrap
+
+Unit 1 以降の runtime owner は `BassAudioRuntime` とする。`BassNativeRuntime` は `libs/x64` の6つの native DLL を一つの generation としてロードし、現在 generation の filename-to-handle table を唯一所有する。`ManagedBassNativeLibraryResolver` は core、Mix、Fx、Enc、Asio、Wasapi の6つの ManagedBass assembly に一度だけ resolver を設定し、basename または `.dll` suffix の canonical name を現在 generation の exact handle へ対応付ける。resolver は handle を保存、load、free せず、未知の名前は通常の probing へ返し、既知の名前が runtime deactivation 後に別 copy へ fallback することを許可しない。
+
+native generation の publication は6つすべての load 成功後に行い、partial load failure は当該 candidate generation の成功済み handle だけを reverse order で解放する。最初の ManagedBass DllImport binding より前に、CLR に unbind API がないことを前提として成功済み generation を process lifetime pin として保持する。shutdown は audio operation / callback admission を閉じて active root を drain した後、session と core device を解放し、active generation の publication だけを clear する。resolver の static installation lifetime、process-pinned handle lifetime、logical active publication は別であり、shutdown 後の再初期化は同じ pinned handle を current generation として再公開する。in-process の native DLL 差し替えは process restart 境界で行う。
+
+ManagedBass `Version` properties を `BassVersionPacking` で既存の packed version 形式へ変換して検証する。移行期間中は残存 BASS.NET 呼出しのため legacy registration を保持するが、registration material は source、log、test artifact、specification に複製しない。registration-free characterization seam は Unit 0 のテスト用途に限定し、production fallback には使用しない。
 
 ### 3. クリーンアップと主例外
 
@@ -177,7 +185,7 @@ production の音声ログは `Ribbit/Logging/NLogWrapper.cs` を使用する。
 今後 BASS 一式を更新する場合は、現在の6 native DLLと managed package を一つの互換セットとして、別の reviewable change で扱う。
 
 1. version、GetVersion、archive／DLL hash、PE machine、selected member、package lock、出力境界を同時に更新する。
-2. load -> BASS.NET registration -> version validation の bootstrap、ASIO／WASAPI callback source、Float32／Int16 negotiation、NullDevice、fallback matrix を既存契約どおり再検証する。BASS core の decode -> mixer -> PCM pull smoke test は物理デバイスなしで実行する。
+2. load -> ManagedBass resolver installation -> BASS.NET registration -> ManagedBass version validation の bootstrap、ASIO／WASAPI callback source、Float32／Int16 negotiation、NullDevice、fallback matrix を既存契約どおり再検証する。BASS core の decode -> mixer -> PCM pull smoke test は物理デバイスなしで実行する。
 3. native-boundary unit test、Functional、Full publish／update acceptance、package-layout／hash verification、clean-machine load test を実行する。
 4. 内蔵、USB、ASIO デバイスで、前述の Windows 10／11 マトリクスを実行する。hotplug／default change、shared／exclusive busy state、Float32／Int16 negotiation、volume independence、fallback diagnostics、repeated cleanup を含める。
 5. 以前の完全な DLL 一式を rollback unit として保持する。BASS component を一つだけ個別に rollback または配布しない。

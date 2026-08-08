@@ -107,7 +107,7 @@ NuGet と GitHub の調査では、現行が使う core / Mix / Fx / Enc / ASIO 
 
 ### Native load boundary
 
-`Ribbit/Media/Audio/BassNativeRuntime.cs` は `libs/x64` から 6 DLL を明示的に `LoadLibrary` し、handle を保持して reverse order で `FreeLibrary` している。現在は BASS.NET 経由の version API で exact version を検証する。
+`Ribbit/Media/Audio/BassNativeRuntime.cs` は `libs/x64` から6 DLLを明示的に `LoadLibrary` し、6つすべての成功後に active generation を公開する。ManagedBass の最初の import binding より前に成功済み generation を process lifetime pin とし、shutdown は active publication だけを clear する。`FreeLibrary` は incomplete candidate の reverse-order rollback に限定する。exact version は ManagedBass の `Version` properties で検証し、残存 BASS.NET call のため registration stageだけを一時維持する。
 
 ManagedBass は各 assembly の `DllImport` 名として `bass`、`bassmix`、`bass_fx`、`bassenc`、`bassasio`、`basswasapi` を使用する。既存の exact native file ownership を維持するため、default probing へ依存せず、各 ManagedBass assembly へ `NativeLibrary.SetDllImportResolver` を一度だけ設定し、`BassNativeRuntime` が保持する exact handle を返す。
 
@@ -399,7 +399,7 @@ Final build / publish output は少なくとも次の managed assemblies を含�
 - shutdown sequencing
 - callback drain
 - native cleanup quarantine
-- native unload ownership
+- native generation lifetime ownership
 
 最終的に削除する責務:
 
@@ -456,7 +456,7 @@ ManagedBass が一部 core callback を内部保持するとしても、applicat
 - `FileProcedures` と各 file callback
 - encoder notify / data callback を追加する場合の delegate
 
-shutdown では callback admission を閉じ、callback drain を待ち、session/native handle を解放し、その後に native DLL を unload する現行順序を維持する。
+shutdown では callback admission を閉じ、callback drain を待ち、session と core device を解放し、その後に active generation の publication だけを clear する。ManagedBass の DllImport binding 後は successful native modules を process exit まで mapped に保つ。
 
 ## Principal API mapping
 
@@ -652,7 +652,7 @@ migration 前後で enum numeric values を比較する architecture test を追
 | Unit | Status | Commit | Progress Notes |
 | --- | --- | --- | --- |
 | Unit 0: Characterization and dependency foundation | Passed | `5574a3b8` | ManagedBass six packagesをexact `4.0.2`で同居。BASS.NET production route、native six-DLL layout、updater legacy cleanup entryは維持。characterization 11 testsとtransition-aware output policyを追加。初回 review の3件と、登録処理を介さない特性テスト用 bootstrap に関する追加 P2 は修正済み。fresh review は blocking finding なし。 |
-| Unit 1: ManagedBass native bootstrap and runtime owner | Not started |  |  |
+| Unit 1: ManagedBass native bootstrap and runtime owner | Passed; commit pending |  | Exact-handle resolver、ManagedBass version validation、wrapper-neutral runtime rename、legacy registration orderingを実装。CLR の cached P/Invoke pointer を安全に保持するため、成功済み native generation を process lifetime pin とし、shutdown は logical active publication の解除へ補正。初回 Functional の native access violation をこの invariant で修正。補正 Functional は 812 tests passed。静的 review の P2（旧 unload 説明）は周辺 code/spec/plan まで修正し、final fresh review は blocking finding なし。 |
 | Unit 2A: Backend, session, device and mixer migration | Not started |  |  |
 | Unit 2B: Player, stream, callback and effect migration | Not started |  |  |
 | Unit 3: Encoder and metadata migration | Not started |  |  |
@@ -748,11 +748,12 @@ lock 更新直後の `--locked-mode` は更新済み lock が安定した後に�
 - `BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs`
 - `BeMusicSeeker.Tests/BassNativeRuntimeTests.cs`
 - runtime / shutdown / operation gate tests
+- `devdocs/spec/audio-runtime-phase1.md`
 - `devdocs/plan/bassnet-to-managedbass-migration-plan.md`
 
 ### Steps
 
-1. unit planner で resolver ownership、idempotence、unload order、test seams を確定する。
+1. unit planner で resolver ownership、partial rollback order、process pin lifetime、test seams を確定する。
 2. `ManagedBassNativeLibraryResolver` を追加する。
 3. six ManagedBass assemblies へ resolver を一度だけ設定する。
 4. `BassNativeRuntime.Load()` の sequence を次へ整理する。
@@ -760,10 +761,11 @@ lock 更新直後の `--locked-mode` は更新済み lock が安定した後に�
    - native load
    - handle table publication
    - resolver availability
+   - 最初の ManagedBass import bindingより前の process lifetime pin
    - ManagedBass `Version` API による exact validation
 5. version mismatch 時は current exception type、component name、expected/actual、stage を維持する。
-6. partial load failure は reverse order で current generation の handle だけを free する。
-7. resolver の static lifetime と native handle generation を分離する。
+6. partial load failure は reverse order で candidate generation の handle だけを free する。ManagedBass の cached import pointerを無効化し得るため、成功済み generation は shutdown 時に `FreeLibrary` せず process lifetime pin とする。
+7. resolver の static lifetime、process-pinned generation、logical active publication を分離し、shutdown 後の再初期化では同じ exact handleを再公開する。
 8. `BassNet` class/file を `BassAudioRuntime` へ rename し、全 call site を update する。
 9. current BASS.NET registration method は `RegisterLegacyBassNetWrapper` のような temporary 明示名へ変更し、残る BASS.NET call より前に一度だけ呼ぶ。値の表現や難読化を変更しない。Unit 4 まで存在するため、diff / log へ値を展開しない。
 10. initialize stage は temporary に `LegacyWrapperRegistration` を保持し、final removal marker を comment ではなく plan / test に置く。
@@ -778,8 +780,9 @@ lock 更新直後の `--locked-mode` は更新済み lock が安定した後に�
 - resolver installation は repeat call で二重登録例外を起こさない。
 - load failure の handle rollback order。
 - version mismatch の component / expected / actual。
-- unload 後に stale handle を publish しない。
-- callback / operation gate を閉じてから unload する。
+- logical deactivation 後に stale handle を publish しない。
+- callback / operation gate を閉じてから logical active publication を clear する。
+- ManagedBass の version binding 後に shutdown / reinitialize しても同じ pinned handleを使用する。
 - `BassAudioRuntime` rename 後も admission / shutdown behavior が同じ。
 - BASS.NET registration が remaining legacy call より前に実行される transition test。
 
@@ -791,6 +794,7 @@ lock 更新直後の `--locked-mode` は更新済み lock が安定した後に�
 - lifecycle / gate test はすべて維持される。
 - remaining BASS.NET code があるため registration はまだ削除しない。
 - new default native probing が `libs/x64` の exact set を迂回しない。
+- CLR の ManagedBass cached import pointer を守るため、successful native generation は process lifetime pin とし、in-process DLL 差し替えは保証しない。
 
 ### Verification
 
@@ -802,7 +806,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ### Review focus
 
 - `SetDllImportResolver` の assembly 単位 semantics
-- handle ownership / reference count
+- active publication / process pin の handle ownership と reference lifetime
 - resolver callback と shutdown の race
 - registration-before-legacy-call invariant
 - unrelated audio behavior change が混入していないか
@@ -1272,7 +1276,7 @@ machine に device がない場合は skip reason を記録し、unit/fake/no-de
 | --- | --- | --- |
 | ManagedBass DllImport が default probing で別 DLL を load | resolver test、loaded module path、version/hash validation | exact handle resolver を修正。native layoutを変更しない |
 | `SetDllImportResolver` 二重設定 | repeated initialization test | assemblyごとに once guard。resolver tableだけ更新 |
-| handle unload後に resolverがstale pointerを返す | unload/reload generation test | handle table publication/clearをatomic化 |
+| logical deactivation後に resolverがstale pointerを返す | deactivation/reinitialize generation test | handle table publication/clearをatomic化 |
 | BASS.NET registrationを早く削除しremaining callが例外 | transition scan/test | Unit 4までtemporary registrationを維持 |
 | enum/flag numeric mismatch | mapping tests、negotiation tests | explicit mapping。castだけで済ませない |
 | property setterがexceptionを投げfailure contractが変化 | negative-path test | boundaryでcatchしexisting typed failureへ変換 |
@@ -1353,6 +1357,20 @@ Codex は migration 中に key を decode / display せず、vendor account 操�
 | Unit 0 | Corrective static review | Finding fixed | 2026-08-08 | `repo-static-review` identified that characterization tests directly entered the public legacy registration route。A private fixture now uses the internal registration-free bootstrap while reusing production native ownership and shutdown; public initialization remains unchanged。 |
 | Unit 0 | Fresh static review | Passed | 2026-08-08 | `repo-static-review` found no blocking P0/P1 or acceptance-blocking P2, no pre-existing/out-of-scope issue, and no recommendations。 |
 | Unit 0 | Local commit | Passed | `5574a3b8` | `test(audio): characterize BASS.NET migration behavior`。 |
+| Unit 1 | Semantic rename and stale-symbol audit | Passed | 2026-08-08 | Roslynator target listは lifecycle type 1件に限定し、write後の production call siteを確認。compiler-drivenで test aliasを更新。production sourceの旧 BASS.NET version APIは0件、旧 lifecycle type参照は意図した characterization test classだけ。 |
+| Unit 1 | Initial implementation build | Passed | 63.4s / 0 errors | `dotnet build .\BeMusicSeeker.sln /p:Configuration=Release /p:Platform=x64 --no-restore`。既存警告のみ。 |
+| Unit 1 | Initial Quick | Failed then fixed | 2.06min / artifact `artifacts/verification/tests-quick-20260808-150357/` | 新規 shutdown testが同一 threadで nested operation leaseを残し、後続テストを汚染してtesthostが停止。testを別thread admission確認と確実なlease disposalへ修正。production failureではない。 |
+| Unit 1 | Corrected Quick | Passed | 12s / 85 passed | `BassNativeRuntimeTests|BassAudioSessionTests|AudioContractsTests|ShellShutdownWorkflowOwnerTests`; artifact `artifacts/verification/tests-quick-20260808-150654/functional/results.trx`。 |
+| Unit 1 | Characterization Quick after rename | Passed | 32.9s / 11 passed | `BassNetMigrationCharacterizationTests`; artifact `artifacts/verification/tests-quick-20260808-150903/functional/results.trx`。 |
+| Unit 1 | Initial Functional | Failed then investigated | 65.2s / testhost access violation | `ManagedBass.Enc.BassEnc.BASS_Encode_GetVersion` の cached importが、同一 testhost内の初回実装における physical unload/reinitialize後に stale pointerとなった。artifact root `artifacts/verification/tests-functional-20260808-151231/`。補正 plannerで process lifetime pinningを採用。 |
+| Unit 1 | Corrective planner | Passed | 2026-08-08 | `unit-planner`は active publication と process-pinned generation を分離し、partial candidate loadだけを reverse rollbackする契約へ補正。未決事項なし。 |
+| Unit 1 | Corrective Quick | Passed | 15.9s / 98 passed | pinned generation再利用テストを含む関連 lane。artifact `artifacts/verification/tests-quick-20260808-152819/functional/results.trx`。 |
+| Unit 1 | Corrective Functional | Passed | 147.8s / 812 passed | Build 0 errors、native access violationなし、command elapsedは180秒以内。artifact root `artifacts/verification/tests-functional-20260808-152841/`。 |
+| Unit 1 | Initial static review | Passed | 2026-08-08 | `repo-static-review` は blocking findingなし。`IsLoaded` の active publication と process pin、pin順序の文書化 recommendationを反映。 |
+| Unit 1 | Review-correction Quick | Passed | 35.8s / 39 passed | `BassNativeRuntimeTests|BassNetMigrationCharacterizationTests`; artifact `artifacts/verification/tests-quick-20260808-154946/functional/results.trx`。 |
+| Unit 1 | Corrective fresh static review | Finding fixed | 2026-08-08 | `repo-static-review` が周辺 code/spec/plan に残った successful-generation unload 表現をP2として指摘。shutdown/deactivation、candidate rollback、process-exit mappingへ統一。 |
+| Unit 1 | Final fresh static review | Passed | 2026-08-08 | `repo-static-review` は blocking finding、pre-existing/out-of-scope、recommendationなし。成功 generation の shutdown unload を示す残存記述なし。 |
+| Unit 1 | Final whitespace verification | Passed | 21.3s | `dotnet format whitespace .\BeMusicSeeker.sln --no-restore --verify-no-changes`、`git diff --check`。 |
 
 ## Completion Gate
 

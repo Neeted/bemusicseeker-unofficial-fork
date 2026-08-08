@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -7,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
 using NLog.Config;
@@ -20,7 +22,7 @@ using Un4seen.Bass.AddOn.Fx;
 using Un4seen.Bass.AddOn.Mix;
 using Un4seen.BassAsio;
 using Un4seen.BassWasapi;
-using RibbitBassNet = Ribbit.Media.Audio.BassNet;
+using BassAudioRuntime = Ribbit.Media.Audio.BassAudioRuntime;
 
 namespace BeMusicSeeker.Tests;
 
@@ -31,7 +33,7 @@ public sealed class BassNativeRuntimeTests
     [TestInitialize]
     public void ResetNativeRuntime()
     {
-        RibbitBassNet.Shutdown();
+        BassAudioRuntime.Shutdown();
     }
 
     [TestMethod]
@@ -69,61 +71,61 @@ public sealed class BassNativeRuntimeTests
             Assert.AreEqual(Machine.Amd64, peReader.PEHeaders.CoffHeader.Machine, path);
         }
 
-        RibbitBassNet.Initialize();
+        BassAudioRuntime.Initialize();
         try
         {
-            Assert.AreEqual(0x02041203, Bass.BASS_GetVersion());
-            Assert.AreEqual(0x01040300, BassAsio.BASS_ASIO_GetVersion());
-            Assert.AreEqual(0x02040401, BassWasapi.BASS_WASAPI_GetVersion());
-            Assert.AreEqual(0x02040C00, BassMix.BASS_Mixer_GetVersion());
-            Assert.AreEqual(0x02040C06, BassFx.BASS_FX_GetVersion());
-            Assert.AreEqual(0x02041100, BassEnc.BASS_Encode_GetVersion());
+            Assert.AreEqual(0x02041203u, BassVersionPacking.Pack(ManagedBass.Bass.Version));
+            Assert.AreEqual(0x01040300u, BassVersionPacking.Pack(ManagedBass.Asio.BassAsio.Version));
+            Assert.AreEqual(0x02040401u, BassVersionPacking.Pack(ManagedBass.Wasapi.BassWasapi.Version));
+            Assert.AreEqual(0x02040C00u, BassVersionPacking.Pack(ManagedBass.Mix.BassMix.Version));
+            Assert.AreEqual(0x02040C06u, BassVersionPacking.Pack(ManagedBass.Fx.BassFx.Version));
+            Assert.AreEqual(0x02041100u, BassVersionPacking.Pack(ManagedBass.Enc.BassEnc.Version));
         }
         finally
         {
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Shutdown();
         }
 
     }
 
     [TestMethod]
-    public void BassNet_InitializesAndReleasesNativeRuntime()
+    public void BassAudioRuntime_InitializesAndDeactivatesNativeRuntime()
     {
-        RibbitBassNet.Initialize();
+        BassAudioRuntime.Initialize();
         bool bassInitialized = false;
         try
         {
             bassInitialized = Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_NOSPEAKER, IntPtr.Zero);
             Assert.IsTrue(bassInitialized, Bass.BASS_ErrorGetCode().ToString());
-            RibbitBassNet.FreeDevice();
+            BassAudioRuntime.FreeDevice();
             bassInitialized = false;
-            Assert.AreEqual(0x02041203, Bass.BASS_GetVersion());
+            Assert.AreEqual(0x02041203u, BassVersionPacking.Pack(ManagedBass.Bass.Version));
             bassInitialized = Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_NOSPEAKER, IntPtr.Zero);
             Assert.IsTrue(bassInitialized, Bass.BASS_ErrorGetCode().ToString());
         }
         finally
         {
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Shutdown();
         }
 
     }
 
     [TestMethod]
-    public void BassNet_CharacterizationBootstrapReusesNativeOwnershipWithoutRegistration()
+    public void BassAudioRuntime_CharacterizationBootstrapReusesNativeOwnershipWithoutRegistration()
     {
         for (int cycle = 0; cycle < 2; cycle++)
         {
-            RibbitBassNet.InitializeWithoutWrapperRegistrationForCharacterization();
+            BassAudioRuntime.InitializeWithoutWrapperRegistrationForCharacterization();
             try
             {
                 Assert.IsTrue(BassNativeRuntime.IsLoaded);
-                using BassAudioOperationLease operation = RibbitBassNet.EnterAudioOperation();
+                using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
                 Assert.IsTrue(BassNativeRuntime.IsLoaded);
-                Assert.AreEqual(0x02041203, Bass.BASS_GetVersion());
+                Assert.AreEqual(0x02041203u, BassVersionPacking.Pack(ManagedBass.Bass.Version));
             }
             finally
             {
-                RibbitBassNet.Shutdown();
+                BassAudioRuntime.Shutdown();
             }
 
             Assert.IsFalse(BassNativeRuntime.IsLoaded);
@@ -131,11 +133,182 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
-    public void BassNet_InitializationCoreOrdersRegistrationBeforeVersionValidation()
+    public void ManagedBassResolver_MapsKnownNamesToCurrentGenerationHandles()
+    {
+        BassAudioRuntime.Initialize();
+        try
+        {
+            (string BareName, string ExtensionName, string CanonicalName)[] knownNames =
+            {
+                ("bass", "BASS.DLL", "bass.dll"),
+                ("BassAsio", "BASSASIO.DLL", "bassasio.dll"),
+                ("basswasapi", "BASSWASAPI.DLL", "basswasapi.dll"),
+                ("bassmix", "BASSMIX.DLL", "bassmix.dll"),
+                ("bass_fx", "BASS_FX.DLL", "bass_fx.dll"),
+                ("bassenc", "BASSENC.DLL", "bassenc.dll")
+            };
+
+            foreach ((string bareName, string extensionName, string canonicalName) in knownNames)
+            {
+                IntPtr bareHandle = ManagedBassNativeLibraryResolver.ResolveForTesting(bareName);
+                Assert.AreNotEqual(IntPtr.Zero, bareHandle, bareName);
+                Assert.AreEqual(
+                    bareHandle,
+                    ManagedBassNativeLibraryResolver.ResolveForTesting(extensionName),
+                    extensionName);
+                Assert.AreEqual(
+                    bareHandle,
+                    BassNativeRuntime.ResolveLoadedLibrary(canonicalName),
+                    canonicalName);
+            }
+        }
+        finally
+        {
+            BassAudioRuntime.Shutdown();
+        }
+    }
+
+    [TestMethod]
+    public void ManagedBassResolver_LeavesUnknownNamesToDefaultProbing()
+    {
+        Assert.AreEqual(IntPtr.Zero, ManagedBassNativeLibraryResolver.ResolveForTesting("not-a-bass-library"));
+        Assert.AreEqual(IntPtr.Zero, ManagedBassNativeLibraryResolver.ResolveForTesting("C:\\other\\bass.dll"));
+        Assert.AreEqual(IntPtr.Zero, ManagedBassNativeLibraryResolver.ResolveForTesting("bassenc_lame"));
+    }
+
+    [TestMethod]
+    public void ManagedBassResolver_IsInstalledIdempotently()
+    {
+        ManagedBassNativeLibraryResolver.EnsureInstalled();
+        ManagedBassNativeLibraryResolver.EnsureInstalled();
+    }
+
+    [TestMethod]
+    public void ManagedBassResolver_RejectsKnownNameAfterRuntimeDeactivation()
+    {
+        BassAudioRuntime.Initialize();
+        BassAudioRuntime.Shutdown();
+
+        Assert.ThrowsException<DllNotFoundException>(
+            () => ManagedBassNativeLibraryResolver.ResolveForTesting("bass"));
+    }
+
+    [TestMethod]
+    public void BassNativeRuntime_ReusesPinnedManagedBassGenerationAcrossLogicalRestart()
+    {
+        BassAudioRuntime.Initialize();
+        IntPtr[] firstGenerationHandles =
+        [
+            BassNativeRuntime.ResolveLoadedLibrary("bass.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bassasio.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("basswasapi.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bassmix.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bass_fx.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bassenc.dll")
+        ];
+        BassAudioRuntime.Shutdown();
+        Assert.IsFalse(BassNativeRuntime.IsLoaded);
+
+        BassAudioRuntime.Initialize();
+        try
+        {
+            CollectionAssert.AreEqual(
+                firstGenerationHandles,
+                new[]
+                {
+                    BassNativeRuntime.ResolveLoadedLibrary("bass.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bassasio.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("basswasapi.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bassmix.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bass_fx.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bassenc.dll")
+                });
+            Assert.AreEqual(0x02041100u, BassVersionPacking.Pack(ManagedBass.Enc.BassEnc.Version));
+        }
+        finally
+        {
+            BassAudioRuntime.Shutdown();
+        }
+    }
+
+    [TestMethod]
+    public void BassNativeRuntime_LoadFailureRollsBackCurrentHandlesInReverseOrder()
+    {
+        var loadedHandles = new List<IntPtr>();
+        var freedHandles = new List<IntPtr>();
+        int loadCount = 0;
+
+        Assert.ThrowsException<DllNotFoundException>(() => BassNativeRuntime.LoadForTesting(
+            _ =>
+            {
+                loadCount++;
+                if (loadCount == 4)
+                {
+                    return IntPtr.Zero;
+                }
+
+                IntPtr handle = new(loadCount);
+                loadedHandles.Add(handle);
+                return handle;
+            },
+            handle => freedHandles.Add(handle)));
+
+        CollectionAssert.AreEqual(loadedHandles.AsEnumerable().Reverse().ToArray(), freedHandles);
+        Assert.IsFalse(BassNativeRuntime.IsLoaded);
+    }
+
+    [TestMethod]
+    public void BassNativeRuntime_VersionMismatchPreservesComponentAndPackedValues()
+    {
+        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
+            BassNativeRuntime.ValidateVersionForTesting(
+                "bassmix.dll",
+                new Version(2, 4, 12, 1),
+                0x02040C00u));
+
+        StringAssert.Contains(exception.Message, "bassmix.dll");
+        StringAssert.Contains(exception.Message, "Expected 0x02040C00");
+        StringAssert.Contains(exception.Message, "loaded 0x02040C01");
+    }
+
+    [TestMethod]
+    public void BassAudioRuntime_ShutdownClosesAdmissionBeforeDeactivatingNativeGeneration()
+    {
+        BassAudioRuntime.Initialize();
+        BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
+        Task shutdown = Task.Run(BassAudioRuntime.Shutdown);
+
+        try
+        {
+            Assert.IsTrue(BassAudioRuntime.WaitForAudioShutdownRequest(TimeSpan.FromSeconds(5)));
+            Task<bool> newRootAdmission = Task.Run(() =>
+            {
+                if (!BassAudioRuntime.TryEnterAudioOperation(out BassAudioOperationLease lease))
+                {
+                    return false;
+                }
+
+                lease.Dispose();
+                return true;
+            });
+            Assert.IsFalse(newRootAdmission.GetAwaiter().GetResult());
+            Assert.IsTrue(BassNativeRuntime.IsLoaded);
+        }
+        finally
+        {
+            operation.Dispose();
+        }
+
+        shutdown.GetAwaiter().GetResult();
+        Assert.IsFalse(BassNativeRuntime.IsLoaded);
+    }
+
+    [TestMethod]
+    public void BassAudioRuntime_InitializationCoreOrdersRegistrationBeforeVersionValidation()
     {
         var events = new System.Collections.Generic.List<string>();
 
-        RibbitBassNet.InitializeRuntimeCore(
+        BassAudioRuntime.InitializeRuntimeCore(
             () => events.Add("LoadNative"),
             () => events.Add("RegisterWrapper"),
             () => events.Add("ValidateVersions"));
@@ -146,11 +319,11 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
-    public void BassNet_InitializationCoreStopsAfterNativeLoadFailure()
+    public void BassAudioRuntime_InitializationCoreStopsAfterNativeLoadFailure()
     {
         var events = new System.Collections.Generic.List<string>();
 
-        Assert.ThrowsException<InvalidOperationException>(() => RibbitBassNet.InitializeRuntimeCore(
+        Assert.ThrowsException<InvalidOperationException>(() => BassAudioRuntime.InitializeRuntimeCore(
             () =>
             {
                 events.Add("LoadNative");
@@ -163,11 +336,11 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
-    public void BassNet_InitializationCoreStopsAfterRegistrationFailure()
+    public void BassAudioRuntime_InitializationCoreStopsAfterRegistrationFailure()
     {
         var events = new System.Collections.Generic.List<string>();
 
-        Assert.ThrowsException<InvalidOperationException>(() => RibbitBassNet.InitializeRuntimeCore(
+        Assert.ThrowsException<InvalidOperationException>(() => BassAudioRuntime.InitializeRuntimeCore(
             () => events.Add("LoadNative"),
             () =>
             {
@@ -192,8 +365,8 @@ public sealed class BassNativeRuntimeTests
         Exception cleanupException = null;
         try
         {
-            stage = "BassNet.Initialize";
-            RibbitBassNet.Initialize();
+            stage = "BassAudioRuntime.Initialize";
+            BassAudioRuntime.Initialize();
 
             stage = "BASS_Init";
             Assert.IsTrue(
@@ -362,7 +535,7 @@ public sealed class BassNativeRuntimeTests
 
             try
             {
-                RibbitBassNet.Shutdown();
+                BassAudioRuntime.Shutdown();
             }
             catch (Exception exception)
             {
@@ -497,7 +670,7 @@ public sealed class BassNativeRuntimeTests
             finally
             {
                 BassAudioPlayer.Free(session);
-                RibbitBassNet.Shutdown();
+                BassAudioRuntime.Shutdown();
                 File.Delete(wavePath);
             }
         }
@@ -552,7 +725,7 @@ public sealed class BassNativeRuntimeTests
             finally
             {
                 BassAudioPlayer.Free(session);
-                RibbitBassNet.Shutdown();
+                BassAudioRuntime.Shutdown();
                 File.Delete(wavePath);
             }
         }
@@ -580,7 +753,7 @@ public sealed class BassNativeRuntimeTests
         BassAudioPlayer player = null;
         try
         {
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Shutdown();
             BassAudioPlayer.Frequency = SampleRate.AUTO;
             BassAudioPlayer.Format = SampleFormat.AUTO;
             BassAudioPlayer.IsDeviceMuted = false;
@@ -632,7 +805,7 @@ public sealed class BassNativeRuntimeTests
             finally
             {
                 BassAudioPlayer.Free(session);
-                RibbitBassNet.Shutdown();
+                BassAudioRuntime.Shutdown();
                 BassAudioPlayer.Frequency = originalFrequency;
                 BassAudioPlayer.Format = originalFormat;
                 RestoreManagedAudioState(originalVolume, originalMute);
@@ -716,7 +889,7 @@ public sealed class BassNativeRuntimeTests
         bool originalMute = BassAudioPlayer.IsDeviceMuted;
         try
         {
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Shutdown();
             int loadCountBefore = BassNativeRuntime.LoadInvocationCount;
 
             BassAudioPlayer.IsDeviceMuted = false;
@@ -730,7 +903,7 @@ public sealed class BassNativeRuntimeTests
         finally
         {
             RestoreManagedAudioState(originalVolume, originalMute);
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Shutdown();
         }
     }
 
@@ -741,7 +914,7 @@ public sealed class BassNativeRuntimeTests
         bool originalMute = BassAudioPlayer.IsDeviceMuted;
         try
         {
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Shutdown();
             BassAudioPlayer.IsDeviceMuted = false;
             BassAudioPlayer.DeviceVolume = 0.31f;
             BassAudioPlayer.IsDeviceMuted = true;
@@ -755,7 +928,7 @@ public sealed class BassNativeRuntimeTests
         finally
         {
             RestoreManagedAudioState(originalVolume, originalMute);
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Shutdown();
         }
     }
 
@@ -766,8 +939,8 @@ public sealed class BassNativeRuntimeTests
         bool originalMute = BassAudioPlayer.IsDeviceMuted;
         try
         {
-            RibbitBassNet.Initialize();
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Initialize();
+            BassAudioRuntime.Shutdown();
 
             BassAudioPlayer.DeviceVolume = 0.62f;
             BassAudioPlayer.IsDeviceMuted = true;
@@ -778,7 +951,7 @@ public sealed class BassNativeRuntimeTests
         finally
         {
             RestoreManagedAudioState(originalVolume, originalMute);
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Shutdown();
         }
     }
 
@@ -871,7 +1044,7 @@ public sealed class BassNativeRuntimeTests
         BassAudioSession ownedSession = null;
         try
         {
-            RibbitBassNet.Shutdown();
+            BassAudioRuntime.Shutdown();
             BassAudioPlayer.Frequency = SampleRate.AUTO;
             BassAudioPlayer.Format = SampleFormat.AUTO;
             BassAudioPlayer.IsDeviceMuted = true;
@@ -904,7 +1077,7 @@ public sealed class BassNativeRuntimeTests
             try
             {
                 BassAudioPlayer.Free(ownedSession);
-                RibbitBassNet.Shutdown();
+                BassAudioRuntime.Shutdown();
             }
             finally
             {
@@ -1063,7 +1236,7 @@ public sealed class BassNativeRuntimeTests
             try
             {
                 BassAudioPlayer.Free(ownedSession);
-                RibbitBassNet.Shutdown();
+                BassAudioRuntime.Shutdown();
                 LogManager.Flush();
             }
             finally

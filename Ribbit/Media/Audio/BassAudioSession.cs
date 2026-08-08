@@ -524,7 +524,7 @@ internal enum BassAudioExclusiveOperation
     /// <summary>Releases one native audio session.</summary>
     SessionCleanup,
 
-    /// <summary>Closes admission and unloads the native runtime.</summary>
+    /// <summary>Closes admission and deactivates the active native runtime publication.</summary>
     RuntimeShutdown
 }
 

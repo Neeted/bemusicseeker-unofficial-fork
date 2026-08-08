@@ -859,7 +859,7 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 out ownedSession,
                 request.PlayerWASAPIParam);
             sessionLease.Attach(ownedSession);
-            using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+            using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
             BassAudioBackendResult negotiated = ownedSession.NegotiationResult
                 ?? throw new InvalidOperationException(
                     "An audible BASS device test completed without a negotiated backend result.");

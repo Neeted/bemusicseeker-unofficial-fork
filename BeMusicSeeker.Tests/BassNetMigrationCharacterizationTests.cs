@@ -12,7 +12,7 @@ using Un4seen.Bass;
 using Un4seen.Bass.AddOn.Fx;
 using Un4seen.Bass.AddOn.Tags;
 using Un4seen.Bass.Misc;
-using RibbitBassNet = Ribbit.Media.Audio.BassNet;
+using BassAudioRuntime = Ribbit.Media.Audio.BassAudioRuntime;
 
 namespace BeMusicSeeker.Tests;
 
@@ -445,8 +445,8 @@ public sealed class BassNetMigrationCharacterizationTests
         {
             try
             {
-                RibbitBassNet.Shutdown();
-                RibbitBassNet.InitializeWithoutWrapperRegistrationForCharacterization();
+                BassAudioRuntime.Shutdown();
+                BassAudioRuntime.InitializeWithoutWrapperRegistrationForCharacterization();
                 BassAudioWriter.Initialize();
                 return new RegistrationFreeWriterSession();
             }
@@ -458,7 +458,7 @@ public sealed class BassNetMigrationCharacterizationTests
                 }
                 finally
                 {
-                    RibbitBassNet.Shutdown();
+                    BassAudioRuntime.Shutdown();
                 }
 
                 throw;
@@ -488,7 +488,7 @@ public sealed class BassNetMigrationCharacterizationTests
                 }
                 finally
                 {
-                    RibbitBassNet.Shutdown();
+                    BassAudioRuntime.Shutdown();
                 }
             }
         }

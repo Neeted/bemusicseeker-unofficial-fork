@@ -50,8 +50,8 @@ internal sealed class BassAudioDeviceEnumerator : IBassAudioDeviceEnumerator
     public IReadOnlyList<BassAudioEnumeratedDevice> Enumerate(BassAudioPlayer.DeviceDriver backend)
     {
         System.Threading.Interlocked.Increment(ref enumerationInvocationCount);
-        BassNet.Initialize();
-        using BassAudioOperationLease operation = BassNet.EnterAudioOperation();
+        BassAudioRuntime.Initialize();
+        using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
         return backend switch
         {
             BassAudioPlayer.DeviceDriver.WASAPI_SHARED => EnumerateWasapi(),

@@ -73,7 +73,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void SetTagInfo(TAG_INFO tagInfo)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (RecordState != PlayState.Stopped)
         {
             throw new InvalidOperationException("Recording has started already");
@@ -87,7 +87,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void StartRecording()
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (RecordState != PlayState.Stopped)
         {
             throw new InvalidOperationException("Recording has started already");
@@ -102,7 +102,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void CreateEncoderWAV(string filePathWithoutExtension)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         Encoder = EncoderType.WAVE;
         if (!BassAudioPlayer.IsInitialized || BassAudioPlayer.DriverType != DeviceDriver.NULL_DEVICE)
         {
@@ -150,7 +150,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void CreateEncoderLAME(string filePathWithoutExtension, float quality = 0.4f)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         Encoder = EncoderType.MP3_LAME;
         if (!BassAudioPlayer.IsInitialized || BassAudioPlayer.DriverType != DeviceDriver.NULL_DEVICE)
         {
@@ -179,7 +179,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void CreateEncoderNeroAAC(string filePathWithoutExtension, float quality = 0.4f)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         Encoder = EncoderType.AAC_NERO;
         if (!BassAudioPlayer.IsInitialized || BassAudioPlayer.DriverType != DeviceDriver.NULL_DEVICE)
         {
@@ -207,7 +207,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void CreateEncoderOPUS(string filePathWithoutExtension, float quality = 0.4f)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         Encoder = EncoderType.OPUS;
         if (!BassAudioPlayer.IsInitialized || BassAudioPlayer.DriverType != DeviceDriver.NULL_DEVICE)
         {
@@ -234,7 +234,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void CreateEncoderFLAC(string filePathWithoutExtension, float quality = 0.4f)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         Encoder = EncoderType.FLAC;
         if (!BassAudioPlayer.IsInitialized || BassAudioPlayer.DriverType != DeviceDriver.NULL_DEVICE)
         {
@@ -262,7 +262,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void CreateEncoderOGG(string filePathWithoutExtension, float quality = 0.4f)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         Encoder = EncoderType.OGG_VORBIS;
         if (!BassAudioPlayer.IsInitialized || BassAudioPlayer.DriverType != DeviceDriver.NULL_DEVICE)
         {
@@ -290,7 +290,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void RecordToFile(TimeSpan time)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (RecordState != PlayState.Playing)
         {
             throw new InvalidOperationException("Not recording started");
@@ -332,7 +332,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static void StopRecording()
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (RecordState != PlayState.Playing)
         {
             throw new InvalidOperationException("Not recording started");
@@ -342,7 +342,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     public static float GetLevel(TimeSpan time, bool isRMSVolume = false)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassNet.EnterAudioOperation();
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (RecordState != PlayState.Stopped)
         {
             throw new InvalidOperationException("Recording has started already");
