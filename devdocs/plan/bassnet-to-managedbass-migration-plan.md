@@ -655,7 +655,7 @@ migration 前後で enum numeric values を比較する architecture test を追
 | Unit 1: ManagedBass native bootstrap and runtime owner | Passed | `68c0175f` | Exact-handle resolver、ManagedBass version validation、wrapper-neutral runtime rename、legacy registration orderingを実装。CLR の cached P/Invoke pointer を安全に保持するため、成功済み native generation を process lifetime pin とし、shutdown は logical active publication の解除へ補正。初回 Functional の native access violation をこの invariant で修正。補正 Functional は 812 tests passed。静的 review の P2（旧 unload 説明）は周辺 code/spec/plan まで修正し、final fresh review は blocking finding なし。 |
 | Unit 2A: Backend, session, device and mixer migration | Passed | `fd5e880f` | ManagedBass backend/session/device/mixer route、enumeration error boundary、runtime cleanup correctionを実装。関連 Quick と Functional は成功し、fresh static review は blocking finding なし。 |
 | Unit 2B: Player, stream, callback and effect migration | Passed | `ca00a0e9` | `BassAudioPlayer` の stream／callback／tempo／effect を ManagedBass へ移行。32 effect inventory と custom native ABI adapter、legacy effect defaults、memory WAV／OGG、natural-end／ownership testsを追加。fresh static review は blocking finding なし。 |
-| Unit 3: Encoder and metadata migration | In progress (Unit 3A passed) | `1b743e6f` | Unit 3A の command／metadata／lifecycle／cleanup ownership を完了。Unit 3B の pull rendering、early exit、conversion integration が残る。 |
+| Unit 3: Encoder and metadata migration | Passed (Unit 3A/3B) | `1b743e6f`, `cfaf53ec` | Unit 3A の command／metadata／lifecycle／cleanup ownership と、Unit 3B の ManagedBass pull rendering、early exit、per-file conversion cleanup を完了。 |
 | Unit 4: BASS.NET retirement, compliance and publish acceptance | Not started |  |  |
 
 ## Unit 0: Characterization and dependency foundation
@@ -1003,9 +1003,9 @@ BASS.NET `Misc` helper と `TAG_INFO` を project-owned model/lifecycle へ置�
 unit-planner の再評価により、Unit 3 は次の reviewable unit へ分割して実行する。
 
 - **Unit 3A: encoder command、metadata、encoder lifecycle、writer cleanup ownership** — 完了。`AudioEncoderCommandFactory`、`AudioTagInfo`、`AudioEncoderSession` と writer／conversion workflow の境界を実装する。
-- **Unit 3B: pull-driven render、partial read／early exit、ManagedBass core conversion cleanup** — 未完了。Unit 3A の session boundary を使用して実装する。
+- **Unit 3B: pull-driven render、partial read／early exit、ManagedBass core conversion cleanup** — 完了。`AudioWriterPullRenderer`、encoder 状態通知、typed render failure、per-file cleanup／primary failure preservation を実装する。
 
-したがって Unit 3A の commit は buildable な中間 snapshot だが、Unit 3 全体および migration 全体の完了を意味しない。
+Unit 3 は Unit 3A／3B の二つの buildable な local commit で完了している。migration 全体は Unit 4 の BASS.NET retirement／publish acceptance を残す。
 
 ### Planned paths
 
@@ -1030,9 +1030,9 @@ unit-planner の再評価により、Unit 3 は次の reviewable unit へ分割�
 7. metadata option の escape / encoding を format ごとに実装する。unsupported field は黙って別 field へ詰めず、current behavior に合わせて omit する。
 8. `AudioEncoderSession` を実装し、non-zero handle のみ start success とする。
 9. `BassAudioWriter.EncoderCommandLine`、`Encoder`、output path、start/stop public behavior を維持する。
-10. pull-driven render loop と encoder process status を統合する。
-11. encoder early exit、missing executable、invalid output path、disk/write error、native error を typed failure へ変換する。
-12. `StopRecording` は encoder stop と graph cleanup の順序を current contract に合わせる。
+10. pull-driven render loop と encoder process status を統合する。完了。
+11. encoder early exit、missing executable、invalid output path、disk/write error、native error を typed failure へ変換する。完了。
+12. `StopRecording` は encoder stop と graph cleanup の順序を current contract に合わせる。完了。
 13. BASS.NET helper に依存する characterization test は、ManagedBass implementation の wrapper-neutral golden test へ置換する。移行後も価値がある quality/quoting/tag/collision test は残す。
 14. production / test から `BaseEncoder`、`EncoderWAV`、`EncoderLAME`、`EncoderNeroAAC`、`EncoderOPUS`、`EncoderFLAC`、`EncoderOGG`、`TAG_INFO` を除去する。
 15. source tree を scan し、BASS.NET API call が temporary registration 以外にないことを確認する。
@@ -1063,11 +1063,13 @@ unit-planner の再評価により、Unit 3 は次の reviewable unit へ分割�
 - source tree の BASS.NET call は final removal 待ちの registration method だけ。
 - command injection を生む shell usage がない。
 - registration material を command/logへ混入しない。
+- pull rendering は partial read／`Errors.Ended` を terminal とし、他の native failure を zero-fill／retry せず typed failure とする。
+- encoder early exit は render 後にも検出され、Faulted handle の cleanup retry と per-file conversion cleanup の primary failure preservation が維持される。
 
 ### Verification
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'AudioEncoderCommandFactoryTests|AudioEncoderSessionTests|BassAudioWriterTests|BMSAutoPlayWriterTests|SelectedChartAudioConversionWorkflowOwnerTests|AudioContractsTests'
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'AudioEncoderCommandFactoryTests|AudioEncoderSessionTests|BassAudioWriterTests|BMSAutoPlayWriterTests|SelectedChartAudioConversionWorkflowOwnerTests|BassNetMigrationCharacterizationTests|AudioContractsTests'
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ```
 
@@ -1083,9 +1085,10 @@ available tool を要求する smoke test は通常 Functional に含めず opt-
 - output collision race
 - BASSenc auto-feed と pull loop の順序
 
-### Commit
+### Commits
 
-`refactor(audio): replace BASS.NET encoder helpers`
+- Unit 3A: `refactor(audio): replace BASS.NET encoder helpers`
+- Unit 3B: `refactor(audio): migrate writer pull rendering to ManagedBass`
 
 ## Unit 4: BASS.NET retirement, compliance and publish acceptance
 
@@ -1422,6 +1425,15 @@ Codex は migration 中に key を decode / display せず、vendor account 操�
 | Unit 3A | Final Functional | Passed | 140.4s / 818 passed | P1修正後。Build 0 errors、command elapsed は180秒以内、tracked tree fingerprint unchanged。artifact root `artifacts/verification/tests-functional-20260808-233934/`。 |
 | Unit 3A | Whitespace verification | Passed | 22.2s | `dotnet format whitespace .\BeMusicSeeker.sln --no-restore --verify-no-changes` と `git diff --check`。 |
 | Unit 3A | Local implementation commit | Passed | `1b743e6f` | `refactor(audio): replace BASS.NET encoder helpers`。Unit 3B は次 unit として継続。 |
+| Unit 3B | Planner | Passed | 2026-08-09 | `unit-planner` が pull rendering、partial／early exit、typed failure、per-file cleanup の failure contract と owner-local native seam を確定。未決事項なし。 |
+| Unit 3B | Related Quick | Passed | 36.8s / 59 passed | `AudioEncoderCommandFactoryTests|AudioEncoderSessionTests|BassAudioWriterTests|BMSAutoPlayWriterTests|SelectedChartAudioConversionWorkflowOwnerTests|BassNetMigrationCharacterizationTests|AudioContractsTests`。artifact `artifacts/verification/tests-quick-20260809-001422/functional/results.trx`。 |
+| Unit 3B | WAV no-device smoke Quick | Passed | 1 passed | `BassNetMigrationCharacterizationTests.AudioWriterStartsAndStopsWavRecordingWithoutPhysicalDevice`。artifact `artifacts/verification/tests-quick-20260809-001158/functional/results.trx`。 |
+| Unit 3B | Review-correction Quick | Passed | 18.3s / 44 passed | `AudioEncoderSessionTests|BassAudioWriterTests|SelectedChartAudioConversionWorkflowOwnerTests|BassNetMigrationCharacterizationTests`。Faulted session cleanup retry regressionを含む。artifact `artifacts/verification/tests-quick-20260809-002854/functional/results.trx`。 |
+| Unit 3B | Initial static review | Fixed | 2026-08-09 | `repo-static-review` の acceptance-direct P2（encoder death後のDispose失敗で Faulted state／handle ownership を Started に戻す問題）を、failure state保持とretry testで修正。 |
+| Unit 3B | Final fresh static review | Passed | 2026-08-09 | 修正後 snapshotを `repo-static-review` が確認。blocking finding、pre-existing/out-of-scope、recommendationなし。 |
+| Unit 3B | Final Functional | Passed | 3,746 passed / 10 skipped | Build 0 errors、failed 0、command elapsed は180秒以内、tracked tree fingerprint unchanged。既知の環境依存 skip は cross-volume／symbolic-link fixture と chart dump tool。artifact root `artifacts/verification/tests-functional-20260809-003234/`。 |
+| Unit 3B | Whitespace verification | Passed | 2026-08-09 | `dotnet format whitespace .\BeMusicSeeker.sln --no-restore --verify-no-changes` と `git diff --check`。 |
+| Unit 3B | Local implementation commit | Passed | `cfaf53ec` | `refactor(audio): migrate writer pull rendering to ManagedBass`。 |
 
 ## Completion Gate
 
