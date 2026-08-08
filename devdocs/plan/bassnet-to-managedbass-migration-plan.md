@@ -651,7 +651,7 @@ migration 前後で enum numeric values を比較する architecture test を追
 
 | Unit | Status | Commit | Progress Notes |
 | --- | --- | --- | --- |
-| Unit 0: Characterization and dependency foundation | Passed; commit pending | pending | ManagedBass six packagesをexact `4.0.2`で同居。BASS.NET production route、native six-DLL layout、updater legacy cleanup entryは維持。characterization 11 testsとtransition-aware output policyを追加。初回 review の3件と、登録処理を介さない特性テスト用 bootstrap に関する追加 P2 は修正済み。fresh review は blocking finding なし。 |
+| Unit 0: Characterization and dependency foundation | Passed | `5574a3b8` | ManagedBass six packagesをexact `4.0.2`で同居。BASS.NET production route、native six-DLL layout、updater legacy cleanup entryは維持。characterization 11 testsとtransition-aware output policyを追加。初回 review の3件と、登録処理を介さない特性テスト用 bootstrap に関する追加 P2 は修正済み。fresh review は blocking finding なし。 |
 | Unit 1: ManagedBass native bootstrap and runtime owner | Not started |  |  |
 | Unit 2A: Backend, session, device and mixer migration | Not started |  |  |
 | Unit 2B: Player, stream, callback and effect migration | Not started |  |  |
@@ -1352,6 +1352,7 @@ Codex は migration 中に key を decode / display せず、vendor account 操�
 | Unit 0 | Functional build and test after corrective seam | Passed | 142.6s / 804 passed | Build 0 errors。command elapsed under the 180s acceptance limit。artifact root `artifacts/verification/tests-functional-20260808-142335/`。 |
 | Unit 0 | Corrective static review | Finding fixed | 2026-08-08 | `repo-static-review` identified that characterization tests directly entered the public legacy registration route。A private fixture now uses the internal registration-free bootstrap while reusing production native ownership and shutdown; public initialization remains unchanged。 |
 | Unit 0 | Fresh static review | Passed | 2026-08-08 | `repo-static-review` found no blocking P0/P1 or acceptance-blocking P2, no pre-existing/out-of-scope issue, and no recommendations。 |
+| Unit 0 | Local commit | Passed | `5574a3b8` | `test(audio): characterize BASS.NET migration behavior`。 |
 
 ## Completion Gate
 
