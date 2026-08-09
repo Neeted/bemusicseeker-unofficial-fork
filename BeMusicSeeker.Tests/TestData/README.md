@@ -19,6 +19,20 @@
 | `chart_info_production_latest_diff` | 新しい参照実装差分の少数 fixture。 | 少数検証として通常検証可。 |
 | `lr2_builtin_custom_folder_real` | LR2 builtin custom folder の実ファイル互換確認。 | 通常検証で利用可。 |
 
+## 外部 audio encoder smoke
+
+`ExternalAudioEncoderSmokeTests` は `lame.exe`、`neroAacEnc.exe`、`opusenc.exe`、`flac.exe`、`oggenc2.exe` を fixture として保存しない。`BMS_TEST_AUDIO_ENCODERS=1` の明示 opt-in 時だけ、`BMS_TEST_AUDIO_ENCODER_DIR` または production の検索先にある利用者提供 binary を使う。入力 WAV はテスト実行中に deterministic に生成し、終了時に一時ファイルと encoder owner を cleanup する。
+
+```powershell
+$env:BMS_TEST_AUDIO_ENCODERS = "1"
+$env:BMS_TEST_AUDIO_ENCODER_DIR = "<folder containing available encoder executables>"
+# 必要なら required subset を指定する
+$env:BMS_TEST_AUDIO_ENCODER_TYPES = "MP3_LAME,OPUS,FLAC,OGG_VORBIS"
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~ExternalAudioEncoderSmokeTests'
+```
+
+指定した binary が無い場合、または subset 未指定で一つも見つからない場合は test を skip せず fail する。tool が無い環境での実行結果は、real encoder pass 未実施の deterministic execution record として扱う。
+
 ## 大容量 fixture の扱い
 
 - `chart_info_real`、`chart_info_bmson_real`、`chart_info_edge_cases` の巨大譜面、`chart_info_production_diff` は `LargeFixture` として扱う。
