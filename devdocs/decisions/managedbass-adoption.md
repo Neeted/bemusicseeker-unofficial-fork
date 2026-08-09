@@ -56,3 +56,51 @@ not decrypted, reconstructed, or displayed, and Git history is not rewritten.
 
 The non-blocking runtime-free-machine check remains tracked in the post-
 migration manual acceptance document.
+
+## Migration completion evidence
+
+The implementation migration is complete. The accepted dependency contract is
+the exact six-package `ManagedBass` set at `4.0.2` plus the unchanged native
+six-DLL x64 set listed in `devdocs/spec/bass-runtime-dependency-set.md`; the
+closeout changed neither package versions nor native binaries and hashes.
+Playback, backend negotiation, session ownership, effects, encoder command and
+metadata handling, pull rendering, and cleanup now use the project-owned
+ManagedBass boundaries described in `devdocs/spec/audio-runtime-phase1.md`.
+
+The former real-encoder gap is closed by the opt-in
+`ExternalAudioEncoderSmokeTests` contract. It exercises available user-provided
+encoder executables through `BassAudioWriter` and records a deterministic
+no-tool failure when none are present; it never bundles encoder binaries or
+media fixtures. The normal lane remains tool-independent because the test is
+`ProcessIntegration` and is inconclusive without explicit opt-in.
+
+Closeout verification consists of the related encoder Quick lane, the standard
+Functional lane, and the Full lane:
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
+```
+
+The recorded results are:
+
+- compliance Quick: 6 passed;
+- encoder-related Quick: 24 passed and the disabled opt-in test was
+  inconclusive;
+- final Functional: 3,758 total, 3,748 executed, 0 failed, 165.8 seconds;
+- final Full: Functional 3,748 executed / 0 failed, ProcessIntegration 35
+  passed / 2 skipped, ReleaseAcceptance 2 passed, self-contained publish,
+  existing-data acceptance, update acceptance, whitespace verification, and
+  Roslynator 0 diagnostics.
+
+No supported external encoder executable was available in the closeout
+environment. The explicit opt-in command therefore produced the required
+deterministic no-tool failure and recorded the production search order; a real
+encoder pass remains an external/manual item.
+
+The historical migration-plan row that temporarily classified native BASS
+redistribution as a commercial-entitlement `YELLOW` case is retained in Git
+history. It was superseded by the accepted current non-commercial `GREEN`
+decision in the closeout notices; this does not rewrite the historical record.
+The external security gate for historical registration material remains
+separate: values are not decrypted, reconstructed, or displayed.

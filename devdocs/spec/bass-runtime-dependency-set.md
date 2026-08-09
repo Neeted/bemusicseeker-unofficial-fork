@@ -1,6 +1,6 @@
 # BASS runtime dependency set
 
-更新日: 2026-08-05
+更新日: 2026-08-09
 
 ## 固定する依存関係
 
@@ -27,5 +27,16 @@ All selected archive members are under the unique `x64` path, have an AMD64 PE m
 | `bassasio.dll` | 1.4.3.0 / `0x01040300` | https://www.un4seen.com/files/bassasio14.zip | `54BFE2F051338BB016B4CA08F840B93E72EE7EDFC9BF0245F08D7EDC6C72F45D` | `bassasio14\x64\bassasio.dll` | `73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96` | `libs/x64/bassasio.dll` |
 
 The six DLLs are also copied from `vendor/native/x64` to the application publish directory by the existing publish target. Managed package provenance and native provenance are intentionally separate: the six ManagedBass packages supply the managed bindings, while the application owns and validates the x64 native set.
+
+## ManagedBass migration closure invariant
+
+The table above is the final dependency contract for the completed migration.
+The six ManagedBass packages remain exact `4.0.2`, and every native version,
+archive/member selection, SHA-256, x64 output path, and rollback-unit rule is
+unchanged by the closeout. No native binary or package version is updated as
+part of documentation closure. The current source and output policy contain no
+managed BASS.NET wrapper, registration call, or registration material; the
+updater's removal of an obsolete `libs/Bass.Net.dll` from an older installation
+is compatibility cleanup only.
 
 No registration credentials, registration values, license text, or third-party notice content is recorded in this specification.

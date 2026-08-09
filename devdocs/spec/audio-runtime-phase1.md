@@ -182,6 +182,27 @@ pull-driven render は `Bass.ChannelSeconds2Bytes`、`Bass.ChannelGetData`、`Ba
 
 pull-driven render、encoder の early-exit／render failure handling、conversion workflow の ManagedBass core 化は Unit 3B で完了した。ManagedBass six-package set と native six-DLL set は Unit 4 の retirement／publish acceptance を通過した final dependency contract であり、再生、backend、session、mixer、device-test、writer の production route はすべて ManagedBass API を使用する。
 
+### 10.1.3 外部 encoder の opt-in process smoke
+
+`ExternalAudioEncoderSmokeTests` は、利用者が別途用意した `lame.exe`、
+`neroAacEnc.exe`、`opusenc.exe`、`flac.exe`、`oggenc2.exe` のうち利用可能な
+ものを、明示的な `BMS_TEST_AUDIO_ENCODERS=1` のときだけ使用する
+`ProcessIntegration` テストである。テスト内で生成した deterministic stereo
+PCM/WAV を、NULL_DEVICE の `BassAudioWriter`、encoder creation、tag setup、
+start、pull rendering、stop、cleanup へ通し、Unicode／space を含む path、既存
+output の collision suffix、ファイル非空、および encoder ごとの最小 container／
+frame signature を検証する。
+
+`BMS_TEST_AUDIO_ENCODER_DIR` は production の encoder search order の先頭へ追加
+され、`BMS_TEST_AUDIO_ENCODER_TYPES` は
+`MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の名前 subset とする。required subset
+の executable が無い場合、または subset 未指定で一つも見つからない場合は
+opt-in test を fail とし、全 skip で成功扱いにしない。flag が無い通常 lane は
+`Assert.Inconclusive` で終了する。encoder、license、音源は repository の
+fixture／package に追加せず、失敗時も temporary file、encoder owner、audio
+session を finally で cleanup し、primary failure を cleanup failure で上書き
+しない。
+
 ### 10.2 デバイステストの playback failure boundary
 
 テスト音声は、デバイス初期化、test-sound file の有無、player creation、playback start、position／stream progress、rate abnormality、natural-end timeout を別々の `AudioDeviceTestResult` failure kind として返す。player creation／playback start の型付き native failure は stage、source／expected／actual handle、native error source／code、backend、session state、core device、diagnostic reason を result とログへ引き継ぎ、設定ダイアログでは full path を表示せず、利用可能な stage と native error をローカライズされた理由へ含める。失敗結果では編集中の audio settings を変更しない。
