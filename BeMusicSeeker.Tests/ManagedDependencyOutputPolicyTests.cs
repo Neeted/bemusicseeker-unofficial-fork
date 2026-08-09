@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -378,6 +379,110 @@ public sealed class ManagedDependencyOutputPolicyTests
     }
 
     [TestMethod]
+    public void NativeComplianceNoticeEntriesAreGreenAndSeparated()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string english = NormalizeLineEndings(File.ReadAllText(Path.Combine(repositoryRoot, "ThirdPartyNotices.txt")));
+        string japanese = NormalizeLineEndings(File.ReadAllText(Path.Combine(repositoryRoot, "ThirdPartyNotices.ja.txt")));
+        string englishCore = ExtractSection(english, "1) BASS core and official add-ons", "1a) BASSASIO");
+        string englishAsio = ExtractSection(english, "1a) BASSASIO", "1b) BASS_FX");
+        string englishFx = ExtractSection(english, "1b) BASS_FX", "2) ManagedBass");
+        string japaneseCore = ExtractSection(japanese, "1) BASS core と公式 add-on", "1a) BASSASIO");
+        string japaneseAsio = ExtractSection(japanese, "1a) BASSASIO", "1b) BASS_FX");
+        string japaneseFx = ExtractSection(japanese, "1b) BASS_FX", "2) ManagedBass");
+
+        var englishSections = new[]
+        {
+            (Text: englishCore, Component: "Component: bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll (x64)", Notice: "Notice Summary: third_party/licenses/01-BASS-NOTICE.txt", Copyright: "Copyright: Un4seen Developments Ltd."),
+            (Text: englishAsio, Component: "Component: bassasio.dll (x64)", Notice: "Notice Summary: third_party/licenses/01a-BASSASIO-NOTICE.txt", Copyright: "Copyright: Un4seen Developments Ltd."),
+            (Text: englishFx, Component: "Component: bass_fx.dll (x64)", Notice: "Notice Summary: third_party/licenses/01b-BASS_FX-NOTICE.txt", Copyright: "Copyright: (: JOBnik! :) [Arthur Aminov, ISRAEL]")
+        };
+        foreach (var section in englishSections)
+        {
+            StringAssert.Contains(section.Text, "Status: GREEN");
+            StringAssert.Contains(section.Text, section.Component);
+            StringAssert.Contains(section.Text, section.Notice);
+            StringAssert.Contains(section.Text, section.Copyright);
+        }
+
+        var japaneseSections = new[]
+        {
+            (Text: japaneseCore, Component: "コンポーネント: bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll (x64)", Notice: "Notice Summary: third_party/licenses/01-BASS-NOTICE.txt", Copyright: "著作権所有者: Un4seen Developments Ltd."),
+            (Text: japaneseAsio, Component: "コンポーネント: bassasio.dll (x64)", Notice: "Notice Summary: third_party/licenses/01a-BASSASIO-NOTICE.txt", Copyright: "著作権所有者: Un4seen Developments Ltd."),
+            (Text: japaneseFx, Component: "コンポーネント: bass_fx.dll (x64)", Notice: "Notice Summary: third_party/licenses/01b-BASS_FX-NOTICE.txt", Copyright: "著作権所有者: (: JOBnik! :) [Arthur Aminov, ISRAEL]")
+        };
+        foreach (var section in japaneseSections)
+        {
+            StringAssert.Contains(section.Text, "ステータス: GREEN");
+            StringAssert.Contains(section.Text, section.Component);
+            StringAssert.Contains(section.Text, section.Notice);
+            StringAssert.Contains(section.Text, section.Copyright);
+        }
+
+        Assert.IsFalse(englishCore.Contains("bassasio.dll", StringComparison.Ordinal));
+        Assert.IsFalse(englishCore.Contains("bass_fx.dll", StringComparison.Ordinal));
+        Assert.IsFalse(japaneseCore.Contains("bassasio.dll", StringComparison.Ordinal));
+        Assert.IsFalse(japaneseCore.Contains("bass_fx.dll", StringComparison.Ordinal));
+        StringAssert.Contains(englishAsio, "bassasio.dll");
+        StringAssert.Contains(japaneseAsio, "bassasio.dll");
+        Assert.IsFalse(englishFx.Contains("Copyright: Un4seen", StringComparison.Ordinal));
+        Assert.IsFalse(japaneseFx.Contains("著作権所有者: Un4seen", StringComparison.Ordinal));
+
+        StringAssert.Contains(english, "Conditionally releasable with minor remediation (YELLOW):\n(None)\n\nReady for release (GREEN):");
+        StringAssert.Contains(japanese, "追加対応を行うことにより条件付きでリリース可能（YELLOW）:\n(なし)\n\n準備完了（GREEN）:");
+        StringAssert.Contains(english, "BASS core and official add-ons (bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll),\n  BASSASIO, BASS_FX, ManagedBass 4.0.2,");
+        StringAssert.Contains(japanese, "BASS core と公式 add-on（bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll）、\n  BASSASIO、BASS_FX、ManagedBass 4.0.2、");
+        StringAssert.Contains(english, "future commercial or monetized release requires a new upstream license");
+        StringAssert.Contains(japanese, "将来、商用または収益化する場合はアップストリーム条項を再確認します。");
+
+        foreach (string noticeName in new[]
+        {
+            "01-BASS-NOTICE.txt",
+            "01a-BASSASIO-NOTICE.txt",
+            "01b-BASS_FX-NOTICE.txt"
+        })
+        {
+            string noticePath = Path.Combine(repositoryRoot, "third_party", "licenses", noticeName);
+            Assert.IsTrue(File.Exists(noticePath), noticePath);
+            string notice = NormalizeLineEndings(File.ReadAllText(noticePath));
+            StringAssert.Contains(notice, "Notice Summary (not authoritative full license text)");
+            Assert.IsFalse(notice.Contains("License Text:", StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
+    public void NativeBassVersionAndHashSetRemainsFixed()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string dependencySpec = NormalizeLineEndings(File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "devdocs",
+            "spec",
+            "bass-runtime-dependency-set.md")));
+        var expected = new[]
+        {
+            new { Name = "bass.dll", Version = "2.4.18.3", Api = "0x02041203", Hash = "FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4", FileVersionPrefix = "2.4.18" },
+            new { Name = "bassmix.dll", Version = "2.4.12.0", Api = "0x02040C00", Hash = "F782CAE8090700A456C9E7AEAA7770C3B90CB60A1E765C4B3CBAE739D3B4D58D", FileVersionPrefix = "2.4.12" },
+            new { Name = "bassenc.dll", Version = "2.4.17.0", Api = "0x02041100", Hash = "9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8", FileVersionPrefix = "2.4.17" },
+            new { Name = "basswasapi.dll", Version = "2.4.4.1", Api = "0x02040401", Hash = "6F0869C11431E01F759FBE1CD6080299C833C519EB8AB1FEAE12106907B1FBD1", FileVersionPrefix = "2.4.4" },
+            new { Name = "bass_fx.dll", Version = "2.4.12.6", Api = "0x02040C06", Hash = "A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A", FileVersionPrefix = "2.4" },
+            new { Name = "bassasio.dll", Version = "1.4.3.0", Api = "0x01040300", Hash = "73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96", FileVersionPrefix = "1.4.3" }
+        };
+
+        foreach (var component in expected)
+        {
+            string dllPath = Path.Combine(repositoryRoot, "vendor", "native", "x64", component.Name);
+            Assert.IsTrue(File.Exists(dllPath), dllPath);
+            StringAssert.Contains(dependencySpec, $"| `{component.Name}` | {component.Version} / `{component.Api}` |");
+            Assert.AreEqual(component.Hash, (GetFileHash(dllPath)), component.Name);
+            string? fileVersion = FileVersionInfo.GetVersionInfo(dllPath).FileVersion;
+            Assert.IsTrue(
+                fileVersion?.StartsWith(component.FileVersionPrefix, StringComparison.Ordinal) == true,
+                $"{component.Name} file version was {fileVersion}.");
+        }
+    }
+
+    [TestMethod]
     public void FinalManagedBassLicenseAndNativeNoticeAreTrackedSeparately()
     {
         string repositoryRoot = FindRepositoryRoot();
@@ -400,7 +505,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             "The retired managed wrapper notice must not remain in the current license inventory.");
         StringAssert.Contains(
             File.ReadAllText(Path.Combine(repositoryRoot, "third_party", "licenses", "01-BASS-NOTICE.txt")),
-            "BASS is proprietary");
+            "Notice Summary (not authoritative full license text)");
 
         foreach (string noticeName in new[] { "ThirdPartyNotices.txt", "ThirdPartyNotices.ja.txt" })
         {
@@ -426,6 +531,21 @@ public sealed class ManagedDependencyOutputPolicyTests
 
         throw new DirectoryNotFoundException("Repository root was not found.");
     }
+
+    private static string ExtractSection(string text, string startMarker, string endMarker)
+    {
+        int start = text.IndexOf(startMarker, StringComparison.Ordinal);
+        int end = text.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
+        Assert.IsTrue(start >= 0, $"Section marker was not found: {startMarker}");
+        Assert.IsTrue(end > start, $"Section end marker was not found: {endMarker}");
+        return text[start..end];
+    }
+
+    private static string NormalizeLineEndings(string value) =>
+        value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+
+    private static string GetFileHash(string path) =>
+        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
 
     private static string ResolveReleaseOutputDirectory()
     {

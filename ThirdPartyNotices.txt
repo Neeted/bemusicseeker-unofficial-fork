@@ -14,20 +14,60 @@ NOTICE:
 - For license text files bundled with this repository, see third_party/licenses/.
 
 ================================================================================
-1) BASS Audio Library (native binaries)
+1) BASS core and official add-ons (native binaries)
 ================================================================================
 Status: GREEN
-Component: bass.dll, bass_fx.dll, bassasio.dll, bassenc.dll, bassmix.dll, basswasapi.dll (x64)
-Copyright: un4seen developments
-License: Proprietary (free for non-commercial use, commercial license required)
+Component: bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll (x64)
+Copyright: Un4seen Developments Ltd.
+License: Proprietary upstream terms; free for the current non-commercial,
+          non-revenue end-user release
 Source: https://www.un4seen.com/bass.html, https://www.un4seen.com/doc/bass/bass.html
-License Text: third_party/licenses/01-BASS-NOTICE.txt
-Retained NET10 x64 set: bass.dll 2.4.18.3 (API 0x02041203, SHA-256 FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4), bassmix.dll 2.4.12.0 (API 0x02040C00, SHA-256 F782CAE8090700A456C9E7AEAA7770C3B90CB60A1E765C4B3CBAE739D3B4D58D), bassenc.dll 2.4.17.0 (API 0x02041100, SHA-256 9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8), basswasapi.dll 2.4.4.1 (API 0x02040401, SHA-256 6F0869C11431E01F759FBE1CD6080299C833C519EB8AB1FEAE12106907B1FBD1), bass_fx.dll 2.4.12.6 (API 0x02040C06, SHA-256 A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A), bassasio.dll 1.4.3.0 (API 0x01040300, SHA-256 73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96)
+        https://www.un4seen.com/bassmix.html, https://www.un4seen.com/bassenc.html
+        https://www.un4seen.com/basswasapi.html
+Notice Summary: third_party/licenses/01-BASS-NOTICE.txt
+Retained NET10 x64 set: bass.dll 2.4.18.3 (API 0x02041203, SHA-256 FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4), bassmix.dll 2.4.12.0 (API 0x02040C00, SHA-256 F782CAE8090700A456C9E7AEAA7770C3B90CB60A1E765C4B3CBAE739D3B4D58D), bassenc.dll 2.4.17.0 (API 0x02041100, SHA-256 9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8), basswasapi.dll 2.4.4.1 (API 0x02040401, SHA-256 6F0869C11431E01F759FBE1CD6080299C833C519EB8AB1FEAE12106907B1FBD1)
 Redistribution Notes:
 - Not covered by this repository MIT license.
-- Non-commercial use is generally permitted by upstream terms.
-- Commercial use requires obtaining a BASS commercial license from un4seen.
-- Keep BASS-specific notice in distributed package.
+- The current release is non-commercial, non-revenue end-user software and is GREEN.
+- A future commercial or monetized release requires a new upstream license review;
+  that future trigger is not a current YELLOW condition.
+- Keep the BASS-specific notice in every distributed package.
+
+================================================================================
+1a) BASSASIO (native third-party component)
+================================================================================
+Status: GREEN
+Component: bassasio.dll (x64)
+Copyright: Un4seen Developments Ltd.
+License: Separate proprietary upstream terms; free for the current
+         non-commercial, non-revenue end-user release
+Source: https://www.un4seen.com/bassasio.html, https://www.un4seen.com/doc/bassasio/bassasio.html
+Notice Summary: third_party/licenses/01a-BASSASIO-NOTICE.txt
+Retained NET10 x64 set: bassasio.dll 1.4.3.0 (API 0x01040300, SHA-256 73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96)
+Redistribution Notes:
+- BASSASIO has a separate upstream license from the BASS core and official add-ons.
+- The current release is non-commercial, non-revenue end-user software and is GREEN.
+- A future commercial or monetized release requires a new license review;
+  that future trigger is not a current YELLOW condition.
+
+================================================================================
+1b) BASS_FX (third-party add-on)
+================================================================================
+Status: GREEN
+Component: bass_fx.dll (x64)
+Copyright: (: JOBnik! :) [Arthur Aminov, ISRAEL]
+License: BASS_FX third-party package terms; see the separate notice summary
+Source: https://www.un4seen.com/bass.html (third-party add-on listing)
+        https://jobnik.net/projects/bass_fx/
+        https://www.un4seen.com/files/z/0/bass_fx24.zip
+Notice Summary: third_party/licenses/01b-BASS_FX-NOTICE.txt
+Retained NET10 x64 set: bass_fx.dll 2.4.12.6 (API 0x02040C06, SHA-256 A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A)
+Redistribution Notes:
+- BASS_FX is not authored by Un4seen; retain the JOBnik / Arthur Aminov attribution.
+- The current release is non-commercial, non-revenue end-user software and is GREEN.
+- The retained DLL is distributed unmodified. A future commercial or monetized
+  release requires a fresh review of the package readme and embedded-source terms;
+  that future trigger is not a current YELLOW condition.
 
 ================================================================================
 2) ManagedBass (managed bindings)
@@ -42,7 +82,7 @@ Normalized license text SHA-256: 41810CB2403489DB4FB5B2F961B78DC3629CE5B9DF06251
 Redistribution Notes:
 - ManagedBass assemblies are supplied by the exact 4.0.2 package set and are distinct from the proprietary native BASS binaries.
 - Framework-dependent builds expose the six managed assemblies; single-file publish bundles them.
-- Native BASS licensing remains separate and is covered by section 1.
+- Native BASS licensing remains separate and is covered by sections 1, 1a, and 1b.
 
 ================================================================================
 3) 7-Zip core library
@@ -238,12 +278,21 @@ Blockers that must be addressed immediately (RED):
 (None)
 
 Conditionally releasable with minor remediation (YELLOW):
-- Native BASS commercial redistribution entitlement must be confirmed for the intended release.
+(None)
 
 Ready for release (GREEN):
-- 7z.dll, Livet, NLog, MIT runtime dependencies for .NET,
-  ManagedBass 4.0.2,
+- BASS core and official add-ons (bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll),
+  BASSASIO, BASS_FX, ManagedBass 4.0.2,
+  7z.dll, Livet, NLog, MIT runtime dependencies for .NET,
   Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
   SgmlReaderDll.dll, NVorbis.dll,
-   Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf
+  Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf
+
+Current release policy:
+- The current release is non-commercial, non-revenue end-user software.
+- Future commercial or monetized distribution triggers a new upstream license
+  review; it is not a current YELLOW condition.
+- Historical registration material from the retired managed wrapper is a
+  separate external security gate. No registration value is decrypted,
+  reconstructed, or displayed here.

@@ -103,4 +103,4 @@ First-party source code newly created and published in this repository, such as 
 ### Important Notice About BASS
 
 The release package includes `BASS`-related audio components that are outside the scope of the MIT License.
-These native binaries are not open source. Commercial use requires an appropriate commercial license from the provider, such as un4seen. Non-commercial personal use may be allowed as freeware in some cases, but you must always comply with the official license terms of native BASS. The ManagedBass bindings are MIT licensed; see the third-party notices for the separate terms.
+These native binaries are not open source. The current release is non-commercial, non-revenue end-user software and is classified GREEN for the BASS core and official add-ons, BASSASIO, and BASS_FX under their upstream terms. BASS_FX is a third-party add-on attributed to JOBnik / Arthur Aminov. If a future release becomes commercial or monetized, review the applicable upstream terms before distribution; that future trigger is not a current YELLOW condition. The ManagedBass bindings are MIT licensed; see the third-party notices for the separate terms.

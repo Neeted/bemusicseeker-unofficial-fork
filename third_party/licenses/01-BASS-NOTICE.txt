@@ -1,11 +1,35 @@
-BASS licensing notice
+BASS core and official add-ons notice
 
-Source: https://www.un4seen.com/
-Retrieved: 2026-02-21
+Notice Summary (not authoritative full license text)
+====================================================
 
-BASS is proprietary software by un4seen developments.
-The library is generally free for non-commercial use.
-Commercial use requires obtaining an appropriate license from un4seen.
+This notice covers the native BASS core and official add-ons retained by
+BeMusicSeeker. It does not cover BASSASIO or BASS_FX; those components have
+separate notices in 01a-BASSASIO-NOTICE.txt and 01b-BASS_FX-NOTICE.txt.
 
-This file is a notice summary for distribution packaging.
-Refer to the official BASS license pages for authoritative terms.
+Current classification: GREEN
+The current release is non-commercial, non-revenue end-user software. The
+upstream BASS terms state that BASS is free for non-commercial use. A future
+commercial or monetized release is a trigger for a new license review; it is
+not a current YELLOW condition.
+
+Copyright: Un4seen Developments Ltd.
+License: Proprietary upstream terms; this repository's MIT license does not
+apply to the native binaries.
+
+Current retained x64 components:
+- bass.dll 2.4.18.3 / API 0x02041203
+- bassmix.dll 2.4.12.0 / API 0x02040C00
+- bassenc.dll 2.4.17.0 / API 0x02041100
+- basswasapi.dll 2.4.4.1 / API 0x02040401
+
+Authoritative sources:
+- https://www.un4seen.com/bass.html
+- https://www.un4seen.com/doc/bass/bass.html
+- https://www.un4seen.com/bassmix.html
+- https://www.un4seen.com/bassenc.html
+- https://www.un4seen.com/basswasapi.html
+
+The retained DLL versions and SHA-256 values are recorded in
+devdocs/spec/bass-runtime-dependency-set.md. Keep this summary with every
+distributed package and use the authoritative upstream pages for the terms.

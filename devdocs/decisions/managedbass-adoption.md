@@ -20,6 +20,39 @@ Use the exact `4.0.2` versions of `ManagedBass`, `ManagedBass.Mix`, `ManagedBass
 - Existing persisted audio settings, native component versions, file naming, and runtime ownership contracts remain unchanged.
 - Git history is not rewritten. Any historical registration material requires separate vendor-side revocation/rotation and release-security handling.
 
-## External release prerequisites
+## Current native distribution decision
 
-Before public distribution, confirm the intended native BASS redistribution/commercial entitlement and complete any vendor-side security action for historical registration material. These are release prerequisites, not reasons to retain the retired managed dependency in the current tree.
+The current release is a non-commercial, non-revenue end-user software
+release. On that accepted basis, the following components are GREEN:
+
+- BASS core and official add-ons: `bass.dll`, `bassmix.dll`, `bassenc.dll`, and
+  `basswasapi.dll`, under the upstream Un4seen terms.
+- BASSASIO: `bassasio.dll`, under its separate upstream terms.
+- BASS_FX: `bass_fx.dll`, as a third-party add-on attributed to
+  `(: JOBnik! :) [Arthur Aminov, ISRAEL]`.
+- ManagedBass and its five companion packages, exact `4.0.2`, under MIT.
+
+The corresponding English and Japanese distribution notices have separate
+entries for the three native classifications. The BASS_FX package archive,
+readme, and retained x64 member hashes are recorded in
+`third_party/licenses/01b-BASS_FX-NOTICE.txt`. These notices are summaries and
+do not replace authoritative upstream terms.
+
+## Future commercial policy trigger
+
+The current GREEN classification does not authorize a future commercial or
+monetized release. A policy change to monetization requires a fresh review of
+the applicable BASS, BASSASIO, and BASS_FX terms before distribution. This
+future review trigger is not a current YELLOW condition.
+
+## External release prerequisites and security gate
+
+The current non-commercial distribution-rights check is complete for the
+accepted release facts above. Before any future commercial distribution,
+reconfirm the applicable native terms. Separately, historical registration
+material from the retired managed wrapper remains an external security gate
+for vendor-side revocation/rotation and release-security handling. Values are
+not decrypted, reconstructed, or displayed, and Git history is not rewritten.
+
+The non-blocking runtime-free-machine check remains tracked in the post-
+migration manual acceptance document.

@@ -23,6 +23,12 @@ playlist summary、playlist detail、full libraryの画面遷移は体感上問�
 
 .NET Desktop Runtime未導入のclean x64 Windows / VMで、選択したSelf-contained artifactの起動、基本操作、終了、updaterを確認する。
 
-## RELEASE-01 — Distribution rights — Pending release prerequisite
+## RELEASE-01 — Current non-commercial distribution rights — Completed
 
-BASS native等のproprietary / vendor componentについて、licensee、registration、redistribution証跡を公開前に確認する。ManagedBassのMIT noticeとは分離して扱う。
+2026-08-09時点の現行リリースは、非商用・非収益のエンドユーザー向けソフトウェアとして扱う。BASS coreと公式add-on、BASSASIO、third-party add-onのBASS_FX、およびManagedBass 4.0.2の分類とnoticeを確認済みで、現行のRED/YELLOWはない。ManagedBassのMIT noticeとnative componentのnoticeは分離している。
+
+将来、商用または収益化する場合は、配布前に各アップストリーム条項を再確認する。この将来のlicense reviewは現行のYELLOW理由ではない。
+
+## SECURITY-01 — Historical registration material — Pending external action
+
+過去のretired managed wrapperに由来するregistration materialのvendor-side revocation/rotationとrelease-security handlingは外部security gateとして残る。値の復号、再構成、表示、Git history rewriteは行わない。
