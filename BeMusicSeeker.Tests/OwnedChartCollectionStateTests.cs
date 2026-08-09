@@ -3190,7 +3190,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void DispatchOwnedChartDigestChanges_ShaOnlyBmsChangeKeepsPrimaryHashCaches()
+    public void DispatchPreparedOwnedChartDigestChanges_ShaOnlyBmsChangeKeepsPrimaryHashCaches()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -3211,7 +3211,7 @@ public sealed class OwnedChartCollectionStateTests
             EnsureCurrentResourceHealthIndex(library);
             bmsFile.SetSha256(newSha256);
 
-            InvokeDispatchOwnedChartDigestChanges(
+            InvokePreparedOwnedChartDigestChanges(
                 library,
                 [new LibraryChartDigestChange(LibraryChartKind.Bms, chartPath, md5, oldSha256, md5, newSha256)],
                 "test_sha_only_digest");
@@ -3523,16 +3523,21 @@ public sealed class OwnedChartCollectionStateTests
         return library.BuildAndPersistInlineChartInfoForInstalledCharts(reason, charts);
     }
 
-    private static void InvokeDispatchOwnedChartDigestChanges(
+    private static void InvokePreparedOwnedChartDigestChanges(
         BMSLibrary library,
         IEnumerable<LibraryChartDigestChange> digestChanges,
         string reason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod(
-            "DispatchOwnedChartDigestChanges",
+        MethodInfo prepareMethod = typeof(BMSLibrary).GetMethod(
+            "PrepareOwnedChartDigestIndexes",
             BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [digestChanges, reason, true]);
+        MethodInfo dispatchMethod = typeof(BMSLibrary).GetMethod(
+            "DispatchPreparedOwnedChartDigestChanges",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(prepareMethod);
+        Assert.IsNotNull(dispatchMethod);
+        prepareMethod.Invoke(library, [digestChanges, reason]);
+        dispatchMethod.Invoke(library, [digestChanges, reason]);
     }
 
     private static void InvokeDispatchOwnedPotentialDigestChanges(

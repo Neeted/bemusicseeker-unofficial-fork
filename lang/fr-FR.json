@@ -491,7 +491,7 @@
   "Backup_playlist": "Backup playlists",
   "Device_setting_format": "Format:",
   "Delete_from_list": "Delete from the list",
-  "Msg_remove_chart_info_parse_failure_record": "L'enregistrement d'echec d'analyse des metadonnees sera supprime. Le chart sera analyse a nouveau au prochain demarrage ou scan des metadonnees. Les charts ayant echoue pour une raison autre qu'un timeout risquent d'echouer a nouveau.",
+  "Msg_remove_chart_info_parse_failure_record": "L'enregistrement d'echec d'analyse des metadonnees sera supprime. Le chart pourra etre analyse a nouveau au prochain demarrage de l'application. Les charts ayant echoue pour une raison autre qu'un timeout risquent d'echouer a nouveau.",
   "Install_new_folder_desc": "* The naming format is also used for the rename function",
   "PlaylistProp_pageuri": "Page URI: ",
   "PlaylistProp_ftype_all": "Chart category ALL",

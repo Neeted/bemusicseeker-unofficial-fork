@@ -580,7 +580,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
             catalogMutationOwner,
             storageRowsOwner,
             ownedCollectionOwner,
-            () => new BmsLibraryOptionsSnapshot(),
             _ => { },
             ownerEvent =>
             {

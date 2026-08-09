@@ -1201,7 +1201,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             library.SetChartResourceWarningsIgnored([chart], unset: false);
             file.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            InvokeDispatchOwnedChartDigestChanges(
+            InvokePreparedOwnedChartDigestChanges(
                 library,
                 [new LibraryChartDigestChange(LibraryChartKind.Bms, file.path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, file.hash, null)],
                 "test_warning_property_covered_digest");
@@ -3010,16 +3010,21 @@ public sealed class BmsLibraryMaintenanceServiceTests
         library.BmsonSongs = bmsonSongs;
     }
 
-    private static void InvokeDispatchOwnedChartDigestChanges(
+    private static void InvokePreparedOwnedChartDigestChanges(
         BMSLibrary library,
         IEnumerable<LibraryChartDigestChange> digestChanges,
         string reason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod(
-            "DispatchOwnedChartDigestChanges",
+        MethodInfo prepareMethod = typeof(BMSLibrary).GetMethod(
+            "PrepareOwnedChartDigestIndexes",
             BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [digestChanges, reason, true]);
+        MethodInfo dispatchMethod = typeof(BMSLibrary).GetMethod(
+            "DispatchPreparedOwnedChartDigestChanges",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(prepareMethod);
+        Assert.IsNotNull(dispatchMethod);
+        prepareMethod.Invoke(library, [digestChanges, reason]);
+        dispatchMethod.Invoke(library, [digestChanges, reason]);
     }
 
     private static void EnsureCurrentResourceHealthIndex(BMSLibrary library)

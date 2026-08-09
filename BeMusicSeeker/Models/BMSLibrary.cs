@@ -2655,7 +2655,6 @@ public partial class BMSLibrary : ObservableObject
             catalogMutationOwner,
             catalogStorageRowsOwner,
             catalogOwnedCollectionOwner,
-            () => CurrentOptionsSnapshot,
             LogInstallPerformanceWarn,
             HandleCatalogChartInfoOwnerEvent,
             BeginOwnedDigestMutationWindow);
@@ -8805,48 +8804,18 @@ public partial class BMSLibrary : ObservableObject
         return stopwatch.ElapsedMilliseconds;
     }
 
-    private void DispatchOwnedChartDigestChanges(
-        IEnumerable<LibraryChartDigestChange> digestChanges,
-        string reason,
-        bool resourceHealthIndexInvalidated = true)
-    {
-        DispatchOwnedChartDigestChangesCore(
-            digestChanges,
-            reason,
-            resourceHealthIndexInvalidated,
-            digestMutationApplied: false);
-    }
-
     private void DispatchPreparedOwnedChartDigestChanges(
         IEnumerable<LibraryChartDigestChange> digestChanges,
         string reason)
     {
-        DispatchOwnedChartDigestChangesCore(
-            digestChanges,
-            reason,
-            resourceHealthIndexInvalidated: true,
-            digestMutationApplied: true);
-    }
-
-    private void DispatchOwnedChartDigestChangesCore(
-        IEnumerable<LibraryChartDigestChange> digestChanges,
-        string reason,
-        bool resourceHealthIndexInvalidated,
-        bool digestMutationApplied)
-    {
-        CatalogDigestMutationRequest request = catalogMutationOwner.CreateDigestMutationRequest(digestChanges);
         OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
-            request.DigestChanges,
-            resourceHealthIndexInvalidated);
-        mutationResult.DigestMutationRequest = request;
-        mutationResult.DigestMutationApplied = digestMutationApplied;
-        if (digestMutationApplied)
-        {
-            mutationResult.InstalledLookupMutationApplied = true;
-            mutationResult.InstalledHashIndexInvalidated = true;
-            mutationResult.PlaylistResolveIndexInvalidated = true;
-            mutationResult.InstallMetadataCacheInvalidated = true;
-        }
+            digestChanges,
+            resourceHealthIndexInvalidated: true);
+        mutationResult.DigestMutationApplied = true;
+        mutationResult.InstalledLookupMutationApplied = true;
+        mutationResult.InstalledHashIndexInvalidated = true;
+        mutationResult.PlaylistResolveIndexInvalidated = true;
+        mutationResult.InstallMetadataCacheInvalidated = true;
         DispatchOwnedChartCollectionMutationWithResourceHealthLease(mutationResult, reason);
     }
 
@@ -8854,11 +8823,8 @@ public partial class BMSLibrary : ObservableObject
         IEnumerable<LibraryChartDigestChange> digestChanges,
         string reason)
     {
-        CatalogDigestMutationRequest request = catalogMutationOwner.CreateDigestMutationRequest(digestChanges);
         OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
-            request.DigestChanges);
-        mutationResult.DigestMutationRequest = request;
-        mutationResult.DigestMutationApplied = true;
+            digestChanges);
         mutationResult.OwnedCollectionVersion = OwnedChartCollectionVersion;
         ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
             mutationResult,
@@ -8938,14 +8904,7 @@ public partial class BMSLibrary : ObservableObject
                 PrepareOwnedChartDigestIndexes(ownerEvent.DigestChanges, ownerEvent.Reason);
                 break;
             case CatalogChartInfoOwnerEventKind.DigestChanges:
-                if (ownerEvent.DigestMutationApplied)
-                {
-                    DispatchPreparedOwnedChartDigestChanges(ownerEvent.DigestChanges, ownerEvent.Reason);
-                }
-                else
-                {
-                    DispatchOwnedChartDigestChanges(ownerEvent.DigestChanges, ownerEvent.Reason);
-                }
+                DispatchPreparedOwnedChartDigestChanges(ownerEvent.DigestChanges, ownerEvent.Reason);
                 break;
             case CatalogChartInfoOwnerEventKind.PotentialDigestChanges:
                 DispatchOwnedPotentialDigestChanges(ownerEvent.PotentialDigestCharts, ownerEvent.Reason);

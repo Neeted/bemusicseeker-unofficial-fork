@@ -3750,7 +3750,6 @@ createTempDirectory);
                 mutationOwner,
                 storageRowsOwner,
                 ownedCollectionOwner,
-                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = operationModeLr2Db },
                 logs.Enqueue,
                 events.Enqueue);
 
@@ -3773,34 +3772,6 @@ createTempDirectory);
                 && ownerEvent.CheckpointStage == "chart_info_backfill"
                 && ownerEvent.CheckpointStatus == "skipped"));
         });
-    }
-
-    [TestMethod]
-    public void CatalogChartInfoOwner_StaleHydrationCannotRestoreClearedAllCurrentSnapshot()
-    {
-        var owner = new CatalogChartInfoOwner(
-            _ => { },
-            () => false,
-            (_, _) => false,
-            null,
-            _ => { });
-        owner.HydrationAllCurrentSnapshot = new ChartInfoHydrationAllCurrentSnapshot { OwnerCount = 1 };
-        var staleHydrationResult = new ChartInfoHydrationResult
-        {
-            Succeeded = true,
-            OwnerCount = 1,
-            CurrentParseFailureOwnerCount = 1,
-            BackfillCandidateOwnerCount = 0
-        };
-
-        owner.ClearHydrationAllCurrentSnapshot("parse_failure_removed");
-        MethodInfo capture = typeof(CatalogChartInfoOwner).GetMethod(
-            "CaptureHydrationAllCurrentSnapshot",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(capture);
-        capture.Invoke(owner, [staleHydrationResult, 1, 1, 1, 0]);
-
-        Assert.IsNull(owner.HydrationAllCurrentSnapshot);
     }
 
     [TestMethod]
@@ -3830,7 +3801,6 @@ createTempDirectory);
                 mutationOwner,
                 storageRowsOwner,
                 ownedCollectionOwner,
-                () => new BmsLibraryOptionsSnapshot(),
                 _ => { },
                 ownerEvent =>
                 {
@@ -4305,16 +4275,17 @@ createTempDirectory);
                 }
             };
             Assert.AreEqual(2, library.ChartInfoParseFailedChartFiles.Count());
-            InvokeDeferredChartInfoHydration(library, "parse_failure_remove_snapshot", queueFullBackfillAfterHydration: false);
+            InvokeDeferredChartInfoHydration(
+                library,
+                "parse_failure_remove_current_info",
+                queueFullBackfillAfterHydration: false);
             Assert.IsTrue(WaitForChartInfoHydration(library));
-            Assert.IsNotNull(GetHydrationAllCurrentSnapshot(library));
             int hydrationRequestedVersion = library.ChartInfoHydrationRequestedVersion;
             int backfillRequestedVersion = library.ChartInfoBackfillRequestedVersion;
             refreshNotificationChanged = 0;
 
             library.RemoveChartInfoParseFailuresByMd5([sharedMd5, sharedMd5.ToUpperInvariant(), " "]);
 
-            Assert.IsNull(GetHydrationAllCurrentSnapshot(library));
             Assert.AreEqual(hydrationRequestedVersion, library.ChartInfoHydrationRequestedVersion);
             Assert.AreEqual(backfillRequestedVersion, library.ChartInfoBackfillRequestedVersion);
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
@@ -4334,7 +4305,7 @@ createTempDirectory);
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
-    public void RemoveChartInfoParseFailuresByMd5_RetriesOnlyAfterExplicitHydrationInBothModes(bool operationModeLr2Db)
+    public void RemoveChartInfoParseFailuresByMd5_RetriesOnNextStartupInBothModes(bool operationModeLr2Db)
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
@@ -4368,7 +4339,6 @@ createTempDirectory);
                 Settings.Default.OperationModeLR2DB = operationModeLr2Db;
                 InvokeDeferredChartInfoHydration(library, "failure_is_current", queueFullBackfillAfterHydration: true);
                 Assert.IsTrue(WaitForChartInfoBackfill(library));
-                Assert.IsNotNull(GetHydrationAllCurrentSnapshot(library));
                 using (var beforeDelete = new LR2SongDBExtended(songDbPath))
                 {
                     Assert.AreEqual(0L, beforeDelete.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
@@ -4378,21 +4348,27 @@ createTempDirectory);
 
                 library.RemoveChartInfoParseFailuresByMd5([file.hash]);
 
-                Assert.IsNull(GetHydrationAllCurrentSnapshot(library));
                 Assert.AreEqual(hydrationRequestedVersion, library.ChartInfoHydrationRequestedVersion);
                 Assert.AreEqual(backfillRequestedVersion, library.ChartInfoBackfillRequestedVersion);
-                InvokeDeferredChartInfoHydration(library, "explicit_retry_after_failure_delete", queueFullBackfillAfterHydration: true);
-                Assert.IsTrue(
-                    SpinWait.SpinUntil(
-                        () => library.ChartInfoBackfillRequestedVersion > backfillRequestedVersion
-                            && library.ChartInfoBackfillCompletedVersion == library.ChartInfoBackfillRequestedVersion
-                            && !library.ChartInfoBackfillRunning,
-                        10000),
-                    "explicit chart-info retry did not complete.");
+                var nextStartupFile = new TestableBmsFile { path = chartPath };
+                nextStartupFile.SetHash(parsed.hash);
+                nextStartupFile.SetSha256(parsed.sha256);
+                var nextStartupLibrary = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+                {
+                    BMSFiles = [nextStartupFile]
+                };
+
+                InvokeDeferredChartInfoHydration(
+                    nextStartupLibrary,
+                    "next_startup_after_failure_delete",
+                    queueFullBackfillAfterHydration: true);
+                Assert.IsTrue(WaitForChartInfoHydration(nextStartupLibrary));
+                Assert.IsTrue(WaitForChartInfoBackfill(nextStartupLibrary));
                 using var verify = new LR2SongDBExtended(songDbPath);
                 Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.sha256));
                 Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", file.hash));
                 Assert.AreEqual(8, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+                Assert.AreEqual(8, nextStartupFile.level);
             }
             finally
             {
@@ -5451,15 +5427,6 @@ createTempDirectory);
                 && library.ChartInfoHydrationCompletedVersion == library.ChartInfoHydrationRequestedVersion
                 && !library.ChartInfoHydrationRunning,
             10000);
-    }
-
-    private static ChartInfoHydrationAllCurrentSnapshot? GetHydrationAllCurrentSnapshot(BMSLibrary library)
-    {
-        PropertyInfo property = typeof(BMSLibrary).GetProperty(
-            "chartInfoHydrationAllCurrentSnapshot",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(property, "chartInfoHydrationAllCurrentSnapshot property was not found.");
-        return property.GetValue(library) as ChartInfoHydrationAllCurrentSnapshot;
     }
 
     private static int ReadPositiveIntEnvironmentVariable(string name, int defaultValue)

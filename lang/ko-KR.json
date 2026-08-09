@@ -491,7 +491,7 @@
   "Backup_playlist": "재생 목록 백업",
   "Device_setting_format": "형식:",
   "Delete_from_list": "목록에서 삭제",
-  "Msg_remove_chart_info_parse_failure_record": "메타데이터 분석 실패 기록을 제거합니다. 다음 시작 시 또는 재분석 시 다시 분석 대상이 됩니다. 과부하로 인한 타임아웃이 아닌 이유로 실패한 채보는 다시 실패할 가능성이 높으므로 특별한 이유가 없으면 제거하지 마십시오.",
+  "Msg_remove_chart_info_parse_failure_record": "메타데이터 분석 실패 기록을 제거합니다. 다음에 애플리케이션을 시작할 때 다시 분석 대상이 됩니다. 과부하로 인한 타임아웃이 아닌 이유로 실패한 채보는 다시 실패할 가능성이 높으므로 특별한 이유가 없으면 제거하지 마십시오.",
   "Install_new_folder_desc": "* 폴더 이름 형식은 폴더 이름 변경 기능에도 공통 사용됩니다",
   "PlaylistProp_pageuri": "웹페이지 URI: ",
   "PlaylistProp_ftype_all": "채보 카테고리별 ALL",

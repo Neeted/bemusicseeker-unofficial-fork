@@ -491,7 +491,7 @@
   "Backup_playlist": "Backup playlists",
   "Device_setting_format": "Format:",
   "Delete_from_list": "Delete from the list",
-  "Msg_remove_chart_info_parse_failure_record": "The metadata parse failure record will be removed. The chart will be parsed again on the next startup or metadata scan. Charts that failed for reasons other than timeout under heavy load are likely to fail again, so do not remove this record unless you have a specific reason.",
+  "Msg_remove_chart_info_parse_failure_record": "The metadata parse failure record will be removed. The chart will become eligible for parsing again the next time the application starts. Charts that failed for reasons other than timeout under heavy load are likely to fail again, so do not remove this record unless you have a specific reason.",
   "Install_new_folder_desc": "* The naming format is also used for the rename function",
   "PlaylistProp_pageuri": "Page URI: ",
   "PlaylistProp_ftype_all": "Chart category ALL",

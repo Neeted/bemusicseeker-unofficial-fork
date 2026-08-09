@@ -40,8 +40,6 @@ internal sealed class CatalogChartInfoOwner
 
     private CatalogOwnedCollectionOwner workflowOwnedCollectionOwner;
 
-    private Func<BmsLibraryOptionsSnapshot> workflowOptionsSnapshotProvider;
-
     private Action<string> workflowLogWarning;
 
     private Action<CatalogChartInfoOwnerEvent> workflowEvent;
@@ -75,8 +73,6 @@ internal sealed class CatalogChartInfoOwner
     private bool hydrationPendingQueueBackfill;
 
     private int hydrationRequestedVersion;
-
-    private int hydrationCurrentnessGeneration;
 
     private int chartInfoBackfillRequestedVersion;
 
@@ -148,7 +144,6 @@ internal sealed class CatalogChartInfoOwner
         CatalogMutationOwner mutationOwner,
         CatalogStorageRowsOwner storageRowsOwner,
         CatalogOwnedCollectionOwner ownedCollectionOwner,
-        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         Action<string> logWarning,
         Action<CatalogChartInfoOwnerEvent> workflowEvent,
         Func<IDisposable> beginDigestMutationWindow = null)
@@ -157,7 +152,6 @@ internal sealed class CatalogChartInfoOwner
         workflowMutationOwner = mutationOwner ?? throw new ArgumentNullException(nameof(mutationOwner));
         workflowStorageRowsOwner = storageRowsOwner ?? throw new ArgumentNullException(nameof(storageRowsOwner));
         workflowOwnedCollectionOwner = ownedCollectionOwner ?? throw new ArgumentNullException(nameof(ownedCollectionOwner));
-        workflowOptionsSnapshotProvider = optionsSnapshotProvider ?? throw new ArgumentNullException(nameof(optionsSnapshotProvider));
         workflowLogWarning = logWarning;
         this.workflowEvent = workflowEvent;
         workflowBeginDigestMutationWindow = beginDigestMutationWindow ?? (() => EmptyDisposable.Instance);
@@ -807,11 +801,6 @@ internal sealed class CatalogChartInfoOwner
     private ChartInfoHydrationResult HydrateChartInfos(string reason)
     {
         EnsureWorkflowConfigured();
-        int currentnessGeneration;
-        lock (hydrationGate)
-        {
-            currentnessGeneration = hydrationCurrentnessGeneration;
-        }
         var result = new ChartInfoHydrationResult();
         var totalStopwatch = Stopwatch.StartNew();
         LogPerformance?.Invoke("chart_info_hydration start reason=" + (reason ?? "unknown"));
@@ -902,8 +891,7 @@ internal sealed class CatalogChartInfoOwner
             result,
             ownedCollectionVersionAtSummary,
             bmsRowsVersionAtSummary,
-            bmsonRowsVersionAtSummary,
-            currentnessGeneration);
+            bmsonRowsVersionAtSummary);
         return result;
     }
 
@@ -1020,10 +1008,6 @@ internal sealed class CatalogChartInfoOwner
         bool cleared = false;
         lock (hydrationGate)
         {
-            unchecked
-            {
-                hydrationCurrentnessGeneration++;
-            }
             if (hydrationAllCurrentSnapshot != null)
             {
                 hydrationAllCurrentSnapshot = null;
@@ -1040,8 +1024,7 @@ internal sealed class CatalogChartInfoOwner
         ChartInfoHydrationResult result,
         int ownedCollectionVersion,
         int bmsRowsVersion,
-        int bmsonRowsVersion,
-        int currentnessGeneration)
+        int bmsonRowsVersion)
     {
         ChartInfoHydrationAllCurrentSnapshot snapshot = null;
         if (result != null
@@ -1061,18 +1044,9 @@ internal sealed class CatalogChartInfoOwner
                 ParseTimeoutMs = Math.Max(0L, (long)Math.Ceiling(buildService.CurrentParseTimeout.TotalMilliseconds))
             };
         }
-        bool staleGeneration;
         lock (hydrationGate)
         {
-            staleGeneration = currentnessGeneration != hydrationCurrentnessGeneration;
-            if (!staleGeneration)
-            {
-                hydrationAllCurrentSnapshot = snapshot;
-            }
-        }
-        if (staleGeneration)
-        {
-            LogPerformance?.Invoke("chart_info_hydration_all_current stale_generation_skipped");
+            hydrationAllCurrentSnapshot = snapshot;
         }
     }
 
@@ -1108,8 +1082,7 @@ internal sealed class CatalogChartInfoOwner
         if (workflowDbGateway == null
             || workflowMutationOwner == null
             || workflowStorageRowsOwner == null
-            || workflowOwnedCollectionOwner == null
-            || workflowOptionsSnapshotProvider == null)
+            || workflowOwnedCollectionOwner == null)
         {
             throw new InvalidOperationException("Chart-info workflow owner is not configured.");
         }
@@ -1571,7 +1544,6 @@ internal sealed class CatalogChartInfoOwner
         {
             throw new InvalidOperationException("Chart-info parse-failure delete returned no receipt.");
         }
-        ClearHydrationAllCurrentSnapshot("parse_failure_removed");
         PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Warning("chart_info_parse_failure_remove"));
     }
 
@@ -1764,8 +1736,7 @@ internal sealed class CatalogChartInfoOwner
         {
             CatalogChartInfoOwnerEvent digestEvent = CatalogChartInfoOwnerEvent.Digest(
                 committedDigestChanges,
-                reason + "_digest",
-                digestMutationApplied: true);
+                reason + "_digest");
             if (deferPublication == null)
             {
                 PublishWorkflowEvent(digestEvent);

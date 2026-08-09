@@ -491,7 +491,7 @@
   "Backup_playlist": "备份播放列表",
   "Device_setting_format": "格式：",
   "Delete_from_list": "从列表中删除",
-  "Msg_remove_chart_info_parse_failure_record": "将移除元数据解析失败记录。下次启动或重新解析时，该谱面会再次成为解析对象。除高负载导致的超时外，失败的谱面很可能再次失败，除非有特殊理由，否则不建议移除。",
+  "Msg_remove_chart_info_parse_failure_record": "将移除元数据解析失败记录。下次启动应用程序时，该谱面会再次成为解析对象。除高负载导致的超时外，失败的谱面很可能再次失败，除非有特殊理由，否则不建议移除。",
   "Install_new_folder_desc": "* 这里的命名格式也会用于重命名功能",
   "PlaylistProp_pageuri": "页面 URI：",
   "PlaylistProp_ftype_all": "谱面分类别ALL",

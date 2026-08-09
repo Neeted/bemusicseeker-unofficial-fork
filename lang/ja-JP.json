@@ -500,7 +500,7 @@
   "Backup_playlist": "プレイリストのバックアップ",
   "Device_setting_format": "フォーマット:",
   "Delete_from_list": "一覧から削除",
-  "Msg_remove_chart_info_parse_failure_record": "メタデータ解析の失敗記録を除去します。次回起動時または再解析時に再解析の対象になります。高負荷時のタイムアウト以外の理由で失敗した譜面は再度失敗する可能性が高いので、特別な理由がない限り除去しないでください。",
+  "Msg_remove_chart_info_parse_failure_record": "メタデータ解析の失敗記録を除去します。次回のアプリ起動時に再解析の対象になります。高負荷時のタイムアウト以外の理由で失敗した譜面は再度失敗する可能性が高いので、特別な理由がない限り除去しないでください。",
   "Install_new_folder_desc": "※設定はリネーム機能でも使用されます",
   "PlaylistProp_pageuri": "ページURI: ",
   "PlaylistProp_ftype_all": "譜面カテゴリ別ALL",
