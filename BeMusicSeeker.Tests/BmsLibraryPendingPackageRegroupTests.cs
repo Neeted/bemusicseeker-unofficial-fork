@@ -91,6 +91,137 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void BuildPendingEstimateSourceBatchSnapshot_FileOnlyBmsAndBmsonDoNotScanParentDirectories()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "FileOnlyBatch");
+            string nestedDirectoryPath = Path.Combine(sourceDirectoryPath, "Nested");
+            Directory.CreateDirectory(nestedDirectoryPath);
+            string bmsPath = CreateBmsFileWithContents(
+                sourceDirectoryPath,
+                "chart.bms",
+                "#PLAYER 1\r\n#TITLE BMS\r\n#ARTIST Test\r\n#WAVAA sound/bms.wav\r\n#00111:AA\r\n");
+            string bmsonPath = CreateBmsonFile(sourceDirectoryPath, "chart.bmson", "BMSON", "Test");
+            File.WriteAllText(Path.Combine(sourceDirectoryPath, "sibling.wav"), "audio");
+            File.WriteAllText(Path.Combine(nestedDirectoryPath, "nested.wav"), "audio");
+            ChartPackage bmsPackage = CreatePendingSingleFilePackage(bmsPath);
+            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
+            ChartPackage bmsonPackage = ChartPackage.FromChartEntries(
+            [
+                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong))
+            ]);
+            bmsonPackage.path = bmsonPath;
+            bmsonPackage.delete_parent = true;
+            library.BMSFiles = [];
+
+            PendingEstimateSourceBatchSnapshot snapshot = InvokeBuildPendingEstimateSourceBatchSnapshot(library, bmsPackage, bmsonPackage);
+
+            Assert.AreEqual(0, snapshot.RootCount);
+            Assert.AreEqual(0, snapshot.ChunkCount);
+            Assert.AreEqual(0, snapshot.ResourceFileCount);
+            Assert.AreEqual(0, snapshot.TrackedFileCount);
+            Assert.AreEqual(0, snapshot.VisitedFileSystemEntryCount);
+            Assert.AreEqual(0, snapshot.MaxVisitedFileSystemEntryCount);
+            Assert.AreEqual(string.Empty, snapshot.ScanBackend);
+            Assert.IsFalse(snapshot.ScanLimitExceeded);
+            Assert.AreEqual(2, snapshot.PackageStates.Count);
+            foreach (PendingEstimateSourceBatchPackageState state in snapshot.PackageStates)
+            {
+                Assert.AreEqual(sourceDirectoryPath, state.SourceDirectory);
+                Assert.IsNull(state.SourceSurface);
+                Assert.IsFalse(state.UsesBatchSourceSurface);
+                Assert.IsTrue(state.ChartResources.TotalReferenceCount > 0);
+            }
+            Assert.AreEqual(ChartFileKind.Bms, snapshot.PackageStates.Single(state => state.Package == bmsPackage).MissingEntries.Single().Chart.Kind);
+            Assert.AreEqual(ChartFileKind.Bmson, snapshot.PackageStates.Single(state => state.Package == bmsonPackage).MissingEntries.Single().Chart.Kind);
+        });
+    }
+
+    [TestMethod]
+    public void BuildPendingEstimateSourceBatchSnapshot_SharesSurfaceOnlyWithDirectoryPackageAtSameParent()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MixedSurface");
+            string directoryChartPath = CreateBmsFileWithContents(
+                sourceDirectoryPath,
+                "directory.bms",
+                "#PLAYER 1\r\n#TITLE Directory\r\n#WAVAA package.wav\r\n#00111:AA\r\n");
+            string fileChartPath = CreateBmsFile(sourceDirectoryPath, "file.bms", "File");
+            File.WriteAllText(Path.Combine(sourceDirectoryPath, "package.wav"), "audio");
+            ChartPackage directoryPackage = CreatePendingSingleFilePackage(directoryChartPath);
+            directoryPackage.path = sourceDirectoryPath;
+            directoryPackage.delete_parent = false;
+            ChartPackage filePackage = CreatePendingSingleFilePackage(fileChartPath);
+            library.BMSFiles = [];
+
+            PendingEstimateSourceBatchSnapshot snapshot = InvokeBuildPendingEstimateSourceBatchSnapshot(library, directoryPackage, filePackage);
+            PendingEstimateSourceBatchPackageState directoryState = snapshot.PackageStates.Single(state => state.Package == directoryPackage);
+            PendingEstimateSourceBatchPackageState fileState = snapshot.PackageStates.Single(state => state.Package == filePackage);
+
+            Assert.AreEqual(1, snapshot.RootCount);
+            Assert.AreEqual(1, snapshot.ChunkCount);
+            Assert.AreEqual("bounded_fast_source_surface", snapshot.ScanBackend);
+            Assert.IsTrue(snapshot.TrackedFileCount > 0);
+            Assert.IsTrue(snapshot.ResourceFileCount > 0);
+            Assert.AreEqual(sourceDirectoryPath, directoryState.SourceDirectory);
+            Assert.IsNotNull(directoryState.SourceSurface);
+            Assert.IsTrue(directoryState.UsesBatchSourceSurface);
+            Assert.IsTrue(directoryState.SourceSurface.ResourceEntry.AudioFileNameHashCount > 0);
+            Assert.AreEqual(sourceDirectoryPath, fileState.SourceDirectory);
+            Assert.IsNull(fileState.SourceSurface);
+            Assert.IsFalse(fileState.UsesBatchSourceSurface);
+        });
+    }
+
+    [TestMethod]
+    public void SearchEstimatedInstallationDirectory_SingleFileRelativeResourceSelectsExternalCandidateWithoutSourceScanWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "RelativeSingleFile");
+            string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "RelativeCandidate");
+            string sourceSoundDirectoryPath = Path.Combine(sourceDirectoryPath, "sound");
+            string candidateSoundDirectoryPath = Path.Combine(candidateDirectoryPath, "sound");
+            string unrelatedNestedDirectoryPath = Path.Combine(sourceDirectoryPath, "Unrelated", "Nested");
+            Directory.CreateDirectory(sourceSoundDirectoryPath);
+            Directory.CreateDirectory(candidateSoundDirectoryPath);
+            Directory.CreateDirectory(unrelatedNestedDirectoryPath);
+            string pendingPath = CreateBmsFileWithContents(
+                sourceDirectoryPath,
+                "pending.bms",
+                "#PLAYER 1\r\n#TITLE Relative\r\n#ARTIST Test\r\n#WAVAA sound/00.wav\r\n#00111:AA\r\n");
+            string candidatePath = CreateBmsFileWithContents(
+                candidateDirectoryPath,
+                "candidate.bms",
+                "#PLAYER 1\r\n#TITLE Relative\r\n#ARTIST Test\r\n");
+            File.WriteAllText(Path.Combine(sourceSoundDirectoryPath, "00.wav"), "source");
+            File.WriteAllText(Path.Combine(candidateSoundDirectoryPath, "00.wav"), "candidate");
+            File.WriteAllText(Path.Combine(unrelatedNestedDirectoryPath, "noise.bin"), "noise");
+            ChartPackage pendingPackage = CreatePendingSingleFilePackage(pendingPath);
+            library.BMSFiles = [BMSFile.CreateBMSFileFromFile(candidatePath)];
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            var cache = new DirectoryResourceLookupCache();
+            cache.AddDir(sourceDirectoryPath, ["pending.bms", Path.Combine("sound", "00.wav")]);
+            cache.AddDir(candidateDirectoryPath, ["candidate.bms", Path.Combine("sound", "00.wav")]);
+            SetPrivateField(library, "directoryResourceLookupCache", cache);
+            SetLibraryResourceIndex(library, cache);
+
+            library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+            PackageChartEntry entry = GetOnlyEntry(pendingPackage);
+            Assert.AreEqual(candidateDirectoryPath, entry.Chart.InstallDestination);
+            Assert.AreNotEqual(sourceDirectoryPath, entry.Chart.InstallDestination);
+            Assert.IsTrue(entry.ResourceSnapshot.AudioReferences.Single().IsPathAware);
+            Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.SourceSurfaceScanLimitExceeded));
+        });
+    }
+
+    [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_RegroupsSplitPackagesWhenEligibleDirectoryIsSupplied()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1806,6 +1937,20 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         MethodInfo regroupMethod = typeof(BMSLibrary).GetMethod("TryRegroupPendingPackagesForSourceDirectoriesUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(regroupMethod);
         regroupMethod.Invoke(library, [sourceDirectoryPaths]);
+    }
+
+    private static PendingEstimateSourceBatchSnapshot InvokeBuildPendingEstimateSourceBatchSnapshot(BMSLibrary library, params ChartPackage[] packages)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BuildPendingEstimateSourceBatchSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        var installEstimationService = new BmsLibraryInstallEstimationService(
+            BmsLibraryOptionsSnapshot.CreateCurrent(BeMusicSeeker.Properties.Settings.Default),
+            innerWavHealthThreshold: 70);
+        var installedLookup = new InstalledChartLookupIndexSnapshot();
+        List<ChartPackage> packageList = [.. (packages ?? []).Where(package => package != null)];
+        return (PendingEstimateSourceBatchSnapshot)methodInfo.Invoke(
+            library,
+            [packageList, installEstimationService, installedLookup, "test"]);
     }
 
     private static void InvokeReinitializePendingWarningsForPackage(BMSLibrary library, ChartPackage package, IPrimaryHashLookup installedHashes)

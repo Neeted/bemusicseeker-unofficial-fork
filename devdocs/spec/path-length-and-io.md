@@ -12,7 +12,7 @@
 - LR2 互換性は BeMusicSeeker の読み取り可否とは分けて評価する。LR2 の legacy path 長を超える可能性がある BMS は、登録したうえで LR2 warning を付与する。OpenLR2 は改善可能性があるため、warning 名や文言には含めない。
 - standalone mode でも、LR2 legacy path として明らかに成立しない root は登録前に拒否する。root 判定は CP932 で `root + separator + "a.bms"` が `Lr2CompatibilityEvaluator.MaxLegacyPathBytes` 以下、かつ CP932 encode 可能であることを条件にする。
 - BeMusicSeeker 内部で完結するファイル操作は、標準 `File` / `Directory` / VisualBasic `FileSystem` の存在確認や変更 API に直接依存せず、`LongPathFileSystem` または `IFileMutationService` を通す。
-- 導入先推定のように、ユーザーが指定した path の親 directory や配下を探索する処理は、長パス対応だけでなく探索範囲の上限も明示する。通常 package の範囲を超える巨大 directory では、全件 materialize せず打ち切り warning にする。
+- 導入先推定で directory package root 配下を探索する処理は、長パス対応だけでなく探索範囲の上限も明示する。single-file package / loose chart の親 directory は package boundary として再帰列挙しない。通常 directory package の範囲を超える巨大 directory では、全件 materialize せず打ち切り warning にする。
 - complete scan 後に個別ファイルを読む段階で、長パスで読めない、権限が無い、列挙時点から削除されたなどの recoverable なファイル単位エラーは、初期化全体の失敗ダイアログにしない。対象ファイルを `SongTableFileCheckResult.FileScanFailures` と性能ログへ集約し、他の譜面の登録を継続する。
 - 失敗を成功扱いにはしない。読めなかった譜面は DB に登録せず、失敗ファイルとして残す。
 - 外部アプリへ長パスを渡した後の互換性は外部アプリ側の制約に従う。BeMusicSeeker 側では、外部アプリが受け付けないことを内部ファイルの不在や成功扱いに変換しない。
@@ -74,7 +74,7 @@ P0 は今回の正本範囲である。BeMusicSeeker 内でファイルシステ
 
 P2 は、譜面管理機能の本流ではないが app 内の一貫性として順次寄せる範囲である。IR cache、設定ファイル、export/import 補助、外部ツール連携の一部存在確認などが該当する。P3 はアプリ同梱 metadata bundle、test fixture、ログ、release script など、ユーザーの譜面 path とは独立した app-local I/O である。P2/P3 の direct `System.IO` は見つかっただけで即 P0 欠陥とは扱わず、変更する場合はそれぞれの機能単位で方針を決める。
 
-導入先推定の source surface scan は `BoundedSourceSurfaceEnumerator` を使い、1 つの source surface ごとに既定 50,000 filesystem entry で打ち切る。この上限は投入バッチ全体の合算ではなく、1 つの導入先推定対象 package / source directory を BMS package 境界として扱えるかの上限である。打ち切った場合、部分的な resource surface を推定入力へ渡さず、`SourceSurfaceScanLimitExceeded` warning として扱う。Everything bridge や通常 root scan fallback のような全件 materialize 型の列挙は、この用途では使わない。
+導入先推定の source surface scan は directory package の package root だけに `BoundedSourceSurfaceEnumerator` を使い、1 root ごとに既定 50,000 filesystem entry で打ち切る。この上限は投入バッチ全体の合算ではない。打ち切った場合、部分的な resource surface を推定入力へ渡さず、`SourceSurfaceScanLimitExceeded` warning として扱う。Everything bridge や通常 root scan fallback のような全件 materialize 型の列挙は、この用途では使わない。single-file BMS / bmson package と loose BMS / bmson chart は親 directory を列挙せず、source identity として親 `SourceDirectory` だけを保持する。
 
 外部アプリ起動、関連付け起動、Explorer 起動は、BeMusicSeeker 側で対象 path の存在確認と例外処理を行う。起動先アプリが extended-length path を解釈できない場合でも、BeMusicSeeker はその失敗をファイル未存在や内部成功へ変換しない。
 

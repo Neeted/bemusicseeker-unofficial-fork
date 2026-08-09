@@ -1774,7 +1774,24 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.IsTrue(discoveredCharts.Count > 0);
                     Assert.IsFalse(firstSnapshot.SourceSurfaceCacheHit);
                     Assert.IsTrue(secondSnapshot.SourceSurfaceCacheHit);
-                    Assert.AreEqual("bounded_fast_source_surface", firstSnapshot.SourceSurfaceScanBackend);
+                    if (Directory.Exists(package.path))
+                    {
+                        Assert.AreEqual("bounded_fast_source_surface", firstSnapshot.SourceSurfaceScanBackend);
+                        Assert.IsTrue(firstSnapshot.SourceSurfaceTrackedFileCount > 0);
+                        Assert.IsTrue(firstSnapshot.SourceSurfaceResourceFileCount > 0);
+                        Assert.IsTrue(firstSnapshot.BundledAudioCount > 0);
+                    }
+                    else
+                    {
+                        Assert.AreEqual(filePackageDirectoryPath, firstSnapshot.SourceDirectory);
+                        Assert.AreEqual(string.Empty, firstSnapshot.SourceSurfaceScanBackend);
+                        Assert.AreEqual(0, firstSnapshot.SourceSurfaceResourceFileCount);
+                        Assert.AreEqual(0, firstSnapshot.SourceSurfaceTrackedFileCount);
+                        Assert.AreEqual(0, firstSnapshot.SourceSurfaceVisitedFileSystemEntryCount);
+                        Assert.AreEqual(0, firstSnapshot.SourceSurfaceMaxVisitedFileSystemEntryCount);
+                        Assert.AreEqual(0, firstSnapshot.BundledAudioCount);
+                        Assert.AreEqual(0, firstSnapshot.SourceCandidateResources.AudioFileNameHashCount);
+                    }
                 }
             });
     }

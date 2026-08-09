@@ -965,11 +965,18 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
+            string nestedDir = Path.Combine(sourceDir, "Nested");
+            Directory.CreateDirectory(nestedDir);
             Directory.CreateDirectory(sourceDir);
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
+            string chartPath = Path.Combine(sourceDir, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
             File.WriteAllText(Path.Combine(sourceDir, "00.wav"), "audio");
+            File.WriteAllText(Path.Combine(sourceDir, "background.png"), "image");
+            File.WriteAllText(Path.Combine(sourceDir, "preview.mp4"), "movie");
+            File.WriteAllText(Path.Combine(sourceDir, "sibling.bmson"), "{}");
+            File.WriteAllText(Path.Combine(nestedDir, "nested.wav"), "audio");
 
-            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav");
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, "00.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true);
 
             var package = ChartPackageTestExtensions.CreatePackage([file]);
@@ -978,18 +985,36 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             package.delete_parent = false;
 
-            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
+            PackageInstallSurfaceSnapshot surface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(chartPath);
+            PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(
+                package,
+                package.ChartEntries,
+                surface,
+                sourceSurfaceCacheHit: false);
 
+            Assert.AreEqual(chartPath, surface.SourcePath);
             Assert.AreEqual(0, snapshot.BundledAudioCount);
             Assert.AreEqual(0, snapshot.BundledImageCount);
             Assert.AreEqual(0, snapshot.BundledMovieCount);
             Assert.AreEqual(sourceDir, snapshot.SourceDirectory);
-            Assert.AreEqual(1, snapshot.SourceCandidateResources.AudioFileNameHashCount);
+            Assert.AreNotSame(snapshot.BundledResources, snapshot.SourceCandidateResources);
+            Assert.AreEqual(0, snapshot.SourceCandidateResources.AudioFileNameHashCount);
+            Assert.AreEqual(0, snapshot.SourceCandidateResources.ImageFileNameHashCount);
+            Assert.AreEqual(0, snapshot.SourceCandidateResources.MovieFileNameHashCount);
+            Assert.AreEqual(0L, snapshot.SourceSurfaceScanMs);
+            Assert.AreEqual(0, snapshot.SourceSurfaceChartFileCount);
+            Assert.AreEqual(0, snapshot.SourceSurfaceResourceFileCount);
+            Assert.AreEqual(0, snapshot.SourceSurfaceTrackedFileCount);
+            Assert.AreEqual(0L, snapshot.SourceSurfaceHashMaterializeMs);
+            Assert.AreEqual(string.Empty, snapshot.SourceSurfaceScanBackend);
+            Assert.IsFalse(snapshot.SourceSurfaceScanLimitExceeded);
+            Assert.AreEqual(0, snapshot.SourceSurfaceVisitedFileSystemEntryCount);
+            Assert.AreEqual(0, snapshot.SourceSurfaceMaxVisitedFileSystemEntryCount);
         });
     }
 
     [TestMethod]
-    public void PackageInstallEstimationSnapshotBuilder_FilePackageStopsSourceSurfaceScanAtLimit()
+    public void PackageInstallEstimationSnapshotBuilder_FilePackageDoesNotScanSourceSurfaceAtLimit()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -1006,9 +1031,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 chartPath,
                 maxVisitedFileSystemEntryCount: 3);
 
-            Assert.IsTrue(surface.ScanLimitExceeded);
-            Assert.AreEqual(3, surface.MaxVisitedFileSystemEntryCount);
-            Assert.IsTrue(surface.VisitedFileSystemEntryCount > surface.MaxVisitedFileSystemEntryCount);
+            Assert.IsFalse(surface.ScanLimitExceeded);
+            Assert.AreEqual(0, surface.MaxVisitedFileSystemEntryCount);
+            Assert.AreEqual(0, surface.VisitedFileSystemEntryCount);
+            Assert.AreEqual(0, surface.TrackedFileCount);
+            Assert.AreEqual(string.Empty, surface.ScanBackend);
             Assert.AreEqual(0, surface.SourceCandidateResources.AudioFileNameHashCount);
 
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, "00.wav");
@@ -1020,8 +1047,112 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 surface,
                 sourceSurfaceCacheHit: false);
 
+            Assert.IsFalse(snapshot.SourceSurfaceScanLimitExceeded);
+            Assert.AreEqual(0, snapshot.SourceSurfaceVisitedFileSystemEntryCount);
+            Assert.AreEqual(0, snapshot.SourceSurfaceMaxVisitedFileSystemEntryCount);
+        });
+    }
+
+    [TestMethod]
+    public void PackageInstallEstimationSnapshotBuilder_DirectoryPackageDiscardsPartialSurfaceAtLimit()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "DirectoryPackage");
+            Directory.CreateDirectory(sourceDir);
+            string chartPath = Path.Combine(sourceDir, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            File.WriteAllText(Path.Combine(sourceDir, "00.wav"), "audio");
+            File.WriteAllText(Path.Combine(sourceDir, "01.wav"), "audio");
+
+            PackageInstallSurfaceSnapshot surface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(
+                sourceDir,
+                maxVisitedFileSystemEntryCount: 1);
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, "00.wav");
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            package.path = sourceDir;
+            PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(
+                package,
+                package.ChartEntries,
+                surface,
+                sourceSurfaceCacheHit: false);
+
+            Assert.IsTrue(surface.ScanLimitExceeded);
+            Assert.AreEqual(1, surface.MaxVisitedFileSystemEntryCount);
+            Assert.IsTrue(surface.VisitedFileSystemEntryCount > surface.MaxVisitedFileSystemEntryCount);
+            Assert.AreEqual(0, surface.BundledResources.AudioFileNameHashCount);
+            Assert.AreEqual(0, surface.SourceCandidateResources.AudioFileNameHashCount);
             Assert.IsTrue(snapshot.SourceSurfaceScanLimitExceeded);
             Assert.AreEqual(surface.VisitedFileSystemEntryCount, snapshot.SourceSurfaceVisitedFileSystemEntryCount);
+            Assert.AreEqual(surface.MaxVisitedFileSystemEntryCount, snapshot.SourceSurfaceMaxVisitedFileSystemEntryCount);
+        });
+    }
+
+    [TestMethod]
+    public void PackageInstallEstimationSnapshotBuilder_LooseBmsonKeepsRelativeResourcesWithoutScanningParent()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "LooseBmson");
+            string nestedDir = Path.Combine(sourceDir, "Nested");
+            Directory.CreateDirectory(nestedDir);
+            string bmsonPath = Path.Combine(sourceDir, "chart.bmson");
+            File.WriteAllText(
+                bmsonPath,
+                "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Loose Title\",\"artist\":\"Loose Artist\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"sound/00.wav\",\"notes\":[]}]}");
+            File.WriteAllText(Path.Combine(sourceDir, "sibling.wav"), "audio");
+            File.WriteAllText(Path.Combine(nestedDir, "nested.wav"), "audio");
+            LR2SongDBExtended.bmson_song song = BmsonSongParser.Parse(bmsonPath);
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+
+            PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([entry]);
+            string expectedResourceKey = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup("sound/00.wav");
+
+            Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
+            Assert.AreEqual(bmsonPath, snapshot.RepresentativeChart.Path);
+            Assert.AreEqual(sourceDir, snapshot.SourceDirectory);
+            Assert.AreEqual(1, snapshot.ChartCount);
+            Assert.AreEqual("loose title", snapshot.TargetMetadataProfile.DominantNormalizedTitle);
+            CollectionAssert.Contains(snapshot.DefinedResources.AudioRelativePaths.ToArray(), expectedResourceKey);
+            Assert.IsTrue(snapshot.DefinedResources.AudioReferences.Single().IsPathAware);
+            Assert.AreNotSame(snapshot.BundledResources, snapshot.SourceCandidateResources);
+            Assert.AreEqual(0, snapshot.BundledResources.AudioFileNameHashCount);
+            Assert.AreEqual(0, snapshot.SourceCandidateResources.AudioFileNameHashCount);
+            Assert.AreEqual(0, snapshot.SourceSurfaceTrackedFileCount);
+            Assert.AreEqual(0, snapshot.SourceSurfaceVisitedFileSystemEntryCount);
+            Assert.AreEqual(0, snapshot.SourceSurfaceMaxVisitedFileSystemEntryCount);
+            Assert.AreEqual(string.Empty, snapshot.SourceSurfaceScanBackend);
+            Assert.IsFalse(snapshot.SourceSurfaceScanLimitExceeded);
+        });
+    }
+
+    [TestMethod]
+    public void ChartPackage_FilePackageCachesNoScanSurface()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "FilePackageCache");
+            Directory.CreateDirectory(sourceDir);
+            string chartPath = Path.Combine(sourceDir, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            package.path = chartPath;
+
+            PackageInstallEstimationSnapshot firstSnapshot = package.GetOrBuildInstallEstimationSnapshotFromEntries(package.ChartEntries);
+            PackageInstallEstimationSnapshot secondSnapshot = package.GetOrBuildInstallEstimationSnapshotFromEntries(package.ChartEntries);
+
+            Assert.IsFalse(firstSnapshot.SourceSurfaceCacheHit);
+            Assert.IsTrue(secondSnapshot.SourceSurfaceCacheHit);
+            Assert.AreEqual(sourceDir, firstSnapshot.SourceDirectory);
+            Assert.AreEqual(string.Empty, firstSnapshot.SourceSurfaceScanBackend);
+            Assert.AreEqual(0, firstSnapshot.SourceSurfaceTrackedFileCount);
+            Assert.AreEqual(0, firstSnapshot.SourceSurfaceVisitedFileSystemEntryCount);
+            Assert.AreEqual(0, firstSnapshot.SourceSurfaceMaxVisitedFileSystemEntryCount);
+            Assert.AreEqual(string.Empty, secondSnapshot.SourceSurfaceScanBackend);
         });
     }
 

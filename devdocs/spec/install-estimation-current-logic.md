@@ -47,21 +47,23 @@ resource key は chart-relative な extensionless key です。
 
 ### Source package surface
 
-package 内に同梱されている non-chart resource は `BundledResources` として持ちます。
+directory package 内に同梱されている non-chart resource は `BundledResources` として持ちます。
 
 通常のインストール先推定では `candidate + bundled` を評価します。つまり、package が持ち込む resource も導入後に使えるものとして数えます。
 
 merge / reinstall correction では source/bundled resource を足さず、`candidate only` で評価します。
 
-source package surface の再帰探索は bounded scan で行います。導入先推定は単体譜面の親 directory や directory package 全体を source surface として見るため、ドライブ root や大量のサブディレクトリを持つ場所を起点にすると、通常の BMS package の範囲を大きく超える可能性があります。
+source package surface の再帰探索は、directory package の package root だけに bounded scan を行います。single-file BMS / bmson package と loose BMS / bmson chart は親 directory を package boundary として列挙しません。BMS と bmson は同じ package-kind contract に従います。
 
-- source surface scan は filesystem entry を訪問しながら上限を確認し、上限を超えた時点で打ち切ります。
-- 既定上限は 1 つの source surface ごとに 50,000 entry です。これは投入バッチ全体の合算ではなく、1 つの導入先推定対象 package / source directory を BMS package 境界として扱えるかの上限です。
+- directory source surface scan は filesystem entry を訪問しながら上限を確認し、上限を超えた時点で打ち切ります。
+- 既定上限は 1 つの directory package root ごとに 50,000 entry です。これは投入バッチ全体の合算ではありません。
 - 1 つのフォルダ投入から 50 作品分の package が発見された場合、各作品が別 source surface として評価される限り、50 作品全体の合計 file 数が 50,000 を超えても打ち切り理由にはなりません。
-- 一般的な BMS package は兄弟ファイルやサブディレクトリを含めても 10,000 file 未満を想定し、1 source surface で 50,000 entry を超える場合は異常に広い source として扱います。
+- 一般的な directory package は兄弟ファイルやサブディレクトリを含めても 10,000 file 未満を想定し、1 source surface で 50,000 entry を超える場合は異常に広い source として扱います。
 - 打ち切った source surface は部分的な resource surface として推定に使いません。部分結果で「候補なし」と判定すると意味が変わるためです。
-- 打ち切り時は `SourceSurfaceScanLimitExceeded` warning を付与し、`INSTL DST` の自動推定を行いません。
+- directory package の打ち切り時は `SourceSurfaceScanLimitExceeded` warning を付与し、`INSTL DST` の自動推定を行いません。
 - source surface scan では Everything bridge の全件 materialize 経路を使わず、ストリーミング可能な bounded scan を使います。
+
+file / loose の snapshot は `SourcePath` と親 `SourceDirectory` を保持します。`SourceDirectory` は配置元自身の candidate exclusion、reinstall correction、lookup / diagnostics の識別に使います。一方、`BundledResources` と `SourceCandidateResources` は独立した空 entry で、scan time、chart / resource / tracked count、hash materialize time、visited / max visited count は0、backend は空、limit exceeded は false です。譜面に `sound/00.wav` のような relative-path resource があっても scan trigger にはせず、`ChartResourceSnapshot` の path-aware key で候補と照合します。
 
 ### Pending resource health projection
 
@@ -125,6 +127,8 @@ merge 先探索では、まず package 内の chart 全体を BMS / bmson 共通
 
 startup restore / auto-install 由来の pending estimate は package ごとの batch で走ります。zip/package ごとに batch を分け、重い package が他 package を巻き込まないようにします。
 
+batch の scan root、shared source surface、fallback surface、source baseline prefilter は directory package root だけを対象にします。file package は親 `SourceDirectory` を保持しますが batch surface は持たず、directory package と同じ親を指す場合も surface を共有しません。file-only batch の root / chunk / resource / tracked / visited / max count は0で、scan backend は空です。
+
 batch 末尾では、folder DnD や全ファイル選択 DnD で同一 source directory から複数の単体 pending package として発見された chart を、条件付きで directory package へまとめ直します。この再グループ化は導入先推定結果の表示整理であり、通常推定そのものではありません。
 
 - 再グループ化対象は discovery が `RegroupEligibleSourceDirectories` として記録した source directory です。
@@ -160,7 +164,7 @@ Background pending estimate と手動の複数 package 推定は、batch 内の 
 - 手動の複数 package 推定の外側並列度は `max(1, Environment.ProcessorCount - 1)` です。
 - 実効値は `pending_estimate_batch start` / `progress` / `done` ログの `packageDegree` に出ます。
 
-Background pending estimate では、source baseline prefilter で missing entries の `ChartResourceSnapshot` を作ります。同じ missing entries を評価する package snapshot では、この target resource snapshot を再利用し、同じ chart 群から resource key を再集計しません。
+Background pending estimate では、directory package の source baseline prefilter 用に missing entries の `ChartResourceSnapshot` を作ります。同じ missing entries を評価する package snapshot では、この target resource snapshot を再利用し、同じ chart 群から resource key を再集計しません。file package は snapshot の `DefinedResources` を候補評価に使いますが、source baseline surface は作りません。
 
 `SearchEstimatedInstallationDirectory(IEnumerable<ChartPackage>)` は、2 件以上の package を受け取った場合、background pending estimate と同じ batch pipeline を使います。loose chart 側の `SearchEstimatedInstallationDirectory(IEnumerable<PackageChartEntry>)` も、対象 chart がすべて pending package に属する場合は package work item にまとめ、2 件以上の package は同じ batch pipeline で評価します。
 

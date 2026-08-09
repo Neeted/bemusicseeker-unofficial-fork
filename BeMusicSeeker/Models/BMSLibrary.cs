@@ -3943,6 +3943,7 @@ public partial class BMSLibrary : ObservableObject
             if (state.HasMissingFiles
                 && !HasInstalledDestinationResolveFailed(state)
                 && !HasUnsupportedResourcePath(state.MissingEntries)
+                && LongPathFileSystem.DirectoryExists(state.Package?.path)
                 && !string.IsNullOrWhiteSpace(state.SourceDirectory)
                 && LongPathFileSystem.DirectoryExists(state.SourceDirectory))
             {
@@ -3962,6 +3963,11 @@ public partial class BMSLibrary : ObservableObject
             }
 
             if (HasUnsupportedResourcePath(state.MissingEntries))
+            {
+                continue;
+            }
+
+            if (!LongPathFileSystem.DirectoryExists(state.Package?.path))
             {
                 continue;
             }
@@ -3988,7 +3994,7 @@ public partial class BMSLibrary : ObservableObject
         if (string.IsNullOrWhiteSpace(snapshot.ScanBackend))
         {
             snapshot.ScanBackend = sourceSurfaceByRoot.Values.Select(view => view?.ScanBackend).FirstOrDefault(backend => !string.IsNullOrWhiteSpace(backend))
-                ?? "fast";
+                ?? string.Empty;
         }
 
         return snapshot;
@@ -10985,7 +10991,10 @@ public partial class BMSLibrary : ObservableObject
         long lazyHashBuildMsBefore = useSharedLazyHashMetrics ? 0L : (effectiveDirectoryLookupCache?.LazyHashBuildMs ?? 0L);
         long lazyHashLookupCountBefore = useSharedLazyHashMetrics ? 0L : (effectiveDirectoryLookupCache?.LazyHashLookupCount ?? 0L);
         int lazyHashCacheEntriesBefore = useSharedLazyHashMetrics ? 0 : (effectiveDirectoryLookupCache?.LazyHashCacheEntryCount ?? 0);
-        bool sourceSurfaceBatchHit = batchState?.UsesBatchSourceSurface == true && batchState.SourceSurface != null;
+        bool sourceSurfaceBatchHit = package != null
+            && LongPathFileSystem.DirectoryExists(package.path)
+            && batchState?.UsesBatchSourceSurface == true
+            && batchState.SourceSurface != null;
         ChartResourceSnapshot precomputedDefinedResources = ResolvePrecomputedDefinedResources(batchState, targetEntryList);
         PackageInstallEstimationSnapshot estimationSnapshot;
         if (package != null && sourceSurfaceBatchHit)
