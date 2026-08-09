@@ -212,15 +212,15 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>
-    /// Commits package-inline storage rows and chart-info facts as one catalog command.
+    /// Commits chart storage rows and chart-info facts as one catalog command.
     /// The caller supplies a snapshot request; no facade-owned database writer is needed.
     /// </summary>
-    internal CatalogInlineChartInfoWriteReceipt ApplyInlineChartInfoWrite(
-        CatalogInlineChartInfoWriteRequest request)
+    internal CatalogChartInfoStorageWriteReceipt ApplyChartInfoStorageWrite(
+        CatalogChartInfoStorageWriteRequest request)
     {
         if (request == null || !request.HasChanges)
         {
-            return CatalogInlineChartInfoWriteReceipt.NotApplied;
+            return CatalogChartInfoStorageWriteReceipt.NotApplied;
         }
         if (dbGateway == null)
         {
@@ -235,10 +235,7 @@ internal sealed class CatalogMutationOwner
                 {
                     BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                     BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
-                    foreach (BMSFile row in request.BmsRows)
-                    {
-                        Lr2SongDbWriter.UpsertGeneratedSong(songDb, row);
-                    }
+                    Lr2SongDbWriter.UpsertGeneratedSongs(songDb, request.BmsRows);
                 }
                 if (request.BmsonRows.Count > 0)
                 {
@@ -251,7 +248,7 @@ internal sealed class CatalogMutationOwner
                 ApplyChartInfoWriteToTransaction(songDb, request.ChartInfo);
             });
         }
-        return new CatalogInlineChartInfoWriteReceipt(
+        return new CatalogChartInfoStorageWriteReceipt(
             applied: true,
             request.BmsRows.Count,
             request.BmsonRows.Count,
@@ -290,6 +287,10 @@ internal sealed class CatalogMutationOwner
     private static CatalogChartInfoWriteReceipt CreateChartInfoWriteReceipt(
         CatalogChartInfoWriteRequest request)
     {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogChartInfoWriteReceipt.NotApplied;
+        }
         return new CatalogChartInfoWriteReceipt(
             applied: true,
             request.DigestEntries.Count,

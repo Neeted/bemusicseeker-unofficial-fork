@@ -3770,6 +3770,27 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 }, typeof(LR2SongDB.folder));
             }
 
+            // Everything can report a complete result before its index observes files created by this test.
+            // Use the startup scan surface so the synchronization contract is exercised against deterministic input.
+            InvokeCaptureLr2SongDbSyncScanSurface(
+                library,
+                new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true },
+                [rootDirectory],
+                new SongTableFileCheckResult
+                {
+                    Lr2ScanSurfaceAvailable = true,
+                    Lr2ScanNormalFolderDirectoryPaths = [rootDirectory, packDirectory, songDirectory],
+                    Lr2ScanDirectoryEntries = CreateDirectoryEntryMap(rootDirectory, packDirectory, songDirectory),
+                    Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory, packDirectory, songDirectory),
+                    Lr2ScanFolderInfoFilePaths = [Path.Combine(packDirectory, "folderinfo.txt")],
+                    Lr2ScanFolderInfoFileEntries = CreateFileEntryMap(Path.Combine(packDirectory, "folderinfo.txt")),
+                    Lr2ScanTextFileDirectories = [packDirectory, songDirectory],
+                    Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                    Lr2ScanLr2FolderFilePaths = [customFolderPath],
+                    Lr2ScanLr2FolderFileEntries = CreateFileEntryMap(customFolderPath),
+                    Lr2ScanLr2FolderFileDiscoveryComplete = true
+                });
+
             string queuedName = string.Empty;
             string queuedReason = string.Empty;
             bool stagePublicationObserved = false;

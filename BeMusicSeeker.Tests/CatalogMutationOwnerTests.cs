@@ -1085,6 +1085,89 @@ public sealed class CatalogMutationOwnerTests
     }
 
     [TestMethod]
+    public void ChartInfoStorageWriteRequest_SnapshotsStorageRows()
+    {
+        TestableBmsFile bms = CreateBms("storage-snapshot.bms", new string('a', 32));
+        bms.level = 4;
+        LR2SongDBExtended.bmson_song bmson = CreateBmson("storage-snapshot.bmson", new string('b', 32));
+        bmson.title = "original";
+        var request = new CatalogChartInfoStorageWriteRequest(
+            [bms],
+            [bmson],
+            new CatalogChartInfoWriteRequest());
+
+        bms.path = "C:\\Library\\changed.bms";
+        bms.level = 99;
+        bmson.path = "C:\\Library\\changed.bmson";
+        bmson.title = "changed";
+
+        Assert.AreEqual("C:\\Library\\storage-snapshot.bms", request.BmsRows.Single().path);
+        Assert.AreEqual(4, request.BmsRows.Single().level);
+        Assert.AreEqual("C:\\Library\\storage-snapshot.bmson", request.BmsonRows.Single().path);
+        Assert.AreEqual("original", request.BmsonRows.Single().title);
+    }
+
+    [TestMethod]
+    public void ApplyChartInfoStorageWrite_WhenChartInfoInsertFailsRollsBackGeneratedSongRowsAndFacts()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoStorageRollback_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            TestableBmsFile stored = CreateBms("atomic.bms", new string('c', 32));
+            stored.path = Path.Combine(tempRootPath, "atomic.bms");
+            stored.level = 2;
+            stored.favorite = 7;
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
+                setup.InsertOrReplace(stored.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                setup.Execute("CREATE TRIGGER fail_chart_info_storage BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced chart-info failure'); END;");
+            }
+            TestableBmsFile generated = CreateBms("atomic.bms", stored.hash);
+            generated.path = stored.path;
+            generated.level = 12;
+            var chartInfo = new LR2SongDBExtended.chart_info
+            {
+                sha256 = new string('d', 64),
+                md5 = stored.hash,
+                level = 12,
+                parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                updated_at = DateTime.UtcNow
+            };
+            var owner = new CatalogMutationOwner(
+                new CatalogStorageRowsOwner(),
+                new CatalogOwnedCollectionOwner(),
+                new BmsLibraryDbGateway(songDbPath));
+            var request = new CatalogChartInfoStorageWriteRequest(
+                [generated],
+                [],
+                new CatalogChartInfoWriteRequest(
+                    [new ChartDigestBackfillEntry(stored.hash, chartInfo.sha256)],
+                    [chartInfo]));
+
+            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyChartInfoStorageWrite(request));
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", stored.path).Single();
+            Assert.AreEqual(2, song.level);
+            Assert.AreEqual(7, song.favorite);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ChartInfoOwner_UpsertUsesSha256ThenDeterministicMd5Candidate()
     {
         var owner = new CatalogChartInfoOwner(

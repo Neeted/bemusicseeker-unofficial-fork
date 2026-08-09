@@ -2796,6 +2796,126 @@ createTempDirectory);
     }
 
     [TestMethod]
+    public void BackfillChartInfos_PersistsGeneratedSongColumnsAndPreservesUserColumns()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "generated-columns.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#PLAYLEVEL 12\r\n#DIFFICULTY 4\r\n#BPM 135\r\n#00111:01\r\n",
+                Encoding.ASCII);
+            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = new TestableBmsFile { path = chartPath };
+            file.SetHash(digest.hash);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs([file]);
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.Execute(
+                    "UPDATE song SET favorite = ?, tag = ?, adddate = ?, level = ?, difficulty = ? WHERE path = ?;",
+                    7,
+                    "keep-user-tag",
+                    123456,
+                    1,
+                    1,
+                    chartPath);
+            }
+
+            ChartInfoBackfillResult result = BackfillChartInfos(
+                new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1),
+                gateway,
+                [file],
+                []);
+
+            Assert.AreEqual(1, result.BackfilledCount);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.chart_info chartInfo = verify.Query<LR2SongDBExtended.chart_info>(
+                "SELECT * FROM chart_info WHERE sha256 = ?;",
+                file.sha256).Single();
+            LR2SongDB.song song = verify.Query<LR2SongDB.song>(
+                "SELECT * FROM song WHERE path = ?;",
+                chartPath).Single();
+            Assert.AreEqual(chartInfo.level, song.level);
+            Assert.AreEqual(chartInfo.difficulty, song.difficulty);
+            Assert.AreEqual(chartInfo.mode, song.mode);
+            Assert.AreEqual((int?)chartInfo.maxbpm, song.maxbpm);
+            Assert.AreEqual((int?)chartInfo.minbpm, song.minbpm);
+            Assert.AreEqual(chartInfo.bga, song.bga);
+            Assert.AreEqual(chartInfo.exlevel ?? 0, song.exlevel);
+            Assert.AreEqual(chartInfo.notes, song.karinotes);
+            Assert.AreEqual(0, song.longnote);
+            Assert.AreEqual(0, song.random);
+            Assert.AreEqual(chartInfo.level, file.level);
+            Assert.AreEqual(chartInfo.difficulty, file.difficulty);
+            Assert.AreEqual(chartInfo.mode, file.mode);
+            Assert.AreEqual((int?)chartInfo.maxbpm, file.maxbpm);
+            Assert.AreEqual((int?)chartInfo.minbpm, file.minbpm);
+            Assert.AreEqual(chartInfo.bga, file.bga);
+            Assert.AreEqual(chartInfo.exlevel ?? 0, file.exlevel);
+            Assert.AreEqual(chartInfo.notes, file.karinotes);
+            Assert.AreEqual(0, file.longnote);
+            Assert.AreEqual(0, file.random);
+            Assert.AreEqual(7, song.favorite);
+            Assert.AreEqual("keep-user-tag", song.tag);
+            Assert.AreEqual(123456, song.adddate);
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfos_ReusedCurrentRowProjectsSongColumnsForMissingDigestCandidate()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "reuse-current.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE reuse\r\n", Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            var file = new TestableBmsFile { path = chartPath };
+            file.SetHash(snapshot.Md5);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs([file]);
+            LR2SongDBExtended.chart_info current = CreateChartInfoRow(
+                snapshot.Sha256,
+                snapshot.Md5,
+                BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            current.level = 17;
+            current.difficulty = 5;
+            current.mode = 14;
+            current.updated_at = new DateTime(2025, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+            gateway.UpsertChartInfos([current]);
+            var committedRows = new List<LR2SongDBExtended.chart_info>();
+
+            ChartInfoBackfillResult result = BackfillChartInfos(
+                new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1),
+                gateway,
+                [file],
+                [],
+                storageCommitPublished: publication => committedRows.AddRange(publication.AppliedRows),
+                existingRowsSnapshot: new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [snapshot.Sha256] = current
+                });
+
+            Assert.AreEqual(1, result.BackfilledCount);
+            Assert.AreEqual(1, result.DigestBackfilledCount);
+            Assert.AreEqual(snapshot.Sha256, file.sha256);
+            Assert.AreEqual(17, file.level);
+            Assert.AreEqual(5, file.difficulty);
+            Assert.AreEqual(14, file.mode);
+            Assert.AreEqual(1, committedRows.Count);
+            Assert.AreSame(current, committedRows[0]);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", chartPath).Single();
+            Assert.AreEqual(17, song.level);
+            Assert.AreEqual(5, song.difficulty);
+            Assert.AreEqual(14, song.mode);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", snapshot.Sha256));
+            Assert.AreEqual(current.updated_at, verify.ExecuteScalar<DateTime>("SELECT updated_at FROM chart_info WHERE sha256 = ?;", snapshot.Sha256));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", snapshot.Md5, snapshot.Sha256));
+        });
+    }
+
+    [TestMethod]
     public void BackfillChartInfos_ReparsesCurrentVersionRowWithMismatchedMd5()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
@@ -2880,7 +3000,7 @@ createTempDirectory);
         {
             string chartAPath = Path.Combine(tempRootPath, "duplicate-a.bms");
             string chartBPath = Path.Combine(tempRootPath, "duplicate-b.bms");
-            string text = "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n";
+            string text = "#PLAYER 1\r\n#PLAYLEVEL 11\r\n#BPM 120\r\n#00111:01\r\n";
             File.WriteAllText(chartAPath, text, Encoding.ASCII);
             File.WriteAllText(chartBPath, text, Encoding.ASCII);
             var digest = BMSFile.CreateBMSFileFromFile(chartAPath);
@@ -2909,6 +3029,19 @@ createTempDirectory);
             Assert.AreEqual(1, readCount);
             Assert.AreEqual(fileA.sha256, fileB.sha256);
             Assert.AreEqual(1L, CountChartInfoRows(songDbPath, fileA.sha256));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.chart_info chartInfo = verify.Query<LR2SongDBExtended.chart_info>(
+                "SELECT * FROM chart_info WHERE sha256 = ?;",
+                fileA.sha256).Single();
+            List<LR2SongDB.song> songs = verify.Query<LR2SongDB.song>(
+                "SELECT * FROM song WHERE hash = ? ORDER BY path;",
+                fileA.hash);
+            Assert.AreEqual(2, songs.Count);
+            Assert.IsTrue(songs.All(song => song.level == chartInfo.level));
+            Assert.AreEqual(11, fileA.level);
+            Assert.AreEqual(11, fileB.level);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", fileA.hash, fileA.sha256));
+            CollectionAssert.AreEquivalent(new[] { chartAPath, chartBPath }, songs.Select(song => song.path).ToArray());
         });
     }
 
@@ -2983,7 +3116,7 @@ createTempDirectory);
     }
 
     [TestMethod]
-    public void ChartStorageOwnerMutator_ApplySnapshotDigestTracksBmsonDigestChange()
+    public void ChartStorageOwnerMutator_AppliesBmsonDigestOnlyAfterCommittedStorageWrite()
     {
         string oldMd5 = new string('b', 32);
         string oldSha256 = new string('c', 64);
@@ -2999,9 +3132,26 @@ createTempDirectory);
         var snapshot = new ChartFileSnapshot(bmsonSong.path, [1, 2, 3], DateTime.UtcNow, newMd5, newSha256);
         var digestChanges = new List<LibraryChartDigestChange>();
 
-        bool applied = ChartStorageOwnerMutator.ApplySnapshotDigest(chart, snapshot, digestChanges);
+        LR2SongDBExtended.bmson_song persistenceCopy = ChartStorageOwnerMutator.CreateBmsonPersistenceCopy(
+            chart,
+            snapshot.Md5,
+            snapshot.Sha256,
+            snapshot.LastWriteTimeUtc);
 
-        Assert.IsTrue(applied);
+        Assert.AreEqual(oldMd5, bmsonSong.md5);
+        Assert.AreEqual(oldSha256, bmsonSong.sha256);
+        Assert.AreEqual(newMd5, persistenceCopy.md5);
+        Assert.AreEqual(newSha256, persistenceCopy.sha256);
+
+        int applied = ChartStorageOwnerMutator.ApplyCommittedSnapshot(
+            chart,
+            snapshot.Md5,
+            snapshot.Sha256,
+            snapshot.LastWriteTimeUtc,
+            row: null,
+            digestChanges: digestChanges);
+
+        Assert.AreEqual(0, applied);
         Assert.AreEqual(newMd5, bmsonSong.md5);
         Assert.AreEqual(newSha256, bmsonSong.sha256);
         Assert.AreEqual(1, digestChanges.Count);
@@ -3048,6 +3198,106 @@ createTempDirectory);
             Assert.AreEqual(song.sha256, row.sha256);
             Assert.AreEqual(6, row.level);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'song';"));
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfos_TransactionFailureDoesNotPublishCanonicalDigestSongOrIndex()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "rollback.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = new TestableBmsFile { path = chartPath, level = 2 };
+            file.SetHash(digest.hash);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs([file]);
+            bool indexPublished = false;
+            var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
+
+            AggregateException exception = Assert.ThrowsException<AggregateException>(() =>
+                service.BackfillChartInfos(
+                    gateway,
+                    CreateChartSnapshot([file], []),
+                    storageCommitPublished: _ => indexPublished = true,
+                    chartInfoChunkWriter: request => ApplyChartInfoStorageRequest(
+                        gateway,
+                        request,
+                        _ => throw new InvalidOperationException("injected transaction failure"))));
+
+            Assert.IsTrue(exception.Flatten().InnerExceptions.Any(inner => inner.Message.Contains("injected transaction failure", StringComparison.Ordinal)));
+            Assert.IsFalse(indexPublished);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(file.sha256));
+            Assert.AreEqual(2, file.level);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", chartPath).Single();
+            Assert.AreEqual(2, song.level);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfos_LaterChunkFailureKeepsEarlierPublicationAndDoesNotPublishFailedChunk()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string firstPath = Path.Combine(tempRootPath, "first-chunk.bms");
+            string secondPath = Path.Combine(tempRootPath, "second-chunk.bms");
+            File.WriteAllText(firstPath, "#PLAYER 1\r\n#PLAYLEVEL 8\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(secondPath, "#PLAYER 1\r\n#PLAYLEVEL 10\r\n#BPM 140\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile firstDigest = BMSFile.CreateBMSFileFromFile(firstPath);
+            BMSFile secondDigest = BMSFile.CreateBMSFileFromFile(secondPath);
+            var firstFile = new TestableBmsFile { path = firstPath, level = 2 };
+            var secondFile = new TestableBmsFile { path = secondPath, level = 3 };
+            firstFile.SetHash(firstDigest.hash);
+            secondFile.SetHash(secondDigest.hash);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs([firstFile, secondFile]);
+            var service = new ChartInfoBuildService(
+                File.ReadAllBytes,
+                workerCountOverride: 1,
+                commitChunkSizeOverride: 1);
+            int writerCalls = 0;
+            var publications = new List<ChartInfoStorageCommitPublication>();
+
+            Assert.ThrowsException<AggregateException>(() =>
+                service.BackfillChartInfos(
+                    gateway,
+                    CreateChartSnapshot([firstFile, secondFile], []),
+                    storageCommitPublished: publications.Add,
+                    chartInfoChunkWriter: request =>
+                    {
+                        writerCalls++;
+                        return ApplyChartInfoStorageRequest(
+                            gateway,
+                            request,
+                            writerCalls == 2
+                                ? _ => throw new InvalidOperationException("injected later chunk failure")
+                                : null);
+                    }));
+
+            Assert.AreEqual(2, writerCalls);
+            Assert.AreEqual(1, publications.Count);
+            string committedPath = publications[0].DigestChanges.Single().Path;
+            TestableBmsFile committedFile = string.Equals(committedPath, firstPath, StringComparison.OrdinalIgnoreCase)
+                ? firstFile
+                : secondFile;
+            TestableBmsFile failedFile = ReferenceEquals(committedFile, firstFile) ? secondFile : firstFile;
+            string committedSha256 = ReferenceEquals(committedFile, firstFile) ? firstDigest.sha256 : secondDigest.sha256;
+            int committedLevel = ReferenceEquals(committedFile, firstFile) ? 8 : 10;
+            int failedLevel = ReferenceEquals(failedFile, firstFile) ? 2 : 3;
+            Assert.AreEqual(committedSha256, committedFile.sha256);
+            Assert.AreEqual(committedLevel, committedFile.level);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(failedFile.sha256));
+            Assert.AreEqual(failedLevel, failedFile.level);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+            Assert.AreEqual(committedLevel, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", committedFile.path));
+            Assert.AreEqual(failedLevel, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", failedFile.path));
         });
     }
 
@@ -3080,6 +3330,84 @@ createTempDirectory);
             Assert.AreEqual(1, result.AppliedRows.Count);
             Assert.AreEqual(targetFile.hash, result.AppliedRows[0].md5);
             Assert.AreEqual(0, untouchedFile.sha256?.Length ?? 0);
+        });
+    }
+
+    [TestMethod]
+    public void ChartInfoInlineBuildService_GroupsDuplicateBmsMd5AndFansOutStorageApplications()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string firstPath = Path.Combine(tempRootPath, "duplicate-a.bms");
+            string secondPath = Path.Combine(tempRootPath, "duplicate-b.bms");
+            const string content = "#PLAYER 1\r\n#TITLE duplicate\r\n#PLAYLEVEL 9\r\n#BPM 140\r\n#00111:01\r\n";
+            File.WriteAllText(firstPath, content, Encoding.ASCII);
+            File.WriteAllText(secondPath, content, Encoding.ASCII);
+            ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
+            ChartFileSnapshot secondSnapshot = ChartFileContentReader.ReadSnapshot(secondPath);
+            var firstFile = new TestableBmsFile { path = firstPath };
+            var secondFile = new TestableBmsFile { path = secondPath };
+            firstFile.SetHash(firstSnapshot.Md5);
+            secondFile.SetHash(secondSnapshot.Md5);
+            var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
+
+            ChartInfoInlineBuildResult result = service.BuildForSnapshots(
+                new BmsLibraryDbGateway(songDbPath),
+                [
+                    InlineChartSnapshotTarget.FromBmsFile(firstFile, firstSnapshot),
+                    InlineChartSnapshotTarget.FromBmsFile(secondFile, secondSnapshot)
+                ],
+                new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase));
+
+            Assert.AreEqual(firstSnapshot.Md5, secondSnapshot.Md5);
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.SuccessCount);
+            Assert.AreEqual(1, result.ChartInfoRows.Count);
+            Assert.AreEqual(1, result.AppliedRows.Count);
+            Assert.AreEqual(2, result.StorageApplications.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { firstPath, secondPath },
+                result.StorageApplications.Select(application => application.Chart.Path).ToArray());
+            Assert.IsTrue(result.StorageApplications.All(application =>
+                application.Row == result.ChartInfoRows[0]));
+        });
+    }
+
+    [TestMethod]
+    public void ChartInfoInlineBuildService_GroupsDuplicateBmsMd5AcrossReadBatches()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string firstPath = Path.Combine(tempRootPath, "duplicate-batch-a.bms");
+            string secondPath = Path.Combine(tempRootPath, "duplicate-batch-b.bms");
+            const string content = "#PLAYER 1\r\n#TITLE duplicate batch\r\n#PLAYLEVEL 6\r\n#BPM 125\r\n#00111:01\r\n";
+            File.WriteAllText(firstPath, content, Encoding.ASCII);
+            File.WriteAllText(secondPath, content, Encoding.ASCII);
+            ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
+            var firstFile = new TestableBmsFile { path = firstPath };
+            var secondFile = new TestableBmsFile { path = secondPath };
+            firstFile.SetHash(firstSnapshot.Md5);
+            secondFile.SetHash(firstSnapshot.Md5);
+            var service = new ChartInfoInlineBuildService(
+                new ChartInfoBuildService(),
+                parserDegree: 1,
+                batchSizeOverride: 1);
+
+            ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
+                new BmsLibraryDbGateway(songDbPath),
+                [
+                    ChartFileProjection.FromBmsFile(firstFile, includeWarningSnapshot: false),
+                    ChartFileProjection.FromBmsFile(secondFile, includeWarningSnapshot: false)
+                ]);
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.SuccessCount);
+            Assert.AreEqual(1, result.ChartInfoRows.Count);
+            Assert.AreEqual(1, result.AppliedRows.Count);
+            Assert.AreEqual(2, result.StorageApplications.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { firstPath, secondPath },
+                result.StorageApplications.Select(application => application.Chart.Path).ToArray());
         });
     }
 
@@ -3210,16 +3538,29 @@ createTempDirectory);
             ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
                 gateway,
                 [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
-            gateway.UpsertSongs([file]);
-            gateway.UpsertChartInfoBackfillChunk(
-                [],
-                result.ChartInfoRows,
-                result.ParseFailureRows,
-                result.ParseFailureDeleteMd5s);
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.ParseFailedCount);
             Assert.AreEqual(0, result.SuccessCount);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(file.sha256));
+            Assert.AreEqual(1, result.StorageApplications.Count);
+            var mutationOwner = new CatalogMutationOwner(
+                new CatalogStorageRowsOwner(),
+                new CatalogOwnedCollectionOwner(),
+                gateway);
+            CatalogChartInfoStorageWriteReceipt receipt = mutationOwner.ApplyChartInfoStorageWrite(
+                new CatalogChartInfoStorageWriteRequest(
+                    result.StorageApplications.Select(application => application.CreateBmsPersistenceCopy()),
+                    result.StorageApplications.Select(application => application.CreateBmsonPersistenceCopy()),
+                    new CatalogChartInfoWriteRequest(
+                        chartInfoRows: result.ChartInfoRows,
+                        parseFailureRows: result.ParseFailureRows,
+                        parseFailureDeleteMd5s: result.ParseFailureDeleteMd5s)));
+            Assert.IsTrue(receipt.Applied);
+            foreach (ChartInfoStorageApplication application in result.StorageApplications)
+            {
+                application.ApplyCommitted(result.DigestChanges);
+            }
             Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
@@ -3434,6 +3775,96 @@ createTempDirectory);
         });
     }
 
+    [TestMethod]
+    public void CatalogChartInfoOwner_StaleHydrationCannotRestoreClearedAllCurrentSnapshot()
+    {
+        var owner = new CatalogChartInfoOwner(
+            _ => { },
+            () => false,
+            (_, _) => false,
+            null,
+            _ => { });
+        owner.HydrationAllCurrentSnapshot = new ChartInfoHydrationAllCurrentSnapshot { OwnerCount = 1 };
+        var staleHydrationResult = new ChartInfoHydrationResult
+        {
+            Succeeded = true,
+            OwnerCount = 1,
+            CurrentParseFailureOwnerCount = 1,
+            BackfillCandidateOwnerCount = 0
+        };
+
+        owner.ClearHydrationAllCurrentSnapshot("parse_failure_removed");
+        MethodInfo capture = typeof(CatalogChartInfoOwner).GetMethod(
+            "CaptureHydrationAllCurrentSnapshot",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(capture);
+        capture.Invoke(owner, [staleHydrationResult, 1, 1, 1, 0]);
+
+        Assert.IsNull(owner.HydrationAllCurrentSnapshot);
+    }
+
+    [TestMethod]
+    public void CatalogChartInfoOwner_InlinePublicationOrdersDigestIndexesBeforeSessionIndexAndEvents()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "publication-order.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE publication order\r\n#PLAYLEVEL 7\r\n#BPM 130\r\n#00111:01\r\n",
+                Encoding.ASCII);
+            var file = new TestableBmsFile { path = chartPath };
+            file.SetHash(new string('a', 32));
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoSchema();
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            storageRowsOwner.ReplaceBmsRows([file]);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
+            var eventKinds = new List<CatalogChartInfoOwnerEventKind>();
+            CatalogChartInfoOwner owner = null;
+            owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
+            owner.ConfigureWorkflow(
+                gateway,
+                mutationOwner,
+                storageRowsOwner,
+                ownedCollectionOwner,
+                () => new BmsLibraryOptionsSnapshot(),
+                _ => { },
+                ownerEvent =>
+                {
+                    eventKinds.Add(ownerEvent.Kind);
+                    if (ownerEvent.Kind == CatalogChartInfoOwnerEventKind.DigestIndexesPrepared)
+                    {
+                        Assert.AreEqual(0, owner.ChartInfoIndexVersion);
+                        Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
+                    }
+                    if (ownerEvent.Kind is CatalogChartInfoOwnerEventKind.IndexChanged
+                        or CatalogChartInfoOwnerEventKind.DigestChanges)
+                    {
+                        Assert.IsTrue(owner.ChartInfoIndexVersion > 0);
+                        Assert.IsNotNull(owner.ResolveChartInfo(file.sha256, file.hash));
+                    }
+                });
+
+            ChartInfoInlineBuildResult result = owner.BuildInline(
+                "publication_order",
+                [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    CatalogChartInfoOwnerEventKind.DigestIndexesPrepared,
+                    CatalogChartInfoOwnerEventKind.IndexChanged,
+                    CatalogChartInfoOwnerEventKind.WarningPresentationChanged,
+                    CatalogChartInfoOwnerEventKind.DigestChanges
+                },
+                eventKinds);
+            Assert.IsTrue(result.DigestChanges.Count > 0);
+        });
+    }
+
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -3444,7 +3875,7 @@ createTempDirectory);
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "missing-current.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 13\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
             var file = new TestableBmsFile
             {
@@ -3480,6 +3911,8 @@ createTempDirectory);
                 Assert.IsTrue(WaitForChartInfoBackfill(library), "chart_info backfill did not complete.");
                 using var verify = new LR2SongDBExtended(songDbPath);
                 Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.sha256));
+                Assert.AreEqual(13, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+                Assert.AreEqual(13, file.level);
             }
             finally
             {
@@ -3872,9 +4305,18 @@ createTempDirectory);
                 }
             };
             Assert.AreEqual(2, library.ChartInfoParseFailedChartFiles.Count());
+            InvokeDeferredChartInfoHydration(library, "parse_failure_remove_snapshot", queueFullBackfillAfterHydration: false);
+            Assert.IsTrue(WaitForChartInfoHydration(library));
+            Assert.IsNotNull(GetHydrationAllCurrentSnapshot(library));
+            int hydrationRequestedVersion = library.ChartInfoHydrationRequestedVersion;
+            int backfillRequestedVersion = library.ChartInfoBackfillRequestedVersion;
+            refreshNotificationChanged = 0;
 
             library.RemoveChartInfoParseFailuresByMd5([sharedMd5, sharedMd5.ToUpperInvariant(), " "]);
 
+            Assert.IsNull(GetHydrationAllCurrentSnapshot(library));
+            Assert.AreEqual(hydrationRequestedVersion, library.ChartInfoHydrationRequestedVersion);
+            Assert.AreEqual(backfillRequestedVersion, library.ChartInfoBackfillRequestedVersion);
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.AreEqual(1, refreshNotificationChanged);
@@ -3884,6 +4326,78 @@ createTempDirectory);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE hash = ?;", sharedMd5));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song WHERE md5 = ?;", sharedMd5));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE md5 = ?;", sharedMd5));
+            Assert.IsNotNull(library.ResolveChartInfo(sharedSha256, sharedMd5));
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void RemoveChartInfoParseFailuresByMd5_RetriesOnlyAfterExplicitHydrationInBothModes(bool operationModeLr2Db)
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "retry-after-delete.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 8\r\n#BPM 140\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile parsed = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = new TestableBmsFile { path = chartPath };
+            file.SetHash(parsed.hash);
+            file.SetSha256(parsed.sha256);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs([file]);
+            gateway.UpsertChartInfoParseFailures(
+            [
+                CreateChartInfoParseFailureRow(
+                    file.hash,
+                    file.sha256,
+                    chartPath,
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                    "parse_failed",
+                    "InvalidDataException",
+                    "retry me",
+                    null)
+            ]);
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            {
+                BMSFiles = [file]
+            };
+            bool originalOperationMode = Settings.Default.OperationModeLR2DB;
+            try
+            {
+                Settings.Default.OperationModeLR2DB = operationModeLr2Db;
+                InvokeDeferredChartInfoHydration(library, "failure_is_current", queueFullBackfillAfterHydration: true);
+                Assert.IsTrue(WaitForChartInfoBackfill(library));
+                Assert.IsNotNull(GetHydrationAllCurrentSnapshot(library));
+                using (var beforeDelete = new LR2SongDBExtended(songDbPath))
+                {
+                    Assert.AreEqual(0L, beforeDelete.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+                }
+                int hydrationRequestedVersion = library.ChartInfoHydrationRequestedVersion;
+                int backfillRequestedVersion = library.ChartInfoBackfillRequestedVersion;
+
+                library.RemoveChartInfoParseFailuresByMd5([file.hash]);
+
+                Assert.IsNull(GetHydrationAllCurrentSnapshot(library));
+                Assert.AreEqual(hydrationRequestedVersion, library.ChartInfoHydrationRequestedVersion);
+                Assert.AreEqual(backfillRequestedVersion, library.ChartInfoBackfillRequestedVersion);
+                InvokeDeferredChartInfoHydration(library, "explicit_retry_after_failure_delete", queueFullBackfillAfterHydration: true);
+                Assert.IsTrue(
+                    SpinWait.SpinUntil(
+                        () => library.ChartInfoBackfillRequestedVersion > backfillRequestedVersion
+                            && library.ChartInfoBackfillCompletedVersion == library.ChartInfoBackfillRequestedVersion
+                            && !library.ChartInfoBackfillRunning,
+                        10000),
+                    "explicit chart-info retry did not complete.");
+                using var verify = new LR2SongDBExtended(songDbPath);
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.sha256));
+                Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", file.hash));
+                Assert.AreEqual(8, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+            }
+            finally
+            {
+                Settings.Default.OperationModeLR2DB = originalOperationMode;
+            }
         });
     }
 
@@ -4939,6 +5453,15 @@ createTempDirectory);
             10000);
     }
 
+    private static ChartInfoHydrationAllCurrentSnapshot? GetHydrationAllCurrentSnapshot(BMSLibrary library)
+    {
+        PropertyInfo property = typeof(BMSLibrary).GetProperty(
+            "chartInfoHydrationAllCurrentSnapshot",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(property, "chartInfoHydrationAllCurrentSnapshot property was not found.");
+        return property.GetValue(library) as ChartInfoHydrationAllCurrentSnapshot;
+    }
+
     private static int ReadPositiveIntEnvironmentVariable(string name, int defaultValue)
     {
         string value = Environment.GetEnvironmentVariable(name);
@@ -4971,7 +5494,7 @@ createTempDirectory);
         Action<int, int, string>? reportProgress = null,
         Action<string>? logInstallPerformance = null,
         Action<string>? logInstallPerformanceWarn = null,
-        Action<IReadOnlyList<LR2SongDBExtended.chart_info>>? chartInfoRowsCommitted = null,
+        Action<ChartInfoStorageCommitPublication>? storageCommitPublished = null,
         IReadOnlyDictionary<string, LR2SongDBExtended.chart_info>? existingRowsSnapshot = null)
     {
         return service.BackfillChartInfos(
@@ -4980,14 +5503,54 @@ createTempDirectory);
             reportProgress,
             logInstallPerformance,
             logInstallPerformanceWarn,
-            chartInfoRowsCommitted,
+            storageCommitPublished,
             existingRowsSnapshot,
-            (digestEntries, chartInfoRows, parseFailureRows, parseFailureDeleteMd5s) =>
-                gateway.UpsertChartInfoBackfillChunk(
-                    digestEntries,
-                    chartInfoRows,
-                    parseFailureRows,
-                    parseFailureDeleteMd5s));
+            request => ApplyChartInfoStorageRequest(gateway, request));
+    }
+
+    private static CatalogChartInfoStorageWriteReceipt ApplyChartInfoStorageRequest(
+        BmsLibraryDbGateway gateway,
+        CatalogChartInfoStorageWriteRequest request,
+        Action<LR2SongDBExtended>? afterWrites = null)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogChartInfoStorageWriteReceipt.NotApplied;
+        }
+        gateway.ExecuteSongDbTransaction(songDb =>
+        {
+            if (request.BmsRows.Count > 0)
+            {
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
+                Lr2SongDbWriter.UpsertGeneratedSongs(songDb, request.BmsRows);
+            }
+            if (request.BmsonRows.Count > 0)
+            {
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                foreach (LR2SongDBExtended.bmson_song row in request.BmsonRows)
+                {
+                    songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.bmson_song));
+                }
+            }
+            BmsLibraryDbGateway.UpsertChartInfoBackfillChunk(
+                songDb,
+                request.ChartInfo.DigestEntries,
+                request.ChartInfo.ChartInfoRows,
+                request.ChartInfo.ParseFailureRows,
+                request.ChartInfo.ParseFailureDeleteMd5s);
+            afterWrites?.Invoke(songDb);
+        });
+        return new CatalogChartInfoStorageWriteReceipt(
+            applied: true,
+            request.BmsRows.Count,
+            request.BmsonRows.Count,
+            new CatalogChartInfoWriteReceipt(
+                applied: request.ChartInfo.HasChanges,
+                request.ChartInfo.DigestEntries.Count,
+                request.ChartInfo.ChartInfoRows.Count,
+                request.ChartInfo.ParseFailureRows.Count,
+                request.ChartInfo.ParseFailureDeleteMd5s.Count));
     }
 
     private static List<ChartFile> CreateChartSnapshot(

@@ -124,6 +124,7 @@ internal sealed class ChartInfoIndexUpdateResult
 
 internal enum CatalogChartInfoOwnerEventKind
 {
+    DigestIndexesPrepared,
     DigestChanges,
     PotentialDigestChanges,
     WarningPresentationChanged,
@@ -143,7 +144,8 @@ internal sealed class CatalogChartInfoOwnerEvent
         IEnumerable<ChartFile> potentialDigestCharts,
         string reason,
         string checkpointStage,
-        string checkpointStatus)
+        string checkpointStatus,
+        bool digestMutationApplied)
     {
         Kind = kind;
         DigestChanges = Array.AsReadOnly([.. (digestChanges ?? []).Where(change => change != null)]);
@@ -151,6 +153,7 @@ internal sealed class CatalogChartInfoOwnerEvent
         Reason = reason ?? string.Empty;
         CheckpointStage = checkpointStage ?? string.Empty;
         CheckpointStatus = checkpointStatus ?? string.Empty;
+        DigestMutationApplied = digestMutationApplied;
     }
 
     internal CatalogChartInfoOwnerEventKind Kind { get; }
@@ -165,9 +168,16 @@ internal sealed class CatalogChartInfoOwnerEvent
 
     internal string CheckpointStatus { get; }
 
+    /// <summary>
+    /// Indicates that the digest-derived catalog index was already updated before this event was emitted.
+    /// Consumers must not apply the same digest mutation again.
+    /// </summary>
+    internal bool DigestMutationApplied { get; }
+
     internal static CatalogChartInfoOwnerEvent Digest(
         IEnumerable<LibraryChartDigestChange> changes,
-        string reason)
+        string reason,
+        bool digestMutationApplied = false)
     {
         return new(
             CatalogChartInfoOwnerEventKind.DigestChanges,
@@ -175,7 +185,22 @@ internal sealed class CatalogChartInfoOwnerEvent
             [],
             reason,
             null,
-            null);
+            null,
+            digestMutationApplied);
+    }
+
+    internal static CatalogChartInfoOwnerEvent PrepareDigestIndexes(
+        IEnumerable<LibraryChartDigestChange> changes,
+        string reason)
+    {
+        return new(
+            CatalogChartInfoOwnerEventKind.DigestIndexesPrepared,
+            changes,
+            [],
+            reason,
+            null,
+            null,
+            true);
     }
 
     internal static CatalogChartInfoOwnerEvent PotentialDigest(
@@ -188,7 +213,8 @@ internal sealed class CatalogChartInfoOwnerEvent
             charts,
             reason,
             null,
-            null);
+            null,
+            false);
     }
 
     internal static CatalogChartInfoOwnerEvent Warning(string reason)
@@ -199,7 +225,8 @@ internal sealed class CatalogChartInfoOwnerEvent
             [],
             reason,
             null,
-            null);
+            null,
+            false);
     }
 
     internal static CatalogChartInfoOwnerEvent Checkpoint(string stage, string status)
@@ -210,7 +237,8 @@ internal sealed class CatalogChartInfoOwnerEvent
             [],
             null,
             stage,
-            status);
+            status,
+            false);
     }
 
     internal static CatalogChartInfoOwnerEvent IndexChanged(string reason)
@@ -221,6 +249,7 @@ internal sealed class CatalogChartInfoOwnerEvent
             [],
             reason,
             null,
-            null);
+            null,
+            false);
     }
 }

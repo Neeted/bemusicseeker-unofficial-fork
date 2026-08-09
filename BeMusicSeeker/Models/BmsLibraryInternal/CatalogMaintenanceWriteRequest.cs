@@ -45,7 +45,7 @@ internal sealed class CatalogMaintenanceWriteRequest
         || BmsonSongs.Count > 0
         || StaleMaintenancePaths.Count > 0;
 
-    private static LR2SongDBExtended.bmson_song CreateBmsonPersistenceCopy(LR2SongDBExtended.bmson_song source)
+    internal static LR2SongDBExtended.bmson_song CreateBmsonPersistenceCopy(LR2SongDBExtended.bmson_song source)
     {
         var copy = new LR2SongDBExtended.bmson_song
         {

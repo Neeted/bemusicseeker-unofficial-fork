@@ -3095,6 +3095,59 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void BuildInlineChartInfo_StorageFailureDoesNotPublishDigestIndexSessionIndexOrWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "InlineFailure");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE rollback\r\n#BPM 120\r\n#00111:01\r\n",
+                System.Text.Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
+            var library = new TestBmsLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            OwnedChartHashIndexVersionedSnapshot initialSummary = library.GetOwnedChartHashIndexSnapshot();
+            int initialNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int initialCollectionVersion = library.OwnedChartCollectionVersion;
+            int initialChartInfoIndexVersion = library.ChartInfoIndexVersion;
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER fail_inline_chart_info BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced inline chart-info failure'); END;");
+            }
+
+            Assert.ThrowsException<SQLite.SQLiteException>(() =>
+                InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                    library,
+                    "test_inline_storage_failure",
+                    [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]));
+
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsFile.hash);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(bmsFile.sha256));
+            Assert.AreEqual(initialNotificationVersion, library.NormalLibraryRefreshNotificationVersion);
+            Assert.AreEqual(initialCollectionVersion, library.OwnedChartCollectionVersion);
+            Assert.AreEqual(initialChartInfoIndexVersion, library.ChartInfoIndexVersion);
+            Assert.IsNull(library.ResolveChartInfo(snapshot.Sha256, snapshot.Md5));
+            CollectionAssert.AreEquivalent(
+                initialSummary.Md5Hashes.ToArray(),
+                library.GetOwnedChartHashIndexSnapshot().Md5Hashes.ToArray());
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsTrue(InvokeCreateInstalledChartLookupSnapshot(library)
+                .ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0, verify.Table<LR2SongDB.song>().Count(row => row.path == chartPath));
+            Assert.AreEqual(0, verify.Table<LR2SongDBExtended.chart_info>().Count());
+        });
+    }
+
+    [TestMethod]
     public void BuildInlineChartInfo_UpsertsSongRowsWithAppliedChartInfoColumns()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -68,9 +68,10 @@ changed path
        generated chart_info / chart_info_parse_failure
        generated maintenance row when available
        resource refs are folded into maintenance row and released
-  -> memory apply
-       model ChartInfo
-       session chart_info index for generated rows
+  -> durable commit 後の memory publication
+       canonical owner の digest / BMS generated columns
+       session chart_info index for committed rows
+       warning / digest events
 ```
 
 file diff の reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化する。reader は bytes と file metadata だけを bounded queue へ流し、MD5 / SHA-256 計算と snapshot 作成は parser worker 側で行う。読める長パス譜面は通常どおり登録し、LR2 legacy path 長に抵触する場合は `Lr2PathTooLong` warning へ任せる。読めない譜面単位の recoverable I/O エラーは個別初期化ダイアログにせず、`SongTableFileCheckResult.FileScanFailures` と性能ログへ集約する。file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。ただし progress の processed count は parser 完了ではなく、post-parse が DB writer へ渡せる staging data を作った時点で進める。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
@@ -79,7 +80,7 @@ file diff の `InlineChartInfoBatchSize` 既定値 2048 は current `chart_info`
 
 post-parse は parser と同じく worker stage として並列化されている。並列 post-parse worker は `SongTableFileCheckResult`、`FileDiffParsePipelineResult`、runtime model、commit context を直接 mutate せず、item-local な immutable result / commit staging chunk を返す。single collector は sequence 順にその結果を集約し、counter、moved hash relink tracking、runtime apply list、inline `chart_info` publish list、commit queue 投入を担当する。この分離により、chart_info apply や maintenance 評価は並列に進めつつ、DB commit と runtime state mutation の ordering / 一貫性は collector / writer 側へ閉じ込める。2 件以上の差分では schema current な read-only connection から current parser version の `chart_info` row だけを snapshot として読み、schema が current でない場合は post-parse worker に空 snapshot を渡して fallback DB lookup を抑止する。これにより、同じ file diff 実行内の先行 commit を current row として観測する timing 依存を避ける。DB commit は別途 `DbCommitChunkSize` 既定 10000 件で transaction 範囲を切る。
 
-current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。current row lookup は schema が current と確認できる場合 read-only connection を使い、producer 側が writable `song.db` process lock を取りに行かない。
+current `chart_info` row が存在する場合、inline parser は詳細 parse を skipできる。rowはruntime storage ownerへattachせず、session index/providerと必要なstorage projectionへ渡す。file diffの成果物として完全current rowを全件蓄積しない。session chart_info indexの全量更新は`chart_info_hydration`が担当し、`file_diff_inline`でpublishするのは新規生成または更新したrowに限定する。current row lookupはschemaがcurrentと確認できる場合read-only connectionを使い、producer側がwritable `song.db` process lockを取りに行かない。
 
 lightweight parse、post-parse、inline `chart_info` parse は 1 つの worker に統合しない。1 譜面から `song` / `maintenance` / `chart_info` が最大 1 行ずつ出るとしても、current `chart_info` reuse、parse failure、runtime mutation、ordered commit、writer progress の契約が異なるため、file-to-row の軽量 parse と commit-ready staging を作る post-parse は別 stage とする。
 
@@ -200,9 +201,11 @@ full backfill は、既存 DB 補完用の background 処理として残す。
 - parser version が古い `chart_info`。
 - metadata bundle で補完されなかった譜面。
 
-full backfill は path から bytes を read する reader pipeline を維持する。file diff / package install で inline 済みの譜面は、current `chart_info` により file read 前に skip される。
+full backfill は path から bytes を read する reader pipeline を維持する。file diff / package installでinline済みかつidentity/storage repairが不要な譜面は、current `chart_info` によりfile read前にskipされる。missing digestなど別のrepair理由を持つcandidateは、read後にexisting current rowを再利用してparseせずstorage projectionを行う。
 
 `ChartInfoBuildService` の full backfill は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は reader を 2 本まで並列化できる。reader は `readAllBytes` delegate で bytes だけを取得し、worker は MD5 / SHA-256 を一度だけ計算して snapshot を作り、事前解決した current row / parse failure とともに route-neutral evaluator へ渡す。`chart_info_backfill start/done` log には `workerCount`、`readerCount`、`queueCapacity`、`fileReadCount`、`fileReadBytes`、`readMs`、`parseMs` が出る。
+
+successとexisting-current reuseはいずれもstorage applicationを作る。BMSはduplicate MD5を一度だけread/evaluateし、同じtargetの全BMS owner用persistence copyへdigestとchart-info derived columnsを適用する。これらBMS generated rowsとchart-info factsは`CatalogChartInfoStorageWriteRequest`から同じtransactionへ渡し、`UpsertGeneratedSongs()`のbulk契約でuser columnsを保持する。BMSONは`chart_info` / session indexだけを更新し、LR2 `song` rowを作らない。durable receipt後だけcanonical owner、digest/index、session index、eventをpublishし、commit失敗時は部分publicationを行わない。
 
 full backfill は新規ファイル追加の後処理ではない。新規・更新ファイルの lightweight parse、chart_info、可能な範囲の maintenance は file diff / install の処理単位で完了させる。
 
@@ -210,7 +213,7 @@ full backfill は新規ファイル追加の後処理ではない。新規・更
 
 | 判定 | Key | 動作 |
 | --- | --- | --- |
-| current chart_info | `sha256` + current parser version | parse せず既存 row を model に適用 |
+| current chart_info | `sha256` + current parser version | 完全currentならskip。repair candidateではparseせず既存rowをstorage application/session providerへ渡す |
 | current parse failure | `md5` + current parser version + timeout 条件 | parse せず skip |
 | parse success | `md5`, `sha256` | `chart_info` upsert、同 md5 の parse failure を削除 |
 | parse failure / timeout | `md5` | `chart_info_parse_failure` upsert。軽量登録は維持 |
@@ -236,7 +239,7 @@ full backfill は新規ファイル追加の後処理ではない。新規・更
 - full backfill は「既にライブラリにある譜面の補完」用と考える。
 - path-only API を新しい大量処理で使う場合は、二重 read にならないか確認する。
 - parser と failure mapping の挙動差を避けるため、inline、full backfill、LR2 `song_rows` は `ChartInfoBuildService.EvaluateSnapshot(...)` を共通入口にする。
-- current skip した既存 row を、file diff result や commit callback に全件載せない。これは bounded queue / chunk commit を無効化する大きなメモリ要因になる。
+- 完全currentとしてskipした既存rowをfile diff resultやcommit callbackへ全件載せない。ただしmissing digestなどのrepair candidateがcurrent rowを再利用した場合は、そのtargetのbounded storage applicationとcommit後session updateに載せる。
 - chunk commit 後は、DB 保存用 staging、inline `chart_info` staging、parse failure staging を速やかに破棄する。
 - file diff 由来の `WAVfiles` / `BGAfiles` は、maintenance row 作成後に速やかに破棄する。これを `installable_maintenance_deferred` まで保持すると、大量追加時の memory peak を作る。
 - 大量初期化では、file diff / chart_info / maintenance の phase 境界で一時参照を切り、memory checkpoint log で推移を観測する。現行では初期化処理側から明示 GC / LOH compact は行わない。

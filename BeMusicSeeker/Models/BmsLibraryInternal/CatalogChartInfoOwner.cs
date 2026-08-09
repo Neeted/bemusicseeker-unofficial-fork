@@ -76,6 +76,8 @@ internal sealed class CatalogChartInfoOwner
 
     private int hydrationRequestedVersion;
 
+    private int hydrationCurrentnessGeneration;
+
     private int chartInfoBackfillRequestedVersion;
 
     private int chartInfoBackfillCompletedVersion;
@@ -642,26 +644,15 @@ internal sealed class CatalogChartInfoOwner
                         reportProgress,
                         LogPerformance,
                         workflowLogWarning,
-                        rows => UpsertIndex(rows, "backfill"),
+                        publication => PublishCommittedStorageApplication(
+                            publication.DigestChanges,
+                            publication.AppliedRows,
+                            publication.ParseFailureChanged,
+                            "chart_info_backfill"),
                         existingRowsSnapshot,
-                        (digestEntries, chartInfoRows, parseFailureRows, parseFailureDeleteMd5s) =>
+                        request =>
                         {
-                            CatalogChartInfoWriteReceipt receipt = workflowMutationOwner.ApplyChartInfoWrite(
-                                new CatalogChartInfoWriteRequest(
-                                    digestEntries,
-                                    chartInfoRows,
-                                    parseFailureRows,
-                                    parseFailureDeleteMd5s));
-                            if ((digestEntries?.Count ?? 0) > 0
-                                || (chartInfoRows?.Count ?? 0) > 0
-                                || (parseFailureRows?.Count ?? 0) > 0
-                                || (parseFailureDeleteMd5s?.Count ?? 0) > 0)
-                            {
-                                if (!receipt.Applied)
-                                {
-                                    throw new InvalidOperationException("Chart-info persistence returned no receipt.");
-                                }
-                            }
+                            return workflowMutationOwner.ApplyChartInfoStorageWrite(request);
                         });
                     LogPerformance?.Invoke("chart_info_backfill done version=" + requestVersion
                         + " mode=full total=" + result.TargetCount
@@ -677,23 +668,13 @@ internal sealed class CatalogChartInfoOwner
                 }
                 catch (Exception ex)
                 {
-                    PublishWorkflowEvent(CatalogChartInfoOwnerEvent.PotentialDigest(
-                        chartSnapshot,
-                        "chart_info_backfill_digest_failed"));
                     LogPerformance?.Invoke("chart_info_backfill failed version=" + requestVersion + " message=" + ex.Message);
                 }
                 finally
                 {
-                    if (result != null)
-                    {
-                        PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Digest(
-                            result.DigestChanges,
-                            "chart_info_backfill_digest"));
-                    }
                     ChartInfoBackfillCurrentPath = string.Empty;
                     ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
                     ChartInfoBackfillCompletedVersion = requestVersion;
-                    PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Warning("chart_info_backfill_parse_failure"));
                     lock (backfillGate)
                     {
                         chartInfoBackfillCompletedVersion = requestVersion;
@@ -826,6 +807,11 @@ internal sealed class CatalogChartInfoOwner
     private ChartInfoHydrationResult HydrateChartInfos(string reason)
     {
         EnsureWorkflowConfigured();
+        int currentnessGeneration;
+        lock (hydrationGate)
+        {
+            currentnessGeneration = hydrationCurrentnessGeneration;
+        }
         var result = new ChartInfoHydrationResult();
         var totalStopwatch = Stopwatch.StartNew();
         LogPerformance?.Invoke("chart_info_hydration start reason=" + (reason ?? "unknown"));
@@ -916,7 +902,8 @@ internal sealed class CatalogChartInfoOwner
             result,
             ownedCollectionVersionAtSummary,
             bmsRowsVersionAtSummary,
-            bmsonRowsVersionAtSummary);
+            bmsonRowsVersionAtSummary,
+            currentnessGeneration);
         return result;
     }
 
@@ -1033,6 +1020,10 @@ internal sealed class CatalogChartInfoOwner
         bool cleared = false;
         lock (hydrationGate)
         {
+            unchecked
+            {
+                hydrationCurrentnessGeneration++;
+            }
             if (hydrationAllCurrentSnapshot != null)
             {
                 hydrationAllCurrentSnapshot = null;
@@ -1049,7 +1040,8 @@ internal sealed class CatalogChartInfoOwner
         ChartInfoHydrationResult result,
         int ownedCollectionVersion,
         int bmsRowsVersion,
-        int bmsonRowsVersion)
+        int bmsonRowsVersion,
+        int currentnessGeneration)
     {
         ChartInfoHydrationAllCurrentSnapshot snapshot = null;
         if (result != null
@@ -1069,9 +1061,18 @@ internal sealed class CatalogChartInfoOwner
                 ParseTimeoutMs = Math.Max(0L, (long)Math.Ceiling(buildService.CurrentParseTimeout.TotalMilliseconds))
             };
         }
+        bool staleGeneration;
         lock (hydrationGate)
         {
-            hydrationAllCurrentSnapshot = snapshot;
+            staleGeneration = currentnessGeneration != hydrationCurrentnessGeneration;
+            if (!staleGeneration)
+            {
+                hydrationAllCurrentSnapshot = snapshot;
+            }
+        }
+        if (staleGeneration)
+        {
+            LogPerformance?.Invoke("chart_info_hydration_all_current stale_generation_skipped");
         }
     }
 
@@ -1570,6 +1571,7 @@ internal sealed class CatalogChartInfoOwner
         {
             throw new InvalidOperationException("Chart-info parse-failure delete returned no receipt.");
         }
+        ClearHydrationAllCurrentSnapshot("parse_failure_removed");
         PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Warning("chart_info_parse_failure_remove"));
     }
 
@@ -1637,7 +1639,6 @@ internal sealed class CatalogChartInfoOwner
         Action<string> effectiveLog = logOverride ?? LogPerformance;
         Action<string> effectiveWarningLog = warningLogOverride ?? workflowLogWarning;
         List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart != null)];
-        var storageTargets = ChartStorageTargetSet.FromCharts(targetCharts);
         var result = new ChartInfoInlineBuildResult();
         if (targetCharts.Count == 0)
         {
@@ -1651,19 +1652,22 @@ internal sealed class CatalogChartInfoOwner
             targetCharts,
             effectiveLog,
             effectiveWarningLog);
-        int songRowChartInfoApplied = ApplyChartInfoRowsToBmsStorageRows(
-            storageTargets.BmsFiles,
-            result.AppliedRows);
-        CatalogInlineChartInfoWriteReceipt writeReceipt = workflowMutationOwner.ApplyInlineChartInfoWrite(
-            new CatalogInlineChartInfoWriteRequest(
-                storageTargets.BmsFiles,
-                storageTargets.BmsonSongs,
+        List<BMSFile> bmsRows = [.. result.StorageApplications
+            .Select(application => application.CreateBmsPersistenceCopy())
+            .Where(row => row != null)];
+        List<LR2SongDBExtended.bmson_song> bmsonRows = [.. result.StorageApplications
+            .Select(application => application.CreateBmsonPersistenceCopy())
+            .Where(row => row != null)];
+        CatalogChartInfoStorageWriteReceipt writeReceipt = workflowMutationOwner.ApplyChartInfoStorageWrite(
+            new CatalogChartInfoStorageWriteRequest(
+                bmsRows,
+                bmsonRows,
                 new CatalogChartInfoWriteRequest(
                     chartInfoRows: result.ChartInfoRows,
                     parseFailureRows: result.ParseFailureRows,
                     parseFailureDeleteMd5s: result.ParseFailureDeleteMd5s)));
-        if ((storageTargets.BmsFiles.Count > 0
-            || storageTargets.BmsonSongs.Count > 0
+        if ((bmsRows.Count > 0
+            || bmsonRows.Count > 0
             || result.ChartInfoRows.Count > 0
             || result.ParseFailureRows.Count > 0
             || result.ParseFailureDeleteMd5s.Count > 0)
@@ -1671,23 +1675,17 @@ internal sealed class CatalogChartInfoOwner
         {
             throw new InvalidOperationException("Inline chart-info persistence returned no receipt.");
         }
-        if (result.AppliedRows.Count > 0)
+        int songRowChartInfoApplied = 0;
+        foreach (ChartInfoStorageApplication application in result.StorageApplications)
         {
-            string indexReason = reason ?? "install_package_inline";
-            ChartInfoIndexUpdateResult indexResult = UpsertIndex(
-                result.AppliedRows,
-                indexReason,
-                publishEffects: deferPublication == null);
-            if (deferPublication != null)
-            {
-                int upsertedRowCount = result.AppliedRows.Count;
-                deferPublication(() => PublishIndexUpsertEffects(
-                    indexResult,
-                    upsertedRowCount,
-                    indexReason,
-                    dispatchPresentation: true));
-            }
+            songRowChartInfoApplied += application.ApplyCommitted(result.DigestChanges);
         }
+        PublishCommittedStorageApplication(
+            result.DigestChanges,
+            result.AppliedRows,
+            result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0,
+            reason ?? "install_package_inline",
+            deferPublication);
         effectiveLog?.Invoke(
             "chart_info_inline_install owner_applied=" + songRowChartInfoApplied
             + " target=" + result.TargetCount
@@ -1702,52 +1700,81 @@ internal sealed class CatalogChartInfoOwner
         return result;
     }
 
-    private static int ApplyChartInfoRowsToBmsStorageRows(
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.chart_info> chartInfoRows)
+    /// <summary>
+    /// Publishes facts from a successful chart-info storage receipt in catalog dependency order.
+    /// Digest-derived lookup state is applied before the chart-info session index, and presentation
+    /// or digest events are emitted only after both indexes have been updated.
+    /// </summary>
+    private void PublishCommittedStorageApplication(
+        IEnumerable<LibraryChartDigestChange> digestChanges,
+        IReadOnlyList<LR2SongDBExtended.chart_info> appliedRows,
+        bool parseFailureChanged,
+        string reason,
+        Action<Action> deferPublication = null)
     {
-        List<BMSFile> files = [.. (bmsFiles ?? []).Where(file => file != null)];
-        if (files.Count == 0)
+        LibraryChartDigestChange[] committedDigestChanges = [.. (digestChanges ?? [])
+            .Where(change => change != null)];
+        LR2SongDBExtended.chart_info[] committedRows = [.. (appliedRows ?? [])
+            .Where(row => row != null)];
+
+        if (committedDigestChanges.Length > 0)
         {
-            return 0;
+            CatalogDigestMutationRequest digestRequest =
+                workflowMutationOwner.CreateDigestMutationRequest(committedDigestChanges);
+            CatalogDigestMutationReceipt digestReceipt = workflowMutationOwner.ApplyDigestMutation(digestRequest);
+            if (!digestReceipt.Applied)
+            {
+                throw new InvalidOperationException("Committed chart-info digest mutation returned no receipt.");
+            }
+            PublishWorkflowEvent(CatalogChartInfoOwnerEvent.PrepareDigestIndexes(
+                committedDigestChanges,
+                reason + "_digest_prepare"));
         }
-        Dictionary<string, LR2SongDBExtended.chart_info> rowsBySha256 = new(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, LR2SongDBExtended.chart_info> rowsByMd5 = new(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDBExtended.chart_info row in chartInfoRows ?? [])
+
+        if (committedRows.Length > 0)
         {
-            if (row == null)
+            ChartInfoIndexUpdateResult indexResult = UpsertIndex(
+                committedRows,
+                reason,
+                publishEffects: deferPublication == null);
+            if (deferPublication != null)
             {
-                continue;
-            }
-            if (!string.IsNullOrWhiteSpace(row.sha256))
-            {
-                rowsBySha256[row.sha256] = row;
-            }
-            if (!string.IsNullOrWhiteSpace(row.md5) && !rowsByMd5.ContainsKey(row.md5))
-            {
-                rowsByMd5[row.md5] = row;
+                deferPublication(() => PublishIndexUpsertEffects(
+                    indexResult,
+                    committedRows.Length,
+                    reason,
+                    dispatchPresentation: true));
             }
         }
-        int applied = 0;
-        foreach (BMSFile file in files)
+
+        if (parseFailureChanged)
         {
-            LR2SongDBExtended.chart_info row = null;
-            if (!string.IsNullOrWhiteSpace(file.sha256))
+            CatalogChartInfoOwnerEvent warningEvent = CatalogChartInfoOwnerEvent.Warning(
+                reason + "_parse_failure");
+            if (deferPublication == null)
             {
-                rowsBySha256.TryGetValue(file.sha256, out row);
+                PublishWorkflowEvent(warningEvent);
             }
-            if (row == null && !string.IsNullOrWhiteSpace(file.hash))
+            else
             {
-                rowsByMd5.TryGetValue(file.hash, out row);
+                deferPublication(() => PublishWorkflowEvent(warningEvent));
             }
-            if (row == null)
-            {
-                continue;
-            }
-            file.ApplyLr2ChartInfoColumns(row);
-            applied++;
         }
-        return applied;
+        if (committedDigestChanges.Length > 0)
+        {
+            CatalogChartInfoOwnerEvent digestEvent = CatalogChartInfoOwnerEvent.Digest(
+                committedDigestChanges,
+                reason + "_digest",
+                digestMutationApplied: true);
+            if (deferPublication == null)
+            {
+                PublishWorkflowEvent(digestEvent);
+            }
+            else
+            {
+                deferPublication(() => PublishWorkflowEvent(digestEvent));
+            }
+        }
     }
 
     private sealed class EmptyDisposable : IDisposable

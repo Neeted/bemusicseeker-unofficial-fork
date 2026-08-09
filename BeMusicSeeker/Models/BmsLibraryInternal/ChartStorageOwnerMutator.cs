@@ -45,14 +45,63 @@ internal static class ChartStorageOwnerMutator
         return 1;
     }
 
-    internal static bool ApplySnapshotDigest(
+    /// <summary>
+    /// Creates a detached BMS row containing snapshot digest and chart-info generated columns.
+    /// </summary>
+    internal static BMSFile CreateBmsPersistenceCopy(
         ChartFile chart,
-        ChartFileSnapshot snapshot,
+        string md5,
+        string sha256,
+        LR2SongDBExtended.chart_info row)
+    {
+        BMSFile owner = chart?.GetBmsStorageOwner();
+        if (owner == null)
+        {
+            return null;
+        }
+
+        BMSFile copy = owner.CreateSongRowPersistenceCopy();
+        copy.ApplySnapshotDigest(md5, sha256);
+        copy.ApplyLr2ChartInfoColumns(row);
+        return copy;
+    }
+
+    /// <summary>
+    /// Creates a detached BMSON row containing the snapshot digest.
+    /// </summary>
+    internal static LR2SongDBExtended.bmson_song CreateBmsonPersistenceCopy(
+        ChartFile chart,
+        string md5,
+        string sha256,
+        System.DateTime lastWriteTimeUtc)
+    {
+        LR2SongDBExtended.bmson_song owner = chart?.GetBmsonStorageOwner();
+        if (owner == null)
+        {
+            return null;
+        }
+
+        LR2SongDBExtended.bmson_song copy = CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(owner);
+        copy.md5 = md5;
+        copy.sha256 = sha256;
+        copy.updated_at = lastWriteTimeUtc;
+        return copy;
+    }
+
+    /// <summary>
+    /// Applies a durable snapshot and its optional chart-info row to the canonical storage owner.
+    /// </summary>
+    internal static int ApplyCommittedSnapshot(
+        ChartFile chart,
+        string md5,
+        string sha256,
+        System.DateTime lastWriteTimeUtc,
+        LR2SongDBExtended.chart_info row,
         ICollection<LibraryChartDigestChange> digestChanges = null)
     {
-        if (chart == null || snapshot == null)
+        if (chart == null)
         {
-            return false;
+            return 0;
         }
 
         BMSFile bmsFile = chart.GetBmsStorageOwner();
@@ -60,24 +109,25 @@ internal static class ChartStorageOwnerMutator
         {
             string oldMd5 = bmsFile.hash;
             string oldSha256 = bmsFile.sha256;
-            bmsFile.ApplySnapshotDigest(snapshot.Md5, snapshot.Sha256);
+            bmsFile.ApplySnapshotDigest(md5, sha256);
+            bmsFile.ApplyLr2ChartInfoColumns(row);
             AddDigestChangeIfChanged(digestChanges, LibraryChartDigestChange.FromBms(bmsFile, oldMd5, oldSha256));
-            return true;
+            return row == null ? 0 : 1;
         }
 
         LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
         if (bmsonSong == null)
         {
-            return false;
+            return 0;
         }
 
         string oldBmsonMd5 = bmsonSong.md5;
         string oldBmsonSha256 = bmsonSong.sha256;
-        bmsonSong.md5 = snapshot.Md5;
-        bmsonSong.sha256 = snapshot.Sha256;
-        bmsonSong.updated_at = snapshot.LastWriteTimeUtc;
+        bmsonSong.md5 = md5;
+        bmsonSong.sha256 = sha256;
+        bmsonSong.updated_at = lastWriteTimeUtc;
         AddDigestChangeIfChanged(digestChanges, LibraryChartDigestChange.FromBmson(bmsonSong, oldBmsonMd5, oldBmsonSha256));
-        return true;
+        return 0;
     }
 
     private static void AddDigestChangeIfChanged(ICollection<LibraryChartDigestChange> digestChanges, LibraryChartDigestChange digestChange)

@@ -77,4 +77,54 @@ internal sealed class ChartInfoBuildTarget
         return applied;
     }
 
+    /// <summary>
+    /// Creates transaction-owned BMS song rows for every storage owner represented by this target.
+    /// BMSON owners deliberately do not materialize LR2 compatibility rows.
+    /// </summary>
+    internal IReadOnlyList<BMSFile> CreateBmsPersistenceRows(
+        string sha256,
+        LR2SongDBExtended.chart_info row)
+    {
+        var result = new List<BMSFile>();
+        foreach (ChartFile chart in charts)
+        {
+            BMSFile copy = ChartStorageOwnerMutator.CreateBmsPersistenceCopy(
+                chart,
+                row?.md5 ?? Md5,
+                sha256,
+                row);
+            if (copy == null)
+            {
+                continue;
+            }
+            result.Add(copy);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Projects durable chart-info generated columns to every canonical BMS owner.
+    /// This is called only after the catalog transaction returns a successful receipt.
+    /// </summary>
+    internal int ApplyCommittedChartInfo(LR2SongDBExtended.chart_info row)
+    {
+        if (row == null)
+        {
+            return 0;
+        }
+
+        int applied = 0;
+        foreach (ChartFile chart in charts)
+        {
+            BMSFile owner = chart.GetBmsStorageOwner();
+            if (owner == null)
+            {
+                continue;
+            }
+            owner.ApplyLr2ChartInfoColumns(row);
+            applied++;
+        }
+        return applied;
+    }
+
 }

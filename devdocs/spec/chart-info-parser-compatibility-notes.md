@@ -16,7 +16,7 @@
 ## 基本方針
 
 - `chart_info` は「所持譜面管理」ではなく「譜面メタデータ」の保存先として扱う。
-- `song` テーブルは LR2 互換維持のため変更しない。
+- parser自体はDB writeを所有しない。lifecycle ownerは成功/reuse結果をBMS `song` generated columnsへbulk投影し、LR2互換とuser columnsを保持する。BMSONからLR2 `song` rowは作らない。
 - 解析結果は原則として beatoraja / jbms-parser の解釈に寄せる。
 - ただし RANDOM 譜面は参照 DB 側の過去選択分岐と完全一致しないため、値差分は許容する。
 - `chart_info` では deterministic metadata を優先し、RANDOM はまず branch 1 固定で解析し、recoverable failure の場合だけ fallback branch を試す。
@@ -603,7 +603,7 @@ DataGrid では `difficulty` を表示・ソートに使い、`difficulty_define
 
 parse failure でも bytes から digest 計算できている場合:
 
-- `chart_digest_map` は保存する。
+- BMS は `chart_digest_map` を保存する。BMSON は SHA-256-first identityを`bmson_song`に持つためdigest mapを作らない。
 - `chart_info` は成功行のみ保存する。
 
 ### diagnostic 扱い
@@ -636,6 +636,8 @@ chart_info full backfill は「bounded file readers + in-memory parallel parse +
 新規追加・更新譜面と package install 譜面は、現在は dedicated added backfill へ回さず、file diff / install 処理中の `ChartFileSnapshot` bytes から inline chart_info を生成する。full backfill は、旧バージョンや外部操作で作られた既存 DB の補完用として残す。
 
 parser algorithm と caller orchestration は分離する。inline、full backfill、LR2 `song_rows` は、単一 snapshot と事前解決した current row / parse-failure fact を `ChartInfoBuildService.EvaluateSnapshot(...)` へ渡し、`ChartInfoParser.ParseBytesDetailed(...)` の呼出し、timeout、exception / failure result mapping、永続化 message normalization を共有する。この共通化で parser compatibility の期待値自体は変更しない。
+
+workerはsuccessまたはexisting-current reuseのstorage applicationをstagingするだけで、DB transactionやruntime attachを所有しない。inline/fullのwriterはroute-neutralな`CatalogChartInfoStorageWriteRequest`を使い、BMS generated rowsとchart-info factsを同じtransactionで保存する。duplicate MD5は一度のevaluation結果を全BMS ownerへ投影し、durable receipt後だけcanonical owner、digest/session index、eventをpublishする。runtime `ChartInfo`はstorage ownerへattachしない。
 
 ログで見るべき境界:
 

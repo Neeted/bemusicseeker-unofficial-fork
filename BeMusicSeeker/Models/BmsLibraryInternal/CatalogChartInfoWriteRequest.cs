@@ -133,18 +133,22 @@ internal sealed class CatalogChartInfoWriteReceipt
 }
 
 /// <summary>
-/// Immutable package-inline storage facts. BMS/bmson rows and chart-info facts
+/// Immutable chart-info storage facts. BMS/bmson rows and chart-info facts
 /// are committed by one catalog mutation command.
 /// </summary>
-internal sealed class CatalogInlineChartInfoWriteRequest
+internal sealed class CatalogChartInfoStorageWriteRequest
 {
-    internal CatalogInlineChartInfoWriteRequest(
+    internal CatalogChartInfoStorageWriteRequest(
         IEnumerable<BMSFile> bmsRows,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
         CatalogChartInfoWriteRequest chartInfo)
     {
-        BmsRows = Array.AsReadOnly([.. (bmsRows ?? []).Where(row => row != null)]);
-        BmsonRows = Array.AsReadOnly([.. (bmsonRows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.path))]);
+        BmsRows = Array.AsReadOnly([.. (bmsRows ?? [])
+            .Where(row => row != null && !string.IsNullOrWhiteSpace(row.path))
+            .Select(row => row.CreateSongRowPersistenceCopy())]);
+        BmsonRows = Array.AsReadOnly([.. (bmsonRows ?? [])
+            .Where(row => row != null && !string.IsNullOrWhiteSpace(row.path))
+            .Select(CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy)]);
         ChartInfo = chartInfo ?? new CatalogChartInfoWriteRequest();
     }
 
@@ -157,12 +161,12 @@ internal sealed class CatalogInlineChartInfoWriteRequest
     internal bool HasChanges => BmsRows.Count > 0 || BmsonRows.Count > 0 || ChartInfo.HasChanges;
 }
 
-internal sealed class CatalogInlineChartInfoWriteReceipt
+internal sealed class CatalogChartInfoStorageWriteReceipt
 {
-    internal static CatalogInlineChartInfoWriteReceipt NotApplied { get; } =
+    internal static CatalogChartInfoStorageWriteReceipt NotApplied { get; } =
         new(false, 0, 0, CatalogChartInfoWriteReceipt.NotApplied);
 
-    internal CatalogInlineChartInfoWriteReceipt(
+    internal CatalogChartInfoStorageWriteReceipt(
         bool applied,
         int bmsRowCount,
         int bmsonRowCount,

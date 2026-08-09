@@ -5934,7 +5934,6 @@ public partial class BMSLibrary : ObservableObject
         IEnumerable<ChartFile> charts)
     {
         ChartInfoInlineBuildResult result = null;
-        bool completed = false;
         using IDisposable mutationSequence = lr2SynchronizationOwner.EnterLr2MutationSequence();
         using IDisposable mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             "chart_info_inline_install",
@@ -5947,43 +5946,22 @@ public partial class BMSLibrary : ObservableObject
         {
             try
             {
-                try
-                {
-                    result = catalogChartInfoOwner.BuildInline(reason, charts);
-                }
-                catch (Exception exception)
-                {
-                    string displayedMessage = GetDisplayedExceptionMessage(exception).Replace(Environment.NewLine, " | ");
-                    lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
-                        CurrentOptionsSnapshot,
-                        stage: "lr2_song_db_chart_info_inline_upsert_failed",
-                        detail: "lr2_song_db_chart_info_inline_upsert_failed: " + displayedMessage,
-                        logReason: reason ?? "chart_info_inline_install");
-                    LogInstallPerformanceWarn("lr2_song_db_chart_info_inline_upsert failed"
-                        + " reason=" + (reason ?? "chart_info_inline_install")
-                        + " exception=" + exception.GetType().Name
-                        + " message=" + displayedMessage);
-                    throw;
-                }
-                if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
-                {
-                    DispatchWarningPresentationChanged("install_package_inline_chart_info_parse_failure");
-                }
-                completed = true;
+                result = catalogChartInfoOwner.BuildInline(reason, charts);
                 return result;
             }
-            finally
+            catch (Exception exception)
             {
-                if (completed)
-                {
-                    DispatchOwnedChartDigestChanges(result.DigestChanges, reason ?? "install_package_inline");
-                }
-                else
-                {
-                    DispatchOwnedPotentialDigestChanges(
-                        [.. (charts ?? []).Where(chart => chart != null)],
-                        (reason ?? "install_package_inline") + "_failed");
-                }
+                string displayedMessage = GetDisplayedExceptionMessage(exception).Replace(Environment.NewLine, " | ");
+                lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
+                    CurrentOptionsSnapshot,
+                    stage: "lr2_song_db_chart_info_inline_upsert_failed",
+                    detail: "lr2_song_db_chart_info_inline_upsert_failed: " + displayedMessage,
+                    logReason: reason ?? "chart_info_inline_install");
+                LogInstallPerformanceWarn("lr2_song_db_chart_info_inline_upsert failed"
+                    + " reason=" + (reason ?? "chart_info_inline_install")
+                    + " exception=" + exception.GetType().Name
+                    + " message=" + displayedMessage);
+                throw;
             }
         }
     }
@@ -8832,12 +8810,60 @@ public partial class BMSLibrary : ObservableObject
         string reason,
         bool resourceHealthIndexInvalidated = true)
     {
+        DispatchOwnedChartDigestChangesCore(
+            digestChanges,
+            reason,
+            resourceHealthIndexInvalidated,
+            digestMutationApplied: false);
+    }
+
+    private void DispatchPreparedOwnedChartDigestChanges(
+        IEnumerable<LibraryChartDigestChange> digestChanges,
+        string reason)
+    {
+        DispatchOwnedChartDigestChangesCore(
+            digestChanges,
+            reason,
+            resourceHealthIndexInvalidated: true,
+            digestMutationApplied: true);
+    }
+
+    private void DispatchOwnedChartDigestChangesCore(
+        IEnumerable<LibraryChartDigestChange> digestChanges,
+        string reason,
+        bool resourceHealthIndexInvalidated,
+        bool digestMutationApplied)
+    {
         CatalogDigestMutationRequest request = catalogMutationOwner.CreateDigestMutationRequest(digestChanges);
         OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
             request.DigestChanges,
             resourceHealthIndexInvalidated);
         mutationResult.DigestMutationRequest = request;
+        mutationResult.DigestMutationApplied = digestMutationApplied;
+        if (digestMutationApplied)
+        {
+            mutationResult.InstalledLookupMutationApplied = true;
+            mutationResult.InstalledHashIndexInvalidated = true;
+            mutationResult.PlaylistResolveIndexInvalidated = true;
+            mutationResult.InstallMetadataCacheInvalidated = true;
+        }
         DispatchOwnedChartCollectionMutationWithResourceHealthLease(mutationResult, reason);
+    }
+
+    private void PrepareOwnedChartDigestIndexes(
+        IEnumerable<LibraryChartDigestChange> digestChanges,
+        string reason)
+    {
+        CatalogDigestMutationRequest request = catalogMutationOwner.CreateDigestMutationRequest(digestChanges);
+        OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
+            request.DigestChanges);
+        mutationResult.DigestMutationRequest = request;
+        mutationResult.DigestMutationApplied = true;
+        mutationResult.OwnedCollectionVersion = OwnedChartCollectionVersion;
+        ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
+            mutationResult,
+            reason,
+            LogInstallPerformance);
     }
 
     private void DispatchOwnedPotentialDigestChanges(
@@ -8908,8 +8934,18 @@ public partial class BMSLibrary : ObservableObject
         }
         switch (ownerEvent.Kind)
         {
+            case CatalogChartInfoOwnerEventKind.DigestIndexesPrepared:
+                PrepareOwnedChartDigestIndexes(ownerEvent.DigestChanges, ownerEvent.Reason);
+                break;
             case CatalogChartInfoOwnerEventKind.DigestChanges:
-                DispatchOwnedChartDigestChanges(ownerEvent.DigestChanges, ownerEvent.Reason);
+                if (ownerEvent.DigestMutationApplied)
+                {
+                    DispatchPreparedOwnedChartDigestChanges(ownerEvent.DigestChanges, ownerEvent.Reason);
+                }
+                else
+                {
+                    DispatchOwnedChartDigestChanges(ownerEvent.DigestChanges, ownerEvent.Reason);
+                }
                 break;
             case CatalogChartInfoOwnerEventKind.PotentialDigestChanges:
                 DispatchOwnedPotentialDigestChanges(ownerEvent.PotentialDigestCharts, ownerEvent.Reason);
@@ -10150,7 +10186,6 @@ public partial class BMSLibrary : ObservableObject
         List<ChartFile> targets = [.. (charts ?? []).Where(chart => chart != null)];
         List<Action> ownerPublicationEffects = [];
         ChartInfoInlineBuildResult result = null;
-        OwnedChartCollectionMutationResult digestMutationResult = null;
         ExceptionDispatchInfo failure = null;
         using (BeginOwnedDigestMutationWindow())
         {
@@ -10162,19 +10197,6 @@ public partial class BMSLibrary : ObservableObject
                     ownerPublicationEffects.Add,
                     deferredFeedback.LogInstallPerformance,
                     message => deferredFeedback.LogInstallWarning(null, message));
-                CatalogDigestMutationRequest digestRequest =
-                    catalogMutationOwner.CreateDigestMutationRequest(result.DigestChanges);
-                digestMutationResult = CreateOwnedChartCollectionDigestMutationResult(
-                    digestRequest.DigestChanges);
-                digestMutationResult.DigestMutationRequest = digestRequest;
-                CatalogDigestMutationReceipt digestReceipt =
-                    catalogMutationOwner.ApplyDigestMutation(digestRequest);
-                digestMutationResult.DigestMutationApplied = true;
-                digestMutationResult.OwnedCollectionVersion = digestReceipt.OwnedCollectionVersion;
-                ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
-                    digestMutationResult,
-                    reason ?? "install_package_inline",
-                    deferredFeedback.LogInstallPerformance);
             }
             catch (Exception exception)
             {
@@ -10201,22 +10223,6 @@ public partial class BMSLibrary : ObservableObject
                 foreach (Action publishOwnerEffect in ownerPublicationEffects)
                 {
                     publishOwnerEffect();
-                }
-                if (failure == null)
-                {
-                    if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
-                    {
-                        DispatchWarningPresentationChanged("install_package_inline_chart_info_parse_failure");
-                    }
-                    DispatchOwnedChartCollectionMutationWithResourceHealthLease(
-                        digestMutationResult,
-                        reason ?? "install_package_inline");
-                }
-                else
-                {
-                    DispatchOwnedPotentialDigestChanges(
-                        targets,
-                        (reason ?? "install_package_inline") + "_failed");
                 }
             },
             failure);

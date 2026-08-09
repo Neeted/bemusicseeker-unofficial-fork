@@ -30,6 +30,17 @@
 
 scope 外から `BMSLibrary` を直接呼ぶ既存テストや内部ユーティリティでは、従来どおり dialog service を使う。ただし、アプリ本体の譜面 / パッケージ操作入口は ViewModel 境界を通す。
 
+## Chart-info Catalog Write
+
+background hydration/backfillやpackage inlineのchart-info writeは、UIの`RunChartPackageMutation(...)`とは別のcatalog mutationである。transaction ownerは`CatalogMutationOwner`のままとし、inline/fullは同じ`ApplyChartInfoStorageWrite(CatalogChartInfoStorageWriteRequest)`を使う。
+
+- requestはBMS/BMSON persistence copyと`CatalogChartInfoWriteRequest`をimmutable snapshotとして束ねる。
+- BMS generated rows、BMSON rows、`chart_digest_map`、`chart_info`、parse-failure upsert/deleteは一つのcatalog transactionで保存する。
+- BMS rowsは`Lr2SongDbWriter.UpsertGeneratedSongs(...)`でbulk writeし、`favorite`、`tag`、`adddate`などuser columnsを保持する。BMSONからLR2 `song` rowは作らない。
+- durable receipt後だけcanonical storage owner、digest/index、chart-info session index、warning/digest eventを更新する。commit失敗時はcanonical/index/eventを変更せず、対象は次回もcandidateとして残る。
+- parse-failure明示削除などstorage rowを伴わない処理にはfacts-onlyの`ApplyChartInfoWrite(...)`を残す。
+- DB transactionやmodel/storage lockを保持したままUI/event subscriberを待たない。
+
 ## 対象操作
 
 P0 として次の操作は共通境界を通す。

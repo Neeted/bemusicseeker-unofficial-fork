@@ -21,12 +21,20 @@ current `chart_info` と current parse failure が併存する場合は `chart_i
 
 この分類と parse result mapping の正本は `ChartInfoBuildService.EvaluateSnapshot(...)` である。caller は、既に読んだ単一 `ChartFileSnapshot`、owner identity、事前に取得した current row、current failure の有無を渡す。evaluator 自身は file read、DB query、DB writeを行わず、次のいずれかを返す。
 
-- current row を適用する結果
+- current row を再利用する durable storage application（runtime `ChartInfo` attach ではない）
 - current failure により parse を省略する結果
 - snapshot bytes を current parser で解析した成功または failure 結果
 - snapshot が得られず解析できない unavailable 結果
 
 inline file diff / package install、full backfill、LR2 `song_rows` は同じ evaluator を使う。各経路が異なるのは、snapshot と currentness facts の準備、結果の staging、transaction ownership だけであり、parser、優先順位、failure message normalization を分岐させない。
+
+## Durable Storage And Publication
+
+inline / full backfill は、BMS/BMSON storage row と chart-info facts を immutable な `CatalogChartInfoStorageWriteRequest` にまとめ、`CatalogMutationOwner.ApplyChartInfoStorageWrite(...)` から一つの catalog transaction へ保存する。BMS `song` row は `Lr2SongDbWriter.UpsertGeneratedSongs(...)` の bulk generated-column writeを使う。既存 row の `favorite`、`tag`、`adddate` など user columns は更新せず、chart-info 由来の `level`、`difficulty`、`mode`、`maxbpm`、`minbpm`、`bga`、`exlevel`、`longnote`、`random`、`karinotes` と digestを収束させる。
+
+full backfill は parse success だけでなく、missing digest candidate が existing current row を再利用した場合も storage application を作る。BMS の duplicate MD5 target は一度の read/evaluation結果を同じtargetに属する全BMS storage ownerへ投影する。BMSONはSHA-256-first identityを維持し、`chart_info` / session indexは更新するが、`chart_digest_map` とLR2 `song` rowは作らない。
+
+publication順は `transaction commit / durable receipt -> canonical storage ownerのdigest・generated columns -> digest-derived index -> chart-info session index -> warning/digest event` とする。commit前またはcommit失敗時に canonical owner、digest index、session index、eventを部分更新しない。storage ownerへruntime `ChartInfo` objectはattachせず、表示はsession indexとprojection providerから解決する。
 
 ## Startup Hydration
 
@@ -38,13 +46,13 @@ LR2 linked と standalone は同じ actual-data hydration を使う。read-only 
 
 actual-data hydration が全 owner を current info または current failure と分類した場合、owner collection、BMS/BMSON storage row、parser version、timeout versionを含む `ChartInfoHydrationAllCurrentSnapshot` を記録する。同じ session でこれらが変わらない間だけ、後続の candidate summary と full backfill を `hydration_all_current` として省略できる。
 
-この snapshot は実データ照合後の mode-neutral optimization であり、LR2 sync status から合成しない。owner/storage/parser/timeout の変更時は無効化する。parse failure の明示削除については、削除だけで即時 parse を queue せず、同一 session の snapshot を無効化して次回の明示 hydration/backfill または次回起動で actual data を再判定する。
+この snapshot は実データ照合後の mode-neutral optimization であり、LR2 sync status から合成しない。owner/storage/parser/timeout の変更時は無効化する。parse failure の明示削除については、delete transaction の成功後に同一 session の snapshot を無効化し、削除と競合して旧 failure を読み取った hydration も currentness generation の不一致により snapshot を再登録できない。削除だけでは即時 parse をqueueせず、次回の明示 hydration/backfill または次回起動でactual dataを再判定する。
 
 ## Failure Contract
 
 hydration DB read が失敗した場合は all-current を合成せず、失敗をログへ残す。current `chart_info` がなければ、current failure の削除後は次回判定で candidate へ戻る。current `chart_info` がある場合は、failure を削除しても info 優先順位により再解析しない。
 
-parse timeout、parser exception、最終 parse failure は evaluator が同じ result mapping と bounded message normalization を適用する。digest を計算できた failure は `chart_info_parse_failure` の永続化候補を返し、成功時は同じ MD5 の failure を削除する候補を返す。DB write と削除の transaction は各 orchestration owner が管理する。
+parse timeout、parser exception、最終 parse failure は evaluator が同じ result mapping と bounded message normalization を適用する。digest を計算できた failure は `chart_info_parse_failure` の永続化候補を返し、成功時は同じ MD5 の failure を削除する候補を返す。BMSはstorage write時に`chart_digest_map`を更新するが、BMSONはfailure時もdigest mapを作らない。DB write と削除の transaction は各 orchestration owner が管理する。
 
 ## Related Specifications
 
