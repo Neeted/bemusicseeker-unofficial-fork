@@ -684,7 +684,6 @@ internal sealed class LibraryFileScanPipelineOwner
         lr2FolderFileDiffOwner.Apply(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
         ApplyCatalogStorageReplacement(fileCheckResult, reason, storageRowsSnapshot);
-        lr2Synchronization.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
         {
             catalogChartInfoOwner.UpsertIndex(committedInlineChartInfoRows, "file_diff_inline", true);

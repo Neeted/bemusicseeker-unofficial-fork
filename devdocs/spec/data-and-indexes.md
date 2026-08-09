@@ -17,9 +17,12 @@
 - digest / metadata
   - `chart_digest_map` は chart identity と chart_info hydration の橋渡しに使う partial cache である。
   - `chart_digest_map` は app schema repair 直後や初回 scan 前に完全である必要はない。missing SHA-256 は file diff / install / inline chart_info / chart info backfill など、譜面 bytes を読む処理で必要範囲を補完する。
-  - `chart_info` と current parse failure は startup background hydration で memory owner / session index へ適用する。
+  - `chart_info` と current parse failure は startup background hydration でsession indexへ適用する。currentnessは `current chart_info > current parse failure > parse candidate` の順で判定する。
+  - LR2 linked / standalone は同じ actual-data hydration を使い、`lr2_song_db_sync_status` はchart-info currentnessの入力にしない。
 
 `ChartFile` は、この catalog storage row ではなく、BMS / bmson の Kind と storage owner を持つアプリ内 domain/read model を指す。DB 正本は BMS 用 `song` row と bmson 用 `bmson_song` row の二本立てを維持する。
+
+identity、parse failure、session all-current snapshotの詳細は [chart-info-lifecycle.md](chart-info-lifecycle.md) を参照する。
 
 ## Startup DB Projection
 

@@ -216,7 +216,9 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 
 LR2 `song.db` 同期が有効な空 DB 初回構築では、file diff apply の同じ snapshot / parser result から LR2 generated song columns、`chart_info` 由来 numeric columns、LR2 compatibility facts、text group flag を作る。初期構築完了後に LR2 sync がもう一度全譜面を読み直す形にはしない。自動 follow-up では、同一 scan/input generation で file diff が全 current BMS owner path を durably commit した coverage を主判定にし、全 generated column を DB projection で再比較する処理は drift 診断に下げる。既存 DB のsong.db データ同期が必要な場合だけ、初期構築と同型の bounded streaming pipeline を使う。
 
-`chart_info` は所持譜面への metadata 付与用に一括で準備される session index / DB-backed index である。LR2 song.db 同期が有効な run では、開始時点で current parser version の `chart_info` resolver と current `chart_info_parse_failure` MD5 set を memory snapshot として準備し、worker はその resolver / set だけを lookup する。missing / stale `chart_info` は、LR2 song.db 同期前の別 chart_info 補完処理ではなく `song_rows` worker が同じ `ChartFileSnapshot` から作り、song row と同じ chunk transaction で保存する。current parse failure は再 parse せず skip する。`song_rows` chunk ごとに `chart_info` table へ SELECT することはしない。
+`chart_info` は所持譜面への metadata 付与用に一括で準備される session index / DB-backed index である。起動時 hydration は LR2 linked / standalone の両 profile で同じ read-only actual-data loader を使い、実在する current `chart_info`、timeout-aware current `chart_info_parse_failure`、owned chart を照合する。`lr2_song_db_sync_status=Completed` は LR2 generated data sync の完了だけを表し、chart-info currentnessや行の現存を証明しない。全 owner が actual data 上 current の場合だけ、owner/storage/parser/timeout version付きの session snapshotにより後続 candidate summary/backfillを省略する。詳細は [chart-info-lifecycle.md](chart-info-lifecycle.md) を参照する。
+
+LR2 song.db 同期が有効な run では、開始時点で current parser version の `chart_info` resolver と current `chart_info_parse_failure` MD5 set を memory snapshot として準備し、worker はその resolver / set だけを lookup する。missing / stale `chart_info` は、LR2 song.db 同期前の別 chart_info 補完処理ではなく `song_rows` worker が同じ `ChartFileSnapshot` から作り、song row と同じ chunk transaction で保存する。current parse failure は再 parse せず skip する。`song_rows` chunk ごとに `chart_info` table へ SELECT することはしない。
 
 LR2 sync の `song_rows` pipeline は reader / worker / writer の責務を明確に分ける。reader は bounded producer として譜面 bytes と列挙 metadata を bounded queue へ流す。通常 file diff と LR2 song.db sync は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は reader を 2 本まで並列化できる。reader は bytes-only producer に寄せ、MD5 / SHA256 計算と snapshot 作成は worker 側で行う。worker は encoding detection、parse、`chart_info` apply、LR2 compatibility facts の作成までを同じ parse result から完了させる。writer は completed item の順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。writer chunk 内で `chart_info` apply や compatibility facts build のような CPU work を行わず、DB commit 前に pipeline を詰まらせない。
 
@@ -300,7 +302,7 @@ read-only hydration loader のルール:
 | `playlist_entries_hydration` | `playlist_id IS NOT NULL` の playlist entries を raw reader / bulk factory で materialize し、`BMSTable.entries` setter で table に attach する |
 | `playlist_ref_apply` | playlist entries 完了後に library item と playlist reference を結び直す |
 | `playlist_url_completion` / `external_playlist_sync` | playlist entries 完了後に URL 補完・外部 playlist 同期を行う |
-| `chart_info_hydration` | DB の current `chart_info` と current parse failure を session index へ適用する |
+| `chart_info_hydration` | profile に依存せずDBの current `chart_info` と current parse failure を owned chart と照合し、session index と candidate summaryを作る |
 | `chart_info_backfill` | 不足がある場合だけ補完する。全 owner が current の場合は `reason=hydration_all_current` で skip する |
 | `maintenance_hydration` | DB の persisted maintenance snapshot を owner へ attach し、resource health index を valid snapshot から rebuild する |
 | `installable_maintenance` | `chart_info_hydration` と `maintenance_hydration` 完了後に missing/stale maintenance を補完する |

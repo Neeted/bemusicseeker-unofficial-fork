@@ -708,8 +708,6 @@ public partial class BMSLibrary : ObservableObject
 
     private object lockStorageRowsVersion => catalogStorageRowsOwner.VersionGate;
 
-    private const long Lr2SongDbSyncCompletedStatusImplicitChartInfoParseTimeoutMs = 60000L;
-
     private object lockChartInfoBackfill => catalogChartInfoOwner.BackfillGate;
 
     private List<ChartInfoBackfillRequest> chartInfoBackfillRequests => catalogChartInfoOwner.BackfillRequests;
@@ -2660,8 +2658,7 @@ public partial class BMSLibrary : ObservableObject
             () => CurrentOptionsSnapshot,
             LogInstallPerformanceWarn,
             HandleCatalogChartInfoOwnerEvent,
-            BeginOwnedDigestMutationWindow,
-            lr2SynchronizationOwner);
+            BeginOwnedDigestMutationWindow);
         resourceHealthOwner = new(
             maintenanceService,
             LogInstallPerformance,

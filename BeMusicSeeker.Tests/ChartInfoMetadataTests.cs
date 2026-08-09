@@ -3156,9 +3156,11 @@ createTempDirectory);
         });
     }
 
-    [TestMethod]
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     [DoNotParallelize]
-    public void DeferredChartInfoHydration_UsesAllCurrentFastPathAndLazyLoadsDisplayIndex()
+    public void DeferredChartInfoHydration_UsesActualDataInBothModesAndSkipsFullBackfillWhenCurrent(bool operationModeLr2Db)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
@@ -3187,30 +3189,21 @@ createTempDirectory);
             bool originalOperationMode = Settings.Default.OperationModeLR2DB;
             try
             {
-                Settings.Default.OperationModeLR2DB = true;
+                Settings.Default.OperationModeLR2DB = operationModeLr2Db;
                 var options = new BmsLibraryOptionsSnapshot
                 {
-                    OperationModeLR2DB = true,
+                    OperationModeLR2DB = operationModeLr2Db,
                 };
-                string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                if (operationModeLr2Db)
                 {
-                    Lr2SongDbSyncStatusService.MarkCompleted(
-                        songDb,
-                        signature,
-                        runId: "unit-test",
-                        totalCount: 1,
-                        nowUtc: DateTime.UtcNow);
+                    string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
+                    using var songDb = new LR2SongDBExtended(songDbPath);
+                    Lr2SongDbSyncStatusService.MarkCompleted(songDb, signature, "unit-test", 1, DateTime.UtcNow);
                 }
                 var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
                 {
                     BMSFiles = [file]
                 };
-                InvokeCaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
-                    library,
-                    options,
-                    new SongTableFileCheckResult(),
-                    "unit_test");
 
                 Assert.IsFalse(library.ChartInfoIndexHydrated);
                 Assert.AreEqual(0, library.ChartInfoIndexVersion);
@@ -3219,8 +3212,8 @@ createTempDirectory);
                 InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: true);
 
                 Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
-                Assert.IsFalse(library.ChartInfoIndexHydrated, "all-current fast path should not pretend to have a full hydrated index.");
-                Assert.AreEqual(0, library.ChartInfoIndexVersion);
+                Assert.IsTrue(library.ChartInfoIndexHydrated);
+                Assert.IsTrue(library.ChartInfoIndexVersion > 0);
                 Assert.AreEqual(1, library.ChartInfoBackfillRequestedVersion);
                 Assert.AreEqual(1, library.ChartInfoBackfillCompletedVersion);
                 Assert.AreEqual(1, library.ChartInfoHydrationTotalCount);
@@ -3229,9 +3222,133 @@ createTempDirectory);
 
                 Assert.IsNotNull(resolved);
                 Assert.AreEqual(sha, resolved.sha256);
-                Assert.IsFalse(library.ChartInfoIndexHydrated);
-                Assert.IsTrue(library.ChartInfoIndexVersion > 0);
                 AssertChartInfoDisplayProjectionEquivalent(row, resolved);
+            }
+            finally
+            {
+                Settings.Default.OperationModeLR2DB = originalOperationMode;
+            }
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CatalogChartInfoOwner_ActualDataAllCurrentSnapshotSkipsCandidateSummary(bool operationModeLr2Db)
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string md5 = new('a', 32);
+            string sha256 = new('1', 64);
+            string chartPath = Path.Combine(tempRootPath, "current-snapshot.bms");
+            var file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(md5);
+            file.SetSha256(sha256);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, chartPath, md5);
+                songDb.InsertOrReplace(CreateChartDigestRow(md5, sha256), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(
+                    CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
+                    typeof(LR2SongDBExtended.chart_info));
+            }
+
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            storageRowsOwner.ReplaceBmsRows([file]);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
+            var logs = new ConcurrentQueue<string>();
+            var events = new ConcurrentQueue<CatalogChartInfoOwnerEvent>();
+            var owner = new CatalogChartInfoOwner(
+                _ => { },
+                () => false,
+                (_, _) => false,
+                null,
+                logs.Enqueue);
+            owner.ConfigureWorkflow(
+                gateway,
+                mutationOwner,
+                storageRowsOwner,
+                ownedCollectionOwner,
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = operationModeLr2Db },
+                logs.Enqueue,
+                events.Enqueue);
+
+            owner.QueueDeferredHydration("unit_test_all_current", queueFullBackfillAfterHydration: true);
+
+            Assert.IsTrue(
+                SpinWait.SpinUntil(
+                    () => owner.ChartInfoHydrationCompletedVersion == owner.ChartInfoHydrationRequestedVersion
+                        && owner.ChartInfoBackfillCompletedVersion == owner.ChartInfoBackfillRequestedVersion
+                        && !owner.ChartInfoHydrationRunning
+                        && !owner.ChartInfoBackfillRunning,
+                    10000),
+                "chart-info hydration/backfill skip did not complete.");
+            Assert.IsTrue(logs.Any(message => message.StartsWith("chart_info_backfill skipped reason=hydration_all_current", StringComparison.Ordinal)));
+            Assert.IsFalse(logs.Any(message => message.StartsWith("chart_info_backfill candidate_summary_start", StringComparison.Ordinal)));
+            Assert.AreEqual(0, owner.ChartInfoBackfillTotalCount);
+            Assert.AreEqual(0, owner.ChartInfoBackfillProcessedCount);
+            Assert.IsTrue(events.Any(ownerEvent =>
+                ownerEvent.Kind == CatalogChartInfoOwnerEventKind.StartupMemoryCheckpoint
+                && ownerEvent.CheckpointStage == "chart_info_backfill"
+                && ownerEvent.CheckpointStatus == "skipped"));
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void DeferredChartInfoHydration_MissingCurrentRowBackfillsRegardlessOfCompletedLr2Status(bool operationModeLr2Db)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "missing-current.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(digest.hash);
+            file.SetSha256(digest.sha256);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, chartPath, file.hash);
+                songDb.InsertOrReplace(CreateChartDigestRow(file.hash, file.sha256), typeof(LR2SongDBExtended.chart_digest_map));
+                if (operationModeLr2Db)
+                {
+                    string signature = Lr2SongDbSyncSignatureBuilder.Build(new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true });
+                    Lr2SongDbSyncStatusService.MarkCompleted(songDb, signature, "unit-test", 1, DateTime.UtcNow);
+                }
+            }
+            bool originalOperationMode = Settings.Default.OperationModeLR2DB;
+            try
+            {
+                Settings.Default.OperationModeLR2DB = operationModeLr2Db;
+                var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+                {
+                    BMSFiles = [file]
+                };
+
+                InvokeDeferredChartInfoHydration(library, "unit_test_missing", queueFullBackfillAfterHydration: true);
+
+                Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration/backfill did not complete.");
+                Assert.IsTrue(WaitForChartInfoBackfill(library), "chart_info backfill did not complete.");
+                using var verify = new LR2SongDBExtended(songDbPath);
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.sha256));
             }
             finally
             {
@@ -4590,15 +4707,6 @@ createTempDirectory);
         MethodInfo method = typeof(BMSLibrary).GetMethod("QueueDeferredChartInfoHydration", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(method, "QueueDeferredChartInfoHydration method was not found.");
         method.Invoke(library, [reason, queueFullBackfillAfterHydration]);
-    }
-
-    private static void InvokeCaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
-        BMSLibrary library,
-        BmsLibraryOptionsSnapshot options,
-        SongTableFileCheckResult result,
-        string reason)
-    {
-        library.Lr2Synchronization.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, result, reason);
     }
 
     private static bool WaitForChartInfoHydration(BMSLibrary library)

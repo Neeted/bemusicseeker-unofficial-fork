@@ -84,8 +84,6 @@ internal sealed class CatalogChartInfoOwner
 
     private ChartInfoHydrationAllCurrentSnapshot hydrationAllCurrentSnapshot;
 
-    private ILr2ChartInfoTrustPort lr2ChartInfoTrustPort;
-
     private bool chartInfoHydrationRunningValue;
 
     private int chartInfoHydrationRequestedVersionValue;
@@ -151,8 +149,7 @@ internal sealed class CatalogChartInfoOwner
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         Action<string> logWarning,
         Action<CatalogChartInfoOwnerEvent> workflowEvent,
-        Func<IDisposable> beginDigestMutationWindow = null,
-        ILr2ChartInfoTrustPort lr2ChartInfoTrustPort = null)
+        Func<IDisposable> beginDigestMutationWindow = null)
     {
         workflowDbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         workflowMutationOwner = mutationOwner ?? throw new ArgumentNullException(nameof(mutationOwner));
@@ -162,7 +159,6 @@ internal sealed class CatalogChartInfoOwner
         workflowLogWarning = logWarning;
         this.workflowEvent = workflowEvent;
         workflowBeginDigestMutationWindow = beginDigestMutationWindow ?? (() => EmptyDisposable.Instance);
-        this.lr2ChartInfoTrustPort = lr2ChartInfoTrustPort;
     }
 
     internal object BackfillGate => backfillGate;
@@ -745,7 +741,7 @@ internal sealed class CatalogChartInfoOwner
             ChartInfoHydrationResult result;
             try
             {
-                result = HydrateChartInfos(reason, allowAllCurrentFastPath: queueBackfillAfterHydration);
+                result = HydrateChartInfos(reason);
             }
             catch (Exception ex)
             {
@@ -769,8 +765,6 @@ internal sealed class CatalogChartInfoOwner
                 + " currentChartInfoOwners=" + result.CurrentChartInfoOwnerCount
                 + " currentParseFailureOwners=" + result.CurrentParseFailureOwnerCount
                 + " backfillCandidateOwners=" + result.BackfillCandidateOwnerCount
-                + " fastPath=" + result.FastPath.ToString().ToLowerInvariant()
-                + " candidateSummaryMs=" + result.CandidateSummaryMs
                 + " dbMode=" + (string.IsNullOrWhiteSpace(result.DbMaterializeMode) ? "unknown" : result.DbMaterializeMode)
                 + " dbLoadMs=" + result.DbLoadMs
                 + " dbMaterializeMs=" + result.DbMaterializeMs
@@ -829,21 +823,12 @@ internal sealed class CatalogChartInfoOwner
         }
     }
 
-    private ChartInfoHydrationResult HydrateChartInfos(string reason, bool allowAllCurrentFastPath = false)
+    private ChartInfoHydrationResult HydrateChartInfos(string reason)
     {
         EnsureWorkflowConfigured();
         var result = new ChartInfoHydrationResult();
         var totalStopwatch = Stopwatch.StartNew();
         LogPerformance?.Invoke("chart_info_hydration start reason=" + (reason ?? "unknown"));
-        if (allowAllCurrentFastPath
-            && TryCreateAllCurrentHydrationResultFromCompletedLr2SongDbSync(
-                reason,
-                totalStopwatch,
-                out ChartInfoHydrationResult fastPathResult))
-        {
-            return fastPathResult;
-        }
-
         Dictionary<string, LR2SongDBExtended.chart_info> chartInfoMap;
         HashSet<string> currentChartInfoSha256s;
         HashSet<string> currentParseFailureMd5s;
@@ -1043,104 +1028,6 @@ internal sealed class CatalogChartInfoOwner
         return requestVersion;
     }
 
-    private bool TryCreateAllCurrentHydrationResultFromCompletedLr2SongDbSync(
-        string reason,
-        Stopwatch totalStopwatch,
-        out ChartInfoHydrationResult result)
-    {
-        result = null;
-        var stopwatch = Stopwatch.StartNew();
-        ChartInfoCompletedLr2SongDbSyncTrustSnapshot trustSnapshot = lr2ChartInfoTrustPort?.GetCurrent();
-        if (trustSnapshot == null)
-        {
-            stopwatch.Stop();
-            LogPerformance?.Invoke("chart_info_hydration_fast_path skipped reason=no_completed_song_db_sync_trust"
-                + " requestReason=" + (reason ?? "unknown")
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-            return false;
-        }
-
-        BmsLibraryOptionsSnapshot options = workflowOptionsSnapshotProvider();
-        if (options?.OperationModeLR2DB != true)
-        {
-            stopwatch.Stop();
-            LogPerformance?.Invoke("chart_info_hydration_fast_path skipped reason=lr2_mode_disabled"
-                + " requestReason=" + (reason ?? "unknown")
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-            return false;
-        }
-
-        long parseTimeoutMs = Math.Max(0L, (long)Math.Ceiling(buildService.CurrentParseTimeout.TotalMilliseconds));
-        if (parseTimeoutMs != 60000L)
-        {
-            stopwatch.Stop();
-            LogPerformance?.Invoke("chart_info_hydration_fast_path skipped reason=parse_timeout_not_represented_in_status"
-                + " requestReason=" + (reason ?? "unknown")
-                + " parseTimeoutMs=" + parseTimeoutMs
-                + " implicitStatusParseTimeoutMs=60000"
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-            return false;
-        }
-
-        string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
-        Lr2SongDbSyncStatusSnapshot status;
-        try
-        {
-            using LR2SongDBExtended songDb = workflowDbGateway.OpenSongDb();
-            status = Lr2SongDbSyncStatusService.Evaluate(songDb, enabled: true, signature, DateTime.UtcNow);
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            LogPerformance?.Invoke("chart_info_hydration_fast_path skipped reason=status_failed"
-                + " requestReason=" + (reason ?? "unknown")
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                + " message=" + ex.Message);
-            return false;
-        }
-
-        if (status == null || status.Status != Lr2SongDbSyncStatusKind.Completed)
-        {
-            stopwatch.Stop();
-            LogPerformance?.Invoke("chart_info_hydration_fast_path skipped reason=status_not_completed"
-                + " requestReason=" + (reason ?? "unknown")
-                + " status=" + (status?.Status.ToString() ?? "(null)")
-                + " storedStatus=" + (status?.StoredStatus?.ToString() ?? "(none)")
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-            return false;
-        }
-
-        stopwatch.Stop();
-        totalStopwatch.Stop();
-        result = new ChartInfoHydrationResult
-        {
-            Succeeded = true,
-            FastPath = true,
-            CandidateSummaryMs = stopwatch.ElapsedMilliseconds,
-            TotalRows = trustSnapshot.OwnerCount,
-            ChartInfoRows = 0,
-            OwnerCount = trustSnapshot.OwnerCount,
-            CurrentChartInfoOwnerCount = trustSnapshot.OwnerCount,
-            CurrentParseFailureOwnerCount = 0,
-            BackfillCandidateOwnerCount = 0,
-            LoadMs = stopwatch.ElapsedMilliseconds,
-            TotalMs = totalStopwatch.ElapsedMilliseconds
-        };
-        CaptureHydrationAllCurrentSnapshot(
-            result,
-            trustSnapshot.OwnedCollectionVersion,
-            trustSnapshot.BmsRowsVersion,
-            trustSnapshot.BmsonRowsVersion);
-        LogPerformance?.Invoke("chart_info_hydration_fast_path used"
-            + " source=completed_song_db_sync"
-            + " requestReason=" + (reason ?? "unknown")
-            + " trustReason=" + (trustSnapshot.Reason ?? "unknown")
-            + " owners=" + trustSnapshot.OwnerCount
-            + " status=" + status.Status
-            + " elapsedMs=" + result.TotalMs);
-        return true;
-    }
-
     internal void ClearHydrationAllCurrentSnapshot(string reason)
     {
         bool cleared = false;
@@ -1315,7 +1202,6 @@ internal sealed class CatalogChartInfoOwner
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                lr2ChartInfoTrustPort?.Clear("lazy_display_index_load_failed");
                 ClearHydrationAllCurrentSnapshot("lazy_display_index_load_failed");
                 workflowLogWarning?.Invoke("chart_info_lazy_display_index_load failed reason=" + (reason ?? "unknown")
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds

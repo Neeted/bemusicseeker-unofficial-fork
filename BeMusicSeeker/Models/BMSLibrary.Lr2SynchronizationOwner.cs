@@ -26,7 +26,6 @@ public partial class BMSLibrary
     /// The facade exposes only the application-facing observable projection.
     /// </summary>
     internal sealed class Lr2SynchronizationOwner :
-        ILr2ChartInfoTrustPort,
         ILr2PlaylistFolderSynchronizationPort,
         ICatalogWriteFailureSink,
         INotifyPropertyChanged
@@ -37,11 +36,7 @@ public partial class BMSLibrary
 
         private readonly ILr2SynchronizationProjectionPort projection;
 
-        private readonly object chartInfoTrustGate = new();
-
         private readonly object mutationSequenceGate = new();
-
-        private ChartInfoCompletedLr2SongDbSyncTrustSnapshot chartInfoTrustSnapshot;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -1010,71 +1005,6 @@ public partial class BMSLibrary
                         ? entry.LastWriteTimeUtc
                         : null;
             };
-        }
-
-        ChartInfoCompletedLr2SongDbSyncTrustSnapshot ILr2ChartInfoTrustPort.GetCurrent()
-        {
-            ChartInfoCompletedLr2SongDbSyncTrustSnapshot snapshot;
-            lock (chartInfoTrustGate)
-            {
-                snapshot = chartInfoTrustSnapshot;
-            }
-            ChartInfoOwnerVersionSnapshot currentVersion = data.CaptureChartInfoOwnerVersionSnapshot();
-            return snapshot?.IsCurrent(currentVersion) == true ? snapshot : null;
-        }
-
-        void ILr2ChartInfoTrustPort.Clear(string reason) => ClearChartInfoTrust(reason);
-
-        internal void CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
-            BmsLibraryOptionsSnapshot options,
-            SongTableFileCheckResult fileCheckResult,
-            string reason)
-        {
-            ChartInfoLr2TrustInput trustInput = ChartInfoLr2TrustInput.Create(options, fileCheckResult);
-            if (trustInput?.CanTrust != true)
-            {
-                ClearChartInfoTrust("file_diff_changed_" + (reason ?? "unknown"));
-                return;
-            }
-            ChartInfoOwnerVersionSnapshot version = data.CaptureChartInfoOwnerVersionSnapshot();
-            var snapshot = new ChartInfoCompletedLr2SongDbSyncTrustSnapshot
-            {
-                OwnedCollectionVersion = version.OwnedCollectionVersion,
-                BmsRowsVersion = version.BmsRowsVersion,
-                BmsonRowsVersion = version.BmsonRowsVersion,
-                BmsOwnerCount = version.BmsOwnerCount,
-                BmsonOwnerCount = version.BmsonOwnerCount,
-                Reason = reason ?? "unknown"
-            };
-            lock (chartInfoTrustGate)
-            {
-                chartInfoTrustSnapshot = snapshot;
-            }
-            BMSLibrary.LogInstallPerformance("chart_info_song_db_sync_trust captured"
-                + " reason=" + (reason ?? "unknown")
-                + " ownerCount=" + snapshot.OwnerCount
-                + " bmsOwners=" + snapshot.BmsOwnerCount
-                + " bmsonOwners=" + snapshot.BmsonOwnerCount
-                + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
-                + " bmsRowsVersion=" + snapshot.BmsRowsVersion
-                + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
-        }
-
-        private void ClearChartInfoTrust(string reason)
-        {
-            bool cleared = false;
-            lock (chartInfoTrustGate)
-            {
-                if (chartInfoTrustSnapshot != null)
-                {
-                    chartInfoTrustSnapshot = null;
-                    cleared = true;
-                }
-            }
-            if (cleared)
-            {
-                BMSLibrary.LogInstallPerformance("chart_info_song_db_sync_trust cleared reason=" + (reason ?? "unknown"));
-            }
         }
 
         internal void CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(

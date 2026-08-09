@@ -151,6 +151,8 @@ metadata は `lr2_song_db_sync_status` の `name=default` row に保持し、sta
 steady-state 起動では、`Completed` かつ signature が一致していれば full sync を行いません。
 旧 schema や過去バージョン由来 row の追加検査を startup tail に混ぜて status を再評価しません。
 
+この status は `chart_info` row の現存・完全性・currentnessを表しません。chart-info hydrationはLR2 linkedでもstandaloneでも実在する`chart_info`、current parse failure、owned chartを照合し、`Completed` statusをskip条件に使いません。statusのscopeとchart-info lifecycleの境界は [chart-info-lifecycle.md](chart-info-lifecycle.md) を正本とします。
+
 root 変更、custom folder 出力設定変更、playlist 出力変更、file diff、前回 incomplete / failed / cancelled などは同期必要判定または scoped sync の入力です。
 同期が必要な場合は、startup initialization 完了後の background workflow として進捗・キャンセル・失敗状態を UI / log に出します。
 同期中は read-only 操作を許容し、DB mutation を伴う操作は制限します。

@@ -60,10 +60,6 @@ internal sealed class ChartInfoHydrationResult
 
     public long DbRawObjectMs { get; set; }
 
-    public bool FastPath { get; set; }
-
-    public long CandidateSummaryMs { get; set; }
-
     public bool DbReadOnly { get; set; }
 
     public long DbLockWaitMs { get; set; }
@@ -111,69 +107,6 @@ internal sealed class ChartInfoOwnerVersionSnapshot
     public int BmsonOwnerCount { get; set; }
 
     public int OwnerCount => BmsOwnerCount + BmsonOwnerCount;
-}
-
-/// <summary>
-/// Immutable LR2 completion fact consumed by chart-info hydration. The mutable
-/// file-diff result never crosses into the chart-info owner's lifecycle state.
-/// </summary>
-internal sealed class ChartInfoLr2TrustInput
-{
-    private ChartInfoLr2TrustInput(bool canTrust)
-    {
-        CanTrust = canTrust;
-    }
-
-    internal bool CanTrust { get; }
-
-    internal static ChartInfoLr2TrustInput Create(
-        BmsLibraryOptionsSnapshot options,
-        SongTableFileCheckResult fileCheckResult)
-    {
-        bool canTrust = options?.OperationModeLR2DB == true
-            && fileCheckResult != null
-            && fileCheckResult.BmsAddedTargetCount == 0
-            && fileCheckResult.BmsDeletedTargetCount == 0
-            && fileCheckResult.BmsMovedHashRelinkCount == 0
-            && fileCheckResult.BmsMovedHashRelinkAmbiguousCount == 0
-            && fileCheckResult.BmsonUpsertTargetCount == 0
-            && fileCheckResult.BmsonDeletedTargetCount == 0
-            && fileCheckResult.InlineChartInfoTargetCount == 0
-            && fileCheckResult.InlineChartInfoSuccessCount == 0
-            && fileCheckResult.InlineChartInfoParseFailedCount == 0
-            && fileCheckResult.InlineChartInfoFailurePersistedCount == 0
-            && fileCheckResult.InlineChartInfoFailureClearedCount == 0
-            && fileCheckResult.InlineChartInfoParseFailureRows.Count == 0
-            && fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count == 0;
-        return new ChartInfoLr2TrustInput(canTrust);
-    }
-}
-
-internal sealed class ChartInfoCompletedLr2SongDbSyncTrustSnapshot
-{
-    public int OwnedCollectionVersion { get; set; }
-
-    public int BmsRowsVersion { get; set; }
-
-    public int BmsonRowsVersion { get; set; }
-
-    public int BmsOwnerCount { get; set; }
-
-    public int BmsonOwnerCount { get; set; }
-
-    public string Reason { get; set; }
-
-    public int OwnerCount => BmsOwnerCount + BmsonOwnerCount;
-
-    public bool IsCurrent(ChartInfoOwnerVersionSnapshot version)
-    {
-        return version != null
-            && OwnedCollectionVersion == version.OwnedCollectionVersion
-            && BmsRowsVersion == version.BmsRowsVersion
-            && BmsonRowsVersion == version.BmsonRowsVersion
-            && BmsOwnerCount == version.BmsOwnerCount
-            && BmsonOwnerCount == version.BmsonOwnerCount;
-    }
 }
 
 internal sealed class ChartInfoIndexUpdateResult

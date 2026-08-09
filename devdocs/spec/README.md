@@ -12,28 +12,31 @@
    - 起動、導入可能 readiness、startup background scheduler。
 3. [data-and-indexes.md](data-and-indexes.md)
    - catalog、resource index、chart-relative key、DB table。
-4. [path-identity.md](path-identity.md)
+4. [chart-info-lifecycle.md](chart-info-lifecycle.md)
+   - `chart_info` currentness、actual-data hydration、parse failure、session index、backfill。
+5. [path-identity.md](path-identity.md)
    - DB 上の `path` identity、case-sensitive exact match、`COLLATE NOCASE` の利用制限。
-5. [path-length-and-io.md](path-length-and-io.md)
+6. [path-length-and-io.md](path-length-and-io.md)
    - 長パスを含む譜面ファイル I/O、内部ファイル操作、保存 path と extended-length path の境界、読めないファイルの集約方針。
-6. [library-mutation-boundary.md](library-mutation-boundary.md)
+7. [library-mutation-boundary.md](library-mutation-boundary.md)
    - 譜面 / パッケージ操作の共通 mutation 境界、dialog / report、UI / model lock 契約。
-7. [lr2-song-db-generation.md](lr2-song-db-generation.md)
+8. [lr2-song-db-generation.md](lr2-song-db-generation.md)
    - LR2 連携モードの `song.db` 生成、`song` / `folder`、`.lr2folder`、自動更新設定。
-8. [install-estimation-current-logic.md](install-estimation-current-logic.md)
+9. [install-estimation-current-logic.md](install-estimation-current-logic.md)
    - 導入先推定の現行仕様。
-9. [playlist-url-download-resolution.md](playlist-url-download-resolution.md)
+10. [playlist-url-download-resolution.md](playlist-url-download-resolution.md)
    - プレイリスト `URL1` / `URL2` の自動ダウンロード解決、一括取り込み、対応サイト。
-10. [workflows.md](workflows.md)
+11. [workflows.md](workflows.md)
    - リロード、導入、再インストールなどの主要処理フロー。
-11. [logging-policy.md](logging-policy.md)
+12. [logging-policy.md](logging-policy.md)
    - アプリログ、性能診断ログ、出力先、ローテーション、起動引数互換。
-12. [testing-strategy.md](testing-strategy.md)
+13. [testing-strategy.md](testing-strategy.md)
    - 通常検証、parser 互換検証、大容量 fixture、性能検証の切り分け。
 
 ## 機能別仕様
 
 - [chart-file-read-pipeline.md](chart-file-read-pipeline.md)
+- [chart-info-lifecycle.md](chart-info-lifecycle.md)
 - [chart-info-parser-compatibility-notes.md](chart-info-parser-compatibility-notes.md)
 - [startup-reload-progress.md](startup-reload-progress.md)
 - [settings-change-impact-and-startup-operations.md](settings-change-impact-and-startup-operations.md)
