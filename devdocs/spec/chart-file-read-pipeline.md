@@ -160,6 +160,8 @@ current owned BMS song rows
   -> parallel workers
        ChartFileContentReader.CreateSnapshot(buffer)
        Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(...)
+       preloaded current chart_info / parse-failure facts と
+       ChartInfoBuildService.EvaluateSnapshot(...) で currentness / parse 判定
        recoverable failure は existing row copy fallback
   -> ordered single writer
        current chart_info apply
@@ -178,10 +180,12 @@ computed queue capacity と各譜面ファイルサイズに依存する。queue
 bytes-only producer として動き、worker が MD5 / SHA-256 計算、snapshot 作成、parse / enrich を担当する。BMS row の生成は file diff と同じ `Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(...)` を通し、LR2 song.db sync 専用の別 parser 経路を持たない。
 pipeline log では `readMs` と `digestMs` / `parseMs` を分けて確認できる。
 
-`song_rows` stage は `chart_info` full backfill 自体を再実装しない。current parser version の
-`chart_info` は `ChartInfoBuildService` 側で先に補完し、`song_rows` writer は chunk 内の対象 hash に対する
-current row を lookup して `song` numeric columns に反映する。LR2 compatibility facts は resource health /
-encoding row を置換せず、maintenance の LR2 列だけを targeted update する。
+`song_rows` stage は full backfill を先に完了済みとは仮定しない。run 開始時に current parser version の
+`chart_info` resolver と timeout-aware current parse-failure MD5 set を memory snapshot として取得する。worker は
+追加の file read や DB query を行わず、song row 用と同じ `ChartFileSnapshot` とその事前取得 facts を
+`ChartInfoBuildService.EvaluateSnapshot(...)` へ渡す。current row は parse せず適用し、current failure は parse を省略し、
+missing / stale row だけを同じ bytes から解析する。writer は結果を song row の transaction owner へ渡す。
+LR2 compatibility facts は resource health / encoding row を置換せず、maintenance の LR2 列だけを targeted update する。
 
 初回自動 LR2 song.db sync は、直前の file diff が大量の譜面を read / parse している場合、`song_rows`
 stage を独立 pipeline として再実行する前に file diff の durable coverage を見る。LR2 `song.db` 同期が有効な run では、file diff と LR2 song.db sync が完全に同じ generated song row を作ることを契約にし、同一 scan/input generation、全 current BMS owner path の durable commit、inline maintenance / chart_info coverage、moved hash relink ambiguity なしを満たす場合は `song_rows` stage を skip する。DB projection による全 generated column / digest 比較は高コストな drift 診断に下げ、manual resync、force、signature mismatch、coverage 不足では従来どおり read pipeline を実行する。途中終了した場合に備え、coverage skip target は永続化しない。
@@ -198,7 +202,7 @@ full backfill は、既存 DB 補完用の background 処理として残す。
 
 full backfill は path から bytes を read する reader pipeline を維持する。file diff / package install で inline 済みの譜面は、current `chart_info` により file read 前に skip される。
 
-`ChartInfoBuildService` の full backfill は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は reader を 2 本まで並列化できる。reader は `readAllBytes` delegate で bytes だけを取得し、MD5 / SHA-256 計算、current parse failure 判定、`ChartInfoParser.ParseBytesDetailed(...)` は worker 側で行う。`chart_info_backfill start/done` log には `workerCount`、`readerCount`、`queueCapacity`、`fileReadCount`、`fileReadBytes`、`readMs`、`parseMs` が出る。
+`ChartInfoBuildService` の full backfill は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は reader を 2 本まで並列化できる。reader は `readAllBytes` delegate で bytes だけを取得し、worker は MD5 / SHA-256 を一度だけ計算して snapshot を作り、事前解決した current row / parse failure とともに route-neutral evaluator へ渡す。`chart_info_backfill start/done` log には `workerCount`、`readerCount`、`queueCapacity`、`fileReadCount`、`fileReadBytes`、`readMs`、`parseMs` が出る。
 
 full backfill は新規ファイル追加の後処理ではない。新規・更新ファイルの lightweight parse、chart_info、可能な範囲の maintenance は file diff / install の処理単位で完了させる。
 
@@ -231,7 +235,7 @@ full backfill は新規ファイル追加の後処理ではない。新規・更
 - 新規追加譜面は後続 full backfill に回さず、追加処理中に inline `chart_info` まで進める。
 - full backfill は「既にライブラリにある譜面の補完」用と考える。
 - path-only API を新しい大量処理で使う場合は、二重 read にならないか確認する。
-- parser の挙動差を避けるため、inline と full backfill は `ChartInfoParser.ParseBytesDetailed(...)` を共通入口にする。
+- parser と failure mapping の挙動差を避けるため、inline、full backfill、LR2 `song_rows` は `ChartInfoBuildService.EvaluateSnapshot(...)` を共通入口にする。
 - current skip した既存 row を、file diff result や commit callback に全件載せない。これは bounded queue / chunk commit を無効化する大きなメモリ要因になる。
 - chunk commit 後は、DB 保存用 staging、inline `chart_info` staging、parse failure staging を速やかに破棄する。
 - file diff 由来の `WAVfiles` / `BGAfiles` は、maintenance row 作成後に速やかに破棄する。これを `installable_maintenance_deferred` まで保持すると、大量追加時の memory peak を作る。

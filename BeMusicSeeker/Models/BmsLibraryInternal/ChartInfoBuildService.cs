@@ -88,40 +88,41 @@ internal sealed class ChartInfoBuildService
             chartInfoChunkWriter);
     }
 
-    internal InlineChartInfoBuildResult BuildInlineChartInfo(
+    /// <summary>
+    /// Evaluates one immutable chart snapshot against facts resolved by the orchestration route.
+    /// The evaluator performs no file or database access and gives current chart-info precedence
+    /// over a current parse failure.
+    /// </summary>
+    internal ChartInfoSnapshotBuildResult EvaluateSnapshot(
         ChartFileSnapshot snapshot,
-        ChartFile chart,
-        IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
+        ChartInfoBuildTarget target,
+        LR2SongDBExtended.chart_info currentRow,
+        bool hasCurrentParseFailure,
+        TimeSpan? parseTimeout = null,
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null)
     {
+        if (target == null)
+        {
+            throw new ArgumentNullException(nameof(target));
+        }
+
+        string md5 = string.IsNullOrWhiteSpace(snapshot?.Md5) ? target.Md5 : snapshot.Md5;
+        string sha256 = string.IsNullOrWhiteSpace(snapshot?.Sha256) ? target.Sha256 : snapshot.Sha256;
+        long byteCount = snapshot?.Length ?? 0L;
+        TimeSpan resolvedParseTimeout = parseTimeout ?? ResolveParseTimeout();
+
+        if (IsCurrentChartInfoRow(currentRow, md5))
+        {
+            return ChartInfoSnapshotBuildResult.CreateCurrentRowSkipped(currentRow, byteCount);
+        }
+        if (hasCurrentParseFailure)
+        {
+            return ChartInfoSnapshotBuildResult.CreateFailureSkipped(byteCount);
+        }
         if (snapshot == null)
         {
-            throw new ArgumentNullException(nameof(snapshot));
-        }
-        if (chart == null)
-        {
-            throw new ArgumentNullException(nameof(chart));
-        }
-        if (!ChartInfoBuildTargetMapper.HasSingleStorageOwner(chart))
-        {
-            throw new ArgumentException("Exactly one chart model must be specified.");
-        }
-
-        ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(chart);
-        string md5 = string.IsNullOrWhiteSpace(snapshot.Md5) ? target.Md5 : snapshot.Md5;
-        string sha256 = string.IsNullOrWhiteSpace(snapshot.Sha256) ? target.Sha256 : snapshot.Sha256;
-        TimeSpan parseTimeout = ResolveParseTimeout();
-
-        if (IsCurrent(existingRows, sha256))
-        {
-            LR2SongDBExtended.chart_info row = existingRows[sha256];
-            return InlineChartInfoBuildResult.CreateCurrentRowSkipped(row, snapshot.Length);
-        }
-        if (IsCurrentParseFailure(currentFailures, md5))
-        {
-            return InlineChartInfoBuildResult.CreateFailureSkipped(snapshot.Length);
+            return ChartInfoSnapshotBuildResult.CreateUnavailable();
         }
 
         var stopwatch = Stopwatch.StartNew();
@@ -135,19 +136,20 @@ internal sealed class ChartInfoBuildService
                 md5,
                 sha256,
                 encodingName: null,
-                timeout: parseTimeout);
+                timeout: resolvedParseTimeout);
             stopwatch.Stop();
             LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
             LR2SongDBExtended.chart_info row = parseResult.Row;
-            return InlineChartInfoBuildResult.CreateSuccess(row, md5, stopwatch.ElapsedMilliseconds, snapshot.Length);
+            return ChartInfoSnapshotBuildResult.CreateSuccess(row, md5, stopwatch.ElapsedMilliseconds, byteCount);
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
             logInstallPerformanceWarn?.Invoke(BuildParseFailureLogMessage(target, md5, sha256, ex));
             bool timeoutFailed = ex is ChartInfoParser.ChartInfoParseTimeoutException;
-            return InlineChartInfoBuildResult.CreateParseFailure(
-                new LR2SongDBExtended.chart_info_parse_failure
+            LR2SongDBExtended.chart_info_parse_failure failureRow = string.IsNullOrWhiteSpace(md5)
+                ? null
+                : new LR2SongDBExtended.chart_info_parse_failure
                 {
                     md5 = md5,
                     sha256 = sha256,
@@ -156,12 +158,14 @@ internal sealed class ChartInfoBuildService
                     failure_kind = timeoutFailed ? "timeout" : "parse_failed",
                     exception_type = ex.GetType().Name,
                     message = NormalizePersistedParseFailureMessage(ex.Message),
-                    parse_timeout_ms = timeoutFailed ? ResolveTimeoutMilliseconds(parseTimeout) : null,
+                    parse_timeout_ms = timeoutFailed ? ResolveTimeoutMilliseconds(resolvedParseTimeout) : null,
                     updated_at = DateTime.UtcNow
-                },
+                };
+            return ChartInfoSnapshotBuildResult.CreateParseFailure(
+                failureRow,
                 timeoutFailed,
                 stopwatch.ElapsedMilliseconds,
-                snapshot.Length);
+                byteCount);
         }
     }
 
@@ -394,38 +398,27 @@ internal sealed class ChartInfoBuildService
         ChartInfoBuildTarget target = item.Target;
         string md5 = string.IsNullOrWhiteSpace(target.Md5) ? ComputeHash(item.Bytes, MD5.Create()) : target.Md5;
         string sha256 = string.IsNullOrWhiteSpace(target.Sha256) ? ComputeHash(item.Bytes, SHA256.Create()) : target.Sha256;
-        if (IsCurrentParseFailure(currentFailures, md5))
-        {
-            return new ChartInfoBuildItemResult(target, sha256, null, reusedExistingRow: false, parseFailed: false, skippedPersistedFailure: true);
-        }
-        if (IsCurrent(existingRows, sha256))
-        {
-            return new ChartInfoBuildItemResult(target, sha256, existingRows[sha256], reusedExistingRow: true, parseFailed: false);
-        }
-        try
-        {
-            // maintenance.encoding is for list/LR2 song display correction. chart_info must use
-            // the parser's beatoraja-compatible default BMS decoding instead of that UI hint.
-            ChartInfoParser.ChartInfoParseResult parseResult = ChartInfoParser.ParseBytesDetailed(item.Bytes, target.Path, md5, sha256, encodingName: null, timeout: parseTimeout);
-            LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
-            LR2SongDBExtended.chart_info row = parseResult.Row;
-            return new ChartInfoBuildItemResult(target, sha256, row, reusedExistingRow: false, parseFailed: false);
-        }
-        catch (Exception ex)
-        {
-            logInstallPerformanceWarn?.Invoke(BuildParseFailureLogMessage(target, md5, sha256, ex));
-            bool timeoutFailed = ex is ChartInfoParser.ChartInfoParseTimeoutException;
-            return new ChartInfoBuildItemResult(
-                target,
-                sha256,
-                null,
-                reusedExistingRow: false,
-                parseFailed: true,
-                timeoutFailed: timeoutFailed,
-                failureExceptionType: ex.GetType().Name,
-                failureMessage: NormalizePersistedParseFailureMessage(ex.Message),
-                parseTimeoutMs: ResolveTimeoutMilliseconds(parseTimeout));
-        }
+        LR2SongDBExtended.chart_info currentRow = null;
+        existingRows?.TryGetValue(sha256, out currentRow);
+        var snapshot = new ChartFileSnapshot(target.Path, item.Bytes, DateTime.MinValue, md5, sha256);
+        ChartInfoSnapshotBuildResult snapshotResult = EvaluateSnapshot(
+            snapshot,
+            target,
+            currentRow,
+            IsCurrentParseFailure(currentFailures, md5),
+            parseTimeout,
+            logInstallPerformance,
+            logInstallPerformanceWarn);
+        return new ChartInfoBuildItemResult(
+            target,
+            sha256,
+            snapshotResult.Row,
+            reusedExistingRow: snapshotResult.CurrentRowSkipped,
+            parseFailed: snapshotResult.ParseFailed,
+            timeoutFailed: snapshotResult.TimeoutFailed,
+            skippedPersistedFailure: snapshotResult.SkippedPersistedFailure,
+            parseFailureRow: snapshotResult.ParseFailureRow,
+            parseFailureDeleteMd5: snapshotResult.ParseFailureDeleteMd5);
     }
 
     private static void ConsumeBuildResults(
@@ -506,7 +499,7 @@ internal sealed class ChartInfoBuildService
             {
                 commitBuffer.AddChartInfo(itemResult.Target, itemResult.Row);
             }
-            commitBuffer.AddParseFailureDelete(itemResult.Target);
+            commitBuffer.AddParseFailureDelete(itemResult.ParseFailureDeleteMd5);
         }
         if (itemResult.ParseFailed)
         {
@@ -669,7 +662,7 @@ internal sealed class ChartInfoBuildService
         }
     }
 
-    private static List<ChartInfoBuildTarget> BuildTargets(
+    private List<ChartInfoBuildTarget> BuildTargets(
         IEnumerable<ChartFile> currentCharts,
         IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
         IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
@@ -682,7 +675,17 @@ internal sealed class ChartInfoBuildService
             {
                 continue;
             }
-            if (!string.IsNullOrWhiteSpace(chart.Sha256) && IsCurrent(existingRows, chart.Sha256))
+            LR2SongDBExtended.chart_info currentRow = null;
+            if (!string.IsNullOrWhiteSpace(chart.Sha256))
+            {
+                existingRows?.TryGetValue(chart.Sha256, out currentRow);
+            }
+            ChartInfoSnapshotBuildResult currentness = EvaluateSnapshot(
+                null,
+                ChartInfoBuildTargetMapper.Create(chart),
+                currentRow,
+                IsCurrentParseFailure(currentFailures, chart.Md5));
+            if (currentness.CurrentRowSkipped)
             {
                 result.CurrentRowSkippedCount++;
                 continue;
@@ -691,7 +694,7 @@ internal sealed class ChartInfoBuildService
             {
                 continue;
             }
-            if (IsCurrentParseFailure(currentFailures, chart.Md5))
+            if (currentness.SkippedPersistedFailure)
             {
                 result.FailureSkippedCount++;
                 continue;
@@ -714,13 +717,13 @@ internal sealed class ChartInfoBuildService
         return [.. targets.Values];
     }
 
-    private static bool IsCurrent(IDictionary<string, LR2SongDBExtended.chart_info> existingRows, string sha256)
+    private static bool IsCurrentChartInfoRow(LR2SongDBExtended.chart_info row, string md5)
     {
-        return existingRows != null
-            && !string.IsNullOrWhiteSpace(sha256)
-            && existingRows.TryGetValue(sha256, out LR2SongDBExtended.chart_info row)
-            && row != null
-            && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
+        return row != null
+            && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion
+            && (string.IsNullOrWhiteSpace(md5)
+                || string.IsNullOrWhiteSpace(row.md5)
+                || string.Equals(md5, row.md5, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsCurrentParseFailure(IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures, string md5)
@@ -960,9 +963,12 @@ internal sealed class ChartInfoBuildService
         public byte[] Bytes { get; } = bytes ?? [];
     }
 
-    internal sealed class InlineChartInfoBuildResult
+    /// <summary>
+    /// Immutable outcome of evaluating one chart snapshot against pre-resolved current facts.
+    /// </summary>
+    internal sealed class ChartInfoSnapshotBuildResult
     {
-        private InlineChartInfoBuildResult(
+        private ChartInfoSnapshotBuildResult(
             LR2SongDBExtended.chart_info row,
             bool shouldPersistRow,
             bool currentRowSkipped,
@@ -986,29 +992,40 @@ internal sealed class ChartInfoBuildService
             ByteCount = byteCount;
         }
 
+        /// <summary>Gets the current or newly parsed row to apply to the chart model.</summary>
         public LR2SongDBExtended.chart_info Row { get; }
 
+        /// <summary>Gets whether <see cref="Row"/> is newly parsed and must be persisted.</summary>
         public bool ShouldPersistRow { get; }
 
+        /// <summary>Gets whether a current row was reused without parsing.</summary>
         public bool CurrentRowSkipped { get; }
 
+        /// <summary>Gets whether a current persisted failure suppressed parsing.</summary>
         public bool SkippedPersistedFailure { get; }
 
+        /// <summary>Gets whether snapshot parsing failed.</summary>
         public bool ParseFailed { get; }
 
+        /// <summary>Gets whether the parse failure was a timeout.</summary>
         public bool TimeoutFailed { get; }
 
+        /// <summary>Gets the failure row to persist, when its MD5 identity is known.</summary>
         public LR2SongDBExtended.chart_info_parse_failure ParseFailureRow { get; }
 
+        /// <summary>Gets the MD5 whose stale failure row must be deleted after parse success.</summary>
         public string ParseFailureDeleteMd5 { get; }
 
+        /// <summary>Gets the elapsed parser time in milliseconds.</summary>
         public long ParseMs { get; }
 
+        /// <summary>Gets the number of snapshot bytes evaluated.</summary>
         public long ByteCount { get; }
 
-        public static InlineChartInfoBuildResult CreateSuccess(LR2SongDBExtended.chart_info row, string parseFailureDeleteMd5, long parseMs, long byteCount)
+        /// <summary>Creates the outcome for a newly parsed current row.</summary>
+        public static ChartInfoSnapshotBuildResult CreateSuccess(LR2SongDBExtended.chart_info row, string parseFailureDeleteMd5, long parseMs, long byteCount)
         {
-            return new InlineChartInfoBuildResult(
+            return new ChartInfoSnapshotBuildResult(
                 row,
                 shouldPersistRow: true,
                 currentRowSkipped: false,
@@ -1021,9 +1038,10 @@ internal sealed class ChartInfoBuildService
                 byteCount: byteCount);
         }
 
-        public static InlineChartInfoBuildResult CreateCurrentRowSkipped(LR2SongDBExtended.chart_info row, long byteCount)
+        /// <summary>Creates the outcome for a pre-resolved current row.</summary>
+        public static ChartInfoSnapshotBuildResult CreateCurrentRowSkipped(LR2SongDBExtended.chart_info row, long byteCount)
         {
-            return new InlineChartInfoBuildResult(
+            return new ChartInfoSnapshotBuildResult(
                 row,
                 shouldPersistRow: false,
                 currentRowSkipped: true,
@@ -1036,9 +1054,10 @@ internal sealed class ChartInfoBuildService
                 byteCount: byteCount);
         }
 
-        public static InlineChartInfoBuildResult CreateFailureSkipped(long byteCount)
+        /// <summary>Creates the outcome for a current persisted failure.</summary>
+        public static ChartInfoSnapshotBuildResult CreateFailureSkipped(long byteCount)
         {
-            return new InlineChartInfoBuildResult(
+            return new ChartInfoSnapshotBuildResult(
                 null,
                 shouldPersistRow: false,
                 currentRowSkipped: false,
@@ -1051,9 +1070,10 @@ internal sealed class ChartInfoBuildService
                 byteCount: byteCount);
         }
 
-        public static InlineChartInfoBuildResult CreateParseFailure(LR2SongDBExtended.chart_info_parse_failure parseFailureRow, bool timeoutFailed, long parseMs, long byteCount)
+        /// <summary>Creates the outcome for a failed parse attempt.</summary>
+        public static ChartInfoSnapshotBuildResult CreateParseFailure(LR2SongDBExtended.chart_info_parse_failure parseFailureRow, bool timeoutFailed, long parseMs, long byteCount)
         {
-            return new InlineChartInfoBuildResult(
+            return new ChartInfoSnapshotBuildResult(
                 null,
                 shouldPersistRow: false,
                 currentRowSkipped: false,
@@ -1064,6 +1084,22 @@ internal sealed class ChartInfoBuildService
                 parseFailureDeleteMd5: null,
                 parseMs: parseMs,
                 byteCount: byteCount);
+        }
+
+        /// <summary>Creates the outcome used when no current fact or readable snapshot is available.</summary>
+        public static ChartInfoSnapshotBuildResult CreateUnavailable()
+        {
+            return new ChartInfoSnapshotBuildResult(
+                null,
+                shouldPersistRow: false,
+                currentRowSkipped: false,
+                skippedPersistedFailure: false,
+                parseFailed: false,
+                timeoutFailed: false,
+                parseFailureRow: null,
+                parseFailureDeleteMd5: null,
+                parseMs: 0L,
+                byteCount: 0L);
         }
     }
 
@@ -1076,9 +1112,8 @@ internal sealed class ChartInfoBuildService
         bool timeoutFailed = false,
         bool readFailed = false,
         bool skippedPersistedFailure = false,
-        string failureExceptionType = null,
-        string failureMessage = null,
-        int? parseTimeoutMs = null)
+        LR2SongDBExtended.chart_info_parse_failure parseFailureRow = null,
+        string parseFailureDeleteMd5 = null)
     {
         public ChartInfoBuildTarget Target { get; } = target;
 
@@ -1096,11 +1131,9 @@ internal sealed class ChartInfoBuildService
 
         public bool SkippedPersistedFailure { get; } = skippedPersistedFailure;
 
-        public string FailureExceptionType { get; } = failureExceptionType;
+        public LR2SongDBExtended.chart_info_parse_failure ParseFailureRow { get; } = parseFailureRow;
 
-        public string FailureMessage { get; } = failureMessage;
-
-        public int? ParseTimeoutMs { get; } = parseTimeoutMs;
+        public string ParseFailureDeleteMd5 { get; } = parseFailureDeleteMd5;
 
         public long ParseMs { get; set; }
 
@@ -1178,33 +1211,22 @@ internal sealed class ChartInfoBuildService
 
         public void AddParseFailure(ChartInfoBuildItemResult itemResult)
         {
-            if (itemResult?.Target == null || string.IsNullOrWhiteSpace(itemResult.Target.Md5))
+            if (itemResult?.ParseFailureRow == null)
             {
                 return;
             }
-            ParseFailureRows.Add(new LR2SongDBExtended.chart_info_parse_failure
-            {
-                md5 = itemResult.Target.Md5,
-                sha256 = itemResult.Sha256,
-                path = itemResult.Target.Path,
-                parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
-                failure_kind = itemResult.TimeoutFailed ? "timeout" : "parse_failed",
-                exception_type = itemResult.FailureExceptionType,
-                message = itemResult.FailureMessage,
-                parse_timeout_ms = itemResult.TimeoutFailed ? itemResult.ParseTimeoutMs : null,
-                updated_at = DateTime.UtcNow
-            });
+            ParseFailureRows.Add(itemResult.ParseFailureRow);
         }
 
-        public void AddParseFailureDelete(ChartInfoBuildTarget target)
+        public void AddParseFailureDelete(string md5)
         {
-            if (target == null || string.IsNullOrWhiteSpace(target.Md5))
+            if (string.IsNullOrWhiteSpace(md5))
             {
                 return;
             }
-            if (!ParseFailureDeleteMd5s.Contains(target.Md5, StringComparer.OrdinalIgnoreCase))
+            if (!ParseFailureDeleteMd5s.Contains(md5, StringComparer.OrdinalIgnoreCase))
             {
-                ParseFailureDeleteMd5s.Add(target.Md5);
+                ParseFailureDeleteMd5s.Add(md5);
             }
         }
 

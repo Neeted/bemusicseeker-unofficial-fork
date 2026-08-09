@@ -69,6 +69,12 @@ internal sealed class Lr2SongDbSyncRequest
 
     public ISet<string> CurrentChartInfoParseFailureMd5s { get; set; }
 
+    /// <summary>
+    /// Gets the single-read boundary used by the song-row reader stage. Tests can observe
+    /// the contract without changing the worker, whose only chart input remains the buffer.
+    /// </summary>
+    public Func<string, ChartFileReadBuffer> ChartFileBufferReader { get; init; }
+
     public Action<IReadOnlyList<LR2SongDBExtended.chart_info>> ChartInfoRowsCommitted { get; init; }
 
     /// <summary>
@@ -299,13 +305,13 @@ internal sealed class Lr2StartupScanBlockerCleanupResult(
 
 internal static class Lr2SongDbSyncService
 {
+    private static readonly ChartInfoBuildService chartInfoBuildService = new();
+
     private const int SongRowSyncMaxWorkerDegree = 6;
 
     private const string TempLr2CompatibilityMaintenanceTable = "lr2_song_db_sync_compatibility_maintenance";
 
     private const string TempLr2CompatibilityMaintenanceMatchTable = "lr2_song_db_sync_compatibility_maintenance_match";
-
-    private const int MaxPersistedChartInfoParseFailureMessageLength = 1024;
 
     internal const string CompletedStage = "completed";
 
@@ -2293,6 +2299,7 @@ internal static class Lr2SongDbSyncService
                 generatedChartInfoByMd5.TryAdd(row.md5, row);
             }
         }
+        void LogChartInfoEvaluation(string message) => LogSync(request, message);
         using var readQueue = new BlockingCollection<SongRowSyncReadCandidate>(readQueueCapacity);
         using var computedQueue = new BlockingCollection<SongRowSyncComputedItem>(computedQueueCapacity);
         long readerOutputWaitTicks = 0L;
@@ -2608,7 +2615,10 @@ internal static class Lr2SongDbSyncService
                         cancellationToken.ThrowIfCancellationRequested();
                         SongRowSyncReadCandidate candidate = ShouldTransientSkipSongRow(targetRows[index], transientSkipPaths)
                             ? SongRowSyncReadCandidate.CreateTransientSkipped(index, targetRows[index])
-                            : ReadSyncSongRowCandidate(index, targetRows[index]);
+                            : ReadSyncSongRowCandidate(
+                                index,
+                                targetRows[index],
+                                request?.ChartFileBufferReader ?? ChartFileContentReader.ReadBuffer);
                         AddWithWait(readQueue, candidate, ref readerOutputWaitTicks, pipelineToken);
                         windowSlotTransferred = true;
                         UpdateHighWatermark(ref readQueueHighWatermark, readQueue.Count);
@@ -2650,7 +2660,9 @@ internal static class Lr2SongDbSyncService
                         chartInfoResolver,
                         CacheGeneratedChartInfo,
                         request?.ChartInfoParseTimeout,
-                        request?.CurrentChartInfoParseFailureMd5s);
+                        request?.CurrentChartInfoParseFailureMd5s,
+                        LogChartInfoEvaluation,
+                        LogChartInfoEvaluation);
                     int evaluatedStageProcessed = Interlocked.Increment(ref evaluatedStageProcessedCount);
                     ReportSongRowsWorkerProgress(evaluatedStageProcessed);
                     try
@@ -2913,7 +2925,10 @@ internal static class Lr2SongDbSyncService
         }
     }
 
-    private static SongRowSyncReadCandidate ReadSyncSongRowCandidate(int index, BMSFile existingSong)
+    private static SongRowSyncReadCandidate ReadSyncSongRowCandidate(
+        int index,
+        BMSFile existingSong,
+        Func<string, ChartFileReadBuffer> readBuffer)
     {
         if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.path))
         {
@@ -2923,7 +2938,7 @@ internal static class Lr2SongDbSyncService
         try
         {
             var stopwatch = Stopwatch.StartNew();
-            ChartFileReadBuffer buffer = ChartFileContentReader.ReadBuffer(existingSong.path);
+            ChartFileReadBuffer buffer = readBuffer(existingSong.path);
             stopwatch.Stop();
             return new SongRowSyncReadCandidate(index, existingSong, buffer, stopwatch.ElapsedTicks);
         }
@@ -2947,7 +2962,9 @@ internal static class Lr2SongDbSyncService
         Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver,
         Action<LR2SongDBExtended.chart_info> generatedChartInfoAvailable,
         TimeSpan? chartInfoParseTimeout,
-        ISet<string> currentChartInfoParseFailureMd5s)
+        ISet<string> currentChartInfoParseFailureMd5s,
+        Action<string> logInstallPerformance,
+        Action<string> logInstallPerformanceWarn)
     {
         if (candidate?.TransientSkipped == true)
         {
@@ -2970,24 +2987,32 @@ internal static class Lr2SongDbSyncService
         if (row != null)
         {
             long chartInfoStart = Stopwatch.GetTimestamp();
-            LR2SongDBExtended.chart_info chartInfo = chartInfoResolver?.Invoke(row);
-            if (!IsUsableChartInfo(row, chartInfo))
-            {
-                chartInfo = null;
-            }
-            if (chartInfo == null && IsCurrentChartInfoParseFailure(row, candidate, snapshot, currentChartInfoParseFailureMd5s))
-            {
-                chartInfoParseFailureSkipped = true;
-            }
-            else if (chartInfo == null && TryBuildChartInfoFromSnapshot(
+            ChartFile chart = ChartFileProjection.FromBmsFile(
+                row,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false);
+            ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(chart);
+            LR2SongDBExtended.chart_info currentRow = chartInfoResolver?.Invoke(row);
+            bool hasCurrentParseFailure = IsCurrentChartInfoParseFailure(
+                row,
                 candidate,
                 snapshot,
+                currentChartInfoParseFailureMd5s);
+            ChartInfoBuildService.ChartInfoSnapshotBuildResult snapshotResult = chartInfoBuildService.EvaluateSnapshot(
+                snapshot,
+                target,
+                currentRow,
+                hasCurrentParseFailure,
                 chartInfoParseTimeout,
-                out generatedChartInfoRow,
-                out chartInfoParseFailureRow,
-                out chartInfoParseFailureDeleteMd5))
+                logInstallPerformance,
+                logInstallPerformanceWarn);
+            LR2SongDBExtended.chart_info chartInfo = snapshotResult.Row;
+            generatedChartInfoRow = snapshotResult.ShouldPersistRow ? snapshotResult.Row : null;
+            chartInfoParseFailureRow = snapshotResult.ParseFailureRow;
+            chartInfoParseFailureDeleteMd5 = snapshotResult.ParseFailureDeleteMd5;
+            chartInfoParseFailureSkipped = snapshotResult.SkippedPersistedFailure;
+            if (generatedChartInfoRow != null)
             {
-                chartInfo = generatedChartInfoRow;
                 generatedChartInfoAvailable?.Invoke(generatedChartInfoRow);
             }
             chartInfoApplied = TryApplyChartInfoRow(row, chartInfo);
@@ -3066,76 +3091,6 @@ internal static class Lr2SongDbSyncService
                 ? snapshot.Md5
                 : candidate?.ExistingSong?.hash);
         return !string.IsNullOrWhiteSpace(md5) && currentChartInfoParseFailureMd5s.Contains(md5);
-    }
-
-    private static bool TryBuildChartInfoFromSnapshot(
-        SongRowSyncReadCandidate candidate,
-        ChartFileSnapshot snapshot,
-        TimeSpan? parseTimeout,
-        out LR2SongDBExtended.chart_info row,
-        out LR2SongDBExtended.chart_info_parse_failure parseFailureRow,
-        out string parseFailureDeleteMd5)
-    {
-        row = null;
-        parseFailureRow = null;
-        parseFailureDeleteMd5 = null;
-        if (snapshot == null || string.IsNullOrWhiteSpace(snapshot.Path))
-        {
-            return false;
-        }
-
-        string md5 = !string.IsNullOrWhiteSpace(snapshot.Md5)
-            ? snapshot.Md5
-            : candidate?.ExistingSong?.hash;
-        string sha256 = !string.IsNullOrWhiteSpace(snapshot.Sha256)
-            ? snapshot.Sha256
-            : candidate?.ExistingSong?.sha256;
-        try
-        {
-            ChartInfoParser.ChartInfoParseResult parseResult = ChartInfoParser.ParseBytesDetailed(
-                snapshot.Bytes,
-                snapshot.Path,
-                md5,
-                sha256,
-                encodingName: null,
-                timeout: parseTimeout);
-            row = parseResult.Row;
-            if (!string.IsNullOrWhiteSpace(row?.md5))
-            {
-                parseFailureDeleteMd5 = row.md5;
-            }
-            return row != null;
-        }
-        catch (Exception ex)
-        {
-            if (!string.IsNullOrWhiteSpace(md5))
-            {
-                bool timeoutFailed = ex is ChartInfoParser.ChartInfoParseTimeoutException;
-                parseFailureRow = new LR2SongDBExtended.chart_info_parse_failure
-                {
-                    md5 = md5,
-                    sha256 = sha256,
-                    path = snapshot.Path,
-                    parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
-                    failure_kind = timeoutFailed ? "timeout" : "parse_failed",
-                    exception_type = ex.GetType().Name,
-                    message = NormalizePersistedChartInfoParseFailureMessage(ex.Message),
-                    parse_timeout_ms = timeoutFailed && parseTimeout.HasValue
-                        ? Math.Max(0, (int)Math.Ceiling(parseTimeout.Value.TotalMilliseconds))
-                        : null,
-                    updated_at = DateTime.UtcNow
-                };
-            }
-            return false;
-        }
-    }
-
-    private static string NormalizePersistedChartInfoParseFailureMessage(string message)
-    {
-        string normalized = string.IsNullOrWhiteSpace(message) ? string.Empty : message.Trim();
-        return normalized.Length <= MaxPersistedChartInfoParseFailureMessageLength
-            ? normalized
-            : normalized.Substring(0, MaxPersistedChartInfoParseFailureMessageLength);
     }
 
     private static BMSFile CreateSyncSongRow(
@@ -3218,11 +3173,6 @@ internal static class Lr2SongDbSyncService
         {
             return false;
         }
-        if (!IsUsableChartInfo(row, chartInfo))
-        {
-            return false;
-        }
-
         row.ApplyLr2ChartInfoDetailedColumns(chartInfo);
         return true;
     }
@@ -3274,24 +3224,6 @@ internal static class Lr2SongDbSyncService
             }
             return null;
         };
-    }
-
-    private static bool IsChartInfoCompatible(BMSFile row, LR2SongDBExtended.chart_info chartInfo)
-    {
-        if (row == null || chartInfo == null)
-        {
-            return false;
-        }
-        return string.IsNullOrWhiteSpace(row.hash)
-            || string.IsNullOrWhiteSpace(chartInfo.md5)
-            || string.Equals(row.hash, chartInfo.md5, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsUsableChartInfo(BMSFile row, LR2SongDBExtended.chart_info chartInfo)
-    {
-        return chartInfo != null
-            && chartInfo.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion
-            && IsChartInfoCompatible(row, chartInfo);
     }
 
     private sealed class Lr2CompatibilityFactsWriteResult(int updatedCount, int insertedCount)

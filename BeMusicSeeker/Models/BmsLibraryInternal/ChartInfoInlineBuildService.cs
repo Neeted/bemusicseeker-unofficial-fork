@@ -40,21 +40,27 @@ internal sealed class ChartInfoInlineBuildService(
         {
             Dictionary<string, LR2SongDBExtended.chart_info> currentRows = LoadCurrentRows(dbGateway, batch.Select(target => target.Snapshot));
             var stopwatch = Stopwatch.StartNew();
-            var inlineResults = new List<ChartInfoBuildService.InlineChartInfoBuildResult>(batch.Count);
+            var inlineResults = new List<ChartInfoBuildService.ChartInfoSnapshotBuildResult>(batch.Count);
             foreach (InlineChartSnapshotTarget target in batch)
             {
-                inlineResults.Add(chartInfoBuildService.BuildInlineChartInfo(
+                string sha256 = target.Snapshot.Sha256;
+                string md5 = target.Snapshot.Md5;
+                currentRows.TryGetValue(sha256, out LR2SongDBExtended.chart_info currentRow);
+                inlineResults.Add(chartInfoBuildService.EvaluateSnapshot(
                     target.Snapshot,
-                    target.Chart,
-                    currentRows,
-                    currentFailures,
-                    logInstallPerformance,
-                    logInstallPerformanceWarn));
+                    ChartInfoBuildTargetMapper.Create(target.Chart),
+                    currentRow,
+                    currentFailures != null
+                        && !string.IsNullOrWhiteSpace(md5)
+                        && currentFailures.ContainsKey(md5),
+                    parseTimeout: null,
+                    logInstallPerformance: logInstallPerformance,
+                    logInstallPerformanceWarn: logInstallPerformanceWarn));
             }
             stopwatch.Stop();
             result.ParseMs += stopwatch.ElapsedMilliseconds;
             result.TargetCount += batch.Count;
-            foreach (ChartInfoBuildService.InlineChartInfoBuildResult inlineResult in inlineResults)
+            foreach (ChartInfoBuildService.ChartInfoSnapshotBuildResult inlineResult in inlineResults)
             {
                 ApplyResult(result, inlineResult);
             }
@@ -98,7 +104,7 @@ internal sealed class ChartInfoInlineBuildService(
         return total;
     }
 
-    internal static void ApplyResult(ChartInfoInlineBuildResult result, ChartInfoBuildService.InlineChartInfoBuildResult inlineResult)
+    internal static void ApplyResult(ChartInfoInlineBuildResult result, ChartInfoBuildService.ChartInfoSnapshotBuildResult inlineResult)
     {
         if (result == null || inlineResult == null)
         {

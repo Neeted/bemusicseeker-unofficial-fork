@@ -5796,7 +5796,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void SyncService_BuildsChartInfoFromSongRowSnapshotsWhenNoResolverIsProvided()
+    public void SyncService_UsesResolverFactsAndReadsEachSongRowSnapshotOnce()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "ChartInfo");
@@ -5816,25 +5816,45 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-        songDb.InsertOrReplace(CreateChartInfo(currentSnapshot.Sha256, currentSnapshot.Md5, level: 7), typeof(LR2SongDBExtended.chart_info));
-        songDb.InsertOrReplace(CreateChartInfo(staleSnapshot.Sha256, staleSnapshot.Md5, level: 9, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1), typeof(LR2SongDBExtended.chart_info));
-        songDb.InsertOrReplace(CreateChartInfo(mismatchSnapshot.Sha256, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", level: 11), typeof(LR2SongDBExtended.chart_info));
+        LR2SongDBExtended.chart_info currentInfo = CreateChartInfo(currentSnapshot.Sha256, currentSnapshot.Md5, level: 77);
+        LR2SongDBExtended.chart_info staleInfo = CreateChartInfo(staleSnapshot.Sha256, staleSnapshot.Md5, level: 99, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
+        LR2SongDBExtended.chart_info mismatchInfo = CreateChartInfo(mismatchSnapshot.Sha256, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", level: 99);
+        songDb.InsertOrReplace(currentInfo, typeof(LR2SongDBExtended.chart_info));
+        songDb.InsertOrReplace(staleInfo, typeof(LR2SongDBExtended.chart_info));
+        songDb.InsertOrReplace(mismatchInfo, typeof(LR2SongDBExtended.chart_info));
+        var serviceReadCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        object serviceReadCountsSync = new();
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "chart-info-current",
             RunId = "chart-info-current",
             SongRows = [currentFile, staleFile, mismatchFile],
+            ChartInfoResolver = CreateChartInfoResolver([currentInfo, staleInfo, mismatchInfo]),
+            ChartFileBufferReader = path =>
+            {
+                lock (serviceReadCountsSync)
+                {
+                    serviceReadCounts[path] = serviceReadCounts.TryGetValue(path, out int count) ? count + 1 : 1;
+                }
+                return ChartFileContentReader.ReadBuffer(path);
+            },
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
         Assert.AreEqual(3, result.SongRowProcessedCount);
         Assert.AreEqual(3, result.SongRowChartInfoAppliedCount);
-        Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COALESCE(karinotes, -1) FROM song WHERE path = ?;", currentPath));
+        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COALESCE(karinotes, -1) FROM song WHERE path = ?;", currentPath));
         Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COALESCE(karinotes, -1) FROM song WHERE path = ?;", stalePath));
         Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COALESCE(karinotes, -1) FROM song WHERE path = ?;", mismatchPath));
         Assert.AreEqual(3L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+        Assert.AreEqual(77, songDb.ExecuteScalar<int>("SELECT level FROM chart_info WHERE sha256 = ?;", currentSnapshot.Sha256));
+        Assert.AreEqual(9, songDb.ExecuteScalar<int>("SELECT level FROM chart_info WHERE sha256 = ?;", staleSnapshot.Sha256));
+        Assert.AreEqual(11, songDb.ExecuteScalar<int>("SELECT level FROM chart_info WHERE sha256 = ?;", mismatchSnapshot.Sha256));
+        Assert.AreEqual(1, serviceReadCounts[currentPath]);
+        Assert.AreEqual(1, serviceReadCounts[stalePath]);
+        Assert.AreEqual(1, serviceReadCounts[mismatchPath]);
     }
 
     [TestMethod]
@@ -5896,6 +5916,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             [
                 CreateChartInfo(snapshot.Sha256, snapshot.Md5, level: 13)
             ]),
+            CurrentChartInfoParseFailureMd5s = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                snapshot.Md5
+            },
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });

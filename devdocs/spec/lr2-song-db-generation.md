@@ -158,6 +158,8 @@ root 変更、custom folder 出力設定変更、playlist 出力変更、file di
 同期中は read-only 操作を許容し、DB mutation を伴う操作は制限します。
 full sync の主要 stage は、normal folder、`.lr2folder` file、song row、stale prune、diagnostic、completed の順です。
 
+`song_rows` stage は開始時に current parser version の `chart_info` resolver と timeout-aware current parse-failure MD5 set を取得します。各 worker は、song generated columns に使う既存の `ChartFileSnapshot` とこの事前取得 facts を route-neutral chart-info evaluator へ渡します。worker 内で譜面を追加読取したり、`chart_info` / parse failure を DB query したりしません。missing / stale `chart_info` は LR2 専用 parser ではなく inline / full backfill と同じ evaluator で生成します。
+
 ## Startup Scan Diagnostic
 
 startup scan diagnostic は、LR2 が起動時に再帰スキャンへ進みそうな `folder` row の欠落や stale date を検出・修復するための補助処理です。

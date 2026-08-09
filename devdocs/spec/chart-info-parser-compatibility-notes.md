@@ -635,6 +635,8 @@ chart_info full backfill は「bounded file readers + in-memory parallel parse +
 
 新規追加・更新譜面と package install 譜面は、現在は dedicated added backfill へ回さず、file diff / install 処理中の `ChartFileSnapshot` bytes から inline chart_info を生成する。full backfill は、旧バージョンや外部操作で作られた既存 DB の補完用として残す。
 
+parser algorithm と caller orchestration は分離する。inline、full backfill、LR2 `song_rows` は、単一 snapshot と事前解決した current row / parse-failure fact を `ChartInfoBuildService.EvaluateSnapshot(...)` へ渡し、`ChartInfoParser.ParseBytesDetailed(...)` の呼出し、timeout、exception / failure result mapping、永続化 message normalization を共有する。この共通化で parser compatibility の期待値自体は変更しない。
+
 ログで見るべき境界:
 
 - `chart_info_backfill start`

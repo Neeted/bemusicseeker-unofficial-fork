@@ -19,6 +19,15 @@
 
 current `chart_info` と current parse failure が併存する場合は `chart_info` を採用する。stale parser version の row、または現在の parse timeout より短い timeout で記録された failure は current としない。
 
+この分類と parse result mapping の正本は `ChartInfoBuildService.EvaluateSnapshot(...)` である。caller は、既に読んだ単一 `ChartFileSnapshot`、owner identity、事前に取得した current row、current failure の有無を渡す。evaluator 自身は file read、DB query、DB writeを行わず、次のいずれかを返す。
+
+- current row を適用する結果
+- current failure により parse を省略する結果
+- snapshot bytes を current parser で解析した成功または failure 結果
+- snapshot が得られず解析できない unavailable 結果
+
+inline file diff / package install、full backfill、LR2 `song_rows` は同じ evaluator を使う。各経路が異なるのは、snapshot と currentness facts の準備、結果の staging、transaction ownership だけであり、parser、優先順位、failure message normalization を分岐させない。
+
 ## Startup Hydration
 
 LR2 linked と standalone は同じ actual-data hydration を使う。read-only loader が実在する current `chart_info` と current parse failure を取得し、owned chart summary と照合して session index と candidate count を作る。この read phase は schema ensure や hidden writeを行わず、install readiness を同期 block しない。
@@ -34,6 +43,8 @@ actual-data hydration が全 owner を current info または current failure �
 ## Failure Contract
 
 hydration DB read が失敗した場合は all-current を合成せず、失敗をログへ残す。current `chart_info` がなければ、current failure の削除後は次回判定で candidate へ戻る。current `chart_info` がある場合は、failure を削除しても info 優先順位により再解析しない。
+
+parse timeout、parser exception、最終 parse failure は evaluator が同じ result mapping と bounded message normalization を適用する。digest を計算できた failure は `chart_info_parse_failure` の永続化候補を返し、成功時は同じ MD5 の failure を削除する候補を返す。DB write と削除の transaction は各 orchestration owner が管理する。
 
 ## Related Specifications
 
