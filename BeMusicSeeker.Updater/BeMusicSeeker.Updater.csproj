@@ -7,5 +7,8 @@
     <Prefer32Bit>false</Prefer32Bit>
     <LangVersion>14.0</LangVersion>
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <OptimizationPreference>Size</OptimizationPreference>
   </PropertyGroup>
 </Project>

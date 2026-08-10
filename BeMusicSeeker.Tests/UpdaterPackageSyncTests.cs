@@ -1509,6 +1509,21 @@ public sealed class UpdaterPackageSyncTests
     private static string FindUpdaterExecutable()
     {
         string repositoryRoot = FindRepositoryRoot();
+        string? publishedRoot = Environment.GetEnvironmentVariable("BMS_SCD_UPDATER_PUBLISH_ROOT");
+        if (!string.IsNullOrWhiteSpace(publishedRoot))
+        {
+            string publishedExecutable = Path.Combine(
+                Path.GetFullPath(publishedRoot),
+                "BeMusicSeeker.Updater.exe");
+            if (!File.Exists(publishedExecutable))
+            {
+                throw new FileNotFoundException(
+                    "The explicitly selected published updater executable was not found.",
+                    publishedExecutable);
+            }
+            return publishedExecutable;
+        }
+
         var frameworkDirectory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         string targetFramework = frameworkDirectory.Name;
         string configuration = frameworkDirectory.Parent?.Name ?? "Debug";

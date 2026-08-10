@@ -47,6 +47,9 @@ public sealed class UpdaterDeploymentBoundaryTests
             ?? throw new AssertFailedException("Updater project XML has no root element.");
         Assert.AreEqual("net10.0-windows", (string)updaterRoot.Descendants("TargetFramework").Single());
         Assert.AreEqual("x64", (string)updaterRoot.Descendants("PlatformTarget").Single());
+        Assert.AreEqual("true", (string)updaterRoot.Descendants("PublishAot").Single());
+        Assert.AreEqual("true", (string)updaterRoot.Descendants("IsAotCompatible").Single());
+        Assert.AreEqual("Size", (string)updaterRoot.Descendants("OptimizationPreference").Single());
 
         string updaterProfilePath = Path.Combine(
             repositoryRoot,
@@ -57,10 +60,14 @@ public sealed class UpdaterDeploymentBoundaryTests
         XDocument updaterProfile = XDocument.Load(updaterProfilePath);
         AssertProfileValue(updaterProfile, "RuntimeIdentifier", "win-x64");
         AssertProfileValue(updaterProfile, "SelfContained", "true");
-        AssertProfileValue(updaterProfile, "PublishSingleFile", "true");
-        AssertProfileValue(updaterProfile, "IncludeNativeLibrariesForSelfExtract", "true");
-        AssertProfileValue(updaterProfile, "PublishTrimmed", "false");
         AssertProfileValue(updaterProfile, "PublishReadyToRun", "false");
+        AssertProfileValueAbsent(updaterProfile, "PublishSingleFile");
+        AssertProfileValueAbsent(updaterProfile, "IncludeNativeLibrariesForSelfExtract");
+        AssertProfileValueAbsent(updaterProfile, "EnableCompressionInSingleFile");
+        AssertProfileValueAbsent(updaterProfile, "PublishTrimmed");
+        AssertProfileValueAbsent(updaterProfile, "StackTraceSupport");
+        AssertProfileValueAbsent(updaterProfile, "InvariantGlobalization");
+        AssertProfileValueAbsent(updaterProfile, "UseSystemResourceKeys");
 
         string selectedAppProfilePath = Path.Combine(
             repositoryRoot,
@@ -292,6 +299,16 @@ public sealed class UpdaterDeploymentBoundaryTests
             .SingleOrDefault(element => string.Equals(element.Name.LocalName, propertyName, StringComparison.Ordinal))
             ?? throw new AssertFailedException($"Publish profile property is missing: {propertyName}");
         Assert.AreEqual(expectedValue, property.Value, propertyName);
+    }
+
+    private static void AssertProfileValueAbsent(XDocument profile, string propertyName)
+    {
+        Assert.IsFalse(
+            profile.Descendants().Any(element => string.Equals(
+                element.Name.LocalName,
+                propertyName,
+                StringComparison.Ordinal)),
+            $"Publish profile property must remain absent: {propertyName}");
     }
 
     private static string FindRepositoryRoot()
