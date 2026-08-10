@@ -144,6 +144,10 @@ ScrollBar は `SimpleScrollBar` を `ScrollBar.*` key に接続し、標準 `Scr
 
 メインウィンドウは `Background` / `Foreground` をテーマ resource へ接続する。
 
+ウィンドウ外周は、content の measure を縮めない 1 DIP の表示専用 overlay frame とする。frame は `IsHitTestVisible=False` で、非アクティブ時は `App.SubtleTextBrush`、アクティブ時は `App.AccentBrush` を `DynamicResource` で使用する。最大化時は既存の `windowBorder` の 8 DIP margin と同じ座標系で内側へ移動し、native resize border の hit test を妨げない。
+
+キャプションボタンの通常色はウィンドウの active / inactive にかかわらず `App.SubtleTextBrush` とする。accent 色はキャプションボタンではなく active window の外周に使う。chrome は native `WindowChrome`、`SystemCommands`、`WindowChrome.IsHitTestVisibleInChrome` を使用し、退役済みの MetroRadiance / `MetroChromeBehavior` / Expression / Interactivity 依存は使用しない。`ResizeBorderThickness=5` はリサイズ操作の hit target として維持する。
+
 対応済みの主な領域:
 
 - 左サイドバー背景

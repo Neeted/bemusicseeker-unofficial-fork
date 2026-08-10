@@ -141,11 +141,6 @@
           </Setter.Value>
         </Setter>
         <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-        <Style.Triggers>
-          <DataTrigger Binding="{Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
-            <Setter Property="Foreground" Value="{DynamicResource App.AccentBrush}" />
-          </DataTrigger>
-        </Style.Triggers>
       </Style>
       <ContextMenu x:Key="tableContextMenu" x:Shared="False" HasDropShadow="True" Opened="tableContextMenuOpened">
         <MenuItem Name="tableContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="tableContextMenuItemOpenLR2IRClick" />
@@ -923,7 +918,7 @@
       <Binding ElementName="gridColumn1" Path="MinWidth" />
     </MultiBinding>
   </Window.MinWidth>
-  <Border Name="windowBorder" BorderThickness="0" Margin="0" BorderBrush="{DynamicResource App.AccentBrush}">
+  <Border Name="windowBorder" BorderThickness="0" Margin="0">
     <Grid>
       <DockPanel Margin="0">
         <StatusBar x:Name="progressStatusBar" Height="28" DockPanel.Dock="Bottom" DataContext="{Binding ProgressHub}" Background="{DynamicResource App.SurfaceBrush}" Foreground="{DynamicResource App.TextBrush}">
@@ -2008,6 +2003,18 @@
         <Button Content="2" Style="{DynamicResource CaptionButtonStyleKey}" Command="{x:Static SystemCommands.MaximizeWindowCommand}" Visibility="{Binding WindowState, ElementName=window, Converter={StaticResource WindowStateToCaptionVisibilityConverter}, ConverterParameter=Normal}" />
         <Button Content="r" Style="{DynamicResource CaptionButtonStyleKey}" Command="{x:Static SystemCommands.CloseWindowCommand}" />
       </StackPanel>
+      <Border Name="windowChromeFrame" BorderThickness="1" IsHitTestVisible="False" Panel.ZIndex="5" SnapsToDevicePixels="True">
+        <Border.Style>
+          <Style TargetType="{x:Type Border}">
+            <Setter Property="BorderBrush" Value="{DynamicResource App.SubtleTextBrush}" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </Border.Style>
+      </Border>
     </Grid>
   </Border>
 </Window>

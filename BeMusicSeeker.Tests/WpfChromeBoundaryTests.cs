@@ -14,7 +14,9 @@ public sealed class WpfChromeBoundaryTests
     {
         string xamlPath = Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml");
         string source = File.ReadAllText(xamlPath);
+        string codeBehind = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
         XDocument document = XDocument.Load(xamlPath);
+        XElement window = document.Root;
         XElement windowChrome = document.Descendants().Single(element => element.Name.LocalName == "WindowChrome");
         XElement captionButtonStyle = document.Descendants().Single(element =>
             element.Name.LocalName == "Style"
@@ -22,17 +24,43 @@ public sealed class WpfChromeBoundaryTests
                 (string)element.Attributes().SingleOrDefault(attribute => attribute.Name.LocalName == "Key"),
                 "CaptionButtonStyleKey",
                 StringComparison.Ordinal));
-        XElement activeTrigger = captionButtonStyle.Descendants().Single(element => element.Name.LocalName == "DataTrigger");
+        XElement windowChromeFrame = document.Descendants().Single(element =>
+            element.Name.LocalName == "Border"
+            && string.Equals((string)element.Attribute("Name"), "windowChromeFrame", StringComparison.Ordinal));
+        XElement frameStyle = windowChromeFrame.Elements().Single(element => element.Name.LocalName == "Border.Style").Elements().Single();
+        XElement inactiveFrameBrush = frameStyle.Elements()
+            .Where(element => element.Name.LocalName == "Setter")
+            .Single(element => string.Equals((string)element.Attribute("Property"), "BorderBrush", StringComparison.Ordinal));
+        XElement activeFrameTrigger = frameStyle.Descendants().Single(element => element.Name.LocalName == "DataTrigger");
+        XElement activeFrameBrush = activeFrameTrigger.Elements().Single(element => element.Name.LocalName == "Setter");
 
         Assert.AreEqual("23", (string)windowChrome.Attribute("CaptionHeight"));
         Assert.AreEqual("5", (string)windowChrome.Attribute("ResizeBorderThickness"));
-        Assert.AreEqual("True", (string)activeTrigger.Attribute("Value"));
-        Assert.AreEqual("{Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type Window}}}", (string)activeTrigger.Attribute("Binding"));
+        Assert.AreEqual("True", (string)window.Attribute("UseLayoutRounding"));
+        Assert.AreEqual("True", (string)window.Attribute("SnapsToDevicePixels"));
+        Assert.AreEqual(
+            "{DynamicResource App.SubtleTextBrush}",
+            (string)captionButtonStyle.Elements().Single(element =>
+                element.Name.LocalName == "Setter"
+                && string.Equals((string)element.Attribute("Property"), "Foreground", StringComparison.Ordinal)).Attribute("Value"));
+        Assert.IsFalse(captionButtonStyle.Descendants().Any(element => element.Name.LocalName == "DataTrigger"));
+        Assert.AreEqual("1", (string)windowChromeFrame.Attribute("BorderThickness"));
+        Assert.AreEqual("False", (string)windowChromeFrame.Attribute("IsHitTestVisible"));
+        Assert.AreEqual("True", (string)windowChromeFrame.Attribute("SnapsToDevicePixels"));
+        Assert.AreEqual("5", (string)windowChromeFrame.Attribute("Panel.ZIndex"));
+        Assert.AreEqual("{DynamicResource App.SubtleTextBrush}", (string)inactiveFrameBrush.Attribute("Value"));
+        Assert.AreEqual("True", (string)activeFrameTrigger.Attribute("Value"));
+        Assert.AreEqual("{Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type Window}}}", (string)activeFrameTrigger.Attribute("Binding"));
+        Assert.AreEqual("BorderBrush", (string)activeFrameBrush.Attribute("Property"));
+        Assert.AreEqual("{DynamicResource App.AccentBrush}", (string)activeFrameBrush.Attribute("Value"));
+        Assert.AreEqual("Grid", windowChromeFrame.Parent.Name.LocalName);
+        Assert.AreEqual("windowBorder", (string)windowChromeFrame.Parent.Parent.Attribute("Name"));
         Assert.IsTrue(source.Contains("WindowChrome.IsHitTestVisibleInChrome", StringComparison.Ordinal));
         Assert.IsTrue(source.Contains("SystemCommands.CloseWindowCommand", StringComparison.Ordinal));
         Assert.IsTrue(source.Contains("SystemCommands.MaximizeWindowCommand", StringComparison.Ordinal));
         Assert.IsTrue(source.Contains("SystemCommands.MinimizeWindowCommand", StringComparison.Ordinal));
-        Assert.IsTrue(source.Contains("Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type Window}}", StringComparison.Ordinal));
+        Assert.IsTrue(codeBehind.Contains("windowBorder.Margin = new Thickness(8.0);", StringComparison.Ordinal));
+        Assert.IsTrue(codeBehind.Contains("windowBorder.Margin = new Thickness(0.0);", StringComparison.Ordinal));
         Assert.AreEqual(
             2,
             document.Descendants().Count(element =>

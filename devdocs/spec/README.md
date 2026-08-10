@@ -49,6 +49,7 @@
 - [play-history.md](play-history.md)
 - [playlist-url-download-resolution.md](playlist-url-download-resolution.md)
 - [movie-playback-current-state.md](movie-playback-current-state.md)
+- [playback-panel-presentation.md](playback-panel-presentation.md)
 - [bms-bmson-chart-abstraction-current-state.md](bms-bmson-chart-abstraction-current-state.md)
 - [warning-model.md](warning-model.md)
 - [duplicate-file-check.md](duplicate-file-check.md)

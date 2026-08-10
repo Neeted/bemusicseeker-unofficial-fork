@@ -30,36 +30,6 @@
         <UIElement.Effect>
           <BlurEffect Radius="0" />
         </UIElement.Effect>
-        <FrameworkElement.Style>
-          <Style TargetType="{x:Type Image}">
-            <Style.Triggers>
-              <DataTrigger Value="True" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsTitleSmallConverter}}">
-                <TriggerBase.EnterActions>
-                  <BeginStoryboard Name="animationCloseBMSPlayerImage">
-                    <Storyboard FillBehavior="HoldEnd">
-                      <DoubleAnimation Storyboard.TargetProperty="Effect.(BlurEffect.Radius)" From="0" To="20" Duration="0:0:1" />
-                    </Storyboard>
-                  </BeginStoryboard>
-                </TriggerBase.EnterActions>
-                <TriggerBase.ExitActions>
-                  <StopStoryboard BeginStoryboardName="animationCloseBMSPlayerImage" />
-                </TriggerBase.ExitActions>
-              </DataTrigger>
-              <DataTrigger Value="False" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsTitleSmallConverter}}">
-                <TriggerBase.EnterActions>
-                  <BeginStoryboard Name="animationOpenBMSPlayerImage">
-                    <Storyboard FillBehavior="HoldEnd">
-                      <DoubleAnimation Storyboard.TargetProperty="Effect.(BlurEffect.Radius)" From="20" To="0" Duration="0:0:1" />
-                    </Storyboard>
-                  </BeginStoryboard>
-                </TriggerBase.EnterActions>
-                <TriggerBase.ExitActions>
-                  <StopStoryboard BeginStoryboardName="animationOpenBMSPlayerImage" />
-                </TriggerBase.ExitActions>
-              </DataTrigger>
-            </Style.Triggers>
-          </Style>
-        </FrameworkElement.Style>
       </Image>
       <Grid Name="gridPlayerTitle" Height="80" DockPanel.Dock="Bottom" VerticalAlignment="Bottom" ClipToBounds="True">
         <Grid.Visibility>
@@ -68,43 +38,7 @@
             <Binding Path="Visibility" ElementName="webBrowser" />
           </MultiBinding>
         </Grid.Visibility>
-        <DockPanel Height="40" LastChildFill="False" VerticalAlignment="Bottom" Background="#80000000">
-          <FrameworkElement.Style>
-            <Style TargetType="{x:Type DockPanel}">
-              <Style.Triggers>
-                <DataTrigger Value="True" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsTitleSmallConverter}}">
-                  <TriggerBase.EnterActions>
-                    <BeginStoryboard Name="animationCloseBMSPlayerTitle">
-                      <Storyboard FillBehavior="HoldEnd">
-                        <ThicknessAnimationUsingKeyFrames Storyboard.TargetProperty="Margin" BeginTime="0:0:0">
-                          <SplineThicknessKeyFrame KeyTime="0:0:0" Value="0,0,0,0" />
-                          <SplineThicknessKeyFrame KeyTime="0:0:0.7" Value="0,0,0,-40" />
-                        </ThicknessAnimationUsingKeyFrames>
-                      </Storyboard>
-                    </BeginStoryboard>
-                  </TriggerBase.EnterActions>
-                  <TriggerBase.ExitActions>
-                    <StopStoryboard BeginStoryboardName="animationCloseBMSPlayerTitle" />
-                  </TriggerBase.ExitActions>
-                </DataTrigger>
-                <DataTrigger Value="False" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsTitleSmallConverter}}">
-                  <TriggerBase.EnterActions>
-                    <BeginStoryboard Name="animationOpenBMSPlayerTitle">
-                      <Storyboard FillBehavior="HoldEnd">
-                        <ThicknessAnimationUsingKeyFrames Storyboard.TargetProperty="Margin" BeginTime="0:0:0">
-                          <SplineThicknessKeyFrame KeyTime="0:0:0" Value="0,0,0,-40" />
-                          <SplineThicknessKeyFrame KeyTime="0:0:0.7" Value="0,0,0,0" />
-                        </ThicknessAnimationUsingKeyFrames>
-                      </Storyboard>
-                    </BeginStoryboard>
-                  </TriggerBase.EnterActions>
-                  <TriggerBase.ExitActions>
-                    <StopStoryboard BeginStoryboardName="animationOpenBMSPlayerTitle" />
-                  </TriggerBase.ExitActions>
-                </DataTrigger>
-              </Style.Triggers>
-            </Style>
-          </FrameworkElement.Style>
+        <DockPanel Name="gridBMSPlayerTitlePanel" Height="40" LastChildFill="False" VerticalAlignment="Bottom" Background="#80000000">
           <TextBlock Name="gridBMSPlayerControlsArtist" DockPanel.Dock="Bottom" FontFamily="Meiryo" FontSize="12" Margin="0" Foreground="#FFFFFFFF" HorizontalAlignment="Center" Text="{Binding PlayerHeaderArtist}" />
           <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" Margin="3,3,3,0" HorizontalAlignment="Center">
             <TextBlock Name="gridBMSPlayerControlsTitle" FontFamily="Meiryo" FontSize="14" Margin="0" FontWeight="Bold" Foreground="#FFFFFFFF" HorizontalAlignment="Right" Text="{Binding PlayerHeaderTitle}" />
@@ -118,48 +52,7 @@
             <TextBlock Name="gridBMSPlayerControlsSubtitleForMovie" FontFamily="Meiryo" FontSize="14" Margin="5,0,0,0" Foreground="#FFFFFFFF" HorizontalAlignment="Left" Text="{Binding PlayerHeaderSubtitle}" />
           </StackPanel>
         </DockPanel>
-        <Border Name="gridBMSPlayerControlsBanner" BorderThickness="0" BorderBrush="#FF404040" HorizontalAlignment="Center" VerticalAlignment="Center" Width="302" Height="80" Margin="0" Opacity="0">
-          <FrameworkElement.Style>
-            <Style TargetType="{x:Type Border}">
-              <Style.Triggers>
-                <DataTrigger Value="True" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsTitleSmallConverter}}">
-                  <TriggerBase.EnterActions>
-                    <BeginStoryboard Name="animationOpenBMSPlayerBanner">
-                      <Storyboard FillBehavior="HoldEnd" BeginTime="0:0:0.8">
-                        <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.5">
-                          <DoubleAnimation.EasingFunction>
-                            <CubicEase EasingMode="EaseOut" />
-                          </DoubleAnimation.EasingFunction>
-                        </DoubleAnimation>
-                      </Storyboard>
-                    </BeginStoryboard>
-                  </TriggerBase.EnterActions>
-                  <TriggerBase.ExitActions>
-                    <StopStoryboard BeginStoryboardName="animationOpenBMSPlayerBanner" />
-                  </TriggerBase.ExitActions>
-                </DataTrigger>
-                <DataTrigger Value="False" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsTitleSmallConverter}}">
-                  <TriggerBase.EnterActions>
-                    <BeginStoryboard Name="animationCloseBMSPlayerBanner">
-                      <Storyboard FillBehavior="HoldEnd">
-                        <Storyboard FillBehavior="HoldEnd" BeginTime="0:0:0">
-                          <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1" To="0" Duration="0:0:0.2">
-                            <DoubleAnimation.EasingFunction>
-                              <CubicEase EasingMode="EaseOut" />
-                            </DoubleAnimation.EasingFunction>
-                          </DoubleAnimation>
-                        </Storyboard>
-                      </Storyboard>
-                    </BeginStoryboard>
-                  </TriggerBase.EnterActions>
-                  <TriggerBase.ExitActions>
-                    <StopStoryboard BeginStoryboardName="animationCloseBMSPlayerBanner" />
-                  </TriggerBase.ExitActions>
-                </DataTrigger>
-              </Style.Triggers>
-            </Style>
-          </FrameworkElement.Style>
-        </Border>
+        <Border Name="gridBMSPlayerControlsBanner" BorderThickness="0" BorderBrush="#FF404040" HorizontalAlignment="Center" VerticalAlignment="Center" Width="302" Height="80" Margin="0" Opacity="0" />
       </Grid>
       <Grid Name="gridPlayerFormsHost">
         <WindowsFormsHost Name="windowsFormsHost" Background="#FF000000" ClipToBounds="True" VerticalAlignment="Bottom" HorizontalAlignment="Center" MinWidth="587" Height="256" MaxHeight="256" Margin="0" IsEnabledChanged="windowsFormsHostIsEnabledChanged">
@@ -430,7 +323,7 @@
           </MultiBinding>
         </TextBlock.Text>
       </TextBlock>
-      <TextBlock Name="gridBMSPlayerControlsTitle2" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="5,0,10,0" FontWeight="Bold" Foreground="#FFFFFFFF" TextTrimming="CharacterEllipsis">
+      <TextBlock Name="gridBMSPlayerControlsTitle2" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="5,0,10,0" FontWeight="Bold" Foreground="#FFFFFFFF" TextTrimming="CharacterEllipsis" Opacity="1">
         <UIElement.Visibility>
           <MultiBinding Converter="{StaticResource panelStateToVisibilityConverter}">
             <Binding Path="Visibility" ElementName="gridPlayerTitle" />
@@ -444,28 +337,6 @@
             <Binding Path="PlayerHeaderArtist" />
           </MultiBinding>
         </TextBlock.Text>
-        <FrameworkElement.Style>
-          <Style TargetType="{x:Type TextBlock}">
-            <Style.Triggers>
-              <DataTrigger Value="True" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsTitleSmallConverter}}">
-                <TriggerBase.EnterActions>
-                  <BeginStoryboard Name="animationBMSPlayerControlsTitle2">
-                    <Storyboard FillBehavior="HoldEnd" BeginTime="0:0:0">
-                      <DoubleAnimationUsingKeyFrames Storyboard.TargetProperty="Opacity" Duration="0:0:1">
-                        <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0" />
-                        <LinearDoubleKeyFrame KeyTime="0:0:0.8" Value="0" />
-                        <LinearDoubleKeyFrame KeyTime="0:0:1" Value="1" />
-                      </DoubleAnimationUsingKeyFrames>
-                    </Storyboard>
-                  </BeginStoryboard>
-                </TriggerBase.EnterActions>
-                <TriggerBase.ExitActions>
-                  <StopStoryboard BeginStoryboardName="animationBMSPlayerControlsTitle2" />
-                </TriggerBase.ExitActions>
-              </DataTrigger>
-            </Style.Triggers>
-          </Style>
-        </FrameworkElement.Style>
       </TextBlock>
     </DockPanel>
 </Grid>

@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
@@ -1459,6 +1460,196 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    public void PlaybackPanelView_InitiallySynchronizesCompactStateWithoutAnimation()
+    {
+        RunOnSta(delegate
+        {
+            var window = new Window { Width = 640d, Height = 360d, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+            try
+            {
+                PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer(), new InMemoryPlaybackSettingsStore());
+                panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER;
+                var view = new PlaybackPanelView { DataContext = panel };
+                window.Content = view;
+
+                window.Show();
+                FlushRenderQueue(window);
+
+                Assert.AreEqual(PlayerPanelState.TITLE_SMALL, view.EffectivePlayerPanelState);
+                AssertPlaybackPanelFinalState(view, compact: true);
+                AssertPlaybackPanelHasNoAnimationClocks(view);
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaybackPanelView_InitiallySynchronizesExpandedStateWithoutAnimation()
+    {
+        RunOnSta(delegate
+        {
+            var window = new Window { Width = 640d, Height = 360d, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+            try
+            {
+                PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer(), new InMemoryPlaybackSettingsStore());
+                panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
+                var view = new PlaybackPanelView { DataContext = panel };
+                window.Content = view;
+
+                window.Show();
+                FlushRenderQueue(window);
+
+                Assert.AreEqual(PlayerPanelState.TITLE_LARGE, view.EffectivePlayerPanelState);
+                AssertPlaybackPanelFinalState(view, compact: false);
+                AssertPlaybackPanelHasNoAnimationClocks(view);
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaybackPanelView_DataContextReplacementSynchronizesBothDirectionsWithoutAnimation()
+    {
+        RunOnSta(delegate
+        {
+            var window = new Window { Width = 640d, Height = 360d, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+            try
+            {
+                PlaybackPanelViewModel expandedPanel = CreatePanel(new FakeBmsPlayer(), new InMemoryPlaybackSettingsStore());
+                expandedPanel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
+                PlaybackPanelViewModel compactPanel = CreatePanel(new FakeBmsPlayer(), new InMemoryPlaybackSettingsStore());
+                compactPanel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
+                var view = new PlaybackPanelView { DataContext = expandedPanel };
+                window.Content = view;
+                window.Show();
+                FlushRenderQueue(window);
+
+                view.DataContext = compactPanel;
+                AssertPlaybackPanelFinalState(view, compact: true);
+                AssertPlaybackPanelHasNoAnimationClocks(view);
+
+                view.DataContext = expandedPanel;
+                AssertPlaybackPanelFinalState(view, compact: false);
+                AssertPlaybackPanelHasNoAnimationClocks(view);
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaybackPanelView_SameViewModelStateChangesUseTransitionsAndReloadSynchronizesImmediately()
+    {
+        RunOnSta(delegate
+        {
+            var window = new Window { Width = 640d, Height = 360d, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+            try
+            {
+                PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer(), new InMemoryPlaybackSettingsStore());
+                panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
+                var view = new PlaybackPanelView { DataContext = panel };
+                window.Content = view;
+                window.Show();
+                FlushRenderQueue(window);
+
+                panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
+                FlushRenderQueue(window);
+                AssertPlaybackPanelHasTransitionClocks(view, compactTransition: true);
+
+                panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
+                FlushRenderQueue(window);
+                AssertPlaybackPanelHasTransitionClocks(view, compactTransition: false);
+
+                window.Content = null;
+                FlushRenderQueue(window);
+                Assert.IsFalse(view.IsLoaded);
+                AssertPlaybackPanelHasNoAnimationClocks(view);
+
+                panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
+                window.Content = view;
+                FlushRenderQueue(window);
+                Assert.IsTrue(view.IsLoaded);
+                AssertPlaybackPanelFinalState(view, compact: true);
+                AssertPlaybackPanelHasNoAnimationClocks(view);
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaybackPanelView_ReloadRejectsEventsQueuedByThePreviousSubscription()
+    {
+        RunOnSta(delegate
+        {
+            var queuedDispatcher = new QueuedPlaybackUiDispatcher();
+            var panel = new PlaybackPanelViewModel(
+                new FakeBmsPlayer(),
+                queuedDispatcher,
+                new MainChartListPlaybackQueue(new MainChartListViewModel()),
+                new InMemoryPlaybackSettingsStore(),
+                new FakePlaybackDialogService(),
+                _ => { },
+                new ChartFileOperationSynchronizer());
+            var view = new PlaybackPanelView { DataContext = panel };
+            var window = new Window
+            {
+                Width = 640d,
+                Height = 360d,
+                Content = view,
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None
+            };
+            int startingCount = 0;
+            int startedCount = 0;
+            view.PlaybackStarting += (_, _) => startingCount++;
+            view.PlaybackStarted += (_, _) => startedCount++;
+
+            try
+            {
+                window.Show();
+                FlushRenderQueue(window);
+
+                long oldGeneration = panel.BeginPlayback(new BMSFile(), 0);
+                panel.NotifyPlaybackStarted(oldGeneration);
+                window.Content = null;
+                FlushRenderQueue(window);
+                window.Content = view;
+                FlushRenderQueue(window);
+
+                queuedDispatcher.RunAll();
+                Assert.AreEqual(0, startingCount);
+                Assert.AreEqual(0, startedCount);
+
+                long currentGeneration = panel.BeginPlayback(new BMSFile(), 0);
+                panel.NotifyPlaybackStarted(currentGeneration);
+                queuedDispatcher.RunAll();
+                Assert.AreEqual(1, startingCount);
+                Assert.AreEqual(1, startedCount);
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        });
+    }
+
+    [TestMethod]
     public void PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart()
     {
         RunOnSta(delegate
@@ -1664,11 +1855,26 @@ public sealed class PlaybackPanelViewModelTests
         IBMSPlayer player,
         FakePlaybackDialogService dialogs)
     {
+        return CreatePanel(player, new SettingsPlaybackSettingsStore(() => Settings.Default), dialogs);
+    }
+
+    private static PlaybackPanelViewModel CreatePanel(
+        IBMSPlayer player,
+        IPlaybackSettingsStore playbackSettings)
+    {
+        return CreatePanel(player, playbackSettings, new FakePlaybackDialogService());
+    }
+
+    private static PlaybackPanelViewModel CreatePanel(
+        IBMSPlayer player,
+        IPlaybackSettingsStore playbackSettings,
+        FakePlaybackDialogService dialogs)
+    {
         return new PlaybackPanelViewModel(
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(new MainChartListViewModel()),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            playbackSettings,
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1723,6 +1929,63 @@ public sealed class PlaybackPanelViewModelTests
         return panel;
     }
 
+    private static void AssertPlaybackPanelFinalState(PlaybackPanelView view, bool compact)
+    {
+        var image = (Image)view.FindName("gridBMSPlayerImage");
+        var blurEffect = (BlurEffect)image.Effect;
+        var titlePanel = (DockPanel)view.FindName("gridBMSPlayerTitlePanel");
+        var banner = (Border)view.FindName("gridBMSPlayerControlsBanner");
+        var compactTitle = (TextBlock)view.FindName("gridBMSPlayerControlsTitle2");
+
+        Assert.AreEqual(compact ? 110d : 286d, view.Height, 0.001d);
+        Assert.AreEqual(compact ? 20d : 0d, blurEffect.Radius, 0.001d);
+        Assert.AreEqual(compact ? new Thickness(0d, 0d, 0d, -40d) : new Thickness(0d), titlePanel.Margin);
+        Assert.AreEqual(compact ? 1d : 0d, banner.Opacity, 0.001d);
+        Assert.AreEqual(1d, compactTitle.Opacity, 0.001d);
+    }
+
+    private static void AssertPlaybackPanelHasNoAnimationClocks(PlaybackPanelView view)
+    {
+        var image = (Image)view.FindName("gridBMSPlayerImage");
+        var blurEffect = (BlurEffect)image.Effect;
+        var titlePanel = (DockPanel)view.FindName("gridBMSPlayerTitlePanel");
+        var banner = (Border)view.FindName("gridBMSPlayerControlsBanner");
+        var compactTitle = (TextBlock)view.FindName("gridBMSPlayerControlsTitle2");
+
+        Assert.IsFalse(IsAnimated(view, FrameworkElement.HeightProperty), "Height must not have an AnimationClock.");
+        Assert.IsFalse(IsAnimated(blurEffect, BlurEffect.RadiusProperty), "Blur radius must not have an AnimationClock.");
+        Assert.IsFalse(IsAnimated(titlePanel, FrameworkElement.MarginProperty), "Large title margin must not have an AnimationClock.");
+        Assert.IsFalse(IsAnimated(banner, UIElement.OpacityProperty), "Banner opacity must not have an AnimationClock.");
+        Assert.IsFalse(IsAnimated(compactTitle, UIElement.OpacityProperty), "Compact title opacity must not have an AnimationClock.");
+    }
+
+    private static void AssertPlaybackPanelHasTransitionClocks(PlaybackPanelView view, bool compactTransition)
+    {
+        var image = (Image)view.FindName("gridBMSPlayerImage");
+        var blurEffect = (BlurEffect)image.Effect;
+        var titlePanel = (DockPanel)view.FindName("gridBMSPlayerTitlePanel");
+        var banner = (Border)view.FindName("gridBMSPlayerControlsBanner");
+        var compactTitle = (TextBlock)view.FindName("gridBMSPlayerControlsTitle2");
+
+        Assert.IsTrue(IsAnimated(view, FrameworkElement.HeightProperty), "Height must enter the transition route.");
+        Assert.IsTrue(IsAnimated(blurEffect, BlurEffect.RadiusProperty), "Blur radius must enter the transition route.");
+        Assert.IsTrue(IsAnimated(titlePanel, FrameworkElement.MarginProperty), "Large title margin must enter the transition route.");
+        Assert.IsTrue(IsAnimated(banner, UIElement.OpacityProperty), "Banner opacity must enter the transition route.");
+        Assert.AreEqual(
+            compactTransition,
+            IsAnimated(compactTitle, UIElement.OpacityProperty),
+            "Compact title fades only while entering compact mode.");
+    }
+
+    private static bool IsAnimated(DependencyObject target, DependencyProperty property) =>
+        DependencyPropertyHelper.GetValueSource(target, property).IsAnimated;
+
+    private static void FlushRenderQueue(Window window)
+    {
+        window.UpdateLayout();
+        window.Dispatcher.Invoke(DispatcherPriority.Render, new Action(() => { }));
+    }
+
     private static void PumpDispatcherFor(TimeSpan duration)
     {
         var frame = new DispatcherFrame();
@@ -1760,6 +2023,33 @@ public sealed class PlaybackPanelViewModelTests
         {
             ExceptionDispatchInfo.Capture(exception).Throw();
         }
+    }
+
+    private sealed class InMemoryPlaybackSettingsStore : IPlaybackSettingsStore
+    {
+        public PlayerPanelState PlayerPanelState { get; set; }
+
+        public bool RepeatPlay { get; set; }
+
+        public bool FolderSkipPlay { get; set; }
+
+        public bool SinglePlay { get; set; }
+
+        public bool UsesLr2Body { get; set; }
+
+        public bool UsesUbMplay { get; set; }
+
+        public bool UsesBmiIdxView { get; set; }
+
+        public bool UseExternalWebBrowser { get; set; }
+
+        public bool UseExternalPanelImage { get; set; }
+
+        public string StagefilePath { get; set; } = string.Empty;
+
+        public int PlayerVolume { get; set; }
+
+        public bool UsesLr2Database { get; set; }
     }
 
     private sealed class FakeBmsPlayer : IBMSPlayer, IExternalWindowPlayer
