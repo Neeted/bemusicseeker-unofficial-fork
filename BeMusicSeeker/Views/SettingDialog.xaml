@@ -755,6 +755,23 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">3.0.0.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>実行基盤を .NET 10 へ移行し、Windows x64 向けの自己完結型パッケージと新しい自動更新構成に刷新しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>音声出力を WASAPI / ASIO 中心に整理し、デバイス選択、再生の安定性、テスト再生とレイテンシ計測を改善しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>起動や一覧表示を高速化し、単体 BMS / bmson 譜面のインストール先推定で配置元フォルダー全体を不要に走査する問題を修正しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>LR2 連携を含む譜面メタデータの補完を改善し、既存の曲名や設定を維持しながら不足情報を安全に更新するようにしました。</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">2.1.6.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
