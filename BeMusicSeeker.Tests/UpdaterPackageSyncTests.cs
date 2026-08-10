@@ -26,19 +26,92 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
             CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "not-yet-applied");
+            string applicationProcessId = GetExitedProcessId().ToString();
+            string decisionFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
 
             using Process process = StartUpdater(
                 appDirectoryPath,
                 packagePath,
                 backupDirectoryPath,
+                processId: applicationProcessId,
                 publishProceed: false);
-            Assert.IsFalse(process.WaitForExit(250));
-            Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count, "The transaction must arm an independent recovery handoff.");
-            Assert.AreEqual(1, GetRecoverySupervisorValues(appDirectoryPath).Count, "The transaction must arm a persistent recovery supervisor.");
+            try
+            {
+                Assert.IsFalse(process.WaitForExit(250));
+                Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count, "The transaction must arm an independent recovery handoff.");
+                Assert.AreEqual(1, GetRecoverySupervisorValues(appDirectoryPath).Count, "The transaction must arm a persistent recovery supervisor.");
 
-            string decisionFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
-            PublishUpdaterDecision(decisionFilePath, "cancel");
-            Assert.IsTrue(process.WaitForExit(5000));
+                string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+                string journalJson = File.ReadAllText(journalPath);
+                Assert.IsFalse(journalJson.Contains('\n'), "The durable journal must remain compact JSON.");
+                using JsonDocument journalDocument = JsonDocument.Parse(journalJson);
+                JsonElement journal = journalDocument.RootElement;
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        "Version",
+                        "Phase",
+                        "AppDirectory",
+                        "PackagePath",
+                        "ApplicationProcessId",
+                        "BackupDirectory",
+                        "PreviousDirectory",
+                        "ExtractDirectory",
+                        "RestartExecutablePath",
+                        "RestartProcessId",
+                        "Preflight",
+                        "BackupComplete",
+                        "NewPackagePaths"
+                    },
+                    journal.EnumerateObject().Select(property => property.Name).ToArray());
+                Assert.AreEqual(JsonValueKind.Number, journal.GetProperty("Version").ValueKind);
+                Assert.AreEqual(1, journal.GetProperty("Version").GetInt32());
+                Assert.AreEqual(JsonValueKind.String, journal.GetProperty("Phase").ValueKind);
+                Assert.AreEqual("prepared", journal.GetProperty("Phase").GetString());
+                Assert.AreEqual(JsonValueKind.String, journal.GetProperty("AppDirectory").ValueKind);
+                Assert.AreEqual(appDirectoryPath, journal.GetProperty("AppDirectory").GetString());
+                Assert.AreEqual(JsonValueKind.String, journal.GetProperty("PackagePath").ValueKind);
+                Assert.AreEqual(packagePath, journal.GetProperty("PackagePath").GetString());
+                Assert.AreEqual(JsonValueKind.Number, journal.GetProperty("ApplicationProcessId").ValueKind);
+                Assert.AreEqual(int.Parse(applicationProcessId), journal.GetProperty("ApplicationProcessId").GetInt32());
+                Assert.AreEqual(JsonValueKind.String, journal.GetProperty("BackupDirectory").ValueKind);
+                Assert.AreEqual(backupDirectoryPath, journal.GetProperty("BackupDirectory").GetString());
+                Assert.AreEqual(JsonValueKind.String, journal.GetProperty("PreviousDirectory").ValueKind);
+                Assert.AreEqual(Path.Combine(backupDirectoryPath, "previous"), journal.GetProperty("PreviousDirectory").GetString());
+                Assert.AreEqual(JsonValueKind.String, journal.GetProperty("ExtractDirectory").ValueKind);
+                Assert.AreEqual(Path.Combine(appDirectoryPath, "update_work", "extracted"), journal.GetProperty("ExtractDirectory").GetString());
+                Assert.AreEqual(JsonValueKind.String, journal.GetProperty("RestartExecutablePath").ValueKind);
+                Assert.AreEqual(Path.Combine(appDirectoryPath, "restart.exe"), journal.GetProperty("RestartExecutablePath").GetString());
+                Assert.AreEqual(JsonValueKind.Number, journal.GetProperty("RestartProcessId").ValueKind);
+                Assert.AreEqual(0, journal.GetProperty("RestartProcessId").GetInt32());
+                Assert.AreEqual(JsonValueKind.True, journal.GetProperty("Preflight").ValueKind);
+                Assert.IsTrue(journal.GetProperty("Preflight").GetBoolean());
+                Assert.AreEqual(JsonValueKind.False, journal.GetProperty("BackupComplete").ValueKind);
+                Assert.IsFalse(journal.GetProperty("BackupComplete").GetBoolean());
+                Assert.AreEqual(JsonValueKind.Array, journal.GetProperty("NewPackagePaths").ValueKind);
+                Assert.AreEqual(0, journal.GetProperty("NewPackagePaths").GetArrayLength());
+            }
+            finally
+            {
+                if (!process.HasExited)
+                {
+                    try
+                    {
+                        PublishUpdaterDecision(decisionFilePath, "cancel");
+                    }
+                    catch
+                    {
+                        // Preserve the schema assertion as the authoritative test failure.
+                    }
+                    if (!process.WaitForExit(5000))
+                    {
+                        process.Kill(entireProcessTree: true);
+                        process.WaitForExit();
+                    }
+                }
+            }
+
+            Assert.IsTrue(process.HasExited);
             Assert.AreEqual(0, process.ExitCode);
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count, "Cancellation must clear the recovery handoff.");

@@ -12,7 +12,7 @@ using System.Threading;
 
 namespace BeMusicSeeker.Updater
 {
-    internal static class Program
+    internal static partial class Program
     {
         internal const int ProtocolVersion = 1;
 
@@ -1340,10 +1340,9 @@ namespace BeMusicSeeker.Updater
             EnsureNoReparsePointIfPresent(journalPath);
             EnsureNoReparsePointIfPresent(temporaryPath);
 
-            byte[] payload = JsonSerializer.SerializeToUtf8Bytes(journal, new JsonSerializerOptions
-            {
-                WriteIndented = false
-            });
+            byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+                journal,
+                UpdaterJsonSerializerContext.Default.TransactionJournalRecord);
             using (FileStream stream = UpdaterFileSystem.Open(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 stream.Write(payload, 0, payload.Length);
@@ -1359,7 +1358,9 @@ namespace BeMusicSeeker.Updater
             try
             {
                 using FileStream stream = UpdaterFileSystem.OpenRead(journalPath);
-                TransactionJournalRecord journal = JsonSerializer.Deserialize<TransactionJournalRecord>(stream);
+                TransactionJournalRecord journal = JsonSerializer.Deserialize(
+                    stream,
+                    UpdaterJsonSerializerContext.Default.TransactionJournalRecord);
                 return journal ?? throw new InvalidOperationException("The updater transaction journal was empty.");
             }
             catch (JsonException exception)
