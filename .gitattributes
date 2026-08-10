@@ -1,9 +1,97 @@
-BeMusicSeeker.Tests/TestData/chart_info_real/charts/** -text -diff
-BeMusicSeeker.Tests/TestData/lr2_builtin_custom_folder_real/** -text -diff
+# Normalize text files in the repository. Known project text formats below are
+# also checked out with LF, independent of core.autocrlf/core.eol.
+* text=auto
 
-*.bms binary
-*.bme binary
-*.bml binary
-*.pms binary
-*.bmson binary
-*.mp3 binary
+# Repository metadata
+.gitattributes text eol=lf
+.gitignore      text eol=lf
+.editorconfig   text eol=lf
+LICENSE         text eol=lf
+
+# C# / .NET / Visual Studio
+*.cs              text eol=lf
+*.csproj          text eol=lf
+*.props           text eol=lf
+*.targets         text eol=lf
+*.sln             text eol=lf
+*.xaml            text eol=lf
+*.resx            text eol=lf
+*.config          text eol=lf
+*.manifest        text eol=lf
+*.pubxml          text eol=lf
+*.vcxproj         text eol=lf
+*.vcxproj.filters text eol=lf
+
+# Other source and scripts
+*.cpp  text eol=lf
+*.c    text eol=lf
+*.h    text eol=lf
+*.hpp  text eol=lf
+*.java text eol=lf
+*.ps1  text eol=lf
+*.py   text eol=lf
+*.sh   text eol=lf
+
+# Configuration, documentation, and structured text
+*.json   text eol=lf
+*.toml   text eol=lf
+*.xml    text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.md     text eol=lf
+*.txt    text eol=lf
+*.sql    text eol=lf
+*.tsv    text eol=lf
+*.csv    text eol=lf
+*.marker text eol=lf
+
+# Keep native Windows command scripts as CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Domain/test fixtures: encoding, line endings, and raw bytes are test input.
+# Do not normalize, text-diff, or auto-merge them.
+BeMusicSeeker.Tests/TestData/chart_info_real/charts/** binary !eol
+BeMusicSeeker.Tests/TestData/lr2_builtin_custom_folder_real/** binary !eol
+
+*.bms       binary
+*.bme       binary
+*.bml       binary
+*.pms       binary
+*.bmson     binary
+*.lr2folder binary
+
+# Binary assets and generated/runtime data
+*.7z      binary
+*.lzh     binary
+*.rar     binary
+*.zip     binary
+*.nupkg   binary
+*.snupkg  binary
+
+*.db      binary
+*.sqlite  binary
+*.sqlite3 binary
+
+*.dll binary
+*.exe binary
+*.pdb binary
+
+*.ico  binary
+*.png  binary
+*.PNG  binary
+*.jpg  binary
+*.JPG  binary
+*.jpeg binary
+*.JPEG binary
+*.gif  binary
+*.webp binary
+*.pdf  binary
+
+*.mp3  binary
+*.ogg  binary
+*.wav  binary
+*.flac binary
+
+*.otf binary
+*.ttf binary
