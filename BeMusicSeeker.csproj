@@ -11,6 +11,7 @@
     <Prefer32Bit>false</Prefer32Bit>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
   <PropertyGroup>
     <LangVersion>14.0</LangVersion>

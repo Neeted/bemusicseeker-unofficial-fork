@@ -1,6 +1,6 @@
 # テスト運用方針
 
-最終更新: 2026-08-09
+最終更新: 2026-08-10
 
 この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。
 
@@ -23,7 +23,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 
 この呼び出しの開始から終了までが 180 秒の時間予算である。solution の locked restore、build、論理的に一つの通常 test phase を含み、`dotnet test` は restore 済みの dependency graph を使う。内部 sharding の有無にかかわらず、時間予算は command 全体に一度だけ適用する。Functional からは `Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance` を除外する。
 
-RID を指定しない素の `dotnet test BeMusicSeeker.sln /p:Configuration=Release` は標準入口ではない。この repository の lock file は `win-x64` dependency graph を含むため、素の restore は tracked lock file を書き換え、後続の publish policy test を壊すことがある。検証は標準スクリプトの locked `win-x64` restore と `--no-restore` test route を使う。
+lock file を所有する project は `RuntimeIdentifiers=win-x64` を宣言し、C# Dev Kit などが RID を明示せず通常 restore を行った場合も、tracked lock file の base graph と `win-x64` graph を維持する。通常 restore が tracked lock file を変更した場合は dependency graph の不整合として失敗を隠さず調査する。標準検証入口は引き続き、標準スクリプトの locked `win-x64` restore と `--no-restore` build / test route を使う。RID を指定しない素の `dotnet test BeMusicSeeker.sln /p:Configuration=Release` は、locked restore、tracked-file 不変確認、共通の時間予算を迂回するため標準入口ではない。
 
 ### Quick: 反復中の対象テスト
 

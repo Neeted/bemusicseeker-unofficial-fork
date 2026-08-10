@@ -169,10 +169,6 @@ public sealed class ManagedDependencyOutputPolicyTests
         string lockFile = File.ReadAllText(Path.Combine(repositoryRoot, "packages.lock.json"));
         StringAssert.Contains(lockFile, "\"System.Configuration.ConfigurationManager\":");
         StringAssert.Contains(lockFile, "\"requested\": \"[10.0.10, )\"");
-        using JsonDocument lockDocument = JsonDocument.Parse(lockFile);
-        Assert.IsTrue(
-            lockDocument.RootElement.GetProperty("dependencies").TryGetProperty("net10.0-windows7.0/win-x64", out _),
-            "The lock file must retain the win-x64 target graph used by self-contained publish.");
     }
 
     [TestMethod]
@@ -200,9 +196,75 @@ public sealed class ManagedDependencyOutputPolicyTests
         JsonElement sdk = targetDependencies.GetProperty("Microsoft.NET.Test.Sdk");
         Assert.AreEqual("18.8.1", sdk.GetProperty("resolved").GetString());
         Assert.AreEqual("Direct", sdk.GetProperty("type").GetString());
-        Assert.IsTrue(
-            dependencies.TryGetProperty("net10.0-windows7.0/win-x64", out _),
-            "The test lock file must retain the win-x64 target graph used by the solution restore.");
+    }
+
+    [TestMethod]
+    public void LockOwningProjectsDeclareCanonicalWinX64RestoreGraph()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        var lockOwners = new[]
+        {
+            new
+            {
+                ProjectPath = "BeMusicSeeker.csproj",
+                LockPath = "packages.lock.json",
+                BaseTarget = "net10.0-windows7.0",
+                RidTarget = "net10.0-windows7.0/win-x64"
+            },
+            new
+            {
+                ProjectPath = Path.Combine("BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"),
+                LockPath = Path.Combine("BeMusicSeeker.Tests", "packages.lock.json"),
+                BaseTarget = "net10.0-windows7.0",
+                RidTarget = "net10.0-windows7.0/win-x64"
+            },
+            new
+            {
+                ProjectPath = Path.Combine("tools", "chart-info-compare", "ChartInfoCompare.csproj"),
+                LockPath = Path.Combine("tools", "chart-info-compare", "packages.lock.json"),
+                BaseTarget = "net10.0",
+                RidTarget = "net10.0/win-x64"
+            },
+            new
+            {
+                ProjectPath = Path.Combine("tools", "chart-info-export", "ChartInfoExport.csproj"),
+                LockPath = Path.Combine("tools", "chart-info-export", "packages.lock.json"),
+                BaseTarget = "net10.0",
+                RidTarget = "net10.0/win-x64"
+            }
+        };
+
+        foreach (var lockOwner in lockOwners)
+        {
+            string projectPath = Path.Combine(repositoryRoot, lockOwner.ProjectPath);
+            XDocument project = XDocument.Load(projectPath);
+            XElement projectRoot = project.Root ?? throw new AssertFailedException($"Project XML has no root element: {projectPath}");
+            Assert.AreEqual(
+                "true",
+                (string)projectRoot.Elements("PropertyGroup").Elements("RestorePackagesWithLockFile").Single(),
+                $"The lock-owning project must enable lock file restore: {lockOwner.ProjectPath}");
+            Assert.AreEqual(
+                "win-x64",
+                (string)projectRoot.Elements("PropertyGroup").Elements("RuntimeIdentifiers").Single(),
+                $"The lock-owning project must keep ordinary IDE restore on the canonical win-x64 graph: {lockOwner.ProjectPath}");
+            Assert.IsFalse(
+                projectRoot.Elements("PropertyGroup").Elements("RuntimeIdentifier").Any(),
+                $"The project must not use singular RuntimeIdentifier because it also changes build output semantics: {lockOwner.ProjectPath}");
+
+            string lockPath = Path.Combine(repositoryRoot, lockOwner.LockPath);
+            Assert.IsTrue(File.Exists(lockPath), $"Lock file is missing: {lockPath}");
+            using JsonDocument lockDocument = JsonDocument.Parse(File.ReadAllText(lockPath));
+            JsonElement dependencies = lockDocument.RootElement.GetProperty("dependencies");
+            Assert.IsTrue(
+                dependencies.TryGetProperty(lockOwner.BaseTarget, out _),
+                $"The lock file must retain its base target graph: {lockOwner.LockPath}");
+            Assert.IsTrue(
+                dependencies.TryGetProperty(lockOwner.RidTarget, out JsonElement ridDependencies),
+                $"The lock file must retain its win-x64 target graph: {lockOwner.LockPath}");
+            JsonElement sqliteNativePackage = ridDependencies.GetProperty("SourceGear.sqlite3");
+            Assert.AreEqual("Transitive", sqliteNativePackage.GetProperty("type").GetString());
+            Assert.AreEqual("3.53.3", sqliteNativePackage.GetProperty("resolved").GetString());
+        }
     }
 
     [TestMethod]
