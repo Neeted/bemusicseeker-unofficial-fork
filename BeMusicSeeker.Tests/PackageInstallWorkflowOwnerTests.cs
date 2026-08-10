@@ -511,6 +511,114 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
+    public void CancelAll_WhileWaitingForOperationGateDeletesUnhandedIngressWithoutCallingInstaller()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string songDbPath = Path.Combine(root, "song.db");
+        string ingressRoot = Path.Combine(root, "ingress");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(ingressRoot);
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var chartFileOperations = new ChartFileOperationSynchronizer();
+            var chartMutationActivity = new ChartMutationActivityOwner();
+            int mutationCalls = 0;
+            var owner = new PackageInstallWorkflowOwner(
+                chartFileOperations,
+                chartMutationActivity,
+                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                {
+                    Interlocked.Increment(ref mutationCalls);
+                    return [];
+                }),
+                action =>
+                {
+                    action();
+                    return true;
+                });
+            owner.AttachLibrary(library);
+
+            using (chartFileOperations.Enter())
+            {
+                Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
+                Assert.IsTrue(SpinWait.SpinUntil(() => chartMutationActivity.IsActive, 5000));
+                owner.CancelAll();
+            }
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            Assert.AreEqual(0, mutationCalls);
+            Assert.IsFalse(Directory.Exists(ingressRoot));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CancelAll_FromSuppressionCallbackWinsBeforeHandoffAndDeletesIngress()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string songDbPath = Path.Combine(root, "song.db");
+        string ingressRoot = Path.Combine(root, "ingress");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(ingressRoot);
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            int mutationCalls = 0;
+            var owner = new PackageInstallWorkflowOwner(
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                {
+                    Interlocked.Increment(ref mutationCalls);
+                    return [];
+                }),
+                action =>
+                {
+                    action();
+                    return true;
+                });
+            owner.RefreshSuppressionChanged += (_, args) =>
+            {
+                if (args.IsSuppressed)
+                {
+                    owner.CancelAll();
+                }
+            };
+            owner.AttachLibrary(library);
+
+            Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            Assert.AreEqual(0, mutationCalls);
+            Assert.IsFalse(Directory.Exists(ingressRoot));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void DelayedFailurePublication_ReportsDiagnosticsAfterGenerationChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -945,6 +1053,283 @@ public sealed class PackageInstallWorkflowOwnerTests
             {
                 Directory.Delete(root, recursive: true);
             }
+        }
+    }
+
+    [TestMethod]
+    public void TryEnqueue_AfterShutdownRejectsAndDeletesOwnedIngressRoot()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var owner = CreateOwner((_, _, _, _, _) => [], _ => true);
+        var request = new DroppedInstallBatchRequest(
+            [Path.Combine(root, "chart.bms")],
+            ["chart.bms"],
+            [root],
+            DeleteOwnedRoot,
+            null);
+
+        owner.RequestShutdown();
+        bool accepted = owner.TryEnqueue(request);
+
+        Assert.IsFalse(accepted);
+        Assert.IsFalse(Directory.Exists(root));
+    }
+
+    [TestMethod]
+    public void RequestShutdown_AfterAdmissionCancelsLatePhysicalEnqueueAndDrainsOwnership()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string songDbPath = Path.Combine(root, "song.db");
+        string ingressRoot = Path.Combine(root, "ingress");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(ingressRoot);
+        File.WriteAllBytes(songDbPath, []);
+        object? processorLock = null;
+        bool processorLockHeld = false;
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            int mutationCalls = 0;
+            var owner = CreateOwner(
+                (_, _, _, _, _) =>
+                {
+                    Interlocked.Increment(ref mutationCalls);
+                    return [];
+                },
+                action =>
+                {
+                    action();
+                    return true;
+                });
+            owner.AttachLibrary(library);
+
+            object context = GetCurrentQueueContext(owner);
+            var processor = (DropInstallQueueProcessor)context.GetType()
+                .GetProperty("Processor", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(context)!;
+            processorLock = typeof(DropInstallQueueProcessor)
+                .GetField("syncRoot", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(processor)!;
+            Monitor.Enter(processorLock);
+            processorLockHeld = true;
+
+            Task<bool> enqueue = Task.Run(() =>
+                owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
+            PropertyInfo inFlight = context.GetType().GetProperty(
+                "InFlightAdmissionCount",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            PropertyInfo accepting = context.GetType().GetProperty(
+                "AcceptingAdmissions",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => (int)inFlight.GetValue(context)! == 1,
+                5000),
+                "The admission did not linearize before physical enqueue.");
+
+            Task shutdown = Task.Run(owner.RequestShutdown);
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => !(bool)accepting.GetValue(context)!,
+                5000),
+                "Shutdown did not close the admitted generation.");
+
+            Monitor.Exit(processorLock);
+            processorLockHeld = false;
+
+            Assert.IsTrue(enqueue.Wait(5000));
+            Assert.IsTrue(enqueue.Result, "Admission preceding shutdown remains a successful ownership transfer.");
+            Assert.IsTrue(shutdown.Wait(5000));
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            Assert.AreEqual(0, mutationCalls);
+            Assert.IsFalse(Directory.Exists(ingressRoot));
+        }
+        finally
+        {
+            if (processorLockHeld && processorLock != null)
+            {
+                Monitor.Exit(processorLock);
+            }
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CancelAll_AfterAdmissionCancelsLatePhysicalEnqueueWithoutClosingContext()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string songDbPath = Path.Combine(root, "song.db");
+        string ingressRoot = Path.Combine(root, "ingress");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(ingressRoot);
+        File.WriteAllBytes(songDbPath, []);
+        object? processorLock = null;
+        bool processorLockHeld = false;
+        using var freshInstallCalled = new ManualResetEventSlim(false);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            int mutationCalls = 0;
+            var owner = CreateOwner(
+                (_, paths, _, _, _) =>
+                {
+                    Interlocked.Increment(ref mutationCalls);
+                    if (paths.Contains("fresh.zip"))
+                    {
+                        freshInstallCalled.Set();
+                    }
+                    return [];
+                },
+                action =>
+                {
+                    action();
+                    return true;
+                });
+            owner.AttachLibrary(library);
+
+            object context = GetCurrentQueueContext(owner);
+            var processor = (DropInstallQueueProcessor)context.GetType()
+                .GetProperty("Processor", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(context)!;
+            processorLock = typeof(DropInstallQueueProcessor)
+                .GetField("syncRoot", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(processor)!;
+            Monitor.Enter(processorLock);
+            processorLockHeld = true;
+
+            Task<bool> enqueue = Task.Run(() =>
+                owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "late.zip")));
+            PropertyInfo inFlight = context.GetType().GetProperty(
+                "InFlightAdmissionCount",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => (int)inFlight.GetValue(context)! == 1,
+                5000));
+
+            owner.CancelAll();
+            owner.CancelAll();
+            Monitor.Exit(processorLock);
+            processorLockHeld = false;
+
+            Assert.IsTrue(enqueue.Wait(5000));
+            Assert.IsTrue(enqueue.Result);
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            Assert.AreEqual(0, mutationCalls);
+            Assert.IsFalse(Directory.Exists(ingressRoot));
+
+            owner.Enqueue(["fresh.zip"]);
+            Assert.IsTrue(freshInstallCalled.Wait(5000), "Normal cancellation must not close later admissions.");
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            Assert.AreEqual(1, mutationCalls);
+        }
+        finally
+        {
+            if (processorLockHeld && processorLock != null)
+            {
+                Monitor.Exit(processorLock);
+            }
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void AttachLibrary_DeletesOldPendingIngressButPreservesHandedOffActiveIngress()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string firstDb = Path.Combine(root, "first", "song.db");
+        string secondDb = Path.Combine(root, "second", "song.db");
+        string activeRoot = Path.Combine(root, "active-ingress");
+        string pendingRoot = Path.Combine(root, "pending-ingress");
+        Directory.CreateDirectory(Path.GetDirectoryName(firstDb)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(secondDb)!);
+        Directory.CreateDirectory(activeRoot);
+        Directory.CreateDirectory(pendingRoot);
+        File.WriteAllBytes(firstDb, []);
+        File.WriteAllBytes(secondDb, []);
+        using var activeStarted = new ManualResetEventSlim(false);
+        using var releaseActive = new ManualResetEventSlim(false);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
+            {
+            }
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(secondDb))
+            {
+            }
+            var firstLibrary = new TestBmsLibrary(firstDb, null, null, string.Empty);
+            var secondLibrary = new TestBmsLibrary(secondDb, null, null, string.Empty);
+            var owner = CreateOwner(
+                (library, _, token, _, _) =>
+                {
+                    if (ReferenceEquals(library, firstLibrary))
+                    {
+                        activeStarted.Set();
+                        releaseActive.Wait(5000);
+                    }
+                    return [];
+                },
+                _ => true);
+            owner.AttachLibrary(firstLibrary);
+            Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(activeRoot, "active.zip")));
+            Assert.IsTrue(activeStarted.Wait(5000));
+            Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(pendingRoot, "pending.zip")));
+
+            owner.AttachLibrary(secondLibrary);
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => !Directory.Exists(pendingRoot), 5000));
+            Assert.IsTrue(Directory.Exists(activeRoot), "Installer handoff must protect the active source from queue cleanup.");
+            releaseActive.Set();
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            Assert.IsTrue(Directory.Exists(activeRoot));
+        }
+        finally
+        {
+            releaseActive.Set();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static DroppedInstallBatchRequest CreateOwnedRequest(string root, string originalPath)
+    {
+        return new DroppedInstallBatchRequest(
+            [Path.Combine(root, originalPath)],
+            [originalPath],
+            [root],
+            DeleteOwnedRoot,
+            null);
+    }
+
+    private static object GetCurrentQueueContext(PackageInstallWorkflowOwner owner)
+    {
+        FieldInfo queuesField = typeof(PackageInstallWorkflowOwner).GetField(
+            "queueProcessors",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        IList queues = (IList)queuesField.GetValue(owner)!;
+        return queues[queues.Count - 1]!;
+    }
+
+    private static void DeleteOwnedRoot(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
         }
     }
 

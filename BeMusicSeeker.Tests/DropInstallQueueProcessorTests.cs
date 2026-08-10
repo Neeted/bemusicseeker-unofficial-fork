@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -265,6 +267,270 @@ public sealed class DropInstallQueueProcessorTests
             Assert.AreEqual(0, inactiveSnapshot.CurrentWorkIndex);
             Assert.AreEqual(0, inactiveSnapshot.CurrentWorkTotal);
             Assert.AreEqual(string.Empty, inactiveSnapshot.CurrentWorkDisplayName);
+        }
+    }
+
+    [TestMethod]
+    public void PendingTransientBatch_RemainsReadableUntilConsumerStarts()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(DropInstallQueueProcessorTests), Guid.NewGuid().ToString("N"));
+        string firstRoot = Path.Combine(root, "first");
+        string secondRoot = Path.Combine(root, "second");
+        string secondFile = Path.Combine(secondRoot, "chart.bms");
+        Directory.CreateDirectory(firstRoot);
+        Directory.CreateDirectory(secondRoot);
+        File.WriteAllText(secondFile, "staged");
+        using var firstStarted = new ManualResetEventSlim(false);
+        using var releaseFirst = new ManualResetEventSlim(false);
+        using var secondRead = new ManualResetEventSlim(false);
+        Exception? failure = null;
+        try
+        {
+            var processor = new DropInstallQueueProcessor(
+                (request, _) =>
+                {
+                    if (request.DisplayName == "first.zip")
+                    {
+                        firstStarted.Set();
+                        releaseFirst.Wait(5000);
+                        return;
+                    }
+                    Assert.AreEqual("staged", File.ReadAllText(request.Paths.Single()));
+                    secondRead.Set();
+                },
+                _ => { },
+                exception => failure = exception);
+
+            processor.Enqueue(new DroppedInstallBatchRequest(
+                [Path.Combine(firstRoot, "first.zip")],
+                ["first.zip"],
+                [firstRoot],
+                DeleteDirectory,
+                null));
+            Assert.IsTrue(firstStarted.Wait(5000));
+            processor.Enqueue(new DroppedInstallBatchRequest(
+                [secondFile],
+                ["second.bms"],
+                [secondRoot],
+                DeleteDirectory,
+                null));
+
+            Assert.IsTrue(File.Exists(secondFile), "Pending ownership must keep the staged copy alive.");
+            releaseFirst.Set();
+            Assert.IsTrue(secondRead.Wait(5000));
+            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            Assert.IsNull(failure);
+            Assert.IsFalse(Directory.Exists(secondRoot), "An untransferred request is abandoned after its consumer returns.");
+        }
+        finally
+        {
+            releaseFirst.Set();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CancelAll_DeletesPendingOwnedRootButNeverExternalOriginal()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(DropInstallQueueProcessorTests), Guid.NewGuid().ToString("N"));
+        string original = Path.Combine(root, "external", "original.bms");
+        string activeRoot = Path.Combine(root, "active");
+        string pendingRoot = Path.Combine(root, "pending");
+        Directory.CreateDirectory(Path.GetDirectoryName(original)!);
+        Directory.CreateDirectory(activeRoot);
+        Directory.CreateDirectory(pendingRoot);
+        File.WriteAllText(original, "original");
+        using var activeStarted = new ManualResetEventSlim(false);
+        using var releaseActive = new ManualResetEventSlim(false);
+        try
+        {
+            var processor = new DropInstallQueueProcessor(
+                (_, token) =>
+                {
+                    activeStarted.Set();
+                    WaitHandle.WaitAny([token.WaitHandle, releaseActive.WaitHandle], 5000);
+                    token.ThrowIfCancellationRequested();
+                },
+                _ => { });
+            processor.Enqueue(CreateOwnedRequest(activeRoot, original, "active.zip"));
+            Assert.IsTrue(activeStarted.Wait(5000));
+            processor.Enqueue(CreateOwnedRequest(pendingRoot, original, "pending.zip"));
+
+            processor.CancelAll();
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            Assert.IsFalse(Directory.Exists(pendingRoot));
+            Assert.IsFalse(Directory.Exists(activeRoot));
+            Assert.IsTrue(File.Exists(original));
+        }
+        finally
+        {
+            releaseActive.Set();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void InstallerHandoff_PreventsQueueFinallyFromDeletingOwnedRoot()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(DropInstallQueueProcessorTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var processor = new DropInstallQueueProcessor(
+                (request, _) => Assert.IsTrue(request.TransferSourceOwnershipToInstaller()),
+                _ => { });
+            processor.Enqueue(new DroppedInstallBatchRequest(
+                [Path.Combine(root, "chart.bms")],
+                ["chart.bms"],
+                [root],
+                DeleteDirectory,
+                null));
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            Assert.IsTrue(Directory.Exists(root));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CancelAll_BlockedPendingCleanupCancelsActiveBeforeHandoffAndDefersIdle()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(DropInstallQueueProcessorTests), Guid.NewGuid().ToString("N"));
+        string activeRoot = Path.Combine(root, "active");
+        string pendingRoot = Path.Combine(root, "pending");
+        string lateRoot = Path.Combine(root, "late");
+        Directory.CreateDirectory(activeRoot);
+        Directory.CreateDirectory(pendingRoot);
+        Directory.CreateDirectory(lateRoot);
+        using var activeStarted = new ManualResetEventSlim(false);
+        using var activeObservedCancellation = new ManualResetEventSlim(false);
+        using var pendingCleanupStarted = new ManualResetEventSlim(false);
+        using var releasePendingCleanup = new ManualResetEventSlim(false);
+        using var lateCleanupCompleted = new ManualResetEventSlim(false);
+        using var terminalInactive = new ManualResetEventSlim(false);
+        using var freshProcessed = new ManualResetEventSlim(false);
+        Exception? backgroundFailure = null;
+        int unexpectedProcessCalls = 0;
+        try
+        {
+            var processor = new DropInstallQueueProcessor(
+                (request, token) =>
+                {
+                    if (request.DisplayName == "active.zip")
+                    {
+                        activeStarted.Set();
+                        if (WaitHandle.WaitAny([token.WaitHandle], 5000) == WaitHandle.WaitTimeout)
+                        {
+                            backgroundFailure = new AssertFailedException("Active cancellation was delayed by pending cleanup.");
+                            return;
+                        }
+                        if (request.TransferSourceOwnershipToInstaller())
+                        {
+                            backgroundFailure = new AssertFailedException("Cancellation must reserve abandonment before handoff.");
+                        }
+                        activeObservedCancellation.Set();
+                        return;
+                    }
+                    if (request.DisplayName == "fresh.zip")
+                    {
+                        freshProcessed.Set();
+                        return;
+                    }
+                    Interlocked.Increment(ref unexpectedProcessCalls);
+                },
+                snapshot =>
+                {
+                    if (!snapshot.IsActive)
+                    {
+                        terminalInactive.Set();
+                    }
+                },
+                exception => backgroundFailure = exception);
+
+            processor.Enqueue(CreateOwnedRequest(activeRoot, "unused", "active.zip"));
+            Assert.IsTrue(activeStarted.Wait(5000));
+            processor.Enqueue(new DroppedInstallBatchRequest(
+                [Path.Combine(pendingRoot, "pending.zip")],
+                ["pending.zip"],
+                [pendingRoot],
+                path =>
+                {
+                    pendingCleanupStarted.Set();
+                    if (!releasePendingCleanup.Wait(5000))
+                    {
+                        throw new AssertFailedException("Pending cleanup was not released.");
+                    }
+                    DeleteDirectory(path);
+                },
+                null));
+
+            Task cancellation = Task.Run(processor.CancelAll);
+            Assert.IsTrue(pendingCleanupStarted.Wait(5000));
+            Assert.IsTrue(activeObservedCancellation.Wait(5000));
+            Assert.IsFalse(processor.IsIdle, "Detached pending cleanup is part of queue drain state.");
+            Assert.IsFalse(terminalInactive.IsSet, "Inactive status must wait for detached cleanup.");
+
+            processor.Enqueue(new DroppedInstallBatchRequest(
+                [Path.Combine(lateRoot, "late.zip")],
+                ["late.zip"],
+                [lateRoot],
+                path =>
+                {
+                    DeleteDirectory(path);
+                    lateCleanupCompleted.Set();
+                },
+                null));
+            releasePendingCleanup.Set();
+
+            Assert.IsTrue(cancellation.Wait(5000));
+            Assert.IsTrue(lateCleanupCompleted.Wait(5000));
+            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            Assert.IsTrue(terminalInactive.IsSet);
+            Assert.AreEqual(0, unexpectedProcessCalls, "Requests accepted during a cancellation epoch must be abandoned.");
+
+            processor.Enqueue(["fresh.zip"]);
+            Assert.IsTrue(freshProcessed.Wait(5000), "An enqueue after the epoch closes must start a fresh worker.");
+            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            Assert.IsNull(backgroundFailure);
+        }
+        finally
+        {
+            releasePendingCleanup.Set();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static DroppedInstallBatchRequest CreateOwnedRequest(string ownedRoot, string original, string displayPath)
+    {
+        return new DroppedInstallBatchRequest(
+            [Path.Combine(ownedRoot, displayPath)],
+            [displayPath],
+            [ownedRoot],
+            DeleteDirectory,
+            null);
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
         }
     }
 }

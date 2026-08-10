@@ -22,6 +22,8 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
 
     private bool cancelRequested;
 
+    private int detachedAbandonmentCount;
+
     private DroppedInstallBatchRequest activeBatch;
 
     private CancellationTokenSource activeCancellationTokenSource;
@@ -44,7 +46,11 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
         {
             lock (syncRoot)
             {
-                return !workerRunning && activeBatch == null && pendingBatches.Count == 0;
+                return !workerRunning
+                    && !cancelRequested
+                    && activeBatch == null
+                    && pendingBatches.Count == 0
+                    && detachedAbandonmentCount == 0;
             }
         }
     }
@@ -52,16 +58,26 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
     public void Enqueue(IEnumerable<string> paths)
     {
         var request = new DroppedInstallBatchRequest(paths);
+        Enqueue(request);
+    }
+
+    /// <summary>
+    /// Transfers an already acquired request to this FIFO queue.
+    /// </summary>
+    /// <returns><see langword="true"/> when the queue accepted ownership of the request.</returns>
+    internal bool Enqueue(DroppedInstallBatchRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
         if (request.PathCount == 0)
         {
-            return;
+            return false;
         }
         bool startWorker = false;
         DropInstallQueueStatusSnapshot snapshot;
         lock (syncRoot)
         {
             pendingBatches.Enqueue(request);
-            if (!workerRunning)
+            if (!workerRunning && !cancelRequested)
             {
                 workerRunning = true;
                 startWorker = true;
@@ -73,23 +89,40 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
         {
             Task.Factory.StartNew(ProcessLoop, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Logging("DropInstallQueueProcessor");
         }
+        return true;
     }
 
     public void CancelAll()
     {
+        DroppedInstallBatchRequest[] abandonedBatches;
+        DroppedInstallBatchRequest activeRequest;
+        CancellationTokenSource cancellationTokenSource;
         DropInstallQueueStatusSnapshot snapshot;
         lock (syncRoot)
         {
-            if (activeBatch == null && pendingBatches.Count == 0 && !workerRunning)
+            if (activeBatch == null
+                && pendingBatches.Count == 0
+                && !workerRunning)
             {
                 return;
             }
             cancelRequested = true;
-            pendingBatches.Clear();
-            activeCancellationTokenSource?.Cancel();
             snapshot = CaptureStatusSnapshotUnsafe();
+            abandonedBatches = DetachPendingBatchesUnsafe();
+            activeRequest = activeBatch;
+            cancellationTokenSource = activeCancellationTokenSource;
+            activeRequest?.TryReserveAbandonmentBeforeInstallerHandoff();
         }
-        statusChanged(snapshot);
+        TryCancel(cancellationTokenSource);
+        if (snapshot.IsActive)
+        {
+            statusChanged(snapshot);
+        }
+        DropInstallQueueStatusSnapshot terminalSnapshot = CompleteDetachedAbandonment(abandonedBatches);
+        if (terminalSnapshot != null)
+        {
+            statusChanged(terminalSnapshot);
+        }
     }
 
     public void ReportActiveBatchProgress(int completedPathCount)
@@ -138,18 +171,31 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             CancellationTokenSource cancellationTokenSource = null;
             DropInstallQueueStatusSnapshot snapshot;
             bool shouldExitImmediately = false;
+            DroppedInstallBatchRequest[] cancelledBeforeStart = [];
             lock (syncRoot)
             {
-                if (pendingBatches.Count == 0)
+                if (cancelRequested && pendingBatches.Count > 0)
+                {
+                    cancelledBeforeStart = DetachPendingBatchesUnsafe();
+                    snapshot = null;
+                }
+                else if (pendingBatches.Count == 0)
                 {
                     workerRunning = false;
-                    cancelRequested = false;
                     activeBatch = null;
                     activeCompletedPathCount = 0;
                     ClearActiveCurrentWorkUnsafe();
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = null;
-                    snapshot = CaptureStatusSnapshotUnsafe();
+                    if (cancelRequested && detachedAbandonmentCount > 0)
+                    {
+                        snapshot = null;
+                    }
+                    else
+                    {
+                        cancelRequested = false;
+                        snapshot = CaptureStatusSnapshotUnsafe();
+                    }
                     shouldExitImmediately = true;
                 }
                 else
@@ -164,7 +210,20 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                     snapshot = CaptureStatusSnapshotUnsafe();
                 }
             }
-            statusChanged(snapshot);
+            if (cancelledBeforeStart.Length > 0)
+            {
+                DropInstallQueueStatusSnapshot cancellationTerminalSnapshot =
+                    CompleteDetachedAbandonment(cancelledBeforeStart);
+                if (cancellationTerminalSnapshot != null)
+                {
+                    statusChanged(cancellationTerminalSnapshot);
+                }
+                continue;
+            }
+            if (snapshot != null)
+            {
+                statusChanged(snapshot);
+            }
             if (shouldExitImmediately)
             {
                 return;
@@ -183,6 +242,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             }
             finally
             {
+                DroppedInstallBatchRequest[] abandonedBatches;
                 lock (syncRoot)
                 {
                     activeBatch = null;
@@ -192,17 +252,69 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                     activeCancellationTokenSource = null;
                     if (cancelRequested)
                     {
-                        pendingBatches.Clear();
+                        abandonedBatches = DetachPendingBatchesUnsafe();
                     }
-                    shouldExitAfterFinally = pendingBatches.Count == 0;
-                    if (shouldExitAfterFinally)
+                    else
                     {
-                        workerRunning = false;
-                        cancelRequested = false;
+                        abandonedBatches = [];
                     }
-                    snapshot = CaptureStatusSnapshotUnsafe();
                 }
-                statusChanged(snapshot);
+                batch.TryAbandonUnconsumedSources();
+                DropInstallQueueStatusSnapshot detachedTerminalSnapshot =
+                    CompleteDetachedAbandonment(abandonedBatches);
+                if (detachedTerminalSnapshot != null)
+                {
+                    statusChanged(detachedTerminalSnapshot);
+                }
+
+                while (true)
+                {
+                    DroppedInstallBatchRequest[] batchesEnqueuedDuringCancellation;
+                    lock (syncRoot)
+                    {
+                        if (cancelRequested && pendingBatches.Count > 0)
+                        {
+                            batchesEnqueuedDuringCancellation = DetachPendingBatchesUnsafe();
+                            snapshot = null;
+                        }
+                        else
+                        {
+                            batchesEnqueuedDuringCancellation = [];
+                            shouldExitAfterFinally = pendingBatches.Count == 0;
+                            if (shouldExitAfterFinally)
+                            {
+                                workerRunning = false;
+                                if (detachedAbandonmentCount == 0)
+                                {
+                                    cancelRequested = false;
+                                    snapshot = CaptureStatusSnapshotUnsafe();
+                                }
+                                else
+                                {
+                                    snapshot = null;
+                                }
+                            }
+                            else
+                            {
+                                snapshot = CaptureStatusSnapshotUnsafe();
+                            }
+                        }
+                    }
+                    DropInstallQueueStatusSnapshot cancellationTerminalSnapshot =
+                        CompleteDetachedAbandonment(batchesEnqueuedDuringCancellation);
+                    if (cancellationTerminalSnapshot != null)
+                    {
+                        statusChanged(cancellationTerminalSnapshot);
+                    }
+                    if (batchesEnqueuedDuringCancellation.Length == 0)
+                    {
+                        break;
+                    }
+                }
+                if (snapshot != null)
+                {
+                    statusChanged(snapshot);
+                }
             }
             if (shouldExitAfterFinally)
             {
@@ -242,5 +354,74 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
         activeCurrentWorkIndex = 0;
         activeCurrentWorkTotal = 0;
         activeCurrentWorkDisplayName = string.Empty;
+    }
+
+    private static void AbandonRequests(IEnumerable<DroppedInstallBatchRequest> requests)
+    {
+        foreach (DroppedInstallBatchRequest request in requests ?? [])
+        {
+            request?.TryAbandonUnconsumedSources();
+        }
+    }
+
+    private DroppedInstallBatchRequest[] DetachPendingBatchesUnsafe()
+    {
+        DroppedInstallBatchRequest[] detached = [.. pendingBatches];
+        pendingBatches.Clear();
+        detachedAbandonmentCount += detached.Length;
+        return detached;
+    }
+
+    private DropInstallQueueStatusSnapshot CompleteDetachedAbandonment(
+        DroppedInstallBatchRequest[] initiallyDetached)
+    {
+        DroppedInstallBatchRequest[] detached = initiallyDetached ?? [];
+        while (true)
+        {
+            DropInstallQueueStatusSnapshot terminalSnapshot = null;
+            try
+            {
+                AbandonRequests(detached);
+            }
+            finally
+            {
+                lock (syncRoot)
+                {
+                    detachedAbandonmentCount -= detached.Length;
+                    if (cancelRequested && pendingBatches.Count > 0)
+                    {
+                        detached = DetachPendingBatchesUnsafe();
+                    }
+                    else
+                    {
+                        detached = [];
+                        if (cancelRequested
+                            && detachedAbandonmentCount == 0
+                            && activeBatch == null
+                            && !workerRunning)
+                        {
+                            cancelRequested = false;
+                            terminalSnapshot = CaptureStatusSnapshotUnsafe();
+                        }
+                    }
+                }
+            }
+            if (detached.Length == 0)
+            {
+                return terminalSnapshot;
+            }
+        }
+    }
+
+    private static void TryCancel(CancellationTokenSource cancellationTokenSource)
+    {
+        try
+        {
+            cancellationTokenSource?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The worker may complete between the lock snapshot and cancellation.
+        }
     }
 }

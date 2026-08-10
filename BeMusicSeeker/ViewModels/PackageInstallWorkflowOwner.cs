@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using BeMusicSeeker.Models;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -87,6 +89,8 @@ internal sealed class PackageInstallWorkflowOwner
 
     private readonly IPackageInstallMutationPort mutationPort;
 
+    private readonly DroppedInstallIngressMaterializer droppedInstallIngressMaterializer;
+
     private readonly Func<Action, bool> tryDispatchToUi;
 
     private readonly Action<Exception> reportNotificationFailure;
@@ -112,13 +116,16 @@ internal sealed class PackageInstallWorkflowOwner
         ChartMutationActivityOwner chartMutationActivity,
         IPackageInstallMutationPort mutationPort,
         Func<Action, bool> tryDispatchToUi,
-        Action<Exception> reportNotificationFailure = null)
+        Action<Exception> reportNotificationFailure = null,
+        DroppedInstallIngressMaterializer droppedInstallIngressMaterializer = null)
     {
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.mutationPort = mutationPort ?? throw new ArgumentNullException(nameof(mutationPort));
         this.tryDispatchToUi = tryDispatchToUi ?? throw new ArgumentNullException(nameof(tryDispatchToUi));
         this.reportNotificationFailure = reportNotificationFailure;
+        this.droppedInstallIngressMaterializer = droppedInstallIngressMaterializer
+            ?? CreateProductionDroppedInstallIngressMaterializer();
         lock (syncRoot)
         {
             queueProcessors.Add(CreateQueueProcessorUnsafe(0, null));
@@ -140,7 +147,12 @@ internal sealed class PackageInstallWorkflowOwner
             lock (syncRoot)
             {
                 PruneIdleRetiredQueuesUnsafe();
-                return queueProcessors.Count > 0 && !queueProcessors[queueProcessors.Count - 1].Processor.IsIdle;
+                if (queueProcessors.Count == 0)
+                {
+                    return false;
+                }
+                QueueProcessorContext current = queueProcessors[queueProcessors.Count - 1];
+                return current.InFlightAdmissionCount > 0 || !current.Processor.IsIdle;
             }
         }
     }
@@ -152,7 +164,8 @@ internal sealed class PackageInstallWorkflowOwner
             lock (syncRoot)
             {
                 PruneIdleRetiredQueuesUnsafe();
-                return queueProcessors.All(queue => queue.Processor.IsIdle);
+                return queueProcessors.All(queue =>
+                    queue.InFlightAdmissionCount == 0 && queue.Processor.IsIdle);
             }
         }
     }
@@ -170,6 +183,8 @@ internal sealed class PackageInstallWorkflowOwner
             library = nextLibrary;
             Interlocked.Increment(ref generation);
             previousQueue = queueProcessors[queueProcessors.Count - 1];
+            previousQueue.AcceptingAdmissions = false;
+            AdvanceCancellationRevisionUnsafe(previousQueue);
             queueProcessors.Add(CreateQueueProcessorUnsafe(generation, nextLibrary));
         }
         previousQueue.Processor.CancelAll();
@@ -189,20 +204,86 @@ internal sealed class PackageInstallWorkflowOwner
             return;
         }
 
+        TryEnqueue(new DroppedInstallBatchRequest(pathSnapshot));
+    }
+
+    /// <summary>
+    /// Attempts to transfer an acquired drop request to the current library generation.
+    /// Rejected requests are abandoned outside the owner lock.
+    /// </summary>
+    internal bool TryEnqueue(DroppedInstallBatchRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        QueueProcessorContext queue = null;
+        object admissionCancellationRevision = null;
         lock (syncRoot)
         {
-            if (Volatile.Read(ref shutdownState) != 0)
+            if (Volatile.Read(ref shutdownState) == 0)
             {
-                return;
+                QueueProcessorContext candidate = queueProcessors[queueProcessors.Count - 1];
+                if (candidate.AcceptingAdmissions)
+                {
+                    candidate.InFlightAdmissionCount++;
+                    candidate.InFlightAdmissions.Add(request);
+                    admissionCancellationRevision = candidate.CancellationRevision;
+                    queue = candidate;
+                }
             }
-            QueueProcessorContext queue = queueProcessors[queueProcessors.Count - 1];
-            queue.Processor.Enqueue(pathSnapshot);
         }
+        if (queue == null)
+        {
+            request.TryAbandonUnconsumedSources();
+            return false;
+        }
+
+        bool accepted = queue.Processor.Enqueue(request);
+        if (!accepted)
+        {
+            request.TryAbandonUnconsumedSources();
+        }
+
+        bool compensateClosedAdmission;
+        lock (syncRoot)
+        {
+            queue.InFlightAdmissions.Remove(request);
+            queue.InFlightAdmissionCount--;
+            compensateClosedAdmission = accepted
+                && (!queue.AcceptingAdmissions
+                    || !ReferenceEquals(
+                        admissionCancellationRevision,
+                        queue.CancellationRevision));
+        }
+        if (compensateClosedAdmission)
+        {
+            queue.Processor.CancelAll();
+        }
+        return accepted;
     }
 
     internal void EnqueueSingle(string path)
     {
         Enqueue(string.IsNullOrWhiteSpace(path) ? [] : [path]);
+    }
+
+    /// <summary>
+    /// Synchronously acquires borrowed FileDrop paths and queues only a complete durable batch.
+    /// </summary>
+    internal DroppedInstallIngressAcquisitionResult AcquireAndTryEnqueueDroppedPaths(
+        IEnumerable<string> paths)
+    {
+        DroppedInstallIngressAcquisitionResult acquisition =
+            droppedInstallIngressMaterializer.Acquire(paths);
+        if (!acquisition.Succeeded)
+        {
+            return acquisition;
+        }
+        if (TryEnqueue(acquisition.Request))
+        {
+            return acquisition;
+        }
+        return DroppedInstallIngressAcquisitionResult.Failure(
+            DroppedInstallIngressFailureKind.QueueRejected,
+            new InvalidOperationException("The package install queue is shutting down."));
     }
 
     internal void CancelAll()
@@ -211,6 +292,7 @@ internal sealed class PackageInstallWorkflowOwner
         lock (syncRoot)
         {
             queue = queueProcessors[queueProcessors.Count - 1];
+            AdvanceCancellationRevisionUnsafe(queue);
         }
         queue.Processor.CancelAll();
     }
@@ -223,6 +305,11 @@ internal sealed class PackageInstallWorkflowOwner
             Volatile.Write(ref shutdownState, 1);
             Interlocked.Increment(ref generation);
             queues = [.. queueProcessors];
+            foreach (QueueProcessorContext queue in queues)
+            {
+                queue.AcceptingAdmissions = false;
+                AdvanceCancellationRevisionUnsafe(queue);
+            }
         }
         foreach (QueueProcessorContext queue in queues)
         {
@@ -266,7 +353,7 @@ internal sealed class PackageInstallWorkflowOwner
         IReadOnlyList<ChartPackage> packages = ExecuteInstallBatch(
             currentGeneration,
             currentLibrary,
-            request.Paths,
+            request,
             token,
             () => context.Processor.ReportActiveBatchProgress(++completedPathCount),
             (path, index, total) => context.Processor.ReportActiveBatchCurrentWork(
@@ -295,12 +382,12 @@ internal sealed class PackageInstallWorkflowOwner
     private IReadOnlyList<ChartPackage> ExecuteInstallBatch(
         long expectedGeneration,
         BMSLibrary library,
-        IEnumerable<string> installPaths,
+        DroppedInstallBatchRequest request,
         CancellationToken token,
         Action onEachPathProcessed,
         Action<string, int, int> onEachArchiveExtractStarted)
     {
-        string[] normalizedInstallPaths = [.. (installPaths ?? [])
+        string[] normalizedInstallPaths = [.. (request?.Paths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))];
         if (normalizedInstallPaths.Length == 0 || token.IsCancellationRequested)
         {
@@ -319,7 +406,8 @@ internal sealed class PackageInstallWorkflowOwner
             dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
             operationGate = chartFileOperations.Enter();
-            if (!IsCurrentGeneration(expectedGeneration, library))
+            if (token.IsCancellationRequested
+                || !IsCurrentGeneration(expectedGeneration, library))
             {
                 mutationAllowed = false;
             }
@@ -327,12 +415,19 @@ internal sealed class PackageInstallWorkflowOwner
             {
                 suppressionStarted = true;
                 PublishRefreshSuppressionChanged(isSuppressed: true);
-                packages = mutationPort.Install(
-                    library,
-                    normalizedInstallPaths,
-                    token,
-                    onEachPathProcessed,
-                    onEachArchiveExtractStarted) ?? [];
+                if (!request.TransferSourceOwnershipToInstaller())
+                {
+                    mutationAllowed = false;
+                }
+                else
+                {
+                    packages = mutationPort.Install(
+                        library,
+                        normalizedInstallPaths,
+                        token,
+                        onEachPathProcessed,
+                        onEachArchiveExtractStarted) ?? [];
+                }
             }
         }
         catch (Exception exception)
@@ -511,7 +606,7 @@ internal sealed class PackageInstallWorkflowOwner
             ReportNotificationFailure(exception);
             return;
         }
-        var failure = new PackageInstallFailure(context.Generation, context.ActiveBatch?.Paths, exception);
+        var failure = new PackageInstallFailure(context.Generation, context.ActiveBatch?.OriginalPaths, exception);
         DispatchNotification(() =>
         {
             if (IsCurrentGeneration(context.Generation, context.Library))
@@ -593,10 +688,20 @@ internal sealed class PackageInstallWorkflowOwner
     {
         for (int index = queueProcessors.Count - 2; index >= 0; index--)
         {
-            if (queueProcessors[index].Processor.IsIdle)
+            if (queueProcessors[index].InFlightAdmissionCount == 0
+                && queueProcessors[index].Processor.IsIdle)
             {
                 queueProcessors.RemoveAt(index);
             }
+        }
+    }
+
+    private static void AdvanceCancellationRevisionUnsafe(QueueProcessorContext queue)
+    {
+        queue.CancellationRevision = new object();
+        foreach (DroppedInstallBatchRequest request in queue.InFlightAdmissions)
+        {
+            request.TryReserveAbandonmentBeforeInstallerHandoff();
         }
     }
 
@@ -609,6 +714,26 @@ internal sealed class PackageInstallWorkflowOwner
         internal DropInstallQueueProcessor Processor { get; set; }
 
         internal DroppedInstallBatchRequest ActiveBatch { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether the owner may linearize a new admission against this generation.
+        /// </summary>
+        internal bool AcceptingAdmissions { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets the number of admissions reserved by the owner but not yet resolved by the processor.
+        /// </summary>
+        internal int InFlightAdmissionCount { get; set; }
+
+        /// <summary>
+        /// Gets the requests admitted by the owner but not yet resolved by the processor.
+        /// </summary>
+        internal HashSet<DroppedInstallBatchRequest> InFlightAdmissions { get; } = [];
+
+        /// <summary>
+        /// Gets or sets the identity of the latest normal or terminal cancellation transition.
+        /// </summary>
+        internal object CancellationRevision { get; set; } = new object();
     }
 
     private static string GetInstallPathDisplayName(string path)
@@ -620,5 +745,22 @@ internal sealed class PackageInstallWorkflowOwner
         string trimmed = path.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
         string fileName = System.IO.Path.GetFileName(trimmed);
         return string.IsNullOrWhiteSpace(fileName) ? path : fileName;
+    }
+
+    private static DroppedInstallIngressMaterializer CreateProductionDroppedInstallIngressMaterializer()
+    {
+        return new DroppedInstallIngressMaterializer(
+            Path.GetTempPath(),
+            TempDirectoryPublisher.IsManagedPath,
+            () => TempDirectoryPublisher.Get("drop-ingress"),
+            root => TempDirectoryPublisher.TryDeleteManagedPath(
+                root,
+                info => NLogWrapper.FileLogger?.Info(info + " reason=drop_ingress_abandoned"),
+                (path, exception) => NLogWrapper.FileLogger?.Warn(
+                    exception,
+                    "temp_cleanup_failed reason=drop_ingress_abandoned path=" + path)),
+            (path, exception) => NLogWrapper.FileLogger?.Warn(
+                exception,
+                "temp_cleanup_failed reason=drop_ingress_abandoned path=" + path));
     }
 }
