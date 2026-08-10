@@ -136,6 +136,44 @@ public sealed class DroppedInstallIngressMaterializerTests
     }
 
     [TestMethod]
+    public void Acquire_TrustedReparseTempRootDoesNotRejectNormalLogicalDescendant()
+    {
+        using var fixture = new MaterializerFixture();
+        string source = fixture.CreateExternalFile("trusted-root/chart.bms", "chart");
+        fixture.ReportedReparsePath = fixture.SystemTempRoot;
+
+        DroppedInstallIngressAcquisitionResult result = fixture.Materializer.Acquire([source]);
+
+        Assert.IsTrue(result.Succeeded, result.Exception?.ToString());
+        Assert.IsFalse(
+            fixture.AttributeProbes.Any(path => string.Equals(
+                LongPathFileSystem.TrimTrailingDirectorySeparators(path),
+                LongPathFileSystem.TrimTrailingDirectorySeparators(fixture.SystemTempRoot),
+                StringComparison.OrdinalIgnoreCase)),
+            "The configured temp root is the trusted anchor, not an inspected source component.");
+        Assert.AreEqual("chart", File.ReadAllText(result.Request.Paths.Single()));
+    }
+
+    [TestMethod]
+    public void Acquire_ReparseAncestorBelowTrustedRootIsRejectedBeforeCopy()
+    {
+        using var fixture = new MaterializerFixture();
+        string reparseAncestor = Path.Combine(fixture.SystemTempRoot, "unsafe-ancestor");
+        string source = Path.Combine(reparseAncestor, "missing-child", "missing-chart.bms");
+        fixture.ReportedReparsePath = reparseAncestor;
+
+        DroppedInstallIngressAcquisitionResult result = fixture.Materializer.Acquire([source]);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(DroppedInstallIngressFailureKind.UnsafeSource, result.FailureKind);
+        Assert.IsNull(fixture.LastIngressRoot);
+        CollectionAssert.AreEqual(
+            new[] { LongPathFileSystem.NormalizePathForStorage(reparseAncestor) },
+            fixture.AttributeProbes,
+            "The first reparse ancestor must stop root-to-leaf probing before a missing descendant is touched.");
+    }
+
+    [TestMethod]
     public void Acquire_DirectoryContainingReparsePointRejectsBatchAndPreservesTarget()
     {
         using var fixture = new MaterializerFixture();
@@ -202,7 +240,8 @@ public sealed class DroppedInstallIngressMaterializerTests
                 SystemTempRoot,
                 path => LongPathFileSystem.IsSameOrDescendantDirectoryPath(path, managedRoot),
                 CreateIngressRoot,
-                DeleteIngressRoot);
+                DeleteIngressRoot,
+                getAttributes: GetAttributes);
         }
 
         internal DroppedInstallIngressMaterializer Materializer { get; }
@@ -212,6 +251,10 @@ public sealed class DroppedInstallIngressMaterializerTests
         internal string LastIngressRoot { get; private set; }
 
         internal string DestinationAncestor { get; set; }
+
+        internal string? ReportedReparsePath { get; set; }
+
+        internal List<string> AttributeProbes { get; } = [];
 
         internal string CreateExternalFile(string relativePath, string contents)
         {
@@ -266,6 +309,20 @@ public sealed class DroppedInstallIngressMaterializerTests
             {
                 Directory.Delete(path, recursive: true);
             }
+        }
+
+        private FileAttributes GetAttributes(string path)
+        {
+            AttributeProbes.Add(path);
+            if (!string.IsNullOrWhiteSpace(ReportedReparsePath)
+                && string.Equals(
+                    LongPathFileSystem.NormalizePathForStorage(path),
+                    LongPathFileSystem.NormalizePathForStorage(ReportedReparsePath),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return FileAttributes.Directory | FileAttributes.ReparsePoint;
+            }
+            return LongPathFileSystem.GetAttributes(path);
         }
 
         public void Dispose()

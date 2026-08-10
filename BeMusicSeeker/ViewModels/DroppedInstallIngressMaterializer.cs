@@ -67,6 +67,7 @@ internal sealed class DroppedInstallIngressMaterializer
     private readonly Func<string> createManagedIngressRoot;
     private readonly Action<string> deleteManagedIngressRoot;
     private readonly Action<string, Exception> reportCleanupFailure;
+    private readonly Func<string, FileAttributes> getAttributes;
 
     /// <summary>
     /// Creates an ingress materializer with injectable path ownership boundaries for deterministic tests.
@@ -76,7 +77,8 @@ internal sealed class DroppedInstallIngressMaterializer
         Func<string, bool> isCurrentSessionManagedPath,
         Func<string> createManagedIngressRoot,
         Action<string> deleteManagedIngressRoot,
-        Action<string, Exception> reportCleanupFailure = null)
+        Action<string, Exception> reportCleanupFailure = null,
+        Func<string, FileAttributes> getAttributes = null)
     {
         this.systemTempRoot = NormalizeDirectoryPath(systemTempRoot);
         this.isCurrentSessionManagedPath = isCurrentSessionManagedPath
@@ -86,6 +88,7 @@ internal sealed class DroppedInstallIngressMaterializer
         this.deleteManagedIngressRoot = deleteManagedIngressRoot
             ?? throw new ArgumentNullException(nameof(deleteManagedIngressRoot));
         this.reportCleanupFailure = reportCleanupFailure;
+        this.getAttributes = getAttributes ?? LongPathFileSystem.GetAttributes;
     }
 
     /// <summary>
@@ -105,25 +108,21 @@ internal sealed class DroppedInstallIngressMaterializer
             }
 
             string[] normalizedPaths = originals.Select(LongPathFileSystem.NormalizePathForStorage).ToArray();
-            foreach (string path in normalizedPaths)
-            {
-                if (!LongPathFileSystem.EntryExists(path))
-                {
-                    return DroppedInstallIngressAcquisitionResult.Failure(
-                        DroppedInstallIngressFailureKind.SourceUnavailable,
-                        new FileNotFoundException("A dropped install source is no longer available.", path));
-                }
-            }
-
             bool[] transient = normalizedPaths.Select(IsExternalTransientSource).ToArray();
-            if (!transient.Any(value => value))
+            bool[] sourceIsDirectory = new bool[normalizedPaths.Length];
+            for (int index = 0; index < normalizedPaths.Length; index++)
             {
-                return DroppedInstallIngressAcquisitionResult.Success(
-                    new DroppedInstallBatchRequest(normalizedPaths, originals, [], null, reportCleanupFailure));
-            }
+                string source = normalizedPaths[index];
+                if (!transient[index])
+                {
+                    if (!LongPathFileSystem.EntryExists(source))
+                    {
+                        return SourceUnavailable(source);
+                    }
+                    sourceIsDirectory[index] = LongPathFileSystem.DirectoryExists(source);
+                    continue;
+                }
 
-            foreach (string source in normalizedPaths.Where((_, index) => transient[index]))
-            {
                 if (string.Equals(
                     NormalizeDirectoryPath(source),
                     systemTempRoot,
@@ -131,7 +130,24 @@ internal sealed class DroppedInstallIngressMaterializer
                 {
                     throw new UnsafeDroppedInstallSourceException("The system temporary root cannot be acquired as a drop source.");
                 }
-                EnsureSourceAncestorsAreNotReparsePoints(source);
+
+                try
+                {
+                    FileAttributes attributes = GetTrustedRootDescendantAttributes(source);
+                    sourceIsDirectory[index] = (attributes & FileAttributes.Directory) != 0;
+                }
+                catch (Exception exception) when (exception is FileNotFoundException
+                    || exception is DirectoryNotFoundException
+                    || exception is UnauthorizedAccessException)
+                {
+                    return SourceUnavailable(source, exception);
+                }
+            }
+
+            if (!transient.Any(value => value))
+            {
+                return DroppedInstallIngressAcquisitionResult.Success(
+                    new DroppedInstallBatchRequest(normalizedPaths, originals, [], null, reportCleanupFailure));
             }
 
             ingressRoot = NormalizeDirectoryPath(createManagedIngressRoot());
@@ -151,7 +167,7 @@ internal sealed class DroppedInstallIngressMaterializer
                 string destination = LongPathFileSystem.NormalizePathForStorage(
                     Path.Combine(ingressRoot, relativePath));
                 EnsureDestinationWithinIngressRoot(destination, ingressRoot);
-                if (LongPathFileSystem.DirectoryExists(source)
+                if (sourceIsDirectory[index]
                     && LongPathFileSystem.IsSameOrDescendantDirectoryPath(ingressRoot, source))
                 {
                     throw new UnsafeDroppedInstallSourceException("The managed ingress destination is inside a dropped source directory.");
@@ -160,10 +176,13 @@ internal sealed class DroppedInstallIngressMaterializer
                 mappedPaths[source] = destination;
             }
 
-            foreach (string source in GetMinimalCopySources(normalizedPaths, transient))
+            foreach (string source in GetMinimalCopySources(normalizedPaths, transient, sourceIsDirectory))
             {
                 string destination = mappedPaths[source];
-                if (LongPathFileSystem.DirectoryExists(source))
+                int sourceIndex = Array.FindIndex(
+                    normalizedPaths,
+                    path => string.Equals(path, source, StringComparison.OrdinalIgnoreCase));
+                if (sourceIsDirectory[sourceIndex])
                 {
                     CopyDirectoryWithoutReparsePoints(source, destination, ingressRoot);
                 }
@@ -208,7 +227,10 @@ internal sealed class DroppedInstallIngressMaterializer
             && !isCurrentSessionManagedPath(normalizedPath);
     }
 
-    private static IEnumerable<string> GetMinimalCopySources(string[] paths, bool[] transient)
+    private static IEnumerable<string> GetMinimalCopySources(
+        string[] paths,
+        bool[] transient,
+        bool[] sourceIsDirectory)
     {
         var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int index = 0; index < paths.Length; index++)
@@ -223,7 +245,9 @@ internal sealed class DroppedInstallIngressMaterializer
         {
             bool coveredByDirectory = unique.Any(other =>
                 !string.Equals(candidate, other, StringComparison.OrdinalIgnoreCase)
-                && LongPathFileSystem.DirectoryExists(other)
+                && sourceIsDirectory[Array.FindIndex(
+                    paths,
+                    path => string.Equals(path, other, StringComparison.OrdinalIgnoreCase))]
                 && LongPathFileSystem.IsSameOrDescendantDirectoryPath(candidate, other));
             if (!coveredByDirectory)
             {
@@ -232,7 +256,7 @@ internal sealed class DroppedInstallIngressMaterializer
         }
     }
 
-    private static void CopyDirectoryWithoutReparsePoints(
+    private void CopyDirectoryWithoutReparsePoints(
         string source,
         string destination,
         string ingressRoot)
@@ -258,33 +282,53 @@ internal sealed class DroppedInstallIngressMaterializer
         }
     }
 
-    private void EnsureSourceAncestorsAreNotReparsePoints(string source)
+    private FileAttributes GetTrustedRootDescendantAttributes(string source)
     {
-        string current = LongPathFileSystem.DirectoryExists(source)
-            ? NormalizeDirectoryPath(source)
-            : NormalizeDirectoryPath(Path.GetDirectoryName(source));
-        while (LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(current, systemTempRoot))
+        string relativePath = Path.GetRelativePath(systemTempRoot, source);
+        ValidateRelativePath(relativePath);
+        string[] components = relativePath.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        string current = systemTempRoot;
+        FileAttributes attributes = default;
+        for (int index = 0; index < components.Length; index++)
         {
-            EnsureEntryIsNotReparsePoint(current);
-            if (string.Equals(current, systemTempRoot, StringComparison.OrdinalIgnoreCase))
+            current = LongPathFileSystem.NormalizePathForStorage(
+                Path.Combine(current, components[index]));
+            attributes = getAttributes(current);
+            EnsureAttributesAreNotReparsePoint(attributes);
+            if (index < components.Length - 1
+                && (attributes & FileAttributes.Directory) == 0)
             {
-                break;
+                throw new DirectoryNotFoundException(
+                    "A dropped install source ancestor is not a directory: " + current);
             }
-            string parent = Path.GetDirectoryName(current);
-            if (string.IsNullOrWhiteSpace(parent) || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
-            {
-                break;
-            }
-            current = NormalizeDirectoryPath(parent);
         }
+        return attributes;
     }
 
-    private static void EnsureEntryIsNotReparsePoint(string path)
+    private void EnsureEntryIsNotReparsePoint(string path)
     {
-        if ((LongPathFileSystem.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        EnsureAttributesAreNotReparsePoint(getAttributes(path));
+    }
+
+    private static void EnsureAttributesAreNotReparsePoint(FileAttributes attributes)
+    {
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
         {
             throw new UnsafeDroppedInstallSourceException("Reparse points cannot be acquired as drop install sources.");
         }
+    }
+
+    private static DroppedInstallIngressAcquisitionResult SourceUnavailable(
+        string source,
+        Exception exception = null)
+    {
+        return DroppedInstallIngressAcquisitionResult.Failure(
+            DroppedInstallIngressFailureKind.SourceUnavailable,
+            exception ?? new FileNotFoundException(
+                "A dropped install source is no longer available.",
+                source));
     }
 
     private static void ValidateRelativePath(string relativePath)

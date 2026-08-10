@@ -1,9 +1,7 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -198,44 +196,21 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void SameGenerationStatusSequence_DropsLateTerminalAndSegmentsRapidReentry()
+    public void TryEnqueue_BeforeLibraryAttachRejectsAndDeletesOwnedIngressRoot()
     {
-        var notifications = new Queue<Action>();
-        var published = new List<string>();
-        var owner = CreateOwner(
-            (_, _, _, _, _) => [],
-            action =>
-            {
-                notifications.Enqueue(action);
-                return true;
-            });
-        owner.StatusChanged += snapshot =>
-            published.Add(snapshot.IsActive ? "active" : "inactive");
-        FieldInfo queuesField = typeof(PackageInstallWorkflowOwner).GetField(
-            "queueProcessors",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-        object context = ((IList)queuesField.GetValue(owner)!)[0]!;
-        MethodInfo publish = typeof(PackageInstallWorkflowOwner).GetMethod(
-            "PublishQueueStatus",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-
-        publish.Invoke(owner, [context, new DropInstallQueueStatusSnapshot { Sequence = 1, IsActive = true }]);
-        publish.Invoke(owner, [context, new DropInstallQueueStatusSnapshot { Sequence = 3, IsActive = false }]);
-        publish.Invoke(owner, [context, new DropInstallQueueStatusSnapshot { Sequence = 4, IsActive = true }]);
-        publish.Invoke(owner, [context, new DropInstallQueueStatusSnapshot { Sequence = 2, IsActive = false }]);
-
-        Assert.AreEqual(3, notifications.Count);
-        DrainNotifications(notifications);
-
-        Assert.AreEqual("active|inactive|active", string.Join("|", published));
-    }
-
-    [TestMethod]
-    public void EnqueueBeforeLibraryAttach_ReportsDiagnosticFailure()
-    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PackageInstallWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
         int diagnosticReports = 0;
+        int mutationCalls = 0;
         var owner = CreateOwner(
-            (library, paths, token, onPath, onArchive) => throw new InvalidOperationException("library was not attached"),
+            (_, _, _, _, _) =>
+            {
+                Interlocked.Increment(ref mutationCalls);
+                return [];
+            },
             action =>
             {
                 action();
@@ -243,10 +218,94 @@ public sealed class PackageInstallWorkflowOwnerTests
             },
             _ => Interlocked.Increment(ref diagnosticReports));
 
-        owner.Enqueue(["before-attach.zip"]);
+        bool accepted = owner.TryEnqueue(CreateOwnedRequest(root, "before-attach.zip"));
 
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
-        Assert.AreEqual(1, diagnosticReports);
+        Assert.IsFalse(accepted);
+        Assert.IsTrue(owner.IsIdle);
+        Assert.AreEqual(0, mutationCalls);
+        Assert.AreEqual(0, diagnosticReports);
+        Assert.IsFalse(Directory.Exists(root));
+    }
+
+    [TestMethod]
+    public void AcquireAndTryEnqueueDroppedPaths_StagesTransientSourceThroughMutationPort()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PackageInstallWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        string systemTempRoot = Path.Combine(root, "system-temp");
+        string ingressRoot = Path.Combine(root, "managed-ingress");
+        string source = Path.Combine(systemTempRoot, "archiver", "nested", "chart.bms");
+        string songDbPath = Path.Combine(root, "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(source)!);
+        File.WriteAllText(source, "borrowed-chart");
+        File.WriteAllBytes(songDbPath, []);
+        using var mutationEntered = new ManualResetEventSlim(false);
+        using var allowMutationRead = new ManualResetEventSlim(false);
+        using var mutationFinished = new ManualResetEventSlim(false);
+        string? installedPath = null;
+        string? installedContents = null;
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var materializer = new DroppedInstallIngressMaterializer(
+                systemTempRoot,
+                _ => false,
+                () =>
+                {
+                    Directory.CreateDirectory(ingressRoot);
+                    return ingressRoot;
+                },
+                DeleteOwnedRoot);
+            var owner = CreateOwner(
+                (_, paths, _, _, _) =>
+                {
+                    installedPath = paths.Single();
+                    mutationEntered.Set();
+                    Assert.IsTrue(allowMutationRead.Wait(5000));
+                    installedContents = File.ReadAllText(installedPath);
+                    mutationFinished.Set();
+                    return [];
+                },
+                action =>
+                {
+                    action();
+                    return true;
+                },
+                droppedInstallIngressMaterializer: materializer);
+            owner.AttachLibrary(library);
+
+            DroppedInstallIngressAcquisitionResult result =
+                owner.AcquireAndTryEnqueueDroppedPaths([source]);
+
+            Assert.IsTrue(result.Succeeded, result.Exception?.ToString());
+            Assert.IsTrue(mutationEntered.Wait(5000));
+            File.Delete(source);
+            allowMutationRead.Set();
+            Assert.IsTrue(mutationFinished.Wait(5000));
+            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            Assert.AreEqual(
+                Path.Combine(ingressRoot, "archiver", "nested", "chart.bms"),
+                installedPath);
+            Assert.AreEqual("borrowed-chart", installedContents);
+            Assert.IsFalse(File.Exists(source));
+            Assert.IsTrue(
+                File.Exists(installedPath),
+                "Installer handoff keeps the managed source in the pending-package lifecycle.");
+        }
+        finally
+        {
+            allowMutationRead.Set();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
@@ -1077,7 +1136,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void RequestShutdown_AfterAdmissionCancelsLatePhysicalEnqueueAndDrainsOwnership()
+    public void RequestShutdown_AfterPhysicalInsertionDrainsRequestWithoutPrivateLockCoordination()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1086,8 +1145,8 @@ public sealed class PackageInstallWorkflowOwnerTests
         Directory.CreateDirectory(root);
         Directory.CreateDirectory(ingressRoot);
         File.WriteAllBytes(songDbPath, []);
-        object? processorLock = null;
-        bool processorLockHeld = false;
+        using var enqueueStatusDispatchEntered = new ManualResetEventSlim(false);
+        using var releaseEnqueueStatusDispatch = new ManualResetEventSlim(false);
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
@@ -1095,6 +1154,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
+            int blockNextDispatch = 0;
+            int blockedDispatchConsumed = 0;
             var owner = CreateOwner(
                 (_, _, _, _, _) =>
                 {
@@ -1103,56 +1164,39 @@ public sealed class PackageInstallWorkflowOwnerTests
                 },
                 action =>
                 {
+                    if (Volatile.Read(ref blockNextDispatch) != 0
+                        && Interlocked.CompareExchange(ref blockedDispatchConsumed, 1, 0) == 0)
+                    {
+                        enqueueStatusDispatchEntered.Set();
+                        Assert.IsTrue(releaseEnqueueStatusDispatch.Wait(5000));
+                    }
                     action();
                     return true;
                 });
             owner.AttachLibrary(library);
-
-            object context = GetCurrentQueueContext(owner);
-            var processor = (DropInstallQueueProcessor)context.GetType()
-                .GetProperty("Processor", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(context)!;
-            processorLock = typeof(DropInstallQueueProcessor)
-                .GetField("syncRoot", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(processor)!;
-            Monitor.Enter(processorLock);
-            processorLockHeld = true;
+            Volatile.Write(ref blockNextDispatch, 1);
 
             Task<bool> enqueue = Task.Run(() =>
                 owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
-            PropertyInfo inFlight = context.GetType().GetProperty(
-                "InFlightAdmissionCount",
-                BindingFlags.Instance | BindingFlags.NonPublic)!;
-            PropertyInfo accepting = context.GetType().GetProperty(
-                "AcceptingAdmissions",
-                BindingFlags.Instance | BindingFlags.NonPublic)!;
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => (int)inFlight.GetValue(context)! == 1,
-                5000),
-                "The admission did not linearize before physical enqueue.");
+            Assert.IsTrue(
+                enqueueStatusDispatchEntered.Wait(5000),
+                "Physical insertion did not reach its lock-free status publication boundary.");
 
             Task shutdown = Task.Run(owner.RequestShutdown);
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => !(bool)accepting.GetValue(context)!,
-                5000),
-                "Shutdown did not close the admitted generation.");
-
-            Monitor.Exit(processorLock);
-            processorLockHeld = false;
+            Assert.IsTrue(
+                shutdown.Wait(5000),
+                "Status publication must not retain the owner or queue lock needed by shutdown.");
+            releaseEnqueueStatusDispatch.Set();
 
             Assert.IsTrue(enqueue.Wait(5000));
-            Assert.IsTrue(enqueue.Result, "Admission preceding shutdown remains a successful ownership transfer.");
-            Assert.IsTrue(shutdown.Wait(5000));
+            Assert.IsTrue(enqueue.Result, "Physical insertion preceding shutdown remains an accepted transfer.");
             Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
         finally
         {
-            if (processorLockHeld && processorLock != null)
-            {
-                Monitor.Exit(processorLock);
-            }
+            releaseEnqueueStatusDispatch.Set();
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -1161,7 +1205,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void CancelAll_AfterAdmissionCancelsLatePhysicalEnqueueWithoutClosingContext()
+    public void CancelAll_AfterPhysicalInsertionCannotCancelFreshPostDrainAdmission()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1170,8 +1214,8 @@ public sealed class PackageInstallWorkflowOwnerTests
         Directory.CreateDirectory(root);
         Directory.CreateDirectory(ingressRoot);
         File.WriteAllBytes(songDbPath, []);
-        object? processorLock = null;
-        bool processorLockHeld = false;
+        using var enqueueStatusDispatchEntered = new ManualResetEventSlim(false);
+        using var releaseEnqueueStatusDispatch = new ManualResetEventSlim(false);
         using var freshInstallCalled = new ManualResetEventSlim(false);
         try
         {
@@ -1180,6 +1224,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
+            int blockNextDispatch = 0;
+            int blockedDispatchConsumed = 0;
             var owner = CreateOwner(
                 (_, paths, _, _, _) =>
                 {
@@ -1192,34 +1238,26 @@ public sealed class PackageInstallWorkflowOwnerTests
                 },
                 action =>
                 {
+                    if (Volatile.Read(ref blockNextDispatch) != 0
+                        && Interlocked.CompareExchange(ref blockedDispatchConsumed, 1, 0) == 0)
+                    {
+                        enqueueStatusDispatchEntered.Set();
+                        Assert.IsTrue(releaseEnqueueStatusDispatch.Wait(5000));
+                    }
                     action();
                     return true;
                 });
             owner.AttachLibrary(library);
-
-            object context = GetCurrentQueueContext(owner);
-            var processor = (DropInstallQueueProcessor)context.GetType()
-                .GetProperty("Processor", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(context)!;
-            processorLock = typeof(DropInstallQueueProcessor)
-                .GetField("syncRoot", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(processor)!;
-            Monitor.Enter(processorLock);
-            processorLockHeld = true;
+            Volatile.Write(ref blockNextDispatch, 1);
 
             Task<bool> enqueue = Task.Run(() =>
                 owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "late.zip")));
-            PropertyInfo inFlight = context.GetType().GetProperty(
-                "InFlightAdmissionCount",
-                BindingFlags.Instance | BindingFlags.NonPublic)!;
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => (int)inFlight.GetValue(context)! == 1,
-                5000));
+            Assert.IsTrue(
+                enqueueStatusDispatchEntered.Wait(5000),
+                "Physical insertion did not reach its lock-free status publication boundary.");
 
             owner.CancelAll();
-            owner.CancelAll();
-            Monitor.Exit(processorLock);
-            processorLockHeld = false;
+            releaseEnqueueStatusDispatch.Set();
 
             Assert.IsTrue(enqueue.Wait(5000));
             Assert.IsTrue(enqueue.Result);
@@ -1234,10 +1272,7 @@ public sealed class PackageInstallWorkflowOwnerTests
         }
         finally
         {
-            if (processorLockHeld && processorLock != null)
-            {
-                Monitor.Exit(processorLock);
-            }
+            releaseEnqueueStatusDispatch.Set();
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -1316,15 +1351,6 @@ public sealed class PackageInstallWorkflowOwnerTests
             null);
     }
 
-    private static object GetCurrentQueueContext(PackageInstallWorkflowOwner owner)
-    {
-        FieldInfo queuesField = typeof(PackageInstallWorkflowOwner).GetField(
-            "queueProcessors",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-        IList queues = (IList)queuesField.GetValue(owner)!;
-        return queues[queues.Count - 1]!;
-    }
-
     private static void DeleteOwnedRoot(string path)
     {
         if (Directory.Exists(path))
@@ -1336,14 +1362,16 @@ public sealed class PackageInstallWorkflowOwnerTests
     private static PackageInstallWorkflowOwner CreateOwner(
         Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installBatch,
         Func<Action, bool> dispatchToUi,
-        Action<Exception>? reportNotificationFailure = null)
+        Action<Exception>? reportNotificationFailure = null,
+        DroppedInstallIngressMaterializer? droppedInstallIngressMaterializer = null)
     {
         return new PackageInstallWorkflowOwner(
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new DelegatePackageInstallMutationPort(installBatch),
             dispatchToUi,
-            reportNotificationFailure);
+            reportNotificationFailure,
+            droppedInstallIngressMaterializer);
     }
 
     private static void DrainNotifications(Queue<Action> notifications)

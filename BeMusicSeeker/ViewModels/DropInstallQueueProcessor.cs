@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -22,7 +23,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
 
     private bool cancelRequested;
 
-    private int detachedAbandonmentCount;
+    private bool backgroundCleanupInProgress;
 
     private DroppedInstallBatchRequest activeBatch;
 
@@ -48,80 +49,120 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             {
                 return !workerRunning
                     && !cancelRequested
+                    && !backgroundCleanupInProgress
                     && activeBatch == null
-                    && pendingBatches.Count == 0
-                    && detachedAbandonmentCount == 0;
+                    && pendingBatches.Count == 0;
             }
         }
     }
 
-    public void Enqueue(IEnumerable<string> paths)
+    /// <summary>
+    /// Attempts to transfer an acquired request to this FIFO queue.
+    /// </summary>
+    /// <returns><see langword="true"/> only when the request remains accepted by the queue.</returns>
+    internal bool TryEnqueue(DroppedInstallBatchRequest request)
     {
-        var request = new DroppedInstallBatchRequest(paths);
-        Enqueue(request);
+        EnqueueTransition transition = TryEnqueueCore(request);
+        PublishEnqueueTransition(transition);
+        return transition.Accepted;
     }
 
     /// <summary>
-    /// Transfers an already acquired request to this FIFO queue.
+    /// Linearizes queue insertion without invoking callbacks or starting worker tasks.
     /// </summary>
-    /// <returns><see langword="true"/> when the queue accepted ownership of the request.</returns>
-    internal bool Enqueue(DroppedInstallBatchRequest request)
+    /// <remarks>
+    /// The owner may call this while holding its generation lock because this method performs only
+    /// queue-state mutation and status snapshot creation while holding the processor lock.
+    /// </remarks>
+    internal EnqueueTransition TryEnqueueCore(DroppedInstallBatchRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (request.PathCount == 0)
         {
-            return false;
+            return EnqueueTransition.Rejected;
         }
-        bool startWorker = false;
-        DropInstallQueueStatusSnapshot snapshot;
+
         lock (syncRoot)
         {
+            if (cancelRequested)
+            {
+                return EnqueueTransition.Rejected;
+            }
+
             pendingBatches.Enqueue(request);
-            if (!workerRunning && !cancelRequested)
+            bool startWorker = !workerRunning;
+            if (startWorker)
             {
                 workerRunning = true;
-                startWorker = true;
             }
-            snapshot = CaptureStatusSnapshotUnsafe();
+            return EnqueueTransition.Accept(
+                CaptureStatusSnapshotUnsafe(),
+                startWorker);
         }
-        statusChanged(snapshot);
-        if (startWorker)
+    }
+
+    /// <summary>
+    /// Publishes the callback and worker-start portion of an accepted enqueue outside all owner and queue locks.
+    /// </summary>
+    internal void PublishEnqueueTransition(EnqueueTransition transition)
+    {
+        ArgumentNullException.ThrowIfNull(transition);
+        if (!transition.Accepted)
         {
-            Task.Factory.StartNew(ProcessLoop, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Logging("DropInstallQueueProcessor");
+            return;
         }
-        return true;
+
+        try
+        {
+            statusChanged(transition.StatusSnapshot);
+        }
+        finally
+        {
+            if (transition.StartWorker)
+            {
+                StartWorker();
+            }
+        }
     }
 
     public void CancelAll()
     {
         DroppedInstallBatchRequest[] abandonedBatches;
-        DroppedInstallBatchRequest activeRequest;
         CancellationTokenSource cancellationTokenSource;
         DropInstallQueueStatusSnapshot snapshot;
         lock (syncRoot)
         {
-            if (activeBatch == null
-                && pendingBatches.Count == 0
-                && !workerRunning)
+            if (cancelRequested
+                || (activeBatch == null
+                    && pendingBatches.Count == 0
+                    && !workerRunning))
             {
                 return;
             }
+
             cancelRequested = true;
             snapshot = CaptureStatusSnapshotUnsafe();
-            abandonedBatches = DetachPendingBatchesUnsafe();
-            activeRequest = activeBatch;
+            abandonedBatches = [.. pendingBatches];
+            pendingBatches.Clear();
+            backgroundCleanupInProgress = abandonedBatches.Length > 0;
             cancellationTokenSource = activeCancellationTokenSource;
-            activeRequest?.TryReserveAbandonmentBeforeInstallerHandoff();
+            activeBatch?.TryReserveAbandonmentBeforeInstallerHandoff();
         }
+
         TryCancel(cancellationTokenSource);
-        if (snapshot.IsActive)
+        try
         {
-            statusChanged(snapshot);
+            if (snapshot.IsActive)
+            {
+                statusChanged(snapshot);
+            }
         }
-        DropInstallQueueStatusSnapshot terminalSnapshot = CompleteDetachedAbandonment(abandonedBatches);
-        if (terminalSnapshot != null)
+        finally
         {
-            statusChanged(terminalSnapshot);
+            if (abandonedBatches.Length > 0)
+            {
+                StartBackgroundCleanup(abandonedBatches);
+            }
         }
     }
 
@@ -163,23 +204,26 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
         statusChanged(snapshot);
     }
 
+    private void StartWorker()
+    {
+        Task.Factory.StartNew(
+            ProcessLoop,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default).Logging("DropInstallQueueProcessor");
+    }
+
     private void ProcessLoop()
     {
         while (true)
         {
-            DroppedInstallBatchRequest batch = null;
-            CancellationTokenSource cancellationTokenSource = null;
+            DroppedInstallBatchRequest batch;
+            CancellationTokenSource cancellationTokenSource;
             DropInstallQueueStatusSnapshot snapshot;
-            bool shouldExitImmediately = false;
-            DroppedInstallBatchRequest[] cancelledBeforeStart = [];
+            bool shouldExit;
             lock (syncRoot)
             {
-                if (cancelRequested && pendingBatches.Count > 0)
-                {
-                    cancelledBeforeStart = DetachPendingBatchesUnsafe();
-                    snapshot = null;
-                }
-                else if (pendingBatches.Count == 0)
+                if (cancelRequested || pendingBatches.Count == 0)
                 {
                     workerRunning = false;
                     activeBatch = null;
@@ -187,16 +231,12 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                     ClearActiveCurrentWorkUnsafe();
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = null;
-                    if (cancelRequested && detachedAbandonmentCount > 0)
-                    {
-                        snapshot = null;
-                    }
-                    else
-                    {
-                        cancelRequested = false;
-                        snapshot = CaptureStatusSnapshotUnsafe();
-                    }
-                    shouldExitImmediately = true;
+                    snapshot = cancelRequested
+                        ? TryCompleteCancellationUnsafe()
+                        : CaptureStatusSnapshotUnsafe();
+                    batch = null;
+                    cancellationTokenSource = null;
+                    shouldExit = true;
                 }
                 else
                 {
@@ -208,41 +248,36 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                     activeCancellationTokenSource = new CancellationTokenSource();
                     cancellationTokenSource = activeCancellationTokenSource;
                     snapshot = CaptureStatusSnapshotUnsafe();
+                    shouldExit = false;
                 }
             }
-            if (cancelledBeforeStart.Length > 0)
-            {
-                DropInstallQueueStatusSnapshot cancellationTerminalSnapshot =
-                    CompleteDetachedAbandonment(cancelledBeforeStart);
-                if (cancellationTerminalSnapshot != null)
-                {
-                    statusChanged(cancellationTerminalSnapshot);
-                }
-                continue;
-            }
+
             if (snapshot != null)
             {
                 statusChanged(snapshot);
             }
-            if (shouldExitImmediately)
+            if (shouldExit)
             {
                 return;
             }
-            bool shouldExitAfterFinally = false;
+
             try
             {
-                processBatch(batch, cancellationTokenSource.Token);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                batchFailed?.Invoke(ex);
+                try
+                {
+                    processBatch(batch, cancellationTokenSource.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception exception)
+                {
+                    ReportBatchFailure(exception);
+                }
             }
             finally
             {
-                DroppedInstallBatchRequest[] abandonedBatches;
+                batch.TryAbandonUnconsumedSources();
                 lock (syncRoot)
                 {
                     activeBatch = null;
@@ -250,77 +285,75 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                     ClearActiveCurrentWorkUnsafe();
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = null;
-                    if (cancelRequested)
+                    shouldExit = cancelRequested || pendingBatches.Count == 0;
+                    if (shouldExit)
                     {
-                        abandonedBatches = DetachPendingBatchesUnsafe();
+                        workerRunning = false;
+                        snapshot = cancelRequested
+                            ? TryCompleteCancellationUnsafe()
+                            : CaptureStatusSnapshotUnsafe();
                     }
                     else
                     {
-                        abandonedBatches = [];
+                        snapshot = CaptureStatusSnapshotUnsafe();
                     }
-                }
-                batch.TryAbandonUnconsumedSources();
-                DropInstallQueueStatusSnapshot detachedTerminalSnapshot =
-                    CompleteDetachedAbandonment(abandonedBatches);
-                if (detachedTerminalSnapshot != null)
-                {
-                    statusChanged(detachedTerminalSnapshot);
                 }
 
-                while (true)
-                {
-                    DroppedInstallBatchRequest[] batchesEnqueuedDuringCancellation;
-                    lock (syncRoot)
-                    {
-                        if (cancelRequested && pendingBatches.Count > 0)
-                        {
-                            batchesEnqueuedDuringCancellation = DetachPendingBatchesUnsafe();
-                            snapshot = null;
-                        }
-                        else
-                        {
-                            batchesEnqueuedDuringCancellation = [];
-                            shouldExitAfterFinally = pendingBatches.Count == 0;
-                            if (shouldExitAfterFinally)
-                            {
-                                workerRunning = false;
-                                if (detachedAbandonmentCount == 0)
-                                {
-                                    cancelRequested = false;
-                                    snapshot = CaptureStatusSnapshotUnsafe();
-                                }
-                                else
-                                {
-                                    snapshot = null;
-                                }
-                            }
-                            else
-                            {
-                                snapshot = CaptureStatusSnapshotUnsafe();
-                            }
-                        }
-                    }
-                    DropInstallQueueStatusSnapshot cancellationTerminalSnapshot =
-                        CompleteDetachedAbandonment(batchesEnqueuedDuringCancellation);
-                    if (cancellationTerminalSnapshot != null)
-                    {
-                        statusChanged(cancellationTerminalSnapshot);
-                    }
-                    if (batchesEnqueuedDuringCancellation.Length == 0)
-                    {
-                        break;
-                    }
-                }
                 if (snapshot != null)
                 {
                     statusChanged(snapshot);
                 }
             }
-            if (shouldExitAfterFinally)
+            if (shouldExit)
             {
                 return;
             }
         }
+    }
+
+    private void StartBackgroundCleanup(DroppedInstallBatchRequest[] abandonedBatches)
+    {
+        Task.Factory.StartNew(
+            () => CompleteBackgroundCleanup(abandonedBatches),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default).Logging("DropInstallQueueCleanup");
+    }
+
+    private void CompleteBackgroundCleanup(DroppedInstallBatchRequest[] abandonedBatches)
+    {
+        try
+        {
+            AbandonRequests(abandonedBatches);
+        }
+        finally
+        {
+            DropInstallQueueStatusSnapshot terminalSnapshot;
+            lock (syncRoot)
+            {
+                backgroundCleanupInProgress = false;
+                terminalSnapshot = TryCompleteCancellationUnsafe();
+            }
+            if (terminalSnapshot != null)
+            {
+                statusChanged(terminalSnapshot);
+            }
+        }
+    }
+
+    private DropInstallQueueStatusSnapshot TryCompleteCancellationUnsafe()
+    {
+        if (!cancelRequested
+            || workerRunning
+            || activeBatch != null
+            || pendingBatches.Count > 0
+            || backgroundCleanupInProgress)
+        {
+            return null;
+        }
+
+        cancelRequested = false;
+        return CaptureStatusSnapshotUnsafe();
     }
 
     private DropInstallQueueStatusSnapshot CaptureStatusSnapshotUnsafe()
@@ -364,55 +397,6 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
         }
     }
 
-    private DroppedInstallBatchRequest[] DetachPendingBatchesUnsafe()
-    {
-        DroppedInstallBatchRequest[] detached = [.. pendingBatches];
-        pendingBatches.Clear();
-        detachedAbandonmentCount += detached.Length;
-        return detached;
-    }
-
-    private DropInstallQueueStatusSnapshot CompleteDetachedAbandonment(
-        DroppedInstallBatchRequest[] initiallyDetached)
-    {
-        DroppedInstallBatchRequest[] detached = initiallyDetached ?? [];
-        while (true)
-        {
-            DropInstallQueueStatusSnapshot terminalSnapshot = null;
-            try
-            {
-                AbandonRequests(detached);
-            }
-            finally
-            {
-                lock (syncRoot)
-                {
-                    detachedAbandonmentCount -= detached.Length;
-                    if (cancelRequested && pendingBatches.Count > 0)
-                    {
-                        detached = DetachPendingBatchesUnsafe();
-                    }
-                    else
-                    {
-                        detached = [];
-                        if (cancelRequested
-                            && detachedAbandonmentCount == 0
-                            && activeBatch == null
-                            && !workerRunning)
-                        {
-                            cancelRequested = false;
-                            terminalSnapshot = CaptureStatusSnapshotUnsafe();
-                        }
-                    }
-                }
-            }
-            if (detached.Length == 0)
-            {
-                return terminalSnapshot;
-            }
-        }
-    }
-
     private static void TryCancel(CancellationTokenSource cancellationTokenSource)
     {
         try
@@ -422,6 +406,76 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
         catch (ObjectDisposedException)
         {
             // The worker may complete between the lock snapshot and cancellation.
+        }
+    }
+
+    private void ReportBatchFailure(Exception batchException)
+    {
+        try
+        {
+            batchFailed?.Invoke(batchException);
+        }
+        catch (Exception notificationException)
+        {
+            try
+            {
+                NLogWrapper.FileLogger?.Warn(
+                    notificationException,
+                    "drop_install_failure_notification_failed");
+            }
+            catch
+            {
+                // A diagnostic boundary must not strand the FIFO worker or its owned sources.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Carries a callback-free queue insertion result across the owner lock boundary.
+    /// </summary>
+    internal sealed class EnqueueTransition
+    {
+        private EnqueueTransition(
+            bool accepted,
+            DropInstallQueueStatusSnapshot statusSnapshot,
+            bool startWorker)
+        {
+            Accepted = accepted;
+            StatusSnapshot = statusSnapshot;
+            StartWorker = startWorker;
+        }
+
+        /// <summary>
+        /// Gets whether physical queue insertion succeeded.
+        /// </summary>
+        internal bool Accepted { get; }
+
+        /// <summary>
+        /// Gets the status captured at the insertion linearization point.
+        /// </summary>
+        internal DropInstallQueueStatusSnapshot StatusSnapshot { get; }
+
+        /// <summary>
+        /// Gets whether publishing this transition must start the serial worker.
+        /// </summary>
+        internal bool StartWorker { get; }
+
+        /// <summary>
+        /// Gets a transition that leaves request ownership with the caller.
+        /// </summary>
+        internal static EnqueueTransition Rejected { get; } = new(false, null, false);
+
+        /// <summary>
+        /// Creates a transition for a request physically inserted into the queue.
+        /// </summary>
+        internal static EnqueueTransition Accept(
+            DropInstallQueueStatusSnapshot statusSnapshot,
+            bool startWorker)
+        {
+            return new EnqueueTransition(
+                accepted: true,
+                statusSnapshot ?? throw new ArgumentNullException(nameof(statusSnapshot)),
+                startWorker);
         }
     }
 }

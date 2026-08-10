@@ -152,7 +152,7 @@ internal sealed class PackageInstallWorkflowOwner
                     return false;
                 }
                 QueueProcessorContext current = queueProcessors[queueProcessors.Count - 1];
-                return current.InFlightAdmissionCount > 0 || !current.Processor.IsIdle;
+                return !current.Processor.IsIdle;
             }
         }
     }
@@ -164,8 +164,7 @@ internal sealed class PackageInstallWorkflowOwner
             lock (syncRoot)
             {
                 PruneIdleRetiredQueuesUnsafe();
-                return queueProcessors.All(queue =>
-                    queue.InFlightAdmissionCount == 0 && queue.Processor.IsIdle);
+                return queueProcessors.All(queue => queue.Processor.IsIdle);
             }
         }
     }
@@ -184,7 +183,6 @@ internal sealed class PackageInstallWorkflowOwner
             Interlocked.Increment(ref generation);
             previousQueue = queueProcessors[queueProcessors.Count - 1];
             previousQueue.AcceptingAdmissions = false;
-            AdvanceCancellationRevisionUnsafe(previousQueue);
             queueProcessors.Add(CreateQueueProcessorUnsafe(generation, nextLibrary));
         }
         previousQueue.Processor.CancelAll();
@@ -215,49 +213,27 @@ internal sealed class PackageInstallWorkflowOwner
     {
         ArgumentNullException.ThrowIfNull(request);
         QueueProcessorContext queue = null;
-        object admissionCancellationRevision = null;
+        DropInstallQueueProcessor.EnqueueTransition transition = null;
         lock (syncRoot)
         {
             if (Volatile.Read(ref shutdownState) == 0)
             {
                 QueueProcessorContext candidate = queueProcessors[queueProcessors.Count - 1];
-                if (candidate.AcceptingAdmissions)
+                if (candidate.AcceptingAdmissions && candidate.Library != null)
                 {
-                    candidate.InFlightAdmissionCount++;
-                    candidate.InFlightAdmissions.Add(request);
-                    admissionCancellationRevision = candidate.CancellationRevision;
                     queue = candidate;
+                    transition = candidate.Processor.TryEnqueueCore(request);
                 }
             }
         }
-        if (queue == null)
+        if (queue == null || !transition.Accepted)
         {
             request.TryAbandonUnconsumedSources();
             return false;
         }
 
-        bool accepted = queue.Processor.Enqueue(request);
-        if (!accepted)
-        {
-            request.TryAbandonUnconsumedSources();
-        }
-
-        bool compensateClosedAdmission;
-        lock (syncRoot)
-        {
-            queue.InFlightAdmissions.Remove(request);
-            queue.InFlightAdmissionCount--;
-            compensateClosedAdmission = accepted
-                && (!queue.AcceptingAdmissions
-                    || !ReferenceEquals(
-                        admissionCancellationRevision,
-                        queue.CancellationRevision));
-        }
-        if (compensateClosedAdmission)
-        {
-            queue.Processor.CancelAll();
-        }
-        return accepted;
+        queue.Processor.PublishEnqueueTransition(transition);
+        return true;
     }
 
     internal void EnqueueSingle(string path)
@@ -292,7 +268,6 @@ internal sealed class PackageInstallWorkflowOwner
         lock (syncRoot)
         {
             queue = queueProcessors[queueProcessors.Count - 1];
-            AdvanceCancellationRevisionUnsafe(queue);
         }
         queue.Processor.CancelAll();
     }
@@ -308,7 +283,6 @@ internal sealed class PackageInstallWorkflowOwner
             foreach (QueueProcessorContext queue in queues)
             {
                 queue.AcceptingAdmissions = false;
-                AdvanceCancellationRevisionUnsafe(queue);
             }
         }
         foreach (QueueProcessorContext queue in queues)
@@ -688,20 +662,10 @@ internal sealed class PackageInstallWorkflowOwner
     {
         for (int index = queueProcessors.Count - 2; index >= 0; index--)
         {
-            if (queueProcessors[index].InFlightAdmissionCount == 0
-                && queueProcessors[index].Processor.IsIdle)
+            if (queueProcessors[index].Processor.IsIdle)
             {
                 queueProcessors.RemoveAt(index);
             }
-        }
-    }
-
-    private static void AdvanceCancellationRevisionUnsafe(QueueProcessorContext queue)
-    {
-        queue.CancellationRevision = new object();
-        foreach (DroppedInstallBatchRequest request in queue.InFlightAdmissions)
-        {
-            request.TryReserveAbandonmentBeforeInstallerHandoff();
         }
     }
 
@@ -720,20 +684,6 @@ internal sealed class PackageInstallWorkflowOwner
         /// </summary>
         internal bool AcceptingAdmissions { get; set; } = true;
 
-        /// <summary>
-        /// Gets or sets the number of admissions reserved by the owner but not yet resolved by the processor.
-        /// </summary>
-        internal int InFlightAdmissionCount { get; set; }
-
-        /// <summary>
-        /// Gets the requests admitted by the owner but not yet resolved by the processor.
-        /// </summary>
-        internal HashSet<DroppedInstallBatchRequest> InFlightAdmissions { get; } = [];
-
-        /// <summary>
-        /// Gets or sets the identity of the latest normal or terminal cancellation transition.
-        /// </summary>
-        internal object CancellationRevision { get; set; } = new object();
     }
 
     private static string GetInstallPathDisplayName(string path)
