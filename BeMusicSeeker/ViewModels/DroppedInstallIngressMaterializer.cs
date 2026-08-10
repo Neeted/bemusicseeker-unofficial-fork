@@ -337,10 +337,44 @@ internal sealed class DroppedInstallIngressMaterializer
         }
     }
 
+    /// <summary>
+    /// Identifies a dropped install source that cannot be copied without crossing the ingress safety boundary.
+    /// </summary>
     private sealed class UnsafeDroppedInstallSourceException : IOException
     {
+        /// <summary>
+        /// Initializes an unsafe-source exception without additional diagnostic context.
+        /// </summary>
+        internal UnsafeDroppedInstallSourceException()
+        {
+        }
+
+        /// <summary>
+        /// Initializes an unsafe-source exception with the diagnostic message presented by the ingress owner.
+        /// </summary>
+        /// <param name="message">The message that describes the rejected source.</param>
         internal UnsafeDroppedInstallSourceException(string message)
             : base(message)
+        {
+        }
+
+        /// <summary>
+        /// Initializes an unsafe-source exception with a diagnostic message and platform error code.
+        /// </summary>
+        /// <param name="message">The message that describes the rejected source.</param>
+        /// <param name="hresult">The platform error code associated with the rejection.</param>
+        internal UnsafeDroppedInstallSourceException(string message, int hresult)
+            : base(message, hresult)
+        {
+        }
+
+        /// <summary>
+        /// Initializes an unsafe-source exception with the diagnostic message and originating failure.
+        /// </summary>
+        /// <param name="message">The message that describes the rejected source.</param>
+        /// <param name="innerException">The failure that caused the source to be rejected.</param>
+        internal UnsafeDroppedInstallSourceException(string message, Exception innerException)
+            : base(message, innerException)
         {
         }
     }
