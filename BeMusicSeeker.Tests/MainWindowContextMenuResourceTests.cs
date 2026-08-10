@@ -4981,7 +4981,17 @@ public sealed class MainWindowContextMenuResourceTests
         string dropHandler = ExtractBetween(mainWindowCode, "private void Window_Drop", "private void Window_DragOver");
         string dragOverHandler = ExtractBetween(mainWindowCode, "private void Window_DragOver", "private void Window_MouseLeftButtonDown");
         StringAssert.Contains(dropHandler, "IsPlaylistUrlDownloadRunning");
+        StringAssert.Contains(dropHandler, "e.Handled = true;");
+        StringAssert.Contains(dropHandler, "DroppedInstallDropTerminal.Evaluate(");
+        StringAssert.Contains(dropHandler, "paths => viewModel.PackageInstallWorkflow.AcquireAndTryEnqueueDroppedPaths(paths)");
+        StringAssert.Contains(dropHandler, "e.Effects = decision.Effects;");
+        StringAssert.Contains(dropHandler, "switch (decision.WarningKind)");
+        StringAssert.Contains(dropHandler, "if (decision.ExpandPendingTree)");
+        StringAssert.Contains(dropHandler, "newlyInstalledTreeViewItem.IsExpanded = true;");
+        Assert.IsFalse(dropHandler.Contains("PackageInstallWorkflow.Enqueue(", StringComparison.Ordinal));
         StringAssert.Contains(dragOverHandler, "IsPlaylistUrlDownloadRunning");
+        StringAssert.Contains(dragOverHandler, "GetDataPresent(DataFormats.FileDrop, autoConvert: true)");
+        StringAssert.Contains(dragOverHandler, "e.Handled = true;");
         Assert.IsFalse(mainWindowCode.Contains("PlaylistUrlAcquisitionConfirmationRequested"));
         Assert.IsFalse(mainWindowCode.Contains("PlaylistUrlAcquisitionNotificationRequested"));
         Assert.IsFalse(mainWindowCode.Contains("PlaylistUrlAcquisitionSummaryReady"));

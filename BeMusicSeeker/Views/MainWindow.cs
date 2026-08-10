@@ -976,20 +976,76 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// </summary>
     private void Window_Drop(object sender, DragEventArgs e)
     {
-        if (IsPlaylistUrlDownloadRunning)
+        e.Handled = true;
+        var viewModel = base.DataContext as MainWindowViewModel;
+        DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
+            e.Data,
+            IsPlaylistUrlDownloadRunning,
+            viewModel == null
+                ? null
+                : paths => viewModel.PackageInstallWorkflow.AcquireAndTryEnqueueDroppedPaths(paths));
+        e.Effects = decision.Effects;
+
+        if (decision.LogUnsupportedFormats)
         {
-            UiDialogRoute.ShowMessageBox(this, BeMusicSeeker.Properties.Resources.Warn_DropInstallBlockedByPlaylistUrlDownload, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            return;
+            LogUnsupportedDropFormats(e.Data);
         }
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] filePaths)
+        if (decision.Exception != null)
         {
-            var viewModel = base.DataContext as MainWindowViewModel;
-            string[] pathSnapshot = [.. filePaths];
-            if (pathSnapshot.Length > 0)
-            {
-                viewModel?.PackageInstallWorkflow.Enqueue(pathSnapshot);
-                newlyInstalledTreeViewItem.IsExpanded = true;
-            }
+            NLogWrapper.FileLogger?.Warn(
+                decision.Exception,
+                "drop_ingress failed warning=" + decision.WarningKind);
+        }
+        else if (decision.WarningKind == DroppedInstallDropWarningKind.QueueUnavailable)
+        {
+            NLogWrapper.FileLogger?.Warn("drop_ingress rejected because the install queue was unavailable");
+        }
+
+        switch (decision.WarningKind)
+        {
+            case DroppedInstallDropWarningKind.PlaylistDownloadBlocked:
+                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallBlockedByPlaylistUrlDownload);
+                break;
+            case DroppedInstallDropWarningKind.UnsupportedFormat:
+                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallUnsupportedFormat);
+                break;
+            case DroppedInstallDropWarningKind.IngressFailed:
+                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallIngressFailed);
+                break;
+            case DroppedInstallDropWarningKind.QueueUnavailable:
+                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallQueueUnavailable);
+                break;
+        }
+
+        if (decision.ExpandPendingTree)
+        {
+            newlyInstalledTreeViewItem.IsExpanded = true;
+        }
+    }
+
+    private void ShowDropInstallWarning(string message)
+    {
+        UiDialogRoute.ShowMessageBox(
+            this,
+            message,
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxButton.OK,
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
+    }
+
+    private static void LogUnsupportedDropFormats(IDataObject data)
+    {
+        try
+        {
+            string nativeFormats = string.Join(",", data?.GetFormats(autoConvert: false) ?? []);
+            string convertedFormats = string.Join(",", data?.GetFormats(autoConvert: true) ?? []);
+            NLogWrapper.FileLogger?.Info(
+                "drop_ingress unsupported formats native=" + nativeFormats + " converted=" + convertedFormats);
+        }
+        catch (Exception exception)
+        {
+            NLogWrapper.FileLogger?.Warn(exception, "drop_ingress format diagnostics failed");
         }
     }
     /// <summary>

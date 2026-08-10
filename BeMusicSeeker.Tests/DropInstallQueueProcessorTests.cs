@@ -477,7 +477,11 @@ public sealed class DropInstallQueueProcessorTests
                 },
                 null));
 
-            Task cancellation = Task.Run(processor.CancelAll);
+            Task cancellation = Task.Factory.StartNew(
+                processor.CancelAll,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
             Assert.IsTrue(pendingCleanupStarted.Wait(5000));
             Assert.IsTrue(activeObservedCancellation.Wait(5000));
             Assert.IsFalse(processor.IsIdle, "Detached pending cleanup is part of queue drain state.");
@@ -509,10 +513,7 @@ public sealed class DropInstallQueueProcessorTests
         finally
         {
             releasePendingCleanup.Set();
-            if (Directory.Exists(root))
-            {
-                Directory.Delete(root, recursive: true);
-            }
+            DeleteDirectory(root);
         }
     }
 
@@ -528,9 +529,16 @@ public sealed class DropInstallQueueProcessorTests
 
     private static void DeleteDirectory(string path)
     {
-        if (Directory.Exists(path))
+        try
         {
-            Directory.Delete(path, recursive: true);
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // Queue cleanup can win between the existence probe and recursive test-fixture cleanup.
         }
     }
 }

@@ -2389,6 +2389,16 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>URL 取り込みが実行中のため、ドラッグ＆ドロップ導入を開始できません。
 URL 取り込みの完了後に再実行してください。</value>
   </data>
+  <data name="Warn_DropInstallUnsupportedFormat" xml:space="preserve">
+    <value>ドロップされたデータはファイルまたはフォルダーとして受け取れませんでした。</value>
+  </data>
+  <data name="Warn_DropInstallIngressFailed" xml:space="preserve">
+    <value>ドロップされたファイルまたはフォルダーを導入用に確保できませんでした。
+元データがまだ利用可能か、アクセスできるか確認してください。</value>
+  </data>
+  <data name="Warn_DropInstallQueueUnavailable" xml:space="preserve">
+    <value>導入キューが終了処理中のため、ドロップされた項目を追加できませんでした。</value>
+  </data>
   <data name="Confirm_SelectedPlaylistExternalPackageLookup" xml:space="preserve">
     <value>選択範囲の譜面 MD5 {0} 件を外部 API に問い合わせ、見つかった本体パッケージをダウンロードして対応ファイルのみ導入処理へ渡します。
 ダウンロードしたファイルとアーカイブの解凍用一時ファイルは Windows の一時領域 (通常は C ドライブ) に作成されるため、空き容量に注意してください。

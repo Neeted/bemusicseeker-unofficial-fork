@@ -10,6 +10,8 @@
 
 現在プロセスが `TempDirectoryPublisher` で作成した session 配下のパスだけを「アプリ管理一時パス」として扱う。ユーザーがドラッグ & ドロップした通常のファイル、手動選択したアーカイブ、インストール済み譜面フォルダーは、同名や同内容であっても自動削除対象にしない。`%TEMP%\BeMusicSeeker` 配下にユーザーが手動で置いたファイルも、現在 session 配下でなければ管理一時パスとはみなさない。
 
+managed 判定は削除 ownership の境界であり、入力を受け付けるための allowlist ではない。ドラッグ＆ドロップで借用した path の分類、durable acquisition、queue handoff は [ドラッグ＆ドロップ導入 ingress](drop-install-ingress.md) を正本とする。
+
 ## 削除タイミング
 
 - 起動時

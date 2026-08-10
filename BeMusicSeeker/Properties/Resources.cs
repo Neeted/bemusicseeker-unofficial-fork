@@ -1558,6 +1558,15 @@ public class Resources
     public static string Warn_DropInstallBlockedByPlaylistUrlDownload => ResourceManager.GetString("Warn_DropInstallBlockedByPlaylistUrlDownload", resourceCulture);
 
 
+    public static string Warn_DropInstallUnsupportedFormat => ResourceManager.GetString("Warn_DropInstallUnsupportedFormat", resourceCulture);
+
+
+    public static string Warn_DropInstallIngressFailed => ResourceManager.GetString("Warn_DropInstallIngressFailed", resourceCulture);
+
+
+    public static string Warn_DropInstallQueueUnavailable => ResourceManager.GetString("Warn_DropInstallQueueUnavailable", resourceCulture);
+
+
     public static string Confirm_SelectedPlaylistExternalPackageLookup => ResourceManager.GetString("Confirm_SelectedPlaylistExternalPackageLookup", resourceCulture);
 
 
