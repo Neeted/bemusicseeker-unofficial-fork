@@ -257,6 +257,16 @@ public sealed class PackageInstallWorkflowOwnerTests
         Directory.CreateDirectory(root);
         string songDbPath = Path.Combine(root, "song.db");
         File.WriteAllBytes(songDbPath, []);
+        using var firstInstallEntered = new ManualResetEventSlim(false);
+        using var releaseFirstInstall = new ManualResetEventSlim(false);
+        using var secondInstallEntered = new ManualResetEventSlim(false);
+        using var releaseSecondInstall = new ManualResetEventSlim(false);
+        using var secondFinished = new ManualResetEventSlim(false);
+        using var completed = new ManualResetEventSlim(false);
+        using var terminalInactive = new ManualResetEventSlim(false);
+        var observationLock = new object();
+        PackageInstallWorkflowOwner? owner = null;
+        bool workerStarted = false;
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
@@ -266,20 +276,27 @@ public sealed class PackageInstallWorkflowOwnerTests
             var calls = new List<string>();
             var failures = new List<PackageInstallFailure>();
             var eventOrder = new List<string>();
-            var completed = new ManualResetEventSlim(false);
-            var secondFinished = new ManualResetEventSlim(false);
-            PackageInstallWorkflowOwner? owner = null;
             owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
                     string displayName = Path.GetFileName(paths.FirstOrDefault() ?? string.Empty);
-                    lock (calls)
+                    lock (observationLock)
                     {
                         calls.Add(displayName);
                     }
                     if (displayName == "first.zip")
                     {
+                        firstInstallEntered.Set();
+                        if (!releaseFirstInstall.Wait(5000))
+                        {
+                            throw new TimeoutException("The first install barrier was not released.");
+                        }
                         throw new InvalidOperationException("first failed");
+                    }
+                    secondInstallEntered.Set();
+                    if (!releaseSecondInstall.Wait(5000))
+                    {
+                        throw new TimeoutException("The second install barrier was not released.");
                     }
                     secondFinished.Set();
                     return [new ChartPackage()];
@@ -289,42 +306,71 @@ public sealed class PackageInstallWorkflowOwnerTests
                     action();
                     return true;
                 });
+            owner.AttachLibrary(library);
             owner.StatusChanged += snapshot =>
             {
                 if (!snapshot.IsActive)
                 {
-                    lock (eventOrder)
+                    lock (observationLock)
                     {
                         eventOrder.Add("inactive");
                     }
+                    terminalInactive.Set();
                 }
             };
-            owner.FailurePublished += failure => failures.Add(failure);
+            owner.FailurePublished += failure =>
+            {
+                lock (observationLock)
+                {
+                    failures.Add(failure);
+                }
+            };
             owner.CompletionPublished += _ =>
             {
-                lock (eventOrder)
+                lock (observationLock)
                 {
                     eventOrder.Add("completion");
                 }
                 completed.Set();
             };
-            owner.AttachLibrary(library);
-            lock (eventOrder)
-            {
-                eventOrder.Clear();
-            }
             owner.Enqueue([Path.Combine(root, "first.zip")]);
+            workerStarted = true;
+            Assert.IsTrue(firstInstallEntered.Wait(5000), "The first batch did not start.");
             owner.Enqueue([Path.Combine(root, "second.zip")]);
+            releaseFirstInstall.Set();
+
+            Assert.IsTrue(secondInstallEntered.Wait(5000), "The following batch did not start after failure.");
+            Assert.IsFalse(completed.IsSet, "Completion must not be published before the live install returns.");
+            Assert.IsFalse(terminalInactive.IsSet, "The queue must remain active while the following batch is running.");
+            Assert.IsFalse(owner.IsIdle, "The workflow must not become idle before the live install returns.");
+            releaseSecondInstall.Set();
 
             Assert.IsTrue(secondFinished.Wait(5000), "The following batch did not run after failure.");
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000), "The workflow did not become idle.");
+            Assert.IsTrue(terminalInactive.Wait(5000), "The workflow did not publish its terminal inactive status.");
+            string[] callSnapshot;
+            PackageInstallFailure[] failureSnapshot;
+            string[] eventOrderSnapshot;
+            lock (observationLock)
+            {
+                callSnapshot = calls.ToArray();
+                failureSnapshot = failures.ToArray();
+                eventOrderSnapshot = eventOrder.ToArray();
+            }
+
             Assert.IsTrue(completed.IsSet, "The successful following batch must publish a completion receipt.");
-            Assert.AreEqual(1, failures.Count);
-            CollectionAssert.AreEqual(new[] { "first.zip", "second.zip" }, calls);
-            CollectionAssert.AreEqual(new[] { "completion", "inactive" }, eventOrder);
+            Assert.AreEqual(1, failureSnapshot.Length);
+            CollectionAssert.AreEqual(new[] { "first.zip", "second.zip" }, callSnapshot);
+            CollectionAssert.AreEqual(new[] { "completion", "inactive" }, eventOrderSnapshot);
+            Assert.IsTrue(owner.IsIdle, "The workflow must be idle after its terminal inactive status.");
         }
         finally
         {
+            releaseFirstInstall.Set();
+            releaseSecondInstall.Set();
+            if (workerStarted && owner != null)
+            {
+                terminalInactive.Wait(5000);
+            }
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);

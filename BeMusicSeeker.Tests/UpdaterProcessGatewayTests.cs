@@ -240,6 +240,7 @@ public sealed class UpdaterProcessGatewayTests
     {
         using var callbackEntered = new ManualResetEventSlim();
         using var releaseCallback = new ManualResetEventSlim();
+        using var competingAbortStarted = new ManualResetEventSlim();
         var receipt = new UpdaterLaunchReceipt(
             abort: () => { },
             proceed: () =>
@@ -247,15 +248,47 @@ public sealed class UpdaterProcessGatewayTests
                 callbackEntered.Set();
                 releaseCallback.Wait();
             });
-        Task proceedTask = Task.Run(receipt.Proceed);
+        Task proceedTask = Task.Factory.StartNew(
+            receipt.Proceed,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        Task? competingAbort = null;
+        bool callbackEnteredWhileProceeding = callbackEntered.Wait(TimeSpan.FromSeconds(5));
+        bool competingAbortStartedWhileCallbackBlocked = false;
+        bool competingAbortCompletedWhileCallbackBlocked = false;
+        bool competingAbortEventuallyCompleted;
+        bool proceedCompleted;
 
-        Assert.IsTrue(callbackEntered.Wait(TimeSpan.FromSeconds(5)));
-        Task competingAbort = Task.Run(receipt.Abort);
-        Assert.IsTrue(
-            competingAbort.Wait(TimeSpan.FromSeconds(1)),
-            "A competing decision must not wait for an external callback under the receipt guard.");
+        if (callbackEnteredWhileProceeding)
+        {
+            competingAbort = Task.Factory.StartNew(
+                () =>
+                {
+                    competingAbortStarted.Set();
+                    receipt.Abort();
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            competingAbortStartedWhileCallbackBlocked = competingAbortStarted.Wait(TimeSpan.FromSeconds(5));
+            if (competingAbortStartedWhileCallbackBlocked)
+            {
+                competingAbortCompletedWhileCallbackBlocked = competingAbort.Wait(TimeSpan.FromSeconds(1));
+            }
+        }
+
         releaseCallback.Set();
-        Assert.IsTrue(proceedTask.Wait(TimeSpan.FromSeconds(5)));
+        competingAbortEventuallyCompleted = competingAbort?.Wait(TimeSpan.FromSeconds(5)) ?? true;
+        proceedCompleted = proceedTask.Wait(TimeSpan.FromSeconds(5));
+
+        Assert.IsTrue(callbackEnteredWhileProceeding, "The proceed callback did not start.");
+        Assert.IsTrue(competingAbortStartedWhileCallbackBlocked, "The competing decision thread did not start.");
+        Assert.IsTrue(
+            competingAbortCompletedWhileCallbackBlocked,
+            "A competing decision must not wait for an external callback under the receipt guard.");
+        Assert.IsTrue(competingAbortEventuallyCompleted, "The competing decision thread did not stop.");
+        Assert.IsTrue(proceedCompleted, "The proceed callback thread did not stop.");
     }
 
     [TestMethod]
