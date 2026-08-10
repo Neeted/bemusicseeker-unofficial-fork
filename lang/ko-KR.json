@@ -522,6 +522,7 @@
   "Msg_override_level_warning": "재생 목록에 정의된 레벨이 LR2 선곡 화면의 전용 난이도로 적용됩니다.\n\n데이터베이스 작업이 포함된 기능이므로, 실행 후에는 다시 되돌릴 수 없습니다.\n계속하시겠습니까?",
   "Create_new_folder": "새 폴더 생성",
   "Cancel": "취소",
+  "Save_and_close": "저장 후 닫기",
   "Close": "닫기",
   "Drop_install_queue_label_format": "설치 중: {0}건 (대기 {1} 배치)",
   "Drop_install_queue_extracting_sub_label_format": "압축 해제 중: {0}/{1} {2}",

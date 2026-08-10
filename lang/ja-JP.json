@@ -532,6 +532,7 @@
   "Msg_override_level_warning": "選曲画面でプレイリスト定義のレベルが表示されるようにします\n\n続行すると楽曲データベースが書き換えられるため\nこの操作による変更を戻すことは出来ません",
   "Create_new_folder": "フォルダの新規作成",
   "Cancel": "キャンセル",
+  "Save_and_close": "保存して閉じる",
   "Close": "閉じる",
   "Drop_install_queue_label_format": "導入中: {0}件 (待機 {1} バッチ)",
   "Drop_install_queue_extracting_sub_label_format": "解凍中: {0}/{1} {2}",

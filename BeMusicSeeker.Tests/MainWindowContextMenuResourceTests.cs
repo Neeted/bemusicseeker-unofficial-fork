@@ -829,7 +829,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState()
     {
         XDocument mainWindowDocument = LoadMainWindowXamlDocument();
-        string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         string editDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.xaml"));
         string editDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
@@ -1870,7 +1870,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void SettingDialogBeatorajaScoreDbStrings_AreLocalized()
     {
         string root = FindRepositoryRoot();
-        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
         string viewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
@@ -1912,7 +1912,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "Path=Resources.Register_beatoraja_bmt_urls");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaRootPath");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaScoreDbPath");
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         StringAssert.Contains(viewModelCode, "UninstallLr2PlayHistorySchemaAsync()");
         Assert.IsFalse(settingDialogCode.Contains("ReloadTables()"));
         Assert.IsFalse(xaml.Contains("Content=\"beatoraja"));
@@ -1923,18 +1923,18 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SettingDialogGeneralAndPlaylistGroups_AreSeparatedByFeature()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         string resources = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Properties", "Resources.cs"));
         string settingsCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Properties", "Settings.cs"));
         string generalTab = ExtractBetween(
             xaml,
             "Name=\"tabItemGeneral\"",
-            "<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance");
+            "ElementName=navigationAppearance, Converter={StaticResource booleanToVisibilityCollapsedConverter}");
         string playlistTab = ExtractBetween(
             xaml,
-            "Path=Resources.Playlist, Mode=OneWay}\">",
-            "<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install");
+            "ElementName=navigationPlaylist, Converter={StaticResource booleanToVisibilityCollapsedConverter}",
+            "ElementName=navigationInstall, Converter={StaticResource booleanToVisibilityCollapsedConverter}");
 
         StringAssert.Contains(generalTab, "Path=Resources.Operation_Mode");
         StringAssert.Contains(generalTab, "Path=Resources.Language");
@@ -1957,8 +1957,8 @@ public sealed class MainWindowContextMenuResourceTests
             "Name=\"tabItemProperty\"",
             "Name=\"tabItemVersionInfo\"");
         Assert.IsFalse(detailsTab.Contains("Path=Resources.Language"));
-        Assert.IsTrue(xaml.IndexOf("Name=\"tabItemGeneral\"", StringComparison.Ordinal) < xaml.IndexOf("<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance", StringComparison.Ordinal));
-        Assert.IsTrue(xaml.IndexOf("<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance", StringComparison.Ordinal) < xaml.IndexOf("<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playback", StringComparison.Ordinal));
+        Assert.IsTrue(xaml.IndexOf("x:Name=\"navigationGeneral\"", StringComparison.Ordinal) < xaml.IndexOf("x:Name=\"navigationAppearance\"", StringComparison.Ordinal));
+        Assert.IsTrue(xaml.IndexOf("x:Name=\"navigationAppearance\"", StringComparison.Ordinal) < xaml.IndexOf("x:Name=\"navigationPlayback\"", StringComparison.Ordinal));
 
         Assert.AreEqual(1, CountOccurrences(playlistTab, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_table_uri, Mode=OneWay}\""));
         Assert.AreEqual(1, CountOccurrences(playlistTab, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_md5_url_mapping_tsv_uri, Mode=OneWay}\""));
@@ -1977,7 +1977,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void SettingDialogStandaloneBmsRoots_AreLocalizedAndImplemented()
     {
         string root = FindRepositoryRoot();
-        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
         string viewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
@@ -2078,7 +2078,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void Lr2PlaybackPlayer_IsIndependentFromLibraryOperationMode()
     {
         string root = FindRepositoryRoot();
-        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         string compositionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"));
         string viewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string rootViewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
@@ -2158,8 +2158,8 @@ public sealed class MainWindowContextMenuResourceTests
     public void SettingDialogApplyClick_UsesOwnerCompletionRoute()
     {
         string root = FindRepositoryRoot();
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
-        string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
+        string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string viewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
@@ -2171,17 +2171,18 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(settingDialogCode.Contains("IsNeedRestartForSaveOrCancel"));
         StringAssert.Contains(settingDialogXaml, "Click=\"buttonOKClick\"");
         Assert.IsFalse(settingDialogXaml.Contains("Command=\"{Binding ApplyCommand}\""));
-        StringAssert.Contains(settingDialogXaml, "Command=\"{Binding CancelCommand}\"");
+        StringAssert.Contains(settingDialogXaml, "Click=\"buttonCancelClick\"");
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsEditCompletionEnabled}\"");
         Assert.IsFalse(settingDialogXaml.Contains("{Binding settingDialog."));
-        StringAssert.Contains(mainWindowXaml, "<v:SettingDialog x:Name=\"settingDialog\" DataContext=\"{Binding SettingDialog}\"");
-        StringAssert.Contains(mainWindowXaml, "PlaybackPanel=\"{Binding DataContext.PlaybackPanel, ElementName=window}\"");
-        StringAssert.Contains(settingDialogXaml, "ElementName=settingDialog, Mode=OneWay");
-        StringAssert.Contains(settingDialogXaml, "ElementName=settingDialog, Mode=TwoWay");
+        Assert.IsFalse(mainWindowXaml.Contains("<v:SettingsWindow"));
+        StringAssert.Contains(mainWindowCode, "new UiWindowDialogRequest<SettingsWindow, SettingsWindowCloseReason>(");
+        StringAssert.Contains(mainWindowCode, "PlaybackPanel = viewModel.PlaybackPanel");
+        StringAssert.Contains(settingDialogXaml, "ElementName=settingsWindow, Mode=OneWay");
+        StringAssert.Contains(settingDialogXaml, "ElementName=settingsWindow, Mode=TwoWay");
         StringAssert.Contains(settingDialogCode, "DependencyProperty PlaybackPanelProperty");
         StringAssert.Contains(settingDialogCode, "public PlaybackPanelViewModel PlaybackPanel");
         StringAssert.Contains(settingDialogCode, "private async void buttonOKClick(object sender, RoutedEventArgs e)");
-        StringAssert.Contains(settingDialogCode, "await GetSettingDialogViewModel()");
+        StringAssert.Contains(settingDialogCode, "await RunApplyOperationAsync(() => GetSettingDialogViewModel()");
         StringAssert.Contains(settingDialogCode, "ApplySettingsAsync()");
         StringAssert.Contains(settingDialogCode, "LoggingAndPropagate(\"buttonOKClick\")");
         Assert.IsFalse(mainWindowXaml.Contains("EventName=\"ContentRendered\""));
@@ -2227,11 +2228,13 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
-        StringAssert.Contains(mainWindowXaml, "<v:SettingDialog x:Name=\"settingDialog\" DataContext=\"{Binding SettingDialog}\" PlaybackPanel=\"{Binding DataContext.PlaybackPanel, ElementName=window}\" PlaylistWorkspace=\"{Binding DataContext.PlaylistWorkspace, ElementName=window}\"");
+        Assert.IsFalse(mainWindowXaml.Contains("<v:SettingsWindow"));
+        StringAssert.Contains(mainWindowCode, "PlaybackPanel = viewModel.PlaybackPanel");
+        StringAssert.Contains(mainWindowCode, "PlaylistWorkspace = viewModel.PlaylistWorkspace");
         StringAssert.Contains(mainWindowXaml, "<v:LoadPlaylistURIDialog x:Name=\"loadPlaylistURIDialog\" DataContext=\"{Binding PlaylistWorkspace}\"");
         StringAssert.Contains(settingDialogCode, "DependencyProperty PlaylistWorkspaceProperty");
         StringAssert.Contains(settingDialogCode, "public PlaylistWorkspaceViewModel PlaylistWorkspace");
@@ -2517,8 +2520,8 @@ public sealed class MainWindowContextMenuResourceTests
     public void SettingDialogAudioAndPlayerBindings_DoNotCreateFalsePendingChanges()
     {
         string root = FindRepositoryRoot();
-        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         string viewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string playerDriverProperty = ExtractBetween(
             viewModelCode,
@@ -2604,7 +2607,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void SettingDialogValidation_RequiresInstallDestinationInAllOperationModes()
     {
         string root = FindRepositoryRoot();
-        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         string viewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
@@ -2682,8 +2685,8 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string viewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string rootViewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
-        string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingsWindow.cs"));
+        string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         string playlistCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
         string customFolderMaintenanceOwnerCode = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -2750,7 +2753,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(manualResyncClickHandler, "settingDialogViewModel.IsLr2SongDbSyncDataResyncBlockedByLibraryOperation");
         Assert.IsFalse(manualResyncClickHandler.Contains("GetMainWindowViewModel()"));
         StringAssert.Contains(settingDialogCode, "await settingDialogViewModel.RequestLr2SongDbSyncAsync();");
-        StringAssert.Contains(manualResyncClickHandler, "HideThisOverlay();");
+        StringAssert.Contains(manualResyncClickHandler, "CloseForManualResync();");
         StringAssert.Contains(manualResyncClickHandler, "await Dispatcher.Yield(DispatcherPriority.Background);");
         StringAssert.Contains(playlistCode, "RepairMissingCustomFolderOutputsAfterHydrationCore(reason, verifyRootOutputDirectoryRows, settings)");
         StringAssert.Contains(customFolderMaintenanceOwnerCode, "outputOwner.MaterializeBatch(");
@@ -4539,9 +4542,9 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SettingDialog_ExposesAppearanceThemeSelector()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
 
-        Assert.AreEqual(1, CountOccurrences(xaml, "<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}\">"));
+        Assert.AreEqual(1, CountOccurrences(xaml, "x:Name=\"navigationAppearance\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "ItemsSource=\"{Binding AppearanceThemeOptions}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "SelectedValue=\"{Binding AppearanceTheme, Mode=TwoWay}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_theme, Mode=OneWay"));
@@ -4555,15 +4558,16 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SettingDialog_UsesScopedModernLayoutStyles()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
 
-        StringAssert.Contains(xaml, "<Border Width=\"640\" Height=\"500\" CornerRadius=\"8\"");
-        StringAssert.Contains(xaml, "BorderBrush=\"{DynamicResource App.DialogBorderBrush}\"");
+        StringAssert.Contains(xaml, "Width=\"920\" Height=\"680\" MinWidth=\"760\" MinHeight=\"500\"");
+        Assert.IsFalse(xaml.Contains("Width=\"640\" Height=\"500\""));
         StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type GroupBox}\" BasedOn=\"{StaticResource {x:Type GroupBox}}\">");
         StringAssert.Contains(xaml, "<Setter Property=\"Padding\" Value=\"10,8,10,10\" />");
         StringAssert.Contains(xaml, "TextElement.FontWeight=\"SemiBold\"");
         StringAssert.Contains(xaml, "CornerRadius=\"4\"");
-        StringAssert.Contains(xaml, "<ScrollViewer Margin=\"4\" VerticalScrollBarVisibility=\"Auto\" HorizontalScrollBarVisibility=\"Disabled\">");
+        StringAssert.Contains(xaml, "x:Name=\"settingsPageScrollViewer\"");
+        StringAssert.Contains(xaml, "VerticalScrollBarVisibility=\"Auto\" HorizontalScrollBarVisibility=\"Disabled\"");
         StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type Button}\" BasedOn=\"{StaticResource {x:Type Button}}\">");
         StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type TextBox}\" BasedOn=\"{StaticResource {x:Type TextBox}}\">");
         StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type ComboBox}\" BasedOn=\"{StaticResource {x:Type ComboBox}}\">");
@@ -4580,7 +4584,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(0, CountOccurrences(xaml, "VerticalScrollBarVisibility=\"Disabled\" HorizontalScrollBarVisibility=\"Auto\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "MaxHeight=\"260\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Note, Mode=OneWay}\""));
-        Assert.AreEqual(0, CountOccurrences(xaml, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Title=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "GroupBox Padding=\"5\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "GroupBox Padding=\"5,5,5,0\""));
     }
@@ -4692,7 +4696,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         foreach (string relativePath in new[]
         {
-            Path.Combine("BeMusicSeeker", "Views", "SettingDialog.xaml"),
+            Path.Combine("BeMusicSeeker", "Views", "SettingsWindow.xaml"),
             Path.Combine("BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml"),
             Path.Combine("BeMusicSeeker", "Views", "PlaylistPropertyDialog.xaml"),
             Path.Combine("BeMusicSeeker", "Views", "LoadPlaylistURIDialog.xaml"),
@@ -4705,7 +4709,7 @@ public sealed class MainWindowContextMenuResourceTests
             StringAssert.Contains(xaml, "App.DialogBackgroundBrush");
         }
 
-        string settingDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string settingDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         StringAssert.Contains(settingDialog, "App.WarningTextBrush");
         Assert.IsFalse(settingDialog.Contains("Foreground=\"#FFFF0000\""));
 
@@ -4736,7 +4740,7 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string settings = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Settings.cs"));
         string appConfig = File.ReadAllText(Path.Combine(root, "app.config"));
-        string settingDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string settingDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
 
         Assert.AreEqual("song.dbアクセス最適化PRAGMAを有効にする", Resources.Details_test_db_read_optimized_pragmas);
         Assert.IsFalse(viewModel.Contains("_IsPlaylistTreeExpanded"));
@@ -5279,9 +5283,9 @@ public sealed class MainWindowContextMenuResourceTests
     public void WpfFileDialogRoutes_SupportStandaloneMultiSelect()
     {
         string root = FindRepositoryRoot();
-        string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         string viewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string allPickerXaml = settingDialogXaml + mainWindowXaml;
 
@@ -5342,7 +5346,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void FileDialogs_SetDefaultExtensionsForTypedFileNames()
     {
         string root = FindRepositoryRoot();
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
 
         StringAssert.Contains(settingDialogCode, "new UiSaveFilePickerRequest(");
@@ -5359,7 +5363,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SettingDialog_UsesTypedBindingConverters()
     {
-        string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
 
         Assert.IsFalse(settingDialogXaml.Contains("QuickConverter", StringComparison.Ordinal));
         Assert.IsFalse(settingDialogXaml.Contains("wasapiControlEnabledConverter", StringComparison.Ordinal));
@@ -5373,15 +5377,15 @@ public sealed class MainWindowContextMenuResourceTests
     public void SettingDialogUninstall_ShowsResultBeforeExit()
     {
         string root = FindRepositoryRoot();
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         string viewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string uninstallClickHandler = ExtractMethodBody(settingDialogCode, "private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)");
 
-        StringAssert.Contains(uninstallClickHandler, "await settingDialogViewModel.UninstallApplicationDataAsync();");
-        StringAssert.Contains(uninstallClickHandler, "settingDialogOperationGrid.IsEnabled = false;");
-        StringAssert.Contains(uninstallClickHandler, "if (!closeAfterSuccess)");
-        StringAssert.Contains(uninstallClickHandler, "settingDialogOperationGrid.IsEnabled = true;");
-        StringAssert.Contains(uninstallClickHandler, "window.Close();");
+        StringAssert.Contains(uninstallClickHandler, "ApplicationDataUninstallResult result = await RunViewOperationAsync(");
+        StringAssert.Contains(uninstallClickHandler, "settingDialogViewModel.UninstallApplicationDataAsync);");
+        StringAssert.Contains(uninstallClickHandler, "if (result.ShouldCloseApplication)");
+        StringAssert.Contains(uninstallClickHandler, "Close();");
+        StringAssert.Contains(uninstallClickHandler, "owner.Close();");
         Assert.IsFalse(uninstallClickHandler.Contains("UninstallAllData"));
         Assert.IsFalse(uninstallClickHandler.Contains("Task.Run"));
         Assert.IsFalse(uninstallClickHandler.Contains("Msg_success_uninstall"));
@@ -5390,11 +5394,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(uninstallClickHandler.Contains("Application.Current.MainWindow"));
         Assert.IsFalse(uninstallClickHandler.Contains("base.Dispatcher.BeginInvoke"));
         Assert.IsTrue(
-            uninstallClickHandler.IndexOf("await settingDialogViewModel.UninstallApplicationDataAsync();", StringComparison.Ordinal)
-            < uninstallClickHandler.IndexOf("window.Close();", StringComparison.Ordinal));
-        Assert.IsTrue(
-            uninstallClickHandler.IndexOf("settingDialogOperationGrid.IsEnabled = false;", StringComparison.Ordinal)
-            < uninstallClickHandler.IndexOf("await settingDialogViewModel.UninstallApplicationDataAsync();", StringComparison.Ordinal));
+            uninstallClickHandler.IndexOf("ApplicationDataUninstallResult result = await RunViewOperationAsync(", StringComparison.Ordinal)
+            < uninstallClickHandler.IndexOf("owner.Close();", StringComparison.Ordinal));
         Assert.IsFalse(viewModelCode.Contains("internal void UninstallAllData()"));
         StringAssert.Contains(viewModelCode, "internal Task<ApplicationDataUninstallResult> UninstallApplicationDataAsync()");
         StringAssert.Contains(viewModelCode, "new ApplicationDataUninstallRequest(");

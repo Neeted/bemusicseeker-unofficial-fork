@@ -197,7 +197,7 @@ public sealed class DialogRouteConsolidationTests
     {
         string root = FindRepositoryRoot();
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
 
@@ -220,7 +220,7 @@ public sealed class DialogRouteConsolidationTests
     {
         string root = FindRepositoryRoot();
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
         string requestsCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogRequests.cs"));
         string windowResultCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiWindowDialogResult.cs"));
@@ -364,14 +364,14 @@ public sealed class DialogRouteConsolidationTests
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string initialSetupCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
         string playlistPropertyCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistPropertyDialog.cs"));
         string playlistBulkEditCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistSummaryBulkEditDialog.cs"));
 
         StringAssert.Contains(mainWindowCode, "internal void ShowOverlayDialog(FrameworkElement dialog)");
         StringAssert.Contains(mainWindowCode, "internal void HideOverlayDialog(FrameworkElement dialog)");
-        StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(settingDialog)");
+        StringAssert.Contains(mainWindowCode, "new UiWindowDialogRequest<SettingsWindow, SettingsWindowCloseReason>(");
         StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(initialSetupLanguageDialog)");
         StringAssert.Contains(mainWindowCode, "viewModel.SettingDialog.AttachPresentationPort(this);");
         StringAssert.Contains(mainWindowCode, "void ISettingDialogPresentationPort.OpenInitialSetupLanguageDialog()");
@@ -384,7 +384,7 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(initialSetupCode.Contains("Parent is Panel"), "Initial setup must not find SettingDialog by walking the parent panel.");
         Assert.IsFalse(initialSetupCode.Contains("MainWindow"), "Initial setup must request settings through its inherited owner command.");
         Assert.IsFalse(initialSetupCode.Contains("HideOverlayDialog"));
-        StringAssert.Contains(settingDialogCode, "HideThisOverlay()");
+        StringAssert.Contains(settingDialogCode, "CloseForManualResync()");
         StringAssert.Contains(loadPlaylistCode, "HideOverlayDialog(this)");
         StringAssert.Contains(playlistPropertyCode, "ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel)");
         StringAssert.Contains(playlistBulkEditCode, "HideOverlayDialog(playlistSummaryBulkEditDialog)");

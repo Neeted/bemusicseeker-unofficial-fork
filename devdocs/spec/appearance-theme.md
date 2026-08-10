@@ -2,9 +2,9 @@
 
 ## 概要
 
-BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は `Light` で、設定ダイアログの `一般 > 外観 > テーマ` から変更できる。
+BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は `Light` で、設定ウィンドウの `外観` カテゴリから変更できる。
 
-テーマはアプリ全体の配色リソースを差し替える仕組みであり、現時点では主にメイン画面、左ツリー、CustomTableView、検索欄、ステータスバー、スクロールバー、コンテキストメニュー、標準 control、設定ダイアログ、主要なアプリ内ダイアログを対象にしている。フォントや行高はまだテーマ設定の対象外。
+テーマはアプリ全体の配色リソースを差し替える仕組みであり、現時点では主にメイン画面、左ツリー、CustomTableView、検索欄、ステータスバー、スクロールバー、コンテキストメニュー、標準 control、設定ウィンドウ、主要なアプリ内ダイアログを対象にしている。フォントや行高はまだテーマ設定の対象外。
 
 ## 設定値
 
@@ -15,7 +15,7 @@ BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は
 - 不明値、空値、`null` は `Light` に正規化する。
 - 保存前にも正規化し、設定ファイルに不明値を残さない。
 
-設定ダイアログでは、選択肢の `ItemsSource` を安定したリストとして保持する。キャンセル時や再表示時に ComboBox の選択が空にならないよう、設定値と UI 選択状態を再同期する。
+設定ウィンドウでは、選択肢の `ItemsSource` を安定したリストとして保持する。キャンセル時や再表示時に ComboBox の選択が空にならないよう、設定値と UI 選択状態を再同期する。
 
 ## テーマ適用
 
@@ -183,16 +183,16 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 
 ライトモードの薄い選択色では黒文字を維持する。ダークモードの選択色では白文字を使う。
 
-## 設定ダイアログ
+## 設定ウィンドウ
 
-設定ダイアログには `一般 > 外観` にテーマ選択 ComboBox がある。
+独立した modal `SettingsWindow` の `外観` カテゴリにテーマ選択 ComboBox がある。設定ウィンドウは左navigationと選択カテゴリの本文を持ち、上部tabは使用しない。
 
 - 選択肢: ライトモード / ダークモード
 - `SelectedValue` は `AppearanceTheme` に TwoWay binding。
 - キャンセル時は保存済みのテーマへ戻し、即時に `AppThemeService.ApplyTheme()` を呼ぶ。
-- ダイアログは非表示で再利用されるため、再表示時にも ComboBox 選択を現在設定へ同期する。
+- 設定ウィンドウはopenごとに生成する。表示開始時にComboBox選択を現在設定へ同期し、表示中のtheme変更は同じWindowへ反映する。
 
-設定ダイアログは標準 control の implicit style を使う。タブやグループ枠、入力欄、ボタンなどは `Simple Styles.xaml` のテーマ resource 参照に寄せている。
+設定ウィンドウは標準 control の implicit style を使う。左navigation、選択状態、group枠、入力欄、下部actionなどは既存の `App.*` dynamic resource と `Simple Styles.xaml` のテーマresource参照に寄せる。独立Window化を理由に別の固定paletteを持たない。
 
 ## アプリ内ダイアログ
 
@@ -200,7 +200,7 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 
 対応済み:
 
-- `SettingDialog`
+- `SettingsWindow`
 - `InitialSetupLanguageDialog`
 - `PlaylistPropertyDialog`
 - `LoadPlaylistURIDialog`
@@ -238,4 +238,4 @@ Livet の `InformationDialogInteractionMessageAction` / `ConfirmationDialogInter
 - 新しく画面色を追加するときは、直接色を置く前に既存の `App.*` / `Table.*` key で表現できるか確認する。
 - CustomTableView のようなコード描画では `DynamicResource` が効かないため、`AppThemeService.ThemeChanged` と palette invalidation を使う。
 - テーマ切替時に cache された Brush/Pen/FormattedText/描画結果が残らないようにする。
-- 設定ダイアログなど非表示で再利用される control は、キャンセル後や再表示時に ComboBox / SelectedValue が stale にならないよう注意する。
+- 設定ウィンドウなど再生成されるpresentationでも、キャンセル後や再表示時に ComboBox / SelectedValue が stale にならないよう、表示開始時の同期を維持する。

@@ -676,7 +676,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string viewSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "Views",
-            "SettingDialog.cs");
+            "SettingsWindow.cs");
         string viewModelSource = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
         StringAssert.Contains(viewModelSource, "applicationLifetime.IsFirstStartup");

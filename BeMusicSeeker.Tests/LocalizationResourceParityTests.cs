@@ -80,6 +80,47 @@ public sealed class LocalizationResourceParityTests
     }
 
     [TestMethod]
+    public void SettingsWindowNavigationAndActions_ArePresentInAllLanguages()
+    {
+        string root = FindRepositoryRoot();
+        string langDirectory = Path.Combine(root, "lang");
+        string[] requiredKeys =
+        [
+            nameof(Resources.Advanced_settings),
+            nameof(Resources.General),
+            nameof(Resources.Appearance),
+            nameof(Resources.Playback),
+            nameof(Resources.Device),
+            nameof(Resources.Record),
+            nameof(Resources.Playlist),
+            nameof(Resources.Install),
+            nameof(Resources.Backup),
+            nameof(Resources.Details),
+            nameof(Resources.Version_info),
+            nameof(Resources.Cancel),
+            nameof(Resources.Save_and_close)
+        ];
+
+        foreach (string languagePath in Directory.GetFiles(langDirectory, "*.json").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            JObject language = ReadLanguageJsonObject(languagePath);
+            foreach (string key in requiredKeys)
+            {
+                JToken value = language[key] ?? throw new AssertFailedException(Path.GetFileName(languagePath) + " must contain " + key + ".");
+                Assert.AreEqual(JTokenType.String, value.Type, Path.GetFileName(languagePath) + " " + key + " must be a string.");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(value.Value<string>()), Path.GetFileName(languagePath) + " " + key + " must not be empty.");
+            }
+        }
+
+        foreach (string key in requiredKeys)
+        {
+            PropertyInfo property = typeof(Resources).GetProperty(key, BindingFlags.Public | BindingFlags.Static)
+                ?? throw new AssertFailedException("Resources must expose " + key + ".");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(property.GetValue(null) as string), key + " must not be empty in the default resources.");
+        }
+    }
+
+    [TestMethod]
     public void AudioDeviceTestResultStrings_ArePresentInAllLanguages()
     {
         string root = FindRepositoryRoot();

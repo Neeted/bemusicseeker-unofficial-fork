@@ -7601,7 +7601,7 @@ public partial class SettingsDialogViewModel : ViewModel
         return restartMode;
     }
 
-    private static bool ShowUiConfirmation(
+    private bool ShowUiConfirmation(
         string messageBoxText,
         string caption,
         MessageBoxImage icon,
@@ -7610,7 +7610,7 @@ public partial class SettingsDialogViewModel : ViewModel
         MessageBoxResult defaultResult = MessageBoxResult.None,
         string warningMessageBoxText = null)
     {
-        UiDialogResult result = new UiDialogCoordinator()
+        UiDialogResult result = schemaDialogs
             .ConfirmAsync(new UiConfirmationRequest(
                 messageBoxText,
                 caption,

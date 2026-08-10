@@ -65,6 +65,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private FrameworkElement activeOverlayDialog;
 
+    private SettingsWindow settingsWindow;
+
     private MainWindowViewModel subscribedViewModel;
 
     private long lastNormalLibraryFirstVisibleRequestId;
@@ -153,8 +155,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private bool HidesPlaybackSurface(FrameworkElement dialog)
     {
-        return ReferenceEquals(dialog, settingDialog)
-            || ReferenceEquals(dialog, playlistPropertyDialog)
+        return ReferenceEquals(dialog, playlistPropertyDialog)
             || ReferenceEquals(dialog, playlistSummaryBulkEditDialog)
             || ReferenceEquals(dialog, loadPlaylistURIDialog);
     }
@@ -751,15 +752,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     void ISettingDialogPresentationPort.OpenSettingsDialog()
     {
-        RunOnUiThread(() =>
-        {
-            if (ReferenceEquals(activeOverlayDialog, initialSetupLanguageDialog))
-            {
-                HideOverlayDialog(initialSetupLanguageDialog);
-            }
-
-            ShowOverlayDialog(settingDialog);
-        });
+        RunOnUiThread(ShowSettingsWindow);
     }
 
     void ISettingDialogPresentationPort.OpenInitialSetupLanguageDialog()
@@ -769,18 +762,67 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     void ISettingDialogPresentationPort.CloseSettingsDialog()
     {
-        RunOnUiThread(() => HideOverlayDialog(settingDialog));
+        RunOnUiThread(() => settingsWindow?.CloseFromPresentation());
     }
 
     void ISettingDialogPresentationPort.RefreshAppearanceSelection()
     {
         RunOnUiThread(() =>
         {
-            if (base.DataContext is MainWindowViewModel viewModel)
+            if (base.DataContext is MainWindowViewModel viewModel && settingsWindow != null)
             {
-                settingDialog.RefreshAppearanceThemeSelection(viewModel.SettingDialog);
+                settingsWindow.RefreshAppearanceThemeSelection(viewModel.SettingDialog);
             }
         });
+    }
+
+    private void ShowSettingsWindow()
+    {
+        if (settingsWindow != null)
+        {
+            settingsWindow.Activate();
+            return;
+        }
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            throw new InvalidOperationException("Main window view model is unavailable.");
+        }
+        if (ReferenceEquals(activeOverlayDialog, initialSetupLanguageDialog))
+        {
+            HideOverlayDialog(initialSetupLanguageDialog);
+        }
+        if (activeOverlayDialog?.Visibility == Visibility.Visible)
+        {
+            throw new InvalidOperationException("Another overlay dialog is already visible: " + activeOverlayDialog.GetType().Name);
+        }
+
+        Visibility previousPlaybackOverlayVisibility = PlaybackOverlayVisibility;
+        PlaybackOverlayVisibility = Visibility.Visible;
+        try
+        {
+            UiWindowDialogResult<SettingsWindowCloseReason> result = new UiDialogCoordinator()
+                .ShowWindowAsync(new UiWindowDialogRequest<SettingsWindow, SettingsWindowCloseReason>(
+                    () =>
+                    {
+                        settingsWindow = new SettingsWindow
+                        {
+                            DataContext = viewModel.SettingDialog,
+                            PlaybackPanel = viewModel.PlaybackPanel,
+                            PlaylistWorkspace = viewModel.PlaylistWorkspace
+                        };
+                        return settingsWindow;
+                    },
+                    window => window.CloseReason,
+                    this))
+                .GetAwaiter()
+                .GetResult();
+            ThrowIfWindowDialogFailed(result.Status, result.Error, "Settings window");
+        }
+        finally
+        {
+            settingsWindow = null;
+            PlaybackOverlayVisibility = previousPlaybackOverlayVisibility;
+        }
     }
 
     private void RunOnUiThread(Action action)
@@ -1133,6 +1175,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void ApplyTerminalShutdown()
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        settingsWindow?.CloseForOwnerShutdown();
         CaptureWindowStateForClosing();
         viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
         if (Application.Current != null)
@@ -1187,6 +1230,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         CancelRelatedDocumentRequest();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
+        settingsWindow?.CloseForOwnerShutdown();
         base.OnClosing(e);
         CaptureWindowStateForClosing();
         closingViewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();

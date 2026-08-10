@@ -72,7 +72,7 @@ public sealed class QuickConverterReplacementTests
         {
             "MainWindow.xaml",
             "PlaybackPanelView.xaml",
-            "SettingDialog.xaml",
+            "SettingsWindow.xaml",
             "EditableTextBlock.xaml",
             "PlaylistPropertyDialog.xaml",
             "LoadPlaylistURIDialog.xaml"

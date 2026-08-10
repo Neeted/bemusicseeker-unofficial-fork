@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -21,25 +22,40 @@ using BeMusicSeeker.Views.Dialogs;
 namespace BeMusicSeeker.Views;
 
 /// <summary>
-/// アプリケーション設定を編集する WPF ユーザーコントロールです。
+/// 設定編集セッションを MainWindow owner の modal Window として表示します。
 /// </summary>
-public partial class SettingDialog : UserControl, IComponentConnector
+public partial class SettingsWindow : Window, IComponentConnector
 {
     public static readonly DependencyProperty PlaybackPanelProperty = DependencyProperty.Register(
         nameof(PlaybackPanel),
         typeof(PlaybackPanelViewModel),
-        typeof(SettingDialog),
+        typeof(SettingsWindow),
         new PropertyMetadata(null));
 
     public static readonly DependencyProperty PlaylistWorkspaceProperty = DependencyProperty.Register(
         nameof(PlaylistWorkspace),
         typeof(PlaylistWorkspaceViewModel),
-        typeof(SettingDialog),
+        typeof(SettingsWindow),
         new PropertyMetadata(null));
 
     internal Binding bindingLR2CustomFolderOutputDir;
 
     internal Binding bindingBMSInstallDir;
+
+    private SettingsWindowCloseReason closeReason;
+
+    private bool presentationActivated;
+
+    private bool presentationCloseObserved;
+
+    private bool userCancellationQueued;
+
+    private bool viewOperationInProgress;
+
+    /// <summary>
+    /// Gets the reason selected for the current window close operation.
+    /// </summary>
+    internal SettingsWindowCloseReason CloseReason => closeReason;
 
     public PlaybackPanelViewModel PlaybackPanel
     {
@@ -73,23 +89,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
         throw new InvalidOperationException(routeName + " failed: " + status, exception);
     }
 
-    private void HideThisOverlay()
-    {
-        if (Window.GetWindow(this) is not MainWindow mainWindow)
-        {
-            throw new InvalidOperationException("Setting dialog is not hosted by MainWindow.");
-        }
-
-        mainWindow.HideOverlayDialog(this);
-    }
-
     /// <summary>
-    /// 設定ダイアログを初期化し、表示時に必要な遅延更新を登録します。
+    /// 設定ウィンドウを初期化します。表示状態は Window lifecycle override で ViewModel へ通知します。
     /// </summary>
-    public SettingDialog()
+    public SettingsWindow()
     {
         InitializeComponent();
-        IsVisibleChanged += SettingDialogIsVisibleChanged;
         var entryAssembly = Assembly.GetEntryAssembly();
         string text = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
         string text2 = entryAssembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
@@ -97,31 +102,216 @@ public partial class SettingDialog : UserControl, IComponentConnector
         textBlockBuildNum.Text = "Build: " + text;
     }
 
-    private void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    /// <summary>
+    /// coordinator による modal 表示が content rendering まで到達した時点で、表示中だけ必要な presentation を有効化します。
+    /// </summary>
+    /// <param name="e">content rendering event data。</param>
+    protected override void OnContentRendered(EventArgs e)
     {
-        if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
+        base.OnContentRendered(e);
+        if (presentationActivated)
         {
             return;
         }
 
-        bool isVisible = e.NewValue is true;
-        settingDialogViewModel.SetPresentationActive(isVisible);
-        if (isVisible)
-        {
-            var stopwatch = Stopwatch.StartNew();
-            RefreshAppearanceThemeSelection(settingDialogViewModel);
-            settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();
-            long handlerMs = stopwatch.ElapsedMilliseconds;
-            string detail =
-                "handlerMs=" + handlerMs
-                + " operationModeLR2DB=" + settingDialogViewModel.OperationModeLR2DB.ToString().ToLowerInvariant()
-                + " schemaStatus=" + (settingDialogViewModel.Lr2PlayHistorySchemaStatusSnapshot?.Status.ToString() ?? "Unknown");
-            Dispatcher.BeginInvoke(
-                DispatcherPriority.ContextIdle,
-                (Action)(() => LogSettingsDialogPerformance(
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        presentationActivated = true;
+        settingDialogViewModel.SetPresentationActive(true);
+        var stopwatch = Stopwatch.StartNew();
+        RefreshAppearanceThemeSelection(settingDialogViewModel);
+        settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();
+        long handlerMs = stopwatch.ElapsedMilliseconds;
+        string detail =
+            "handlerMs=" + handlerMs
+            + " operationModeLR2DB=" + settingDialogViewModel.OperationModeLR2DB.ToString().ToLowerInvariant()
+            + " schemaStatus=" + (settingDialogViewModel.Lr2PlayHistorySchemaStatusSnapshot?.Status.ToString() ?? "Unknown");
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.ContextIdle,
+            (Action)(() => LogSettingsDialogPerformance(
                 "settings_dialog_open",
                 stopwatch,
                 detail)));
+    }
+
+    /// <summary>
+    /// user close と programmatic close を分離し、Cancel 不可の編集状態を title bar や Alt+F4 で迂回させません。
+    /// </summary>
+    /// <param name="e">cancelable close event data。</param>
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (closeReason != SettingsWindowCloseReason.None)
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        e.Cancel = true;
+        QueueUserCancellation();
+        base.OnClosing(e);
+    }
+
+    /// <summary>
+    /// modal lifetime の終了を ViewModel へ通知します。close reason に関係なく必ず presentation を解除します。
+    /// </summary>
+    /// <param name="e">closed event data。</param>
+    protected override void OnClosed(EventArgs e)
+    {
+        try
+        {
+            if (presentationActivated && base.DataContext is SettingsDialogViewModel settingDialogViewModel)
+            {
+                presentationActivated = false;
+                settingDialogViewModel.SetPresentationActive(false);
+            }
+        }
+        finally
+        {
+            try
+            {
+                base.OnClosed(e);
+            }
+            finally
+            {
+                // Each presentation gets a fresh Window while the ViewModel is shared by the shell.
+                // A closed Window must not retain a live binding graph into that shared edit session.
+                DataContext = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// ViewModel の Apply、Cancel、または通常 presentation close request を rollback なしで完了します。
+    /// </summary>
+    internal void CloseFromPresentation()
+    {
+        presentationCloseObserved = true;
+        if (closeReason == SettingsWindowCloseReason.None)
+        {
+            closeReason = GetSettingDialogViewModel().IsEditCompletionInProgress
+                ? SettingsWindowCloseReason.Apply
+                : SettingsWindowCloseReason.Presentation;
+        }
+        Close();
+    }
+
+    /// <summary>
+    /// owner shell の terminal shutdown に伴う close を Cancel guard と rollback の対象外にします。
+    /// </summary>
+    internal void CloseForOwnerShutdown()
+    {
+        closeReason = SettingsWindowCloseReason.OwnerShutdown;
+        Close();
+    }
+
+    private void CloseForManualResync()
+    {
+        closeReason = SettingsWindowCloseReason.ManualResync;
+        Close();
+    }
+
+    private void QueueUserCancellation()
+    {
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        if (!settingDialogViewModel.IsEditCancellationEnabled || viewOperationInProgress || userCancellationQueued)
+        {
+            return;
+        }
+
+        userCancellationQueued = true;
+        closeReason = SettingsWindowCloseReason.Cancel;
+        Dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)(() =>
+        {
+            userCancellationQueued = false;
+            presentationCloseObserved = false;
+            settingDialogViewModel.CancelCommand.Execute();
+            if (!presentationCloseObserved)
+            {
+                closeReason = SettingsWindowCloseReason.None;
+            }
+        }));
+    }
+
+    private void SettingsWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Escape)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        QueueUserCancellation();
+    }
+
+    private void BeginViewOperation()
+    {
+        if (viewOperationInProgress)
+        {
+            throw new InvalidOperationException("A settings window operation is already in progress.");
+        }
+
+        viewOperationInProgress = true;
+        settingDialogOperationGrid.IsEnabled = false;
+    }
+
+    private void EndViewOperation()
+    {
+        settingDialogOperationGrid.IsEnabled = true;
+        viewOperationInProgress = false;
+    }
+
+    /// <summary>
+    /// Window が所有する非同期 operation と native close guard を同じ lifetime へ接続します。
+    /// </summary>
+    /// <param name="operation">設定 Window が表示中のまま完了を待つ operation。</param>
+    /// <returns>operation の完了を表す Task。</returns>
+    internal async Task RunViewOperationAsync(Func<Task> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        BeginViewOperation();
+        try
+        {
+            await operation();
+        }
+        finally
+        {
+            EndViewOperation();
+        }
+    }
+
+    /// <summary>
+    /// Runs the settings apply operation without authorizing a close until the ViewModel requests presentation completion.
+    /// </summary>
+    /// <param name="operation">The ViewModel-owned apply operation.</param>
+    /// <returns>A task that completes after the apply operation and its presentation callback finish.</returns>
+    internal async Task RunApplyOperationAsync(Func<Task> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        closeReason = SettingsWindowCloseReason.None;
+        presentationCloseObserved = false;
+        try
+        {
+            await RunViewOperationAsync(operation);
+        }
+        finally
+        {
+            if (!presentationCloseObserved)
+            {
+                closeReason = SettingsWindowCloseReason.None;
+            }
+        }
+    }
+
+    private async Task<TResult> RunViewOperationAsync<TResult>(Func<Task<TResult>> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        BeginViewOperation();
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            EndViewOperation();
         }
     }
 
@@ -137,11 +327,37 @@ public partial class SettingDialog : UserControl, IComponentConnector
             ?? throw new InvalidOperationException("Setting dialog view model is unavailable.");
     }
 
+    private void operationModeRadioButtonClick(object sender, RoutedEventArgs e)
+    {
+        bool requestedOperationMode = sender switch
+        {
+            _ when ReferenceEquals(sender, radioButtonUseLR2) => true,
+            _ when ReferenceEquals(sender, radioButtonNotUseLR2) => false,
+            _ => throw new InvalidOperationException("Unexpected operation mode selection source.")
+        };
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        if (settingDialogViewModel.OperationModeLR2DB != requestedOperationMode)
+        {
+            settingDialogViewModel.OperationModeLR2DB = requestedOperationMode;
+        }
+    }
+
     private async void buttonOKClick(object sender, RoutedEventArgs e)
     {
-        await GetSettingDialogViewModel()
+        await RunApplyOperationAsync(() => GetSettingDialogViewModel()
             .ApplySettingsAsync()
-            .LoggingAndPropagate("buttonOKClick");
+            .LoggingAndPropagate("buttonOKClick"));
+    }
+
+    private void buttonCancelClick(object sender, RoutedEventArgs e)
+    {
+        closeReason = SettingsWindowCloseReason.Cancel;
+        presentationCloseObserved = false;
+        GetSettingDialogViewModel().CancelCommand.Execute();
+        if (!presentationCloseObserved)
+        {
+            closeReason = SettingsWindowCloseReason.None;
+        }
     }
 
     private void PickRootFolderForSetting(string propertyName, string selectedPath, string title = null)
@@ -388,7 +604,8 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        HideThisOverlay();
+        Window owner = Owner ?? throw new InvalidOperationException("Settings window owner is unavailable.");
+        CloseForManualResync();
         await Dispatcher.Yield(DispatcherPriority.Background);
         try
         {
@@ -396,7 +613,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         catch (Exception ex)
         {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            UiDialogRoute.ShowMessageBox(owner, BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
         }
     }
 
@@ -418,16 +635,8 @@ public partial class SettingDialog : UserControl, IComponentConnector
         ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup save picker");
         if (result.Status == UiDialogStatus.Accepted)
         {
-            settingDialogOperationGrid.IsEnabled = false;
-            try
-            {
-                await playlistWorkspace.BackupPlaylistAsync(result.FileName)
-                    .Logging("detailTabItemBackupButtonClicked");
-            }
-            finally
-            {
-                settingDialogOperationGrid.IsEnabled = true;
-            }
+            await RunViewOperationAsync(() => playlistWorkspace.BackupPlaylistAsync(result.FileName)
+                .Logging("detailTabItemBackupButtonClicked"));
         }
     }
 
@@ -437,15 +646,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        settingDialogOperationGrid.IsEnabled = false;
-        try
-        {
-            await settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync();
-        }
-        finally
-        {
-            settingDialogOperationGrid.IsEnabled = true;
-        }
+        await RunViewOperationAsync(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync);
     }
 
     private async void uninstallLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
@@ -454,15 +655,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        settingDialogOperationGrid.IsEnabled = false;
-        try
-        {
-            await settingDialogViewModel.UninstallLr2PlayHistorySchemaAsync();
-        }
-        finally
-        {
-            settingDialogOperationGrid.IsEnabled = true;
-        }
+        await RunViewOperationAsync(settingDialogViewModel.UninstallLr2PlayHistorySchemaAsync);
     }
 
     private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)
@@ -483,9 +676,8 @@ public partial class SettingDialog : UserControl, IComponentConnector
         ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup restore picker");
         if (result.Status == UiDialogStatus.Accepted)
         {
-            settingDialogOperationGrid.IsEnabled = false;
-            await playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)
-                .Logging("detailTabItemRestoreButtonClicked");
+            await RunViewOperationAsync(() => playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)
+                .Logging("detailTabItemRestoreButtonClicked"));
             await base.Dispatcher.BeginInvoke((Action)delegate
             {
                 UiDialogRoute.ShowMessageBox(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
@@ -500,27 +692,15 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        bool closeAfterSuccess = false;
-        settingDialogOperationGrid.IsEnabled = false;
-        try
+        ApplicationDataUninstallResult result = await RunViewOperationAsync(
+            settingDialogViewModel.UninstallApplicationDataAsync);
+        if (result.ShouldCloseApplication)
         {
-            ApplicationDataUninstallResult result = await settingDialogViewModel.UninstallApplicationDataAsync();
-            closeAfterSuccess = result.ShouldCloseApplication;
-            if (closeAfterSuccess)
-            {
-                if (Window.GetWindow(this) is not Window window)
-                {
-                    throw new InvalidOperationException("Setting dialog is not hosted by a window.");
-                }
-                window.Close();
-            }
-        }
-        finally
-        {
-            if (!closeAfterSuccess)
-            {
-                settingDialogOperationGrid.IsEnabled = true;
-            }
+            MainWindow owner = Owner as MainWindow
+                ?? throw new InvalidOperationException("Settings window is not owned by MainWindow.");
+            closeReason = SettingsWindowCloseReason.OwnerShutdown;
+            Close();
+            owner.Close();
         }
     }
 
@@ -532,7 +712,10 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void comboBoxEncoderSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (sender is ComboBox comboBox && comboBox.Items.Count > comboBox.SelectedIndex && comboBox.SelectedValue != comboBox.Items?[comboBox.SelectedIndex])
+        if (sender is ComboBox comboBox
+            && comboBox.SelectedIndex >= 0
+            && comboBox.Items.Count > comboBox.SelectedIndex
+            && comboBox.SelectedValue != comboBox.Items[comboBox.SelectedIndex])
         {
             comboBox.SelectedItem = comboBox.Items[comboBox.SelectedIndex];
             comboBox.SelectedValue = comboBox.Items[comboBox.SelectedIndex];
@@ -678,4 +861,28 @@ public partial class SettingDialog : UserControl, IComponentConnector
             await settingDialogViewModel.RunAudioDeviceTestAsync();
         }
     }
+}
+
+/// <summary>
+/// SettingsWindow の close が user cancellation、編集完了、別 workflow、shell shutdown のどこから要求されたかを表します。
+/// </summary>
+internal enum SettingsWindowCloseReason
+{
+    /// <summary>No close has been requested.</summary>
+    None,
+
+    /// <summary>Settings were applied successfully.</summary>
+    Apply,
+
+    /// <summary>The user completed the Cancel rollback route.</summary>
+    Cancel,
+
+    /// <summary>The ViewModel requested a close outside a view-originated completion handler.</summary>
+    Presentation,
+
+    /// <summary>The window closed before starting manual LR2 resynchronization.</summary>
+    ManualResync,
+
+    /// <summary>The owner shell is performing terminal shutdown.</summary>
+    OwnerShutdown
 }

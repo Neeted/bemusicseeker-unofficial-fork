@@ -522,6 +522,7 @@
   "Msg_override_level_warning": "您在播放列表中设定的难度等级将作为此播放列表专用难度显示在 LR2 的选曲界面中。\n\n由于包含数据库的破坏性操作，此操作无法复原。\n确定要继续吗？",
   "Create_new_folder": "新建文件夹",
   "Cancel": "取消",
+  "Save_and_close": "保存并关闭",
   "Close": "关闭",
   "Drop_install_queue_label_format": "导入中: {0}项 (等待 {1} 批次)",
   "Drop_install_queue_extracting_sub_label_format": "解压中: {0}/{1} {2}",

@@ -1102,6 +1102,8 @@ public class Resources
 
     public static string Save_data_file => ResourceManager.GetString("Save_data_file", resourceCulture);
 
+    public static string Save_and_close => ResourceManager.GetString("Save_and_close", resourceCulture);
+
     public static string Save_header_file => ResourceManager.GetString("Save_header_file", resourceCulture);
 
     public static string Save_to => ResourceManager.GetString("Save_to", resourceCulture);

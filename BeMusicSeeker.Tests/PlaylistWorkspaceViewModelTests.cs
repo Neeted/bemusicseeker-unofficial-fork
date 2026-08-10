@@ -460,7 +460,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("StartBeatorajaTableUrlImport(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("ImportBeatorajaTableUrlsAsync(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildBeatorajaTableUrlImportTargets(", StringComparison.Ordinal));
-        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "SettingDialog.cs");
+        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "SettingsWindow.cs");
         StringAssert.Contains(settingDialogSource, "playlistWorkspace.StartBeatorajaTableUrlImport(");
         StringAssert.Contains(workspaceSource, "internal Task BackupPlaylistAsync(string fileName)");
         StringAssert.Contains(workspaceSource, "playlist backup notification");

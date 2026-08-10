@@ -53,6 +53,7 @@ Current progress notes:
 - Unit 7 legacy adapter pass removed `DispatcherMessageBox` and `UiDialogLegacyAdapter`. `BmsLibraryDialogService` now calls `UiDialogCoordinator` directly while the remaining model dialog boundary is handled separately from legacy adapter retirement.
 - Unit 7 emergency route pass moved `App.cs` native message boxes behind `EmergencyDialog`. The only remaining standard `MessageBox.Show` call is the explicit emergency boundary.
 - Unit 6 typed UI interaction pass replaced the remaining non-message Livet `RaiseInteractionMessageOnUiThread` / `InteractionMessageTrigger` routes with typed `MainWindowViewModel` events subscribed by `MainWindow`.
+- Settings-window presentation moved the settings surface out of the MainWindow overlay tree and into an owner-required `UiDialogCoordinator.ShowWindowAsync` route. `InitialSetupLanguageDialog` remains an overlay and explicitly transitions to the owned modal settings window.
 
 ## Legacy Source Files
 
@@ -84,5 +85,5 @@ Each call site should be classified before replacement.
 - MainWindow non-message UI callbacks now use typed `MainWindowViewModel` events instead of Livet `MessageKey` strings.
 - `MainWindow.cs` initially mixed owner-aware message boxes, ownerless picker calls, direct window modals, and all `ProgressDialog.Execute` calls. Unit 4 moved the progress call sites to `UiDialogCoordinator.RunWithProgressAsync`; Unit 5 and Unit 6 still need picker and overlay cleanup.
 - `BMSLibrary.cs` uses `ShowOperationDialog` heavily, even though it does not appear in the source-file allow list above because the direct legacy API is behind model service methods. Unit 3 must treat it as a separate operation-notification inventory.
-- `SettingDialog.cs` contains owner-aware notifications and ownerless `OpenFileDialog` / `SaveFileDialog` calls while an overlay dialog is active. It should move with picker and overlay units, not as one-off message fixes.
+- `SettingsWindow.cs` contains settings-specific picker, notification, and child-window requests while an owned modal settings window is active. These requests use `UiDialogCoordinator`; active-modal owner resolution must keep their owner on `SettingsWindow` rather than falling back to `MainWindow`.
 - `DispatcherMessageBox.cs` and `UiDialogLegacyAdapter.cs` were removed in Unit 7. They should not gain new call sites.

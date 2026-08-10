@@ -18,6 +18,8 @@ using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
 using ManagedBass;
@@ -36,7 +38,7 @@ public sealed class SettingDialogEditCompletionTests
         RunOnStaDispatcherThread(() =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-            var settingDialog = new SettingDialog
+            var settingDialog = new SettingsWindow
             {
                 DataContext = viewModel.SettingDialog,
                 PlaylistWorkspace = viewModel.PlaylistWorkspace
@@ -66,7 +68,7 @@ public sealed class SettingDialogEditCompletionTests
                         defaultBmsPlayerFactory: () => player,
                         uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog())
                     .CreateMainWindowViewModel();
-                var settingDialog = new SettingDialog
+                var settingDialog = new SettingsWindow
                 {
                     DataContext = viewModel.SettingDialog,
                     PlaybackPanel = viewModel.PlaybackPanel
@@ -101,6 +103,113 @@ public sealed class SettingDialogEditCompletionTests
             }
             finally
             {
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OperationModeRadio_RepeatedWindowLifetimesDoNotRequestChangeUntilAcceptedClick(bool initialOperationMode)
+    {
+        RunOnStaDispatcherThread(() =>
+        {
+            string root = CreateTemporaryRoot();
+            var openedWindows = new List<SettingsWindow>();
+            try
+            {
+                Settings settings = CreateValidStandaloneSettings(root);
+                settings.OperationModeLR2DB = initialOperationMode;
+                var settingsSession = new CountingSettingsEditSession(settings);
+                var dialogs = new RecordingRootDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+                };
+                var lifetime = new CountingApplicationLifetime();
+                SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
+                var presentationPort = new WindowClosingPresentationPort();
+                dialog.AttachPresentationPort(presentationPort);
+
+                for (int presentation = 0; presentation < 3; presentation++)
+                {
+                    SettingsWindow window = OpenSettingsWindow(dialog);
+                    openedWindows.Add(window);
+                    presentationPort.CurrentWindow = window;
+                    AssertOperationModePresentation(window, initialOperationMode);
+                    Assert.AreEqual(0, dialogs.ConfirmationCount);
+                    Assert.AreEqual(0, settingsSession.SaveCount);
+                    Assert.AreEqual(0, lifetime.RestartCount);
+
+                    Button cancelButton = FindDescendants<Button>(window).Single(button => button.Name == "buttonCancel");
+                    cancelButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, cancelButton));
+                    Assert.IsNull(window.DataContext, "A closed settings Window must release the shared ViewModel binding graph.");
+                }
+
+                SettingsWindow finalWindow = OpenSettingsWindow(dialog);
+                openedWindows.Add(finalWindow);
+                presentationPort.CurrentWindow = finalWindow;
+                RadioButton requestedMode = FindOperationModeRadio(finalWindow, useLr2: !initialOperationMode);
+                requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
+                finalWindow.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                Assert.AreEqual(1, settingsSession.SaveCount);
+                Assert.AreEqual(1, lifetime.RestartCount);
+                Assert.AreEqual(!initialOperationMode, dialog.OperationModeLR2DB);
+                Assert.AreEqual(!initialOperationMode, settings.OperationModeLR2DB);
+                AssertOperationModePresentation(finalWindow, !initialOperationMode);
+            }
+            finally
+            {
+                foreach (SettingsWindow window in openedWindows.Where(window => window.IsLoaded))
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OperationModeRadio_RejectedClickRestoresSelectionWithoutSaveOrRestart(bool initialOperationMode)
+    {
+        RunOnStaDispatcherThread(() =>
+        {
+            string root = CreateTemporaryRoot();
+            SettingsWindow? window = null;
+            try
+            {
+                Settings settings = CreateValidStandaloneSettings(root);
+                settings.OperationModeLR2DB = initialOperationMode;
+                var settingsSession = new CountingSettingsEditSession(settings);
+                var dialogs = new RecordingRootDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+                };
+                var lifetime = new CountingApplicationLifetime();
+                SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
+                window = OpenSettingsWindow(dialog);
+
+                RadioButton requestedMode = FindOperationModeRadio(window, useLr2: !initialOperationMode);
+                requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
+                window.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                Assert.AreEqual(0, settingsSession.SaveCount);
+                Assert.AreEqual(0, lifetime.RestartCount);
+                Assert.AreEqual(initialOperationMode, dialog.OperationModeLR2DB);
+                Assert.AreEqual(initialOperationMode, settings.OperationModeLR2DB);
+                AssertOperationModePresentation(window, initialOperationMode);
+            }
+            finally
+            {
+                if (window?.IsLoaded == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
                 Directory.Delete(root, recursive: true);
             }
         });
@@ -1450,11 +1559,11 @@ public sealed class SettingDialogEditCompletionTests
                 SetActiveLibraryProfile(viewModel, true);
                 SettingsDialogViewModel settingDialogViewModel = viewModel.SettingDialog;
                 settingDialogViewModel.BeatorajaPlayerId = "player2";
-                var settingDialog = new SettingDialog
+                var settingDialog = new SettingsWindow
                 {
                     DataContext = settingDialogViewModel
                 };
-                Button button = (Button)typeof(SettingDialog)
+                Button button = (Button)typeof(SettingsWindow)
                     .GetField("buttonOK", BindingFlags.Instance | BindingFlags.NonPublic)!
                     .GetValue(settingDialog)!;
                 using var closeRequestObserved = new ManualResetEventSlim();
@@ -2032,6 +2141,57 @@ public sealed class SettingDialogEditCompletionTests
         return viewModel;
     }
 
+    private static SettingsDialogViewModel CreateOperationModeDialog(
+        CountingSettingsEditSession settingsSession,
+        RecordingRootDialogService dialogs,
+        IApplicationLifetimePort applicationLifetime)
+    {
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        SetActiveLibraryProfile(owner, true);
+        return new SettingsDialogViewModel(
+            new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
+            owner.PlaylistWorkspace,
+            owner.PlaylistWorkspace,
+            owner.PlayHistory,
+            owner.LibraryFolderTree,
+            new TestSettingsDialogPlayerFactoryPort(),
+            new TestSettingsDialogPlaybackRuntimePort(),
+            owner.Lr2SongDbSyncWorkflow,
+            settingsSession,
+            applicationLifetime: applicationLifetime,
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            schemaDialogs: dialogs,
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+    }
+
+    private static SettingsWindow OpenSettingsWindow(SettingsDialogViewModel dialog)
+    {
+        var window = new SettingsWindow { DataContext = dialog };
+        window.Show();
+        window.Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+        return window;
+    }
+
+    private static void AssertOperationModePresentation(SettingsWindow window, bool useLr2)
+    {
+        RadioButton useLr2Radio = FindOperationModeRadio(window, useLr2: true);
+        RadioButton standaloneRadio = FindOperationModeRadio(window, useLr2: false);
+        Assert.AreEqual(BindingMode.OneWay, useLr2Radio.GetBindingExpression(ToggleButton.IsCheckedProperty)?.ParentBinding.Mode);
+        Assert.AreEqual(BindingMode.OneWay, standaloneRadio.GetBindingExpression(ToggleButton.IsCheckedProperty)?.ParentBinding.Mode);
+        Assert.AreEqual(useLr2, useLr2Radio.IsChecked == true);
+        Assert.AreEqual(!useLr2, standaloneRadio.IsChecked == true);
+    }
+
+    private static RadioButton FindOperationModeRadio(SettingsWindow window, bool useLr2)
+    {
+        string name = useLr2 ? "radioButtonUseLR2" : "radioButtonNotUseLR2";
+        return FindDescendants<RadioButton>(window).Single(radioButton => radioButton.Name == name);
+    }
+
     private static SettingsDialogViewModel CreateAudioDeviceTestDialog(
         MainWindowViewModel viewModel,
         CountingSettingsEditSession settingsSession,
@@ -2344,6 +2504,54 @@ public sealed class SettingDialogEditCompletionTests
                 SaveEntered.Set();
                 ReleaseSave.Wait();
             }
+        }
+    }
+
+    private sealed class CountingApplicationLifetime : IApplicationLifetimePort
+    {
+        internal int RestartCount { get; private set; }
+
+        public bool IsFirstStartup => false;
+
+        public void CompleteFirstStartup()
+        {
+        }
+
+        public void MarkCoordinatedShutdownStarted(string reason)
+        {
+        }
+
+        public void RequestShutdown()
+        {
+        }
+
+        public Task RestartApplicationAsync()
+        {
+            RestartCount++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class WindowClosingPresentationPort : ISettingDialogPresentationPort
+    {
+        internal SettingsWindow? CurrentWindow { get; set; }
+
+        public void OpenSettingsDialog()
+        {
+        }
+
+        public void OpenInitialSetupLanguageDialog()
+        {
+        }
+
+        public void CloseSettingsDialog()
+        {
+            (CurrentWindow ?? throw new InvalidOperationException("No settings Window is active."))
+                .CloseFromPresentation();
+        }
+
+        public void RefreshAppearanceSelection()
+        {
         }
     }
 

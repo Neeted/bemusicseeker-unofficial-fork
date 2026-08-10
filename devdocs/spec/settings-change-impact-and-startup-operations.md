@@ -12,6 +12,24 @@
 設定ダイアログは、保存済み設定を表す `temp*` snapshot と、現在の `Settings.Default` / LR2 config 値との差分で dirty 判定を行う。
 編集バッファは `Settings.Default` が兼ねる。dirty 判定と保存判定は getter の副作用や filesystem の現在状態ではなく、保存時点で明示的に保持した snapshot と現在値の比較を基準にする。
 
+### Settings Window Presentation
+
+設定UIは `MainWindow` 内の overlay ではなく、`MainWindow` を owner とする独立した modal `SettingsWindow` として表示する。
+表示には共通 dialog coordinator の owner 解決と `ShowDialog()` 経路を使用し、設定ウィンドウが開いている間は `MainWindow` を操作できない状態にする。owner を持たない表示や、失敗を無視して modeless 表示へ切り替える fallback は行わない。
+
+- 設定ウィンドウは表示ごとに生成し、同時に複数表示しない。既存ウィンドウの表示中に open request を受けた場合は、そのウィンドウを前面へ戻す。
+- 設定ウィンドウは標準の WPF title bar を持ち、リサイズ可能とする。位置、サイズ、選択カテゴリ、scroll位置は永続化しない。
+- 現行の10カテゴリと順序を維持し、上部tabではなく常時labelを表示する単一選択の左navigationで切り替える。navigation、選択カテゴリのheader、下部actionは固定し、選択カテゴリの本文だけを縦scrollする。
+- カテゴリ検索、カテゴリ再分類、設定値の即時保存化、独立draftへの移行はこのpresentation変更の対象外とする。
+- light / dark theme と表示中のculture変更は、同じ設定ウィンドウへ反映する。新しいユーザー向け文言は全言語resourceで管理する。
+- 設定ウィンドウから開くpicker、確認dialog、子Windowは、active modal ownerとして設定ウィンドウを所有者にする。
+- title barのclose、Alt+F4、Escは通常のCancelと同じrollback契約へ接続する。`IsEditCancellationEnabled == false` の間はuser closeを拒否し、reload retryを迂回させない。
+- Apply成功、変更なしApply、manual LR2 resyncなどViewModelからのclose requestは、Cancel rollbackを再実行しない。shell shutdownは設定ウィンドウのcancel guardで妨げない。
+- 設定ウィンドウの表示中は従来どおりplayback surfaceを抑止し、accepted、cancelled、failed、shutdownを含むすべての終了経路で復元する。
+- 表示開始時は保持済みのappearance selectionとLR2 play-history schema statusだけをpresentationへ反映し、表示を理由に新しいschema checkを起動しない。
+- operation mode の radio は ViewModel から表示へだけ同期し、初期binding、group内の自動check/uncheck、再表示、Cancelでは選択要求を発生させない。実際のradio clickだけが選択意図を1回送信し、active library profileでmodeが変わる場合は既存の確認、mode-only保存、restart契約を各1回だけ実行する。
+- 閉じた設定ウィンドウは presentation を解除して Window lifecycle を完了した後、共有 `SettingsDialogViewModel` への `DataContext` と binding graph を切り離す。
+
 - 表示や dirty 判定は LR2 `config.xml` を保存しない。
 - UI 表示や差分比較に使う LR2 BMS 検索ルートは `GetBMSSearchDirectoriesForChangeTracking()` で読み、存在しないディレクトリを勝手に除外しない。
 - ランタイム検索対象や保存時の必須検証で実在ディレクトリだけが必要な場合は `GetBMSSearchDirectoriesReadOnly()` を使う。この読み取りも `config.xml` は保存しない。

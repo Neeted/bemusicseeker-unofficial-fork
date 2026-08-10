@@ -522,6 +522,7 @@
   "Msg_override_level_warning": "The playlist defined levels will be shown in LR2 music select.\n\nThis operation cannot be reverted.\nAre you sure you want to continue?",
   "Create_new_folder": "Create new folder",
   "Cancel": "Cancel",
+  "Save_and_close": "Save and close",
   "Close": "Close",
   "Drop_install_queue_label_format": "Installing: {0} items (waiting {1} batches)",
   "Drop_install_queue_extracting_sub_label_format": "Extracting: {0}/{1} {2}",

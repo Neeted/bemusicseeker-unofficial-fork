@@ -127,7 +127,7 @@ public sealed class PlaylistSummaryBulkEditTests
     [TestMethod]
     public void SettingDialog_CustomFolderOutputDefaultsExposeAllFolderTypeOptions()
     {
-        string xaml = ReadWorkspaceText("BeMusicSeeker", "Views", "SettingDialog.xaml");
+        string xaml = ReadWorkspaceText("BeMusicSeeker", "Views", "SettingsWindow.xaml");
 
         StringAssert.Contains(xaml, "Playlist_output_default_folder_types");
         StringAssert.Contains(xaml, "DefaultOutputAllSongsFolder");

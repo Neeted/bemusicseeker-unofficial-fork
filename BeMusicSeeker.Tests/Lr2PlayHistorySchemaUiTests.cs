@@ -396,8 +396,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
     public void SettingDialog_Lr2PlayHistorySchemaUiUsesExplicitInstallBoundary()
     {
         string root = FindRepositoryRoot();
-        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
-        string codeBehind = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
+        string codeBehind = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
         string uninstallDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Lr2PlayHistorySchemaUninstallDialog.xaml"));
         string viewModel = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string rootViewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
@@ -445,15 +445,12 @@ public sealed class Lr2PlayHistorySchemaUiTests
             "private async void installOrRepairLr2PlayHistorySchemaButtonClicked",
             "private async void uninstallLr2PlayHistorySchemaButtonClicked");
         string normalizedInstallHandler = installHandler.Replace("\r\n", "\n");
-        StringAssert.Contains(installHandler, "await settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync();");
-        StringAssert.Contains(normalizedInstallHandler, "settingDialogOperationGrid.IsEnabled = false;");
+        StringAssert.Contains(installHandler, "await RunViewOperationAsync(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync);");
+        StringAssert.Contains(normalizedInstallHandler, "RunViewOperationAsync(");
         Assert.IsFalse(installHandler.Contains("InstallOrRepairLr2PlayHistorySchemaCore"));
         Assert.IsFalse(installHandler.Contains("ApplyLr2PlayHistorySchemaCheckResult"));
         Assert.IsFalse(installHandler.Contains("InvalidatePlayHistoryReadCache"));
         Assert.IsFalse(installHandler.Contains("ReloadScoresOnlyAsync"));
-        Assert.IsTrue(
-            installHandler.IndexOf("settingDialogOperationGrid.IsEnabled = false;", StringComparison.Ordinal)
-            < installHandler.IndexOf("await settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync();", StringComparison.Ordinal));
         StringAssert.Contains(viewModel, "internal async Task InstallOrRepairLr2PlayHistorySchemaAsync()");
         StringAssert.Contains(viewModel, "Msg_confirm_lr2_play_history_schema_install_or_repair");
         StringAssert.Contains(viewModel, "await RefreshLr2PlayHistorySchemaStatusAsync(force: true);");
@@ -472,8 +469,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             codeBehind,
             "private async void uninstallLr2PlayHistorySchemaButtonClicked",
             "private async void detailTabItemRestoreButtonClicked");
-        StringAssert.Contains(uninstallHandler, "await settingDialogViewModel.UninstallLr2PlayHistorySchemaAsync();");
-        StringAssert.Contains(uninstallHandler, "settingDialogOperationGrid.IsEnabled = false;");
+        StringAssert.Contains(uninstallHandler, "await RunViewOperationAsync(settingDialogViewModel.UninstallLr2PlayHistorySchemaAsync);");
         Assert.IsFalse(uninstallHandler.Contains("RefreshLr2PlayHistorySchemaStatusAsync"));
         Assert.IsFalse(uninstallHandler.Contains("ShowWindowAsync"));
         Assert.IsFalse(uninstallHandler.Contains("UninstallLr2PlayHistorySchemaCore"));
@@ -483,7 +479,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.IsFalse(codeBehind.Contains("ShouldRefreshLr2PlayHistorySchemaStatus"));
         Assert.IsFalse(codeBehind.Contains("IsExpectedLr2PlayHistorySchemaUninstallResult"));
         Assert.IsFalse(codeBehind.Contains("viewModel.ReloadScoresOnly();"));
-        StringAssert.Contains(codeBehind, "private void SettingDialogIsVisibleChanged");
+        StringAssert.Contains(codeBehind, "protected override void OnContentRendered(EventArgs e)");
         Assert.IsFalse(codeBehind.Contains("await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: false);"));
         StringAssert.Contains(codeBehind, "settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();");
         Assert.IsFalse(codeBehind.Contains("new Lr2PlayHistorySchemaUninstallDialog"));

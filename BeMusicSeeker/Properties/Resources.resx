@@ -1346,6 +1346,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Cancel" xml:space="preserve">
     <value>キャンセル</value>
   </data>
+  <data name="Save_and_close" xml:space="preserve">
+    <value>保存して閉じる</value>
+  </data>
   <data name="Close" xml:space="preserve">
     <value>閉じる</value>
   </data>
