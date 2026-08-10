@@ -221,7 +221,9 @@ function Get-DatabaseSemanticSnapshot {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)]$Manifest,
-        [Parameter(Mandatory)][string]$InstallPath
+        [Parameter(Mandatory)][string]$InstallPath,
+        [ValidateSet('Standalone', 'Lr2')][string]$ProfileKind = 'Standalone',
+        [string]$BmsRoot
     )
 
     Initialize-SqliteRuntime
@@ -232,25 +234,106 @@ function Get-DatabaseSemanticSnapshot {
     $database = [SQLite.SQLiteConnection]::new($Path, $flags, $true)
     try {
         $row = $Manifest.database
-        $parameters = @([string]$row.songHash)
-        $songCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM song WHERE hash = ?', $parameters)
-        $folderCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM folder WHERE title = ? AND path = ?', @([string]$row.folderTitle, [string]$row.folderRelativePath))
-        $installCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM install WHERE path = ?', @($InstallPath))
-        $playlistCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM playlist WHERE playlist_id = ? AND name = ?', @([int]$row.playlistId, [string]$row.playlistName))
-        $courseCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM playlist_course WHERE course_id = ? AND playlist_id = ? AND course_json = ?', @([int]$row.courseId, [int]$row.playlistId, [string]$row.courseJson))
-        $entryCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND title = ?', @([int]$row.playlistId, [string]$row.entryMd5, [string]$row.entryTitle))
+        $songPath = if ([string]::IsNullOrWhiteSpace($BmsRoot)) {
+            $null
+        }
+        else {
+            Join-Path $BmsRoot ([string]$row.songRelativePath)
+        }
+        $songCount = if ($null -eq $songPath) {
+            $database.ExecuteScalar[int](
+                'SELECT COUNT(*) FROM song WHERE hash = ? AND title = ?',
+                [object[]]@([string]$row.songHash, [string]$row.songTitle))
+        }
+        else {
+            $database.ExecuteScalar[int](
+                'SELECT COUNT(*) FROM song WHERE hash = ? AND title = ? AND path = ?',
+                [object[]]@([string]$row.songHash, [string]$row.songTitle, [string]$songPath))
+        }
+        $maintenanceCount = if ($null -eq $songPath) {
+            $database.ExecuteScalar[int](
+                'SELECT COUNT(*) FROM maintenance WHERE hash = ?',
+                [object[]]@([string]$row.songHash))
+        }
+        else {
+            $database.ExecuteScalar[int](
+                'SELECT COUNT(*) FROM maintenance WHERE hash = ? AND path = ?',
+                [object[]]@([string]$row.songHash, [string]$songPath))
+        }
+        $legacyFolderCount = $database.ExecuteScalar[int](
+            'SELECT COUNT(*) FROM folder WHERE title = ? AND path = ?',
+            [object[]]@([string]$row.folderTitle, [string]$row.folderRelativePath))
+        $legacyFolderPathCount = $database.ExecuteScalar[int](
+            'SELECT COUNT(*) FROM folder WHERE path = ?',
+            [object[]]@([string]$row.folderRelativePath))
+        $installCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM install WHERE path = ?', [object[]]@([string]$InstallPath))
+        $playlistCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM playlist WHERE playlist_id = ? AND name = ? AND symbol = ?', [object[]]@([int]$row.playlistId, [string]$row.playlistName, [string]$row.playlistSymbol))
+        $courseCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM playlist_course WHERE course_id = ? AND playlist_id = ? AND course_json = ?', [object[]]@([int]$row.courseId, [int]$row.playlistId, [string]$row.courseJson))
+        $entryCount = $database.ExecuteScalar[int]('SELECT COUNT(*) FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND title = ? AND folder = ?', [object[]]@([int]$row.playlistId, [string]$row.entryMd5, [string]$row.entryTitle, [string]$row.entryFolder))
         $result = [ordered]@{
             song = $songCount
-            folder = $folderCount
+            maintenance = $maintenanceCount
+            folder = $legacyFolderCount
+            legacyFolder = $legacyFolderCount
+            legacyFolderPath = $legacyFolderPathCount
             install = $installCount
             playlist = $playlistCount
             playlistCourse = $courseCount
             playlistEntry = $entryCount
         }
-        foreach ($key in $result.Keys) {
+        foreach ($key in @('song', 'maintenance', 'install', 'playlist', 'playlistCourse', 'playlistEntry')) {
             if ($result[$key] -ne 1) {
                 throw "Existing-data semantic row was not preserved: $key count=$($result[$key]) path=$Path"
             }
+        }
+        if ($ProfileKind -eq 'Standalone') {
+            if ($legacyFolderCount -ne 1) {
+                throw "Standalone legacy folder row was not preserved: count=$legacyFolderCount path=$Path"
+            }
+            return $result
+        }
+
+        if ([string]::IsNullOrWhiteSpace($BmsRoot)) {
+            throw 'LR2 database semantic validation requires BmsRoot.'
+        }
+        if ($legacyFolderPathCount -ne 0) {
+            throw "LR2 sync retained the relative legacy folder path: count=$legacyFolderPathCount path=$Path"
+        }
+        $fixtureDirectory = Join-Path $BmsRoot 'Fixture'
+        Assert-Directory $fixtureDirectory
+        $canonicalFolderPath = (Resolve-FullPath $fixtureDirectory).TrimEnd('\') + '\'
+        $expectedFolderDate = ([DateTimeOffset](Get-Item -LiteralPath $fixtureDirectory).LastWriteTimeUtc).ToUnixTimeSeconds()
+        $canonicalFolderCount = $database.ExecuteScalar[int](
+            'SELECT COUNT(*) FROM folder WHERE title = ? AND path = ? AND type = ? AND date = ?',
+            [object[]]@([string]'Fixture', [string]$canonicalFolderPath, [int]1, [long]$expectedFolderDate))
+        $statusRowCount = $database.ExecuteScalar[int](
+            'SELECT COUNT(*) FROM lr2_song_db_sync_status WHERE name = ?',
+            [object[]]@([string]'default'))
+        $statusCompletedCount = $database.ExecuteScalar[int](
+            "SELECT COUNT(*) FROM lr2_song_db_sync_status WHERE name = ? AND status = ? AND stage = ? AND last_error = '' AND signature IS NOT NULL AND signature <> '' AND run_id IS NOT NULL AND run_id <> '' AND processed_cursor IS NOT NULL AND total_count IS NOT NULL AND total_count > 0 AND processed_cursor = total_count AND updated_at IS NOT NULL AND completed_at IS NOT NULL",
+            [object[]]@([string]'default', [string]'Completed', [string]'completed'))
+        $statusValue = $database.ExecuteScalar[string](
+            'SELECT status FROM lr2_song_db_sync_status WHERE name = ?',
+            [object[]]@([string]'default'))
+        $processedCursor = $database.ExecuteScalar[int](
+            'SELECT processed_cursor FROM lr2_song_db_sync_status WHERE name = ?',
+            [object[]]@([string]'default'))
+        $totalCount = $database.ExecuteScalar[int](
+            'SELECT total_count FROM lr2_song_db_sync_status WHERE name = ?',
+            [object[]]@([string]'default'))
+        $result.canonicalFolder = $canonicalFolderCount
+        $result.canonicalFolderPath = $canonicalFolderPath
+        $result.canonicalFolderDate = $expectedFolderDate
+        $result.lr2SyncStatusDefault = $statusRowCount
+        $result.lr2SyncStatusCompleted = $statusCompletedCount
+        $result.lr2SyncStatus = $statusValue
+        $result.lr2SyncProcessedCursor = $processedCursor
+        $result.lr2SyncTotalCount = $totalCount
+        if ($canonicalFolderCount -ne 1) {
+            throw "LR2 canonical folder row is invalid: count=$canonicalFolderCount path=$canonicalFolderPath date=$expectedFolderDate database=$Path"
+        }
+        if ($statusRowCount -ne 1 -or $statusCompletedCount -ne 1) {
+            throw "LR2 sync status row is invalid: defaultCount=$statusRowCount completedCount=$statusCompletedCount path=$Path"
         }
         return $result
     }
@@ -264,10 +347,16 @@ function Wait-ForStartupReady {
     param(
         [Parameter(Mandatory)][Diagnostics.Process]$Process,
         [Parameter(Mandatory)][string]$LogDirectory,
-        [int]$TimeoutSeconds = 180
+        [int]$TimeoutSeconds = 180,
+        [DateTime]$DeadlineUtc = [DateTime]::MinValue
     )
 
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $deadline = if ($DeadlineUtc -eq [DateTime]::MinValue) {
+        [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    }
+    else {
+        $DeadlineUtc
+    }
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Process.HasExited) {
             throw "Self-contained app exited before startup_ready_operable (exit code $($Process.ExitCode))."
@@ -291,10 +380,14 @@ function Wait-ForStartupReady {
 function Wait-ForMainWindowHandle {
     param(
         [Parameter(Mandatory)][Diagnostics.Process]$Process,
-        [int]$TimeoutSeconds = 30
+        [int]$TimeoutSeconds = 30,
+        [DateTime]$DeadlineUtc = [DateTime]::MinValue
     )
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    if ($DeadlineUtc -ne [DateTime]::MinValue -and $DeadlineUtc -lt $deadline) {
+        $deadline = $DeadlineUtc
+    }
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Process.HasExited) {
             throw "Self-contained app exited after startup_ready_operable (exit code $($Process.ExitCode))."
@@ -306,6 +399,75 @@ function Wait-ForMainWindowHandle {
         Start-Sleep -Milliseconds 250
     }
     throw "Self-contained app did not expose a main window handle within $TimeoutSeconds seconds."
+}
+
+function Wait-ForLr2SyncEvent {
+    param(
+        [Parameter(Mandatory)][Diagnostics.Process]$Process,
+        [Parameter(Mandatory)][string]$LogDirectory,
+        [Parameter(Mandatory)][ValidateSet('CompletedThisRun', 'AlreadyCompleted')][string]$Expectation,
+        [Parameter(Mandatory)][DateTime]$DeadlineUtc
+    )
+
+    $expectedPattern = if ($Expectation -eq 'CompletedThisRun') {
+        'lr2_song_db_sync completed reason=post_startup_startup_initialization_ready(?=\s|$).*\bstage=completed(?=\s|$).*\bdetail=completed(?=\s|$)'
+    }
+    else {
+        'lr2_song_db_sync_status evaluate reason=post_startup_startup_initialization_ready enabled=true force=false status=Completed storedStatus=Completed(?=\s|$)'
+    }
+    $terminalPattern = 'startup_initialization_complete elapsedMs=[0-9]+(?=\s|$)'
+    $failurePattern = 'lr2_song_db_sync (?:prepare_failed|failed|cancelled|incomplete)(?=\s|$)|lr2_song_db_sync_status evaluate(?=\s|$).*\b(?:status|storedStatus)=(?:Failed|Cancelled|Incomplete)(?=\s|$)|startup_background_task failed name=(?:lr2_song_db_sync|lr2_song_db_sync_enrollment)(?=\s|$)'
+    $matchedExpectedEvent = $null
+    $matchedTerminalEvent = $null
+    while ([DateTime]::UtcNow -lt $DeadlineUtc) {
+        if ($Process.HasExited) {
+            throw "Self-contained app exited before the expected LR2 sync event '$Expectation' (exit code $($Process.ExitCode))."
+        }
+        $logs = @(Get-ChildItem -LiteralPath $LogDirectory -Filter '*.log' -File -ErrorAction SilentlyContinue)
+        foreach ($log in $logs) {
+            $lines = @(Get-Content -LiteralPath $log.FullName -ErrorAction SilentlyContinue)
+            foreach ($line in $lines) {
+                if ($line -cmatch $failurePattern) {
+                    throw "LR2 sync reported a terminal failure before '$Expectation'. Log: $($log.FullName) Event: $line"
+                }
+                if ($null -eq $matchedExpectedEvent -and $line -cmatch $expectedPattern) {
+                    $matchedExpectedEvent = [ordered]@{
+                        expectation = $Expectation
+                        event = if ($Expectation -eq 'CompletedThisRun') { 'lr2_song_db_sync_completed' } else { 'lr2_song_db_sync_already_completed' }
+                        logPath = $log.FullName
+                        logLine = [string]$line
+                    }
+                }
+                if ($null -eq $matchedTerminalEvent -and $line -cmatch $terminalPattern) {
+                    $matchedTerminalEvent = [ordered]@{
+                        event = 'startup_initialization_complete'
+                        logPath = $log.FullName
+                        logLine = [string]$line
+                    }
+                }
+            }
+        }
+        if ($null -ne $matchedExpectedEvent -and $null -ne $matchedTerminalEvent) {
+            $Process.Refresh()
+            if ($Process.HasExited) {
+                throw "Self-contained app exited after reporting LR2 sync events but before graceful shutdown (exit code $($Process.ExitCode))."
+            }
+            return [ordered]@{
+                expectation = $matchedExpectedEvent.expectation
+                event = $matchedExpectedEvent.event
+                logPath = $matchedExpectedEvent.logPath
+                logLine = $matchedExpectedEvent.logLine
+                terminalEvent = $matchedTerminalEvent.event
+                terminalLogPath = $matchedTerminalEvent.logPath
+                terminalLogLine = $matchedTerminalEvent.logLine
+            }
+        }
+        Start-Sleep -Milliseconds 250
+        $Process.Refresh()
+    }
+    $observedExpectedEvent = if ($null -eq $matchedExpectedEvent) { 'none' } else { $matchedExpectedEvent.event }
+    $observedTerminalEvent = if ($null -eq $matchedTerminalEvent) { 'none' } else { $matchedTerminalEvent.event }
+    throw "Self-contained app did not report the complete LR2 startup event sequence for '$Expectation' before the 180-second run deadline. expectedEvent=$observedExpectedEvent terminalEvent=$observedTerminalEvent Logs: $LogDirectory"
 }
 
 function Prepare-LogDirectoryForRun {
@@ -335,11 +497,13 @@ function Invoke-ProfileRun {
         [Parameter(Mandatory)][string]$ProfileRoot,
         [Parameter(Mandatory)][string]$AppExecutable,
         [Parameter(Mandatory)][string]$LocalAppData,
-        [Parameter(Mandatory)][string]$LogDirectory
+        [Parameter(Mandatory)][string]$LogDirectory,
+        [ValidateSet('None', 'CompletedThisRun', 'AlreadyCompleted')][string]$Lr2SyncExpectation = 'None'
     )
 
     Prepare-LogDirectoryForRun -LogDirectory $LogDirectory
     Assert-NoCompetingApplication
+    $runDeadlineUtc = [DateTime]::UtcNow.AddSeconds(180)
     $process = [Diagnostics.Process]::new()
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $AppExecutable
@@ -359,8 +523,18 @@ function Invoke-ProfileRun {
         throw "Unable to start acceptance app: $AppExecutable"
     }
     try {
-        $readyLog = Wait-ForStartupReady -Process $process -LogDirectory $LogDirectory
-        Wait-ForMainWindowHandle -Process $process
+        $readyLog = Wait-ForStartupReady -Process $process -LogDirectory $LogDirectory -DeadlineUtc $runDeadlineUtc
+        Wait-ForMainWindowHandle -Process $process -DeadlineUtc $runDeadlineUtc
+        $waitedEvent = if ($Lr2SyncExpectation -eq 'None') {
+            $null
+        }
+        else {
+            Wait-ForLr2SyncEvent `
+                -Process $process `
+                -LogDirectory $LogDirectory `
+                -Expectation $Lr2SyncExpectation `
+                -DeadlineUtc $runDeadlineUtc
+        }
         $closeRequested = $process.CloseMainWindow()
         $shutdownRequest = 'close_main_window'
         if (-not $closeRequested) {
@@ -379,6 +553,7 @@ function Invoke-ProfileRun {
         }
         return [ordered]@{
             readyLog = $readyLog
+            waitedEvent = $waitedEvent
             exitCode = $process.ExitCode
             shutdownRequest = $shutdownRequest
         }
@@ -545,18 +720,41 @@ try {
         $bmsFixtureHash = Get-Sha256 -Path $bmsFixturePath
 
         $appExecutable = Join-Path $appRoot 'BeMusicSeeker.exe'
-        $firstRun = Invoke-ProfileRun -ProfileRoot $profileRoot -AppExecutable $appExecutable -LocalAppData $localAppData -LogDirectory $logDirectory
+        $profileKind = if ([bool]$profile.operationModeLr2Db) { 'Lr2' } else { 'Standalone' }
+        $firstRunExpectation = if ($profileKind -eq 'Lr2') { 'CompletedThisRun' } else { 'None' }
+        $firstRun = Invoke-ProfileRun `
+            -ProfileRoot $profileRoot `
+            -AppExecutable $appExecutable `
+            -LocalAppData $localAppData `
+            -LogDirectory $logDirectory `
+            -Lr2SyncExpectation $firstRunExpectation
         $portableSettingsPath = Join-Path $appRoot 'config\user.config'
         Assert-File $portableSettingsPath
         $firstSettings = Get-PortableSettingsSnapshot -Path $portableSettingsPath
         Assert-ProfileSettings -Settings $firstSettings -ManifestProfile $profile -ProfileRoot $profileRoot
-        $firstDatabase = Get-DatabaseSemanticSnapshot -Path $databasePath -Manifest $script:manifest -InstallPath $installPath
+        $firstDatabase = Get-DatabaseSemanticSnapshot `
+            -Path $databasePath `
+            -Manifest $script:manifest `
+            -InstallPath $installPath `
+            -ProfileKind $profileKind `
+            -BmsRoot $bmsRoot
         $firstSettingsHash = Get-Sha256 -Path $portableSettingsPath
 
-        $secondRun = Invoke-ProfileRun -ProfileRoot $profileRoot -AppExecutable $appExecutable -LocalAppData $localAppData -LogDirectory $logDirectory
+        $secondRunExpectation = if ($profileKind -eq 'Lr2') { 'AlreadyCompleted' } else { 'None' }
+        $secondRun = Invoke-ProfileRun `
+            -ProfileRoot $profileRoot `
+            -AppExecutable $appExecutable `
+            -LocalAppData $localAppData `
+            -LogDirectory $logDirectory `
+            -Lr2SyncExpectation $secondRunExpectation
         $secondSettings = Get-PortableSettingsSnapshot -Path $portableSettingsPath
         Assert-ProfileSettings -Settings $secondSettings -ManifestProfile $profile -ProfileRoot $profileRoot
-        $secondDatabase = Get-DatabaseSemanticSnapshot -Path $databasePath -Manifest $script:manifest -InstallPath $installPath
+        $secondDatabase = Get-DatabaseSemanticSnapshot `
+            -Path $databasePath `
+            -Manifest $script:manifest `
+            -InstallPath $installPath `
+            -ProfileKind $profileKind `
+            -BmsRoot $bmsRoot
         $secondSettingsHash = Get-Sha256 -Path $portableSettingsPath
         if ($firstSettingsHash -ne $secondSettingsHash) {
             throw "Portable settings changed on an otherwise identical second shutdown: profile=$($profile.name)"
@@ -570,6 +768,7 @@ try {
 
         $profileReceipts.Add([ordered]@{
             name = [string]$profile.name
+            profileKind = $profileKind
             firstRun = $firstRun
             secondRun = $secondRun
             portableSettingsPath = $portableSettingsPath
