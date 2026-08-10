@@ -30,11 +30,13 @@ inline file diff / package install、full backfill、LR2 `song_rows` は同じ e
 
 ## Durable Storage And Publication
 
-inline / full backfill は、BMS/BMSON storage row と chart-info facts を immutable な `CatalogChartInfoStorageWriteRequest` にまとめ、`CatalogMutationOwner.ApplyChartInfoStorageWrite(...)` から一つの catalog transaction へ保存する。BMS `song` row は `Lr2SongDbWriter.UpsertGeneratedSongs(...)` の bulk generated-column writeを使う。既存 row の `favorite`、`tag`、`adddate` など user columns は更新せず、chart-info 由来の `level`、`difficulty`、`mode`、`maxbpm`、`minbpm`、`bga`、`exlevel`、`longnote`、`random`、`karinotes` と digestを収束させる。
+inline / full backfill は、storage mutation と chart-info facts を immutable な `CatalogChartInfoStorageWriteRequest` にまとめ、`CatalogMutationOwner.ApplyChartInfoStorageWrite(...)` から一つの catalog transaction へ保存する。新規・更新譜面のinline経路は基本解析結果とchart-info projectionを組み合わせたBMS/BMSON storage rowを保存できる。一方、既所持譜面を対象とするfull backfillはsong行全体を再構築せず、既存BMS `song` rowへ`Lr2SongDbWriter.UpdateChartInfoSongProjections(...)`でupdate-only projectionを適用する。
+
+full backfillが新規譜面生成と共有するのはchart-info由来projectionの値と正規化規則だけである。対象列は`level`、`difficulty`、`maxbpm`、`minbpm`、`bga`、`exlevel`、`longnote`、`random`、`karinotes`の9列とし、`mode`、`judge`を含む基本列と`favorite`、`tag`、`adddate`などuser管理列は既存DB値を尊重する。pathと正規化MD5が一致する既存rowだけを更新し、rowが存在しない場合やidentityが一致しない場合は診断件数・bounded sampleを残してfactsのcommitを継続し、`song` rowを暗黙INSERTしない。
 
 full backfill は parse success だけでなく、missing digest candidate が existing current row を再利用した場合も storage application を作る。BMS の duplicate MD5 target は一度の read/evaluation結果を同じtargetに属する全BMS storage ownerへ投影する。BMSONはSHA-256-first identityを維持し、`chart_info` / session indexは更新するが、`chart_digest_map` とLR2 `song` rowは作らない。
 
-publication順は `transaction commit / durable receipt -> canonical storage ownerのdigest・generated columns -> digest-derived index -> chart-info session index -> warning/digest event` とする。commit前またはcommit失敗時に canonical owner、digest index、session index、eventを部分更新しない。storage ownerへruntime `ChartInfo` objectはattachせず、表示はsession indexとprojection providerから解決する。
+publication順は `transaction commit / durable receipt -> canonical storage ownerのdigest・DBでmatchedしたchart-info由来列 -> digest-derived index -> chart-info session index -> warning/digest event` とする。commit前またはcommit失敗時に canonical owner、digest index、session index、eventを部分更新しない。storage ownerへruntime `ChartInfo` objectはattachせず、表示はsession indexとprojection providerから解決する。
 
 ## Startup Hydration
 

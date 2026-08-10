@@ -442,7 +442,7 @@ resource health は BMS / bmson 共通の表示概念である。
 
 `chart_info` は BMS / bmson 共通 metadata として扱う。
 
-inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot を `InlineChartSnapshotTarget` の `ChartFile` と組み合わせて受ける。install 後などの既存ファイル inline build も `BuildForExistingCharts(...)` で `ChartFile` list を入口にする。単一 snapshot の currentness / parse 判定は route-neutral な `ChartInfoBuildService.EvaluateSnapshot(...)` を使い、BMS digest writeback が必要なときだけ storage owner へ降りる。短命な parser payload でも BMS list と bmson list を別々の正本として持たない。`ChartInfoBuildService.BackfillChartInfos(...)` も `ChartFile` list を入口にし、backfill 側の `ChartInfoBuildTarget` は `ChartFile` list を正本にする。BMS md5-first / bmson sha256-first の grouping key、BMS-only digest target 判定、missing identity skip は `ChartInfoBuildTargetMapper` に集約する。transaction用copyとcommit後canonical projectionは`ChartStorageOwnerMutator`に集約する。publication順はroute-neutral requestのDB commit、canonical storage owner、digest-derived index、session index、eventsとし、失敗時はどれもpublishしない。BMS generated columnsのdurable projectionはruntime `ChartInfo` attachとは別責務で、BMSONからLR2 `song` rowは作らない。
+inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot を `InlineChartSnapshotTarget` の `ChartFile` と組み合わせて受ける。install 後などの既存ファイル inline build も `BuildForExistingCharts(...)` で `ChartFile` list を入口にする。単一 snapshot の currentness / parse 判定は route-neutral な `ChartInfoBuildService.EvaluateSnapshot(...)` を使い、BMS digest writeback が必要なときだけ storage owner へ降りる。短命な parser payload でも BMS list と bmson list を別々の正本として持たない。`ChartInfoBuildService.BackfillChartInfos(...)` も `ChartFile` list を入口にし、backfill 側の `ChartInfoBuildTarget` は `ChartFile` list を正本にする。BMS md5-first / bmson sha256-first の grouping key、BMS-only digest target 判定、missing identity skip は `ChartInfoBuildTargetMapper` に集約する。inline用transaction copyとfull-backfill用narrow song projection、commit後canonical applyは`ChartStorageOwnerMutator`に集約する。full backfillは既存song row全体を再構築せず、新規譜面生成と共有したchart-info由来9列の値・正規化だけをupdate-onlyで反映する。publication順はroute-neutral requestのDB commit、canonical storage owner、digest-derived index、session index、eventsとし、失敗時はどれもpublishしない。BMSONからLR2 `song` rowは作らない。
 
 細かい実装メモとして、chart_info 補完対象の grouping key は既存の DB / digest 振る舞いを維持する。BMS は LR2 song row の `hash` が primary identity で、sha256 が未計算でも md5 で同一譜面をまとめて一度だけ読み、successまたはexisting-current reuseのdigestとderived columnsを同じtargetの全BMS storage ownerへ書き戻す。bmson は parser 時点で sha256 を持つため sha256 優先で grouping し、`chart_digest_map` への digest 補完やLR2 `song` materializationは行わない。この違いは storage owner の都合ではなく、BMS song row と bmson_song row の永続化責務差として残す。
 
@@ -731,7 +731,7 @@ mutation result は rich `ChartFile` list を必須にしない。path / digest 
 4. dispatcher が mutation result を派生 index へ配布する。差分更新できる index は差分更新し、表現できない index は full invalidate する。
 5. 例外時は、storage row が部分更新された可能性を考慮し、owned collection と差分更新済み index を full invalidate する。runtime overlay の one-shot buffer は破棄する。
 
-chart-info storage writeはこの一般的なmemory-first mutation順ではなく、detached persistence copyを先にDBへcommitする。durable receipt後だけcanonical ownerと隣接index/eventを更新し、commit失敗をfull invalidateで補償して部分canonical mutationを許容しない。
+chart-info storage writeはこの一般的なmemory-first mutation順ではなく、inline用detached persistence copyまたはfull-backfill用narrow update projectionを先にDBへcommitする。durable receipt後だけcanonical ownerと隣接index/eventを更新し、commit失敗をfull invalidateで補償して部分canonical mutationを許容しない。
 
 cache 未構築時に mutation が来ても、その index を build してはいけない。未構築 index は「次回利用時 full build」または「既に dirty のまま」を維持する。これにより startup / install / merge の repeated mutation で不要な prewarm が増えない。install upsert で installed lookup が構築済みの場合、置換される old entry は `BMSFiles` / `BmsonSongs` を都度 scan せず、owned collection の path exact view から取得する。lookup 未構築時はこのために installed lookup / owned path index を新規 build せず、metadata cache invalidate だけを mutation result に残す。
 
@@ -894,7 +894,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - `BMSLibrary` の chart-common 処理が owned chart collection を primary source にしている。
 - `BMSFiles` / `BmsonSongs` の直接 enumeration は DB load-save、external full refresh、BMS-only / bmson-only producer、または通常一覧 virtual source row の owner-backed read model 境界に限定されている。
 - chart_info full backfill は明示 full operation として owned collection から全件 `ChartFile` target を作るが、storage row list から再投影せず、install destination overlay も混ぜない。full `LibraryChartRef` snapshot 相当の処理は hot path に残さず、storage row list からの全件 projectionにも不要な owned collection 全件 `ChartFile` materializeにも依存しない。
-- chart_info full backfillのsuccess/reuse対象BMSはgenerated columnsとfactsを同じtransactionでdurably保存し、receipt後だけcanonical ownerとsession/index/eventへpublishする。BMSONはLR2 `song` rowを作らない。
+- chart_info full backfillのsuccess/reuse対象BMSは、path+MD5が一致する既存songのchart-info由来9列だけをfactsと同じtransactionでupdateする。基本列を再生成せず、missing rowをINSERTしない。receipt後だけDBでmatchedしたcanonical ownerとsession/index/eventへpublishする。BMSONはLR2 `song` rowを作らない。
 - normal library route skip / required failure は通常 hot path から外れ、sortable column の不整合を隠す全件 materialize 経路になっていない。
 - owned chart collection、installed lookup、playlist summary owned hash、playlist detail owned resolve index、parent folder cache、directory view、resource maintenance target が同じ mutation 境界で同期または無効化される。
 - `ApplyLibraryMutationDelta(...)`、install upsert、external full replacement の 3 入口が、同じ mutation result / dispatcher 契約に整理されている。

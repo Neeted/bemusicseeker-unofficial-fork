@@ -78,6 +78,143 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
+    public void UpdateChartInfoSongProjections_UpdatesOnlyMatchedExistingRowsAndNeverInserts()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            TestableBmsFile first = CreateSong(@"D:\BMS\Pack\first.bms", md5, "First");
+            TestableBmsFile second = CreateSong(@"D:\BMS\Pack\second.bms", md5, "Second");
+            Assert.AreEqual(2, Lr2SongDbWriter.UpsertGeneratedSongs(songDb, [first, second]));
+            songDb.Execute("UPDATE song SET hash = upper(hash) WHERE path = ?;", second.path);
+            songDb.Execute(
+                "UPDATE song SET title = ?, artist = ?, folder = ?, parent = ?, mode = ?, judge = ?, date = ?, txt = ?, "
+                + "stagefile = ?, favorite = ?, tag = ?, adddate = ?, level = ?, difficulty = ?, maxbpm = ?, minbpm = ?, "
+                + "bga = ?, exlevel = ?, longnote = ?, random = ?, karinotes = ? WHERE path = ?;",
+                "keep-title",
+                "keep-artist",
+                "keep-folder",
+                "keep-parent",
+                11,
+                7,
+                123456,
+                1,
+                "keep-stagefile",
+                9,
+                "keep-tag",
+                654321,
+                1,
+                1,
+                1,
+                1,
+                9,
+                9,
+                9,
+                9,
+                9,
+                first.path);
+            var chartInfo = new LR2SongDBExtended.chart_info
+            {
+                md5 = md5,
+                level = 12,
+                difficulty = -3,
+                maxbpm = 180.9,
+                minbpm = 90.1,
+                mode = 14,
+                judge = 99,
+                bga = 1,
+                exlevel = null,
+                feature = 4 | 8,
+                notes = 4321
+            };
+            Lr2ChartInfoSongProjection firstProjection =
+                Lr2ChartInfoSongProjection.Create(first.path, first.hash, chartInfo);
+            Lr2ChartInfoSongProjection secondProjection =
+                Lr2ChartInfoSongProjection.Create(second.path, second.hash.ToUpperInvariant(), chartInfo);
+            Lr2ChartInfoSongProjection missingProjection =
+                Lr2ChartInfoSongProjection.Create(@"D:\BMS\Pack\missing.bms", md5, chartInfo);
+            Lr2ChartInfoSongProjection caseOnlyPathMismatchProjection =
+                Lr2ChartInfoSongProjection.Create(first.path.ToUpperInvariant(), md5, chartInfo);
+
+            Lr2ChartInfoSongProjectionWriteResult result = Lr2SongDbWriter.UpdateChartInfoSongProjections(
+                songDb,
+                [firstProjection, secondProjection, missingProjection, caseOnlyPathMismatchProjection]);
+
+            Assert.AreEqual(4, result.RequestedCount);
+            Assert.AreEqual(2, result.MatchedCount);
+            Assert.AreEqual(2, result.ChangedCount);
+            Assert.AreEqual(2, result.MissingCount);
+            CollectionAssert.AreEquivalent(
+                new[] { missingProjection.Identity, caseOnlyPathMismatchProjection.Identity },
+                result.MissingProjections.Select(projection => projection.Identity).ToArray());
+            Assert.AreEqual(2, songDb.Table<LR2SongDB.song>().Count());
+            foreach (LR2SongDB.song row in songDb.Table<LR2SongDB.song>())
+            {
+                Assert.AreEqual(12, row.level);
+                Assert.AreEqual(2, row.difficulty);
+                Assert.AreEqual(180, row.maxbpm);
+                Assert.AreEqual(90, row.minbpm);
+                Assert.AreEqual(1, row.bga);
+                Assert.AreEqual(0, row.exlevel);
+                Assert.AreEqual(1, row.longnote);
+                Assert.AreEqual(1, row.random);
+                Assert.AreEqual(4321, row.karinotes);
+            }
+            LR2SongDB.song preserved = songDb.Table<LR2SongDB.song>().Single(row => row.path == first.path);
+            Assert.AreEqual("keep-title", preserved.title);
+            Assert.AreEqual("keep-artist", preserved.artist);
+            Assert.AreEqual("keep-folder", preserved.folder);
+            Assert.AreEqual("keep-parent", preserved.parent);
+            Assert.AreEqual(11, preserved.mode);
+            Assert.AreEqual(7, preserved.judge);
+            Assert.AreEqual(123456, preserved.date);
+            Assert.AreEqual(1, preserved.txt);
+            Assert.AreEqual("keep-stagefile", preserved.stagefile);
+            Assert.AreEqual(9, preserved.favorite);
+            Assert.AreEqual("keep-tag", preserved.tag);
+            Assert.AreEqual(654321, preserved.adddate);
+
+            Lr2ChartInfoSongProjectionWriteResult unchanged =
+                Lr2SongDbWriter.UpdateChartInfoSongProjections(
+                    songDb,
+                    [firstProjection, secondProjection, missingProjection, caseOnlyPathMismatchProjection]);
+            Assert.AreEqual(2, unchanged.MatchedCount);
+            Assert.AreEqual(0, unchanged.ChangedCount);
+            Assert.AreEqual(2, unchanged.MissingCount);
+            Assert.AreEqual(2, songDb.Table<LR2SongDB.song>().Count());
+        });
+    }
+
+    [TestMethod]
+    public void UpdateChartInfoSongProjections_MissingSongTableReportsMissingWithoutCreatingTable()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            Lr2ChartInfoSongProjection projection = Lr2ChartInfoSongProjection.Create(
+                @"D:\BMS\Pack\missing.bms",
+                md5,
+                new LR2SongDBExtended.chart_info { md5 = md5, level = 12 });
+
+            Lr2ChartInfoSongProjectionWriteResult result =
+                Lr2SongDbWriter.UpdateChartInfoSongProjections(songDb, [projection]);
+
+            Assert.AreEqual(1, result.RequestedCount);
+            Assert.AreEqual(0, result.MatchedCount);
+            Assert.AreEqual(0, result.ChangedCount);
+            Assert.AreEqual(1, result.MissingCount);
+            Assert.AreEqual(
+                0,
+                songDb.ExecuteScalar<int>(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'song';"));
+        });
+    }
+
+    [TestMethod]
     public void UpsertGeneratedSongs_TreatsCaseOnlyPathAsDistinct()
     {
         WithTemporarySongDb(delegate (string songDbPath)

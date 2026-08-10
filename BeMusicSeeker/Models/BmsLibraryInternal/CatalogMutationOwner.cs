@@ -227,6 +227,8 @@ internal sealed class CatalogMutationOwner
             throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
         }
 
+        Lr2ChartInfoSongProjectionWriteResult chartInfoSongProjectionResult =
+            Lr2ChartInfoSongProjectionWriteResult.Empty;
         using (maintenanceWriteGate.GetWriterGuard())
         {
             dbGateway.ExecuteSongDbTransaction(songDb =>
@@ -236,6 +238,12 @@ internal sealed class CatalogMutationOwner
                     BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                     BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
                     Lr2SongDbWriter.UpsertGeneratedSongs(songDb, request.BmsRows);
+                }
+                if (request.ChartInfoSongProjections.Count > 0)
+                {
+                    chartInfoSongProjectionResult = Lr2SongDbWriter.UpdateChartInfoSongProjections(
+                        songDb,
+                        request.ChartInfoSongProjections);
                 }
                 if (request.BmsonRows.Count > 0)
                 {
@@ -252,7 +260,8 @@ internal sealed class CatalogMutationOwner
             applied: true,
             request.BmsRows.Count,
             request.BmsonRows.Count,
-            CreateChartInfoWriteReceipt(request.ChartInfo));
+            CreateChartInfoWriteReceipt(request.ChartInfo),
+            chartInfoSongProjectionResult);
     }
 
     private static void ApplyChartInfoWriteToTransaction(

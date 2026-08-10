@@ -67,6 +67,39 @@ internal static class ChartStorageOwnerMutator
     }
 
     /// <summary>
+    /// Creates an update-only projection for the existing LR2 song row owned by this chart.
+    /// </summary>
+    internal static Lr2ChartInfoSongProjection CreateBmsChartInfoSongProjection(
+        ChartFile chart,
+        LR2SongDBExtended.chart_info row)
+    {
+        BMSFile owner = chart?.GetBmsStorageOwner();
+        return owner == null
+            ? null
+            : Lr2ChartInfoSongProjection.Create(owner.path, owner.hash, row);
+    }
+
+    /// <summary>
+    /// Applies chart-info-derived columns after the database receipt confirms that the owned song row matched.
+    /// </summary>
+    internal static int ApplyCommittedBmsChartInfoProjection(
+        ChartFile chart,
+        LR2SongDBExtended.chart_info row,
+        IReadOnlySet<Lr2ChartInfoSongProjectionIdentity> matchedIdentities)
+    {
+        BMSFile owner = chart?.GetBmsStorageOwner();
+        Lr2ChartInfoSongProjection projection = CreateBmsChartInfoSongProjection(chart, row);
+        if (owner == null
+            || projection == null
+            || matchedIdentities == null
+            || !matchedIdentities.Contains(projection.Identity))
+        {
+            return 0;
+        }
+        return projection.ApplyTo(owner) ? 1 : 0;
+    }
+
+    /// <summary>
     /// Creates a detached BMSON row containing the snapshot digest.
     /// </summary>
     internal static LR2SongDBExtended.bmson_song CreateBmsonPersistenceCopy(

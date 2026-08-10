@@ -133,15 +133,16 @@ internal sealed class CatalogChartInfoWriteReceipt
 }
 
 /// <summary>
-/// Immutable chart-info storage facts. BMS/bmson rows and chart-info facts
-/// are committed by one catalog mutation command.
+/// Immutable chart-info storage request. Inline BMS/BMSON rows, full-backfill narrow song
+/// projections, and chart-info facts are committed by one catalog mutation command.
 /// </summary>
 internal sealed class CatalogChartInfoStorageWriteRequest
 {
     internal CatalogChartInfoStorageWriteRequest(
         IEnumerable<BMSFile> bmsRows,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
-        CatalogChartInfoWriteRequest chartInfo)
+        CatalogChartInfoWriteRequest chartInfo,
+        IEnumerable<Lr2ChartInfoSongProjection> chartInfoSongProjections = null)
     {
         BmsRows = Array.AsReadOnly([.. (bmsRows ?? [])
             .Where(row => row != null && !string.IsNullOrWhiteSpace(row.path))
@@ -150,6 +151,10 @@ internal sealed class CatalogChartInfoStorageWriteRequest
             .Where(row => row != null && !string.IsNullOrWhiteSpace(row.path))
             .Select(CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy)]);
         ChartInfo = chartInfo ?? new CatalogChartInfoWriteRequest();
+        ChartInfoSongProjections = Array.AsReadOnly([.. (chartInfoSongProjections ?? [])
+            .Where(projection => projection != null)
+            .GroupBy(projection => projection.Identity)
+            .Select(group => group.Last())]);
     }
 
     internal IReadOnlyList<BMSFile> BmsRows { get; }
@@ -158,24 +163,34 @@ internal sealed class CatalogChartInfoStorageWriteRequest
 
     internal CatalogChartInfoWriteRequest ChartInfo { get; }
 
-    internal bool HasChanges => BmsRows.Count > 0 || BmsonRows.Count > 0 || ChartInfo.HasChanges;
+    internal IReadOnlyList<Lr2ChartInfoSongProjection> ChartInfoSongProjections { get; }
+
+    internal bool HasChanges => BmsRows.Count > 0
+        || BmsonRows.Count > 0
+        || ChartInfoSongProjections.Count > 0
+        || ChartInfo.HasChanges;
 }
 
+/// <summary>
+/// Reports the durable rows and narrow projections applied by one chart-info storage transaction.
+/// </summary>
 internal sealed class CatalogChartInfoStorageWriteReceipt
 {
     internal static CatalogChartInfoStorageWriteReceipt NotApplied { get; } =
-        new(false, 0, 0, CatalogChartInfoWriteReceipt.NotApplied);
+        new(false, 0, 0, CatalogChartInfoWriteReceipt.NotApplied, Lr2ChartInfoSongProjectionWriteResult.Empty);
 
     internal CatalogChartInfoStorageWriteReceipt(
         bool applied,
         int bmsRowCount,
         int bmsonRowCount,
-        CatalogChartInfoWriteReceipt chartInfo)
+        CatalogChartInfoWriteReceipt chartInfo,
+        Lr2ChartInfoSongProjectionWriteResult chartInfoSongProjections = null)
     {
         Applied = applied;
         BmsRowCount = bmsRowCount;
         BmsonRowCount = bmsonRowCount;
         ChartInfo = chartInfo ?? CatalogChartInfoWriteReceipt.NotApplied;
+        ChartInfoSongProjections = chartInfoSongProjections ?? Lr2ChartInfoSongProjectionWriteResult.Empty;
     }
 
     internal bool Applied { get; }
@@ -185,4 +200,6 @@ internal sealed class CatalogChartInfoStorageWriteReceipt
     internal int BmsonRowCount { get; }
 
     internal CatalogChartInfoWriteReceipt ChartInfo { get; }
+
+    internal Lr2ChartInfoSongProjectionWriteResult ChartInfoSongProjections { get; }
 }

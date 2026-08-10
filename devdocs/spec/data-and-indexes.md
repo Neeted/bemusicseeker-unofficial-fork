@@ -19,7 +19,7 @@
   - `chart_digest_map` は app schema repair 直後や初回 scan 前に完全である必要はない。missing SHA-256 は file diff / install / inline chart_info / chart info backfill など、譜面 bytes を読む処理で必要範囲を補完する。
   - `chart_info` と current parse failure は startup background hydration でsession indexへ適用する。currentnessは `current chart_info > current parse failure > parse candidate` の順で判定する。
   - LR2 linked / standalone は同じ actual-data hydration を使い、`lr2_song_db_sync_status` はchart-info currentnessの入力にしない。
-  - inline / full backfill の BMS candidate は、successまたはexisting current row再利用の結果を `song` generated columnsまで投影する。duplicate MD5は一度のevaluation結果を全BMS pathへ適用する。
+  - inlineのBMS candidateは基本解析結果とchart-info projectionを含むgenerated rowを保存する。full backfillのsuccessまたはexisting-current reuseは、既存`song` rowのchart-info由来9列だけをupdate-onlyで投影する。duplicate MD5は一度のevaluation結果を全BMS pathへ適用する。
   - BMSON candidateは`chart_info`とsession indexを更新するが、LR2 `song` rowや`chart_digest_map`を作らない。
 
 `ChartFile` は、この catalog storage row ではなく、BMS / bmson の Kind と storage owner を持つアプリ内 domain/read model を指す。DB 正本は BMS 用 `song` row と bmson 用 `bmson_song` row の二本立てを維持する。
@@ -117,7 +117,7 @@ startup hydration の read phase は read-only connection を使う。
 - write が必要な cleanup / backfill / metadata update / file diff commit は write-capable transaction path に分ける。
 - `app_schema_version(name='app_schema')` は startup app schema repair で収束させる。
 
-chart-info storage writeは`CatalogMutationOwner`が所有する。immutableな`CatalogChartInfoStorageWriteRequest`にBMS/BMSON storage rowsとchart-info factsを束ね、同じcatalog transactionで保存する。BMSは`Lr2SongDbWriter.UpsertGeneratedSongs()`のbulk pathを使い、既存`favorite`、`tag`、`adddate`などuser columnsを保持する。commit成功後だけcanonical owner、digest-derived index、session index、warning/digest publicationを進め、失敗時はどれも部分更新しない。storage rowを伴わないparse-failure明示削除にはfacts-only writeを残す。
+chart-info storage writeは`CatalogMutationOwner`が所有する。immutableな`CatalogChartInfoStorageWriteRequest`にinline用BMS/BMSON storage rows、full-backfill用narrow song projections、chart-info factsを束ね、同じcatalog transactionで保存する。full backfillは`Lr2SongDbWriter.UpdateChartInfoSongProjections()`でpathとMD5が一致する既存rowの`level`、`difficulty`、`maxbpm`、`minbpm`、`bga`、`exlevel`、`longnote`、`random`、`karinotes`だけを更新し、missing rowをINSERTしない。基本列とuser管理列はUPDATE句へ含めない。commit成功後だけcanonical owner、digest-derived index、session index、warning/digest publicationを進め、失敗時はどれも部分更新しない。storage rowを伴わないparse-failure明示削除にはfacts-only writeを残す。
 
 `song` table は LR2 互換の lookup index を前提にする。LR2 が作成する `song.db` と同様に `hashidx(song.hash)` と `parentidx(song.parent)` を ensure し、アプリ側で使う `song_idx_folder(song.folder)` も維持する。スタンドアローン DB 作成時だけでなく、通常の DB schema ensure でも不足 index を補う。
 
@@ -152,6 +152,6 @@ file diff / install / merge / delete / move 後は、必要な範囲で次を同
 
 増分更新では、旧 union cache ではなく `DirectoryResourceLookupCache` の directory key set を正本にする。
 
-chart-info projectionでは、BMS generated rowsと`chart_digest_map` / `chart_info` / parse-failure factsを同じtransactionに入れる。BMSONは`bmson_song`と`chart_info`を正本にし、LR2 `song`へ互換rowをmaterializeしない。metadata cacheとしてownerのない`chart_info` rowを保持する契約も維持し、backfillを理由に全件削除しない。
+chart-info storageでは、inline用BMS generated rowsまたはfull-backfill用update-only projectionと`chart_digest_map` / `chart_info` / parse-failure factsを同じtransactionに入れる。full backfillは既存songの基本列を再生成せず、missing rowもmaterializeしない。BMSONは`bmson_song`と`chart_info`を正本にし、LR2 `song`へ互換rowをmaterializeしない。metadata cacheとしてownerのない`chart_info` rowを保持する契約も維持し、backfillを理由に全件削除しない。
 
 file diff の大量削除は、削除対象 path / hash を一時 table に集め、`song`、`maintenance`、`bmson_song`、`chart_digest_map` を集合 SQL で更新する。`chart_digest_map` は削除対象 MD5 のうち、削除後の `song.hash` に残存 owner が無いものだけを削除する。これにより、ルート削除やルート近傍 rename のような大量 delete でも 1 row ごとの orphan check に戻さない。

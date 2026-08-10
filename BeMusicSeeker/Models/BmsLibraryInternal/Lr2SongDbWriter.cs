@@ -111,6 +111,8 @@ internal static class Lr2SongDbWriter
 
     private const string TempGeneratedSongUpsertTable = "lr2_song_db_sync_generated_song_upsert";
 
+    private const string TempChartInfoSongProjectionTable = "chart_info_song_projection_update";
+
     internal static bool UpsertGeneratedSong(LR2SongDBExtended songDb, BMSFile song)
     {
         if (songDb == null)
@@ -193,6 +195,50 @@ internal static class Lr2SongDbWriter
         UpsertChartDigests(songDb, rows);
         DeleteOrphanedChartDigests(songDb, previousHashesToCheck);
         return changedCount;
+    }
+
+    /// <summary>
+    /// Updates only chart-info-derived columns on existing LR2 song rows.
+    /// Missing or identity-mismatched rows are reported and are never inserted.
+    /// </summary>
+    internal static Lr2ChartInfoSongProjectionWriteResult UpdateChartInfoSongProjections(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<Lr2ChartInfoSongProjection> projections)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        List<Lr2ChartInfoSongProjection> rows = [.. (projections ?? [])
+            .Where(projection => projection != null)
+            .GroupBy(projection => projection.Identity)
+            .Select(group => group.Last())];
+        if (rows.Count == 0)
+        {
+            return Lr2ChartInfoSongProjectionWriteResult.Empty;
+        }
+
+        if (!TableExists(songDb, "song"))
+        {
+            return new Lr2ChartInfoSongProjectionWriteResult([], rows, 0);
+        }
+
+        PrepareTempChartInfoSongProjectionTable(songDb);
+        try
+        {
+            BulkInsertChartInfoSongProjections(songDb, rows);
+            HashSet<Lr2ChartInfoSongProjectionIdentity> matchedIdentities = [.. LoadMatchedChartInfoSongProjectionIdentities(songDb)];
+            int changedCount = UpdateMatchedChartInfoSongProjections(songDb);
+            return new Lr2ChartInfoSongProjectionWriteResult(
+                rows.Where(projection => matchedIdentities.Contains(projection.Identity)),
+                rows.Where(projection => !matchedIdentities.Contains(projection.Identity)),
+                changedCount);
+        }
+        finally
+        {
+            ClearTempTable(songDb, TempChartInfoSongProjectionTable);
+        }
     }
 
     internal static int UpsertGeneratedSongsForLr2SongDbSync(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
@@ -535,6 +581,112 @@ internal static class Lr2SongDbWriter
             "CREATE TEMP TABLE IF NOT EXISTS temp." + TempChartDigestUpsertTable
             + " (md5 TEXT PRIMARY KEY, sha256 TEXT);");
         ClearTempTable(songDb, TempChartDigestUpsertTable);
+    }
+
+    private static void PrepareTempChartInfoSongProjectionTable(LR2SongDBExtended songDb)
+    {
+        songDb.Execute(
+            "CREATE TEMP TABLE IF NOT EXISTS temp." + TempChartInfoSongProjectionTable + " ("
+            + "path TEXT NOT NULL, md5 TEXT NOT NULL, "
+            + "level INTEGER, difficulty INTEGER NOT NULL, maxbpm INTEGER, minbpm INTEGER, bga INTEGER, "
+            + "exlevel INTEGER NOT NULL, longnote INTEGER NOT NULL, random INTEGER NOT NULL, karinotes INTEGER NOT NULL, "
+            + "PRIMARY KEY(path, md5));");
+        ClearTempTable(songDb, TempChartInfoSongProjectionTable);
+    }
+
+    private static void BulkInsertChartInfoSongProjections(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<Lr2ChartInfoSongProjection> projections)
+    {
+        const int columnCount = 11;
+        const int chunkSize = 80;
+        for (int offset = 0; offset < projections.Count; offset += chunkSize)
+        {
+            List<Lr2ChartInfoSongProjection> chunk = projections.Skip(offset).Take(chunkSize).ToList();
+            string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
+            string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
+            var args = new List<object>(chunk.Count * columnCount);
+            foreach (Lr2ChartInfoSongProjection projection in chunk)
+            {
+                args.Add(projection.Path);
+                args.Add(projection.Md5);
+                args.Add(projection.Level);
+                args.Add(projection.Difficulty);
+                args.Add(projection.MaxBpm);
+                args.Add(projection.MinBpm);
+                args.Add(projection.Bga);
+                args.Add(projection.ExLevel);
+                args.Add(projection.LongNote);
+                args.Add(projection.Random);
+                args.Add(projection.KariNotes);
+            }
+            songDb.Execute(
+                "INSERT OR REPLACE INTO temp." + TempChartInfoSongProjectionTable
+                + " (path, md5, level, difficulty, maxbpm, minbpm, bga, exlevel, longnote, random, karinotes) VALUES "
+                + placeholders + ";",
+                [.. args]);
+        }
+    }
+
+    private static IReadOnlyList<Lr2ChartInfoSongProjectionIdentity> LoadMatchedChartInfoSongProjectionIdentities(
+        LR2SongDBExtended songDb)
+    {
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        string pathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+        string hashColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash);
+        return [.. songDb.Query<ChartInfoSongProjectionIdentityRow>(
+                "SELECT DISTINCT u.path AS path, u.md5 AS md5 "
+                + "FROM temp." + TempChartInfoSongProjectionTable + " u "
+                + "JOIN " + songTable + " s ON s." + pathColumn + " = u.path "
+                + "AND lower(trim(s." + hashColumn + ")) = u.md5;")
+            .Where(row => row != null)
+            .Select(row => new Lr2ChartInfoSongProjectionIdentity(row.path, row.md5))];
+    }
+
+    private static int UpdateMatchedChartInfoSongProjections(LR2SongDBExtended songDb)
+    {
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        string pathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+        string hashColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash);
+        string match = "u.path = " + songTable + "." + pathColumn
+            + " AND u.md5 = lower(trim(" + songTable + "." + hashColumn + "))";
+        string changed = string.Join(" OR ", new[]
+        {
+            BuildChartInfoProjectionColumnChanged(nameof(LR2SongDB.song.level)),
+            BuildChartInfoProjectionColumnChanged(nameof(LR2SongDB.song.difficulty)),
+            BuildChartInfoProjectionColumnChanged(nameof(LR2SongDB.song.maxbpm)),
+            BuildChartInfoProjectionColumnChanged(nameof(LR2SongDB.song.minbpm)),
+            BuildChartInfoProjectionColumnChanged(nameof(LR2SongDB.song.bga)),
+            BuildChartInfoProjectionColumnChanged(nameof(LR2SongDB.song.exlevel)),
+            BuildChartInfoProjectionColumnChanged(nameof(LR2SongDB.song.longnote)),
+            BuildChartInfoProjectionColumnChanged(nameof(LR2SongDB.song.random)),
+            BuildChartInfoProjectionColumnChanged(nameof(LR2SongDB.song.karinotes))
+        });
+        return songDb.Execute(
+            "UPDATE " + songTable + " SET "
+            + BuildChartInfoProjectionAssignment(nameof(LR2SongDB.song.level), match) + ", "
+            + BuildChartInfoProjectionAssignment(nameof(LR2SongDB.song.difficulty), match) + ", "
+            + BuildChartInfoProjectionAssignment(nameof(LR2SongDB.song.maxbpm), match) + ", "
+            + BuildChartInfoProjectionAssignment(nameof(LR2SongDB.song.minbpm), match) + ", "
+            + BuildChartInfoProjectionAssignment(nameof(LR2SongDB.song.bga), match) + ", "
+            + BuildChartInfoProjectionAssignment(nameof(LR2SongDB.song.exlevel), match) + ", "
+            + BuildChartInfoProjectionAssignment(nameof(LR2SongDB.song.longnote), match) + ", "
+            + BuildChartInfoProjectionAssignment(nameof(LR2SongDB.song.random), match) + ", "
+            + BuildChartInfoProjectionAssignment(nameof(LR2SongDB.song.karinotes), match)
+            + " WHERE EXISTS (SELECT 1 FROM temp." + TempChartInfoSongProjectionTable + " u WHERE "
+            + match + " AND (" + changed + "));");
+    }
+
+    private static string BuildChartInfoProjectionAssignment(string columnName, string match)
+    {
+        return columnName + " = (SELECT u." + columnName + " FROM temp."
+            + TempChartInfoSongProjectionTable + " u WHERE " + match + ")";
+    }
+
+    private static string BuildChartInfoProjectionColumnChanged(string columnName)
+    {
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        return songTable + "." + columnName + " IS NOT u." + columnName;
     }
 
     private static void ClearTempTable(LR2SongDBExtended songDb, string tableName)
@@ -1413,6 +1565,13 @@ internal static class Lr2SongDbWriter
             song.karinotes,
             song.exlevel,
             song.path);
+    }
+
+    private sealed class ChartInfoSongProjectionIdentityRow
+    {
+        public string path { get; set; }
+
+        public string md5 { get; set; }
     }
 
     private sealed class GeneratedSongRow

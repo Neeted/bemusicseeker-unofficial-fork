@@ -66,7 +66,7 @@ internal static class Lr2SongRowEnricher
             return;
         }
 
-        song.ApplyLr2ChartInfoDetailedColumns(chartInfo);
+        Lr2ChartInfoSongProjection.Create(song.path, song.hash, chartInfo)?.ApplyTo(song);
         ApplyLr2ChartMetadataDefaults(song);
     }
 
@@ -77,10 +77,7 @@ internal static class Lr2SongRowEnricher
             return;
         }
 
-        if (!song.difficulty.HasValue || song.difficulty.Value < 0 || song.difficulty.Value > 5)
-        {
-            song.difficulty = 2;
-        }
+        song.difficulty = Lr2ChartInfoSongProjection.NormalizeDifficulty(song.difficulty);
     }
 
     internal static int ToLr2UnixSeconds(DateTime utcTime)

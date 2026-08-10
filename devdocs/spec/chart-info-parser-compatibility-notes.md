@@ -16,7 +16,7 @@
 ## 基本方針
 
 - `chart_info` は「所持譜面管理」ではなく「譜面メタデータ」の保存先として扱う。
-- parser自体はDB writeを所有しない。lifecycle ownerは成功/reuse結果をBMS `song` generated columnsへbulk投影し、LR2互換とuser columnsを保持する。BMSONからLR2 `song` rowは作らない。
+- parser自体はDB writeを所有しない。新規譜面生成とfull backfillはchart-info由来9列のprojection値・正規化だけを共有する。full backfillは既存BMS `song` rowへその9列をupdate-onlyで反映し、基本列やuser列を再生成せず、missing rowもINSERTしない。BMSONからLR2 `song` rowは作らない。
 - 解析結果は原則として beatoraja / jbms-parser の解釈に寄せる。
 - ただし RANDOM 譜面は参照 DB 側の過去選択分岐と完全一致しないため、値差分は許容する。
 - `chart_info` では deterministic metadata を優先し、RANDOM はまず branch 1 固定で解析し、recoverable failure の場合だけ fallback branch を試す。
@@ -637,7 +637,7 @@ chart_info full backfill は「bounded file readers + in-memory parallel parse +
 
 parser algorithm と caller orchestration は分離する。inline、full backfill、LR2 `song_rows` は、単一 snapshot と事前解決した current row / parse-failure fact を `ChartInfoBuildService.EvaluateSnapshot(...)` へ渡し、`ChartInfoParser.ParseBytesDetailed(...)` の呼出し、timeout、exception / failure result mapping、永続化 message normalization を共有する。この共通化で parser compatibility の期待値自体は変更しない。
 
-workerはsuccessまたはexisting-current reuseのstorage applicationをstagingするだけで、DB transactionやruntime attachを所有しない。inline/fullのwriterはroute-neutralな`CatalogChartInfoStorageWriteRequest`を使い、BMS generated rowsとchart-info factsを同じtransactionで保存する。duplicate MD5は一度のevaluation結果を全BMS ownerへ投影し、durable receipt後だけcanonical owner、digest/session index、eventをpublishする。runtime `ChartInfo`はstorage ownerへattachしない。
+workerはsuccessまたはexisting-current reuseのstorage applicationをstagingするだけで、DB transactionやruntime attachを所有しない。inline/fullのwriterはroute-neutralな`CatalogChartInfoStorageWriteRequest`を使う。full backfillでは`level`、normalized `difficulty`、integer BPM、BGA/EXLEVEL、LN/RANDOM flags、notesの9列だけを既存songへupdateし、factsと同じtransactionで保存する。duplicate MD5は一度のevaluation結果を全BMS owner pathへ投影し、missing songはINSERTしない。durable receipt後だけDBでmatchedしたcanonical owner、digest/session index、eventをpublishする。runtime `ChartInfo`はstorage ownerへattachしない。
 
 ログで見るべき境界:
 

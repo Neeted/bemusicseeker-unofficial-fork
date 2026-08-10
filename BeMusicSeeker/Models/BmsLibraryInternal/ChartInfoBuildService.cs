@@ -552,25 +552,25 @@ internal sealed class ChartInfoBuildService
         int chunkNumber = result.CommitChunks + 1;
         logInstallPerformance?.Invoke(BuildCommitStartLogMessage(chunkNumber, commitChunk));
         var stopwatch = Stopwatch.StartNew();
+        CatalogChartInfoStorageWriteReceipt receipt = null;
         try
         {
             if (chartInfoChunkWriter == null)
             {
                 throw new InvalidOperationException("Chart-info backfill requires a catalog mutation writer.");
             }
-            List<BMSFile> bmsRows = [.. commitChunk.ChartInfoApplications
-                .SelectMany(application => application.Target.CreateBmsPersistenceRows(
-                    application.Row.sha256,
-                    application.Row))];
+            List<Lr2ChartInfoSongProjection> songProjections = [.. commitChunk.ChartInfoApplications
+                .SelectMany(application => application.Target.CreateBmsChartInfoSongProjections(application.Row))];
             var request = new CatalogChartInfoStorageWriteRequest(
-                bmsRows,
+                bmsRows: [],
                 bmsonRows: [],
                 new CatalogChartInfoWriteRequest(
                     commitChunk.DigestEntries,
                     commitChunk.ChartInfoRows,
                     commitChunk.ParseFailureRows,
-                    commitChunk.ParseFailureDeleteMd5s));
-            CatalogChartInfoStorageWriteReceipt receipt = chartInfoChunkWriter(request);
+                    commitChunk.ParseFailureDeleteMd5s),
+                songProjections);
+            receipt = chartInfoChunkWriter(request);
             if (request.HasChanges && receipt?.Applied != true)
             {
                 throw new InvalidOperationException("Chart-info backfill persistence returned no receipt.");
@@ -586,6 +586,27 @@ internal sealed class ChartInfoBuildService
         result.CommitChunks++;
         result.DbCommitMs += stopwatch.ElapsedMilliseconds;
         result.DbCommitMaxChunkMs = Math.Max(result.DbCommitMaxChunkMs, stopwatch.ElapsedMilliseconds);
+        Lr2ChartInfoSongProjectionWriteResult songProjectionResult =
+            receipt?.ChartInfoSongProjections ?? Lr2ChartInfoSongProjectionWriteResult.Empty;
+        result.SongProjectionRequestedCount += songProjectionResult.RequestedCount;
+        result.SongProjectionMatchedCount += songProjectionResult.MatchedCount;
+        result.SongProjectionChangedCount += songProjectionResult.ChangedCount;
+        result.SongProjectionMissingCount += songProjectionResult.MissingCount;
+        foreach (Lr2ChartInfoSongProjection missing in songProjectionResult.MissingProjections)
+        {
+            if (result.SongProjectionMissingPaths.Count >= 10)
+            {
+                break;
+            }
+            result.SongProjectionMissingPaths.Add(missing.Path);
+        }
+        if (songProjectionResult.MissingCount > 0)
+        {
+            logInstallPerformanceWarn?.Invoke(BuildSongProjectionMissingLogMessage(chunkNumber, songProjectionResult));
+        }
+        HashSet<Lr2ChartInfoSongProjectionIdentity> matchedSongProjectionIdentities = [.. songProjectionResult
+            .MatchedProjections
+            .Select(projection => projection.Identity)];
         var committedDigestChanges = new List<LibraryChartDigestChange>();
         foreach (PendingDigestApplication application in commitChunk.DigestApplications)
         {
@@ -594,7 +615,7 @@ internal sealed class ChartInfoBuildService
         result.DigestChanges.AddRange(committedDigestChanges);
         foreach (PendingChartInfoApplication application in commitChunk.ChartInfoApplications)
         {
-            application.Target.ApplyCommittedChartInfo(application.Row);
+            application.Target.ApplyCommittedChartInfo(application.Row, matchedSongProjectionIdentities);
             result.BackfilledCount++;
         }
         LR2SongDBExtended.chart_info[] committedRows = [.. commitChunk.ChartInfoApplications
@@ -821,6 +842,10 @@ internal sealed class ChartInfoBuildService
             + " parseFailureSkipped=" + result.FailureSkippedCount
             + " failurePersisted=" + result.FailurePersistedCount
             + " failureCleared=" + result.FailureClearedCount
+            + " songProjectionRequested=" + result.SongProjectionRequestedCount
+            + " songProjectionMatched=" + result.SongProjectionMatchedCount
+            + " songProjectionChanged=" + result.SongProjectionChangedCount
+            + " songProjectionMissing=" + result.SongProjectionMissingCount
             + " fileReadCount=" + result.FileReadCount
             + " fileReadBytes=" + result.FileReadBytes
             + " workerCount=" + result.WorkerCount
@@ -907,6 +932,21 @@ internal sealed class ChartInfoBuildService
             + " elapsedMs=" + elapsedMs
             + " exception=" + QuoteLogValue(ex?.GetType().Name)
             + " message=" + QuoteLogValue(ex?.Message);
+    }
+
+    private static string BuildSongProjectionMissingLogMessage(
+        int chunkNumber,
+        Lr2ChartInfoSongProjectionWriteResult writeResult)
+    {
+        string samples = string.Join("|", writeResult.MissingProjections
+            .Take(10)
+            .Select(projection => projection.Path + "#" + projection.Md5));
+        return "chart_info_backfill song_projection_missing"
+            + " chunk=" + chunkNumber
+            + " requested=" + writeResult.RequestedCount
+            + " matched=" + writeResult.MatchedCount
+            + " missing=" + writeResult.MissingCount
+            + " samples=" + QuoteLogValue(samples);
     }
 
     private static string BuildReadFailureLogMessage(ChartInfoBuildTarget target, Exception ex)

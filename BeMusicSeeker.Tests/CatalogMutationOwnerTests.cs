@@ -1091,20 +1091,35 @@ public sealed class CatalogMutationOwnerTests
         bms.level = 4;
         LR2SongDBExtended.bmson_song bmson = CreateBmson("storage-snapshot.bmson", new string('b', 32));
         bmson.title = "original";
+        var chartInfo = new LR2SongDBExtended.chart_info
+        {
+            md5 = bms.hash,
+            level = 12,
+            difficulty = 4,
+            maxbpm = 180.9,
+            notes = 1234
+        };
+        Lr2ChartInfoSongProjection projection =
+            Lr2ChartInfoSongProjection.Create(bms.path, bms.hash, chartInfo);
         var request = new CatalogChartInfoStorageWriteRequest(
             [bms],
             [bmson],
-            new CatalogChartInfoWriteRequest());
+            new CatalogChartInfoWriteRequest(),
+            [projection]);
 
         bms.path = "C:\\Library\\changed.bms";
         bms.level = 99;
         bmson.path = "C:\\Library\\changed.bmson";
         bmson.title = "changed";
+        chartInfo.level = 99;
+        chartInfo.difficulty = -1;
 
         Assert.AreEqual("C:\\Library\\storage-snapshot.bms", request.BmsRows.Single().path);
         Assert.AreEqual(4, request.BmsRows.Single().level);
         Assert.AreEqual("C:\\Library\\storage-snapshot.bmson", request.BmsonRows.Single().path);
         Assert.AreEqual("original", request.BmsonRows.Single().title);
+        Assert.AreEqual(12, request.ChartInfoSongProjections.Single().Level);
+        Assert.AreEqual(4, request.ChartInfoSongProjections.Single().Difficulty);
     }
 
     [TestMethod]
@@ -1154,6 +1169,68 @@ public sealed class CatalogMutationOwnerTests
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", stored.path).Single();
             Assert.AreEqual(2, song.level);
+            Assert.AreEqual(7, song.favorite);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyChartInfoStorageWrite_WhenChartInfoInsertFailsRollsBackNarrowSongProjection()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoProjectionRollback_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            TestableBmsFile stored = CreateBms("projection-atomic.bms", new string('c', 32));
+            stored.path = Path.Combine(tempRootPath, "projection-atomic.bms");
+            stored.level = 2;
+            stored.mode = 11;
+            stored.favorite = 7;
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
+                setup.InsertOrReplace(stored.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                setup.Execute("CREATE TRIGGER fail_chart_info_projection BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced chart-info failure'); END;");
+            }
+            var chartInfo = new LR2SongDBExtended.chart_info
+            {
+                sha256 = new string('d', 64),
+                md5 = stored.hash,
+                level = 12,
+                difficulty = 4,
+                mode = 14,
+                parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                updated_at = DateTime.UtcNow
+            };
+            var owner = new CatalogMutationOwner(
+                new CatalogStorageRowsOwner(),
+                new CatalogOwnedCollectionOwner(),
+                new BmsLibraryDbGateway(songDbPath));
+            var request = new CatalogChartInfoStorageWriteRequest(
+                [],
+                [],
+                new CatalogChartInfoWriteRequest(
+                    [new ChartDigestBackfillEntry(stored.hash, chartInfo.sha256)],
+                    [chartInfo]),
+                [Lr2ChartInfoSongProjection.Create(stored.path, stored.hash, chartInfo)]);
+
+            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyChartInfoStorageWrite(request));
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", stored.path).Single();
+            Assert.AreEqual(2, song.level);
+            Assert.AreEqual(11, song.mode);
             Assert.AreEqual(7, song.favorite);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));

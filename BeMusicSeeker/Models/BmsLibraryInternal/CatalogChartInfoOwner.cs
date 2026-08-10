@@ -658,7 +658,11 @@ internal sealed class CatalogChartInfoOwner
                         + " fileReadCount=" + result.FileReadCount
                         + " fileReadBytes=" + result.FileReadBytes
                         + " currentRowSkipped=" + result.CurrentRowSkippedCount
-                        + " parseFailureSkipped=" + result.FailureSkippedCount);
+                        + " parseFailureSkipped=" + result.FailureSkippedCount
+                        + " songProjectionRequested=" + result.SongProjectionRequestedCount
+                        + " songProjectionMatched=" + result.SongProjectionMatchedCount
+                        + " songProjectionChanged=" + result.SongProjectionChangedCount
+                        + " songProjectionMissing=" + result.SongProjectionMissingCount);
                 }
                 catch (Exception ex)
                 {

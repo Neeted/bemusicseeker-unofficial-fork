@@ -78,26 +78,22 @@ internal sealed class ChartInfoBuildTarget
     }
 
     /// <summary>
-    /// Creates transaction-owned BMS song rows for every storage owner represented by this target.
+    /// Creates update-only chart-info song projections for every BMS owner represented by this target.
     /// BMSON owners deliberately do not materialize LR2 compatibility rows.
     /// </summary>
-    internal IReadOnlyList<BMSFile> CreateBmsPersistenceRows(
-        string sha256,
+    internal IReadOnlyList<Lr2ChartInfoSongProjection> CreateBmsChartInfoSongProjections(
         LR2SongDBExtended.chart_info row)
     {
-        var result = new List<BMSFile>();
+        var result = new List<Lr2ChartInfoSongProjection>();
         foreach (ChartFile chart in charts)
         {
-            BMSFile copy = ChartStorageOwnerMutator.CreateBmsPersistenceCopy(
-                chart,
-                row?.md5 ?? Md5,
-                sha256,
-                row);
-            if (copy == null)
+            Lr2ChartInfoSongProjection projection =
+                ChartStorageOwnerMutator.CreateBmsChartInfoSongProjection(chart, row);
+            if (projection == null)
             {
                 continue;
             }
-            result.Add(copy);
+            result.Add(projection);
         }
         return result;
     }
@@ -106,7 +102,9 @@ internal sealed class ChartInfoBuildTarget
     /// Projects durable chart-info generated columns to every canonical BMS owner.
     /// This is called only after the catalog transaction returns a successful receipt.
     /// </summary>
-    internal int ApplyCommittedChartInfo(LR2SongDBExtended.chart_info row)
+    internal int ApplyCommittedChartInfo(
+        LR2SongDBExtended.chart_info row,
+        IReadOnlySet<Lr2ChartInfoSongProjectionIdentity> matchedIdentities)
     {
         if (row == null)
         {
@@ -116,13 +114,10 @@ internal sealed class ChartInfoBuildTarget
         int applied = 0;
         foreach (ChartFile chart in charts)
         {
-            BMSFile owner = chart.GetBmsStorageOwner();
-            if (owner == null)
-            {
-                continue;
-            }
-            owner.ApplyLr2ChartInfoColumns(row);
-            applied++;
+            applied += ChartStorageOwnerMutator.ApplyCommittedBmsChartInfoProjection(
+                chart,
+                row,
+                matchedIdentities);
         }
         return applied;
     }

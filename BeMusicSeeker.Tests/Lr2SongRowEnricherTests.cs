@@ -143,6 +143,7 @@ public sealed class Lr2SongRowEnricherTests
     {
         var file = new TestableBmsFile
         {
+            path = @"C:\BMS\Pack\chart.bms",
             level = 3,
             difficulty = -1
         };
@@ -232,7 +233,7 @@ public sealed class Lr2SongRowEnricherTests
     [TestMethod]
     public void EnrichFromChartInfo_IgnoresMismatchedMd5()
     {
-        var file = new TestableBmsFile();
+        var file = new TestableBmsFile { path = @"C:\BMS\Pack\chart.bms" };
         file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var chartInfo = new LR2SongDBExtended.chart_info
         {
@@ -250,7 +251,7 @@ public sealed class Lr2SongRowEnricherTests
     [TestMethod]
     public void EnrichFromChartInfo_DefaultsNullExLevelToZero()
     {
-        var file = new TestableBmsFile();
+        var file = new TestableBmsFile { path = @"C:\BMS\Pack\chart.bms" };
         file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var chartInfo = new LR2SongDBExtended.chart_info
         {
@@ -261,6 +262,70 @@ public sealed class Lr2SongRowEnricherTests
         Lr2SongRowEnricher.EnrichFromChartInfo(file, chartInfo);
 
         Assert.AreEqual(0, file.exlevel);
+    }
+
+    [DataTestMethod]
+    [DataRow(null, 2)]
+    [DataRow(-1, 2)]
+    [DataRow(6, 2)]
+    [DataRow(4, 4)]
+    public void ChartInfoSongProjection_NormalizationMatchesNewChartEnrichment(
+        int? difficulty,
+        int expectedDifficulty)
+    {
+        string path = @"C:\BMS\Pack\parity.bms";
+        string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var newChartSong = new TestableBmsFile
+        {
+            path = path,
+            mode = 5,
+            difficulty = -1
+        };
+        newChartSong.SetHash(md5);
+        newChartSong.SetJudgeForTest(1);
+        var existingSong = new TestableBmsFile
+        {
+            path = path,
+            mode = 14,
+            difficulty = 0
+        };
+        existingSong.SetHash(md5);
+        existingSong.SetJudgeForTest(9);
+        var chartInfo = new LR2SongDBExtended.chart_info
+        {
+            md5 = md5,
+            level = null,
+            difficulty = difficulty,
+            difficulty_defined = difficulty.HasValue,
+            maxbpm = 180.9,
+            minbpm = null,
+            mode = 7,
+            judge = 100,
+            bga = null,
+            exlevel = null,
+            feature = 1 | 4 | 16,
+            notes = 987
+        };
+
+        Lr2SongRowEnricher.EnrichFromChartInfo(newChartSong, chartInfo);
+        Lr2ChartInfoSongProjection projection =
+            Lr2ChartInfoSongProjection.Create(existingSong.path, existingSong.hash, chartInfo);
+        Assert.IsTrue(projection.ApplyTo(existingSong));
+
+        Assert.AreEqual(expectedDifficulty, newChartSong.difficulty);
+        Assert.AreEqual(newChartSong.level, existingSong.level);
+        Assert.AreEqual(newChartSong.difficulty, existingSong.difficulty);
+        Assert.AreEqual(newChartSong.maxbpm, existingSong.maxbpm);
+        Assert.AreEqual(newChartSong.minbpm, existingSong.minbpm);
+        Assert.AreEqual(newChartSong.bga, existingSong.bga);
+        Assert.AreEqual(newChartSong.exlevel, existingSong.exlevel);
+        Assert.AreEqual(newChartSong.longnote, existingSong.longnote);
+        Assert.AreEqual(newChartSong.random, existingSong.random);
+        Assert.AreEqual(newChartSong.karinotes, existingSong.karinotes);
+        Assert.AreEqual(5, newChartSong.mode);
+        Assert.AreEqual(14, existingSong.mode);
+        Assert.AreEqual(1, newChartSong.judge);
+        Assert.AreEqual(9, existingSong.judge);
     }
 
     [DataTestMethod]

@@ -34,9 +34,9 @@ scope 外から `BMSLibrary` を直接呼ぶ既存テストや内部ユーティ
 
 background hydration/backfillやpackage inlineのchart-info writeは、UIの`RunChartPackageMutation(...)`とは別のcatalog mutationである。transaction ownerは`CatalogMutationOwner`のままとし、inline/fullは同じ`ApplyChartInfoStorageWrite(CatalogChartInfoStorageWriteRequest)`を使う。
 
-- requestはBMS/BMSON persistence copyと`CatalogChartInfoWriteRequest`をimmutable snapshotとして束ねる。
-- BMS generated rows、BMSON rows、`chart_digest_map`、`chart_info`、parse-failure upsert/deleteは一つのcatalog transactionで保存する。
-- BMS rowsは`Lr2SongDbWriter.UpsertGeneratedSongs(...)`でbulk writeし、`favorite`、`tag`、`adddate`などuser columnsを保持する。BMSONからLR2 `song` rowは作らない。
+- requestはinline用BMS/BMSON persistence copy、full-backfill用immutable narrow projection、`CatalogChartInfoWriteRequest`をsnapshotとして束ねる。
+- inline storage rowsまたはfull-backfill用song update、`chart_digest_map`、`chart_info`、parse-failure upsert/deleteは一つのcatalog transactionで保存する。
+- full backfillは`Lr2SongDbWriter.UpdateChartInfoSongProjections(...)`でpath+MD5が一致する既存BMS `song` rowのchart-info由来9列だけをupdateする。full row upsertやmissing row insertは行わず、基本列、`mode`、`judge`、user列をUPDATE句へ含めない。BMSONからLR2 `song` rowは作らない。
 - durable receipt後だけcanonical storage owner、digest/index、chart-info session index、warning/digest eventを更新する。commit失敗時はcanonical/index/eventを変更せず、対象は次回もcandidateとして残る。
 - parse-failure明示削除などstorage rowを伴わない処理にはfacts-onlyの`ApplyChartInfoWrite(...)`を残す。
 - DB transactionやmodel/storage lockを保持したままUI/event subscriberを待たない。

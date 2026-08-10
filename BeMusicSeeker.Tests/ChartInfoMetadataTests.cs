@@ -2796,7 +2796,7 @@ createTempDirectory);
     }
 
     [TestMethod]
-    public void BackfillChartInfos_PersistsGeneratedSongColumnsAndPreservesUserColumns()
+    public void BackfillChartInfos_UpdatesOnlyChartInfoSongProjectionAndPreservesOtherColumns()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
@@ -2813,12 +2813,38 @@ createTempDirectory);
             using (var seed = new LR2SongDBExtended(songDbPath))
             {
                 seed.Execute(
-                    "UPDATE song SET favorite = ?, tag = ?, adddate = ?, level = ?, difficulty = ? WHERE path = ?;",
+                    "UPDATE song SET title = ?, subtitle = ?, artist = ?, subartist = ?, genre = ?, type = ?, "
+                    + "folder = ?, stagefile = ?, banner = ?, backbmp = ?, parent = ?, mode = ?, judge = ?, "
+                    + "date = ?, txt = ?, favorite = ?, tag = ?, adddate = ?, "
+                    + "level = ?, difficulty = ?, maxbpm = ?, minbpm = ?, bga = ?, exlevel = ?, longnote = ?, random = ?, karinotes = ? "
+                    + "WHERE path = ?;",
+                    "keep-title",
+                    "keep-subtitle",
+                    "keep-artist",
+                    "keep-subartist",
+                    "keep-genre",
+                    77,
+                    "keep-folder",
+                    "keep-stagefile",
+                    "keep-banner",
+                    "keep-backbmp",
+                    "keep-parent",
+                    14,
+                    9,
+                    111111,
+                    1,
                     7,
                     "keep-user-tag",
                     123456,
                     1,
                     1,
+                    1,
+                    2,
+                    9,
+                    9,
+                    9,
+                    9,
+                    9,
                     chartPath);
             }
 
@@ -2829,6 +2855,10 @@ createTempDirectory);
                 []);
 
             Assert.AreEqual(1, result.BackfilledCount);
+            Assert.AreEqual(1, result.SongProjectionRequestedCount);
+            Assert.AreEqual(1, result.SongProjectionMatchedCount);
+            Assert.AreEqual(1, result.SongProjectionChangedCount);
+            Assert.AreEqual(0, result.SongProjectionMissingCount);
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDBExtended.chart_info chartInfo = verify.Query<LR2SongDBExtended.chart_info>(
                 "SELECT * FROM chart_info WHERE sha256 = ?;",
@@ -2837,8 +2867,7 @@ createTempDirectory);
                 "SELECT * FROM song WHERE path = ?;",
                 chartPath).Single();
             Assert.AreEqual(chartInfo.level, song.level);
-            Assert.AreEqual(chartInfo.difficulty, song.difficulty);
-            Assert.AreEqual(chartInfo.mode, song.mode);
+            Assert.AreEqual(Lr2ChartInfoSongProjection.NormalizeDifficulty(chartInfo.difficulty), song.difficulty);
             Assert.AreEqual((int?)chartInfo.maxbpm, song.maxbpm);
             Assert.AreEqual((int?)chartInfo.minbpm, song.minbpm);
             Assert.AreEqual(chartInfo.bga, song.bga);
@@ -2847,8 +2876,7 @@ createTempDirectory);
             Assert.AreEqual(0, song.longnote);
             Assert.AreEqual(0, song.random);
             Assert.AreEqual(chartInfo.level, file.level);
-            Assert.AreEqual(chartInfo.difficulty, file.difficulty);
-            Assert.AreEqual(chartInfo.mode, file.mode);
+            Assert.AreEqual(Lr2ChartInfoSongProjection.NormalizeDifficulty(chartInfo.difficulty), file.difficulty);
             Assert.AreEqual((int?)chartInfo.maxbpm, file.maxbpm);
             Assert.AreEqual((int?)chartInfo.minbpm, file.minbpm);
             Assert.AreEqual(chartInfo.bga, file.bga);
@@ -2856,6 +2884,24 @@ createTempDirectory);
             Assert.AreEqual(chartInfo.notes, file.karinotes);
             Assert.AreEqual(0, file.longnote);
             Assert.AreEqual(0, file.random);
+            Assert.AreEqual(file.hash, song.hash);
+            Assert.AreEqual(chartPath, song.path);
+            Assert.AreEqual("keep-title", song.title);
+            Assert.AreEqual("keep-subtitle", song.subtitle);
+            Assert.AreEqual("keep-artist", song.artist);
+            Assert.AreEqual("keep-subartist", song.subartist);
+            Assert.AreEqual("keep-genre", song.genre);
+            Assert.AreEqual(77, song.type);
+            Assert.AreEqual("keep-folder", song.folder);
+            Assert.AreEqual("keep-stagefile", song.stagefile);
+            Assert.AreEqual("keep-banner", song.banner);
+            Assert.AreEqual("keep-backbmp", song.backbmp);
+            Assert.AreEqual("keep-parent", song.parent);
+            Assert.AreNotEqual(chartInfo.mode, song.mode);
+            Assert.AreEqual(14, song.mode);
+            Assert.AreEqual(9, song.judge);
+            Assert.AreEqual(111111, song.date);
+            Assert.AreEqual(1, song.txt);
             Assert.AreEqual(7, song.favorite);
             Assert.AreEqual("keep-user-tag", song.tag);
             Assert.AreEqual(123456, song.adddate);
@@ -2901,17 +2947,128 @@ createTempDirectory);
             Assert.AreEqual(snapshot.Sha256, file.sha256);
             Assert.AreEqual(17, file.level);
             Assert.AreEqual(5, file.difficulty);
-            Assert.AreEqual(14, file.mode);
+            Assert.AreEqual(5, file.mode);
             Assert.AreEqual(1, committedRows.Count);
             Assert.AreSame(current, committedRows[0]);
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", chartPath).Single();
             Assert.AreEqual(17, song.level);
             Assert.AreEqual(5, song.difficulty);
-            Assert.AreEqual(14, song.mode);
+            Assert.AreEqual(5, song.mode);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", snapshot.Sha256));
             Assert.AreEqual(current.updated_at, verify.ExecuteScalar<DateTime>("SELECT updated_at FROM chart_info WHERE sha256 = ?;", snapshot.Sha256));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", snapshot.Md5, snapshot.Sha256));
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(null, 2)]
+    [DataRow(-1, 2)]
+    [DataRow(6, 2)]
+    [DataRow(4, 4)]
+    public void BackfillChartInfos_ProjectionNormalizationMatchesNewChartPath(
+        int? difficulty,
+        int expectedDifficulty)
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "projection-parity.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE parity\r\n", Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            var file = new TestableBmsFile { path = chartPath, level = 1, difficulty = 1, mode = 5 };
+            file.SetHash(snapshot.Md5);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs([file]);
+            LR2SongDBExtended.chart_info current = CreateChartInfoRow(
+                snapshot.Sha256,
+                snapshot.Md5,
+                BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            current.level = null;
+            current.difficulty = difficulty;
+            current.difficulty_defined = difficulty.HasValue;
+            current.maxbpm = 199.9;
+            current.minbpm = null;
+            current.mode = 14;
+            current.judge = 100;
+            current.bga = null;
+            current.exlevel = null;
+            current.feature = 1 | 4 | 32;
+            current.notes = 2468;
+            gateway.UpsertChartInfos([current]);
+            var expected = new TestableBmsFile { path = chartPath, mode = 7 };
+            expected.SetHash(snapshot.Md5);
+            Lr2SongRowEnricher.EnrichFromChartInfo(expected, current);
+
+            ChartInfoBackfillResult result = BackfillChartInfos(
+                new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1),
+                gateway,
+                [file],
+                [],
+                existingRowsSnapshot: new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [snapshot.Sha256] = current
+                });
+
+            Assert.AreEqual(1, result.BackfilledCount);
+            Assert.AreEqual(1, result.SongProjectionMatchedCount);
+            Assert.AreEqual(expectedDifficulty, expected.difficulty);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", chartPath).Single();
+            Assert.AreEqual(expected.level, song.level);
+            Assert.AreEqual(expected.difficulty, song.difficulty);
+            Assert.AreEqual(expected.maxbpm, song.maxbpm);
+            Assert.AreEqual(expected.minbpm, song.minbpm);
+            Assert.AreEqual(expected.bga, song.bga);
+            Assert.AreEqual(expected.exlevel, song.exlevel);
+            Assert.AreEqual(expected.longnote, song.longnote);
+            Assert.AreEqual(expected.random, song.random);
+            Assert.AreEqual(expected.karinotes, song.karinotes);
+            Assert.AreEqual(5, song.mode);
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfos_MissingSongRowCommitsFactsWithoutInsertingSong()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "missing-song-row.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = new TestableBmsFile { path = chartPath, level = 2, difficulty = 1 };
+            file.SetHash(digest.hash);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
+            }
+            var warnings = new List<string>();
+            var committedRows = new List<LR2SongDBExtended.chart_info>();
+
+            ChartInfoBackfillResult result = BackfillChartInfos(
+                new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1),
+                gateway,
+                [file],
+                [],
+                logInstallPerformanceWarn: warnings.Add,
+                storageCommitPublished: publication => committedRows.AddRange(publication.AppliedRows));
+
+            Assert.AreEqual(1, result.BackfilledCount);
+            Assert.AreEqual(1, result.SongProjectionRequestedCount);
+            Assert.AreEqual(0, result.SongProjectionMatchedCount);
+            Assert.AreEqual(0, result.SongProjectionChangedCount);
+            Assert.AreEqual(1, result.SongProjectionMissingCount);
+            CollectionAssert.Contains(result.SongProjectionMissingPaths, chartPath);
+            Assert.IsTrue(warnings.Any(message => message.StartsWith("chart_info_backfill song_projection_missing", StringComparison.Ordinal)));
+            Assert.AreEqual(1, committedRows.Count);
+            Assert.AreEqual(2, file.level);
+            Assert.AreEqual(1, file.difficulty);
+            Assert.AreEqual(digest.sha256, file.sha256);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", digest.sha256));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", digest.hash, digest.sha256));
         });
     }
 
@@ -3009,7 +3166,7 @@ createTempDirectory);
             fileA.SetHash(digest.hash);
             fileB.SetHash(digest.hash);
             var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.EnsureChartInfoSchema();
+            gateway.UpsertSongs([fileA, fileB]);
             int readCount = 0;
             var service = new ChartInfoBuildService(delegate (string path)
             {
@@ -5484,6 +5641,8 @@ createTempDirectory);
         {
             return CatalogChartInfoStorageWriteReceipt.NotApplied;
         }
+        Lr2ChartInfoSongProjectionWriteResult songProjectionResult =
+            Lr2ChartInfoSongProjectionWriteResult.Empty;
         gateway.ExecuteSongDbTransaction(songDb =>
         {
             if (request.BmsRows.Count > 0)
@@ -5491,6 +5650,12 @@ createTempDirectory);
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
                 Lr2SongDbWriter.UpsertGeneratedSongs(songDb, request.BmsRows);
+            }
+            if (request.ChartInfoSongProjections.Count > 0)
+            {
+                songProjectionResult = Lr2SongDbWriter.UpdateChartInfoSongProjections(
+                    songDb,
+                    request.ChartInfoSongProjections);
             }
             if (request.BmsonRows.Count > 0)
             {
@@ -5517,7 +5682,8 @@ createTempDirectory);
                 request.ChartInfo.DigestEntries.Count,
                 request.ChartInfo.ChartInfoRows.Count,
                 request.ChartInfo.ParseFailureRows.Count,
-                request.ChartInfo.ParseFailureDeleteMd5s.Count));
+                request.ChartInfo.ParseFailureDeleteMd5s.Count),
+            songProjectionResult);
     }
 
     private static List<ChartFile> CreateChartSnapshot(

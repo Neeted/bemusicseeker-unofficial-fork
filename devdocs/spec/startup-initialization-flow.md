@@ -245,7 +245,7 @@ startup background scheduler は `MainWindowViewModel` が `BMSLibrary.StartupBa
 | --- | --- | ---: | --- |
 | `read_hydration` | `playlist_entries_hydration`, `chart_info_hydration` | 2 | local playlist entries と current chart-info session state |
 | `default` | `score_hydration_deferred`, LR2 song.db sync enrollment / required phase | 1 | score state と LR2 required completion |
-| progress phase | chart digest / chart-info backfill phase | task に応じる | request が不要ならskip完了。必要ならchart-info factsと対象BMS generated columnsのdurable commit、receipt後session/publicationまでcurrent generationの完了を待つ |
+| progress phase | chart digest / chart-info backfill phase | task に応じる | request が不要ならskip完了。必要ならchart-info factsと既存BMS songのnarrow chart-info projectionを同じtransactionでcommitし、receipt後session/publicationまでそのrequestの完了を待つ |
 
 `StartupBackgroundTasksDone` は scheduler 全体の empty ではなく、`runningRequiredCount == 0` かつ required request が queue に無い状態を表す。required scheduling enrollment が閉じ、他の expected startup phase も完了したときだけ進捗上の完了になる。
 
@@ -303,7 +303,7 @@ read-only hydration loader のルール:
 | `playlist_ref_apply` | playlist entries 完了後に library item と playlist reference を結び直す |
 | `playlist_url_completion` / `external_playlist_sync` | playlist entries 完了後に URL 補完・外部 playlist 同期を行う |
 | `chart_info_hydration` | profile に依存せずDBの current `chart_info` と current parse failure を owned chart と照合し、session index と candidate summaryを作る |
-| `chart_info_backfill` | 不足がある場合だけ補完する。success/current-row reuse対象BMSはgenerated columnsとfactsを同じtransactionで保存し、receipt後にsession/index/eventをpublishする。BMSONはLR2 `song` rowを作らない。全ownerがcurrentの場合は`reason=hydration_all_current`でskipし、完全current ownerの全件song drift監査は行わない |
+| `chart_info_backfill` | 不足がある場合だけ補完する。success/current-row reuse対象BMSは既存songのchart-info由来9列だけをupdate-onlyでfactsと同じtransactionへ保存し、receipt後にsession/index/eventをpublishする。基本列は再生成せず、missing songをINSERTしない。BMSONはLR2 `song` rowを作らない。全ownerがcurrentの場合は`reason=hydration_all_current`でskipし、完全current ownerの全件song drift監査は行わない |
 | `maintenance_hydration` | DB の persisted maintenance snapshot を owner へ attach し、resource health index を valid snapshot から rebuild する |
 | `installable_maintenance` | `chart_info_hydration` と `maintenance_hydration` 完了後に missing/stale maintenance を補完する |
 | `score_hydration_deferred` | DB ではなく memory score snapshot を `BMSFile` へ attach する |
@@ -311,7 +311,7 @@ read-only hydration loader のルール:
 
 background hydration 完了時の通常ライブラリ一覧更新は、起動中と起動後で扱いを分ける。`Startup` 中でも basic presentation 済みの通常ライブラリは表示されたままにし、`Score` / `Ranking` / `ChartInfo` / `Maintenance` / `PlaylistEntries` の完了は現在の表示条件と sort/filter の依存関係に基づいて扱う。`Score` / `Ranking` のように現在の通常ライブラリ全体表示へ影響しない更新は、起動中でも全件 `main_view_build` を行わない。`ChartInfo` / `Maintenance` / playlist reference apply など、表示列や warning、playlist reference 表示へ影響しうる更新は `startup_initialization_complete` 後の `startup_presentation_flush` へ遅延できる。起動後の reload / score-only update でも、同じく現在の表示条件と sort/filter が依存するデータ種別に基づいて更新を判定する。`Score` / `Ranking` 完了は score 系列 (`Clear`、`Rank`、`Rate`、`Score`、`BP`、`Ranking` など) の値を更新するが、`Title`、`Folder`、`path` などの identity sort key には影響しない。このため、通常ライブラリ全体表示で keyword/filter が空、かつ現在の sort が score 系列に依存しない場合は、全件 `main_view_build` を行わず、既存 row の property change による表示更新に任せる。
 
-`ChartInfo` hydration は `Level`、BPM、notes、TOTAL、density など chart info 系列に影響するが、`Title`、`Folder`、`path` には影響しない。通常ライブラリの sort cache は、所持譜面 membership 変更や identity sort key 変更で無効化し、chart info / score / maintenance の完了だけで identity sort cache を落とさない。ChartInfo hydrate/backfillはstorage ownerへruntime `ChartInfo`をsilent attachせず、session `ChartInfoIndex`とprojection providerを更新する。backfillのBMS generated-column durable projectionはこのruntime attach禁止とは別責務である。起動後に表示中のchart info列を反映するmain view refreshは維持するが、そのrefreshでidentity sort cacheを破棄しない。
+`ChartInfo` hydration は `Level`、BPM、notes、TOTAL、density など chart info 系列に影響するが、`Title`、`Folder`、`path` には影響しない。通常ライブラリの sort cache は、所持譜面 membership 変更や identity sort key 変更で無効化し、chart info / score / maintenance の完了だけで identity sort cache を落とさない。ChartInfo hydrate/backfillはstorage ownerへruntime `ChartInfo`をsilent attachせず、session `ChartInfoIndex`とprojection providerを更新する。backfillのBMS narrow song projectionはこのruntime attach禁止とは別責務であり、既存DBの基本列を変更しない。起動後に表示中のchart info列を反映するmain view refreshは維持するが、そのrefreshでidentity sort cacheを破棄しない。
 
 `playlist_url_completion` は、MD5-URL mapping TSV と Stella Uploader Full (`score_upload_full.json`) を process-local snapshot として保持する。同じ起動中の playlist reload / external sync / reset では再 download せず、保持済み snapshot を再適用する。設定画面で TSV URI または Stella Uploader Full 補完設定が変わった場合だけ、次回 schedule で必要な source を再取得してよい。候補適用時は TSV を優先し、TSV に同じ MD5 がない場合だけ Stella Full の `url` / `url_diff` を URL1/URL2 補完に使う。既存 URL が空欄、または `gnqg.rosx.net` / `absolute.pv.land.to` を含む既知のリンク切れ URL の場合は補完対象として扱い、補完候補がない場合は既存 URL を維持する。
 

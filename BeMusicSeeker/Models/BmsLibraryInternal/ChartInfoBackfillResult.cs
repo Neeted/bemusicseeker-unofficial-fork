@@ -86,6 +86,31 @@ internal sealed class ChartInfoBackfillResult
     public int FailureClearedCount { get; set; }
 
     /// <summary>
+    /// chart-info-derived song projection requests submitted to the catalog transaction.
+    /// </summary>
+    public int SongProjectionRequestedCount { get; set; }
+
+    /// <summary>
+    /// Projection requests whose existing song path and MD5 matched.
+    /// </summary>
+    public int SongProjectionMatchedCount { get; set; }
+
+    /// <summary>
+    /// Matched song rows whose chart-info-derived columns changed.
+    /// </summary>
+    public int SongProjectionChangedCount { get; set; }
+
+    /// <summary>
+    /// Projection requests for which no existing song path and MD5 matched.
+    /// </summary>
+    public int SongProjectionMissingCount { get; set; }
+
+    /// <summary>
+    /// Bounded diagnostic sample of paths whose song projection could not be applied.
+    /// </summary>
+    public List<string> SongProjectionMissingPaths { get; } = [];
+
+    /// <summary>
     /// 解析に失敗した譜面パスです。
     /// </summary>
     public List<string> FailedPaths { get; } = [];

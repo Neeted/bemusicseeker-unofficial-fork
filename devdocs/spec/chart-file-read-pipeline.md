@@ -205,7 +205,7 @@ full backfill は path から bytes を read する reader pipeline を維持す
 
 `ChartInfoBuildService` の full backfill は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は reader を 2 本まで並列化できる。reader は `readAllBytes` delegate で bytes だけを取得し、worker は MD5 / SHA-256 を一度だけ計算して snapshot を作り、事前解決した current row / parse failure とともに route-neutral evaluator へ渡す。`chart_info_backfill start/done` log には `workerCount`、`readerCount`、`queueCapacity`、`fileReadCount`、`fileReadBytes`、`readMs`、`parseMs` が出る。
 
-successとexisting-current reuseはいずれもstorage applicationを作る。BMSはduplicate MD5を一度だけread/evaluateし、同じtargetの全BMS owner用persistence copyへdigestとchart-info derived columnsを適用する。これらBMS generated rowsとchart-info factsは`CatalogChartInfoStorageWriteRequest`から同じtransactionへ渡し、`UpsertGeneratedSongs()`のbulk契約でuser columnsを保持する。BMSONは`chart_info` / session indexだけを更新し、LR2 `song` rowを作らない。durable receipt後だけcanonical owner、digest/index、session index、eventをpublishし、commit失敗時は部分publicationを行わない。
+successとexisting-current reuseはいずれもstorage applicationを作る。BMSはduplicate MD5を一度だけread/evaluateし、同じtargetの全BMS owner pathへdigestとnarrow chart-info song projectionをfan-outする。full backfillはBMS persistence copyやfull generated rowを作らず、既存`song` rowのchart-info由来9列だけをpath+MD5一致でupdateする。新規譜面生成と共有するのは9列の値変換・difficulty正規化・BPM/flag変換だけであり、基本列、`mode`、`judge`、user列は既存DB値を維持する。missing rowはINSERTせずdiagnostic count/sampleへ記録する。projectionとchart-info factsは`CatalogChartInfoStorageWriteRequest`から同じtransactionへ渡す。BMSONは`chart_info` / session indexだけを更新し、LR2 `song` rowを作らない。durable receipt後だけcanonical owner、digest/index、session index、eventをpublishし、commit失敗時は部分publicationを行わない。
 
 full backfill は新規ファイル追加の後処理ではない。新規・更新ファイルの lightweight parse、chart_info、可能な範囲の maintenance は file diff / install の処理単位で完了させる。
 
