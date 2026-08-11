@@ -103,8 +103,6 @@ public sealed class SettingsWindowPresentationTests
 
         Assert.IsFalse(document.Descendants(PresentationName("TabControl")).Any());
         Assert.IsFalse(document.Descendants(PresentationName("TabItem")).Any());
-        Assert.IsFalse(document.Descendants(PresentationName("ControlTemplate"))
-            .Any(element => element.Attribute("TargetType")?.Value.Contains("ListBoxItem", StringComparison.Ordinal) == true));
         Assert.AreEqual("Auto", pageScroller.Attribute("VerticalScrollBarVisibility")?.Value);
         Assert.AreEqual("Disabled", pageScroller.Attribute("HorizontalScrollBarVisibility")?.Value);
         Assert.IsFalse(saveButton.Ancestors(PresentationName("ScrollViewer")).Any());
@@ -115,6 +113,201 @@ public sealed class SettingsWindowPresentationTests
         Assert.IsNull(versionDocument.Attribute("Height"));
         Assert.AreEqual("Disabled", versionDocument.Attribute("VerticalScrollBarVisibility")?.Value);
         Assert.AreEqual("Disabled", versionDocument.Attribute("HorizontalScrollBarVisibility")?.Value);
+    }
+
+    [TestMethod]
+    public void SettingsWindow_UsesScopedThemeAwareVisualHierarchy()
+    {
+        XDocument document = LoadSettingsWindowXaml();
+        XElement operationGrid = FindNamedElement(document, "settingDialogOperationGrid");
+        XElement navigation = FindNamedElement(document, "settingsNavigation");
+        XElement header = document.Descendants(PresentationName("ContentControl"))
+            .Single(element => element.Attribute("Content")?.Value.Contains("SelectedItem.Content", StringComparison.Ordinal) == true);
+        XElement saveButton = FindNamedElement(document, "buttonOK");
+        XElement cancelButton = FindNamedElement(document, "buttonCancel");
+        XElement navigationStyle = FindKeyedStyle(document, "settingsNavigationItemStyle");
+        XElement primaryActionStyle = FindKeyedStyle(document, "settingsPrimaryActionButtonStyle");
+        XElement quietActionStyle = FindKeyedStyle(document, "settingsQuietActionButtonStyle");
+        XElement groupBoxStyle = document.Descendants(PresentationName("Style"))
+            .Single(style => style.Attribute("TargetType")?.Value == "{x:Type GroupBox}" && style.Attribute(XamlName("Key")) == null);
+        XElement labelStyle = document.Descendants(PresentationName("Style"))
+            .Single(style => style.Attribute("TargetType")?.Value == "{x:Type Label}" && style.Attribute(XamlName("Key")) == null);
+        XElement checkBoxStyle = document.Descendants(PresentationName("Style"))
+            .Single(style => style.Attribute("TargetType")?.Value == "{x:Type CheckBox}" && style.Attribute(XamlName("Key")) == null);
+        XElement radioButtonStyle = document.Descendants(PresentationName("Style"))
+            .Single(style => style.Attribute("TargetType")?.Value == "{x:Type RadioButton}" && style.Attribute(XamlName("Key")) == null);
+
+        Assert.IsTrue(operationGrid.Descendants(PresentationName("Style")).Contains(navigationStyle));
+        Assert.AreEqual("0,16", navigation.Attribute("Padding")?.Value);
+        Assert.AreEqual("26", header.Attribute("FontSize")?.Value);
+        Assert.AreEqual("{StaticResource settingsPrimaryActionButtonStyle}", saveButton.Attribute("Style")?.Value);
+        Assert.AreEqual("{StaticResource settingsQuietActionButtonStyle}", cancelButton.Attribute("Style")?.Value);
+        AssertStyleSetter(primaryActionStyle, "Background", "{DynamicResource App.AccentBrush}");
+        AssertStyleSetter(primaryActionStyle, "Foreground", "{DynamicResource Table.CurrentCellTextBrush}");
+        AssertStyleMultiTriggerSetter(primaryActionStyle, "IsMouseOver", "Foreground", "{DynamicResource App.TextBrush}");
+        AssertStyleMultiTriggerSetter(primaryActionStyle, "IsPressed", "Foreground", "{DynamicResource App.TextBrush}");
+        XElement[] primaryTriggers = primaryActionStyle
+            .Element(PresentationName("Style.Triggers"))!
+            .Elements()
+            .ToArray();
+        XElement disabledPrimaryTrigger = primaryTriggers[^1];
+        Assert.AreEqual("Trigger", disabledPrimaryTrigger.Name.LocalName);
+        Assert.AreEqual("IsEnabled", disabledPrimaryTrigger.Attribute("Property")?.Value);
+        Assert.AreEqual("False", disabledPrimaryTrigger.Attribute("Value")?.Value);
+        Assert.IsTrue(disabledPrimaryTrigger.Elements(PresentationName("Setter"))
+            .Any(setter => setter.Attribute("Property")?.Value == "Foreground"
+                && setter.Attribute("Value")?.Value == "{DynamicResource App.DisabledTextBrush}"));
+        AssertStyleSetter(quietActionStyle, "Background", "Transparent");
+
+        XElement navigationPill = navigationStyle.Descendants(PresentationName("Border"))
+            .Single(element => element.Attribute(XamlName("Name"))?.Value == "NavigationPill");
+        XElement selectionIndicator = navigationStyle.Descendants(PresentationName("Border"))
+            .Single(element => element.Attribute(XamlName("Name"))?.Value == "SelectionIndicator");
+        Assert.AreEqual("8", navigationPill.Attribute("CornerRadius")?.Value);
+        Assert.AreEqual("2", selectionIndicator.Attribute("CornerRadius")?.Value);
+        Assert.IsTrue(navigationStyle.Descendants(PresentationName("Trigger"))
+            .Any(trigger => trigger.Attribute("Property")?.Value == "IsKeyboardFocusWithin" && trigger.Attribute("Value")?.Value == "True"));
+        Assert.IsTrue(navigationStyle.Descendants(PresentationName("Trigger"))
+            .Any(trigger => trigger.Attribute("Property")?.Value == "IsEnabled" && trigger.Attribute("Value")?.Value == "False"));
+
+        XElement card = groupBoxStyle.Descendants(PresentationName("Border"))
+            .Single(element => element.Attribute(XamlName("Name"))?.Value == "SettingsCard");
+        Assert.AreEqual("12", card.Attribute("CornerRadius")?.Value);
+        AssertStyleSetter(groupBoxStyle, "Margin", "0,0,0,16");
+        AssertStyleSetter(groupBoxStyle, "Padding", "16,12,16,16");
+        AssertStyleSetter(groupBoxStyle, "Background", "{DynamicResource App.ControlBackgroundBrush}");
+        Assert.IsTrue(groupBoxStyle.Descendants(PresentationName("Trigger"))
+            .Any(trigger => trigger.Attribute("Property")?.Value == "IsEnabled" && trigger.Attribute("Value")?.Value == "False"));
+        Assert.IsTrue(labelStyle.Descendants(PresentationName("TextBlock"))
+            .Any(textBlock => textBlock.Attribute("TextWrapping")?.Value == "Wrap"));
+        Assert.IsTrue(checkBoxStyle.Descendants(PresentationName("TextBlock"))
+            .Any(textBlock => textBlock.Attribute("TextWrapping")?.Value == "Wrap"));
+        Assert.IsTrue(radioButtonStyle.Descendants(PresentationName("TextBlock"))
+            .Any(textBlock => textBlock.Attribute("TextWrapping")?.Value == "Wrap"));
+
+        string[] localTemplateTargets = operationGrid.Descendants(PresentationName("ControlTemplate"))
+            .Select(template => template.Attribute("TargetType")?.Value ?? string.Empty)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .ToArray();
+        CollectionAssert.AreEqual(new[] { "{x:Type GroupBox}", "{x:Type ListBoxItem}" }, localTemplateTargets);
+        foreach (string standardControlType in new[] { "Button", "TextBox", "ComboBox", "CheckBox", "RadioButton" })
+        {
+            XElement standardControlStyle = operationGrid.Descendants(PresentationName("Style"))
+                .Single(style => style.Attribute("TargetType")?.Value == "{x:Type " + standardControlType + "}" && style.Attribute(XamlName("Key")) == null);
+            Assert.AreEqual("{StaticResource {x:Type " + standardControlType + "}}", standardControlStyle.Attribute("BasedOn")?.Value);
+        }
+    }
+
+    [TestMethod]
+    public void SettingsWindow_FieldLayoutsUseFlexibleLabelValueAndActionColumns()
+    {
+        XDocument document = LoadSettingsWindowXaml();
+        List<XElement> fieldGrids = document.Descendants(PresentationName("Grid"))
+            .Where(grid => grid.Attribute("Style")?.Value == "{StaticResource settingsFieldGridStyle}")
+            .ToList();
+
+        Assert.IsTrue(fieldGrids.Count >= 24, "Every settings category with label/value/action fields must use responsive grids.");
+        foreach (XElement fieldGrid in fieldGrids)
+        {
+            List<XElement> columns = fieldGrid.Elements(PresentationName("Grid.ColumnDefinitions"))
+                .SelectMany(definitions => definitions.Elements(PresentationName("ColumnDefinition")))
+                .ToList();
+            Assert.IsTrue(columns.Count is 2 or 3, fieldGrid.ToString(SaveOptions.DisableFormatting));
+            Assert.IsTrue(columns[0].Attribute("Width")?.Value.Contains('*', StringComparison.Ordinal) == true);
+            Assert.IsTrue(columns[1].Attribute("Width")?.Value.Contains('*', StringComparison.Ordinal) == true);
+        }
+
+        XElement fieldGridStyle = FindKeyedStyle(document, "settingsFieldGridStyle");
+        AssertStyleSetter(fieldGridStyle, "Margin", "0,0,0,8");
+
+        Assert.IsFalse(document.Descendants(PresentationName("Label")).Any(label => label.Attribute("Height") != null),
+            "Localized labels must use auto height so wrapped content is not clipped.");
+        Assert.IsFalse(document.Descendants().Any(element => element.Attribute("Width")?.Value is "229" or "315"),
+            "Legacy paired field widths exceed the minimum-size content viewport.");
+
+        string[] responsiveFieldResources =
+        [
+            "Resources.DirPath_LR2",
+            "Resources.Player_uBMplay_desc",
+            "Resources.Device_setting_driver",
+            "Resources.Record_setting_filetype",
+            "Resources.Playlist_output",
+            "Resources.Install_Dst",
+            "Resources.Backup_lr2backup_saveto"
+        ];
+        foreach (string resourcePath in responsiveFieldResources)
+        {
+            XElement fieldContent = document.Descendants()
+                .Single(element => element.Attributes().Any(attribute =>
+                    attribute.Value.Contains("Path=" + resourcePath + ",", StringComparison.Ordinal)));
+            Assert.IsTrue(fieldContent.AncestorsAndSelf(PresentationName("Grid"))
+                .Any(grid => grid.Attribute("Style")?.Value == "{StaticResource settingsFieldGridStyle}"),
+                resourcePath + " must be hosted by a responsive field grid.");
+        }
+
+        Dictionary<string, int> expectedInteractiveElementCounts = new(StringComparer.Ordinal)
+        {
+            ["Button"] = 32,
+            ["CheckBox"] = 46,
+            ["RadioButton"] = 9,
+            ["TextBox"] = 20,
+            ["ComboBox"] = 15,
+            ["Slider"] = 7,
+            ["ListBox"] = 4,
+            ["GroupBox"] = 31,
+            ["Expander"] = 1
+        };
+        foreach ((string elementName, int expectedCount) in expectedInteractiveElementCounts)
+        {
+            Assert.AreEqual(expectedCount, document.Descendants(PresentationName(elementName)).Count(), elementName);
+        }
+
+        foreach (string playerName in new[] { "radioButtonPlayuBMplay", "radioButtonPlayBMIIDXView", "radioButtonPlayLR2body" })
+        {
+            XElement playerGrid = FindNamedElement(document, playerName)
+                .Ancestors(PresentationName("Grid"))
+                .First(grid => grid.Attribute("Style")?.Value == "{StaticResource settingsFieldGridStyle}");
+            XElement pathTextBox = playerGrid.Descendants(PresentationName("TextBox"))
+                .Single(textBox => textBox.Attribute("Grid.Row")?.Value == "0");
+            Assert.IsNull(pathTextBox.Attribute("Width"), playerName + " path must not inherit another field's ActualWidth.");
+            Assert.AreEqual("Stretch", pathTextBox.Attribute("HorizontalAlignment")?.Value);
+        }
+
+        XElement additionalOutputName = document.Descendants(PresentationName("Label"))
+            .Single(label => label.Attribute("Content")?.Value.Contains("Path=Resources.Playlist_output_additional_name,", StringComparison.Ordinal) == true);
+        XElement renameGrid = additionalOutputName.Parent!;
+        Assert.AreEqual("Grid", renameGrid.Name.LocalName);
+        Assert.AreEqual("1", renameGrid.Attribute("Grid.Row")?.Value);
+        XElement additionalOutputLayout = renameGrid.Parent!;
+        Assert.IsFalse(additionalOutputLayout.Elements(PresentationName("Grid.ColumnDefinitions")).Any());
+        XElement[] additionalOutputRows = additionalOutputLayout
+            .Elements(PresentationName("Grid.RowDefinitions"))
+            .Single()
+            .Elements(PresentationName("RowDefinition"))
+            .ToArray();
+        Assert.AreEqual(2, additionalOutputRows.Length);
+        CollectionAssert.AreEqual(
+            new[] { "Auto", "Auto" },
+            additionalOutputRows.Select(row => row.Attribute("Height")?.Value).ToArray());
+
+        XElement additionalOutputListAndActions = additionalOutputLayout.Elements(PresentationName("Grid"))
+            .Single(grid => grid.Attribute("Grid.Row")?.Value == "0");
+        XElement[] listAndActionColumns = additionalOutputListAndActions
+            .Elements(PresentationName("Grid.ColumnDefinitions"))
+            .Single()
+            .Elements(PresentationName("ColumnDefinition"))
+            .ToArray();
+        Assert.AreEqual(2, listAndActionColumns.Length);
+        CollectionAssert.AreEqual(
+            new[] { "*", "Auto" },
+            listAndActionColumns.Select(column => column.Attribute("Width")?.Value).ToArray());
+
+        XElement additionalOutputList = additionalOutputListAndActions.Elements(PresentationName("ListBox")).Single();
+        XElement additionalOutputActions = additionalOutputListAndActions.Elements(PresentationName("StackPanel")).Single();
+        Assert.AreEqual("0", additionalOutputList.Attribute("Grid.Column")?.Value);
+        Assert.AreEqual("1", additionalOutputActions.Attribute("Grid.Column")?.Value);
+        Assert.AreEqual("92", additionalOutputActions.Attribute("Width")?.Value);
     }
 
     [TestMethod]
@@ -356,6 +549,45 @@ public sealed class SettingsWindowPresentationTests
     private static XName PresentationName(string localName)
     {
         return XName.Get(localName, "http://schemas.microsoft.com/winfx/2006/xaml/presentation");
+    }
+
+    private static XName XamlName(string localName)
+    {
+        return XName.Get(localName, "http://schemas.microsoft.com/winfx/2006/xaml");
+    }
+
+    private static XElement FindKeyedStyle(XDocument document, string key)
+    {
+        return document.Descendants(PresentationName("Style"))
+            .Single(style => style.Attribute(XamlName("Key"))?.Value == key);
+    }
+
+    private static void AssertStyleSetter(XElement style, string property, string value)
+    {
+        Assert.IsTrue(style.Elements(PresentationName("Setter"))
+            .Any(setter => setter.Attribute("Property")?.Value == property && setter.Attribute("Value")?.Value == value),
+            property + "=" + value);
+    }
+
+    private static void AssertStyleMultiTriggerSetter(
+        XElement style,
+        string stateProperty,
+        string setterProperty,
+        string setterValue)
+    {
+        Assert.IsTrue(style.Descendants(PresentationName("MultiTrigger"))
+            .Where(trigger =>
+            {
+                XElement[] conditions = trigger
+                    .Element(PresentationName("MultiTrigger.Conditions"))!
+                    .Elements(PresentationName("Condition"))
+                    .ToArray();
+                return conditions.Any(condition => condition.Attribute("Property")?.Value == "IsEnabled" && condition.Attribute("Value")?.Value == "True")
+                    && conditions.Any(condition => condition.Attribute("Property")?.Value == stateProperty && condition.Attribute("Value")?.Value == "True");
+            })
+            .SelectMany(trigger => trigger.Elements(PresentationName("Setter")))
+            .Any(setter => setter.Attribute("Property")?.Value == setterProperty && setter.Attribute("Value")?.Value == setterValue),
+            "IsEnabled=True + " + stateProperty + "=True, " + setterProperty + "=" + setterValue);
     }
 
     private static string ExtractResourcePath(string binding)

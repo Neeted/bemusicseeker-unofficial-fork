@@ -192,7 +192,13 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 - キャンセル時は保存済みのテーマへ戻し、即時に `AppThemeService.ApplyTheme()` を呼ぶ。
 - 設定ウィンドウはopenごとに生成する。表示開始時にComboBox選択を現在設定へ同期し、表示中のtheme変更は同じWindowへ反映する。
 
-設定ウィンドウは標準 control の implicit style を使う。左navigation、選択状態、group枠、入力欄、下部actionなどは既存の `App.*` dynamic resource と `Simple Styles.xaml` のテーマresource参照に寄せる。独立Window化を理由に別の固定paletteを持たない。
+設定ウィンドウは標準 control の implicit styleを基礎にし、Window内へ閉じたstyleだけでvisual hierarchyを補う。左navigation、選択状態、card、入力欄、下部actionなどは既存の `App.*` dynamic resource と `Simple Styles.xaml` のテーマresource参照に寄せる。独立Window化を理由に別の固定paletteを持たない。
+
+- 左navigationの項目は rounded pill と左端のaccent indicatorで選択を示す。hover、keyboard focus、disabledもそれぞれtheme resourceで識別可能にする。
+- 設定groupは `App.ControlBackgroundBrush` / `App.BorderBrush` を使う rounded cardとし、カテゴリheader、card間、card内は `8 / 12 / 16 / 24` pxのspacing scaleへ揃える。
+- Save and closeは `App.AccentBrush` を使うprimary action、Cancelはtransparent backgroundのquiet actionとする。buttonのcommand/click、enabled、focus behaviorは既存contractを変えない。
+- label / value / actionの設定行はflexible Gridで構成し、長いcultureのlabelとcheckbox textは折り返す。本文だけを単一の縦ScrollViewerでscrollし、navigation、header、footerは固定する。
+- `ListBoxItem` と `GroupBox` はrounded visualを表現するためWindow内templateを持ってよい。`ComboBox`など標準partとkeyboard behaviorを持つcontrolのtemplateは置換せず、application implicit styleを継承する。
 
 ## アプリ内ダイアログ
 

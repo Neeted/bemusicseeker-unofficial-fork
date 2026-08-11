@@ -20,6 +20,9 @@
 - 設定ウィンドウは表示ごとに生成し、同時に複数表示しない。既存ウィンドウの表示中に open request を受けた場合は、そのウィンドウを前面へ戻す。
 - 設定ウィンドウは標準の WPF title bar を持ち、リサイズ可能とする。位置、サイズ、選択カテゴリ、scroll位置は永続化しない。
 - 現行の10カテゴリと順序を維持し、上部tabではなく常時labelを表示する単一選択の左navigationで切り替える。navigation、選択カテゴリのheader、下部actionは固定し、選択カテゴリの本文だけを縦scrollする。
+- 初期サイズは `920x680`、最小サイズは `760x500` とする。左navigationは muted surface 上の rounded pill で選択を示し、本文は大きなカテゴリheaderと rounded card で階層を表す。余白は `8 / 12 / 16 / 24` px を基準にする。
+- label / value / action を並べる設定行は、固定位置へ詰め込まず伸縮可能な Grid を使用する。長い翻訳labelとcheckbox contentは折り返し、最小サイズでも横scrollを必要としないことを presentation contract とする。
+- 下部actionでは Save and close を accent action、Cancel を quiet action として区別する。controlの通常、hover、focus、disabled状態は既存theme resourceと標準control behaviorを維持し、設定画面専用の固定paletteを追加しない。
 - カテゴリ検索、カテゴリ再分類、設定値の即時保存化、独立draftへの移行はこのpresentation変更の対象外とする。
 - light / dark theme と表示中のculture変更は、同じ設定ウィンドウへ反映する。新しいユーザー向け文言は全言語resourceで管理する。
 - 設定ウィンドウから開くpicker、確認dialog、子Windowは、active modal ownerとして設定ウィンドウを所有者にする。
