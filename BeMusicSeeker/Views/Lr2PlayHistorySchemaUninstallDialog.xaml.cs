@@ -7,7 +7,7 @@ namespace BeMusicSeeker.Views;
 /// LR2 play history schema のアンインストール範囲を確認するダイアログです。
 /// trigger だけを外す操作と、履歴 table も削除する操作の事故を避けるため別ウィンドウで明示します。
 /// </summary>
-public partial class Lr2PlayHistorySchemaUninstallDialog : Window
+public partial class Lr2PlayHistorySchemaUninstallDialog : ThemedWindow
 {
     /// <summary>
     /// ダイアログを初期化します。

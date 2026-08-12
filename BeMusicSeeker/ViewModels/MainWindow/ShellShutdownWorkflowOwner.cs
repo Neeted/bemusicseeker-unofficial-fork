@@ -116,6 +116,8 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private readonly Action<string> markCoordinatedShutdownStarted;
 
+    private readonly Action requestApplicationShutdown;
+
     private readonly Func<Task> stopPerformanceDiagnostics;
 
     private readonly Func<Func<Task>, Task> dispatchToUi;
@@ -156,8 +158,33 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private bool terminalResourcesClosed;
 
+    private int terminalApplicationShutdownRequested;
+
     private Task failureDrainTask;
 
+    /// <summary>
+    /// Creates the owner that coordinates shell shutdown preparation, terminal cleanup, and the final application-lifetime request.
+    /// </summary>
+    /// <param name="startupUpdateWorkflow">Startup update workflow that shares shutdown preparation.</param>
+    /// <param name="elevatedProcessWarningWorkflow">Elevated-process warning workflow notified during shutdown.</param>
+    /// <param name="startupBackgroundTaskScheduler">Owner of startup background tasks that must drain.</param>
+    /// <param name="regularChartListOwner">Regular chart list owner that must stop background work.</param>
+    /// <param name="playlistWorkspace">Playlist workspace whose operations must drain.</param>
+    /// <param name="playHistoryWorkflowOwner">Play-history workflow owner whose refresh must drain.</param>
+    /// <param name="packageInstallWorkflow">Package-install workflow cancelled during shutdown.</param>
+    /// <param name="maintenanceRescanWorkflow">Maintenance rescan workflow cancelled during shutdown.</param>
+    /// <param name="folderAutoRenameWorkflow">Folder rename workflow cancelled during shutdown.</param>
+    /// <param name="playbackPanel">Playback owner closed during terminal cleanup.</param>
+    /// <param name="settingsEditSession">Settings session saved during terminal cleanup.</param>
+    /// <param name="mainOperationSemaphore">Semaphore used to wait for the main operation boundary.</param>
+    /// <param name="startupProgressWorkflowOwner">Startup progress owner used to block and unblock interaction.</param>
+    /// <param name="markCoordinatedShutdownStarted">Marks the process lifetime as coordinated before preparation.</param>
+    /// <param name="requestApplicationShutdown">Requests final application termination after terminal cleanup.</param>
+    /// <param name="stopPerformanceDiagnostics">Stops performance diagnostics during preparation.</param>
+    /// <param name="dispatchToUi">Dispatches terminal UI work to the shell thread.</param>
+    /// <param name="logShutdown">Writes normal shutdown diagnostics.</param>
+    /// <param name="logShutdownWarning">Writes shutdown warning diagnostics.</param>
+    /// <param name="formatTextForLog">Formats untrusted values for shutdown diagnostics.</param>
     internal ShellShutdownWorkflowOwner(
         StartupUpdateWorkflowOwner startupUpdateWorkflow,
         ElevatedProcessWarningWorkflowOwner elevatedProcessWarningWorkflow,
@@ -173,6 +200,7 @@ internal sealed class ShellShutdownWorkflowOwner
         SemaphoreSlim mainOperationSemaphore,
         StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<string> markCoordinatedShutdownStarted,
+        Action requestApplicationShutdown,
         Func<Task> stopPerformanceDiagnostics,
         Func<Func<Task>, Task> dispatchToUi,
         Action<string> logShutdown,
@@ -194,6 +222,7 @@ internal sealed class ShellShutdownWorkflowOwner
         this.mainOperationSemaphore = mainOperationSemaphore ?? throw new ArgumentNullException(nameof(mainOperationSemaphore));
         this.startupProgressWorkflowOwner = startupProgressWorkflowOwner ?? throw new ArgumentNullException(nameof(startupProgressWorkflowOwner));
         this.markCoordinatedShutdownStarted = markCoordinatedShutdownStarted ?? throw new ArgumentNullException(nameof(markCoordinatedShutdownStarted));
+        this.requestApplicationShutdown = requestApplicationShutdown ?? throw new ArgumentNullException(nameof(requestApplicationShutdown));
         this.stopPerformanceDiagnostics = stopPerformanceDiagnostics ?? throw new ArgumentNullException(nameof(stopPerformanceDiagnostics));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logShutdown = logShutdown ?? throw new ArgumentNullException(nameof(logShutdown));
@@ -289,6 +318,20 @@ internal sealed class ShellShutdownWorkflowOwner
         {
             logShutdown("temp_remove_failed message=" + exception.Message);
         }
+    }
+
+    /// <summary>
+    /// Requests process termination through the composed application-lifetime boundary exactly once.
+    /// The shell calls this only after window-state capture and terminal resource cleanup complete.
+    /// </summary>
+    internal void RequestTerminalApplicationShutdown()
+    {
+        if (Interlocked.Exchange(ref terminalApplicationShutdownRequested, 1) != 0)
+        {
+            return;
+        }
+
+        requestApplicationShutdown();
     }
 
     internal bool IsClosingOrClosed

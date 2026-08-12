@@ -54,6 +54,8 @@ public class Resources
 
     public static string Advanced_settings => ResourceManager.GetString("Advanced_settings", resourceCulture);
 
+    public static string Settings_window_title => ResourceManager.GetString("Settings_window_title", resourceCulture);
+
     public static string Advanced_features => ResourceManager.GetString("Advanced_features", resourceCulture);
 
     public static string Appearance => ResourceManager.GetString("Appearance", resourceCulture);
@@ -190,6 +192,8 @@ public class Resources
     public static string Msg_confirm_enable_offline_score_ranking_estimation => ResourceManager.GetString("Msg_confirm_enable_offline_score_ranking_estimation", resourceCulture);
 
     public static string Msg_confirm_enable_lr2ir_ranking_cache_startup_update => ResourceManager.GetString("Msg_confirm_enable_lr2ir_ranking_cache_startup_update", resourceCulture);
+
+    public static string Audio => ResourceManager.GetString("Audio", resourceCulture);
 
     public static string Device => ResourceManager.GetString("Device", resourceCulture);
 
@@ -1016,6 +1020,8 @@ public class Resources
 
     public static string Record => ResourceManager.GetString("Record", resourceCulture);
 
+    public static string Recording => ResourceManager.GetString("Recording", resourceCulture);
+
     public static string Record_setting => ResourceManager.GetString("Record_setting", resourceCulture);
 
     public static string Record_setting_encoder => ResourceManager.GetString("Record_setting_encoder", resourceCulture);
@@ -1212,6 +1218,8 @@ public class Resources
     public static string Use_beatoraja_scoreDB => ResourceManager.GetString("Use_beatoraja_scoreDB", resourceCulture);
 
     public static string Use_beatoraja_bmt_output => ResourceManager.GetString("Use_beatoraja_bmt_output", resourceCulture);
+
+    public static string About_this_app => ResourceManager.GetString("About_this_app", resourceCulture);
 
     public static string Version_info => ResourceManager.GetString("Version_info", resourceCulture);
 
@@ -1994,6 +2002,56 @@ public class Resources
     public static string AudioDeviceTestObservationTimeoutReason => ResourceManager.GetString("AudioDeviceTestObservationTimeoutReason", resourceCulture);
 
     public static string AudioDeviceTestUnexpectedFailureReason => ResourceManager.GetString("AudioDeviceTestUnexpectedFailureReason", resourceCulture);
+
+    public static string Operation_Mode_Standalone => ResourceManager.GetString("Operation_Mode_Standalone", resourceCulture);
+    public static string Operation_Mode_LR2 => ResourceManager.GetString("Operation_Mode_LR2", resourceCulture);
+    public static string LR2_integration => ResourceManager.GetString("LR2_integration", resourceCulture);
+    public static string Settings_appearance_theme_description => ResourceManager.GetString("Settings_appearance_theme_description", resourceCulture);
+    public static string Settings_appearance_theme_light_description => ResourceManager.GetString("Settings_appearance_theme_light_description", resourceCulture);
+    public static string Settings_appearance_theme_dark_description => ResourceManager.GetString("Settings_appearance_theme_dark_description", resourceCulture);
+    public static string Settings_appearance_table_description => ResourceManager.GetString("Settings_appearance_table_description", resourceCulture);
+    public static string Settings_player_executable_path => ResourceManager.GetString("Settings_player_executable_path", resourceCulture);
+    public static string Settings_player_lr2_description => ResourceManager.GetString("Settings_player_lr2_description", resourceCulture);
+    public static string Settings_movie_playback_description => ResourceManager.GetString("Settings_movie_playback_description", resourceCulture);
+    public static string Settings_audio_output_description => ResourceManager.GetString("Settings_audio_output_description", resourceCulture);
+    public static string Settings_audio_advanced => ResourceManager.GetString("Settings_audio_advanced", resourceCulture);
+    public static string Settings_recording_format_description => ResourceManager.GetString("Settings_recording_format_description", resourceCulture);
+    public static string Settings_token_artist => ResourceManager.GetString("Settings_token_artist", resourceCulture);
+    public static string Settings_token_title => ResourceManager.GetString("Settings_token_title", resourceCulture);
+    public static string Settings_token_genre => ResourceManager.GetString("Settings_token_genre", resourceCulture);
+    public static string Settings_token_number => ResourceManager.GetString("Settings_token_number", resourceCulture);
+    public static string Settings_token_file => ResourceManager.GetString("Settings_token_file", resourceCulture);
+    public static string Settings_token_hash => ResourceManager.GetString("Settings_token_hash", resourceCulture);
+    public static string Settings_library_composition_description => ResourceManager.GetString("Settings_library_composition_description", resourceCulture);
+    public static string Settings_standalone_description => ResourceManager.GetString("Settings_standalone_description", resourceCulture);
+    public static string Settings_lr2_linked_description => ResourceManager.GetString("Settings_lr2_linked_description", resourceCulture);
+    public static string Settings_bms_directories_description => ResourceManager.GetString("Settings_bms_directories_description", resourceCulture);
+    public static string Settings_list_drag_drop_hint => ResourceManager.GetString("Settings_list_drag_drop_hint", resourceCulture);
+    public static string Settings_lr2_paths_description => ResourceManager.GetString("Settings_lr2_paths_description", resourceCulture);
+    public static string Settings_path_detected => ResourceManager.GetString("Settings_path_detected", resourceCulture);
+    public static string Settings_path_missing => ResourceManager.GetString("Settings_path_missing", resourceCulture);
+    public static string Settings_edit_custom_lr2_paths => ResourceManager.GetString("Settings_edit_custom_lr2_paths", resourceCulture);
+    public static string Settings_lr2_advanced_title => ResourceManager.GetString("Settings_lr2_advanced_title", resourceCulture);
+    public static string Settings_lr2_advanced_description => ResourceManager.GetString("Settings_lr2_advanced_description", resourceCulture);
+    public static string Settings_lr2_advanced_persistence_note => ResourceManager.GetString("Settings_lr2_advanced_persistence_note", resourceCulture);
+    public static string Settings_done => ResourceManager.GetString("Settings_done", resourceCulture);
+    public static string Enable => ResourceManager.GetString("Enable", resourceCulture);
+    public static string Install_shift_jis_description => ResourceManager.GetString("Install_shift_jis_description", resourceCulture);
+    public static string Settings_danger_zone => ResourceManager.GetString("Settings_danger_zone", resourceCulture);
+    public static string Settings_danger_zone_description => ResourceManager.GetString("Settings_danger_zone_description", resourceCulture);
+    public static string Settings_uninstall_application_data => ResourceManager.GetString("Settings_uninstall_application_data", resourceCulture);
+    public static string About_application_icon => ResourceManager.GetString("About_application_icon", resourceCulture);
+    public static string About_application_name => ResourceManager.GetString("About_application_name", resourceCulture);
+    public static string About_release_notes_button => ResourceManager.GetString("About_release_notes_button", resourceCulture);
+    public static string About_license_and_credits => ResourceManager.GetString("About_license_and_credits", resourceCulture);
+    public static string About_original_credit => ResourceManager.GetString("About_original_credit", resourceCulture);
+    public static string About_fork_credit => ResourceManager.GetString("About_fork_credit", resourceCulture);
+    public static string About_mit_license_link => ResourceManager.GetString("About_mit_license_link", resourceCulture);
+    public static string About_links => ResourceManager.GetString("About_links", resourceCulture);
+    public static string About_project_link => ResourceManager.GetString("About_project_link", resourceCulture);
+    public static string About_original_site_link => ResourceManager.GetString("About_original_site_link", resourceCulture);
+    public static string About_version_format => ResourceManager.GetString("About_version_format", resourceCulture);
+    public static string About_build_format => ResourceManager.GetString("About_build_format", resourceCulture);
 
     internal Resources()
     {

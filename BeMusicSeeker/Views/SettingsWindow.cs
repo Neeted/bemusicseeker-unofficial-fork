@@ -18,29 +18,27 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
+using BeMusicSeeker.Views.Settings;
+using BeMusicSeeker.Views.Settings.Pages;
 
 namespace BeMusicSeeker.Views;
 
 /// <summary>
 /// 設定編集セッションを MainWindow owner の modal Window として表示します。
 /// </summary>
-public partial class SettingsWindow : Window, IComponentConnector
+public partial class SettingsWindow : ThemedWindow, IComponentConnector
 {
     public static readonly DependencyProperty PlaybackPanelProperty = DependencyProperty.Register(
         nameof(PlaybackPanel),
         typeof(PlaybackPanelViewModel),
         typeof(SettingsWindow),
-        new PropertyMetadata(null));
+        new PropertyMetadata(null, playbackPanelChanged));
 
     public static readonly DependencyProperty PlaylistWorkspaceProperty = DependencyProperty.Register(
         nameof(PlaylistWorkspace),
         typeof(PlaylistWorkspaceViewModel),
         typeof(SettingsWindow),
         new PropertyMetadata(null));
-
-    internal Binding bindingLR2CustomFolderOutputDir;
-
-    internal Binding bindingBMSInstallDir;
 
     private SettingsWindowCloseReason closeReason;
 
@@ -51,6 +49,10 @@ public partial class SettingsWindow : Window, IComponentConnector
     private bool userCancellationQueued;
 
     private bool viewOperationInProgress;
+
+    private readonly IUiDialogService dialogService;
+
+    private readonly UserControl[] categoryPages;
 
     /// <summary>
     /// Gets the reason selected for the current window close operation.
@@ -93,13 +95,60 @@ public partial class SettingsWindow : Window, IComponentConnector
     /// 設定ウィンドウを初期化します。表示状態は Window lifecycle override で ViewModel へ通知します。
     /// </summary>
     public SettingsWindow()
+        : this(new DwmNativeWindowTitleBarGateway(), new AppNativeWindowTitleBarThemeSource(), new UiDialogCoordinator())
     {
+    }
+
+    /// <summary>Initializes the settings window with an injectable dialog boundary.</summary>
+    internal SettingsWindow(IUiDialogService dialogService)
+        : this(new DwmNativeWindowTitleBarGateway(), new AppNativeWindowTitleBarThemeSource(), dialogService)
+    {
+    }
+
+    /// <summary>
+    /// テスト可能な title-bar 境界を使って設定ウィンドウを初期化します。
+    /// </summary>
+    /// <param name="titleBarGateway">標準 Window chrome へ任意のテーマ属性を適用する境界。</param>
+    /// <param name="titleBarThemeSource">現在の semantic palette と変更通知を供給する境界。</param>
+    internal SettingsWindow(
+        INativeWindowTitleBarGateway titleBarGateway,
+        INativeWindowTitleBarThemeSource titleBarThemeSource)
+        : this(titleBarGateway, titleBarThemeSource, new UiDialogCoordinator())
+    {
+    }
+
+    /// <summary>Initializes the settings window with testable title-bar and dialog boundaries.</summary>
+    internal SettingsWindow(
+        INativeWindowTitleBarGateway titleBarGateway,
+        INativeWindowTitleBarThemeSource titleBarThemeSource,
+        IUiDialogService dialogService)
+        : base(titleBarGateway, titleBarThemeSource)
+    {
+        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         InitializeComponent();
-        var entryAssembly = Assembly.GetEntryAssembly();
-        string text = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
-        string text2 = entryAssembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-        textBlockVerNum.Text = string.IsNullOrWhiteSpace(text2) ? text : text2;
-        textBlockBuildNum.Text = "Build: " + text;
+        categoryPages =
+        [
+            new GeneralSettingsPage(),
+            new AppearanceSettingsPage(),
+            new PlaybackSettingsPage(),
+            new AudioSettingsPage { PlaybackPanel = PlaybackPanel },
+            new RecordingSettingsPage(),
+            new PlaylistSettingsPage(),
+            new InstallSettingsPage(),
+            new BackupSettingsPage(),
+            new AdvancedSettingsPage(),
+            new AboutSettingsPage()
+        ];
+        settingsPageContent.Content = categoryPages[0];
+    }
+
+    private static void playbackPanelChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)
+    {
+        if (dependencyObject is SettingsWindow window
+            && window.categoryPages?.ElementAtOrDefault(3) is AudioSettingsPage audioPage)
+        {
+            audioPage.PlaybackPanel = (PlaybackPanelViewModel)e.NewValue;
+        }
     }
 
     /// <summary>
@@ -109,7 +158,7 @@ public partial class SettingsWindow : Window, IComponentConnector
     protected override void OnContentRendered(EventArgs e)
     {
         base.OnContentRendered(e);
-        if (presentationActivated)
+        if (presentationActivated || !IsVisible)
         {
             return;
         }
@@ -118,7 +167,6 @@ public partial class SettingsWindow : Window, IComponentConnector
         presentationActivated = true;
         settingDialogViewModel.SetPresentationActive(true);
         var stopwatch = Stopwatch.StartNew();
-        RefreshAppearanceThemeSelection(settingDialogViewModel);
         settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();
         long handlerMs = stopwatch.ElapsedMilliseconds;
         string detail =
@@ -315,10 +363,17 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
+    /// <summary>
+    /// Refreshes the connected Appearance selector through its existing binding without creating a local value.
+    /// </summary>
+    /// <param name="settingDialogViewModel">The shared settings edit session expected on the connected page.</param>
     internal void RefreshAppearanceThemeSelection(SettingsDialogViewModel settingDialogViewModel)
     {
-        comboBoxAppearanceTheme.GetBindingExpression(Selector.SelectedValueProperty)?.UpdateTarget();
-        comboBoxAppearanceTheme.SelectedValue ??= settingDialogViewModel.AppearanceTheme;
+        AppearanceSettingsPage appearancePage = (AppearanceSettingsPage)categoryPages[1];
+        if (appearancePage.IsLoaded && ReferenceEquals(appearancePage.DataContext, settingDialogViewModel))
+        {
+            appearancePage.RefreshThemeSelection();
+        }
     }
 
     private SettingsDialogViewModel GetSettingDialogViewModel()
@@ -327,19 +382,17 @@ public partial class SettingsWindow : Window, IComponentConnector
             ?? throw new InvalidOperationException("Setting dialog view model is unavailable.");
     }
 
-    private void operationModeRadioButtonClick(object sender, RoutedEventArgs e)
+    private void settingsNavigationSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        bool requestedOperationMode = sender switch
+        if (categoryPages == null
+            || settingsNavigation.SelectedIndex < 0
+            || settingsNavigation.SelectedIndex >= categoryPages.Length)
         {
-            _ when ReferenceEquals(sender, radioButtonUseLR2) => true,
-            _ when ReferenceEquals(sender, radioButtonNotUseLR2) => false,
-            _ => throw new InvalidOperationException("Unexpected operation mode selection source.")
-        };
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        if (settingDialogViewModel.OperationModeLR2DB != requestedOperationMode)
-        {
-            settingDialogViewModel.OperationModeLR2DB = requestedOperationMode;
+            return;
         }
+
+        settingsPageContent.Content = categoryPages[settingsNavigation.SelectedIndex];
+        settingsPageScrollViewer.ScrollToVerticalOffset(0d);
     }
 
     private async void buttonOKClick(object sender, RoutedEventArgs e)
@@ -363,7 +416,7 @@ public partial class SettingsWindow : Window, IComponentConnector
     private void PickRootFolderForSetting(string propertyName, string selectedPath, string title = null)
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        UiFolderPickerResult result = new UiDialogCoordinator()
+        UiFolderPickerResult result = dialogService
             .PickFolderAsync(new UiFolderPickerRequest(
                 title,
                 selectedPath,
@@ -381,7 +434,7 @@ public partial class SettingsWindow : Window, IComponentConnector
     private void PickDirectoryForSetting(string propertyName, string selectedPath, string title = null)
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        UiFolderPickerResult result = new UiDialogCoordinator()
+        UiFolderPickerResult result = dialogService
             .PickFolderAsync(new UiFolderPickerRequest(
                 title,
                 selectedPath,
@@ -399,7 +452,7 @@ public partial class SettingsWindow : Window, IComponentConnector
     private void PickFileForSetting(string propertyName, string title, string fileName, string filter, string initialDirectory)
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        UiFilePickerResult result = new UiDialogCoordinator()
+        UiFilePickerResult result = dialogService
             .PickFileAsync(new UiFilePickerRequest(
                 title,
                 fileName,
@@ -444,13 +497,15 @@ public partial class SettingsWindow : Window, IComponentConnector
         return string.IsNullOrWhiteSpace(second) ? string.Empty : Path.GetDirectoryName(second) ?? string.Empty;
     }
 
-    private void browseLr2RootPathButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the LR2 root picker route for category pages.</summary>
+    internal void HandleBrowseLr2RootPath()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(nameof(settingDialogViewModel.LR2RootPath), settingDialogViewModel.LR2RootPath);
     }
 
-    private void browseLr2SongDbPathButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the LR2 song database picker route for category pages.</summary>
+    internal void HandleBrowseLr2SongDbPath()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
@@ -461,7 +516,16 @@ public partial class SettingsWindow : Window, IComponentConnector
             PathToDirectoryOrSelf(settingDialogViewModel.LR2SongDBPath));
     }
 
-    private void browseLr2ConfigPathButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Picks a song database path for the LR2 advanced dialog without mutating the parent settings draft.</summary>
+    internal Task<string> PickLr2AdvancedSongDbPathAsync(string currentPath) => PickLr2AdvancedFilePathAsync(
+        "song.db を開く",
+        "song.db",
+        "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*",
+        currentPath,
+        "LR2 advanced song database picker");
+
+    /// <summary>Owns the LR2 configuration picker route for category pages.</summary>
+    internal void HandleBrowseLr2ConfigPath()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
@@ -472,13 +536,100 @@ public partial class SettingsWindow : Window, IComponentConnector
             PathToDirectoryOrSelf(settingDialogViewModel.LR2ConfigXmlPath));
     }
 
-    private void browseBeatorajaRootPathButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Picks a configuration path for the LR2 advanced dialog without mutating the parent settings draft.</summary>
+    internal Task<string> PickLr2AdvancedConfigPathAsync(string currentPath) => PickLr2AdvancedFilePathAsync(
+        "config.xml を開く",
+        "config.xml",
+        "|config.xm?|すべてのファイル(*.*)|*.*",
+        currentPath,
+        "LR2 advanced configuration picker");
+
+    private async Task<string> PickLr2AdvancedFilePathAsync(
+        string title,
+        string fileName,
+        string filter,
+        string currentPath,
+        string routeName)
+    {
+        UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
+            title,
+            fileName,
+            PathToDirectoryOrSelf(currentPath),
+            filter,
+            defaultExtension: null,
+            multiselect: false,
+            ensureFileExists: true,
+            ensurePathExists: true,
+            owner: this));
+        ThrowIfPickerFailed(result.Status, result.Error, routeName);
+        return result.Status == UiDialogStatus.Accepted ? result.FileName : null;
+    }
+
+    /// <summary>Shows the owned advanced LR2 path editor over the current settings draft.</summary>
+    /// <returns>A task that completes when the owned LR2 path editor closes.</returns>
+    internal async Task HandleEditCustomLr2PathsAsync()
+    {
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        UiWindowDialogResult<object> result = await dialogService.ShowWindowAsync(
+            new UiWindowDialogRequest<Lr2AdvancedPathsDialog, object>(
+                () => new Lr2AdvancedPathsDialog(settingDialogViewModel),
+                _ => null,
+                Window.GetWindow(this)));
+        ThrowIfWindowDialogFailed(result.Status, result.Error, "LR2 advanced paths dialog");
+    }
+
+    /// <summary>Logs a settings presentation route failure and attempts one owner-bound localized notification.</summary>
+    internal async Task HandleSettingsRouteFailureAsync(Exception exception, string routeName)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        string effectiveRouteName = string.IsNullOrWhiteSpace(routeName) ? "settings dialog route" : routeName;
+        Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindow)).Error(exception, effectiveRouteName + " failed");
+        try
+        {
+            UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK,
+                owner: this));
+            if (notification.Status is not (UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
+            {
+                Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindow)).Error(
+                    notification.Exception,
+                    effectiveRouteName + " failure notification was not shown: " + notification.Status);
+            }
+        }
+        catch (Exception notificationException)
+        {
+            Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindow)).Error(
+                notificationException,
+                effectiveRouteName + " failure notification failed");
+        }
+    }
+
+    /// <summary>Shows release notes through the injected modal dialog boundary without changing the settings draft.</summary>
+    /// <returns>A task that completes when the owned release-notes window closes.</returns>
+    internal async Task HandleShowReleaseNotesAsync()
+    {
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        UiWindowDialogResult<object> result = await dialogService.ShowWindowAsync(
+            new UiWindowDialogRequest<ReleaseNotesWindow, object>(
+                () => new ReleaseNotesWindow { DataContext = settingDialogViewModel },
+                _ => null,
+                this));
+        ThrowIfWindowDialogFailed(result.Status, result.Error, "Release notes dialog");
+    }
+
+    /// <summary>Owns the beatoraja root picker route for the General page.</summary>
+    internal void HandleBrowseBeatorajaRootPath()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(nameof(settingDialogViewModel.BeatorajaRootPath), settingDialogViewModel.BeatorajaRootPath);
     }
 
-    private void importBeatorajaTableUrlsButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Starts the workspace-owned beatoraja table import requested by the General page.</summary>
+    internal void HandleImportBeatorajaTableUrls()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
@@ -486,7 +637,8 @@ public partial class SettingsWindow : Window, IComponentConnector
         playlistWorkspace.StartBeatorajaTableUrlImport(settingDialogViewModel.BeatorajaRootPath);
     }
 
-    private void browseStagefilePathButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the stage image picker route for the Appearance page.</summary>
+    internal void HandleBrowseStagefilePath()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
@@ -497,7 +649,8 @@ public partial class SettingsWindow : Window, IComponentConnector
             PathToDirectoryOrSelf(settingDialogViewModel.StagefilePath));
     }
 
-    private void browseUbmplayPathButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the uBMplay executable picker route for the Playback page.</summary>
+    internal void HandleBrowseUbmplayPath()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
@@ -508,7 +661,8 @@ public partial class SettingsWindow : Window, IComponentConnector
             PathToDirectoryOrSelf(settingDialogViewModel.uBMplayPath));
     }
 
-    private void browseBmIdxViewPathButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the BMIIDXView executable picker route for the Playback page.</summary>
+    internal void HandleBrowseBmIdxViewPath()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
@@ -519,12 +673,14 @@ public partial class SettingsWindow : Window, IComponentConnector
             PathToDirectoryOrSelf(settingDialogViewModel.BMIIDXViewPath));
     }
 
-    private void browseEncoderExeDirButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the encoder directory picker route for the Recording page.</summary>
+    internal void HandleBrowseEncoderExecutableDirectory()
     {
         PickDirectoryForSetting(nameof(SettingsDialogViewModel.EncoderExeDir), null, BeMusicSeeker.Properties.Resources.Record_setting_encoder_dir_dialog);
     }
 
-    private void browseLr2CustomFolderOutputDirButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the standard custom-folder output picker route.</summary>
+    internal void HandleBrowseLr2CustomFolderOutputDirectory()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(
@@ -532,7 +688,8 @@ public partial class SettingsWindow : Window, IComponentConnector
             FirstNonEmpty(settingDialogViewModel.LR2CustomFolderOutputDir, settingDialogViewModel.LR2RootPath));
     }
 
-    private void browseLr2CustomFolderAsRootOutputDirButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the root custom-folder output picker route.</summary>
+    internal void HandleBrowseLr2CustomFolderAsRootOutputDirectory()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(
@@ -540,7 +697,8 @@ public partial class SettingsWindow : Window, IComponentConnector
             FirstNonEmptyOrDirectoryOfSecond(settingDialogViewModel.LR2CustomFolderAsRootOutputDir, settingDialogViewModel.LR2CustomFolderOutputDir));
     }
 
-    private void addBmsInstallDirButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the install-directory picker route for the Install page.</summary>
+    internal void HandleAddBmsInstallDirectory()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         UiFolderPickerResult result = new UiDialogCoordinator()
@@ -557,15 +715,11 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
-    private void browseLr2BackupPathButtonClick(object sender, RoutedEventArgs e)
+    /// <summary>Owns the LR2 backup path picker route for the Backup page.</summary>
+    internal void HandleBrowseLr2BackupPath()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickRootFolderForSetting(nameof(settingDialogViewModel.LR2BackupPath), settingDialogViewModel.LR2BackupPath);
-    }
-
-    private void resetCustomTableAppearanceDefaultsButtonClick(object sender, RoutedEventArgs e)
-    {
-        GetSettingDialogViewModel().ResetCustomTableAppearanceDefaults();
     }
 
     private static void LogSettingsDialogPerformance(string action, Stopwatch stopwatch, string detail = null)
@@ -583,7 +737,9 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
-    private async void resyncLr2SongDbSyncDataButtonClicked(object sender, RoutedEventArgs e)
+    /// <summary>Closes with the manual-resync reason and runs the ViewModel-owned LR2 resync.</summary>
+    /// <returns>A task that completes when the resync request completes.</returns>
+    internal async Task HandleLr2SongDbSyncDataResyncAsync()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         if (!settingDialogViewModel.CanRequestLr2SongDbSyncDataResync)
@@ -617,7 +773,9 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
-    private async void detailTabItemBackupButtonClicked(object sender, RoutedEventArgs e)
+    /// <summary>Runs playlist backup inside the Window operation gate.</summary>
+    /// <returns>A task that completes when backup finishes or the picker is cancelled.</returns>
+    internal async Task HandlePlaylistBackupAsync()
     {
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
             ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
@@ -640,7 +798,9 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
-    private async void installOrRepairLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
+    /// <summary>Runs LR2 play-history schema installation inside the Window operation gate.</summary>
+    /// <returns>A task that completes when the schema operation finishes.</returns>
+    internal async Task HandleInstallOrRepairLr2PlayHistorySchemaAsync()
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
@@ -649,7 +809,9 @@ public partial class SettingsWindow : Window, IComponentConnector
         await RunViewOperationAsync(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync);
     }
 
-    private async void uninstallLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
+    /// <summary>Runs LR2 play-history schema removal inside the Window operation gate.</summary>
+    /// <returns>A task that completes when the schema operation finishes.</returns>
+    internal async Task HandleUninstallLr2PlayHistorySchemaAsync()
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
@@ -658,7 +820,9 @@ public partial class SettingsWindow : Window, IComponentConnector
         await RunViewOperationAsync(settingDialogViewModel.UninstallLr2PlayHistorySchemaAsync);
     }
 
-    private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)
+    /// <summary>Runs playlist restore inside the Window operation gate and preserves terminal shutdown ordering.</summary>
+    /// <returns>A task that completes after restore and any requested shutdown dispatch.</returns>
+    internal async Task HandlePlaylistRestoreAsync()
     {
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
             ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
@@ -686,7 +850,9 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
-    private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)
+    /// <summary>Runs application-data uninstall inside the Window operation gate.</summary>
+    /// <returns>A task that completes after uninstall and any requested owner shutdown.</returns>
+    internal async Task HandleApplicationDataUninstallAsync()
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
@@ -704,25 +870,8 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
-    private void hyperlinkRequestNavigate(object sender, RequestNavigateEventArgs e)
-    {
-        GetSettingDialogViewModel().ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(e.Uri.ToString()));
-        e.Handled = true;
-    }
-
-    private void comboBoxEncoderSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (sender is ComboBox comboBox
-            && comboBox.SelectedIndex >= 0
-            && comboBox.Items.Count > comboBox.SelectedIndex
-            && comboBox.SelectedValue != comboBox.Items[comboBox.SelectedIndex])
-        {
-            comboBox.SelectedItem = comboBox.Items[comboBox.SelectedIndex];
-            comboBox.SelectedValue = comboBox.Items[comboBox.SelectedIndex];
-        }
-    }
-
-    private void buttonAddBmsSearchRootPathsClicked(object sender, RoutedEventArgs e)
+    /// <summary>Owns the multi-select BMS root picker route for the General page.</summary>
+    internal void HandleAddBmsSearchRootPaths()
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
@@ -742,7 +891,8 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
-    private void buttonAddCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
+    /// <summary>Owns the additional custom-folder output picker route.</summary>
+    internal void HandleAddCustomFolderAdditionalOutputBase()
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
@@ -765,23 +915,8 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
-    private void buttonRemoveCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
-        {
-            settingDialogViewModel.RemoveSelectedCustomFolderAdditionalOutputBaseDir();
-        }
-    }
-
-    private void buttonRenameCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
-        {
-            settingDialogViewModel.RenameSelectedCustomFolderAdditionalOutputBaseDir();
-        }
-    }
-
-    private void buttonAddPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
+    /// <summary>Opens a new play-history display preset editor owned by this Window.</summary>
+    internal void HandleAddPlayHistoryFolderDisplayPreset()
     {
         if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
@@ -789,15 +924,8 @@ public partial class SettingsWindow : Window, IComponentConnector
         }
     }
 
-    private void buttonRemovePlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
-        {
-            settingDialogViewModel.RemoveSelectedPlayHistoryFolderDisplayPreset();
-        }
-    }
-
-    private void buttonEditPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
+    /// <summary>Opens the selected play-history display preset editor owned by this Window.</summary>
+    internal void HandleEditPlayHistoryFolderDisplayPreset()
     {
         if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
         {
@@ -825,42 +953,6 @@ public partial class SettingsWindow : Window, IComponentConnector
         ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Play history folder display preset edit dialog");
     }
 
-    private void bmsSearchRootPathListBoxDragOver(object sender, DragEventArgs e)
-    {
-        e.Effects = TryGetDroppedDirectories(e, out _) ? DragDropEffects.Copy : DragDropEffects.None;
-        e.Handled = true;
-    }
-
-    private void bmsSearchRootPathListBoxDrop(object sender, DragEventArgs e)
-    {
-        if (TryGetDroppedDirectories(e, out List<string> directories)
-            && base.DataContext is SettingsDialogViewModel settingDialogViewModel)
-        {
-            settingDialogViewModel.AddBmsSearchRootPaths(directories);
-        }
-        e.Handled = true;
-    }
-
-    private static bool TryGetDroppedDirectories(DragEventArgs e, out List<string> directories)
-    {
-        directories = [];
-        if (!e.Data.GetDataPresent(DataFormats.FileDrop, autoConvert: true)
-            || e.Data.GetData(DataFormats.FileDrop, autoConvert: true) is not string[] paths
-            || paths.Length == 0)
-        {
-            return false;
-        }
-        directories = [.. paths.Where(Directory.Exists)];
-        return directories.Count == paths.Length;
-    }
-
-    private async void buttonPlayerTestClick(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is SettingsDialogViewModel settingDialogViewModel)
-        {
-            await settingDialogViewModel.RunAudioDeviceTestAsync();
-        }
-    }
 }
 
 /// <summary>

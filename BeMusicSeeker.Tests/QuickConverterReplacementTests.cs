@@ -72,7 +72,6 @@ public sealed class QuickConverterReplacementTests
         {
             "MainWindow.xaml",
             "PlaybackPanelView.xaml",
-            "SettingsWindow.xaml",
             "EditableTextBlock.xaml",
             "PlaylistPropertyDialog.xaml",
             "LoadPlaylistURIDialog.xaml"
@@ -82,6 +81,10 @@ public sealed class QuickConverterReplacementTests
             Assert.IsFalse(source.Contains("QuickConverter", StringComparison.Ordinal), fileName);
             Assert.IsFalse(source.Contains("qc:", StringComparison.Ordinal), fileName);
         }
+
+        string settingsSource = SourceTextTestHelper.ReadSettingsWindowXamlSourceText();
+        Assert.IsFalse(settingsSource.Contains("QuickConverter", StringComparison.Ordinal));
+        Assert.IsFalse(settingsSource.Contains("qc:", StringComparison.Ordinal));
 
         string appSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.cs"));
         string project = File.ReadAllText(Path.Combine(root, "BeMusicSeeker.csproj"));

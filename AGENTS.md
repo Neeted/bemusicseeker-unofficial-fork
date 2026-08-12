@@ -125,7 +125,7 @@ Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe)
 1. `Properties\AssemblyInfo.cs`
    - `AssemblyInformationalVersion` を更新する。package 名、tag、`update.json`、公開用 `version.txt` の正本である。
    - `AssemblyVersion` は互換性上の理由または明示指示がない限り変更しない。
-2. `BeMusicSeeker\Views\SettingsWindow.xaml`
+2. `BeMusicSeeker\Views\ReleaseNotesWindow.xaml`
    - `Update_history` に対象 version の履歴を追加する。
    - 新しい説明文は多言語リソースを追加せず日本語ベタ書きで良い。
 3. `release notes\vX.X.X.X リリースノート.md`

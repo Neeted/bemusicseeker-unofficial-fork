@@ -18,26 +18,46 @@
 表示には共通 dialog coordinator の owner 解決と `ShowDialog()` 経路を使用し、設定ウィンドウが開いている間は `MainWindow` を操作できない状態にする。owner を持たない表示や、失敗を無視して modeless 表示へ切り替える fallback は行わない。
 
 - 設定ウィンドウは表示ごとに生成し、同時に複数表示しない。既存ウィンドウの表示中に open request を受けた場合は、そのウィンドウを前面へ戻す。
-- 設定ウィンドウは標準の WPF title bar を持ち、リサイズ可能とする。位置、サイズ、選択カテゴリ、scroll位置は永続化しない。
-- 現行の10カテゴリと順序を維持し、上部tabではなく常時labelを表示する単一選択の左navigationで切り替える。navigation、選択カテゴリのheader、下部actionは固定し、選択カテゴリの本文だけを縦scrollする。
-- 初期サイズは `920x680`、最小サイズは `760x500` とする。左navigationは muted surface 上の rounded pill で選択を示し、本文は大きなカテゴリheaderと rounded card で階層を表す。余白は `8 / 12 / 16 / 24` px を基準にする。
+- 設定ウィンドウは標準の WPF title bar を持ち、リサイズ可能とする。titleは設定画面自身を表すlocalized resourceを使い、Advanced categoryのlocalized labelと共有しない。位置、サイズ、選択カテゴリ、scroll位置は永続化しない。
+- title bar は独自chromeへ置換しない。source initialization 後に current theme の semantic brushからnative caption属性を更新し、表示中のtheme変更へ追従する。DWM非対応時やnative失敗時はsystem fallbackを維持し、設定画面の表示やclose lifecycleを失敗させない。theme購読はclose時に解除する。
+- 現行の10カテゴリと順序を維持し、各カテゴリ本文を parameterless `UserControl` が1つずつ所有する。すべてのカテゴリは同じ `SettingsDialogViewModel` を inherited `DataContext` として共有し、カテゴリ固有の ViewModel や category state persistence は追加しない。
+- `SettingsWindow` は navigation、選択カテゴリheader、単一の本文 `ScrollViewer`、下部action、close lifecycle と operation gate を所有する。これらは固定し、選択されたカテゴリ本文だけを縦scrollする。カテゴリ切替時は本文scrollを先頭へ戻す。
+- Playlist / Install / Backup / Advanced / About は、`SettingsSection`、`SettingsField`、`SettingsOptionRow`、`SettingsPathPicker`、`SettingsListEditor`、`SettingsStatusBanner` の平坦なpresentationで構成し、`GroupBox` / `Expander` や入れ子cardを使用しない。collection editorは横scrollを無効にし、操作可能な最小list高とaccessible nameを持つ。
+- Backup はplaylist backup / restoreとLR2 scheduled backupだけを所有する。LR2 play-history schema uninstallとapplication-data uninstallはAdvancedのDanger zoneだけに表示し、既存owner、確認順序、operation gate、failure presentation、cache reload、terminal close契約を変更しない。
+- About はapp identity、version/build、license/credits、links、Release Notes actionだけを表示する。version/build値はpage lifetime中不変だが、その2つのformat済み表示はpageがloadedの間だけculture通知を購読して同じ表示中に更新し、unload時に購読を解除する。release historyの正本は `ReleaseNotesWindow.xaml` に置き、Settingsのinject済みdialog coordinatorからowner=`SettingsWindow`のmodal windowとして開く。Release Notesは`CenterOwner`、`ShowInTaskbar=false`、標準native title barとし、settings draftやpresentation lifecycleを開始・終了しない。
+- 初期サイズは `820x760`、最小サイズは `820x600`、左navigation幅は `216` とする。本文と全カテゴリpageは利用可能な横幅へ連続的にstretchし、幅上限、breakpoint、実測幅converterを設けない。横scrollは無効にし、最小サイズでも本文、section、field、card、input、listを横方向へclipしない。位置、サイズ、選択カテゴリ、scroll位置は再表示へ引き継がず、毎回 General から開始する。
 - label / value / action を並べる設定行は、固定位置へ詰め込まず伸縮可能な Grid を使用する。長い翻訳labelとcheckbox contentは折り返し、最小サイズでも横scrollを必要としないことを presentation contract とする。
 - 下部actionでは Save and close を accent action、Cancel を quiet action として区別する。controlの通常、hover、focus、disabled状態は既存theme resourceと標準control behaviorを維持し、設定画面専用の固定paletteを追加しない。
 - カテゴリ検索、カテゴリ再分類、設定値の即時保存化、独立draftへの移行はこのpresentation変更の対象外とする。
 - light / dark theme と表示中のculture変更は、同じ設定ウィンドウへ反映する。新しいユーザー向け文言は全言語resourceで管理する。
 - 設定ウィンドウから開くpicker、確認dialog、子Windowは、active modal ownerとして設定ウィンドウを所有者にする。
+- picker、drop、focus、selection などカテゴリ固有の terminal behavior は対応する category control が所有する。manual resync、schema、backup / restore、uninstall など shell gate が必要な操作だけを、狭い Window method へ接続する。
 - title barのclose、Alt+F4、Escは通常のCancelと同じrollback契約へ接続する。`IsEditCancellationEnabled == false` の間はuser closeを拒否し、reload retryを迂回させない。
 - Apply成功、変更なしApply、manual LR2 resyncなどViewModelからのclose requestは、Cancel rollbackを再実行しない。shell shutdownは設定ウィンドウのcancel guardで妨げない。
 - 設定ウィンドウの表示中は従来どおりplayback surfaceを抑止し、accepted、cancelled、failed、shutdownを含むすべての終了経路で復元する。
 - 表示開始時は保持済みのappearance selectionとLR2 play-history schema statusだけをpresentationへ反映し、表示を理由に新しいschema checkを起動しない。
 - operation mode の radio は ViewModel から表示へだけ同期し、初期binding、group内の自動check/uncheck、再表示、Cancelでは選択要求を発生させない。実際のradio clickだけが選択意図を1回送信し、active library profileでmodeが変わる場合は既存の確認、mode-only保存、restart契約を各1回だけ実行する。
+- audio device test 中は既存の edit completion / cancellation gate を維持し、test workflow 完了前の Save、Cancel、native closeを許可しない。status は progress / result text と icon を併記する。
+- `SettingsStatusBanner` はnull、空、空白だけのstring statusを表示せず、messageがbinding経由で非blankへ戻った場合は自動で再表示する。non-string contentおよびcaller指定のCollapsedは上書きしない。表示中のbannerはmessageをAutomation Name、semantic statusをItemStatusとして公開し、Polite live updateを使用する。decorative iconはAutomation treeへ独立表示しない。GeneralとAdvancedのLR2 schema statusは、local valueではなく同じStyleのdefault setterとrepair可能時triggerで `Information/i` と `Warning/!` を切り替え、repair不可へ戻った時にdefaultへ復帰する。
 - 閉じた設定ウィンドウは presentation を解除して Window lifecycle を完了した後、共有 `SettingsDialogViewModel` への `DataContext` と binding graph を切り離す。
+- close後に遅延した `ContentRendered` callback が到着しても、presentation を再有効化せず終了する。
+- table-list URI とplaylist metadata URIのinline validation messageはpresentation transientとする。不正入力はraw URIとdirty状態を変更せず、同じWindow内のカテゴリ切替、再Activate、validation failureではmessageを維持する。Cancel、変更なしSave、native closeを含む終了後、共有ViewModelを使う次のfresh SettingsWindow activationで両messageをnotification付きで消去する。`ResetSettings()` はこのtransient cleanupのownerにしない。
 
 - 表示や dirty 判定は LR2 `config.xml` を保存しない。
 - UI 表示や差分比較に使う LR2 BMS 検索ルートは `GetBMSSearchDirectoriesForChangeTracking()` で読み、存在しないディレクトリを勝手に除外しない。
 - ランタイム検索対象や保存時の必須検証で実在ディレクトリだけが必要な場合は `GetBMSSearchDirectoriesReadOnly()` を使う。この読み取りも `config.xml` は保存しない。
 - LR2 `config.xml` の保存は、BMS 検索ルート変更、custom folder 出力先同期、または autoreload 設定の明示的な正規化が必要な場合だけ行う。
 - `Settings.Default` の getter は、表示時に無効 path を `null` へ戻すなどの永続値変更を行わない。値の補正が必要な場合は保存処理、cancel rollback、または設定読み込み時の防御的補正に閉じ込める。
+
+### LR2 path draft contract
+
+- `LR2RootPath`、`LR2SongDBPath`、`LR2ConfigXmlPath` は互換性のため独立した raw setting として維持し、startup consumer は保存済み child path を再導出しない。
+- raw `LR2ConfigXmlPath` と、読み込み済みの `LR2Config` object / validation status は別状態とする。dialog open、`ResetSettings()`、またはpickerでconfigがmissing / unreadable / malformedだった場合もraw pathを`null`や空へ正規化しない。無関係な設定をSaveしてreopenした場合も同じraw valueを保持する。
+- 標準配置は root 配下の `LR2files\Database\song.db` と `LR2files\Config\config.xml|config.xmh` とする。path比較はWindowsのcase-insensitive full-path比較を使い、xmlとxmhはいずれも標準配置とみなす。
+- root picker は候補root、標準child path、解析済みconfigを先に解決し、有効なtupleだけを3 raw draftへ一括反映する。現在と同じ有効rootの再選択でもfreshな解析済みconfigを採用する。成功時の通知は root、song、config のraw tupleを先に送り、その後にstatusとselection errorを含むdependent presentationを各1回送って、設定画面表示中に外部更新されたXMLを表示へ反映する。後の保存でもstale documentから上書きしない。root / configが無効なら3値と現在の解析済みobjectをすべて変更せずfailureを即時表示する。期待される song.db が未作成でも新root側の標準pathをdraftへ設定し、以前のrootのsong.dbをfallbackとして残さない。linked modeの保存validationがmissingを明示する。
+- rootが空でchild pathがある場合、またはchild pathが標準配置と異なる場合だけcustom configurationとする。custom stateはcomputed presentation stateであり、永続flagを追加しない。
+- advanced LR2 path dialogはsong/configの初期値をdialog-local draftへcopyし、直接入力とpickerはこのlocal draftだけを更新する。pickerは直前のtyped valueをinitial directoryに使い、accepted candidateをbindingを壊さない `SetCurrentValue` で同じeditorへ反映する。missing / unreadable / malformed candidateはlocal valueと親draftを変えずfailureを表示する。Done / Enterは両editorの現在textを単一tupleとして検証し、両方が有効な場合だけ親draftへ一括反映する。Cancel / Esc / native closeはlocal draftを捨てるだけで親draftを変更しない。Doneでは永続化せず、親Settings Saveが3 raw valueを保存する。
+- legacy root inferenceはportable config copy時の互換migrationに限定し、通常startupや設定画面表示を理由にuser.configを書き換えない。
 
 Cancel は次の契約に従う。
 
@@ -137,6 +157,7 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 対象例:
 
 - 外観テーマ
+- CustomTableView のフォントサイズ、行高、ヘッダー高
 - 言語
 - 表示・確認ダイアログ・詳細設定のうちライブラリ内容を再構築しないもの
 - プレイヤー表示や通常 UI の選択状態
@@ -146,6 +167,7 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 - ライブラリ初期化、ファイル差分更新、スコア再読み込みは起動しない。
 - OK は user.config への保存と即時反映が必要な UI 状態だけを扱い、LR2 `config.xml` / custom folder 出力先 / BMS root の整合処理を起動しない。
 - Cancel は保存済み snapshot と現在値の差分が無い場合は閉じるだけにし、全設定の restore、theme / culture 再適用、`LR2Config` 再読み込みを行わない。
+- CustomTableView の外観3値は編集中もメイン一覧へ即時反映し、Cancel では保存済み snapshot へ戻して同じ一覧へ通知する。設定画面内に独立した静的一覧 preview は持たない。
 - 失敗していない起動・リロード進捗が active の間は、設定保存自体を受け付けない。score-only / file-diff operation または設定画面から起動した初期化の失敗後は、cleanup 済みの failed 表示を保持しつつ同じ設定反映を retry できる。
 
 ### Score-only

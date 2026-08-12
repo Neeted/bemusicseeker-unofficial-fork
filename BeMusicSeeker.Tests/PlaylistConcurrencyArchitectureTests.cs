@@ -673,10 +673,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void SettingDialogStartupMessage_UsesViewModelLifecycleBoundary()
     {
-        string viewSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "Views",
-            "SettingsWindow.cs");
+        string viewSource = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
         string viewModelSource = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
         StringAssert.Contains(viewModelSource, "applicationLifetime.IsFirstStartup");
@@ -783,6 +780,11 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string applyTerminalShutdown = ExtractMethodBody(mainWindowSource, "private void ApplyTerminalShutdown()");
         Assert.IsTrue(
             HasCaptureBeforeTerminalCompletion(applyTerminalShutdown));
+        Assert.IsTrue(
+            applyTerminalShutdown.IndexOf("CompleteTerminalShutdown();", StringComparison.Ordinal)
+            < applyTerminalShutdown.IndexOf("RequestTerminalApplicationShutdown();", StringComparison.Ordinal));
+        Assert.IsFalse(applyTerminalShutdown.Contains("Application.Current.Shutdown", StringComparison.Ordinal));
+        StringAssert.Contains(viewModelSource, "applicationLifetime.RequestShutdown");
         string closedHandler = ExtractMethodBody(mainWindowSource, "private void MainWindow_Closed");
         Assert.IsTrue(
             HasCaptureBeforeTerminalCompletion(closedHandler));

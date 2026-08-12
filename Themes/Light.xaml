@@ -14,7 +14,18 @@
   <SolidColorBrush x:Key="App.StrongBorderBrush" Color="#FF000000" />
   <SolidColorBrush x:Key="App.SeparatorBrush" Color="#FFEFEFEF" />
   <SolidColorBrush x:Key="App.AccentBrush" Color="#FF4169E1" />
+  <SolidColorBrush x:Key="App.AccentForegroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.AccentFocusRingBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.AccentHoverBrush" Color="#FF3159C9" />
+  <SolidColorBrush x:Key="App.AccentPressedBrush" Color="#FF2447A6" />
   <SolidColorBrush x:Key="App.AccentSubtleBrush" Color="#FF6495ED" />
+  <SolidColorBrush x:Key="App.DangerBrush" Color="#FFC42B1C" />
+  <SolidColorBrush x:Key="App.DangerForegroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.DangerHoverBrush" Color="#FFA4261A" />
+  <SolidColorBrush x:Key="App.DangerPressedBrush" Color="#FF821B16" />
+  <SolidColorBrush x:Key="App.ErrorTextBrush" Color="#FFB42318" />
+  <SolidColorBrush x:Key="App.SuccessTextBrush" Color="#FF167443" />
+  <SolidColorBrush x:Key="App.SliderTickBrush" Color="#FF505050" />
   <SolidColorBrush x:Key="App.WarningTextBrush" Color="#FFD07A00" />
   <SolidColorBrush x:Key="App.DialogOverlayBrush" Color="#FF000000" />
   <SolidColorBrush x:Key="App.DialogBackgroundBrush" Color="#FFFFFFFF" />

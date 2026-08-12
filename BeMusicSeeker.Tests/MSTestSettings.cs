@@ -13,4 +13,10 @@ public sealed class MSTestSettings
     {
         RuntimeBootstrap.Initialize();
     }
+
+    [AssemblyCleanup]
+    public static void Cleanup()
+    {
+        TestUiDispatcherHost.ShutdownApplication();
+    }
 }

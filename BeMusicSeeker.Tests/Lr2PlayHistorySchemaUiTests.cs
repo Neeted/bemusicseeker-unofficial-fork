@@ -396,29 +396,32 @@ public sealed class Lr2PlayHistorySchemaUiTests
     public void SettingDialog_Lr2PlayHistorySchemaUiUsesExplicitInstallBoundary()
     {
         string root = FindRepositoryRoot();
-        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
-        string codeBehind = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
+        string xaml = SourceTextTestHelper.ReadSettingsWindowXamlSourceText();
+        string advancedPathsDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Lr2AdvancedPathsDialog.xaml"));
+        string codeBehind = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
         string uninstallDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Lr2PlayHistorySchemaUninstallDialog.xaml"));
         string viewModel = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string rootViewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
-        string playHistorySchemaUi = ExtractBetween(
-            xaml,
-            "<Grid Margin=\"20,2,10,4\" IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\">",
-            "<Grid Margin=\"10,0,0,4\" IsEnabled=\"{Binding IsBmsSearchRootEditorEnabled}\">");
 
-        Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Lr2_play_history_schema_label, Mode=OneWay"));
+        Assert.AreEqual(2, CountOccurrences(xaml, "Path=Resources.Lr2_play_history_schema_label, Mode=OneWay"));
         Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"refreshLr2PlayHistorySchemaButtonClicked\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"installLr2PlayHistorySchemaButtonClicked\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"repairLr2PlayHistorySchemaButtonClicked\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"installOrRepairLr2PlayHistorySchemaButtonClicked\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Text=\"{Binding Lr2PlayHistorySchemaStatusText, Mode=OneWay}\""));
+        Assert.AreEqual(2, CountOccurrences(xaml, "Content=\"{Binding Lr2PlayHistorySchemaStatusText, Mode=OneWay}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "ToolTip=\"{Binding Lr2PlayHistorySchemaDetailText, Mode=OneWay}\""));
         StringAssert.Contains(xaml, "Content=\"{Binding Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}\"");
         StringAssert.Contains(xaml, "IsEnabled=\"{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\"");
-        StringAssert.Contains(xaml, "DataTrigger Binding=\"{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\" Value=\"True\"");
-        StringAssert.Contains(xaml, "Value=\"{DynamicResource App.WarningTextBrush}\"");
+        Assert.AreEqual(2, CountOccurrences(xaml, "<settings:SettingsStatusBanner Content=\"{Binding Lr2PlayHistorySchemaStatusText, Mode=OneWay}\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "<settings:SettingsStatusBanner Icon=\"i\" Status=\"Information\" Content=\"{Binding Lr2PlayHistorySchemaStatusText, Mode=OneWay}\""));
+        Assert.AreEqual(2, CountOccurrences(xaml, "<Setter Property=\"Icon\" Value=\"i\" />"));
+        Assert.AreEqual(2, CountOccurrences(xaml, "<Setter Property=\"Status\" Value=\"Information\" />"));
+        Assert.AreEqual(2, CountOccurrences(xaml, "DataTrigger Binding=\"{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\" Value=\"True\""));
+        Assert.AreEqual(2, CountOccurrences(xaml, "<Setter Property=\"Icon\" Value=\"!\" />"));
+        Assert.AreEqual(2, CountOccurrences(xaml, "<Setter Property=\"Status\" Value=\"Warning\" />"));
+        Assert.AreEqual(2, CountOccurrences(xaml, "Value=\"{DynamicResource App.WarningTextBrush}\""));
         StringAssert.Contains(xaml, "Click=\"uninstallLr2PlayHistorySchemaButtonClicked\"");
         StringAssert.Contains(xaml, "IsEnabled=\"{Binding CanUninstallLr2PlayHistorySchema, Mode=OneWay}\"");
         StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_title, Mode=OneWay");
@@ -431,19 +434,23 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.IsTrue(
             xaml.IndexOf("Lr2_play_history_schema_label", StringComparison.Ordinal)
             < xaml.IndexOf("Lr2_song_db_sync_data_resync", StringComparison.Ordinal));
-        StringAssert.Contains(playHistorySchemaUi, "<RowDefinition Height=\"20\" />");
-        StringAssert.Contains(playHistorySchemaUi, "Grid.Row=\"0\" Grid.Column=\"1\" Width=\"270\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\" TextAlignment=\"Center\"");
-        StringAssert.Contains(playHistorySchemaUi, "<Run Text=\": \" />");
-        StringAssert.Contains(playHistorySchemaUi, "Grid.Row=\"1\" Grid.Column=\"0\" Width=\"190\" Height=\"24\" HorizontalAlignment=\"Center\"");
-        StringAssert.Contains(playHistorySchemaUi, "Grid.Row=\"1\" Grid.Column=\"1\" Width=\"130\" Height=\"24\" HorizontalAlignment=\"Center\"");
-        Assert.IsTrue(
-            playHistorySchemaUi.IndexOf("Grid.Row=\"1\" Grid.Column=\"0\"", StringComparison.Ordinal)
-            < playHistorySchemaUi.IndexOf("Grid.Row=\"1\" Grid.Column=\"1\"", StringComparison.Ordinal));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay"));
+        Assert.AreEqual(0, CountOccurrences(xaml, "Path=Resources.Lr2_song_db_sync_data_resync_button"));
+        StringAssert.Contains(xaml, "x:Name=\"buttonEditCustomLr2Paths\"");
+        Assert.AreEqual(0, CountOccurrences(xaml, "Visibility=\"{Binding HasCustomLr2Paths"));
+        StringAssert.Contains(advancedPathsDialogXaml, "Path=\"{Binding SongDbPath, ElementName=DialogRoot, Mode=TwoWay}\"");
+        StringAssert.Contains(advancedPathsDialogXaml, "Path=\"{Binding ConfigPath, ElementName=DialogRoot, Mode=TwoWay}\"");
+        Assert.IsFalse(advancedPathsDialogXaml.Contains("Path=\"{Binding LR2SongDBPath"));
+        Assert.IsFalse(advancedPathsDialogXaml.Contains("Path=\"{Binding LR2ConfigXmlPath"));
+        Assert.AreEqual(2, CountOccurrences(advancedPathsDialogXaml, "IsPathReadOnly=\"False\""));
+        Assert.AreEqual(0, CountOccurrences(advancedPathsDialogXaml, "IsPathReadOnly=\"True\""));
+        StringAssert.Contains(xaml, "settings:SettingsStatusBanner");
+        StringAssert.Contains(xaml, "<WrapPanel>");
 
         string installHandler = ExtractBetween(
             codeBehind,
-            "private async void installOrRepairLr2PlayHistorySchemaButtonClicked",
-            "private async void uninstallLr2PlayHistorySchemaButtonClicked");
+            "internal async Task HandleInstallOrRepairLr2PlayHistorySchemaAsync()",
+            "internal async Task HandleUninstallLr2PlayHistorySchemaAsync()");
         string normalizedInstallHandler = installHandler.Replace("\r\n", "\n");
         StringAssert.Contains(installHandler, "await RunViewOperationAsync(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync);");
         StringAssert.Contains(normalizedInstallHandler, "RunViewOperationAsync(");
@@ -467,8 +474,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.IsFalse(viewModel.Contains("public async Task InstallOrRepairLr2PlayHistorySchemaAsync"));
         string uninstallHandler = ExtractBetween(
             codeBehind,
-            "private async void uninstallLr2PlayHistorySchemaButtonClicked",
-            "private async void detailTabItemRestoreButtonClicked");
+            "internal async Task HandleUninstallLr2PlayHistorySchemaAsync()",
+            "internal async Task HandlePlaylistRestoreAsync()");
         StringAssert.Contains(uninstallHandler, "await RunViewOperationAsync(settingDialogViewModel.UninstallLr2PlayHistorySchemaAsync);");
         Assert.IsFalse(uninstallHandler.Contains("RefreshLr2PlayHistorySchemaStatusAsync"));
         Assert.IsFalse(uninstallHandler.Contains("ShowWindowAsync"));

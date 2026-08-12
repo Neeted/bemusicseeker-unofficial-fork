@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -41,6 +42,26 @@ public sealed class ReleaseScriptVersionSourceTests
         StringAssert.Contains(publishScript, "WriteAllText($publicVersionPath, $version, $utf8NoBom)");
         AssertNoLocalVersionTxtRead(publishScript, "publish.ps1");
         AssertNoVersionTxtCopy(publishScript, "publish.ps1");
+    }
+
+    [TestMethod]
+    public void ReleaseHistory_UsesReleaseNotesWindowAsVersionSourceAndAboutStaysCompact()
+    {
+        string assemblyInfo = ReadRepositoryFile("Properties", "AssemblyInfo.cs");
+        string releaseNotes = ReadRepositoryFile("BeMusicSeeker", "Views", "ReleaseNotesWindow.xaml");
+        string about = ReadRepositoryFile("BeMusicSeeker", "Views", "Settings", "Pages", "AboutSettingsPage.xaml");
+        string agents = ReadRepositoryFile("AGENTS.md");
+        Match version = Regex.Match(assemblyInfo, "AssemblyInformationalVersion\\(\\\"([^\\\"]+)\\\"\\)");
+
+        Assert.IsTrue(version.Success);
+        StringAssert.Contains(releaseNotes, ">" + version.Groups[1].Value + ":<");
+        StringAssert.Contains(releaseNotes, "0.1.0.0:");
+        Assert.IsTrue(Regex.Matches(releaseNotes, @"<Paragraph FontWeight=\""Bold\"">[0-9]+(?:\.[0-9]+){3}:</Paragraph>").Count >= 20);
+        Assert.IsFalse(about.Contains("FlowDocument", StringComparison.Ordinal));
+        Assert.IsFalse(about.Contains("0.1.0.0:", StringComparison.Ordinal));
+        StringAssert.Contains(agents, "BeMusicSeeker\\Views\\ReleaseNotesWindow.xaml");
+        Assert.IsFalse(agents.Contains("BeMusicSeeker\\Views\\SettingsWindow.xaml`\n   - `Update_history", StringComparison.Ordinal));
+        _ = XDocument.Parse(releaseNotes);
     }
 
     private static void AssertNoLocalVersionTxtRead(string script, string scriptName)

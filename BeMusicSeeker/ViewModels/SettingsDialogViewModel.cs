@@ -619,6 +619,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private Uri tempTableListURL;
 
+    private string tableListUriValidationMessage = string.Empty;
+
     private bool tempEnablePlaylistUrlCompletion;
 
     private bool tempOverwritePlaylistUrlsWithCompletion;
@@ -626,6 +628,8 @@ public partial class SettingsDialogViewModel : ViewModel
     private bool tempEnableStellaFullPlaylistUrlCompletion;
 
     private string tempPlaylistMd5UrlMappingTsvUri;
+
+    private string playlistMd5UrlMappingTsvUriValidationMessage = string.Empty;
 
     private string tempPlayHistoryDisplayTargetSetsJson;
 
@@ -785,6 +789,9 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public bool CanUseLr2Features => OperationModeLR2DB;
 
+    /// <summary>Gets whether the standalone library composition is selected.</summary>
+    public bool IsStandaloneOperationMode => !OperationModeLR2DB;
+
     /// <summary>
     /// 設定画面から LR2 の派生データ再同期を要求できる状態かどうかを返します。
     /// </summary>
@@ -814,12 +821,16 @@ public partial class SettingsDialogViewModel : ViewModel
     private void RaiseValidationStateChanged()
     {
         RaisePropertyChanged(nameof(CanSaveSettings));
+        RaisePropertyChanged(nameof(TableListUriValidationMessage));
+        RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUriValidationMessage));
     }
 
     private void SetOperationModeSelection(bool value)
     {
         operationModeLR2DB = value;
+        RefreshParsedLr2ConfigState(showSelectionError: false);
         RaisePropertyChanged("OperationModeLR2DB");
+        RaisePropertyChanged(nameof(IsStandaloneOperationMode));
         RaisePropertyChanged(nameof(IsOperationModeChanged));
         RaisePropertyChanged(nameof(CanUseLr2Features));
         RaisePropertyChanged(nameof(AvailableBMSDirectories));
@@ -903,45 +914,28 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (ApplicationSettings.LR2RootPath == value)
+            if (TryBuildStandardLr2PathTuple(value, out string songDbPath, out string configPath, out LR2Config parsedConfig))
             {
-                return;
-            }
-            if (IsLR2PlayerRootPathValid(value))
-            {
-                string lR2SongDBPath = Path.Combine(value, "LR2files\\Database\\song.db");
-                string text = Path.Combine(value, "LR2files\\Config\\config.xml");
-                string text2 = Path.Combine(value, "LR2files\\Config\\config.xmh");
-                string empty = string.Empty;
-                if (IsLR2ConfigXmlPathValid(text))
-                {
-                    if (IsLR2ConfigXmlPathValid(text2))
-                    {
-                        DateTime lastWriteTime = File.GetLastWriteTime(text);
-                        empty = ((File.GetLastWriteTime(text2) >= lastWriteTime) ? text2 : text);
-                    }
-                    else
-                    {
-                        empty = text;
-                    }
-                }
-                else
-                {
-                    empty = text2;
-                }
+                // Root selection commits one immutable standard tuple. Resolving and parsing the
+                // candidate first prevents a failed pick from mixing old child paths with a new root.
+                // Always adopt the freshly parsed config: LR2 may update the same file while this
+                // settings draft is open, and retaining the old XDocument would overwrite it on save.
                 ApplicationSettings.LR2RootPath = value;
-                if (IsLR2SongDBPathValid(lR2SongDBPath))
-                {
-                    LR2SongDBPath = lR2SongDBPath;
-                }
-                LR2ConfigXmlPath = empty;
+                ApplicationSettings.LR2SongDBPath = songDbPath;
+                ApplicationSettings.LR2ConfigXmlPath = configPath;
+                isLr2ConfigPathParsed = true;
+                lr2config = OperationModeLR2DB ? parsedConfig : null;
+                SetLr2PathSelectionErrorWithoutNotification(string.Empty);
             }
             else
             {
-                ApplicationSettings.LR2RootPath = null;
+                SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2RootPath);
             }
             RaisePropertyChanged("LR2RootPath");
+            RaisePropertyChanged(nameof(LR2SongDBPath));
+            RaisePropertyChanged(nameof(LR2ConfigXmlPath));
             RaisePropertyChanged(nameof(LR2bodyPath));
+            RaiseLr2PathPresentationChanged();
             RaiseValidationStateChanged();
             ResetLr2PlayHistorySchemaStatus();
         }
@@ -1148,7 +1142,7 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>
-    /// Backup タブから LR2 play history schema のアンインストール操作を開始できるかを返します。
+    /// Advanced の Danger zone から LR2 play history schema のアンインストール操作を開始できるかを返します。
     /// destructive な選択は押下後の確認ダイアログへ閉じ込めます。
     /// </summary>
     public bool CanUninstallLr2PlayHistorySchema => OperationModeLR2DB && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath);
@@ -1588,15 +1582,28 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (!(ApplicationSettings.LR2SongDBPath == value))
+            string previousPath = ApplicationSettings.LR2SongDBPath;
+            string previousError = Lr2PathSelectionError;
+            if (IsLR2SongDBPathValid(value))
             {
-                if (IsLR2SongDBPathValid(value))
+                if (!string.Equals(previousPath, value, StringComparison.Ordinal))
                 {
                     ApplicationSettings.LR2SongDBPath = value;
                 }
-                RaisePropertyChanged("LR2SongDBPath");
-                RaiseValidationStateChanged();
+                SetLr2PathSelectionError(string.Empty);
             }
+            else
+            {
+                SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
+            }
+            if (string.Equals(previousPath, ApplicationSettings.LR2SongDBPath, StringComparison.Ordinal)
+                && string.Equals(previousError, Lr2PathSelectionError, StringComparison.Ordinal))
+            {
+                return;
+            }
+            RaisePropertyChanged("LR2SongDBPath");
+            RaiseLr2PathPresentationChanged();
+            RaiseValidationStateChanged();
         }
     }
 
@@ -1608,24 +1615,35 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (ApplicationSettings.LR2ConfigXmlPath == value)
+            string previousPath = ApplicationSettings.LR2ConfigXmlPath;
+            bool previousParsed = isLr2ConfigPathParsed;
+            bool previousParsedObjectAvailable = lr2config != null;
+            string previousError = Lr2PathSelectionError;
+            if (TryLoadLr2Config(value, out LR2Config parsedConfig))
+            {
+                if (!string.Equals(previousPath, value, StringComparison.Ordinal))
+                {
+                    ApplicationSettings.LR2ConfigXmlPath = value;
+                }
+                isLr2ConfigPathParsed = true;
+                lr2config = OperationModeLR2DB ? parsedConfig : null;
+                SetLr2PathSelectionError(string.Empty);
+            }
+            else
+            {
+                // A rejected picker candidate is not the draft. Keep the previous raw persisted
+                // value and its parsed object intact while exposing an explicit validation failure.
+                SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
+            }
+            if (string.Equals(previousPath, ApplicationSettings.LR2ConfigXmlPath, StringComparison.Ordinal)
+                && previousParsed == isLr2ConfigPathParsed
+                && previousParsedObjectAvailable == (lr2config != null)
+                && string.Equals(previousError, Lr2PathSelectionError, StringComparison.Ordinal))
             {
                 return;
             }
-            if (IsLR2ConfigXmlPathValid(value))
-            {
-                ApplicationSettings.LR2ConfigXmlPath = value;
-                try
-                {
-                    lr2config = new LR2Config(ApplicationSettings.LR2ConfigXmlPath);
-                }
-                catch
-                {
-                    ApplicationSettings.LR2ConfigXmlPath = null;
-                    lr2config = null;
-                }
-            }
             RaisePropertyChanged("LR2ConfigXmlPath");
+            RaiseLr2PathPresentationChanged();
             RaisePropertyChanged(nameof(LR2bodyPath));
             RaisePropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
@@ -1634,6 +1652,148 @@ public partial class SettingsDialogViewModel : ViewModel
             RaiseValidationStateChanged();
             ResetLr2PlayHistorySchemaStatus();
         }
+    }
+
+    /// <summary>Gets whether either configured LR2 detail path is outside the selected root's standard layout.</summary>
+    public bool HasCustomLr2Paths
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(LR2RootPath))
+            {
+                return !string.IsNullOrWhiteSpace(LR2SongDBPath) || !string.IsNullOrWhiteSpace(LR2ConfigXmlPath);
+            }
+            string standardSongDb = Path.Combine(LR2RootPath, "LR2files", "Database", "song.db");
+            string standardConfigXml = Path.Combine(LR2RootPath, "LR2files", "Config", "config.xml");
+            string standardConfigXmh = Path.Combine(LR2RootPath, "LR2files", "Config", "config.xmh");
+            return !PathsEqual(LR2SongDBPath, standardSongDb)
+                || (!PathsEqual(LR2ConfigXmlPath, standardConfigXml) && !PathsEqual(LR2ConfigXmlPath, standardConfigXmh));
+        }
+    }
+
+    /// <summary>Gets the icon paired with the LR2 song database status.</summary>
+    public string Lr2SongDbPathStatusIcon => File.Exists(LR2SongDBPath) ? "✓" : "!";
+    /// <summary>Gets the semantic LR2 song database status category.</summary>
+    public string Lr2SongDbPathStatusKind => File.Exists(LR2SongDBPath) ? "Success" : "Warning";
+    /// <summary>Gets localized LR2 song database status text.</summary>
+    public string Lr2SongDbPathStatusText => File.Exists(LR2SongDBPath)
+        ? BeMusicSeeker.Properties.Resources.Settings_path_detected
+        : BeMusicSeeker.Properties.Resources.Settings_path_missing;
+    /// <summary>Gets the icon paired with the LR2 configuration status.</summary>
+    public string Lr2ConfigPathStatusIcon => isLr2ConfigPathParsed ? "✓" : "!";
+    /// <summary>Gets the semantic LR2 configuration status category.</summary>
+    public string Lr2ConfigPathStatusKind => isLr2ConfigPathParsed ? "Success" : File.Exists(LR2ConfigXmlPath) ? "Error" : "Warning";
+    /// <summary>Gets localized LR2 configuration status text.</summary>
+    public string Lr2ConfigPathStatusText => isLr2ConfigPathParsed
+        ? BeMusicSeeker.Properties.Resources.Settings_path_detected
+        : File.Exists(LR2ConfigXmlPath)
+            ? BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath
+            : BeMusicSeeker.Properties.Resources.Settings_path_missing;
+
+    /// <summary>Gets an explicit failure raised by the most recent rejected LR2 path selection.</summary>
+    public string Lr2PathSelectionError => lr2PathSelectionError;
+
+    /// <summary>Gets whether the most recent LR2 path selection was rejected.</summary>
+    public bool HasLr2PathSelectionError => !string.IsNullOrWhiteSpace(lr2PathSelectionError);
+
+    private static bool PathsEqual(string left, string right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+        try
+        {
+            return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private void RaiseLr2PathPresentationChanged()
+    {
+        RaisePropertyChanged(nameof(HasCustomLr2Paths));
+        RaisePropertyChanged(nameof(Lr2SongDbPathStatusIcon));
+        RaisePropertyChanged(nameof(Lr2SongDbPathStatusKind));
+        RaisePropertyChanged(nameof(Lr2SongDbPathStatusText));
+        RaisePropertyChanged(nameof(Lr2ConfigPathStatusIcon));
+        RaisePropertyChanged(nameof(Lr2ConfigPathStatusKind));
+        RaisePropertyChanged(nameof(Lr2ConfigPathStatusText));
+        RaisePropertyChanged(nameof(Lr2PathSelectionError));
+        RaisePropertyChanged(nameof(HasLr2PathSelectionError));
+    }
+
+    /// <summary>Validates an LR2 song database picker candidate without mutating the settings draft.</summary>
+    internal bool IsLr2SongDbPathCandidateValid(string path) => IsLR2SongDBPathValid(path);
+
+    /// <summary>Validates an LR2 configuration picker candidate without mutating the settings draft.</summary>
+    internal bool IsLr2ConfigPathCandidateValid(string path) => TryLoadLr2Config(path, out _);
+
+    /// <summary>
+    /// Validates and applies both LR2 advanced child paths as one draft tuple.
+    /// </summary>
+    /// <param name="songDbPath">The song database path currently shown by the advanced editor.</param>
+    /// <param name="configPath">The configuration path currently shown by the advanced editor.</param>
+    /// <param name="rejectedPathPropertyName">The editor property that must receive focus when validation fails.</param>
+    /// <returns><see langword="true"/> only when both candidates were accepted without partial mutation.</returns>
+    internal bool TryApplyLr2AdvancedPathDraft(
+        string songDbPath,
+        string configPath,
+        out string rejectedPathPropertyName)
+    {
+        if (!IsLR2SongDBPathValid(songDbPath))
+        {
+            rejectedPathPropertyName = nameof(LR2SongDBPath);
+            SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
+            RaiseValidationStateChanged();
+            return false;
+        }
+        if (!TryLoadLr2Config(configPath, out LR2Config parsedConfig))
+        {
+            rejectedPathPropertyName = nameof(LR2ConfigXmlPath);
+            SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
+            RaiseValidationStateChanged();
+            return false;
+        }
+
+        rejectedPathPropertyName = string.Empty;
+        ApplicationSettings.LR2SongDBPath = songDbPath;
+        ApplicationSettings.LR2ConfigXmlPath = configPath;
+        isLr2ConfigPathParsed = true;
+        lr2config = OperationModeLR2DB ? parsedConfig : null;
+        SetLr2PathSelectionErrorWithoutNotification(string.Empty);
+        RaisePropertyChanged(nameof(LR2SongDBPath));
+        RaisePropertyChanged(nameof(LR2ConfigXmlPath));
+        RaisePropertyChanged(nameof(LR2bodyPath));
+        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+        RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
+        RaisePropertyChanged(nameof(BMSInstallDir));
+        RaiseLr2PathPresentationChanged();
+        RaiseValidationStateChanged();
+        ResetLr2PlayHistorySchemaStatus();
+        return true;
+    }
+
+    private bool TryBuildStandardLr2PathTuple(string rootPath, out string songDbPath, out string configPath, out LR2Config parsedConfig)
+    {
+        songDbPath = string.Empty;
+        configPath = string.Empty;
+        parsedConfig = null;
+        if (!IsLR2PlayerRootPathValid(rootPath))
+        {
+            return false;
+        }
+
+        songDbPath = Path.Combine(rootPath, "LR2files", "Database", "song.db");
+        string configXmlPath = Path.Combine(rootPath, "LR2files", "Config", "config.xml");
+        string configXmhPath = Path.Combine(rootPath, "LR2files", "Config", "config.xmh");
+        configPath = File.Exists(configXmlPath) && File.Exists(configXmhPath)
+            ? File.GetLastWriteTime(configXmhPath) >= File.GetLastWriteTime(configXmlPath) ? configXmhPath : configXmlPath
+            : File.Exists(configXmlPath) ? configXmlPath : configXmhPath;
+        return TryLoadLr2Config(configPath, out parsedConfig);
     }
 
     public bool UseBeatorajaScoreDb
@@ -1798,6 +1958,10 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private LR2Config lr2ConfigValue;
 
+    private bool isLr2ConfigPathParsed;
+
+    private string lr2PathSelectionError = string.Empty;
+
     private LR2Config lr2config
     {
         get
@@ -1817,6 +1981,50 @@ public partial class SettingsDialogViewModel : ViewModel
                 RaisePropertyChanged(nameof(BMSInstallDir));
             }
         }
+    }
+
+    private static bool TryLoadLr2Config(string path, out LR2Config parsedConfig)
+    {
+        parsedConfig = null;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+        try
+        {
+            parsedConfig = new LR2Config(path);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void RefreshParsedLr2ConfigState(bool showSelectionError, bool? useLr2Mode = null)
+    {
+        isLr2ConfigPathParsed = TryLoadLr2Config(ApplicationSettings.LR2ConfigXmlPath, out LR2Config parsedConfig);
+        lr2config = isLr2ConfigPathParsed && (useLr2Mode ?? OperationModeLR2DB) ? parsedConfig : null;
+        SetLr2PathSelectionError(showSelectionError && !string.IsNullOrWhiteSpace(ApplicationSettings.LR2ConfigXmlPath) && !isLr2ConfigPathParsed
+            ? BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath
+            : string.Empty);
+    }
+
+    private void SetLr2PathSelectionError(string value)
+    {
+        value ??= string.Empty;
+        if (string.Equals(lr2PathSelectionError, value, StringComparison.Ordinal))
+        {
+            return;
+        }
+        SetLr2PathSelectionErrorWithoutNotification(value);
+        RaisePropertyChanged(nameof(Lr2PathSelectionError));
+        RaisePropertyChanged(nameof(HasLr2PathSelectionError));
+    }
+
+    private void SetLr2PathSelectionErrorWithoutNotification(string value)
+    {
+        lr2PathSelectionError = value ?? string.Empty;
     }
 
     public string uBMplayPath
@@ -2573,9 +2781,11 @@ public partial class SettingsDialogViewModel : ViewModel
                 if (IsTableListURLValid(value))
                 {
                     ApplicationSettings.TableListURL = value;
+                    tableListUriValidationMessage = string.Empty;
                 }
                 else
                 {
+                    tableListUriValidationMessage = BeMusicSeeker.Properties.Resources.Error_InvalidTableListUri;
                     ShowUiMessage(BeMusicSeeker.Properties.Resources.Error_InvalidTableListUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
                 }
                 RaisePropertyChanged("TableListURL");
@@ -2583,6 +2793,9 @@ public partial class SettingsDialogViewModel : ViewModel
             }
         }
     }
+
+    /// <summary>Gets the inline validation message for the external table-list URI editor.</summary>
+    public string TableListUriValidationMessage => tableListUriValidationMessage;
 
     public bool EnablePlaylistUrlCompletion
     {
@@ -2653,15 +2866,20 @@ public partial class SettingsDialogViewModel : ViewModel
             if (IsPlaylistMd5UrlMappingTsvUriValid(normalizedValue))
             {
                 ApplicationSettings.PlaylistMd5UrlMappingTsvUri = normalizedValue;
+                playlistMd5UrlMappingTsvUriValidationMessage = string.Empty;
             }
             else
             {
+                playlistMd5UrlMappingTsvUriValidationMessage = BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri;
                 ShowUiMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
             }
             RaisePropertyChanged("PlaylistMd5UrlMappingTsvUri");
             RaiseValidationStateChanged();
         }
     }
+
+    /// <summary>Gets the inline validation message for the playlist metadata mapping URI editor.</summary>
+    public string PlaylistMd5UrlMappingTsvUriValidationMessage => playlistMd5UrlMappingTsvUriValidationMessage;
 
     public bool IsLR2BackupEnabled
     {
@@ -2906,8 +3124,24 @@ public partial class SettingsDialogViewModel : ViewModel
                 ApplicationSettings.AppearanceTheme = normalizedTheme;
                 AppThemeService.ApplyTheme(normalizedTheme);
                 RaisePropertyChanged("AppearanceTheme");
+                RaisePropertyChanged(nameof(IsLightAppearanceTheme));
+                RaisePropertyChanged(nameof(IsDarkAppearanceTheme));
             }
         }
+    }
+
+    /// <summary>Gets or selects the light appearance theme for choice-tile binding.</summary>
+    public bool IsLightAppearanceTheme
+    {
+        get => string.Equals(AppearanceTheme, AppThemeService.Light, StringComparison.Ordinal);
+        set { if (value) AppearanceTheme = AppThemeService.Light; }
+    }
+
+    /// <summary>Gets or selects the dark appearance theme for choice-tile binding.</summary>
+    public bool IsDarkAppearanceTheme
+    {
+        get => string.Equals(AppearanceTheme, AppThemeService.Dark, StringComparison.Ordinal);
+        set { if (value) AppearanceTheme = AppThemeService.Dark; }
     }
 
     public double CustomTableFontSize
@@ -3994,22 +4228,7 @@ public partial class SettingsDialogViewModel : ViewModel
             playHistoryPort.RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges: false);
         });
         this.settingsEditSession.Reload();
-        if (ApplicationSettings.OperationModeLR2DB)
-        {
-            try
-            {
-                lr2config = new LR2Config(ApplicationSettings.LR2ConfigXmlPath);
-            }
-            catch
-            {
-                ApplicationSettings.LR2ConfigXmlPath = null;
-                lr2config = null;
-            }
-        }
-        else
-        {
-            lr2config = null;
-        }
+        RefreshParsedLr2ConfigState(showSelectionError: false, useLr2Mode: ApplicationSettings.OperationModeLR2DB);
         RefreshStandaloneBmsRootPathsFromSettings();
         RefreshBeatorajaDerivedSettings();
         backupSavedSettings();
@@ -4283,13 +4502,22 @@ public partial class SettingsDialogViewModel : ViewModel
 
     internal void SetPresentationActive(bool active)
     {
+        bool presentationOpening = active && !isPresentationActive;
         isPresentationActive = active;
-        if (active)
+        if (presentationOpening)
         {
+            ClearTransientPlaylistUriValidationState();
             ObservePlaylistCatalogVersion(workspacePort.PlaylistCatalogVersion);
             PublishPlaylistCatalogPresentationIfNeeded();
             RefreshPlayHistoryFolderDisplayPresetPlaylistOptionsIfDirty();
         }
+    }
+
+    private void ClearTransientPlaylistUriValidationState()
+    {
+        tableListUriValidationMessage = string.Empty;
+        playlistMd5UrlMappingTsvUriValidationMessage = string.Empty;
+        RaiseValidationStateChanged();
     }
 
     private void ObservePlaylistCatalogVersion(long version)
@@ -4693,7 +4921,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool IsLR2ConfigXmlPathValid()
     {
-        return IsLR2ConfigXmlPathValid(ApplicationSettings.LR2ConfigXmlPath);
+        return isLr2ConfigPathParsed;
     }
 
     private bool IsLR2ConfigXmlPathValid(string value)
@@ -7428,26 +7656,12 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.Lang = tempLanguage;
         ApplicationSettings.LangDisplayName = tempLanguageDisplayName;
         ResourceService.Current.ChangeCulture(tempLanguage);
-        if (tempOperationModeLR2DB)
-        {
-            try
-            {
-                lr2config = new LR2Config(ApplicationSettings.LR2ConfigXmlPath);
-            }
-            catch
-            {
-                ApplicationSettings.LR2ConfigXmlPath = null;
-                lr2config = null;
-            }
-        }
-        else
-        {
-            lr2config = null;
-        }
+        RefreshParsedLr2ConfigState(showSelectionError: true);
         RefreshStandaloneBmsRootPathsFromSettings();
         RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
         ResetPlayHistoryFolderDisplayPresetsForCancel();
         RaisePropertyChanged(nameof(OperationModeLR2DB));
+        RaisePropertyChanged(nameof(IsStandaloneOperationMode));
         RaisePropertyChanged(nameof(CanUseLr2Features));
         RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         RaisePropertyChanged(nameof(LR2RootPath));
@@ -7459,6 +7673,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
         RaisePropertyChanged(nameof(LR2SongDBPath));
         RaisePropertyChanged(nameof(LR2ConfigXmlPath));
+        RaiseLr2PathPresentationChanged();
         RaisePropertyChanged(nameof(UseBeatorajaScoreDb));
         RaisePropertyChanged(nameof(BeatorajaRootPath));
         RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
@@ -7498,6 +7713,8 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(UseExternalWebBrowser));
         RaisePropertyChanged(nameof(UseExternalPanelImage));
         RaisePropertyChanged(nameof(AppearanceTheme));
+        RaisePropertyChanged(nameof(IsLightAppearanceTheme));
+        RaisePropertyChanged(nameof(IsDarkAppearanceTheme));
         RaisePropertyChanged(nameof(CustomTableFontSize));
         RaisePropertyChanged(nameof(CustomTableRowHeight));
         RaisePropertyChanged(nameof(CustomTableHeaderHeight));

@@ -11,7 +11,9 @@ internal static class AppThemeService
     internal const string Light = "Light";
     internal const string Dark = "Dark";
 
-    private const string ThemeDictionaryPrefix = "/Themes/";
+    private const string ApplicationThemeDictionaryPrefix = "/Themes/";
+
+    private const string ComponentThemeDictionaryPrefix = "/BeMusicSeeker;component/Themes/";
     private static int version;
 
     internal static event EventHandler ThemeChanged;
@@ -37,7 +39,7 @@ internal static class AppThemeService
             return;
         }
         Collection<ResourceDictionary> dictionaries = application.Resources.MergedDictionaries;
-        string targetSource = ThemeDictionaryPrefix + normalizedTheme + ".xaml";
+        string targetSource = ComponentThemeDictionaryPrefix + normalizedTheme + ".xaml";
         ResourceDictionary current = dictionaries.FirstOrDefault(IsThemeDictionary);
         if (current != null && string.Equals(current.Source?.OriginalString, targetSource, StringComparison.OrdinalIgnoreCase))
         {
@@ -68,7 +70,8 @@ internal static class AppThemeService
     {
         string source = dictionary?.Source?.OriginalString;
         return !string.IsNullOrEmpty(source)
-            && source.StartsWith(ThemeDictionaryPrefix, StringComparison.OrdinalIgnoreCase)
+            && (source.StartsWith(ApplicationThemeDictionaryPrefix, StringComparison.OrdinalIgnoreCase)
+                || source.StartsWith(ComponentThemeDictionaryPrefix, StringComparison.OrdinalIgnoreCase))
             && source.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase);
     }
 }

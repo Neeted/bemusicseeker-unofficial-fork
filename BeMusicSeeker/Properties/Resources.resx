@@ -244,6 +244,9 @@ LR2と連携する:
   <data name="Device" xml:space="preserve">
     <value>デバイス</value>
   </data>
+  <data name="Audio" xml:space="preserve">
+    <value>オーディオ</value>
+  </data>
   <data name="Msg_show_chart" xml:space="preserve">
     <value>譜面サイトに未登録の譜面です。
 譜面を登録しますか？</value>
@@ -508,6 +511,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Record" xml:space="preserve">
     <value>録音</value>
   </data>
+  <data name="Recording" xml:space="preserve">
+    <value>録音</value>
+  </data>
   <data name="Remove" xml:space="preserve">
     <value>削除</value>
   </data>
@@ -709,10 +715,13 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>カスタムフォルダ</value>
   </data>
   <data name="Player_Internal_desc" xml:space="preserve">
-    <value>※デバイスタブで設定して下さい</value>
+    <value>※オーディオ設定で設定してください。</value>
   </data>
   <data name="Advanced_settings" xml:space="preserve">
-    <value>高度な設定</value>
+    <value>詳細設定</value>
+  </data>
+  <data name="Settings_window_title" xml:space="preserve">
+    <value>設定</value>
   </data>
   <data name="Advanced_features" xml:space="preserve">
     <value>高度な機能</value>
@@ -1194,6 +1203,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Version_info" xml:space="preserve">
     <value>バージョン情報</value>
+  </data>
+  <data name="About_this_app" xml:space="preserve">
+    <value>このアプリについて</value>
   </data>
   <data name="Record_setting_normalize_average" xml:space="preserve">
     <value>平均ラウドネス</value>
@@ -3104,4 +3116,53 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="AudioDeviceTestUnexpectedFailureReason" xml:space="preserve">
     <value>テスト音声の再生中に予期しないエラーが発生しました。</value>
   </data>
+  <data name="Operation_Mode_Standalone" xml:space="preserve"><value>スタンドアローン</value></data>
+  <data name="Operation_Mode_LR2" xml:space="preserve"><value>LR2 連携</value></data>
+  <data name="LR2_integration" xml:space="preserve"><value>LR2 連携</value></data>
+  <data name="Settings_appearance_theme_description" xml:space="preserve"><value>設定画面を含むアプリ全体の配色を選択します。変更はすぐにプレビューされます。</value></data>
+  <data name="Settings_appearance_theme_light_description" xml:space="preserve"><value>明るい背景で表示します。</value></data>
+  <data name="Settings_appearance_theme_dark_description" xml:space="preserve"><value>暗い背景で表示します。</value></data>
+  <data name="Settings_appearance_table_description" xml:space="preserve"><value>ライブラリ一覧の文字と行の密度を調整します。</value></data>
+  <data name="Settings_player_executable_path" xml:space="preserve"><value>プレーヤー実行ファイル</value></data>
+  <data name="Settings_player_lr2_description" xml:space="preserve"><value>LR2 の実行ファイルで譜面を再生します。</value></data>
+  <data name="Settings_movie_playback_description" xml:space="preserve"><value>関連する動画リンクを開く方法を選択します。</value></data>
+  <data name="Settings_audio_output_description" xml:space="preserve"><value>再生に使用するドライバー、デバイス、音声形式を選択します。</value></data>
+  <data name="Settings_audio_advanced" xml:space="preserve"><value>詳細な音声設定</value></data>
+  <data name="Settings_recording_format_description" xml:space="preserve"><value>録音ファイルの形式、品質、正規化、ゲインを設定します。</value></data>
+  <data name="Settings_token_artist" xml:space="preserve"><value>%ARTIST% — アーティスト</value></data>
+  <data name="Settings_token_title" xml:space="preserve"><value>%TITLE% — タイトル</value></data>
+  <data name="Settings_token_genre" xml:space="preserve"><value>%GENRE% — ジャンル</value></data>
+  <data name="Settings_token_number" xml:space="preserve"><value>%NO% — 連番</value></data>
+  <data name="Settings_token_file" xml:space="preserve"><value>%FILE% — BMS ファイル名</value></data>
+  <data name="Settings_token_hash" xml:space="preserve"><value>%HASH% — MD5</value></data>
+  <data name="Settings_library_composition_description" xml:space="preserve"><value>ライブラリを単独で管理するか、LR2 のデータベースと連携するかを選択します。</value></data>
+  <data name="Settings_standalone_description" xml:space="preserve"><value>指定した BMS フォルダーからライブラリを構成します。</value></data>
+  <data name="Settings_lr2_linked_description" xml:space="preserve"><value>LR2 の song.db と設定ファイルを使用してライブラリを構成します。</value></data>
+  <data name="Settings_bms_directories_description" xml:space="preserve"><value>検索対象のフォルダーを追加、削除、またはドラッグ＆ドロップで登録します。</value></data>
+  <data name="Settings_list_drag_drop_hint" xml:space="preserve"><value>フォルダーをこの一覧へドロップして追加できます。</value></data>
+  <data name="Settings_lr2_paths_description" xml:space="preserve"><value>通常は LR2 のルートから標準パスを自動検出します。既存のカスタムパスはそのまま保持されます。</value></data>
+  <data name="Settings_path_detected" xml:space="preserve"><value>✓ ファイルを検出しました。</value></data>
+  <data name="Settings_path_missing" xml:space="preserve"><value>! ファイルが見つかりません。</value></data>
+  <data name="Settings_edit_custom_lr2_paths" xml:space="preserve"><value>カスタムパスを編集…</value></data>
+  <data name="Settings_lr2_advanced_title" xml:space="preserve"><value>LR2 カスタムパス</value></data>
+  <data name="Settings_lr2_advanced_description" xml:space="preserve"><value>標準配置ではない song.db と config.xml または config.xmh を指定します。</value></data>
+  <data name="Settings_lr2_advanced_persistence_note" xml:space="preserve"><value>ここでの変更は設定画面の下書きに反映されます。保存するには設定画面で「保存して閉じる」を選択してください。</value></data>
+  <data name="Settings_done" xml:space="preserve"><value>完了</value></data>
+  <data name="Enable" xml:space="preserve"><value>有効</value></data>
+  <data name="Install_shift_jis_description" xml:space="preserve"><value>フォルダ名をシフトJISで表現できる文字に置き換え、互換性を優先します。</value></data>
+  <data name="Settings_danger_zone" xml:space="preserve"><value>危険な操作</value></data>
+  <data name="Settings_danger_zone_description" xml:space="preserve"><value>次の操作は保存していない設定とは別に即時実行され、データを削除する場合があります。</value></data>
+  <data name="Settings_uninstall_application_data" xml:space="preserve"><value>BeMusicSeeker 関連データを削除...</value></data>
+  <data name="About_application_icon" xml:space="preserve"><value>BeMusicSeeker アプリケーションアイコン</value></data>
+  <data name="About_application_name" xml:space="preserve"><value>BeMusicSeeker Unofficial Fork</value></data>
+  <data name="About_release_notes_button" xml:space="preserve"><value>リリースノートを表示...</value></data>
+  <data name="About_license_and_credits" xml:space="preserve"><value>ライセンスとクレジット</value></data>
+  <data name="About_original_credit" xml:space="preserve"><value>Original work: Copyright © 2018 ribbit.xyz</value></data>
+  <data name="About_fork_credit" xml:space="preserve"><value>Fork modifications: Copyright © 2026 ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ</value></data>
+  <data name="About_mit_license_link" xml:space="preserve"><value>MIT ライセンスを表示</value></data>
+  <data name="About_links" xml:space="preserve"><value>リンク</value></data>
+  <data name="About_project_link" xml:space="preserve"><value>プロジェクトページ</value></data>
+  <data name="About_original_site_link" xml:space="preserve"><value>オリジナルサイト</value></data>
+  <data name="About_version_format" xml:space="preserve"><value>バージョン: {0}</value></data>
+  <data name="About_build_format" xml:space="preserve"><value>ビルド: {0}</value></data>
 </root>

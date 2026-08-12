@@ -1,5 +1,8 @@
 {
   "_language_name": "English",
+  "Audio": "Audio",
+  "Recording": "Recording",
+  "About_this_app": "About this app",
   "Open_Url": "Open URL",
   "Import_Selected_Url": "Import selected main URLs",
   "Import_Selected_Url_diff": "Import selected diff URLs",
@@ -325,8 +328,9 @@
   "Full_scan_check": "Full scan check",
   "Full_scan_all_charts": "All charts",
   "Custom_folder": "Custom folder",
-  "Player_Internal_desc": "* Settings in \"Device\" tab",
+  "Player_Internal_desc": "* Configure in Audio settings.",
   "Advanced_settings": "Advanced settings",
+  "Settings_window_title": "Settings",
   "Advanced_features": "Advanced features",
   "Delete_pending_installed_only_packages_permanently": "Delete packages containing only already-installed charts without using recycle bin",
   "Msg_delete_pending_installed_only_packages_permanently": "Pending packages containing only already-installed charts will be permanently deleted without using the recycle bin.\nTarget: {0} package(s)\nDirectory packages are deleted as folders, and single-file packages are deleted directly.\nThis action cannot be undone. Continue?",
@@ -894,5 +898,12 @@
   "AudioDeviceTestPlaybackStoppedEarlyReason": "The test sound stopped before completion.",
   "AudioDeviceTestRateFailureReason": "The test-sound playback rate was outside the accepted range.",
   "AudioDeviceTestObservationTimeoutReason": "The test sound did not complete before observation timed out.",
-  "AudioDeviceTestUnexpectedFailureReason": "An unexpected error occurred while playing the test sound."
+  "AudioDeviceTestUnexpectedFailureReason": "An unexpected error occurred while playing the test sound.",
+  "Operation_Mode_Standalone": "Standalone", "Operation_Mode_LR2": "LR2 integration", "LR2_integration": "LR2 integration",
+  "Settings_appearance_theme_description": "Choose the application color scheme. Changes are previewed immediately.", "Settings_appearance_theme_light_description": "Use a light background.", "Settings_appearance_theme_dark_description": "Use a dark background.", "Settings_appearance_table_description": "Adjust text and row density in the library list.",
+  "Settings_player_executable_path": "Player executable", "Settings_player_lr2_description": "Play charts with the LR2 executable.", "Settings_movie_playback_description": "Choose how related video links are opened.", "Settings_audio_output_description": "Choose the driver, device, and audio format used for playback.", "Settings_audio_advanced": "Advanced audio settings", "Settings_recording_format_description": "Configure recording format, quality, normalization, and gain.",
+  "Settings_token_artist": "%ARTIST% — Artist", "Settings_token_title": "%TITLE% — Title", "Settings_token_genre": "%GENRE% — Genre", "Settings_token_number": "%NO% — Sequence number", "Settings_token_file": "%FILE% — BMS file name", "Settings_token_hash": "%HASH% — MD5",
+  "Settings_library_composition_description": "Manage the library independently or link it to the LR2 database.", "Settings_standalone_description": "Build the library from the specified BMS folders.", "Settings_lr2_linked_description": "Build the library using LR2 song.db and configuration.", "Settings_bms_directories_description": "Add, remove, or drag folders to register search locations.", "Settings_list_drag_drop_hint": "Drop folders on this list to add them.",
+  "Settings_lr2_paths_description": "Standard paths are detected from the LR2 root. Existing custom paths are preserved.", "Settings_path_detected": "✓ File detected.", "Settings_path_missing": "! File not found.", "Settings_edit_custom_lr2_paths": "Edit custom paths…", "Settings_lr2_advanced_title": "Custom LR2 paths", "Settings_lr2_advanced_description": "Select a nonstandard song.db and config.xml or config.xmh.", "Settings_lr2_advanced_persistence_note": "Changes update the settings draft. Select Save and close in Settings to persist them.", "Settings_done": "Done",
+  "Enable": "Enable", "Install_shift_jis_description": "Replace unsupported folder-name characters to prioritize Shift JIS compatibility.", "Settings_danger_zone": "Danger zone", "Settings_danger_zone_description": "These actions run immediately, separately from unsaved settings, and may delete data.", "Settings_uninstall_application_data": "Remove BeMusicSeeker data…", "About_application_icon": "BeMusicSeeker application icon", "About_application_name": "BeMusicSeeker Unofficial Fork", "About_release_notes_button": "View release notes…", "About_license_and_credits": "License and credits", "About_original_credit": "Original work: Copyright © 2018 ribbit.xyz", "About_fork_credit": "Fork modifications: Copyright © 2026 ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ", "About_mit_license_link": "View the MIT License", "About_links": "Links", "About_project_link": "Project page", "About_original_site_link": "Original site", "About_version_format": "Version: {0}", "About_build_format": "Build: {0}"
 }

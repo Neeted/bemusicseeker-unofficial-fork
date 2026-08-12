@@ -87,18 +87,50 @@ public sealed class LocalizationResourceParityTests
         string[] requiredKeys =
         [
             nameof(Resources.Advanced_settings),
+            nameof(Resources.Settings_window_title),
             nameof(Resources.General),
             nameof(Resources.Appearance),
             nameof(Resources.Playback),
-            nameof(Resources.Device),
-            nameof(Resources.Record),
+            nameof(Resources.Audio),
+            nameof(Resources.Recording),
             nameof(Resources.Playlist),
             nameof(Resources.Install),
             nameof(Resources.Backup),
-            nameof(Resources.Details),
-            nameof(Resources.Version_info),
+            nameof(Resources.About_this_app),
             nameof(Resources.Cancel),
             nameof(Resources.Save_and_close)
+            , nameof(Resources.Operation_Mode_Standalone)
+            , nameof(Resources.Operation_Mode_LR2)
+            , nameof(Resources.LR2_integration)
+            , nameof(Resources.Settings_appearance_theme_description)
+            , nameof(Resources.Settings_appearance_theme_light_description)
+            , nameof(Resources.Settings_appearance_theme_dark_description)
+            , nameof(Resources.Settings_appearance_table_description)
+            , nameof(Resources.Settings_player_executable_path)
+            , nameof(Resources.Settings_player_lr2_description)
+            , nameof(Resources.Settings_movie_playback_description)
+            , nameof(Resources.Settings_audio_output_description)
+            , nameof(Resources.Settings_audio_advanced)
+            , nameof(Resources.Settings_recording_format_description)
+            , nameof(Resources.Settings_token_artist)
+            , nameof(Resources.Settings_token_title)
+            , nameof(Resources.Settings_token_genre)
+            , nameof(Resources.Settings_token_number)
+            , nameof(Resources.Settings_token_file)
+            , nameof(Resources.Settings_token_hash)
+            , nameof(Resources.Settings_library_composition_description)
+            , nameof(Resources.Settings_standalone_description)
+            , nameof(Resources.Settings_lr2_linked_description)
+            , nameof(Resources.Settings_bms_directories_description)
+            , nameof(Resources.Settings_list_drag_drop_hint)
+            , nameof(Resources.Settings_lr2_paths_description)
+            , nameof(Resources.Settings_path_detected)
+            , nameof(Resources.Settings_path_missing)
+            , nameof(Resources.Settings_edit_custom_lr2_paths)
+            , nameof(Resources.Settings_lr2_advanced_title)
+            , nameof(Resources.Settings_lr2_advanced_description)
+            , nameof(Resources.Settings_lr2_advanced_persistence_note)
+            , nameof(Resources.Settings_done)
         ];
 
         foreach (string languagePath in Directory.GetFiles(langDirectory, "*.json").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
@@ -118,6 +150,38 @@ public sealed class LocalizationResourceParityTests
                 ?? throw new AssertFailedException("Resources must expose " + key + ".");
             Assert.IsFalse(string.IsNullOrWhiteSpace(property.GetValue(null) as string), key + " must not be empty in the default resources.");
         }
+    }
+
+    [TestMethod]
+    public void SettingsPresentationCopy_UsesCurrentPlayerAndAudioTerminology()
+    {
+        string root = FindRepositoryRoot();
+        var expected = new Dictionary<string, (string InternalPlayer, string Lr2Player)>(StringComparer.Ordinal)
+        {
+            ["en-US.json"] = ("* Configure in Audio settings.", "Play charts with the LR2 executable."),
+            ["fr-FR.json"] = ("* Configurez ce réglage dans les paramètres audio.", "Lisez les charts avec l’exécutable LR2."),
+            ["ja-JP.json"] = ("※オーディオ設定で設定してください。", "LR2 の実行ファイルで譜面を再生します。"),
+            ["ko-KR.json"] = ("* 오디오 설정에서 구성하세요.", "LR2 실행 파일로 차트를 재생합니다."),
+            ["zh-CN.json"] = ("* 请在音频设置中进行配置。", "使用 LR2 可执行文件播放谱面。"),
+            ["zh-TW.json"] = ("* 請在音訊設定中進行設定。", "使用 LR2 執行檔播放譜面。")
+        };
+
+        foreach ((string fileName, (string internalPlayer, string lr2Player)) in expected)
+        {
+            JObject language = ReadLanguageJsonObject(Path.Combine(root, "lang", fileName));
+            Assert.AreEqual(internalPlayer, language[nameof(Resources.Player_Internal_desc)]?.Value<string>(), fileName);
+            Assert.AreEqual(lr2Player, language[nameof(Resources.Settings_player_lr2_description)]?.Value<string>(), fileName);
+            Assert.IsNull(language["Settings_appearance_preview"], fileName);
+            Assert.IsNull(language["About_update_status_format"], fileName);
+        }
+
+        JObject japanese = ReadLanguageJsonObject(Path.Combine(root, "lang", "ja-JP.json"));
+        Assert.AreEqual("スタンドアローン", japanese[nameof(Resources.Operation_Mode_Standalone)]?.Value<string>());
+        Assert.AreEqual("スタンドアローン", Resources.Operation_Mode_Standalone);
+        Assert.AreEqual("LR2 の実行ファイルで譜面を再生します。", Resources.Settings_player_lr2_description);
+        Assert.AreEqual("※オーディオ設定で設定してください。", Resources.Player_Internal_desc);
+        Assert.IsNull(typeof(Resources).GetProperty("Settings_appearance_preview", BindingFlags.Public | BindingFlags.Static));
+        Assert.IsNull(typeof(Resources).GetProperty("About_update_status_format", BindingFlags.Public | BindingFlags.Static));
     }
 
     [TestMethod]

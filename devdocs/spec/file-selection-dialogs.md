@@ -34,6 +34,11 @@ file picker は `UiDialogCoordinator` が処理し、filter / default extension 
 | 一般 | `config.xml` 参照 | `UiFilePickerRequest` | File open | LR2 `config.xml` / `config.xmh` | `config.xm?`, all files | `config.xml` | `xml` | Computed from FileName | `settingDialog.LR2ConfigXmlPath` |
 | 一般 | beatoraja ディレクトリ参照 | `UiFolderPickerRequest` | Folder | beatoraja root directory | N/A | N/A | N/A | N/A | `settingDialog.BeatorajaRootPath` |
 
+LR2 root picker は、現在値と同じrootを再選択した場合も、候補 root、標準配置の `LR2files\Database\song.db`、`LR2files\Config\config.xml|config.xmh`、読み込み可能な config を先に単一 tuple として解決する。候補が LR2 player root として無効、config が存在しない、または config を解析できない場合は root / song / config の3 raw draftを一切変更せず、画面に validation failure を表示する。有効な候補だけを3値へ一括反映し、以前の root に属する `song.db` を暗黙に残さない。同じrootにcustom childがある場合は標準tupleへ戻す。期待される song.db がまだ存在しない場合も新rootの標準pathを設定し、linked modeの保存validationでmissingを明示する。
+
+標準配置から外れた既存の child path は raw value のまま互換維持し、通常画面では read-only status として表示する。advanced dialog の song/config path は親ViewModelにbindingせずdialog-local draftとし、直接入力とpickerの両方で同じlocal valueを編集する。pickerは現在のtyped valueをinitial directoryに使い、accepted candidateを同じeditorへ反映するが親draftは更新しない。Done / Enterは両editorの現在textを必ず再検証し、songとparse可能なconfigのtuple全体が有効な場合だけatomicに親draftへ反映する。advanced picker が missing / unreadable / malformed file を返した場合は、そのchildの以前のlocal valueと親draftを保持してfailureを表示する。Cancel / Esc / native closeはlocal draftを捨てるだけで親draftを変更しない。Doneは永続化せず、親設定画面の Save だけが user.config を保存する。modalとpicker requestのownerは同じ `SettingsWindow` とする。
+手動編集入口は標準配置・custom配置のどちらでも常に表示し、LR2 linked modeのときだけ有効にする。初期raw値がmissing / malformedで未編集でもDoneは受理せず、dialogを開いたまま拒否されたeditorへfocusを戻す。
+
 `config.xm?` は LR2 互換上の意図的な filter で、`config.xml` と `config.xmh` を許可する。既定拡張子は `FileName=config.xml` から算出されるため `xml` になる。
 
 DB 系の filter は exact filename ではなく `*.db` を使う。表示上は `song.db` / `score.db` を案内するが、LR2 の空 DB や backup DB など、ファイル名が完全一致しない `.db` も選択できるようにする。

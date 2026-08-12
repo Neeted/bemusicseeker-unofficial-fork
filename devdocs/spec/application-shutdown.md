@@ -8,11 +8,11 @@ BeMusicSeeker は DB 読み書き、譜面/アーカイブ/メタデータのフ
 
 ## 終了の入口
 
-通常終了では `MainWindow.OnClosing` が最初の `Closing` を一度キャンセルし、`MainWindowViewModel.PrepareShutdownAsync` を呼び出す。準備が完了すると `Application.Current.Shutdown()` を再実行し、2 回目の `Closing` では既存の設定保存と `Closed` 後の `CloseProcess` に進む。
+通常終了では `MainWindow.OnClosing` が最初の `Closing` を一度キャンセルし、`ShellShutdownWorkflowOwner` の window-close request を開始する。準備が完了すると `MainWindow.ApplyTerminalShutdown` が window state を capture し、settings 保存、player/audio/一時領域の terminal cleanup を完了してから、composition 済みの `IApplicationLifetimePort.RequestShutdown()` を要求する。production adapter はここで WPF application shutdown を開始する。final lifetime boundary は差し替え可能だが、`MainWindow.OnClosing`、終了準備、terminal cleanupを短絡してはならない。
 
-自動アップデートでは、更新パッケージをダウンロードし、updater の起動情報を先に作成する。この時点で updater exe の作業ディレクトリへのコピーも済ませる。その後、通常終了と同じ `PrepareShutdownAsync` を通し、既知の DB/IO/background worker が idle になってから updater process を起動して `Application.Current.Shutdown()` を呼ぶ。updater は現在の PID 終了を待ってから上書きを開始する。
+自動アップデートでは、更新パッケージをダウンロードし、updater の起動情報を先に作成する。この時点で updater exe の作業ディレクトリへのコピーも済ませる。その後、通常終了と同じ `ShellShutdownWorkflowOwner` の準備を通し、既知の DB/IO/background worker が idle になってから updater process を起動し、同じ application-lifetime boundary へ shutdown を要求する。updater は現在の PID 終了を待ってから上書きを開始する。
 
-`PrepareShutdownAsync` は不可逆な終了準備として扱う。updater process の起動が終了準備後に失敗した場合、アプリを半終了状態で継続せず、そのまま `Application.Current.Shutdown()` へ進める。失敗内容はログへ残す。
+shutdown preparation は不可逆な終了準備として扱う。updater process の起動が終了準備後に失敗した場合、アプリを半終了状態で継続せず、terminal cleanup 後に同じ application-lifetime boundary へ shutdown を要求する。失敗内容はログへ残す。
 
 ## 終了準備で行うこと
 

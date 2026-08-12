@@ -1,5 +1,8 @@
 {
   "_language_name": "Français",
+  "Audio": "Audio",
+  "Recording": "Enregistrement",
+  "About_this_app": "À propos de cette application",
   "Open_Url": "Ouvrir URL",
   "Import_Selected_Url": "Import selected main URLs",
   "Import_Selected_Url_diff": "Import selected diff URLs",
@@ -325,8 +328,9 @@
   "Full_scan_check": "Verification scan complet",
   "Full_scan_all_charts": "Tous les charts",
   "Custom_folder": "Custom folder",
-  "Player_Internal_desc": "* Parametres dans onglet \"Device\"",
+  "Player_Internal_desc": "* Configurez ce réglage dans les paramètres audio.",
   "Advanced_settings": "Parametres avances",
+  "Settings_window_title": "Paramètres",
   "Advanced_features": "Fonctions avancees",
   "Delete_pending_installed_only_packages_permanently": "Supprimer sans corbeille les paquets contenant uniquement des charts deja installes",
   "Msg_delete_pending_installed_only_packages_permanently": "Les paquets en attente contenant uniquement des charts deja installes seront supprimes definitivement sans passer par la corbeille.\nCible : {0} paquet(s)\nLes paquets de dossier sont supprimes comme dossiers, et les paquets a fichier unique sont supprimes directement.\nCette action est irreversible. Continuer ?",
@@ -894,5 +898,12 @@
   "AudioDeviceTestPlaybackStoppedEarlyReason": "Le son de test s'est arrêté avant la fin.",
   "AudioDeviceTestRateFailureReason": "La vitesse de lecture du son de test est hors de la plage acceptée.",
   "AudioDeviceTestObservationTimeoutReason": "Le son de test ne s'est pas terminé avant l'expiration de l'observation.",
-  "AudioDeviceTestUnexpectedFailureReason": "Une erreur inattendue s'est produite lors de la lecture du son de test."
+  "AudioDeviceTestUnexpectedFailureReason": "Une erreur inattendue s'est produite lors de la lecture du son de test.",
+  "Operation_Mode_Standalone": "Autonome", "Operation_Mode_LR2": "Intégration LR2", "LR2_integration": "Intégration LR2",
+  "Settings_appearance_theme_description": "Choisissez les couleurs de l’application. L’aperçu est immédiat.", "Settings_appearance_theme_light_description": "Utiliser un fond clair.", "Settings_appearance_theme_dark_description": "Utiliser un fond sombre.", "Settings_appearance_table_description": "Réglez la densité du texte et des lignes.",
+  "Settings_player_executable_path": "Exécutable du lecteur", "Settings_player_lr2_description": "Lisez les charts avec l’exécutable LR2.", "Settings_movie_playback_description": "Choisissez comment ouvrir les liens vidéo.", "Settings_audio_output_description": "Choisissez le pilote, le périphérique et le format audio.", "Settings_audio_advanced": "Audio avancé", "Settings_recording_format_description": "Configurez le format, la qualité, la normalisation et le gain.",
+  "Settings_token_artist": "%ARTIST% — Artiste", "Settings_token_title": "%TITLE% — Titre", "Settings_token_genre": "%GENRE% — Genre", "Settings_token_number": "%NO% — Numéro", "Settings_token_file": "%FILE% — Fichier BMS", "Settings_token_hash": "%HASH% — MD5",
+  "Settings_library_composition_description": "Gérez la bibliothèque seule ou liée à LR2.", "Settings_standalone_description": "Construire depuis les dossiers BMS indiqués.", "Settings_lr2_linked_description": "Utiliser song.db et la configuration LR2.", "Settings_bms_directories_description": "Ajoutez, supprimez ou déposez des dossiers.", "Settings_list_drag_drop_hint": "Déposez des dossiers ici pour les ajouter.",
+  "Settings_lr2_paths_description": "Les chemins standard sont détectés depuis la racine LR2. Les chemins personnalisés sont conservés.", "Settings_path_detected": "✓ Fichier détecté.", "Settings_path_missing": "! Fichier introuvable.", "Settings_edit_custom_lr2_paths": "Modifier les chemins personnalisés…", "Settings_lr2_advanced_title": "Chemins LR2 personnalisés", "Settings_lr2_advanced_description": "Sélectionnez un song.db et un config.xml ou config.xmh non standard.", "Settings_lr2_advanced_persistence_note": "Les changements modifient le brouillon. Enregistrez les paramètres pour les conserver.", "Settings_done": "Terminé",
+  "Enable": "Activer", "Install_shift_jis_description": "Remplace les caractères incompatibles des noms de dossiers pour privilégier la compatibilité Shift JIS.", "Settings_danger_zone": "Zone dangereuse", "Settings_danger_zone_description": "Ces actions s’exécutent immédiatement, indépendamment des réglages non enregistrés, et peuvent supprimer des données.", "Settings_uninstall_application_data": "Supprimer les données BeMusicSeeker…", "About_application_icon": "Icône de l’application BeMusicSeeker", "About_application_name": "BeMusicSeeker Unofficial Fork", "About_release_notes_button": "Afficher les notes de version…", "About_license_and_credits": "Licence et crédits", "About_original_credit": "Œuvre originale : Copyright © 2018 ribbit.xyz", "About_fork_credit": "Modifications du fork : Copyright © 2026 ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ", "About_mit_license_link": "Afficher la licence MIT", "About_links": "Liens", "About_project_link": "Page du projet", "About_original_site_link": "Site d’origine", "About_version_format": "Version : {0}", "About_build_format": "Build : {0}"
 }

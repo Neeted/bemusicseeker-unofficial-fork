@@ -114,7 +114,7 @@ internal static class ThemedMessageBox
 
     private static Window CreateDialog(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult initialResult, string warningMessageBoxText, Action<MessageBoxResult> setResult)
     {
-        var dialog = new Window
+        var dialog = new ThemedWindow
         {
             Title = caption ?? string.Empty,
             Width = 460,

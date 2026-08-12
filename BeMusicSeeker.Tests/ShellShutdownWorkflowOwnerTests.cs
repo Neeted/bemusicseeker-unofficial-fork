@@ -106,6 +106,26 @@ public sealed class ShellShutdownWorkflowOwnerTests
     }
 
     [TestMethod]
+    public void TerminalApplicationShutdownIsExplicitAndRequestedOnlyOnceAfterCleanup()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var events = new List<string>();
+        var settingsSession = new RecordingSettingsEditSession(() => events.Add("settings_save"));
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            settingsEditSession: settingsSession,
+            requestApplicationShutdown: () => events.Add("application_shutdown"));
+
+        owner.CompleteTerminalShutdown();
+        CollectionAssert.AreEqual(new[] { "settings_save" }, events);
+
+        owner.RequestTerminalApplicationShutdown();
+        owner.RequestTerminalApplicationShutdown();
+
+        CollectionAssert.AreEqual(new[] { "settings_save", "application_shutdown" }, events);
+    }
+
+    [TestMethod]
     public void TerminalSettingsSaveFailureIsWarnedAndCleanupContinues()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
@@ -411,6 +431,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Action<string>? markShutdown = null,
         StartupUpdateWorkflowOwner? startupUpdate = null,
         ISettingsEditSession? settingsEditSession = null,
+        Action? requestApplicationShutdown = null,
         Func<Task>? stopPerformanceDiagnostics = null,
         Action<string>? logShutdown = null,
         Action<string>? logShutdownWarning = null)
@@ -442,6 +463,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             new SemaphoreSlim(1, 1),
             viewModel.ProgressHub.StartupProgress,
             markShutdown ?? (_ => { }),
+            requestApplicationShutdown ?? (() => { }),
             stopPerformanceDiagnostics ?? (() => Task.CompletedTask),
             dispatch ?? (action => action()),
             logShutdown ?? (_ => { }),

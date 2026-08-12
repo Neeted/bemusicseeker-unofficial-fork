@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Tests;
 
@@ -42,35 +45,174 @@ internal sealed class TestUiScheduler : IUiScheduler
         => scheduler.InvokeAsync(action, priority);
 }
 
+/// <summary>
+/// Owns the test assembly's single WPF application and its dedicated STA dispatcher.
+/// </summary>
 internal static class TestUiDispatcherHost
 {
-    private static readonly Lazy<Dispatcher> dispatcher = new(CreateDispatcher, LazyThreadSafetyMode.ExecutionAndPublication);
+    private static readonly Lazy<HostState> host = new(
+        CreateHost,
+        LazyThreadSafetyMode.ExecutionAndPublication);
 
-    internal static Dispatcher Dispatcher => dispatcher.Value;
+    /// <summary>
+    /// Gets the dispatcher owned by the shared WPF test application.
+    /// </summary>
+    internal static Dispatcher Dispatcher
+        => host.Value.Dispatcher;
 
-    internal static void Drain()
+    /// <summary>
+    /// Runs an action synchronously on the shared WPF application dispatcher.
+    /// </summary>
+    internal static void Invoke(Action action)
     {
-        Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
-        Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+        ArgumentNullException.ThrowIfNull(action);
+        host.Value.Dispatcher.Invoke(action);
     }
 
-    private static Dispatcher CreateDispatcher()
+    /// <summary>
+    /// Processes queued dispatcher work through application-idle priority.
+    /// </summary>
+    internal static void Drain()
     {
-        Dispatcher capturedDispatcher = null!;
-        using var ready = new ManualResetEventSlim();
-        var thread = new Thread(() =>
+        Dispatcher dispatcher = host.Value.Dispatcher;
+        dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+        dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+    }
+
+    /// <summary>
+    /// Restores process-local test settings and deterministically stops the WPF application thread.
+    /// </summary>
+    internal static void ShutdownApplication()
+    {
+        if (!host.IsValueCreated)
         {
-            capturedDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-            ready.Set();
-            System.Windows.Threading.Dispatcher.Run();
+            return;
+        }
+
+        HostState state = host.Value;
+        Exception? cleanupFailure = null;
+
+        try
+        {
+            state.Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    Settings.Default.AppearanceTheme = state.OriginalAppearanceTheme;
+                    AppThemeService.ApplyTheme(state.OriginalAppearanceTheme);
+                }
+                catch (Exception ex)
+                {
+                    cleanupFailure = ex;
+                }
+                finally
+                {
+                    try
+                    {
+                        state.Application.Shutdown();
+                    }
+                    finally
+                    {
+                        if (!state.Dispatcher.HasShutdownStarted)
+                        {
+                            state.Dispatcher.BeginInvokeShutdown(DispatcherPriority.Send);
+                        }
+                    }
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            cleanupFailure ??= ex;
+        }
+
+        state.Completed.Wait();
+        state.Thread.Join();
+        cleanupFailure ??= state.TerminalFailure;
+        if (cleanupFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
+    }
+
+    private static HostState CreateHost()
+    {
+        using var ready = new ManualResetEventSlim();
+        var completed = new ManualResetEventSlim();
+        Application? application = null;
+        Dispatcher? dispatcher = null;
+        string? originalAppearanceTheme = null;
+        Exception? terminalFailure = null;
+        var applicationThread = new Thread(() =>
+        {
+            try
+            {
+                if (Application.Current != null)
+                {
+                    throw new InvalidOperationException(
+                        "A conflicting WPF Application already exists before the shared test host starts.");
+                }
+
+                application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                dispatcher = Dispatcher.CurrentDispatcher;
+                originalAppearanceTheme = Settings.Default.AppearanceTheme;
+                Settings.Default.AppearanceTheme = AppThemeService.Light;
+                AppThemeService.ApplyTheme(AppThemeService.Light);
+                ready.Set();
+                Dispatcher.Run();
+            }
+            catch (Exception ex)
+            {
+                terminalFailure = ex;
+                ready.Set();
+            }
+            finally
+            {
+                completed.Set();
+            }
         })
         {
-            IsBackground = true
+            IsBackground = true,
+            Name = "BeMusicSeeker.Tests shared WPF application"
         };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
+        applicationThread.SetApartmentState(ApartmentState.STA);
+        applicationThread.Start();
         ready.Wait();
-        return capturedDispatcher;
+
+        if (terminalFailure != null)
+        {
+            applicationThread.Join();
+            ExceptionDispatchInfo.Capture(terminalFailure).Throw();
+        }
+
+        return new HostState(
+            application!,
+            dispatcher!,
+            applicationThread,
+            completed,
+            originalAppearanceTheme!,
+            () => terminalFailure);
+    }
+
+    private sealed class HostState(
+        Application application,
+        Dispatcher dispatcher,
+        Thread thread,
+        ManualResetEventSlim completed,
+        string originalAppearanceTheme,
+        Func<Exception?> terminalFailureProvider)
+    {
+        internal Application Application { get; } = application;
+
+        internal Dispatcher Dispatcher { get; } = dispatcher;
+
+        internal Thread Thread { get; } = thread;
+
+        internal ManualResetEventSlim Completed { get; } = completed;
+
+        internal string OriginalAppearanceTheme { get; } = originalAppearanceTheme;
+
+        internal Exception? TerminalFailure => terminalFailureProvider();
     }
 }
 

@@ -4,7 +4,7 @@
 
 BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は `Light` で、設定ウィンドウの `外観` カテゴリから変更できる。
 
-テーマはアプリ全体の配色リソースを差し替える仕組みであり、現時点では主にメイン画面、左ツリー、CustomTableView、検索欄、ステータスバー、スクロールバー、コンテキストメニュー、標準 control、設定ウィンドウ、主要なアプリ内ダイアログを対象にしている。フォントや行高はまだテーマ設定の対象外。
+テーマはアプリ全体の配色リソースを差し替える仕組みであり、現時点では主にメイン画面、左ツリー、CustomTableView、検索欄、ステータスバー、スクロールバー、コンテキストメニュー、標準 control、設定ウィンドウ、主要なアプリ内ダイアログを対象にしている。CustomTableView のフォントサイズ、行高、ヘッダー高は配色テーマとは別の外観設定として扱う。
 
 ## 設定値
 
@@ -25,8 +25,8 @@ BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は
   - `Settings.Default.AppearanceTheme` を正規化する。
   - `Themes/Light.xaml` または `Themes/Dark.xaml` を `Application.Resources.MergedDictionaries` へ追加する。
 - 変更時:
-  - 既存の `/Themes/*.xaml` を削除する。
-  - 新しいテーマ辞書を追加する。
+  - 既存の application-relative `/Themes/*.xaml` と component-qualified `/BeMusicSeeker;component/Themes/*.xaml` を同じテーマ辞書として認識して削除する。
+  - 新しいテーマ辞書は resource owner を明示する `/BeMusicSeeker;component/Themes/{theme}.xaml` で追加する。
   - `ThemeChanged` を発火する。
   - `Version` を進める。
 
@@ -53,6 +53,17 @@ BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は
 - `App.SeparatorBrush`
 - `App.InputFocusBorderBrush`
 - `App.AccentBrush`
+- `App.AccentForegroundBrush`
+- `App.AccentFocusRingBrush`
+- `App.AccentHoverBrush`
+- `App.AccentPressedBrush`
+- `App.DangerBrush`
+- `App.DangerForegroundBrush`
+- `App.DangerHoverBrush`
+- `App.DangerPressedBrush`
+- `App.ErrorTextBrush`
+- `App.SuccessTextBrush`
+- `App.SliderTickBrush`
 - `App.AccentSubtleBrush`
 - `App.WarningTextBrush`
 - `App.DialogOverlayBrush`
@@ -185,33 +196,54 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 
 ## 設定ウィンドウ
 
-独立した modal `SettingsWindow` の `外観` カテゴリにテーマ選択 ComboBox がある。設定ウィンドウは左navigationと選択カテゴリの本文を持ち、上部tabは使用しない。
+独立した modal `SettingsWindow` の `外観` category control にテーマ選択 ComboBox がある。設定ウィンドウは左navigationと選択カテゴリの本文を持ち、上部tabは使用しない。
 
 - 選択肢: ライトモード / ダークモード
-- `SelectedValue` は `AppearanceTheme` に TwoWay binding。
+- Light / Dark の各 choice radio は `IsLightAppearanceTheme` / `IsDarkAppearanceTheme` を介して `AppearanceTheme` に TwoWay binding する。
 - キャンセル時は保存済みのテーマへ戻し、即時に `AppThemeService.ApplyTheme()` を呼ぶ。
-- 設定ウィンドウはopenごとに生成する。表示開始時にComboBox選択を現在設定へ同期し、表示中のtheme変更は同じWindowへ反映する。
+- 設定ウィンドウはopenごとに生成する。Appearance category が visual tree へ接続され共有 `DataContext` を継承した時点で、通常の TwoWay binding が choice radio を現在設定へ同期する。off-tree control へローカル値を設定して binding を置換してはならない。表示中のtheme変更は同じWindowへ反映する。
+- 一覧のフォントサイズ、行高、ヘッダー高は slider の変更ごとに `Settings.Default` と `MainWindowViewSettingsStore` へ通知し、メイン画面の実際の `CustomTableView` で即時 preview する。設定画面内に固定データの代替一覧 preview は置かない。
+- 一覧外観の reset は3値を既定値へ戻す。Cancel は保存済み snapshot の3値を復元し、表示中のメイン一覧にも復元結果を即時反映する。
 
-設定ウィンドウは標準 control の implicit styleを基礎にし、Window内へ閉じたstyleだけでvisual hierarchyを補う。左navigation、選択状態、card、入力欄、下部actionなどは既存の `App.*` dynamic resource と `Simple Styles.xaml` のテーマresource参照に寄せる。独立Window化を理由に別の固定paletteを持たない。
+最初の5カテゴリは `SettingsSection` / `SettingsField` / `SettingsOptionRow` / `SettingsPathPicker` / `SettingsListEditor` / `SettingsStatusBanner` を共有する。major section は入れ子 card にせず、field label は editor の上へ置く。path は read-only と editable を明示し、status は icon と text の両方で意味を伝える。`SettingsStatusBanner` は null、空文字、空白だけのstring contentをcollapseし、non-string contentとcallerが指定した非表示状態を保持する。content bindingが非blankへ戻れば表示を回復し、AutomationではmessageをName、semantic statusをItemStatus、更新をPolite live regionとして公開する。視覚上のiconは同じ意味を重複して読むstandalone Automation elementを作らず、callerがContentへ渡したstructured contentはそのまま維持する。presentation control は dependency property / routed event だけを公開し、service lookup、domain command、永続化を所有しない。
+
+`SettingsField.Header` は装飾用containerではなく、内包する実際の `TextBox` / `ComboBox` / `ListBox` / `Slider` Automation peerのfallback accessible nameとして公開する。fallbackはSettingsField自身をSourceとするone-way bindingで付与し、そのBindingExpressionのidentityでownershipを追跡する。editorにcaller-ownedのlocal値または別bindingがある場合は、表示値がfallbackと同じでも上書きせず、Header変更を挟まない即時detachを含めcaller値をclearしない。Header変更時もSettingsField自身が所有するbindingだけを更新する。最初の5カテゴリはpage attachだけでdraftを変更しない。再生カテゴリは選択中playerの詳細だけをvisual treeへ提示し、radio操作は選択flagだけを変更して非選択playerの隠れたpath/settingsを変更しない。
+
+設定ウィンドウと10個の category control は `Views/Settings/SettingsControls.xaml` の closed control system を共有し、Button、TextBox、ComboBox / ComboBoxItem、CheckBox、RadioButton、Slider、ScrollViewer / ScrollBar、ListBox / ListBoxItem、Expander、navigation の template と state を明示する。辞書は application scope へ公開せず、既存の `App.*` semantic resource だけを参照する。内部 popup、item container、content host、scrollbarにもSettings styleを明示し、application-level implicit styleへ解決を漏らさない。標準 control の keyboard / Automation peer を維持し、`PART_ContentHost`、`PART_Popup`、`PART_Track`、ScrollViewer parts、Expander `HeaderSite` を欠落させない。
+
+設定内の非編集 `ComboBox` は選択内容、中央部、矢印を含む表示面全体で dropdown を開ける。編集可能 `ComboBox` は `PART_EditableTextBox` を前面の入力面として維持し、文字入力、caret、keyboard、Automation と `PART_Popup` の標準経路を保持する。popup 幅は表示済み control の `ActualWidth` へ binding しない。
+
+通常の `SettingsStatusBanner` は compact な表示と caller が渡した structured content を維持する。Audio device の利用不可理由とテスト結果のような長い文字列だけは keyed multiline style を使用し、利用可能な本文幅で折り返して高さを自動拡張する。折り返し後も message 全文を Automation Name、semantic status を ItemStatus、更新を Polite live region として公開し、装飾 icon は Automation tree に出さない。
 
 - 左navigationの項目は rounded pill と左端のaccent indicatorで選択を示す。hover、keyboard focus、disabledもそれぞれtheme resourceで識別可能にする。
 - 設定groupは `App.ControlBackgroundBrush` / `App.BorderBrush` を使う rounded cardとし、カテゴリheader、card間、card内は `8 / 12 / 16 / 24` pxのspacing scaleへ揃える。
-- Save and closeは `App.AccentBrush` を使うprimary action、Cancelはtransparent backgroundのquiet actionとする。buttonのcommand/click、enabled、focus behaviorは既存contractを変えない。
-- label / value / actionの設定行はflexible Gridで構成し、長いcultureのlabelとcheckbox textは折り返す。本文だけを単一の縦ScrollViewerでscrollし、navigation、header、footerは固定する。
-- `ListBoxItem` と `GroupBox` はrounded visualを表現するためWindow内templateを持ってよい。`ComboBox`など標準partとkeyboard behaviorを持つcontrolのtemplateは置換せず、application implicit styleを継承する。
+- button は `SettingsButtonStyle` を共通 template とし、primary / quiet / danger / icon の各styleを同じ state modelから派生させる。Save and closeは accent familyを通常、hover、pressed、disabled、focusの全状態で維持し、primaryのkeyboard focusは各accent stateと3:1以上のcontrastを持つ `App.AccentFocusRingBrush` で示す。Cancelはquiet actionとする。buttonのcommand/click、enabled、focus behaviorは既存contractを変えない。
+- label / value / actionの設定行はflexible Gridで構成し、長いcultureのlabelとcheckbox textは折り返す。Window shellが所有する単一の縦ScrollViewerで選択中の本文だけをscrollし、navigation、header、footerは固定する。横scrollは使用しない。
+- 設定 visual tree と template は legacy の `NormalBrush` / `MouseOverBrush` / `PressedBrush` / `PressedBorderBrush` / `DefaultedBorderBrush` や table 専用 brush を参照せず、固定色も持たない。
+- Slider は horizontal / vertical orientationと `None` / `TopLeft` / `BottomRight` / `Both` のtick placementをtemplateで保持し、tickは `App.SliderTickBrush` で描画する。
+- アプリが所有する標準 native window は `ThemedWindow` を共通 base とし、標準 WPF title bar を残す。native handle 確定後に current theme の dark-mode flag と `App.DialogBackgroundBrush` / `App.TextBrush` / `App.BorderBrush` 由来の caption / text / border color を DWM へ要求し、theme変更時に同じ生存中の window へ再適用する。window close で theme change の購読を解除する。未対応OS、未対応attribute、API不在、HRESULT失敗では例外を外へ出さず、Windowsのsystem fallbackをそのまま使う。
+- title bar の初回 attach は transactional とする。theme resource の読み取りまたは native gateway の予期しない失敗時は、theme change 購読、attached 状態、window handle をすべて巻き戻して例外を伝播し、同じ controller で再試行できるようにする。attach 完了後の theme change 適用で予期しない失敗が起きた場合は接続を維持したまま例外を伝播し、後続の theme change と dispose を有効に保つ。dispose は購読を一度だけ解除する。
+- `MainWindow` だけは独自の `WindowChrome`、caption button、hit-test を所有するため `ThemedWindow` の対象外とする。ほかの production `Window` を追加するときは XAML/code-only のどちらでも `ThemedWindow` から派生し、この例外集合を増やさない。
 
 ## アプリ内ダイアログ
 
 アプリが描画する主要なダイアログは `App.DialogOverlayBrush` / `App.DialogBackgroundBrush` / `App.DialogBorderBrush` / `App.TextBrush` を参照する。
 
-対応済み:
+`ThemedWindow` へ移行済みの native window:
 
 - `SettingsWindow`
-- `InitialSetupLanguageDialog`
-- `PlaylistPropertyDialog`
-- `LoadPlaylistURIDialog`
+- `ReleaseNotesWindow`
+- `Settings/Lr2AdvancedPathsDialog`
+- `UpdateAvailableDialog`
 - `PendingDeleteConfirmDialog`
+- `PlayHistoryFolderDisplayPresetEditDialog`
+- `Lr2PlayHistorySchemaUninstallDialog`
 - `Parago/Windows/ProgressDialog`
+- code-only で構築する `ThemedMessageBox`
+
+これらは HWND 作成時に title bar theme を attach し、表示中の theme 変更を live 反映し、close 時に detach する。owner、modal `ShowDialog` / `DialogResult`、close/cancel、各 view model や worker の lifetime ownership は従来どおり各 dialog が保持する。`ProgressDialog` の `HideCloseButton` と busy 中の close 抑止も変更しない。
+
+`InitialSetupLanguageDialog`、`PlaylistPropertyDialog`、`LoadPlaylistURIDialog` などアプリ内 overlay の主要な描画面は、引き続き `App.DialogOverlayBrush` / `App.DialogBackgroundBrush` / `App.DialogBorderBrush` / `App.TextBrush` を参照する。
 
 OS 標準の `OpenFileDialog` / `SaveFileDialog` / folder picker は Windows 管理 UI のためテーマ対象外。
 
@@ -244,4 +276,4 @@ Livet の `InformationDialogInteractionMessageAction` / `ConfirmationDialogInter
 - 新しく画面色を追加するときは、直接色を置く前に既存の `App.*` / `Table.*` key で表現できるか確認する。
 - CustomTableView のようなコード描画では `DynamicResource` が効かないため、`AppThemeService.ThemeChanged` と palette invalidation を使う。
 - テーマ切替時に cache された Brush/Pen/FormattedText/描画結果が残らないようにする。
-- 設定ウィンドウなど再生成されるpresentationでも、キャンセル後や再表示時に ComboBox / SelectedValue が stale にならないよう、表示開始時の同期を維持する。
+- 設定ウィンドウなど再生成されるpresentationでも、キャンセル後や再表示時に theme radio が stale にならないよう、接続後の TwoWay binding と `AppearanceTheme` の変更通知を維持する。

@@ -2,7 +2,7 @@ using System.Windows;
 
 namespace BeMusicSeeker.Views;
 
-public partial class PendingDeleteConfirmDialog : Window
+public partial class PendingDeleteConfirmDialog : ThemedWindow
 {
     public bool DeleteFolderWhenNoBmsChecked { get; private set; } = true;
 

@@ -78,6 +78,32 @@ internal static class SourceTextTestHelper
     }
 
     /// <summary>
+    /// Reads the settings shell and category-control code-behind as one logical presentation source set.
+    /// </summary>
+    internal static string ReadSettingsWindowViewSourceText()
+    {
+        string root = FindRepositoryRoot();
+        return ReadSourceFileSet(
+            root,
+            EnumerateExistingFiles(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs")),
+            EnumerateDirectoryFiles(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages")));
+    }
+
+    /// <summary>
+    /// Reads the settings shell and all category XAML files in deterministic order.
+    /// </summary>
+    internal static string ReadSettingsWindowXamlSourceText()
+    {
+        string root = FindRepositoryRoot();
+        return ReadSourceFileSet(
+            root,
+            EnumerateExistingFiles(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.xaml")),
+            Directory.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages"))
+                ? Directory.EnumerateFiles(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages"), "*.xaml", SearchOption.TopDirectoryOnly)
+                : []);
+    }
+
+    /// <summary>
     /// Reads one method body from the logical <c>MainWindowViewModel</c> source set.
     /// </summary>
     /// <param name="signature">A unique method signature fragment.</param>

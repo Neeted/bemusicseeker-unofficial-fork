@@ -1,5 +1,8 @@
 {
   "_language_name": "日本語",
+  "Audio": "オーディオ",
+  "Recording": "録音",
+  "About_this_app": "このアプリについて",
   "Open_Url": "本体URLを開く",
   "Import_Selected_Url": "選択中の本体URLを取り込む",
   "Import_Selected_Url_diff": "選択中の差分URLを取り込む",
@@ -335,8 +338,9 @@
   "Full_scan_check": "構成ファイルフルスキャン",
   "Full_scan_all_charts": "全譜面",
   "Custom_folder": "カスタムフォルダ",
-  "Player_Internal_desc": "※デバイスタブで設定して下さい",
-  "Advanced_settings": "高度な設定",
+  "Player_Internal_desc": "※オーディオ設定で設定してください。",
+  "Advanced_settings": "詳細設定",
+  "Settings_window_title": "設定",
   "Advanced_features": "高度な機能",
   "Delete_pending_installed_only_packages_permanently": "既所持譜面のみのパッケージをごみ箱を経由せずに削除",
   "Msg_delete_pending_installed_only_packages_permanently": "既所持譜面のみが含まれる保留パッケージを、ごみ箱を経由せずに完全削除します。\n対象: {0} パッケージ\nフォルダパッケージはフォルダごと、単体パッケージはファイルを直接削除します。\nこの操作は元に戻せません。よろしいですか？",
@@ -894,5 +898,12 @@
   "AudioDeviceTestPlaybackStoppedEarlyReason": "テスト音声が完了前に停止しました。",
   "AudioDeviceTestRateFailureReason": "テスト音声の再生速度が許容範囲外でした。",
   "AudioDeviceTestObservationTimeoutReason": "テスト音声の再生完了を確認できないまま観測がタイムアウトしました。",
-  "AudioDeviceTestUnexpectedFailureReason": "テスト音声の再生中に予期しないエラーが発生しました。"
+  "AudioDeviceTestUnexpectedFailureReason": "テスト音声の再生中に予期しないエラーが発生しました。",
+  "Operation_Mode_Standalone": "スタンドアローン", "Operation_Mode_LR2": "LR2 連携", "LR2_integration": "LR2 連携",
+  "Settings_appearance_theme_description": "アプリ全体の配色を選択します。変更はすぐにプレビューされます。", "Settings_appearance_theme_light_description": "明るい背景で表示します。", "Settings_appearance_theme_dark_description": "暗い背景で表示します。", "Settings_appearance_table_description": "ライブラリ一覧の文字と行の密度を調整します。",
+  "Settings_player_executable_path": "プレーヤー実行ファイル", "Settings_player_lr2_description": "LR2 の実行ファイルで譜面を再生します。", "Settings_movie_playback_description": "関連する動画リンクを開く方法を選択します。", "Settings_audio_output_description": "再生に使用するドライバー、デバイス、音声形式を選択します。", "Settings_audio_advanced": "詳細な音声設定", "Settings_recording_format_description": "録音形式、品質、正規化、ゲインを設定します。",
+  "Settings_token_artist": "%ARTIST% — アーティスト", "Settings_token_title": "%TITLE% — タイトル", "Settings_token_genre": "%GENRE% — ジャンル", "Settings_token_number": "%NO% — 連番", "Settings_token_file": "%FILE% — BMS ファイル名", "Settings_token_hash": "%HASH% — MD5",
+  "Settings_library_composition_description": "ライブラリを単独で管理するか LR2 と連携するかを選択します。", "Settings_standalone_description": "指定した BMS フォルダーからライブラリを構成します。", "Settings_lr2_linked_description": "LR2 の song.db と設定ファイルを使います。", "Settings_bms_directories_description": "検索フォルダーを追加、削除、またはドロップして登録します。", "Settings_list_drag_drop_hint": "フォルダーをこの一覧へドロップして追加できます。",
+  "Settings_lr2_paths_description": "標準パスは LR2 ルートから検出します。既存のカスタムパスは保持されます。", "Settings_path_detected": "✓ ファイルを検出しました。", "Settings_path_missing": "! ファイルが見つかりません。", "Settings_edit_custom_lr2_paths": "カスタムパスを編集…", "Settings_lr2_advanced_title": "LR2 カスタムパス", "Settings_lr2_advanced_description": "標準配置ではない song.db と config.xml または config.xmh を指定します。", "Settings_lr2_advanced_persistence_note": "変更は設定の下書きに反映されます。保存するには「保存して閉じる」を選択してください。", "Settings_done": "完了",
+  "Enable": "有効", "Install_shift_jis_description": "フォルダ名をシフトJISで表現できる文字に置き換え、互換性を優先します。", "Settings_danger_zone": "危険な操作", "Settings_danger_zone_description": "次の操作は保存していない設定とは別に即時実行され、データを削除する場合があります。", "Settings_uninstall_application_data": "BeMusicSeeker 関連データを削除...", "About_application_icon": "BeMusicSeeker アプリケーションアイコン", "About_application_name": "BeMusicSeeker Unofficial Fork", "About_release_notes_button": "リリースノートを表示...", "About_license_and_credits": "ライセンスとクレジット", "About_original_credit": "Original work: Copyright © 2018 ribbit.xyz", "About_fork_credit": "Fork modifications: Copyright © 2026 ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ", "About_mit_license_link": "MIT ライセンスを表示", "About_links": "リンク", "About_project_link": "プロジェクトページ", "About_original_site_link": "オリジナルサイト", "About_version_format": "バージョン: {0}", "About_build_format": "ビルド: {0}"
 }

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Window x:Class="BeMusicSeeker.Views.Lr2PlayHistorySchemaUninstallDialog"
+<views:ThemedWindow x:Class="BeMusicSeeker.Views.Lr2PlayHistorySchemaUninstallDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:BeMusicSeeker.Views"
         xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
         Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_uninstall_title, Mode=OneWay}"
         Width="560"
@@ -32,4 +33,4 @@
       </GroupBox>
     </StackPanel>
   </DockPanel>
-</Window>
+</views:ThemedWindow>

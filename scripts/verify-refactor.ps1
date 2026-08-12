@@ -37,7 +37,16 @@ $functionalFilter = @(
     'TestCategory!=ProductionDiffFull',
     'TestCategory!=ProcessIntegration',
     'TestCategory!=ReleaseAcceptance') -join '&'
+$functionalBassCollectibleLoadContextClass = 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
 $functionalTestClassShards = @(
+    [pscustomobject]@{
+        # This collectible ALC contract must run in a testhost that has never
+        # initialized the shared WPF Application or resolved WPF resources.
+        Name = 'bass-collectible-load-context'
+        Workers = 1
+        Classes = @(
+            $functionalBassCollectibleLoadContextClass)
+    },
     [pscustomobject]@{
         # Class-wide non-parallel fixtures consume one active worker per testhost.
         # Keep each short-lived external host at one worker while the remaining
@@ -157,6 +166,17 @@ function Assert-FunctionalShardConfiguration {
     }
     if (($shardClasses | Sort-Object -Unique).Count -ne $shardClasses.Count) {
         throw 'Functional test shard classes must belong to exactly one shard.'
+    }
+
+    $bassCollectibleShards = @($functionalTestClassShards |
+        Where-Object { $_.Name -eq 'bass-collectible-load-context' })
+    if ($bassCollectibleShards.Count -ne 1) {
+        throw 'Functional BASS collectible load-context tests must have exactly one dedicated shard.'
+    }
+    $bassCollectibleClasses = @($bassCollectibleShards[0].Classes)
+    if ($bassCollectibleClasses.Count -ne 1 -or
+        $bassCollectibleClasses[0] -cne $functionalBassCollectibleLoadContextClass) {
+        throw 'Functional BASS collectible load-context shard must contain only BassCollectibleLoadContextTests.'
     }
 
     if (@($functionalExclusiveTestClasses).Count -eq 0) {

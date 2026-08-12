@@ -6,10 +6,11 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Markup;
 using System.Windows.Threading;
+using BeMusicSeeker.Views;
 
 namespace Parago.Windows;
 
-public partial class ProgressDialog : Window, IComponentConnector
+public partial class ProgressDialog : ThemedWindow, IComponentConnector
 {
     private volatile bool _isBusy;
 

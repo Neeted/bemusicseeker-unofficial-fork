@@ -460,7 +460,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("StartBeatorajaTableUrlImport(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("ImportBeatorajaTableUrlsAsync(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildBeatorajaTableUrlImportTargets(", StringComparison.Ordinal));
-        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "SettingsWindow.cs");
+        string settingDialogSource = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
         StringAssert.Contains(settingDialogSource, "playlistWorkspace.StartBeatorajaTableUrlImport(");
         StringAssert.Contains(workspaceSource, "internal Task BackupPlaylistAsync(string fileName)");
         StringAssert.Contains(workspaceSource, "playlist backup notification");
@@ -479,7 +479,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(settingDialogSource, "playlistWorkspace.BackupPlaylistAsync(result.FileName)");
         string restoreHandlerSource = SourceTextTestHelper.ExtractMethodBody(
             settingDialogSource,
-            "private async void detailTabItemRestoreButtonClicked(");
+            "internal async Task HandlePlaylistRestoreAsync()");
         StringAssert.Contains(restoreHandlerSource, "playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)");
         Assert.AreEqual(-1, restoreHandlerSource.IndexOf("Task.Run", StringComparison.Ordinal));
         Assert.AreEqual(-1, restoreHandlerSource.IndexOf("viewModel.RestoreBMSTables(", StringComparison.Ordinal));

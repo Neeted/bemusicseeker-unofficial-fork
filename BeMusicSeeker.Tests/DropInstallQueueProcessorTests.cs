@@ -546,7 +546,9 @@ public sealed class DropInstallQueueProcessorTests
             releasePendingCleanup.Set();
 
             Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
-            Assert.IsTrue(terminalInactive.IsSet);
+            Assert.IsTrue(
+                terminalInactive.Wait(5000),
+                "The terminal inactive notification must follow completion of detached cleanup.");
             Assert.AreEqual(0, unexpectedProcessCalls, "Rejected drain-time requests must never reach the worker.");
 
             Assert.IsTrue(rejectedDuringDrain.TryAbandonUnconsumedSources());

@@ -1177,10 +1177,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         settingsWindow?.CloseForOwnerShutdown();
         CaptureWindowStateForClosing();
-        viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
-        if (Application.Current != null)
+        if (viewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow)
         {
-            Application.Current.Shutdown();
+            shellShutdownWorkflow.CompleteTerminalShutdown();
+            shellShutdownWorkflow.RequestTerminalApplicationShutdown();
         }
         else
         {

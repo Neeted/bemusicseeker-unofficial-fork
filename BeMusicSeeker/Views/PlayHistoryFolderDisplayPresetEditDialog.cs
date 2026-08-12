@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Views;
 /// play history FOLDER 表示プリセットの名前と対象 playlist を編集するダイアログです。
 /// 設定ダイアログ本体を狭くしないため、playlist の複数選択はこの別ウィンドウに分離します。
 /// </summary>
-public partial class PlayHistoryFolderDisplayPresetEditDialog : Window
+public partial class PlayHistoryFolderDisplayPresetEditDialog : ThemedWindow
 {
     private readonly SettingsDialogViewModel settingDialogViewModel;
 

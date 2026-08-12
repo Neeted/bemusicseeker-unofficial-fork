@@ -1290,6 +1290,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         typeof(SettingsDialogViewModel)
             .GetField("lr2ConfigValue", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel.SettingDialog, config);
+        typeof(SettingsDialogViewModel)
+            .GetField("isLr2ConfigPathParsed", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(viewModel.SettingDialog, true);
         SetDialogField(viewModel.SettingDialog, "operationModeLR2DB", true);
         return viewModel;
     }

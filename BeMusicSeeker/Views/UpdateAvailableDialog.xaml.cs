@@ -6,7 +6,7 @@ using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
 
-public partial class UpdateAvailableDialog : Window
+public partial class UpdateAvailableDialog : ThemedWindow
 {
     private readonly UpdateAvailableDialogViewModel viewModel;
 

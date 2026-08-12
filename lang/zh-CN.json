@@ -1,5 +1,8 @@
 {
   "_language_name": "简体中文",
+  "Audio": "音频",
+  "Recording": "录音",
+  "About_this_app": "关于此应用",
   "Open_Url": "打开 URL",
   "Import_Selected_Url": "Import selected main URLs",
   "Import_Selected_Url_diff": "Import selected diff URLs",
@@ -325,8 +328,9 @@
   "Full_scan_check": "完全扫描检查",
   "Full_scan_all_charts": "全部谱面",
   "Custom_folder": "自定义文件夹",
-  "Player_Internal_desc": "* 设置位于“设备”选项卡中",
+  "Player_Internal_desc": "* 请在音频设置中进行配置。",
   "Advanced_settings": "高级设置",
+  "Settings_window_title": "设置",
   "Advanced_features": "高级功能",
   "Delete_pending_installed_only_packages_permanently": "不经过回收站删除仅包含已持有谱面的包",
   "Msg_delete_pending_installed_only_packages_permanently": "将不经过回收站，直接永久删除仅包含已持有谱面的待安装包。\n目标：{0} 个包\n目录包会按整个文件夹删除，单文件包会直接删除文件。\n此操作无法撤销。是否继续？",
@@ -894,5 +898,12 @@
   "AudioDeviceTestPlaybackStoppedEarlyReason": "测试音频在完成前停止。",
   "AudioDeviceTestRateFailureReason": "测试音频的播放速率超出允许范围。",
   "AudioDeviceTestObservationTimeoutReason": "测试音频在观测超时前未完成。",
-  "AudioDeviceTestUnexpectedFailureReason": "播放测试音频时发生意外错误。"
+  "AudioDeviceTestUnexpectedFailureReason": "播放测试音频时发生意外错误。",
+  "Operation_Mode_Standalone": "独立模式", "Operation_Mode_LR2": "LR2 集成", "LR2_integration": "LR2 集成",
+  "Settings_appearance_theme_description": "选择应用配色，修改会立即预览。", "Settings_appearance_theme_light_description": "使用浅色背景。", "Settings_appearance_theme_dark_description": "使用深色背景。", "Settings_appearance_table_description": "调整曲库列表的文字和行密度。",
+  "Settings_player_executable_path": "播放器可执行文件", "Settings_player_lr2_description": "使用 LR2 可执行文件播放谱面。", "Settings_movie_playback_description": "选择相关视频链接的打开方式。", "Settings_audio_output_description": "选择播放驱动、设备和音频格式。", "Settings_audio_advanced": "高级音频设置", "Settings_recording_format_description": "设置录音格式、质量、标准化和增益。",
+  "Settings_token_artist": "%ARTIST% — 艺术家", "Settings_token_title": "%TITLE% — 标题", "Settings_token_genre": "%GENRE% — 流派", "Settings_token_number": "%NO% — 序号", "Settings_token_file": "%FILE% — BMS 文件名", "Settings_token_hash": "%HASH% — MD5",
+  "Settings_library_composition_description": "选择独立管理曲库或与 LR2 数据库联动。", "Settings_standalone_description": "从指定 BMS 文件夹构建曲库。", "Settings_lr2_linked_description": "使用 LR2 song.db 和配置文件构建曲库。", "Settings_bms_directories_description": "添加、移除或拖放搜索文件夹。", "Settings_list_drag_drop_hint": "可将文件夹拖放到此列表中添加。",
+  "Settings_lr2_paths_description": "标准路径从 LR2 根目录检测，现有自定义路径会保留。", "Settings_path_detected": "✓ 已检测到文件。", "Settings_path_missing": "! 未找到文件。", "Settings_edit_custom_lr2_paths": "编辑自定义路径…", "Settings_lr2_advanced_title": "自定义 LR2 路径", "Settings_lr2_advanced_description": "选择非标准位置的 song.db 以及 config.xml 或 config.xmh。", "Settings_lr2_advanced_persistence_note": "修改会写入设置草稿。请在设置中选择保存并关闭以持久化。", "Settings_done": "完成",
+  "Enable": "启用", "Install_shift_jis_description": "替换文件夹名称中不支持的字符，以优先保证 Shift JIS 兼容性。", "Settings_danger_zone": "危险操作", "Settings_danger_zone_description": "这些操作会独立于未保存的设置立即执行，并可能删除数据。", "Settings_uninstall_application_data": "删除 BeMusicSeeker 数据…", "About_application_icon": "BeMusicSeeker 应用程序图标", "About_application_name": "BeMusicSeeker Unofficial Fork", "About_release_notes_button": "查看发行说明…", "About_license_and_credits": "许可证与致谢", "About_original_credit": "原作：Copyright © 2018 ribbit.xyz", "About_fork_credit": "分支修改：Copyright © 2026 ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ", "About_mit_license_link": "查看 MIT 许可证", "About_links": "链接", "About_project_link": "项目页面", "About_original_site_link": "原始网站", "About_version_format": "版本：{0}", "About_build_format": "构建：{0}"
 }

@@ -197,7 +197,7 @@ public sealed class DialogRouteConsolidationTests
     {
         string root = FindRepositoryRoot();
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
+        string settingDialogCode = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
 
@@ -220,10 +220,11 @@ public sealed class DialogRouteConsolidationTests
     {
         string root = FindRepositoryRoot();
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
+        string settingDialogCode = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
         string requestsCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogRequests.cs"));
         string windowResultCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiWindowDialogResult.cs"));
+        string generalSettingsPageCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages", "GeneralSettingsPage.xaml.cs"));
         string selectedChartMutationOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartMutationWorkflowOwner.cs"));
         string settingDialogViewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
 
@@ -282,6 +283,32 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(settingDialogViewModelCode.Contains("UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>"));
         Assert.IsFalse(settingDialogCode.Contains("ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>"));
         StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>");
+        StringAssert.Contains(settingDialogCode, "new UiWindowDialogRequest<ReleaseNotesWindow, object>(");
+        StringAssert.Contains(settingDialogCode, "await dialogService.ShowWindowAsync(");
+        string lr2AdvancedRoute = ExtractBetween(
+            settingDialogCode,
+            "internal async Task HandleEditCustomLr2PathsAsync()",
+            "internal async Task HandleShowReleaseNotesAsync()");
+        StringAssert.Contains(lr2AdvancedRoute, "await dialogService.ShowWindowAsync(");
+        StringAssert.Contains(lr2AdvancedRoute, "() => new Lr2AdvancedPathsDialog(settingDialogViewModel)");
+        StringAssert.Contains(lr2AdvancedRoute, "Window.GetWindow(this)");
+        StringAssert.Contains(lr2AdvancedRoute, "ThrowIfWindowDialogFailed(result.Status, result.Error");
+        Assert.IsFalse(lr2AdvancedRoute.Contains("GetAwaiter()"), "The LR2 advanced-path route must not synchronously wait for its modal task.");
+        string lr2AdvancedClickHandler = ExtractBetween(
+            generalSettingsPageCode,
+            "private async void editCustomLr2PathsButtonClick",
+            "private void browseBeatorajaRootPathButtonClick");
+        StringAssert.Contains(lr2AdvancedClickHandler, "await settingsWindow.HandleEditCustomLr2PathsAsync();");
+        StringAssert.Contains(lr2AdvancedClickHandler, "catch (Exception ex)");
+        StringAssert.Contains(lr2AdvancedClickHandler, "await settingsWindow.HandleSettingsRouteFailureAsync(ex");
+        string settingsRouteFailure = ExtractBetween(
+            settingDialogCode,
+            "internal async Task HandleSettingsRouteFailureAsync(Exception exception, string routeName)",
+            "internal async Task HandleShowReleaseNotesAsync()");
+        StringAssert.Contains(settingsRouteFailure, "NLogWrapper.GetLogger(typeof(SettingsWindow)).Error");
+        StringAssert.Contains(settingsRouteFailure, "await dialogService.ShowMessageAsync(new UiMessageRequest(");
+        StringAssert.Contains(settingsRouteFailure, "owner: this");
+        Assert.IsFalse(settingsRouteFailure.Contains("UiDialogRoute.ShowMessageBox"));
         StringAssert.Contains(requestsCode, "internal sealed class UiWindowDialogRequest<TWindow, TResult>");
         StringAssert.Contains(windowResultCode, "internal sealed class UiWindowDialogResult<TResult>");
         StringAssert.Contains(coordinatorCode, "ShowWindowAsync<TWindow, TResult>");
@@ -364,7 +391,7 @@ public sealed class DialogRouteConsolidationTests
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string initialSetupCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
-        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
+        string settingDialogCode = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
         string playlistPropertyCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistPropertyDialog.cs"));
         string playlistBulkEditCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistSummaryBulkEditDialog.cs"));

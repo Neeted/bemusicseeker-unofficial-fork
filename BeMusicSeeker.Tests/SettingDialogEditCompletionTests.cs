@@ -5,7 +5,6 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -14,14 +13,17 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
+using BeMusicSeeker.Views.Settings;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Xml.Linq;
 using ManagedBass;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -35,7 +37,7 @@ public sealed class SettingDialogEditCompletionTests
     [TestMethod]
     public void PlaylistDialogs_UsePlaylistWorkspaceOwnerComposition()
     {
-        RunOnStaDispatcherThread(() =>
+        InvokeOnSharedApplication(() =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             var settingDialog = new SettingsWindow
@@ -56,7 +58,7 @@ public sealed class SettingDialogEditCompletionTests
     [TestMethod]
     public void SettingDialogVolumeBinding_UsesComposedPlaybackOwner()
     {
-        RunOnStaDispatcherThread(() =>
+        InvokeOnSharedApplication(() =>
         {
             string root = CreateTemporaryRoot();
             try
@@ -73,6 +75,7 @@ public sealed class SettingDialogEditCompletionTests
                     DataContext = viewModel.SettingDialog,
                     PlaybackPanel = viewModel.PlaybackPanel
                 };
+                ((ListBox)settingDialog.FindName("settingsNavigation")).SelectedIndex = 3;
                 settingDialog.Measure(new Size(1000, 800));
                 settingDialog.Arrange(new Rect(0, 0, 1000, 800));
                 settingDialog.UpdateLayout();
@@ -113,7 +116,7 @@ public sealed class SettingDialogEditCompletionTests
     [DataRow(true)]
     public void OperationModeRadio_RepeatedWindowLifetimesDoNotRequestChangeUntilAcceptedClick(bool initialOperationMode)
     {
-        RunOnStaDispatcherThread(() =>
+        InvokeOnSharedApplication(() =>
         {
             string root = CreateTemporaryRoot();
             var openedWindows = new List<SettingsWindow>();
@@ -176,7 +179,7 @@ public sealed class SettingDialogEditCompletionTests
     [DataRow(true)]
     public void OperationModeRadio_RejectedClickRestoresSelectionWithoutSaveOrRestart(bool initialOperationMode)
     {
-        RunOnStaDispatcherThread(() =>
+        InvokeOnSharedApplication(() =>
         {
             string root = CreateTemporaryRoot();
             SettingsWindow? window = null;
@@ -1535,7 +1538,7 @@ public sealed class SettingDialogEditCompletionTests
     [TestMethod]
     public void SettingDialogOkClick_AwaitsOwnerCompletionBeforeClosing()
     {
-        RunOnStaDispatcherThread(() =>
+        InvokeOnSharedApplication(() =>
         {
             Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
             SynchronizationContext previousSynchronizationContext = SynchronizationContext.Current;
@@ -2078,6 +2081,899 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
+    [TestMethod]
+    public void Lr2PathPresentation_StandardAndCustomDraftsFollowSharedCancelSnapshot()
+    {
+        string root = CreateTemporaryRoot();
+        string standardSongDb = Path.Combine(root, "LR2files", "Database", "song.db");
+        string standardConfig = Path.Combine(root, "LR2files", "Config", "config.xml");
+        string customSongDb = Path.Combine(root, "custom", "songs.db");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(standardSongDb)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(standardConfig)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(customSongDb)!);
+            File.WriteAllBytes(standardSongDb, []);
+            File.WriteAllText(standardConfig, "<config><system /><jukebox /></config>");
+            File.WriteAllBytes(customSongDb, []);
+            File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+            Settings values = CreateValidStandaloneSettings(root);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = standardSongDb;
+            values.LR2ConfigXmlPath = standardConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            Assert.IsFalse(dialog.HasCustomLr2Paths);
+            Assert.AreEqual("Success", dialog.Lr2SongDbPathStatusKind);
+            dialog.LR2SongDBPath = customSongDb;
+            Assert.IsTrue(dialog.HasCustomLr2Paths);
+
+            dialog.ResetSettings();
+
+            Assert.AreEqual(standardSongDb, dialog.LR2SongDBPath);
+            Assert.AreEqual(standardConfig, dialog.LR2ConfigXmlPath);
+            Assert.IsFalse(dialog.HasCustomLr2Paths);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Lr2AdvancedPathEntry_IsAvailableForStandardAndCustomLinkedConfigurations(bool useCustomPaths)
+    {
+        InvokeOnSharedApplication(() =>
+        {
+            string scope = CreateTemporaryRoot();
+            SettingsWindow? window = null;
+            try
+            {
+                string root = Path.Combine(scope, "root");
+                (string standardSong, string standardConfig) = CreateValidLr2Layout(root);
+                string customSong = Path.Combine(scope, "custom", "song.db");
+                string customConfig = Path.Combine(scope, "custom", "config.xmh");
+                Directory.CreateDirectory(Path.GetDirectoryName(customSong)!);
+                File.WriteAllBytes(customSong, []);
+                File.WriteAllText(customConfig, "<config><system /><jukebox /></config>");
+
+                Settings values = CreateValidStandaloneSettings(scope);
+                values.OperationModeLR2DB = true;
+                values.LR2RootPath = root;
+                values.LR2SongDBPath = useCustomPaths ? customSong : standardSong;
+                values.LR2ConfigXmlPath = useCustomPaths ? customConfig : standardConfig;
+                var session = new CountingSettingsEditSession(values);
+                SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+                window = OpenSettingsWindow(dialog);
+                Button advancedPathsButton = FindDescendants<Button>(window)
+                    .Single(button => button.Name == "buttonEditCustomLr2Paths");
+                Button resyncButton = FindDescendants<Button>(window)
+                    .Single(button => Equals(button.Content, Resources.Lr2_song_db_sync_data_resync));
+
+                Assert.AreEqual(useCustomPaths, dialog.HasCustomLr2Paths);
+                Assert.AreEqual(Visibility.Visible, advancedPathsButton.Visibility);
+                Assert.IsTrue(advancedPathsButton.IsEnabled);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(resyncButton.Content as string));
+                Assert.AreEqual(Resources.Lr2_song_db_sync_data_resync, resyncButton.Content);
+            }
+            finally
+            {
+                if (window?.IsLoaded == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                Directory.Delete(scope, recursive: true);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void Lr2RootSelection_ReplacesTheWholeStandardTupleWithoutKeepingStaleSongDb()
+    {
+        string scope = CreateTemporaryRoot();
+        string firstRoot = Path.Combine(scope, "first");
+        string nextRoot = Path.Combine(scope, "next");
+        try
+        {
+            (string firstSong, string firstConfig) = CreateValidLr2Layout(firstRoot);
+            (string nextSong, string nextConfig) = CreateValidLr2Layout(nextRoot);
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = firstRoot;
+            values.LR2SongDBPath = firstSong;
+            values.LR2ConfigXmlPath = firstConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            dialog.LR2RootPath = nextRoot;
+
+            Assert.AreEqual(nextRoot, dialog.LR2RootPath);
+            Assert.AreEqual(nextSong, dialog.LR2SongDBPath);
+            Assert.AreEqual(nextConfig, dialog.LR2ConfigXmlPath);
+            Assert.IsFalse(dialog.HasCustomLr2Paths);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Lr2InvalidPersistedConfig_OpenSaveReopenAndParentCancelPreserveRawTuple(bool createMalformedFile)
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string originalRoot = Path.Combine(scope, "original");
+            (string originalSong, _) = CreateValidLr2Layout(originalRoot);
+            string rawConfig = Path.Combine(scope, "custom", "Config", "config.xml");
+            if (createMalformedFile)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(rawConfig)!);
+                File.WriteAllText(rawConfig, "<config>");
+            }
+            string nextRoot = Path.Combine(scope, "next");
+            CreateValidLr2Layout(nextRoot);
+
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = originalRoot;
+            values.LR2SongDBPath = originalSong;
+            values.LR2ConfigXmlPath = rawConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel opened = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            Assert.AreEqual(rawConfig, opened.LR2ConfigXmlPath);
+            Assert.AreEqual(createMalformedFile ? "Error" : "Warning", opened.Lr2ConfigPathStatusKind);
+            await opened.SaveSettings();
+
+            SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
+            Assert.AreEqual(originalRoot, reopened.LR2RootPath);
+            Assert.AreEqual(originalSong, reopened.LR2SongDBPath);
+            Assert.AreEqual(rawConfig, reopened.LR2ConfigXmlPath);
+
+            reopened.LR2RootPath = nextRoot;
+            Assert.AreEqual(nextRoot, reopened.LR2RootPath);
+            reopened.ResetSettings();
+
+            Assert.AreEqual(originalRoot, reopened.LR2RootPath);
+            Assert.AreEqual(originalSong, reopened.LR2SongDBPath);
+            Assert.AreEqual(rawConfig, reopened.LR2ConfigXmlPath);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Lr2AdvancedConfigPicker_MalformedCandidateKeepsPreviousRawPathAndReportsFailure()
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "root");
+            (string song, string config) = CreateValidLr2Layout(root);
+            string malformedConfig = Path.Combine(scope, "malformed", "config.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(malformedConfig)!);
+            File.WriteAllText(malformedConfig, "<config>");
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = song;
+            values.LR2ConfigXmlPath = config;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            draft.SetFilePathFromPicker(nameof(draft.LR2ConfigXmlPath), malformedConfig);
+
+            Assert.AreEqual(config, draft.LR2ConfigXmlPath);
+            Assert.IsTrue(draft.HasLr2PathSelectionError);
+            StringAssert.Contains(draft.Lr2PathSelectionError, Resources.Error_InvalidLR2SongDbOrConfigPath);
+            Assert.AreEqual("Success", draft.Lr2ConfigPathStatusKind);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Lr2RootPicker_InvalidCandidateLeavesWholeTupleUnchangedAndReportsFailure()
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "root");
+            (string song, string config) = CreateValidLr2Layout(root);
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = song;
+            values.LR2ConfigXmlPath = config;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), Path.Combine(scope, "invalid"));
+
+            Assert.AreEqual(root, draft.LR2RootPath);
+            Assert.AreEqual(song, draft.LR2SongDBPath);
+            Assert.AreEqual(config, draft.LR2ConfigXmlPath);
+            Assert.IsTrue(draft.HasLr2PathSelectionError);
+            StringAssert.Contains(draft.Lr2PathSelectionError, Resources.Error_InvalidLR2RootPath);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Lr2RootPicker_ReselectingSameRootRestoresStandardTupleAndClearsCustomState()
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "root");
+            (string standardSong, string standardConfig) = CreateValidLr2Layout(root);
+            string customSong = Path.Combine(scope, "custom", "song.db");
+            string customConfig = Path.Combine(scope, "custom", "config.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(customSong)!);
+            File.WriteAllBytes(customSong, []);
+            File.WriteAllText(customConfig, "<config><system /><jukebox /></config>");
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = customSong;
+            values.LR2ConfigXmlPath = customConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), root);
+
+            Assert.AreEqual(root, draft.LR2RootPath);
+            Assert.AreEqual(standardSong, draft.LR2SongDBPath);
+            Assert.AreEqual(standardConfig, draft.LR2ConfigXmlPath);
+            Assert.IsFalse(draft.HasCustomLr2Paths);
+            Assert.IsFalse(draft.HasLr2PathSelectionError);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Lr2RootPicker_ReselectingCurrentValidRootClearsPriorInvalidSelectionError()
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "root");
+            (string song, string config) = CreateValidLr2Layout(root);
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = song;
+            values.LR2ConfigXmlPath = config;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), Path.Combine(scope, "invalid"));
+            Assert.IsTrue(draft.HasLr2PathSelectionError);
+
+            draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), root);
+
+            Assert.IsFalse(draft.HasLr2PathSelectionError);
+            Assert.AreEqual(root, draft.LR2RootPath);
+            Assert.AreEqual(song, draft.LR2SongDBPath);
+            Assert.AreEqual(config, draft.LR2ConfigXmlPath);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Lr2RootPicker_RecoveryNotifiesRawTupleBeforeDependentPresentationExactlyOnce(bool useDifferentRoot)
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string originalRoot = Path.Combine(scope, "original");
+            (string originalSong, string originalConfig) = CreateValidLr2Layout(originalRoot);
+            string recoveryRoot = useDifferentRoot ? Path.Combine(scope, "different") : originalRoot;
+            (string recoverySong, string recoveryConfig) = useDifferentRoot
+                ? CreateValidLr2Layout(recoveryRoot)
+                : (originalSong, originalConfig);
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = originalRoot;
+            values.LR2SongDBPath = originalSong;
+            values.LR2ConfigXmlPath = originalConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            var changedProperties = new List<string>();
+            draft.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+            draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), Path.Combine(scope, "invalid"));
+            Assert.IsTrue(draft.HasLr2PathSelectionError);
+            changedProperties.Clear();
+
+            draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), recoveryRoot);
+
+            string[] expectedSequence =
+            [
+                nameof(draft.LR2RootPath),
+                nameof(draft.LR2SongDBPath),
+                nameof(draft.LR2ConfigXmlPath),
+                nameof(draft.LR2bodyPath),
+                nameof(draft.HasCustomLr2Paths),
+                nameof(draft.Lr2SongDbPathStatusIcon),
+                nameof(draft.Lr2SongDbPathStatusKind),
+                nameof(draft.Lr2SongDbPathStatusText),
+                nameof(draft.Lr2ConfigPathStatusIcon),
+                nameof(draft.Lr2ConfigPathStatusKind),
+                nameof(draft.Lr2ConfigPathStatusText),
+                nameof(draft.Lr2PathSelectionError),
+                nameof(draft.HasLr2PathSelectionError)
+            ];
+            HashSet<string> observedContractProperties = [.. expectedSequence];
+            string[] actualSequence = changedProperties
+                .Where(observedContractProperties.Contains)
+                .ToArray();
+            CollectionAssert.AreEqual(expectedSequence, actualSequence);
+            Assert.AreEqual(recoveryRoot, draft.LR2RootPath);
+            Assert.AreEqual(recoverySong, draft.LR2SongDBPath);
+            Assert.AreEqual(recoveryConfig, draft.LR2ConfigXmlPath);
+            Assert.IsFalse(draft.HasLr2PathSelectionError);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task Lr2RootPicker_ReselectingSameRootAdoptsExternalConfigBeforeLaterSave()
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "root");
+            (string song, string configPath) = CreateValidLr2Layout(root);
+            string externalRoot = Path.Combine(scope, "external");
+            string addedRoot = Path.Combine(scope, "added");
+            Directory.CreateDirectory(externalRoot);
+            Directory.CreateDirectory(addedRoot);
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.OperationModeLR2DB = true;
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = song;
+            values.LR2ConfigXmlPath = configPath;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            int directoryNotifications = 0;
+            draft.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(draft.LR2ConfigBMSDirectories))
+                {
+                    directoryNotifications++;
+                }
+            };
+            var externalDocument = new XDocument(
+                new XElement("config",
+                    new XElement("system"),
+                    new XElement("sentinel", new XAttribute("source", "external")),
+                    new XElement("jukebox", new XElement("path", externalRoot + Path.DirectorySeparatorChar))));
+            externalDocument.Save(configPath);
+
+            draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), root);
+
+            CollectionAssert.Contains(draft.LR2ConfigBMSDirectories.ToArray(), externalRoot);
+            Assert.IsTrue(directoryNotifications > 0);
+
+            draft.AddBmsSearchRootPaths([addedRoot]);
+            await draft.SaveSettings();
+
+            XDocument savedDocument = XDocument.Load(configPath);
+            Assert.AreEqual("external", (string)savedDocument.Root?.Element("sentinel")?.Attribute("source"));
+            string[] savedRoots = savedDocument.Root?.Element("jukebox")?.Elements("path")
+                .Select(element => element.Value.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                .ToArray() ?? [];
+            CollectionAssert.Contains(savedRoots, externalRoot);
+            CollectionAssert.Contains(savedRoots, addedRoot);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Lr2ChildPickers_ReselectingRetainedValidPathsClearsRejectedCandidateError()
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "root");
+            (string song, string config) = CreateValidLr2Layout(root);
+            string invalidSong = Path.Combine(scope, "missing.db");
+            string invalidConfig = Path.Combine(scope, "malformed.xml");
+            File.WriteAllText(invalidConfig, "<config>");
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = song;
+            values.LR2ConfigXmlPath = config;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            draft.SetFilePathFromPicker(nameof(draft.LR2SongDBPath), invalidSong);
+            Assert.AreEqual(song, draft.LR2SongDBPath);
+            Assert.IsTrue(draft.HasLr2PathSelectionError);
+            draft.SetFilePathFromPicker(nameof(draft.LR2SongDBPath), song);
+            Assert.IsFalse(draft.HasLr2PathSelectionError);
+            Assert.AreEqual("Success", draft.Lr2SongDbPathStatusKind);
+
+            draft.SetFilePathFromPicker(nameof(draft.LR2ConfigXmlPath), invalidConfig);
+            Assert.AreEqual(config, draft.LR2ConfigXmlPath);
+            Assert.IsTrue(draft.HasLr2PathSelectionError);
+            draft.SetFilePathFromPicker(nameof(draft.LR2ConfigXmlPath), config);
+            Assert.IsFalse(draft.HasLr2PathSelectionError);
+            Assert.AreEqual("Success", draft.Lr2ConfigPathStatusKind);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task Lr2AdvancedPathsDialog_DoneKeepsSharedDraftForSettingsSaveAndReopen()
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string standardRoot = Path.Combine(scope, "standard");
+            (string standardSong, string standardConfig) = CreateValidLr2Layout(standardRoot);
+            string customSong = Path.Combine(scope, "custom", "database", "songs.db");
+            string customConfig = Path.Combine(scope, "custom", "configuration", "config.xmh");
+            Directory.CreateDirectory(Path.GetDirectoryName(customSong)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(customConfig)!);
+            File.WriteAllBytes(customSong, []);
+            File.WriteAllText(customConfig, "<config><system /><jukebox /></config>");
+
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = standardRoot;
+            values.LR2SongDBPath = standardSong;
+            values.LR2ConfigXmlPath = standardConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            bool? result = null;
+        InvokeOnSharedApplication(() =>
+            {
+                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                advancedDialog.ContentRendered += (_, _) =>
+                {
+                    SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_songDB, customSong);
+                    SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_configXml, customConfig);
+                    FindDescendants<Button>(advancedDialog)
+                        .Single(button => button.IsDefault)
+                        .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                };
+                result = advancedDialog.ShowDialog();
+            });
+
+            Assert.AreEqual(true, result);
+            Assert.AreEqual(customSong, draft.LR2SongDBPath);
+            Assert.AreEqual(customConfig, draft.LR2ConfigXmlPath);
+            await draft.SaveSettings();
+            Assert.AreEqual(1, session.SaveCount);
+
+            SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
+            Assert.AreEqual(customSong, reopened.LR2SongDBPath);
+            Assert.AreEqual(customConfig, reopened.LR2ConfigXmlPath);
+            Assert.IsTrue(reopened.HasCustomLr2Paths);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath))]
+    [DataRow(nameof(SettingsDialogViewModel.LR2ConfigXmlPath))]
+    public void Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting(string propertyName)
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "standard");
+            (string originalSong, string originalConfig) = CreateValidLr2Layout(root);
+            string candidateSong = Path.Combine(scope, "custom", "database", "songs.db");
+            string candidateConfig = Path.Combine(scope, "custom", "configuration", "config.xmh");
+            Directory.CreateDirectory(Path.GetDirectoryName(candidateSong)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(candidateConfig)!);
+            File.WriteAllBytes(candidateSong, []);
+            File.WriteAllText(candidateConfig, "<config><system /><jukebox /></config>");
+
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = originalSong;
+            values.LR2ConfigXmlPath = originalConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            string label = propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath)
+                ? Resources.FilePath_songDB
+                : Resources.FilePath_configXml;
+            string candidate = propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath)
+                ? candidateSong
+                : candidateConfig;
+
+            bool? result = null;
+            InvokeOnSharedApplication(() =>
+            {
+                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                advancedDialog.ContentRendered += (_, _) =>
+                {
+                    TextBox editor = GetLr2AdvancedPathEditor(advancedDialog, label);
+                    Assert.IsTrue(editor.Focus());
+                    editor.Text = candidate;
+                    Assert.AreNotEqual(candidate, propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath)
+                        ? draft.LR2SongDBPath
+                        : draft.LR2ConfigXmlPath);
+
+                    InvokeEnterAccessKey();
+                };
+                result = advancedDialog.ShowDialog();
+            });
+
+            Assert.AreEqual(true, result);
+            Assert.AreEqual(
+                candidate,
+                propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath)
+                    ? draft.LR2SongDBPath
+                    : draft.LR2ConfigXmlPath);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath))]
+    [DataRow(nameof(SettingsDialogViewModel.LR2ConfigXmlPath))]
+    public void Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected(string propertyName)
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "standard");
+            (string originalSong, string originalConfig) = CreateValidLr2Layout(root);
+            string invalidSong = Path.Combine(scope, "missing", "song.db");
+            string invalidConfig = Path.Combine(scope, "malformed", "config.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(invalidConfig)!);
+            File.WriteAllText(invalidConfig, "<config>");
+
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = originalSong;
+            values.LR2ConfigXmlPath = originalConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            string label = propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath)
+                ? Resources.FilePath_songDB
+                : Resources.FilePath_configXml;
+            string candidate = propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath)
+                ? invalidSong
+                : invalidConfig;
+
+            bool stayedOpen = false;
+            bool rawDraftWasRetained = false;
+            bool rejectionErrorWasSet = false;
+            bool failureWasVisible = false;
+            InvokeOnSharedApplication(() =>
+            {
+                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                advancedDialog.ContentRendered += (_, _) =>
+                {
+                    TextBox editor = GetLr2AdvancedPathEditor(advancedDialog, label);
+                    Assert.IsTrue(editor.Focus());
+                    editor.Text = candidate;
+
+                    InvokeEnterAccessKey();
+                    advancedDialog.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+                    stayedOpen = advancedDialog.IsVisible;
+                    rawDraftWasRetained = string.Equals(originalSong, draft.LR2SongDBPath, StringComparison.Ordinal)
+                        && string.Equals(originalConfig, draft.LR2ConfigXmlPath, StringComparison.Ordinal);
+                    rejectionErrorWasSet = draft.HasLr2PathSelectionError;
+                    failureWasVisible = FindDescendants<SettingsStatusBanner>(advancedDialog)
+                        .Any(banner => banner.Visibility == Visibility.Visible
+                            && Equals(banner.Content, draft.Lr2PathSelectionError));
+                    advancedDialog.Close();
+                };
+                advancedDialog.ShowDialog();
+            });
+
+            Assert.IsTrue(stayedOpen);
+            Assert.IsTrue(rawDraftWasRetained);
+            Assert.IsTrue(rejectionErrorWasSet);
+            Assert.IsTrue(failureWasVisible);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public void Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor(
+        bool missingInitialSong,
+        bool useEnter)
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "standard");
+            (string validSong, string validConfig) = CreateValidLr2Layout(root);
+            string initialSong = missingInitialSong
+                ? Path.Combine(scope, "missing", "song.db")
+                : validSong;
+            string initialConfig = validConfig;
+            if (!missingInitialSong)
+            {
+                initialConfig = Path.Combine(scope, "malformed", "config.xml");
+                Directory.CreateDirectory(Path.GetDirectoryName(initialConfig)!);
+                File.WriteAllText(initialConfig, "<config>");
+            }
+
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = initialSong;
+            values.LR2ConfigXmlPath = initialConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            string rejectedLabel = missingInitialSong ? Resources.FilePath_songDB : Resources.FilePath_configXml;
+            string otherLabel = missingInitialSong ? Resources.FilePath_configXml : Resources.FilePath_songDB;
+
+            bool stayedOpen = false;
+            bool rejectedEditorFocused = false;
+            bool rejectionErrorWasSet = false;
+            InvokeOnSharedApplication(() =>
+            {
+                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                advancedDialog.ContentRendered += (_, _) =>
+                {
+                    TextBox rejectedEditor = GetLr2AdvancedPathEditor(advancedDialog, rejectedLabel);
+                    Assert.IsTrue(GetLr2AdvancedPathEditor(advancedDialog, otherLabel).Focus());
+                    if (useEnter)
+                    {
+                        InvokeEnterAccessKey();
+                    }
+                    else
+                    {
+                        FindDescendants<Button>(advancedDialog)
+                            .Single(button => button.IsDefault)
+                            .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                    }
+
+                    advancedDialog.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+                    stayedOpen = advancedDialog.IsVisible;
+                    rejectedEditorFocused = rejectedEditor.IsKeyboardFocusWithin;
+                    rejectionErrorWasSet = draft.HasLr2PathSelectionError;
+                    advancedDialog.Close();
+                };
+                advancedDialog.ShowDialog();
+            });
+
+            Assert.IsTrue(stayedOpen);
+            Assert.IsTrue(rejectedEditorFocused);
+            Assert.IsTrue(rejectionErrorWasSet);
+            Assert.AreEqual(initialSong, draft.LR2SongDBPath);
+            Assert.AreEqual(initialConfig, draft.LR2ConfigXmlPath);
+            Assert.AreEqual(0, session.SaveCount);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void TryApplyLr2AdvancedPathDraft_InvalidTupleDoesNotPartiallyMutate(bool rejectSong)
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string originalRoot = Path.Combine(scope, "original");
+            (string originalSong, string originalConfig) = CreateValidLr2Layout(originalRoot);
+            string candidateRoot = Path.Combine(scope, "candidate");
+            (string candidateSong, string candidateConfig) = CreateValidLr2Layout(candidateRoot);
+            string malformedConfig = Path.Combine(scope, "malformed", "config.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(malformedConfig)!);
+            File.WriteAllText(malformedConfig, "<config>");
+
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = originalRoot;
+            values.LR2SongDBPath = originalSong;
+            values.LR2ConfigXmlPath = originalConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            bool applied = draft.TryApplyLr2AdvancedPathDraft(
+                rejectSong ? Path.Combine(scope, "missing", "song.db") : candidateSong,
+                rejectSong ? candidateConfig : malformedConfig,
+                out string rejectedPathPropertyName);
+
+            Assert.IsFalse(applied);
+            Assert.AreEqual(
+                rejectSong ? nameof(draft.LR2SongDBPath) : nameof(draft.LR2ConfigXmlPath),
+                rejectedPathPropertyName);
+            Assert.AreEqual(originalSong, draft.LR2SongDBPath);
+            Assert.AreEqual(originalConfig, draft.LR2ConfigXmlPath);
+            Assert.IsTrue(draft.HasLr2PathSelectionError);
+            Assert.AreEqual(0, session.SaveCount);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task Lr2CustomPaths_OpenWithoutEditingSaveAndReopenPreservesRawValues()
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "standard");
+            CreateValidLr2Layout(root);
+            string customSong = Path.Combine(scope, "saved", "database", "songs.db");
+            string customConfig = Path.Combine(scope, "saved", "configuration", "config.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(customSong)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(customConfig)!);
+            File.WriteAllBytes(customSong, []);
+            File.WriteAllText(customConfig, "<config><system /><jukebox /></config>");
+
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = customSong;
+            values.LR2ConfigXmlPath = customConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel opened = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            Assert.IsTrue(opened.HasCustomLr2Paths);
+            await opened.SaveSettings();
+
+            SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
+            Assert.AreEqual(customSong, reopened.LR2SongDBPath);
+            Assert.AreEqual(customConfig, reopened.LR2ConfigXmlPath);
+            Assert.IsTrue(reopened.HasCustomLr2Paths);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Lr2AdvancedPathsDialog_CancelOrNativeCloseRestoresDraftBeforeReopen(bool useNativeClose)
+    {
+        string scope = CreateTemporaryRoot();
+        try
+        {
+            string root = Path.Combine(scope, "standard");
+            CreateValidLr2Layout(root);
+            string savedSong = Path.Combine(scope, "saved", "database", "songs.db");
+            string savedConfig = Path.Combine(scope, "saved", "configuration", "config.xml");
+            string editedSong = Path.Combine(scope, "edited", "database", "songs.db");
+            string editedConfig = Path.Combine(scope, "edited", "configuration", "config.xmh");
+            foreach (string path in new[] { savedSong, savedConfig, editedSong, editedConfig })
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, path.EndsWith(".db", StringComparison.OrdinalIgnoreCase)
+                    ? string.Empty
+                    : "<config><system /><jukebox /></config>");
+            }
+
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = savedSong;
+            values.LR2ConfigXmlPath = savedConfig;
+            var session = new CountingSettingsEditSession(values);
+            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            bool? result = null;
+        InvokeOnSharedApplication(() =>
+            {
+                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                advancedDialog.ContentRendered += (_, _) =>
+                {
+                    SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_songDB, editedSong);
+                    SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_configXml, editedConfig);
+                    if (useNativeClose)
+                    {
+                        advancedDialog.Close();
+                    }
+                    else
+                    {
+                        FindDescendants<Button>(advancedDialog)
+                            .Single(button => button.IsCancel)
+                            .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                    }
+                };
+                result = advancedDialog.ShowDialog();
+            });
+
+            Assert.IsFalse(result == true);
+            Assert.AreEqual(savedSong, draft.LR2SongDBPath);
+            Assert.AreEqual(savedConfig, draft.LR2ConfigXmlPath);
+            Assert.AreEqual(0, session.SaveCount);
+
+            SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
+            Assert.AreEqual(savedSong, reopened.LR2SongDBPath);
+            Assert.AreEqual(savedConfig, reopened.LR2ConfigXmlPath);
+            Assert.IsTrue(reopened.HasCustomLr2Paths);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    private static void SetLr2AdvancedPathText(Lr2AdvancedPathsDialog dialog, string label, string path)
+    {
+        TextBox editor = GetLr2AdvancedPathEditor(dialog, label);
+        SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(dialog)
+            .Single(candidate => candidate.Label == label);
+        Assert.IsFalse(picker.IsPathReadOnly);
+        Assert.IsFalse(editor.IsReadOnly);
+
+        editor.Text = path;
+        editor.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
+        dialog.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+    }
+
+    private static TextBox GetLr2AdvancedPathEditor(Lr2AdvancedPathsDialog dialog, string label)
+    {
+        SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(dialog)
+            .Single(candidate => candidate.Label == label);
+        Assert.IsFalse(picker.IsPathReadOnly);
+        TextBox editor = FindDescendants<TextBox>(picker).Single();
+        Assert.IsFalse(editor.IsReadOnly);
+        return editor;
+    }
+
+    private static void InvokeEnterAccessKey()
+    {
+        AccessKeyManager.ProcessKey(null, "\r", false);
+    }
+
+    private static (string SongDb, string Config) CreateValidLr2Layout(string root)
+    {
+        string songDb = Path.Combine(root, "LR2files", "Database", "song.db");
+        string config = Path.Combine(root, "LR2files", "Config", "config.xml");
+        Directory.CreateDirectory(Path.GetDirectoryName(songDb)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(config)!);
+        File.WriteAllBytes(songDb, []);
+        File.WriteAllText(config, "<config><system /><jukebox /></config>");
+        File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+        return (songDb, config);
+    }
+
     private static MainWindowViewModel CreateViewModel(
         CountingSettingsEditSession settingsSession,
         bool firstStartup,
@@ -2389,38 +3285,36 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
-    private static void RunOnStaDispatcherThread(Action action)
+    private static void InvokeOnSharedApplication(Action action)
     {
-        Exception? exception = null;
-        var thread = new Thread(() =>
+        TestUiDispatcherHost.Invoke(() =>
         {
+            var existingWindows = Application.Current.Windows.Cast<Window>().ToHashSet();
             try
             {
                 action();
             }
-            catch (Exception ex)
-            {
-                exception = ex;
-            }
             finally
             {
-                Dispatcher dispatcher = Dispatcher.FromThread(Thread.CurrentThread);
-                if (dispatcher != null && !dispatcher.HasShutdownStarted)
+                Window[] createdWindows = Application.Current.Windows.Cast<Window>()
+                    .Where(window => !existingWindows.Contains(window))
+                    .Reverse()
+                    .ToArray();
+                foreach (Window window in createdWindows)
                 {
-                    dispatcher.InvokeShutdown();
+                    if (window is SettingsWindow settingsWindow)
+                    {
+                        settingsWindow.CloseForOwnerShutdown();
+                    }
+                    else
+                    {
+                        window.Close();
+                    }
                 }
+
+                TestUiDispatcherHost.Drain();
             }
-        })
-        {
-            IsBackground = true
-        };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (exception != null)
-        {
-            ExceptionDispatchInfo.Capture(exception).Throw();
-        }
+        });
     }
 
     private sealed class RecordingRootDialogService : IUiDialogService
