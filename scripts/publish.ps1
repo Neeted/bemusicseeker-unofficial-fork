@@ -373,7 +373,7 @@ function New-ReleasePackage {
     if (-not $SkipBuild) {
         Write-Host "  配布用 Self-contained publish 中..."
         Push-Location $devRoot
-        Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode'
+        Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode' '-p:PublishReadyToRun=true'
         Invoke-SelfContainedPublish
         Pop-Location
         Write-Host "  Self-contained publish 完了" -ForegroundColor Green

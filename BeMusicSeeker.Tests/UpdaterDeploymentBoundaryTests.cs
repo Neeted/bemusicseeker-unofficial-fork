@@ -94,6 +94,57 @@ public sealed class UpdaterDeploymentBoundaryTests
     }
 
     [TestMethod]
+    public void PublishScriptRestoresReadyToRunDependenciesBeforeNoRestorePublish()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string publishScript = File.ReadAllText(Path.Combine(repositoryRoot, "scripts", "publish.ps1"));
+        int releasePackageStart = publishScript.IndexOf(
+            "function New-ReleasePackage",
+            StringComparison.Ordinal);
+        Assert.IsTrue(releasePackageStart >= 0, "New-ReleasePackage must remain the package workflow owner.");
+        int mainEntryPointStart = publishScript.IndexOf(
+            "# ========== メイン ==========",
+            releasePackageStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(mainEntryPointStart > releasePackageStart, "The publish script main entry point was not found.");
+
+        string releasePackageFunction = publishScript[releasePackageStart..mainEntryPointStart];
+        const string readyToRunRestore =
+            "Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode' '-p:PublishReadyToRun=true'";
+        int restoreIndex = releasePackageFunction.IndexOf(readyToRunRestore, StringComparison.Ordinal);
+        int publishIndex = releasePackageFunction.IndexOf("Invoke-SelfContainedPublish", StringComparison.Ordinal);
+
+        Assert.IsTrue(restoreIndex >= 0, "The locked win-x64 restore must restore the ReadyToRun dependency graph.");
+        Assert.IsTrue(publishIndex > restoreIndex, "ReadyToRun dependencies must be restored before no-restore publish.");
+
+        int publishFunctionStart = publishScript.IndexOf(
+            "function Invoke-SelfContainedPublish",
+            StringComparison.Ordinal);
+        Assert.IsTrue(publishFunctionStart >= 0, "Invoke-SelfContainedPublish must remain the publish workflow owner.");
+        int layoutFunctionStart = publishScript.IndexOf(
+            "function Assert-SelfContainedPublishLayout",
+            publishFunctionStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(layoutFunctionStart > publishFunctionStart, "The publish workflow boundary was not found.");
+        string publishFunction = publishScript[publishFunctionStart..layoutFunctionStart];
+        int appPublishStart = publishFunction.IndexOf("& dotnet publish $appProject", StringComparison.Ordinal);
+        Assert.IsTrue(appPublishStart >= 0, "The main application publish command was not found.");
+        int appPublishEnd = publishFunction.IndexOf(
+            "if ($LASTEXITCODE -ne 0)",
+            appPublishStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(appPublishEnd > appPublishStart, "The main application publish command boundary was not found.");
+        string[] appPublishCommandLines = publishFunction[appPublishStart..appPublishEnd]
+            .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
+            .Select(line => line.Trim())
+            .ToArray();
+        CollectionAssert.Contains(appPublishCommandLines, "--no-restore `");
+        CollectionAssert.Contains(
+            appPublishCommandLines,
+            "--property:PublishProfile=WinX64SelfContained `");
+    }
+
+    [TestMethod]
     [TestCategory("ReleaseAcceptance")]
     public void PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput()
     {
