@@ -344,7 +344,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         using var releaseWorker = new ManualResetEventSlim();
         var workerStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var cancellationObserved = new TaskCompletionSource(
+        var cancellationCallbackEntered = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         Task<SelectedChartAudioConversionResult>? first = null;
         try
@@ -368,13 +368,13 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 ExecuteAction = (_, _, _, cancellationToken, _) =>
                 {
                     using CancellationTokenRegistration registration = cancellationToken.Register(
-                        () => throw new InvalidOperationException("cancellation callback failed"));
+                        () =>
+                        {
+                            cancellationCallbackEntered.TrySetResult();
+                            throw new InvalidOperationException("cancellation callback failed");
+                        });
                     workerStarted.TrySetResult();
                     WaitHandle.WaitAny([cancellationToken.WaitHandle, releaseWorker.WaitHandle]);
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        cancellationObserved.TrySetResult();
-                    }
                     releaseWorker.Wait();
                 }
             };
@@ -384,7 +384,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             ]);
 
             first = owner.RunAsync(request);
-            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await cancellationCallbackEntered.Task;
 
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => owner.RunAsync(request));
@@ -510,7 +510,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         using var releaseWorker = new ManualResetEventSlim();
         var workerStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var cancellationObserved = new TaskCompletionSource(
+        var cancellationCallbackEntered = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         Task<SelectedChartAudioConversionResult>? first = null;
         try
@@ -533,10 +533,13 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 ExecuteAction = (_, _, _, cancellationToken, _) =>
                 {
                     using CancellationTokenRegistration registration = cancellationToken.Register(
-                        () => throw new InvalidOperationException("cancellation callback failed"));
+                        () =>
+                        {
+                            cancellationCallbackEntered.TrySetResult();
+                            throw new InvalidOperationException("cancellation callback failed");
+                        });
                     workerStarted.TrySetResult();
                     cancellationToken.WaitHandle.WaitOne();
-                    cancellationObserved.TrySetResult();
                     releaseWorker.Wait();
                 }
             };
@@ -546,7 +549,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             ]);
 
             first = owner.RunAsync(request);
-            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await cancellationCallbackEntered.Task;
 
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.RunAsync(request));
             Assert.AreEqual(1, dialogs.PickerCalls);
