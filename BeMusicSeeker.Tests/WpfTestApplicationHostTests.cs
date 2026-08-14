@@ -1,9 +1,10 @@
 using System;
-using System.IO;
+using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -67,44 +68,148 @@ public sealed class WpfTestApplicationHostTests
     }
 
     [TestMethod]
-    public void AssemblyInitialize_LeavesSharedWpfHostLazy()
+    public void RunWindowTest_NonActivatingPresentationStaysOffscreenAndCleansWindowAndPopupHwnds()
     {
-        string testProjectDirectory = FindTestProjectDirectory();
-        string assemblySettingsSource = File.ReadAllText(Path.Combine(testProjectDirectory, "MSTestSettings.cs"));
+        var closeEvents = new List<string>();
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var target = new Button { Content = "target" };
+            var window = new Window
+            {
+                Width = 320,
+                Height = 200,
+                Content = target
+            };
+            window.Closed += (_, _) => closeEvents.Add("owner");
+            scope.ShowAndWaitForContentRendered(window);
+            nint windowHandle = TestWindowPresentationScope.GetNativeHandle(window);
 
-        StringAssert.Contains(assemblySettingsSource, "RuntimeBootstrap.Initialize();");
-        Assert.IsFalse(assemblySettingsSource.Contains("StartApplication", StringComparison.Ordinal));
+            var popup = new Popup
+            {
+                PlacementTarget = target,
+                Child = new Border { Width = 80, Height = 40 }
+            };
+            popup.Closed += (_, _) => closeEvents.Add("popup");
+            scope.TrackPopup(popup);
+            popup.IsOpen = true;
+            TestUiDispatcherHost.Drain();
+            nint popupHandle = TestWindowPresentationScope.GetNativeHandle(popup.Child);
+
+            Assert.AreNotEqual(0, windowHandle);
+            Assert.AreNotEqual(0, popupHandle);
+            Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(windowHandle));
+            Assert.AreNotEqual(windowHandle, TestWindowPresentationScope.ForegroundWindow);
+            Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(popupHandle));
+            Assert.AreNotEqual(popupHandle, TestWindowPresentationScope.ForegroundWindow);
+
+            var child = new Window
+            {
+                Owner = window,
+                Width = 160,
+                Height = 100,
+                Content = new Border { Width = 40, Height = 20 }
+            };
+            child.Closed += (_, _) => closeEvents.Add("child");
+            scope.ShowAndWaitForContentRendered(child);
+        });
+
+        CollectionAssert.AreEqual(new[] { "popup", "child", "owner" }, closeEvents);
     }
 
     [TestMethod]
-    public void TestAssembly_HasExactlyOneWpfApplicationConstructionInSharedHost()
+    public void RunWindowTest_FailurePriorityIsBodyThenPresentationThenCleanup()
     {
-        string testProjectDirectory = FindTestProjectDirectory();
-        var constructionPattern = new Regex(@"\bnew\s+Application\s*(?:\{|\()", RegexOptions.CultureInvariant);
-        string[] constructionFiles = Directory.EnumerateFiles(testProjectDirectory, "*.cs", SearchOption.AllDirectories)
-            .Where(path => constructionPattern.IsMatch(File.ReadAllText(path)))
-            .ToArray();
+        var expected = new InvalidOperationException("body failure");
+        var expectedPresentation = new InvalidOperationException("presentation failure");
+        var expectedCleanup = new InvalidOperationException("cleanup failure");
 
-        CollectionAssert.AreEqual(
-            new[] { Path.Combine(testProjectDirectory, "TestUiScheduler.cs") },
-            constructionFiles);
-        Assert.AreEqual(1, constructionPattern.Matches(File.ReadAllText(constructionFiles[0])).Count);
-    }
-
-    private static string FindTestProjectDirectory()
-    {
-        DirectoryInfo? current = new(AppContext.BaseDirectory);
-        while (current != null)
+        InvalidOperationException? actual = null;
+        try
         {
-            string candidate = Path.Combine(current.FullName, "BeMusicSeeker.Tests");
-            if (File.Exists(Path.Combine(candidate, "BeMusicSeeker.Tests.csproj")))
+            TestUiDispatcherHost.RunWindowTest(scope =>
             {
-                return candidate;
-            }
+                var target = new Button { Content = "target" };
+                var window = new Window { Width = 320, Height = 200, Content = target };
+                scope.ShowAndWaitForContentRendered(window);
+                Assert.AreNotEqual(0, TestWindowPresentationScope.GetNativeHandle(window));
 
-            current = current.Parent;
+                var popup = new Popup
+                {
+                    PlacementTarget = target,
+                    Child = new Border { Width = 80, Height = 40 }
+                };
+                scope.TrackPopup(popup);
+                popup.IsOpen = true;
+                TestUiDispatcherHost.Drain();
+                Assert.AreNotEqual(0, TestWindowPresentationScope.GetNativeHandle(popup.Child));
+                scope.RegisterPresentationFailureForTesting(expectedPresentation);
+                scope.RegisterCleanupFailureForTesting(expectedCleanup);
+                throw expected;
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            actual = ex;
         }
 
-        throw new DirectoryNotFoundException("BeMusicSeeker.Tests project directory was not found.");
+        Assert.IsNotNull(actual);
+        Assert.AreSame(expected, actual);
+        Assert.AreEqual(
+            expectedPresentation.ToString(),
+            actual.Data["TestWindowPresentationFailure"]);
+        Assert.AreEqual(
+            expectedCleanup.ToString(),
+            actual.Data["TestWindowPresentationCleanupFailure"]);
+
+        Exception? presentationAndCleanupFailure = null;
+        try
+        {
+            TestUiDispatcherHost.RunWindowTest(scope =>
+            {
+                scope.RegisterPresentationFailureForTesting(expectedPresentation);
+                scope.RegisterCleanupFailureForTesting(expectedCleanup);
+            });
+        }
+        catch (Exception ex)
+        {
+            presentationAndCleanupFailure = ex;
+        }
+
+        Assert.IsNotNull(presentationAndCleanupFailure);
+        Assert.AreSame(expectedPresentation, presentationAndCleanupFailure);
+        Assert.AreEqual(
+            expectedCleanup.ToString(),
+            presentationAndCleanupFailure.Data["TestWindowPresentationCleanupFailure"]);
+
+        var presentationOnly = new InvalidOperationException("presentation only failure");
+        Exception? presentationOnlyFailure = null;
+        try
+        {
+            TestUiDispatcherHost.RunWindowTest(scope =>
+                scope.RegisterPresentationFailureForTesting(presentationOnly));
+        }
+        catch (Exception ex)
+        {
+            presentationOnlyFailure = ex;
+        }
+
+        Assert.IsNotNull(presentationOnlyFailure);
+        Assert.AreSame(presentationOnly, presentationOnlyFailure);
+
+        Exception? cleanupOnlyFailure = null;
+        try
+        {
+            TestUiDispatcherHost.RunWindowTest(scope =>
+            {
+                scope.RegisterCleanupFailureForTesting(expectedCleanup);
+            });
+        }
+        catch (Exception ex)
+        {
+            cleanupOnlyFailure = ex;
+        }
+
+        Assert.IsNotNull(cleanupOnlyFailure);
+        Assert.AreSame(expectedCleanup, cleanupOnlyFailure);
     }
 }

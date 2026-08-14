@@ -37,7 +37,7 @@ public sealed class SettingDialogEditCompletionTests
     [TestMethod]
     public void PlaylistDialogs_UsePlaylistWorkspaceOwnerComposition()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             var settingDialog = new SettingsWindow
@@ -58,7 +58,7 @@ public sealed class SettingDialogEditCompletionTests
     [TestMethod]
     public void SettingDialogVolumeBinding_UsesComposedPlaybackOwner()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string root = CreateTemporaryRoot();
             try
@@ -116,7 +116,7 @@ public sealed class SettingDialogEditCompletionTests
     [DataRow(true)]
     public void OperationModeRadio_RepeatedWindowLifetimesDoNotRequestChangeUntilAcceptedClick(bool initialOperationMode)
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string root = CreateTemporaryRoot();
             var openedWindows = new List<SettingsWindow>();
@@ -136,7 +136,7 @@ public sealed class SettingDialogEditCompletionTests
 
                 for (int presentation = 0; presentation < 3; presentation++)
                 {
-                    SettingsWindow window = OpenSettingsWindow(dialog);
+                    SettingsWindow window = OpenSettingsWindow(windowTest, dialog);
                     openedWindows.Add(window);
                     presentationPort.CurrentWindow = window;
                     AssertOperationModePresentation(window, initialOperationMode);
@@ -149,7 +149,7 @@ public sealed class SettingDialogEditCompletionTests
                     Assert.IsNull(window.DataContext, "A closed settings Window must release the shared ViewModel binding graph.");
                 }
 
-                SettingsWindow finalWindow = OpenSettingsWindow(dialog);
+                SettingsWindow finalWindow = OpenSettingsWindow(windowTest, dialog);
                 openedWindows.Add(finalWindow);
                 presentationPort.CurrentWindow = finalWindow;
                 RadioButton requestedMode = FindOperationModeRadio(finalWindow, useLr2: !initialOperationMode);
@@ -179,7 +179,7 @@ public sealed class SettingDialogEditCompletionTests
     [DataRow(true)]
     public void OperationModeRadio_RejectedClickRestoresSelectionWithoutSaveOrRestart(bool initialOperationMode)
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string root = CreateTemporaryRoot();
             SettingsWindow? window = null;
@@ -194,7 +194,7 @@ public sealed class SettingDialogEditCompletionTests
                 };
                 var lifetime = new CountingApplicationLifetime();
                 SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
-                window = OpenSettingsWindow(dialog);
+                window = OpenSettingsWindow(windowTest, dialog);
 
                 RadioButton requestedMode = FindOperationModeRadio(window, useLr2: !initialOperationMode);
                 requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
@@ -1538,7 +1538,7 @@ public sealed class SettingDialogEditCompletionTests
     [TestMethod]
     public void SettingDialogOkClick_AwaitsOwnerCompletionBeforeClosing()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
             SynchronizationContext previousSynchronizationContext = SynchronizationContext.Current;
@@ -2126,7 +2126,7 @@ public sealed class SettingDialogEditCompletionTests
     [DataRow(true)]
     public void Lr2AdvancedPathEntry_IsAvailableForStandardAndCustomLinkedConfigurations(bool useCustomPaths)
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string scope = CreateTemporaryRoot();
             SettingsWindow? window = null;
@@ -2148,7 +2148,7 @@ public sealed class SettingDialogEditCompletionTests
                 var session = new CountingSettingsEditSession(values);
                 SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
 
-                window = OpenSettingsWindow(dialog);
+                window = OpenSettingsWindow(windowTest, dialog);
                 Button advancedPathsButton = FindDescendants<Button>(window)
                     .Single(button => button.Name == "buttonEditCustomLr2Paths");
                 Button resyncButton = FindDescendants<Button>(window)
@@ -2553,7 +2553,7 @@ public sealed class SettingDialogEditCompletionTests
             SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             bool? result = null;
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
             {
                 var advancedDialog = new Lr2AdvancedPathsDialog(draft);
                 advancedDialog.ContentRendered += (_, _) =>
@@ -2564,6 +2564,7 @@ public sealed class SettingDialogEditCompletionTests
                         .Single(button => button.IsDefault)
                         .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 };
+                windowTest.PrepareForOwnedPresentation(advancedDialog);
                 result = advancedDialog.ShowDialog();
             });
 
@@ -2615,7 +2616,7 @@ public sealed class SettingDialogEditCompletionTests
                 : candidateConfig;
 
             bool? result = null;
-            InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
             {
                 var advancedDialog = new Lr2AdvancedPathsDialog(draft);
                 advancedDialog.ContentRendered += (_, _) =>
@@ -2629,6 +2630,9 @@ public sealed class SettingDialogEditCompletionTests
 
                     InvokeEnterAccessKey();
                 };
+                windowTest.PrepareForOwnedPresentation(
+                    advancedDialog,
+                    TestWindowActivation.ForegroundInteraction);
                 result = advancedDialog.ShowDialog();
             });
 
@@ -2677,7 +2681,7 @@ public sealed class SettingDialogEditCompletionTests
             bool rawDraftWasRetained = false;
             bool rejectionErrorWasSet = false;
             bool failureWasVisible = false;
-            InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
             {
                 var advancedDialog = new Lr2AdvancedPathsDialog(draft);
                 advancedDialog.ContentRendered += (_, _) =>
@@ -2697,6 +2701,9 @@ public sealed class SettingDialogEditCompletionTests
                             && Equals(banner.Content, draft.Lr2PathSelectionError));
                     advancedDialog.Close();
                 };
+                windowTest.PrepareForOwnedPresentation(
+                    advancedDialog,
+                    TestWindowActivation.ForegroundInteraction);
                 advancedDialog.ShowDialog();
             });
 
@@ -2748,7 +2755,7 @@ public sealed class SettingDialogEditCompletionTests
             bool stayedOpen = false;
             bool rejectedEditorFocused = false;
             bool rejectionErrorWasSet = false;
-            InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
             {
                 var advancedDialog = new Lr2AdvancedPathsDialog(draft);
                 advancedDialog.ContentRendered += (_, _) =>
@@ -2772,6 +2779,9 @@ public sealed class SettingDialogEditCompletionTests
                     rejectionErrorWasSet = draft.HasLr2PathSelectionError;
                     advancedDialog.Close();
                 };
+                windowTest.PrepareForOwnedPresentation(
+                    advancedDialog,
+                    TestWindowActivation.ForegroundInteraction);
                 advancedDialog.ShowDialog();
             });
 
@@ -2897,7 +2907,7 @@ public sealed class SettingDialogEditCompletionTests
             SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             bool? result = null;
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
             {
                 var advancedDialog = new Lr2AdvancedPathsDialog(draft);
                 advancedDialog.ContentRendered += (_, _) =>
@@ -2915,6 +2925,7 @@ public sealed class SettingDialogEditCompletionTests
                             .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                     }
                 };
+                windowTest.PrepareForOwnedPresentation(advancedDialog);
                 result = advancedDialog.ShowDialog();
             });
 
@@ -3064,11 +3075,12 @@ public sealed class SettingDialogEditCompletionTests
             audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
     }
 
-    private static SettingsWindow OpenSettingsWindow(SettingsDialogViewModel dialog)
+    private static SettingsWindow OpenSettingsWindow(
+        TestWindowPresentationScope windowTest,
+        SettingsDialogViewModel dialog)
     {
         var window = new SettingsWindow { DataContext = dialog };
-        window.Show();
-        window.Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+        windowTest.ShowAndWaitForContentRendered(window);
         return window;
     }
 
@@ -3283,38 +3295,6 @@ public sealed class SettingDialogEditCompletionTests
                 }
             }
         }
-    }
-
-    private static void InvokeOnSharedApplication(Action action)
-    {
-        TestUiDispatcherHost.Invoke(() =>
-        {
-            var existingWindows = Application.Current.Windows.Cast<Window>().ToHashSet();
-            try
-            {
-                action();
-            }
-            finally
-            {
-                Window[] createdWindows = Application.Current.Windows.Cast<Window>()
-                    .Where(window => !existingWindows.Contains(window))
-                    .Reverse()
-                    .ToArray();
-                foreach (Window window in createdWindows)
-                {
-                    if (window is SettingsWindow settingsWindow)
-                    {
-                        settingsWindow.CloseForOwnerShutdown();
-                    }
-                    else
-                    {
-                        window.Close();
-                    }
-                }
-
-                TestUiDispatcherHost.Drain();
-            }
-        });
     }
 
     private sealed class RecordingRootDialogService : IUiDialogService

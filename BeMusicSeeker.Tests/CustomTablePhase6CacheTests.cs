@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Reflection;
-using System.Runtime.ExceptionServices;
-using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -55,7 +53,7 @@ public sealed class CustomTablePhase6CacheTests
     [TestMethod]
     public void CustomTableView_DataResetKeepsColumnLayoutSnapshot()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
             var view = new CustomTableView();
             CustomTableColumnLayoutSnapshot snapshot = view.GetColumnLayoutSnapshot();
@@ -86,7 +84,7 @@ public sealed class CustomTablePhase6CacheTests
     [TestMethod]
     public void CustomTableView_DataOnlySourceSwapKeepsColumnLayoutSnapshot()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
             var view = new CustomTableView
             {
@@ -103,7 +101,7 @@ public sealed class CustomTablePhase6CacheTests
     [TestMethod]
     public void CustomTableView_HiddenSourceSwapDoesNotInvalidateAgainWhenShown()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
             var view = new CustomTableView
             {
@@ -129,7 +127,7 @@ public sealed class CustomTablePhase6CacheTests
     [TestMethod]
     public void CustomTableView_ShowAfterHiddenUntrackedMutationInvalidatesCellValuesOnce()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
             var view = new CustomTableView
             {
@@ -152,7 +150,7 @@ public sealed class CustomTablePhase6CacheTests
     [TestMethod]
     public void CustomTableView_CoercesAppearanceMetricsToSupportedRanges()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
             var view = new CustomTableView
             {
@@ -178,7 +176,7 @@ public sealed class CustomTablePhase6CacheTests
     [TestMethod]
     public void CustomTableView_MainChartListLifecycleFollowsLoadedDataContext()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var first = new MainChartListViewModel();
             var second = new MainChartListViewModel();
@@ -194,7 +192,7 @@ public sealed class CustomTablePhase6CacheTests
 
             try
             {
-                window.Show();
+                windowTest.ShowAndWaitForContentRendered(window);
                 Assert.IsTrue(view.IsLoaded);
                 first.PrepareRowsReplacement();
                 Assert.IsTrue(view.IsItemsSourceSwapPending);
@@ -413,7 +411,7 @@ public sealed class CustomTablePhase6CacheTests
     [TestMethod]
     public void CustomTableView_RendersCellTextRunsAndPreservesRunsForSelection()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
             object row = new();
             var layout = new CustomTableColumnSettings.ColumnLayout
@@ -452,7 +450,7 @@ public sealed class CustomTablePhase6CacheTests
     [TestMethod]
     public void CustomTableView_CreatesWrappedTooltipContentWhenWidthIsSpecified()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
             object plainContent = CustomTableView.CreateCellToolTipContent("short tooltip", null);
             object wrappedContent = CustomTableView.CreateCellToolTipContent("long tooltip", 420d);
@@ -534,26 +532,4 @@ public sealed class CustomTablePhase6CacheTests
         }
     }
 
-    private static void RunOnSta(Action action)
-    {
-        Exception exception = null!;
-        var thread = new Thread((ThreadStart)delegate
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (exception != null)
-        {
-            ExceptionDispatchInfo.Capture(exception).Throw();
-        }
-    }
 }

@@ -4,7 +4,6 @@ using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -1462,7 +1461,7 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanelView_InitiallySynchronizesCompactStateWithoutAnimation()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var window = new Window { Width = 640d, Height = 360d, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
             try
@@ -1472,7 +1471,7 @@ public sealed class PlaybackPanelViewModelTests
                 var view = new PlaybackPanelView { DataContext = panel };
                 window.Content = view;
 
-                window.Show();
+                windowTest.ShowAndWaitForContentRendered(window);
                 FlushRenderQueue(window);
 
                 Assert.AreEqual(PlayerPanelState.TITLE_SMALL, view.EffectivePlayerPanelState);
@@ -1490,7 +1489,7 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanelView_InitiallySynchronizesExpandedStateWithoutAnimation()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var window = new Window { Width = 640d, Height = 360d, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
             try
@@ -1500,7 +1499,7 @@ public sealed class PlaybackPanelViewModelTests
                 var view = new PlaybackPanelView { DataContext = panel };
                 window.Content = view;
 
-                window.Show();
+                windowTest.ShowAndWaitForContentRendered(window);
                 FlushRenderQueue(window);
 
                 Assert.AreEqual(PlayerPanelState.TITLE_LARGE, view.EffectivePlayerPanelState);
@@ -1518,7 +1517,7 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanelView_DataContextReplacementSynchronizesBothDirectionsWithoutAnimation()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var window = new Window { Width = 640d, Height = 360d, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
             try
@@ -1529,7 +1528,7 @@ public sealed class PlaybackPanelViewModelTests
                 compactPanel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
                 var view = new PlaybackPanelView { DataContext = expandedPanel };
                 window.Content = view;
-                window.Show();
+                windowTest.ShowAndWaitForContentRendered(window);
                 FlushRenderQueue(window);
 
                 view.DataContext = compactPanel;
@@ -1551,7 +1550,7 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanelView_SameViewModelStateChangesUseTransitionsAndReloadSynchronizesImmediately()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var window = new Window { Width = 640d, Height = 360d, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
             try
@@ -1560,7 +1559,7 @@ public sealed class PlaybackPanelViewModelTests
                 panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
                 var view = new PlaybackPanelView { DataContext = panel };
                 window.Content = view;
-                window.Show();
+                windowTest.ShowAndWaitForContentRendered(window);
                 FlushRenderQueue(window);
 
                 panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
@@ -1594,7 +1593,7 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanelView_ReloadRejectsEventsQueuedByThePreviousSubscription()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var queuedDispatcher = new QueuedPlaybackUiDispatcher();
             var panel = new PlaybackPanelViewModel(
@@ -1621,7 +1620,7 @@ public sealed class PlaybackPanelViewModelTests
 
             try
             {
-                window.Show();
+                windowTest.ShowAndWaitForContentRendered(window);
                 FlushRenderQueue(window);
 
                 long oldGeneration = panel.BeginPlayback(new BMSFile(), 0);
@@ -1652,7 +1651,7 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var player = new FakeBmsPlayer();
             PlaybackPanelViewModel panel = CreatePanel(player);
@@ -1674,7 +1673,7 @@ public sealed class PlaybackPanelViewModelTests
 
             try
             {
-                window.Show();
+                windowTest.ShowAndWaitForContentRendered(window);
                 Assert.IsTrue(view.IsLoaded);
 
                 long generation = panel.BeginPlayback(new BMSFile(), 0);
@@ -2000,29 +1999,6 @@ public sealed class PlaybackPanelViewModelTests
         };
         timer.Start();
         Dispatcher.PushFrame(frame);
-    }
-
-    private static void RunOnSta(Action action)
-    {
-        Exception? exception = null;
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (exception != null)
-        {
-            ExceptionDispatchInfo.Capture(exception).Throw();
-        }
     }
 
     private sealed class InMemoryPlaybackSettingsStore : IPlaybackSettingsStore

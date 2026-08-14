@@ -67,6 +67,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private SettingsWindow settingsWindow;
 
+#nullable enable
+    private readonly Action<SettingsWindow>? settingsWindowCreated;
+#nullable restore
+
     private MainWindowViewModel subscribedViewModel;
 
     private long lastNormalLibraryFirstVisibleRequestId;
@@ -219,12 +223,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// UIコンポーネントの構築、TreeViewのイベントハンドラ登録、
     /// 設定のプロパティ変更リスナの初期化、および非同期のアップデートチェックを開始します。
     /// </summary>
+    /// <param name="viewModel">シェルが表示し操作する状態とワークフロー。</param>
     public MainWindow(MainWindowViewModel viewModel)
+        : this(viewModel, null)
+    {
+    }
+
+    /// <summary>
+    /// 設定ウィンドウが owner 設定や表示を行う前に、インスタンス固有の構成処理を適用できる
+    /// <see cref="MainWindow"/> を初期化します。
+    /// </summary>
+    /// <param name="viewModel">シェルが表示し操作する状態とワークフロー。</param>
+    /// <param name="settingsWindowCreated">
+    /// 設定ウィンドウの既存構成後、ダイアログ coordinator へ返す直前に呼び出す任意の処理。
+    /// </param>
+#nullable enable
+    internal MainWindow(
+        MainWindowViewModel viewModel,
+        Action<SettingsWindow>? settingsWindowCreated)
     {
         if (viewModel == null)
         {
             throw new ArgumentNullException(nameof(viewModel));
         }
+        this.settingsWindowCreated = settingsWindowCreated;
         DataContext = viewModel;
         InitializeComponent();
         viewModel.SettingDialog.AttachPresentationPort(this);
@@ -241,6 +263,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
         viewModel.ShellActivationWorkflow.ActivateConstructedShell();
     }
+#nullable restore
 
     private async void MainWindow_ContentRendered(object sender, EventArgs e)
     {
@@ -810,6 +833,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                             PlaybackPanel = viewModel.PlaybackPanel,
                             PlaylistWorkspace = viewModel.PlaylistWorkspace
                         };
+                        settingsWindowCreated?.Invoke(settingsWindow);
                         return settingsWindow;
                     },
                     window => window.CloseReason,

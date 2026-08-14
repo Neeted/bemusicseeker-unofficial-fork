@@ -38,6 +38,7 @@ $functionalFilter = @(
     'TestCategory!=ProcessIntegration',
     'TestCategory!=ReleaseAcceptance') -join '&'
 $functionalBassCollectibleLoadContextClass = 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
+$functionalSettingsWindowPresentationClass = 'BeMusicSeeker.Tests.SettingsWindowPresentationTests'
 $functionalTestClassShards = @(
     [pscustomobject]@{
         # This collectible ALC contract must run in a testhost that has never
@@ -88,6 +89,9 @@ $functionalTestClassShards = @(
             'BeMusicSeeker.Tests.PlaylistViewPipelineTests',
             'BeMusicSeeker.Tests.PlayHistoryReadModelTests',
             'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
+            # Keep all 61 real-window presentation cases beside the related settings
+            # fixture instead of competing with the parallel remaining shard.
+            $functionalSettingsWindowPresentationClass,
             'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests',
             'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests',
             'BeMusicSeeker.Tests.PlaylistUrlCompletionTests',
@@ -166,6 +170,18 @@ function Assert-FunctionalShardConfiguration {
     }
     if (($shardClasses | Sort-Object -Unique).Count -ne $shardClasses.Count) {
         throw 'Functional test shard classes must belong to exactly one shard.'
+    }
+
+    $settingsPresentationShards = @($functionalTestClassShards |
+        Where-Object { @($_.Classes | Where-Object { $_ -ceq $functionalSettingsWindowPresentationClass }).Count -gt 0 })
+    if ($settingsPresentationShards.Count -ne 1) {
+        throw 'SettingsWindowPresentationTests must occur exactly once outside the Functional remaining shard.'
+    }
+    if ($settingsPresentationShards[0].Name -cne 'feature-remaining-classwide-dnp') {
+        throw 'SettingsWindowPresentationTests must belong to feature-remaining-classwide-dnp.'
+    }
+    if ($settingsPresentationShards[0].Workers -ne 1) {
+        throw 'The SettingsWindowPresentationTests shard must use exactly one worker.'
     }
 
     $bassCollectibleShards = @($functionalTestClassShards |

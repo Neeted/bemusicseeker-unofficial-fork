@@ -46,7 +46,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_IsStandardResizableWindow()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var window = new SettingsWindow();
 
@@ -64,7 +64,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void ReleaseNotesWindow_UsesOwnedModalPresentationContract()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var window = new ReleaseNotesWindow();
             Assert.AreEqual(WindowStartupLocation.CenterOwner, window.WindowStartupLocation);
@@ -118,7 +118,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_ReleaseNotesUsesInjectedOwnedWindowRouteWithoutChangingDraft()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialogs = new RecordingReleaseNotesDialogService();
@@ -139,7 +139,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_Lr2AdvancedRouteAwaitsPendingDialogWithoutBlockingDispatcher()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             SettingsDialogViewModel settings = owner.SettingDialog;
@@ -179,7 +179,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_AboutIdentityPresentationUpdatesVersionAndBuildWithoutRedundantStatus()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousCulture = BeMusicSeeker.Properties.Resources.Culture?.Name ?? "ja-JP";
             SettingsWindow window = null;
@@ -191,14 +191,10 @@ public sealed class SettingsWindowPresentationTests
                 {
                     DataContext = owner.SettingDialog,
                     Width = 820,
-                    Height = 600,
-                    Left = -32000,
-                    Top = -32000,
-                    ShowInTaskbar = false,
-                    ShowActivated = false
+                    Height = 600
                 };
 
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 9;
                 PumpDispatcher(window.Dispatcher);
                 var page = (AboutSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
@@ -234,7 +230,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_JapaneseOperationAndPlayerCopyAppearsOnItsOwningPages()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousCulture = BeMusicSeeker.Properties.Resources.Culture?.Name ?? "ja-JP";
             SettingsWindow window = null;
@@ -242,8 +238,8 @@ public sealed class SettingsWindowPresentationTests
             {
                 ResourceService.Current.ChangeCulture("ja-JP");
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-                window = CreateOffscreenSettingsWindow(owner.SettingDialog);
-                ShowAndWaitForContentRendered(window);
+                window = new SettingsWindow { DataContext = owner.SettingDialog };
+                windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var pageHost = (ContentControl)window.FindName("settingsPageContent");
 
@@ -276,7 +272,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void AdvancedDangerZone_SchemaUninstallActualButtonBlocksNativeCloseUntilCancel()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
             SettingsWindow window = null;
@@ -290,8 +286,8 @@ public sealed class SettingsWindowPresentationTests
                 context.Settings.ShowRecommUpdatedMsg = draftValue;
                 var presentation = new RecordingPresentationPort();
                 context.Settings.AttachPresentationPort(presentation);
-                window = CreateOffscreenSettingsWindow(context.Settings);
-                ShowAndWaitForContentRendered(window);
+                window = new SettingsWindow { DataContext = context.Settings };
+                windowTest.ShowAndWaitForContentRendered(window);
                 PrepareSchemaDangerOperation(context.Settings, scoreDbPath);
 
                 ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
@@ -330,7 +326,7 @@ public sealed class SettingsWindowPresentationTests
     [DataRow(true)]
     public void AdvancedDangerZone_SchemaUninstallActualButtonPreservesFailureAndSuccessOwnerContracts(bool success)
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
             SettingsWindow window = null;
@@ -347,8 +343,8 @@ public sealed class SettingsWindowPresentationTests
                 DangerDialogContext context = CreateDangerDialog(values, dialogs, schemaDialog, store);
                 bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
                 context.Settings.ShowRecommUpdatedMsg = draftValue;
-                window = CreateOffscreenSettingsWindow(context.Settings);
-                ShowAndWaitForContentRendered(window);
+                window = new SettingsWindow { DataContext = context.Settings };
+                windowTest.ShowAndWaitForContentRendered(window);
                 PrepareSchemaDangerOperation(context.Settings, scoreDbPath);
 
                 ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
@@ -391,7 +387,7 @@ public sealed class SettingsWindowPresentationTests
     [DataRow(true)]
     public void AdvancedDangerZone_ApplicationDataActualButtonPreservesCancelAndFailureContracts(bool storeFailure)
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var values = new Settings { OperationModeLR2DB = true, LR2SongDBPath = "song.db" };
             var dialogs = new DangerDialogService { HoldConfirmation = !storeFailure };
@@ -405,10 +401,10 @@ public sealed class SettingsWindowPresentationTests
             context.Settings.ShowRecommUpdatedMsg = draftValue;
             var presentation = new RecordingPresentationPort();
             context.Settings.AttachPresentationPort(presentation);
-            SettingsWindow window = CreateOffscreenSettingsWindow(context.Settings);
+            var window = new SettingsWindow { DataContext = context.Settings };
             try
             {
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 ClickAdvancedDangerButton(window, Resources.Settings_uninstall_application_data);
                 Assert.AreEqual(0, schemaDialog.CallCount);
 
@@ -448,7 +444,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void AdvancedDangerZone_ApplicationDataActualButtonCompletesProductionShellShutdownRoute()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var values = new Settings { OperationModeLR2DB = true, LR2SongDBPath = "song.db" };
             var events = new List<string>();
@@ -479,25 +475,23 @@ public sealed class SettingsWindowPresentationTests
                 .SetValue(shellViewModel, CreateNoOpShellActivationWorkflow());
             object previousVmResource = Application.Current.Resources["vm"];
             Application.Current.Resources["vm"] = shellViewModel;
-            var owner = new MainWindow(shellViewModel)
-            {
-                Left = -32000,
-                Top = -32000,
-                ShowInTaskbar = false,
-                ShowActivated = false
-            };
-            var decoy = new Window
-            {
-                Left = -32000,
-                Top = -32000,
-                ShowInTaskbar = false,
-                ShowActivated = false
-            };
             SettingsWindow window = null;
+            var owner = new MainWindow(
+                shellViewModel,
+                createdWindow =>
+                {
+                    Assert.IsFalse(createdWindow.IsVisible);
+                    Assert.AreEqual(0, TestWindowPresentationScope.GetNativeHandle(createdWindow));
+                    windowTest.PrepareForOwnedPresentation(createdWindow);
+                    window = createdWindow;
+                });
+            var decoy = new Window();
             Exception interactionFailure = null;
+            windowTest.PrepareForOwnedPresentation(owner);
             owner.Show();
             try
             {
+                windowTest.PrepareForOwnedPresentation(decoy);
                 decoy.Show();
                 owner.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)(() =>
                 {
@@ -510,6 +504,10 @@ public sealed class SettingsWindowPresentationTests
                                 .GetField("settingsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
                                 .GetValue(owner));
                         Assert.AreSame(owner, window.Owner);
+                        nint settingsHandle = TestWindowPresentationScope.GetNativeHandle(window);
+                        Assert.AreNotEqual(0, settingsHandle);
+                        Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(settingsHandle));
+                        Assert.AreNotEqual(settingsHandle, TestWindowPresentationScope.ForegroundWindow);
                         window.Closing += (_, _) => events.Add("settings-closing");
                         window.Closed += (_, _) => events.Add("settings-closed");
                         ClickAdvancedDangerButton(window, Resources.Settings_uninstall_application_data);
@@ -617,7 +615,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_JapaneseTitleAndAdvancedCategoryUseDistinctLocalizedAutomationText()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousCulture = BeMusicSeeker.Properties.Resources.Culture?.Name ?? "ja-JP";
             SettingsWindow window = null;
@@ -625,8 +623,8 @@ public sealed class SettingsWindowPresentationTests
             {
                 ResourceService.Current.ChangeCulture("en-US");
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-                window = CreateOffscreenSettingsWindow(owner.SettingDialog);
-                ShowAndWaitForContentRendered(window);
+                window = new SettingsWindow { DataContext = owner.SettingDialog };
+                windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var advanced = (ListBoxItem)navigation.Items[8];
 
@@ -657,10 +655,10 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsStatusBanner_CoercesBlankContentAndRecoversBindingsWithoutOverridingVisibility()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            SettingsWindow window = CreateOffscreenSettingsWindow(owner.SettingDialog);
+            var window = new SettingsWindow { DataContext = owner.SettingDialog };
             var source = new StatusBannerBindingSource();
             var banner = new SettingsStatusBanner { Icon = "!", Status = "Warning" };
             banner.SetBinding(ContentControl.ContentProperty, new Binding(nameof(StatusBannerBindingSource.Message))
@@ -671,7 +669,7 @@ public sealed class SettingsWindowPresentationTests
             ((Grid)window.FindName("settingDialogRootGrid")).Children.Add(banner);
             try
             {
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 Assert.AreEqual(Visibility.Collapsed, banner.Visibility);
 
                 source.Message = string.Empty;
@@ -743,13 +741,13 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void Lr2SchemaBanners_ActualPagesRevertSeverityAndAutomationStatusAfterRepairBecomesUnavailable()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            SettingsWindow window = CreateOffscreenSettingsWindow(owner.SettingDialog);
+            var window = new SettingsWindow { DataContext = owner.SettingDialog };
             try
             {
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 foreach (int categoryIndex in new[] { 0, 8 })
                 {
@@ -786,13 +784,13 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void AudioSettingsPage_NullDeviceTestStatusDoesNotRenderAnEmptyBanner()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            SettingsWindow window = CreateOffscreenSettingsWindow(owner.SettingDialog);
+            var window = new SettingsWindow { DataContext = owner.SettingDialog };
             try
             {
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 3;
                 PumpDispatcher(window.Dispatcher);
                 var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
@@ -817,15 +815,15 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void AudioSettingsPage_LongDeviceTestStatusWrapsAtMinimumWindowWidthAndKeepsFullAutomationName()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             const string longMessage = "The selected audio device could not be initialized because its current output format is unavailable. Choose another device or format, then run the audio test again.";
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            SettingsWindow window = CreateOffscreenSettingsWindow(owner.SettingDialog);
+            var window = new SettingsWindow { DataContext = owner.SettingDialog };
             window.Width = 820;
             try
             {
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 3;
                 typeof(SettingsDialogViewModel)
                     .GetProperty(nameof(SettingsDialogViewModel.AudioDeviceTestStatusMessage))!
@@ -868,7 +866,7 @@ public sealed class SettingsWindowPresentationTests
         Assert.IsFalse(SourceTextTestHelper.ReadSettingsWindowXamlSourceText()
             .Contains("Visibility=\"{Binding IsSelected, ElementName=navigation", StringComparison.Ordinal));
 
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var window = new SettingsWindow();
             var sharedDataContext = new object();
@@ -902,21 +900,20 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             var window = new SettingsWindow
             {
                 DataContext = viewModel.SettingDialog,
                 Width = 820,
-                Height = 600,
-                Left = -32000,
-                Top = -32000,
-                ShowInTaskbar = false
+                Height = 600
             };
             try
             {
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(
+                    window,
+                    TestWindowActivation.ForegroundInteraction);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var scroller = (ScrollViewer)window.FindName("settingsPageScrollViewer");
                 var header = (ContentControl)window.FindName("settingsPageHeader");
@@ -993,7 +990,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_AppearanceThemeBindingSurvivesDeferredPageConnectionAndCancelRollback()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousTheme = Settings.Default.AppearanceTheme;
             SettingsWindow window = null;
@@ -1007,14 +1004,10 @@ public sealed class SettingsWindowPresentationTests
                 {
                     DataContext = settings,
                     Width = 820,
-                    Height = 600,
-                    Left = -32000,
-                    Top = -32000,
-                    ShowInTaskbar = false,
-                    ShowActivated = false
+                    Height = 600
                 };
 
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var pageHost = (ContentControl)window.FindName("settingsPageContent");
                 Assert.AreEqual(0, navigation.SelectedIndex);
@@ -1067,7 +1060,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void ThemedWindows_ApplyInitialAndLiveThemeAndDetachNativeTitleBarOnClose()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousTheme = Settings.Default.AppearanceTheme;
             ReleaseNotesWindow releaseNotes = null;
@@ -1080,8 +1073,7 @@ public sealed class SettingsWindowPresentationTests
                 var gateway = new RecordingNativeWindowTitleBarGateway();
                 releaseNotes = new ReleaseNotesWindow(gateway, new AppNativeWindowTitleBarThemeSource());
 
-                releaseNotes.Show();
-                PumpDispatcher(releaseNotes.Dispatcher);
+                windowTest.ShowAndWaitForContentRendered(releaseNotes);
 
                 Assert.AreEqual(1, gateway.ApplyCount);
                 Assert.IsFalse(gateway.LastAppearance.UseDarkMode);
@@ -1100,8 +1092,7 @@ public sealed class SettingsWindowPresentationTests
                 releaseNotes = null;
                 var darkGateway = new RecordingNativeWindowTitleBarGateway();
                 darkReleaseNotes = new ReleaseNotesWindow(darkGateway, new AppNativeWindowTitleBarThemeSource());
-                darkReleaseNotes.Show();
-                PumpDispatcher(darkReleaseNotes.Dispatcher);
+                windowTest.ShowAndWaitForContentRendered(darkReleaseNotes);
                 Assert.AreEqual(1, darkGateway.ApplyCount);
                 Assert.IsTrue(darkGateway.LastAppearance.UseDarkMode, "A window opened under Dark must apply the dark title bar initially.");
                 darkReleaseNotes.Close();
@@ -1114,8 +1105,7 @@ public sealed class SettingsWindowPresentationTests
 
                 SettingsDialogViewModel settings = MainWindowViewModelTestFactory.Create().SettingDialog;
                 advancedPaths = new Lr2AdvancedPathsDialog(settings);
-                advancedPaths.Show();
-                PumpDispatcher(advancedPaths.Dispatcher);
+                windowTest.ShowAndWaitForContentRendered(advancedPaths);
                 TextBox pathTextBox = FindDescendants<TextBox>(advancedPaths).First();
 
                 Assert.AreEqual(GetApplicationBrushColor("App.DialogBackgroundBrush"), ((SolidColorBrush)advancedPaths.Background).Color);
@@ -1142,7 +1132,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void NativeTitleBarThemeSource_MissingOrNonSolidSemanticResource_Propagates()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string resourceKey = $"{nameof(NativeTitleBarThemeSource_MissingOrNonSolidSemanticResource_Propagates)}.{Guid.NewGuid():N}";
             ResourceDictionary resources = Application.Current.Resources;
@@ -1180,7 +1170,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_AppearanceControlsPreviewThroughMainViewSettingsAndCancelRollback()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             double previousFontSize = Settings.Default.CustomTableFontSize;
             double previousRowHeight = Settings.Default.CustomTableRowHeight;
@@ -1193,8 +1183,8 @@ public sealed class SettingsWindowPresentationTests
                 double savedFontSize = settings.CustomTableFontSize;
                 double savedRowHeight = settings.CustomTableRowHeight;
                 double savedHeaderHeight = settings.CustomTableHeaderHeight;
-                window = CreateOffscreenSettingsWindow(settings);
-                ShowAndWaitForContentRendered(window);
+                window = new SettingsWindow { DataContext = settings };
+                windowTest.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 1;
                 PumpDispatcher(window.Dispatcher);
                 var page = (AppearanceSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
@@ -1253,7 +1243,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_PlaybackPageAttachAndRadioClickPresentOnlySelectedPlayerWithoutChangingHiddenDrafts()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
             SettingsDialogViewModel settings = mainViewModel.SettingDialog;
@@ -1263,14 +1253,11 @@ public sealed class SettingsWindowPresentationTests
             {
                 DataContext = settings,
                 Width = 820,
-                Height = 600,
-                Left = -32000,
-                Top = -32000,
-                ShowInTaskbar = false
+                Height = 600
             };
             try
             {
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 2;
                 PumpDispatcher(window.Dispatcher);
                 var page = (PlaybackSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
@@ -1315,7 +1302,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_GeneralConfigPathBindingUpdatesWhenSameRootRestoresStandardTuple()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsRootReselect_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(scope);
@@ -1343,12 +1330,9 @@ public sealed class SettingsWindowPresentationTests
                     DataContext = settings,
                     PlaybackPanel = mainViewModel.PlaybackPanel,
                     Width = 820,
-                    Height = 600,
-                    Left = -32000,
-                    Top = -32000,
-                    ShowInTaskbar = false
+                    Height = 600
                 };
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 TextBox configPathTextBox = FindDescendants<TextBox>(page).Single(textBox =>
                     textBox.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path?.Path == nameof(settings.LR2ConfigXmlPath));
@@ -1378,7 +1362,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsField_RepresentativeEditorsExposeLocalizedAutomationNamesOnAllFivePages()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
             var window = new SettingsWindow
@@ -1386,14 +1370,11 @@ public sealed class SettingsWindowPresentationTests
                 DataContext = mainViewModel.SettingDialog,
                 PlaybackPanel = mainViewModel.PlaybackPanel,
                 Width = 820,
-                Height = 600,
-                Left = -32000,
-                Top = -32000,
-                ShowInTaskbar = false
+                Height = 600
             };
             try
             {
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var host = (ContentControl)window.FindName("settingsPageContent");
                 var assertions = new List<(int Page, Func<FrameworkElement, Control> Find, string Name)>
@@ -1431,7 +1412,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsField_UnnamedEditorFallbackTracksHeaderChanges()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "Initial localized label", Content = editor };
@@ -1448,7 +1429,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsField_ExplicitAndBoundEditorNamesAreNotClobbered()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var explicitEditor = new ComboBox();
             AutomationProperties.SetName(explicitEditor, "Explicit localized name");
@@ -1475,7 +1456,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "A", Content = editor };
@@ -1498,7 +1479,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "A", Content = editor };
@@ -1530,7 +1511,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesImmediateDetach()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "A", Content = editor };
@@ -1547,7 +1528,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesImmediateDetach()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "A", Content = editor };
@@ -1575,7 +1556,7 @@ public sealed class SettingsWindowPresentationTests
     [DataRow("NativeClose")]
     public void SettingsWindow_Lr2AdvancedRouteUsesOwnedModalRealBrowseAndTerminalButtons(string closeMode)
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsAdvancedRoute_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(scope);
@@ -1612,6 +1593,7 @@ public sealed class SettingsWindowPresentationTests
                 string draftSongBeforeDialog = settings.LR2SongDBPath;
                 string draftConfigBeforeDialog = settings.LR2ConfigXmlPath;
                 var dialogs = new RecordingSettingsWindowDialogService(
+                    windowTest,
                     settings,
                     draftSongBeforeDialog,
                     draftConfigBeforeDialog,
@@ -1624,13 +1606,10 @@ public sealed class SettingsWindowPresentationTests
                 {
                     DataContext = settings,
                     Width = 820,
-                    Height = 600,
-                    Left = -32000,
-                    Top = -32000,
-                    ShowInTaskbar = false
+                    Height = 600
                 };
                 dialogs.ExpectedOwner = window;
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 ((Button)page.FindName("buttonEditCustomLr2Paths")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpDispatcher(window.Dispatcher);
@@ -1674,7 +1653,7 @@ public sealed class SettingsWindowPresentationTests
         string notificationStatusName,
         int expectedLogCount)
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             UiDialogStatus windowStatus = Enum.Parse<UiDialogStatus>(windowStatusName);
             UiDialogStatus notificationStatus = Enum.Parse<UiDialogStatus>(notificationStatusName);
@@ -1692,10 +1671,7 @@ public sealed class SettingsWindowPresentationTests
                 {
                     DataContext = mainViewModel.SettingDialog,
                     Width = 820,
-                    Height = 600,
-                    Left = -32000,
-                    Top = -32000,
-                    ShowInTaskbar = false
+                    Height = 600
                 };
                 dialogs.ExpectedOwner = window;
                 var unhandled = new List<Exception>();
@@ -1707,7 +1683,7 @@ public sealed class SettingsWindowPresentationTests
                 window.Dispatcher.UnhandledException += handler;
                 try
                 {
-                    ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                     var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                     ((Button)page.FindName("buttonEditCustomLr2Paths")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     PumpDispatcher(window.Dispatcher);
@@ -1753,7 +1729,7 @@ public sealed class SettingsWindowPresentationTests
     [DataRow(true)]
     public void SettingsWindow_Lr2AdvancedRejectedOrCancelledBrowseKeepsTypedLocalDraftAndParentTuple(bool cancelPicker)
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsAdvancedMalformed_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(scope);
@@ -1784,6 +1760,7 @@ public sealed class SettingsWindowPresentationTests
                 settings.LR2SongDBPath = originalSong;
                 settings.LR2ConfigXmlPath = originalConfig;
                 var dialogs = new RecordingSettingsWindowDialogService(
+                    windowTest,
                     settings,
                     originalSong,
                     originalConfig,
@@ -1798,13 +1775,10 @@ public sealed class SettingsWindowPresentationTests
                 {
                     DataContext = settings,
                     Width = 820,
-                    Height = 600,
-                    Left = -32000,
-                    Top = -32000,
-                    ShowInTaskbar = false
+                    Height = 600
                 };
                 dialogs.ExpectedOwner = window;
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 ((Button)page.FindName("buttonEditCustomLr2Paths")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpDispatcher(window.Dispatcher);
@@ -1831,7 +1805,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_OwnerShutdownBeforeContentRenderedCannotReactivateDetachedPresentation()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
             SettingsDialogViewModel settings = mainViewModel.SettingDialog;
@@ -1839,11 +1813,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 DataContext = settings,
                 Width = 820,
-                Height = 600,
-                Left = -32000,
-                Top = -32000,
-                ShowInTaskbar = false,
-                ShowActivated = false
+                Height = 600
             };
             var dispatcherFailures = new List<Exception>();
             bool contentRendered = false;
@@ -1857,6 +1827,7 @@ public sealed class SettingsWindowPresentationTests
             window.ContentRendered += contentRenderedHandler;
             try
             {
+                windowTest.PrepareForOwnedPresentation(window);
                 window.Show();
                 Assert.IsFalse(contentRendered,
                     "Show must return before the queued ContentRendered callback in this lifecycle scenario.");
@@ -2011,7 +1982,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             Window window = null;
             try
@@ -2039,15 +2010,11 @@ public sealed class SettingsWindowPresentationTests
                 {
                     Content = host,
                     Width = 360,
-                    Height = 160,
-                    Left = -32000,
-                    Top = -32000,
-                    ShowInTaskbar = false,
-                    ShowActivated = false
+                    Height = 160
                 };
-                window.Show();
-                window.UpdateLayout();
-                PumpDispatcher(window.Dispatcher);
+                windowTest.ShowAndWaitForContentRendered(
+                    window,
+                    TestWindowActivation.ForegroundInteraction);
 
                 selectionCombo.ApplyTemplate();
                 editableCombo.ApplyTemplate();
@@ -2056,6 +2023,8 @@ public sealed class SettingsWindowPresentationTests
                 var editor = (TextBox)editableCombo.Template.FindName("PART_EditableTextBox", editableCombo);
                 var selectionPopup = (Popup)selectionCombo.Template.FindName("PART_Popup", selectionCombo);
                 var editablePopup = (Popup)editableCombo.Template.FindName("PART_Popup", editableCombo);
+                windowTest.TrackPopup(selectionPopup);
+                windowTest.TrackPopup(editablePopup);
 
                 foreach (double x in new[] { 6d, selectionCombo.ActualWidth / 2d, selectionCombo.ActualWidth - 6d })
                 {
@@ -2115,7 +2084,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             const string sentinel = "OuterImplicitStyleSentinel";
             Application application = Application.Current;
@@ -2180,15 +2149,11 @@ public sealed class SettingsWindowPresentationTests
                 {
                     Content = host,
                     Width = 420,
-                    Height = 520,
-                    Left = -32000,
-                    Top = -32000,
-                    ShowInTaskbar = false,
-                    ShowActivated = false
+                    Height = 520
                 };
-                window.Show();
-                window.UpdateLayout();
-                window.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+                windowTest.ShowAndWaitForContentRendered(
+                    window,
+                    TestWindowActivation.ForegroundInteraction);
 
                 AssertLocalImplicitStyle(pageScroller.Style, scrollViewerStyle, nameof(ScrollViewer));
                 AssertLocalImplicitStyle(listBox.Style, listBoxStyle, nameof(ListBox));
@@ -2224,6 +2189,7 @@ public sealed class SettingsWindowPresentationTests
 
                 comboBox.ApplyTemplate();
                 var popup = (Popup)comboBox.Template.FindName("PART_Popup", comboBox);
+                windowTest.TrackPopup(popup);
                 comboBox.Focus();
                 comboBox.IsDropDownOpen = true;
                 PumpDispatcher(window.Dispatcher);
@@ -2558,7 +2524,7 @@ public sealed class SettingsWindowPresentationTests
 
     private static void AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute completionRoute)
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             SettingsDialogViewModel settings = owner.SettingDialog;
@@ -2577,9 +2543,9 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow reopenedPresentation = null;
             try
             {
-                firstPresentation = CreateOffscreenSettingsWindow(settings);
+                firstPresentation = new SettingsWindow { DataContext = settings };
                 presentationPort.CloseAction = firstPresentation.CloseFromPresentation;
-                ShowAndWaitForContentRendered(firstPresentation);
+                windowTest.ShowAndWaitForContentRendered(firstPresentation);
                 SeedTransientPlaylistUriValidation(settings);
 
                 Assert.IsFalse(settings.HasPendingSettingChanges(),
@@ -2591,7 +2557,6 @@ public sealed class SettingsWindowPresentationTests
                 PumpDispatcher(firstPresentation.Dispatcher);
                 navigation.SelectedIndex = 5;
                 PumpDispatcher(firstPresentation.Dispatcher);
-                firstPresentation.Activate();
                 PumpDispatcher(firstPresentation.Dispatcher);
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage));
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
@@ -2636,9 +2601,9 @@ public sealed class SettingsWindowPresentationTests
                 settings.PropertyChanged += propertyChanged;
                 try
                 {
-                    reopenedPresentation = CreateOffscreenSettingsWindow(settings);
+                    reopenedPresentation = new SettingsWindow { DataContext = settings };
                     presentationPort.CloseAction = reopenedPresentation.CloseFromPresentation;
-                    ShowAndWaitForContentRendered(reopenedPresentation);
+                    windowTest.ShowAndWaitForContentRendered(reopenedPresentation);
                 }
                 finally
                 {
@@ -2681,20 +2646,6 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    private static SettingsWindow CreateOffscreenSettingsWindow(SettingsDialogViewModel settings)
-    {
-        return new SettingsWindow
-        {
-            DataContext = settings,
-            Width = 820,
-            Height = 600,
-            Left = -32000,
-            Top = -32000,
-            ShowInTaskbar = false,
-            ShowActivated = false
-        };
-    }
-
     private static void SeedTransientPlaylistUriValidation(SettingsDialogViewModel settings)
     {
         typeof(SettingsDialogViewModel)
@@ -2710,28 +2661,6 @@ public sealed class SettingsWindowPresentationTests
         dispatcher.Invoke(DispatcherPriority.Input, new Action(() => { }));
         dispatcher.Invoke(DispatcherPriority.Render, new Action(() => { }));
         dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
-    }
-
-    private static void ShowAndWaitForContentRendered(SettingsWindow window)
-    {
-        bool contentRendered = false;
-        EventHandler handler = (_, _) => contentRendered = true;
-        window.ContentRendered += handler;
-        try
-        {
-            window.Show();
-            window.UpdateLayout();
-            for (int barrier = 0; barrier < 3 && !contentRendered; barrier++)
-            {
-                PumpDispatcher(window.Dispatcher);
-            }
-
-            Assert.IsTrue(contentRendered, "The displayed SettingsWindow did not reach ContentRendered.");
-        }
-        finally
-        {
-            window.ContentRendered -= handler;
-        }
     }
 
     private static void RaiseKey(UIElement target, Key key)
@@ -2827,13 +2756,13 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void SettingsWindow_AllPagesFitActualMinimumWidthViewport()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            SettingsWindow window = CreateOffscreenSettingsWindow(owner.SettingDialog);
+            var window = new SettingsWindow { DataContext = owner.SettingDialog };
             try
             {
-                ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var scroller = (ScrollViewer)window.FindName("settingsPageScrollViewer");
                 var content = (ContentControl)window.FindName("settingsPageContent");
@@ -2973,7 +2902,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void NativeClose_WhenCancellationIsEnabled_RequestsCancelCompletion()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             var presentation = new RecordingPresentationPort();
@@ -2990,7 +2919,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void NativeClose_WhenCancellationIsDisabled_DoesNotRequestCancelCompletion()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             var presentation = new RecordingPresentationPort();
@@ -3010,7 +2939,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void RunViewOperation_BlocksNativeCloseUntilOperationCompletes()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             var presentation = new RecordingPresentationPort();
@@ -3045,7 +2974,7 @@ public sealed class SettingsWindowPresentationTests
     [TestMethod]
     public void ApplyOperation_RejectsNativeCloseUntilPresentationSuccessAuthorizesApplyClose()
     {
-        InvokeOnSharedApplication(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             SettingsDialogViewModel settings = viewModel.SettingDialog;
@@ -3107,38 +3036,6 @@ public sealed class SettingsWindowPresentationTests
         StringAssert.Contains(settingsWindowCode, "\"settings_dialog_open\"");
         StringAssert.Contains(settingsWindowCode, "protected override void OnClosed(EventArgs e)");
         StringAssert.Contains(settingsWindowCode, "settingDialogViewModel.SetPresentationActive(false);");
-    }
-
-    private static void InvokeOnSharedApplication(Action action)
-    {
-        TestUiDispatcherHost.Invoke(() =>
-        {
-            var existingWindows = Application.Current.Windows.Cast<Window>().ToHashSet();
-            try
-            {
-                action();
-            }
-            finally
-            {
-                Window[] createdWindows = Application.Current.Windows.Cast<Window>()
-                    .Where(window => !existingWindows.Contains(window))
-                    .Reverse()
-                    .ToArray();
-                foreach (Window window in createdWindows)
-                {
-                    if (window is SettingsWindow settingsWindow)
-                    {
-                        settingsWindow.CloseForOwnerShutdown();
-                    }
-                    else
-                    {
-                        window.Close();
-                    }
-                }
-
-                TestUiDispatcherHost.Drain();
-            }
-        });
     }
 
     private static string FindRepositoryRoot()
@@ -3725,6 +3622,7 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class RecordingSettingsWindowDialogService : IUiDialogService
     {
+        private readonly TestWindowPresentationScope windowTest;
         private readonly SettingsDialogViewModel settings;
         private readonly string originalSong;
         private readonly string originalConfig;
@@ -3738,6 +3636,7 @@ public sealed class SettingsWindowPresentationTests
         private int filePickIndex;
 
         internal RecordingSettingsWindowDialogService(
+            TestWindowPresentationScope windowTest,
             SettingsDialogViewModel settings,
             string originalSong,
             string originalConfig,
@@ -3749,6 +3648,7 @@ public sealed class SettingsWindowPresentationTests
             bool expectConfigAccepted = true,
             UiDialogStatus configPickerStatus = UiDialogStatus.Accepted)
         {
+            this.windowTest = windowTest;
             this.settings = settings;
             this.originalSong = originalSong;
             this.originalConfig = originalConfig;
@@ -3817,6 +3717,7 @@ public sealed class SettingsWindowPresentationTests
                     advancedDialog.Close();
                 }
             };
+            windowTest.PrepareForOwnedPresentation(window);
             bool? dialogResult = window.ShowDialog();
             UiDialogStatus status = dialogResult == true
                 ? UiDialogStatus.Accepted
