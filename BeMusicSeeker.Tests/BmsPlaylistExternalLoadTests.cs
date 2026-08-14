@@ -383,6 +383,7 @@ public sealed class BmsPlaylistExternalLoadTests
     [TestCategory("Playlist")]
     [DataRow("", "1")]
     [DataRow("LEVEL ", "LEVEL 1")]
+    [DataRow("😀", "😀1")]
     public async Task LoadExternalTableAsync_BaseTableCompatPrefixIsPreservedWhenHeaderOmitsCompatPrefix(string compatPrefix, string expectedFolder)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
@@ -546,6 +547,48 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DoNotParallelize]
+    public async Task RegistrateExternalTableAsync_NonCp932TagPersistsLegacyPrefix()
+    {
+        bool previousEnablePlaylistUrlCompletion = BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion;
+        BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"UnicodeImport\",\"symbol\":\"st\",\"tag\":\"😀\",\"data_url\":\"./score.json\",\"level_order\":[1]}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+
+            await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(new Uri(headerJsonPath));
+
+            BMSTable table = playlist.BMSTables.Single();
+            Assert.AreEqual("LEVEL ", table.compat_prefix);
+            Assert.AreEqual("LEVEL 1", table.entries.Single().folder);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == table.playlist_id);
+            Assert.AreEqual("LEVEL ", persisted.compat_prefix);
+            Assert.AreEqual("LEVEL 1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ?;", table.playlist_id));
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

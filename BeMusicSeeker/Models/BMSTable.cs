@@ -25,6 +25,8 @@ public enum PlaylistEntriesLoadState
 
 public class BMSTable : LR2SongDBExtended.playlist
 {
+    private const string Lr2CompatibleFolderFallbackPrefix = "LEVEL ";
+
     private static readonly JsonLoadSettings PlaylistJsonLoadSettings = new();
 
     private List<string> _Folder_order;
@@ -742,15 +744,17 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private static string ResolveDefaultCompatibleFolderPrefix(string tag, string symbol)
     {
-        if (!string.IsNullOrWhiteSpace(tag))
-        {
-            return tag;
-        }
-        if (!string.IsNullOrWhiteSpace(symbol))
-        {
-            return symbol;
-        }
-        return string.Empty;
+        string candidate = !string.IsNullOrWhiteSpace(tag)
+            ? tag
+            : !string.IsNullOrWhiteSpace(symbol)
+                ? symbol
+                : null;
+
+        // LR2 custom folder paths are CP932. Keep the source value intact only when LR2 can encode it;
+        // silently removing or replacing characters would create a different, misleading folder prefix.
+        return candidate != null && Lr2CompatibilityEvaluator.TryGetCp932ByteCount(candidate, out _)
+            ? candidate
+            : Lr2CompatibleFolderFallbackPrefix;
     }
 
     public void LoadDataJSON(string _data_json)

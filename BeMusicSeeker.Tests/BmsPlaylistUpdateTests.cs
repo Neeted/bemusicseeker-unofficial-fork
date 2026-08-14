@@ -1376,7 +1376,7 @@ public sealed class BmsPlaylistUpdateTests
         {
             string headerJsonPath = Path.Combine(tempDirectory, "header.json");
             string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
-            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"External:Name\",\r\n\"symbol\":\"★\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"External:Name\",\r\n\"symbol\":\"😀\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"External Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
@@ -1439,25 +1439,25 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual(1, viewModel.ChartFilters.KeywordSearchSuggestions.Count);
             Assert.AreEqual("External:Name", viewModel.ChartFilters.KeywordSearchSuggestions[0].DisplayText);
             Assert.AreEqual(1, playlistKeywordValueCandidatesChangedCount);
-            Assert.AreEqual("★", table.symbol);
-            Assert.AreEqual("★", table.compat_prefix);
+            Assert.AreEqual("😀", table.symbol);
+            Assert.AreEqual("LEVEL ", table.compat_prefix);
             Assert.AreEqual(BMSTable.CreateDefaultOutputDirectoryName("External:Name"), table.Output_dir);
             Assert.IsFalse(table.is_external_sync);
-            Assert.AreEqual("★1", table.entries[0].folder);
-            Assert.AreEqual("★★1", table.entries[1].folder);
-            CollectionAssert.AreEqual(new[] { "★1", "★★1" }, table.Folder_order);
+            Assert.AreEqual("LEVEL 1", table.entries[0].folder);
+            Assert.AreEqual("LEVEL ★1", table.entries[1].folder);
+            CollectionAssert.AreEqual(new[] { "LEVEL 1", "LEVEL ★1" }, table.Folder_order);
             Assert.AreEqual(1, detailReloadCount);
             Assert.AreEqual(1, referenceSortInvalidationCount);
-            Assert.AreEqual("★1", viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection().FolderName);
+            Assert.AreEqual("LEVEL 1", viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection().FolderName);
             Assert.AreEqual(initialDetailContentRevision + 1, viewModel.PlaylistWorkspace.DetailViewState.Source.PlaylistContentRevision);
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == 9501);
             Assert.AreEqual("External:Name", persisted.name);
-            Assert.AreEqual("★", persisted.symbol);
-            Assert.AreEqual("★", persisted.compat_prefix);
+            Assert.AreEqual("😀", persisted.symbol);
+            Assert.AreEqual("LEVEL ", persisted.compat_prefix);
             Assert.IsNull(persisted.output_dir);
-            Assert.AreEqual("★1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", 9501, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-            Assert.AreEqual("★★1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", 9501, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+            Assert.AreEqual("LEVEL 1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", 9501, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual("LEVEL ★1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", 9501, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
         }
         finally
         {

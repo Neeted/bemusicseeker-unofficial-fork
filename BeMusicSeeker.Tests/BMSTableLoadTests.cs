@@ -380,6 +380,36 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
+    public void LoadHeaderJson_NonCp932TagUsesLegacyPrefixWithoutTryingSymbol()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Unicode\",\"symbol\":\"st\",\"tag\":\"😀\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
+
+        Assert.AreEqual("LEVEL ", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order);
+        Assert.AreEqual("LEVEL 1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_NonCp932SymbolUsesLegacyPrefix()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Unicode\",\"symbol\":\"😀\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
+
+        Assert.AreEqual("LEVEL ", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order);
+        Assert.AreEqual("LEVEL 1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_MissingTagAndSymbolUsesLegacyPrefix()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"NoPrefix\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
+
+        Assert.AreEqual("LEVEL ", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order);
+        Assert.AreEqual("LEVEL 1", table.entries[0].folder);
+    }
+
+    [TestMethod]
     public void LoadHeaderJson_InferCompatPrefixFromSignedLevelOrder()
     {
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"level_order\":[\"-5\",0,1]}", "-5");
@@ -419,6 +449,16 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("LEVEL ", table.compat_prefix);
         CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order);
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_ExplicitNonCp932CompatPrefixIsPreserved()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Explicit\",\"symbol\":\"st\",\"compat_prefix\":\"😀\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
+
+        Assert.AreEqual("😀", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "😀1" }, table.Folder_order);
+        Assert.AreEqual("😀1", table.entries[0].folder);
     }
 
     [TestMethod]
