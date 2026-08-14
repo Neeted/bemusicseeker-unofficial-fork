@@ -34,7 +34,7 @@
 | 1A | owner-local/GUID resource | complete | `0d2731b9` | 232/232 passed, 50.8 s | 3 consecutive runs passed: 149.7 / 144.4 / 137.8 s | clean after two focused corrections | Audited 12 owner/resource fixtures; removed 5 attributes and retained 7 documented process-wide boundaries. |
 | 1B | fresh settings/composition | complete | `6c8d64d6` | 519/519 passed, plus correction 4/4 and 140/140 | 3 consecutive runs passed: 139.9 / 131.3 / 136.4 s; corrected snapshot 134.5 s | clean after corrective replan | Replaced shared settings/resource state with fresh settings sessions, explicit option providers, and scoped thread culture in the 16-fixture cohort; retained method-level serialization only for the intentional distinct-`Settings.Default` sentinel test. |
 | 1C | large fixture/method-level DNP/runner topology | complete | `1c8f2cce` | corrective combined Quick 916/916 passed, 13 opt-in skipped | 3 consecutive runs passed: 152.8 / 143.3 / 151.2 s | clean after exact-membership correction | Audited method boundaries, retained 3 class safety boundaries, and replaced the broad class-wide shard with exact foreground-window and process-global-lifecycle shards. |
-| 1D | deterministic signal cohort | pending | — | pending | pending | pending | — |
+| 1D | deterministic signal cohort | in progress | — | Unit 1: final correction 1/1 and fixture 11/11 passed | Unit 1 corrected snapshot: 3,962 total in 149.3 s | Unit 1 fresh review pending | Unit 1 replaces fixed/polling completion waits in three owner fixtures. |
 | 1E | remaining wait audit | pending | — | pending | pending | pending | — |
 | 2A | compiled owner contracts | pending | — | pending | pending | pending | — |
 | 2B | WPF shell behavior + `SourceTextTestHelper` retirement | pending | — | pending | pending | pending | — |
@@ -97,6 +97,17 @@
   - `tests-functional-20260815-050637`: 151.2 s.
 - `git diff --check`: passed.
 - Corrective static review: the first review found that the spec incorrectly described LR2 settings cleanup as original-value restoration; the spec now distinguishes its fixed fixture-baseline reset from the playlist/playback fixtures' original-value restoration. The integrated review then found that exact-membership validation reused the shard construction arrays as its expected values. The preflight now compares against independent literal allowlists; parser and preflight checks passed, and a fresh review reported no blocking findings.
+
+### Slice 1D
+
+- Unit 1 commit `9707487c` scope: `BmsLibraryFolderRenameRefreshTests`, `PlaylistRecommendedTableOwnerTests`, and `StartupBackgroundTaskSchedulerOwnerTests`.
+- Folder rename completion now observes the exact `BMSFile.Folder` and `BMSFile.path` notifications; synchronous encoding persistence and reference-display updates are asserted without grace-period sleeps.
+- Concurrent recommended-table loading now issues eight synchronous callers on dedicated long-running tasks, then waits for their production-call receipts and the first HTTP request before releasing the fake response. Cleanup always releases both gates, boundedly observes every caller task, and disposes synchronization primitives only after all callers complete.
+- Startup scheduler completion and summary checks now consume generation/revision notifications and recheck scheduler state without polling. Dependency ordering, concurrency thresholds, and reset accounting use task-owned entry barriers and exact snapshots. Lane and total concurrency are independently proven by queued/running snapshots before any gate release, and cleanup always releases the held workers. The 250 ms negative contention watchdog remains because it proves new-generation required work stays blocked while the prior garbage-collection gate is deliberately held.
+- Unit 1 review correction Quick passed 2/2 focused tests in 25.0 s command time (1.6486 s test time), `tests-quick-20260815-054530`. The final three-fixture Quick passed 73/73 tests in 17.2 s command time (8.6699 s test time), `tests-quick-20260815-054601`; tracked fingerprint remained `7565840152115905435E516DC87925E1BCA10333604AEFAD7F78973E12718A75`.
+- A subsequent high-load Functional invalidated the ThreadPool-based caller barrier by timing out before all eight callers issued the production call. The dedicated-thread correction passed its focused Quick 1/1 in 22.8 s, `tests-quick-20260815-055305`, and the complete fixture 11/11 in 11.0 s, `tests-quick-20260815-055333`; tracked fingerprint remained `B86016E098DB111916CBE3B673E2764F60A7636A7E7A97C95D726453E928B73E`.
+- The pre-correction Unit 1 Functional completed 3,962 total tests (3,951 passed and 11 opt-in skipped) in 154.5 s, `tests-functional-20260815-053318`. After the dedicated-thread correction, Functional completed the same 3,962 total tests in 149.3 s, `tests-functional-20260815-055435`; tracked fingerprint remained `BD272CC9E2C763BC3E896C58F9AE886D4AF82013505ADB2DA34668309AA20C9A` and no repository test process remained.
+- Unit 1 fresh static review reported no blocking findings after the scheduler-threshold, all-caller issuance, and failure-cleanup corrections.
 
 ## Retirement rule
 
