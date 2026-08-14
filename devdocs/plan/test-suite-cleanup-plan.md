@@ -32,8 +32,8 @@
 | Slice | Scope | Status | Commit | Quick | Functional | Review | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1A | owner-local/GUID resource | complete | `0d2731b9` | 232/232 passed, 50.8 s | 3 consecutive runs passed: 149.7 / 144.4 / 137.8 s | clean after two focused corrections | Audited 12 owner/resource fixtures; removed 5 attributes and retained 7 documented process-wide boundaries. |
-| 1B | fresh settings/composition | complete | pending | 519/519 passed, plus correction 4/4 and 140/140 | 3 consecutive runs passed: 139.9 / 131.3 / 136.4 s; corrected snapshot 134.5 s | clean after corrective replan | Replaced shared settings/resource state with fresh settings sessions, explicit option providers, and scoped thread culture in the 16-fixture cohort; retained method-level serialization only for the intentional distinct-`Settings.Default` sentinel test. |
-| 1C | large fixture/method-level DNP/runner topology | pending | — | pending | pending | pending | — |
+| 1B | fresh settings/composition | complete | `6c8d64d6` | 519/519 passed, plus correction 4/4 and 140/140 | 3 consecutive runs passed: 139.9 / 131.3 / 136.4 s; corrected snapshot 134.5 s | clean after corrective replan | Replaced shared settings/resource state with fresh settings sessions, explicit option providers, and scoped thread culture in the 16-fixture cohort; retained method-level serialization only for the intentional distinct-`Settings.Default` sentinel test. |
+| 1C | large fixture/method-level DNP/runner topology | complete | `1c8f2cce` | corrective combined Quick 916/916 passed, 13 opt-in skipped | 3 consecutive runs passed: 152.8 / 143.3 / 151.2 s | clean after exact-membership correction | Audited method boundaries, retained 3 class safety boundaries, and replaced the broad class-wide shard with exact foreground-window and process-global-lifecycle shards. |
 | 1D | deterministic signal cohort | pending | — | pending | pending | pending | — |
 | 1E | remaining wait audit | pending | — | pending | pending | pending | — |
 | 2A | compiled owner contracts | pending | — | pending | pending | pending | — |
@@ -81,6 +81,22 @@
 - Corrective Quick runs passed: 4/4 focused tests (`tests-quick-20260815-035246`) and 140/140 ApplicationComposition/BmsPlaylistUpdate tests (`tests-quick-20260815-035319`).
 - Corrected-snapshot Functional passed 3,962 tests in 134.5 s with unchanged fingerprint `F7C627C6B75F8B893EE55B385B3CD8ECD8B38351A401DABD4AF6AD4E75210027`, `tests-functional-20260815-035353`.
 - The final fresh review of the replanned correction reported no blocking findings.
+
+### Slice 1C
+
+- Attribute audit result: remove 3 class-level attributes and 8 unjustified method-level attributes, add 1 method-level attribute for the shared main/workspace column settings mutation, and retain 3 class-level plus 27 existing method-level attributes. The 12-class cohort contains 3 class-level and 28 method-level `DoNotParallelize` attributes; repository totals are class 17, method 29, total 46.
+- Retained method resources: initialization environment variables (3), chart-info process/global database and environment contracts (8), `TempDirectoryPublisher.RemoveAll` archive expansion cleanup (4), pending-package settings mutation (4), external playlist default/settings and registration state (5), recommended-table settings mutation (1), and regular-chart-list `StandardCustomTableColumnSettings` / `PlaylistSummaryColumnsSettings` mutation (3).
+- Runner topology target: retire `feature-remaining-classwide-dnp`; use exact 1-worker / `ClassLevel` shards `foreground-window-interaction` (2 classes) and `process-global-lifecycle` (3 classes). Former broad-shard members without a justified resource boundary fall through the remaining shard.
+- The initial exact combined 12-class Quick detected a same-testhost `Settings.Default` collision: 929 total, 898 passed, 18 failed, 13 skipped in 94.7 s, `tests-quick-20260815-040840`. All failures were confined to `BmsLibraryLr2SongDbSyncTests` and `BmsPlaylistUpdateTests`; isolated runs passed LR2 sync 103/103 (`tests-quick-20260815-041047`) and playlist update 108/108 (`tests-quick-20260815-041121`). The correction retains class DNP for those fixtures and `PlaybackPanelViewModelTests`, whose process-global settings mutations require the same arbitrary-filter safety boundary. This failure is detection evidence, not an accepted limitation.
+- Corrective exact combined 12-class Quick passed: 929 total, 916 passed, 13 skipped, 0 failed in 106.9 s, `tests-quick-20260815-042841`; tracked fingerprint remained `93D2B920367E2A5D5A284F31796FEA0B44D0AB39C3A3E1A80BCCBB53E503DB06`.
+- PowerShell parser reported 0 errors. The runner's own topology assertion passed with exact 2-class foreground and 3-class lifecycle membership, each using 1 worker / `ClassLevel`; generic overlap and exclusion validation remained active.
+- A high-load Functional attempt exposed a separate audio workflow test race: its runtime-side 5-second release expiry could win against a delayed test continuation. Corrective commits `69f743a9` and `60ab7fc4` replaced the blocking start observation and then made release a test-owned task completed from `finally`; focused 1/1 and fixture 22/22 Quick runs passed and fresh static review was clean.
+- Three consecutive Functional runs then passed with 3,962 total tests (3,951 passed and 11 opt-in skipped), unchanged tracked fingerprint `48AC58E408A2AC301A21E228675AC4289CD8FFF78A5BDF755DC4D94CF0AEBF14`, and no residual repository test process:
+  - `tests-functional-20260815-050122`: 152.8 s;
+  - `tests-functional-20260815-050404`: 143.3 s;
+  - `tests-functional-20260815-050637`: 151.2 s.
+- `git diff --check`: passed.
+- Corrective static review: the first review found that the spec incorrectly described LR2 settings cleanup as original-value restoration; the spec now distinguishes its fixed fixture-baseline reset from the playlist/playback fixtures' original-value restoration. The integrated review then found that exact-membership validation reused the shard construction arrays as its expected values. The preflight now compares against independent literal allowlists; parser and preflight checks passed, and a fresh review reported no blocking findings.
 
 ## Retirement rule
 
