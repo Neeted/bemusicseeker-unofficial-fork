@@ -18,13 +18,17 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     public async Task TryRunAsync_StopsPlaybackBeforeRuntimeAndRejectsDuplicate()
     {
         var events = new List<string>();
-        using var runtimeStarted = new ManualResetEventSlim();
+        var runtimeStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseRuntime = new ManualResetEventSlim();
         var runtime = new RecordingAudioDeviceTestRuntime(() =>
         {
             events.Add("runtime");
-            runtimeStarted.Set();
-            releaseRuntime.Wait();
+            runtimeStarted.TrySetResult();
+            if (!releaseRuntime.Wait(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException("The audio-device runtime release was not observed.");
+            }
             return CreateResult();
         });
         var owner = new AudioDeviceTestWorkflowOwner(
@@ -34,7 +38,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         Task<AudioDeviceTestResult> firstTask = owner.TryRunAsync(request);
 
-        Assert.IsTrue(runtimeStarted.Wait(TimeSpan.FromSeconds(5)));
+        await runtimeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.IsTrue(owner.IsRunning);
         Assert.IsNull(await owner.TryRunAsync(request));
 
