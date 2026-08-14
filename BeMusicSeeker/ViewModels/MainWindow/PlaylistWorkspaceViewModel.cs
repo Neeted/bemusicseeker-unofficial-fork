@@ -83,6 +83,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             throw new ArgumentNullException(nameof(dataSource));
         }
         CancellationTokenSource activeBuildCancellation;
+        TaskCompletionSource<bool> requestCompletion;
         lock (DetailBuildState.SyncRoot)
         {
             if (ReferenceEquals(Volatile.Read(ref detailDataSource), dataSource))
@@ -93,6 +94,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             DetailBuildState.PendingRequest = null;
             activeBuildCancellation = DetailBuildState.CurrentBuildCancellation;
             DetailBuildState.CurrentBuildRequest = null;
+            requestCompletion = DetailBuildState.AdvanceCompletedRequestVersionUnsafe(
+                DetailBuildState.RequestVersion);
             lock (DetailViewState.SyncRoot)
             {
                 DetailViewState.Source.CurrentIdentity = null;
@@ -101,6 +104,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             Volatile.Write(ref detailDataSource, dataSource);
         }
         ResetPlaylistLibraryIndexPrewarmForDataSourceChange();
+        requestCompletion?.TrySetResult(true);
         try
         {
             activeBuildCancellation?.Cancel();
@@ -764,6 +768,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     private CancellationTokenSource playlistSummaryDataBuildCancellation;
 
     private int playlistSummaryDataBuildActiveCount;
+
+    private TaskCompletionSource<bool> playlistSummaryDataBuildIdleCompletion =
+        CreateCompletedLifecycleCompletion();
 
     private bool playlistSummaryDataBuildStopped;
 
@@ -1492,6 +1499,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 return false;
             }
             previousCancellation = playlistSummaryDataBuildCancellation;
+            if (playlistSummaryDataBuildActiveCount == 0)
+            {
+                playlistSummaryDataBuildIdleCompletion = CreatePendingLifecycleCompletion();
+            }
             playlistSummaryDataBuildCancellation = new CancellationTokenSource();
             request = new PlaylistSummaryDataBuildRequest(
                 ++playlistSummaryDataRebuildGeneration,
@@ -1510,6 +1521,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         {
             return;
         }
+        TaskCompletionSource<bool> idleCompletion = null;
         lock (playlistSummaryTransitionLock)
         {
             if (ReferenceEquals(playlistSummaryDataBuildCancellation, request.CancellationSource))
@@ -1517,8 +1529,27 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 playlistSummaryDataBuildCancellation = null;
             }
             playlistSummaryDataBuildActiveCount--;
+            if (playlistSummaryDataBuildActiveCount == 0)
+            {
+                idleCompletion = playlistSummaryDataBuildIdleCompletion;
+            }
         }
+        idleCompletion?.TrySetResult(true);
         request.CancellationSource.Dispose();
+    }
+
+    /// <summary>
+    /// Returns a task that completes when every playlist-summary data build active at the capture point,
+    /// including overlapping replacements, has left the build lifecycle.
+    /// </summary>
+    internal Task WaitForPlaylistSummaryDataBuildIdleAsync()
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            return playlistSummaryDataBuildActiveCount == 0
+                ? Task.CompletedTask
+                : playlistSummaryDataBuildIdleCompletion.Task;
+        }
     }
 
     internal void StopPlaylistSummaryDataBuild()
@@ -1545,6 +1576,18 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 return playlistSummaryDataBuildActiveCount == 0;
             }
         }
+    }
+
+    private static TaskCompletionSource<bool> CreatePendingLifecycleCompletion()
+    {
+        return new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private static TaskCompletionSource<bool> CreateCompletedLifecycleCompletion()
+    {
+        var completion = CreatePendingLifecycleCompletion();
+        completion.SetResult(true);
+        return completion;
     }
 
     internal long CurrentPlaylistSummaryPresentationGeneration

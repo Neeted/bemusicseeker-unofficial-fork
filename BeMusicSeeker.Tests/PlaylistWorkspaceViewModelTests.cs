@@ -838,9 +838,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.IsTrue(submission.HasValidUris);
             Assert.AreEqual(2, submission.ValidUriCount);
             CollectionAssert.AreEqual(new[] { "not-a-uri" }, submission.InvalidLines.ToList());
-            Task completed = await Task.WhenAny(summaryReady.Task, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
-            Assert.AreSame(summaryReady.Task, completed);
-            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task.ConfigureAwait(false);
+            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task
+                .WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
 
             Assert.AreEqual(2, summary.ImportedCount);
             Assert.AreEqual(0, summary.FailedCount);
@@ -1337,9 +1336,8 @@ public sealed class PlaylistWorkspaceViewModelTests
 
             Assert.IsTrue(catalogAccepted);
             Assert.IsTrue(builtInAccepted);
-            Task completed = await Task.WhenAny(summaryReady.Task, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
-            Assert.AreSame(summaryReady.Task, completed);
-            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task.ConfigureAwait(false);
+            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task
+                .WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
 
             Assert.AreEqual(2, summary.ImportedCount);
             CollectionAssert.AreEqual(
@@ -1456,10 +1454,7 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         Assert.IsFalse(loadTask.IsCompleted);
         workspace.CancelExternalTableCollectionLoadForShutdown();
-        Task cancellationTask = await Task.WhenAny(
-            cancellationObserved.Task,
-            Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
-        Assert.AreSame(cancellationObserved.Task, cancellationTask);
+        await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         await loadTask.ConfigureAwait(false);
 
         Assert.IsFalse(IsExternalTableListLoading(workspace));
@@ -2950,11 +2945,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.IsTrue(await workspace.EnqueueRecommendedPlaylistImportAsync(
                 "bmseeker:table.unsupported?mode=readonly"));
             Assert.IsNotNull(dialogs.LastConfirmationRequest);
-            Task completed = await Task.WhenAny(
-                summaryReady.Task,
-                Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
-            Assert.AreSame(summaryReady.Task, completed);
-            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task.ConfigureAwait(false);
+            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task
+                .WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
             Assert.AreEqual(1, summary.FailedCount);
         }
         finally
@@ -3169,14 +3161,13 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
         await dispatcherEntered.Task.ConfigureAwait(false);
+        Task cleanupIdle = workspace.WaitForPlaylistReloadCleanupIdleAsync();
         Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 2));
         Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 3));
+        Assert.IsFalse(cleanupIdle.IsCompleted);
         dispatcherRelease.TrySetResult(true);
 
-        for (int i = 0; i < 100 && !workspace.IsPlaylistReloadCleanupIdle; i++)
-        {
-            await Task.Delay(10).ConfigureAwait(false);
-        }
+        await cleanupIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
 
         Assert.IsTrue(workspace.IsPlaylistReloadCleanupIdle);
         Assert.AreEqual(2, garbageCollectionCount);
@@ -3477,7 +3468,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void RequestDetailRefresh_OwnsRequestThroughRebuildAndTerminalApply()
+    public async Task RequestDetailRefresh_OwnsRequestThroughRebuildAndTerminalApply()
     {
         var logs = new List<string>();
         var mainChartList = new MainChartListViewModel(action => action());
@@ -3535,7 +3526,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             useCoalescingWindow: false,
             openReadiness: default);
 
-        Assert.IsTrue(SpinWait.SpinUntil(() => workspace.IsDetailBuildIdle, 5000));
+        await workspace.WaitForDetailRequestCompletionAsync(requestVersion)
+            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         Assert.AreEqual(requestVersion, workspace.DetailBuildState.RequestVersion);
         Assert.AreSame(table, workspace.DetailViewState.Source.CurrentTable);
         Assert.AreEqual(1, workspace.DetailViewState.Source.Rows.Count);
@@ -3949,7 +3941,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void RequestDetailRefresh_StaleInputUsesCurrentOwnerSelection()
+    public async Task RequestDetailRefresh_StaleInputUsesCurrentOwnerSelection()
     {
         var workspace = CreateDetailWorkspace(out _);
         workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("old", ChartModeFilter.All));
@@ -3979,7 +3971,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             openReadiness: default);
 
         Assert.IsTrue(requestVersion > 0);
-        Assert.IsTrue(SpinWait.SpinUntil(() => workspace.IsDetailBuildIdle, 5000));
+        await workspace.WaitForDetailRequestCompletionAsync(requestVersion)
+            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         Assert.AreSame(currentTable, workspace.DetailViewState.Source.CurrentTable);
         Assert.AreEqual("CURRENT", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
     }
@@ -4160,6 +4153,117 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsNull(workspace.DetailViewState.Source.CurrentIdentity);
         Assert.IsTrue(registerResult.Enqueued);
         Assert.AreSame(replacementRequest, workspace.DetailBuildState.PendingRequest);
+    }
+
+    [TestMethod]
+    public async Task DetailRequestCompletionTracksAppliedSupersededAndShutdownTerminalStates()
+    {
+        var state = new PlaylistDetailBuildState();
+        PlaylistRequestIdentity firstIdentity = PlaylistRequestFactory.CreateIdentity(
+            new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, "first",
+            ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true);
+        PlaylistRequestIdentity secondIdentity = PlaylistRequestFactory.CreateIdentity(
+            new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, "second",
+            ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true);
+        var first = new PlaylistBuildRequest { Identity = firstIdentity };
+        PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state, first, currentViewIdentity: null, lastBuiltScoreSnapshotVersion: 0, isShutdownRequested: false);
+        Task firstCompletion = PlaylistDetailBuildQueueCoordinator.WaitForRequestCompletionAsync(
+            state, first.RequestVersion);
+        Assert.IsFalse(firstCompletion.IsCompleted);
+        var duplicate = new PlaylistBuildRequest { Identity = firstIdentity };
+        PlaylistBuildQueueRegisterResult duplicateResult = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state, duplicate, currentViewIdentity: null, lastBuiltScoreSnapshotVersion: 0, isShutdownRequested: false);
+        Assert.IsFalse(duplicateResult.Enqueued);
+        Assert.AreEqual(first.RequestVersion, duplicate.RequestVersion);
+
+        var second = new PlaylistBuildRequest { Identity = secondIdentity };
+        PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state, second, currentViewIdentity: null, lastBuiltScoreSnapshotVersion: 0, isShutdownRequested: false);
+        await firstCompletion.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Task secondCompletion = PlaylistDetailBuildQueueCoordinator.WaitForRequestCompletionAsync(
+            state, second.RequestVersion);
+        Task detailIdle = PlaylistDetailBuildQueueCoordinator.WaitForIdleAsync(state);
+        Assert.IsFalse(secondCompletion.IsCompleted);
+        Assert.IsFalse(detailIdle.IsCompleted);
+
+        PlaylistDetailBuildQueueCoordinator.CancelForShutdown(state);
+        await secondCompletion.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Assert.IsFalse(detailIdle.IsCompleted);
+        Assert.IsFalse(PlaylistDetailBuildQueueCoordinator.TryTakeNextRequestOrStopWorker(state, out _));
+        await detailIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+        Assert.IsTrue(PlaylistDetailBuildQueueCoordinator
+            .WaitForRequestCompletionAsync(state, first.RequestVersion).IsCompleted);
+        Assert.IsTrue(PlaylistDetailBuildQueueCoordinator
+            .WaitForRequestCompletionAsync(state, state.RequestVersion + 1).IsCompleted);
+    }
+
+    [TestMethod]
+    public async Task RequestDetailRefresh_DataSourceFailureCompletesRequestAndStopsWorker()
+    {
+        var failureEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failureRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        dataSource.EnsureEntriesLoadedAction = () =>
+        {
+            failureEntered.TrySetResult(true);
+            failureRelease.Task.GetAwaiter().GetResult();
+            throw new InvalidOperationException("detail data source failed");
+        };
+        var table = new BMSTable
+        {
+            entries = [new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "failure")]
+        };
+        workspace.RequestDetailSelection(table);
+        int requestVersion = workspace.RequestDetailRefresh(
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            useCoalescingWindow: false,
+            openReadiness: default);
+        Task requestCompletion = workspace.WaitForDetailRequestCompletionAsync(requestVersion);
+        Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
+
+        try
+        {
+            await failureEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            Assert.IsFalse(requestCompletion.IsCompleted);
+            Assert.IsFalse(workerIdle.IsCompleted);
+        }
+        finally
+        {
+            failureRelease.TrySetResult(true);
+        }
+
+        await Task.WhenAll(requestCompletion, workerIdle)
+            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Assert.AreEqual(1, dataSource.EnsureEntriesLoadedCallCount);
+        Assert.IsTrue(workspace.IsDetailBuildIdle);
+        Assert.IsNull(workspace.DetailViewState.Source.CurrentTable);
+        Assert.AreEqual(0, workspace.DetailViewState.Source.Rows.Count);
+    }
+
+    [TestMethod]
+    public async Task DetailSourceRetirementCompletesSupersededRequestWithoutDiscardingItsWaiter()
+    {
+        var state = new PlaylistDetailBuildState();
+        var request = new PlaylistBuildRequest
+        {
+            Identity = PlaylistRequestFactory.CreateIdentity(
+                new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, null,
+                ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true)
+        };
+        PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state, request, currentViewIdentity: null, lastBuiltScoreSnapshotVersion: 0, isShutdownRequested: false);
+        Task requestCompletion = PlaylistDetailBuildQueueCoordinator.WaitForRequestCompletionAsync(
+            state, request.RequestVersion);
+
+        PlaylistSourceRetirementRequest retirement = state.PrepareSourceRetirement();
+
+        await requestCompletion.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Assert.IsTrue(PlaylistDetailBuildQueueCoordinator
+            .WaitForRequestCompletionAsync(state, retirement.RequestVersion).IsCompleted);
     }
 
     [TestMethod]
@@ -4417,7 +4521,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.AreSame(firstTables, workspace.PlaylistTreeTables);
 
             releaseApply.Set();
-            Assert.IsTrue(Task.WaitAll([apply, replacement], TimeSpan.FromSeconds(5)));
+            Task.WhenAll(apply, replacement).WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
             Assert.AreSame(secondTables, workspace.PlaylistTreeTables);
         }
         finally
@@ -5098,6 +5202,8 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         internal LR2SongDBExtended.chart_info ChartInfo { get; set; } = null!;
 
+        internal Action? EnsureEntriesLoadedAction { get; set; }
+
         public int ChartInfoIndexVersion => 1;
 
         public int ScoreSnapshotVersion => 1;
@@ -5107,6 +5213,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         public void EnsureEntriesLoaded(BMSTable table, string reason)
         {
             EnsureEntriesLoadedCallCount++;
+            EnsureEntriesLoadedAction?.Invoke();
         }
 
         public BMSLibrary.ScoreSnapshot GetScoreSnapshot()
@@ -7070,6 +7177,22 @@ public sealed class PlaylistWorkspaceViewModelTests
         workspace.CompletePlaylistSummaryDataBuild(first);
         workspace.CompletePlaylistSummaryDataBuild(second);
         Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
+    }
+
+    [TestMethod]
+    public async Task PlaylistSummaryDataBuildIdleWaitIncludesEveryOverlappingBuild()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        workspace.IsPlaylistSummaryMode = true;
+        Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest first));
+        Task idle = workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest second));
+
+        workspace.CompletePlaylistSummaryDataBuild(first);
+        Assert.IsFalse(idle.IsCompleted);
+        workspace.CompletePlaylistSummaryDataBuild(second);
+
+        await idle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
     }
 
     [TestMethod]

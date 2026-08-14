@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -61,11 +62,14 @@ internal static class PlaylistDetailBuildQueueCoordinator
         int lastBuiltScoreSnapshotVersion,
         bool isShutdownRequested)
     {
+        TaskCompletionSource<bool> completion = null;
+        PlaylistBuildQueueRegisterResult result;
         lock (state.SyncRoot)
         {
             request.RequestVersion = state.RequestVersion + 1;
             if (state.PendingRequest != null && state.PendingRequest.Identity == request.Identity)
             {
+                request.RequestVersion = state.PendingRequest.RequestVersion;
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "pending", ignoredReason: null, lastBuiltScoreSnapshotVersion);
             }
 
@@ -73,6 +77,7 @@ internal static class PlaylistDetailBuildQueueCoordinator
                 && state.CurrentBuildRequest != null
                 && state.CurrentBuildRequest.Identity == request.Identity)
             {
+                request.RequestVersion = state.CurrentBuildRequest.RequestVersion;
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "running", ignoredReason: null, lastBuiltScoreSnapshotVersion);
             }
 
@@ -81,27 +86,33 @@ internal static class PlaylistDetailBuildQueueCoordinator
                 && currentViewIdentity.HasValue
                 && currentViewIdentity.Value == request.Identity)
             {
+                request.RequestVersion = state.RequestVersion;
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "current_view", "noop_same_view", lastBuiltScoreSnapshotVersion);
             }
 
             if (state.ShutdownCancellationRequested || isShutdownRequested)
             {
+                request.RequestVersion = state.RequestVersion;
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "shutdown", "shutdown_requested", lastBuiltScoreSnapshotVersion);
             }
 
             state.RequestVersion = request.RequestVersion;
+            completion = state.AdvanceCompletedRequestVersionUnsafe(request.RequestVersion - 1);
             CancellationTokenSource previousCancellation = state.CurrentBuildCancellation;
             state.PendingRequest = request;
             state.ShutdownCancellationRequested = false;
             bool startWorker = !state.WorkerRunning;
             if (startWorker)
             {
+                state.IdleCompletion = PlaylistDetailBuildState.CreatePendingCompletion();
                 state.WorkerRunning = true;
             }
 
             Monitor.PulseAll(state.SyncRoot);
-            return new PlaylistBuildQueueRegisterResult(previousCancellation, startWorker, deduplicatedTarget: null, ignoredReason: null, lastBuiltScoreSnapshotVersion);
+            result = new PlaylistBuildQueueRegisterResult(previousCancellation, startWorker, deduplicatedTarget: null, ignoredReason: null, lastBuiltScoreSnapshotVersion);
         }
+        completion?.TrySetResult(true);
+        return result;
     }
 
     internal static bool IsLatestRequest(PlaylistDetailBuildState state, int requestVersion)
@@ -116,44 +127,58 @@ internal static class PlaylistDetailBuildQueueCoordinator
         PlaylistDetailBuildState state,
         out PlaylistBuildRequest request)
     {
+        TaskCompletionSource<bool> idleCompletion = null;
+        bool requestAvailable;
         lock (state.SyncRoot)
         {
             if (state.ShutdownCancellationRequested || state.PendingRequest == null)
             {
-                StopWorkerUnsafe(state);
+                idleCompletion = StopWorkerUnsafe(state);
                 request = null;
-                return false;
+                requestAvailable = false;
             }
-
-            request = state.PendingRequest;
-            state.PendingRequest = null;
-            state.CurrentBuildRequest = request;
-            return true;
+            else
+            {
+                request = state.PendingRequest;
+                state.PendingRequest = null;
+                state.CurrentBuildRequest = request;
+                requestAvailable = true;
+            }
         }
+        idleCompletion?.TrySetResult(true);
+        return requestAvailable;
     }
 
     internal static bool FinishWorkerAfterFailure(PlaylistDetailBuildState state)
     {
+        TaskCompletionSource<bool> idleCompletion = null;
+        bool restartWorker;
         lock (state.SyncRoot)
         {
-            StopWorkerUnsafe(state);
+            idleCompletion = StopWorkerUnsafe(state);
             if (state.ShutdownCancellationRequested || state.PendingRequest == null)
             {
-                return false;
+                restartWorker = false;
             }
-
-            state.WorkerRunning = true;
-            return true;
+            else
+            {
+                state.WorkerRunning = true;
+                restartWorker = true;
+                idleCompletion = null;
+            }
         }
+        idleCompletion?.TrySetResult(true);
+        return restartWorker;
     }
 
-    private static void StopWorkerUnsafe(PlaylistDetailBuildState state)
+    private static TaskCompletionSource<bool> StopWorkerUnsafe(PlaylistDetailBuildState state)
     {
         state.WorkerRunning = false;
         state.CurrentBuildCancellation?.Dispose();
         state.CurrentBuildCancellation = null;
         state.CurrentBuildRequest = null;
         state.Cancellation = new CancellationTokenSource();
+        return state.IdleCompletion;
     }
 
     internal static PlaylistBuildQueueCoalesceResult CoalescePendingRequest(PlaylistDetailBuildState state, PlaylistBuildRequest request, int coalescingWindowMs)
@@ -218,6 +243,7 @@ internal static class PlaylistDetailBuildQueueCoordinator
 
     internal static void CompleteIteration(PlaylistDetailBuildState state, CancellationTokenSource buildCancellation, PlaylistBuildRequest request)
     {
+        TaskCompletionSource<bool> completion;
         lock (state.SyncRoot)
         {
             if (ReferenceEquals(state.CurrentBuildCancellation, buildCancellation))
@@ -229,18 +255,50 @@ internal static class PlaylistDetailBuildQueueCoordinator
             {
                 state.CurrentBuildRequest = null;
             }
+            completion = state.AdvanceCompletedRequestVersionUnsafe(request.RequestVersion);
         }
+        completion?.TrySetResult(true);
     }
 
     internal static void CancelForShutdown(PlaylistDetailBuildState state)
     {
+        TaskCompletionSource<bool> completion;
         lock (state.SyncRoot)
         {
             state.PendingRequest = null;
             state.ShutdownCancellationRequested = true;
             TryCancel(state.CurrentBuildCancellation);
             TryCancel(state.Cancellation);
+            completion = state.AdvanceCompletedRequestVersionUnsafe(state.RequestVersion);
             Monitor.PulseAll(state.SyncRoot);
+        }
+        completion?.TrySetResult(true);
+    }
+
+    /// <summary>
+    /// Returns a task that completes when the specified existing request version is applied, superseded,
+    /// cancelled, or failed. Versions outside the current lifecycle do not create persistent wait state.
+    /// </summary>
+    internal static Task WaitForRequestCompletionAsync(PlaylistDetailBuildState state, int requestVersion)
+    {
+        lock (state.SyncRoot)
+        {
+            return requestVersion <= state.CompletedRequestVersion || requestVersion > state.RequestVersion
+                ? Task.CompletedTask
+                : state.RequestCompletionPulse.Task;
+        }
+    }
+
+    /// <summary>
+    /// Returns a task that completes when the captured detail worker lifecycle has fully stopped.
+    /// </summary>
+    internal static Task WaitForIdleAsync(PlaylistDetailBuildState state)
+    {
+        lock (state.SyncRoot)
+        {
+            return !state.WorkerRunning && state.PendingRequest == null && state.CurrentBuildRequest == null
+                ? Task.CompletedTask
+                : state.IdleCompletion.Task;
         }
     }
 

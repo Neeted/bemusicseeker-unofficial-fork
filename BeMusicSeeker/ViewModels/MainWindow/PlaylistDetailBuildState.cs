@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -55,17 +56,66 @@ internal sealed class PlaylistDetailBuildState
     /// </summary>
     internal bool ShutdownCancellationRequested;
 
+    /// <summary>
+    /// Highest request version known to have reached a terminal state.
+    /// </summary>
+    internal int CompletedRequestVersion;
+
+    /// <summary>
+    /// Finite pulse completed whenever the monotonic terminal request version advances.
+    /// </summary>
+    internal TaskCompletionSource<bool> RequestCompletionPulse = CreatePendingCompletion();
+
+    /// <summary>
+    /// Completion for the current detail worker lifecycle.
+    /// </summary>
+    internal TaskCompletionSource<bool> IdleCompletion = CreateCompletedCompletion();
+
+    /// <summary>
+    /// Creates a completion source whose continuations cannot run under the state lock.
+    /// </summary>
+    internal static TaskCompletionSource<bool> CreatePendingCompletion()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static TaskCompletionSource<bool> CreateCompletedCompletion()
+    {
+        TaskCompletionSource<bool> completion = CreatePendingCompletion();
+        completion.SetResult(true);
+        return completion;
+    }
+
+    /// <summary>
+    /// Advances the terminal request watermark while <see cref="SyncRoot"/> is held and returns the pulse
+    /// that the caller must complete after releasing the lock.
+    /// </summary>
+    internal TaskCompletionSource<bool> AdvanceCompletedRequestVersionUnsafe(int requestVersion)
+    {
+        if (requestVersion <= CompletedRequestVersion)
+        {
+            return null;
+        }
+        CompletedRequestVersion = requestVersion;
+        TaskCompletionSource<bool> completion = RequestCompletionPulse;
+        RequestCompletionPulse = CreatePendingCompletion();
+        return completion;
+    }
+
     internal PlaylistSourceRetirementRequest PrepareSourceRetirement()
     {
+        TaskCompletionSource<bool> completion;
+        PlaylistSourceRetirementRequest retirement;
         lock (SyncRoot)
         {
             RequestVersion++;
             PendingRequest = null;
             CurrentBuildRequest = null;
-            return new PlaylistSourceRetirementRequest(
+            completion = AdvanceCompletedRequestVersionUnsafe(RequestVersion);
+            retirement = new PlaylistSourceRetirementRequest(
                 RequestVersion,
                 CurrentBuildCancellation);
         }
+        completion?.TrySetResult(true);
+        return retirement;
     }
 
     internal PlaylistSourceClearCommitResult CommitPreparedSourceRetirement(
@@ -98,13 +148,18 @@ internal sealed class PlaylistDetailBuildState
             throw new ArgumentNullException(nameof(viewState));
         }
 
+        TaskCompletionSource<bool> completion;
+        PlaylistSourceClearCommitResult result;
         lock (SyncRoot)
         {
             RequestVersion++;
             PendingRequest = null;
             CurrentBuildRequest = null;
-            return CommitViewStateClearUnsafe(viewState, CurrentBuildCancellation);
+            completion = AdvanceCompletedRequestVersionUnsafe(RequestVersion);
+            result = CommitViewStateClearUnsafe(viewState, CurrentBuildCancellation);
         }
+        completion?.TrySetResult(true);
+        return result;
     }
 
     private static PlaylistSourceClearCommitResult CommitViewStateClearUnsafe(

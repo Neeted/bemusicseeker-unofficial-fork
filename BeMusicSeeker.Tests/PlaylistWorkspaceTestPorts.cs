@@ -19,7 +19,10 @@ internal static class PlaylistWorkspaceTestPorts
         IUiDialogService? dialogService = null,
         Action<IReadOnlyList<string>>? installSink = null,
         Action<Uri>? browserSink = null,
-        Func<bool>? installQueueActiveProvider = null)
+        Func<bool>? installQueueActiveProvider = null,
+        Func<Task>? reloadCleanupDispatcherIdleWaiter = null,
+        Func<bool>? reloadCleanupShutdownRequestedProvider = null,
+        Action? reloadCleanupGarbageCollector = null)
     {
         return new PlaylistWorkspaceViewModel(
             dispatch ?? throw new ArgumentNullException(nameof(dispatch)),
@@ -51,9 +54,9 @@ internal static class PlaylistWorkspaceTestPorts
             (_, _) => false,
             () => true,
             () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
+            reloadCleanupDispatcherIdleWaiter ?? (() => Task.CompletedTask),
+            reloadCleanupShutdownRequestedProvider ?? (() => false),
+            reloadCleanupGarbageCollector ?? (() => { }),
             _ => { },
             (exception, message) => { },
             (_, _) => false,

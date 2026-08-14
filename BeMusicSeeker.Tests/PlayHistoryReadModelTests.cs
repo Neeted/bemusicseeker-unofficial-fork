@@ -1499,7 +1499,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void SelectPlaylistSummaryClearsPlayHistorySummaryPresentation()
+    public async Task SelectPlaylistSummaryClearsPlayHistorySummaryPresentation()
     {
         var viewModel = MainWindowViewModelTestFactory.Create();
         var archive = new[] { new PlayHistoryPeriodTreeItem("archive", PlayHistoryPeriodRequest.All()) };
@@ -1509,9 +1509,8 @@ public sealed class PlayHistoryReadModelTests
 
         viewModel.PlaylistWorkspace.RequestSummarySelection();
         TestUiDispatcherHost.Drain();
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => viewModel.PlaylistWorkspace.IsPlaylistSummaryDataBuildIdle,
-            TimeSpan.FromSeconds(5)));
+        await viewModel.PlaylistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync()
+            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         TestUiDispatcherHost.Drain();
 
         Assert.AreEqual(0, viewModel.PlayHistory.SummaryCards.Count);

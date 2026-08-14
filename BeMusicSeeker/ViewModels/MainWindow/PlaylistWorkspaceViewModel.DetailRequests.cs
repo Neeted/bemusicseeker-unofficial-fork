@@ -150,6 +150,18 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal bool IsDetailBuildIdle => PlaylistDetailBuildQueueCoordinator.IsIdle(DetailBuildState);
 
+    /// <summary>
+    /// Returns a task that completes when the identified detail request reaches any terminal state.
+    /// </summary>
+    internal Task WaitForDetailRequestCompletionAsync(int requestVersion)
+        => PlaylistDetailBuildQueueCoordinator.WaitForRequestCompletionAsync(DetailBuildState, requestVersion);
+
+    /// <summary>
+    /// Returns a task that completes after the captured detail-build worker lifecycle has stopped.
+    /// </summary>
+    internal Task WaitForDetailBuildIdleAsync()
+        => PlaylistDetailBuildQueueCoordinator.WaitForIdleAsync(DetailBuildState);
+
     internal string DescribeDetailBuildState(Func<bool, string> formatBool)
     {
         return PlaylistDetailBuildQueueCoordinator.FormatDiagnostics(DetailBuildState, formatBool);

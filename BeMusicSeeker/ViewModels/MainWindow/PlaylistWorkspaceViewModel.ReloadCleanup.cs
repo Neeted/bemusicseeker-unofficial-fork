@@ -17,6 +17,9 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private bool playlistReloadCleanupRunning;
 
+    private TaskCompletionSource<bool> playlistReloadCleanupIdleCompletion =
+        CreateCompletedLifecycleCompletion();
+
     private long playlistReloadCleanupSeed;
 
     private long playlistReloadCleanupWorkerSeed;
@@ -97,6 +100,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             pendingPlaylistReloadCleanup = request;
             if (!playlistReloadCleanupRunning)
             {
+                playlistReloadCleanupIdleCompletion = CreatePendingLifecycleCompletion();
                 playlistReloadCleanupRunning = true;
                 workerId = System.Threading.Interlocked.Increment(ref playlistReloadCleanupWorkerSeed);
                 playlistReloadCleanupWorkerId = workerId;
@@ -164,6 +168,20 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    /// <summary>
+    /// Returns a task for the captured reload-cleanup lifecycle. A replacement queued while that lifecycle
+    /// is running is included, so the task cannot complete between coalesced cleanup requests.
+    /// </summary>
+    internal Task WaitForPlaylistReloadCleanupIdleAsync()
+    {
+        lock (playlistReloadCleanupSync)
+        {
+            return pendingPlaylistReloadCleanup == null && !playlistReloadCleanupRunning
+                ? Task.CompletedTask
+                : playlistReloadCleanupIdleCompletion.Task;
+        }
+    }
+
     internal string DescribePlaylistReloadCleanupWaitState()
     {
         lock (playlistReloadCleanupSync)
@@ -194,6 +212,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private async Task ProcessPendingPlaylistReloadCleanupAsync(long workerId)
     {
+        TaskCompletionSource<bool> idleCompletion = null;
         try
         {
             while (true)
@@ -208,9 +227,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                         if (playlistReloadCleanupWorkerId == workerId)
                         {
                             playlistReloadCleanupRunning = false;
+                            idleCompletion = playlistReloadCleanupIdleCompletion;
                         }
-                        return;
                     }
+                }
+                if (request == null)
+                {
+                    idleCompletion?.TrySetResult(true);
+                    return;
                 }
 
                 await WaitForPlaylistReloadCleanupReadinessAsync(request).ConfigureAwait(false);
@@ -252,6 +276,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         finally
         {
             long restartWorkerId = 0L;
+            idleCompletion = null;
             lock (playlistReloadCleanupSync)
             {
                 if (playlistReloadCleanupWorkerId == workerId)
@@ -263,8 +288,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                         restartWorkerId = System.Threading.Interlocked.Increment(ref playlistReloadCleanupWorkerSeed);
                         playlistReloadCleanupWorkerId = restartWorkerId;
                     }
+                    else
+                    {
+                        idleCompletion = playlistReloadCleanupIdleCompletion;
+                    }
                 }
             }
+            idleCompletion?.TrySetResult(true);
             if (restartWorkerId != 0L)
             {
                 _ = Task.Run(() => ProcessPendingPlaylistReloadCleanupAsync(restartWorkerId)).Logging("ProcessPendingPlaylistReloadCleanupAfterFailure");

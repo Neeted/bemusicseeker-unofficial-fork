@@ -435,6 +435,148 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(1, player.CloseProcessCount);
     }
 
+    [TestMethod]
+    public async Task PreparationWaitsForDetailWorkerIdleAfterRequestCancellationBecomesTerminal()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(action => action());
+        var warnings = new List<string>();
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            playlistWorkspace: workspace,
+            logShutdownWarning: warnings.Add);
+        var request = new PlaylistBuildRequest
+        {
+            Identity = PlaylistRequestFactory.CreateIdentity(
+                new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, null,
+                ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true)
+        };
+        PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            workspace.DetailBuildState,
+            request,
+            currentViewIdentity: null,
+            lastBuiltScoreSnapshotVersion: 0,
+            isShutdownRequested: false);
+        Assert.IsTrue(PlaylistDetailBuildQueueCoordinator.TryTakeNextRequestOrStopWorker(
+            workspace.DetailBuildState,
+            out PlaylistBuildRequest activeRequest));
+        using var buildCancellation = new CancellationTokenSource();
+        Assert.IsTrue(PlaylistDetailBuildQueueCoordinator.TryBeginIteration(
+            workspace.DetailBuildState,
+            activeRequest,
+            buildCancellation,
+            isShutdownRequested: false));
+        Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
+        Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("detail_worker");
+
+        try
+        {
+            await workspace.WaitForDetailRequestCompletionAsync(request.RequestVersion)
+                .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            Assert.IsFalse(workerIdle.IsCompleted);
+            Assert.IsFalse(preparation.IsCompleted);
+        }
+        finally
+        {
+            PlaylistDetailBuildQueueCoordinator.CompleteIteration(
+                workspace.DetailBuildState,
+                buildCancellation,
+                activeRequest);
+            PlaylistDetailBuildQueueCoordinator.FinishWorkerAfterFailure(workspace.DetailBuildState);
+        }
+
+        await workerIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Assert.IsFalse(result.SlowWaitLogged);
+        Assert.AreEqual(0, warnings.Count);
+    }
+
+    [TestMethod]
+    public async Task PreparationWaitsForSummaryBuildAfterShutdownCancelsIt()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(action => action());
+        workspace.IsPlaylistSummaryMode = true;
+        Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest));
+        var cancellationObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration registration = buildRequest.CancellationToken.Register(
+            () => cancellationObserved.TrySetResult(true));
+        Task summaryIdle = workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        var warnings = new List<string>();
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            playlistWorkspace: workspace,
+            logShutdownWarning: warnings.Add);
+        Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("summary_build");
+
+        try
+        {
+            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            Assert.IsFalse(summaryIdle.IsCompleted);
+            Assert.IsFalse(preparation.IsCompleted);
+        }
+        finally
+        {
+            workspace.CompletePlaylistSummaryDataBuild(buildRequest);
+        }
+
+        await summaryIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Assert.IsFalse(result.SlowWaitLogged);
+        Assert.AreEqual(0, warnings.Count);
+    }
+
+    [TestMethod]
+    public async Task PreparationWaitsForRunningReloadCleanupAfterPendingCancellation()
+    {
+        var dispatcherEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcherRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var shutdownMarked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool shutdownRequested = false;
+        int garbageCollectionCount = 0;
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(
+            action => action(),
+            reloadCleanupDispatcherIdleWaiter: async () =>
+            {
+                dispatcherEntered.TrySetResult(true);
+                await dispatcherRelease.Task.ConfigureAwait(false);
+            },
+            reloadCleanupShutdownRequestedProvider: () => Volatile.Read(ref shutdownRequested),
+            reloadCleanupGarbageCollector: () => Interlocked.Increment(ref garbageCollectionCount));
+        var warnings = new List<string>();
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            playlistWorkspace: workspace,
+            markShutdown: _ =>
+            {
+                Volatile.Write(ref shutdownRequested, true);
+                shutdownMarked.TrySetResult(true);
+            },
+            logShutdownWarning: warnings.Add);
+        Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
+        await dispatcherEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Task cleanupIdle = workspace.WaitForPlaylistReloadCleanupIdleAsync();
+        Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("reload_cleanup");
+
+        try
+        {
+            await shutdownMarked.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            Assert.IsFalse(cleanupIdle.IsCompleted);
+            Assert.IsFalse(preparation.IsCompleted);
+        }
+        finally
+        {
+            dispatcherRelease.TrySetResult(true);
+        }
+
+        await cleanupIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Assert.IsFalse(result.SlowWaitLogged);
+        Assert.AreEqual(0, garbageCollectionCount);
+        Assert.AreEqual(0, warnings.Count);
+    }
+
     private static ShellShutdownWorkflowOwner CreateDirectOwner(
         MainWindowViewModel viewModel,
         Func<Func<Task>, Task>? dispatch = null,
@@ -444,7 +586,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Action? requestApplicationShutdown = null,
         Func<Task>? stopPerformanceDiagnostics = null,
         Action<string>? logShutdown = null,
-        Action<string>? logShutdownWarning = null)
+        Action<string>? logShutdownWarning = null,
+        PlaylistWorkspaceViewModel? playlistWorkspace = null)
     {
         StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
             viewModel,
@@ -462,7 +605,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             new ElevatedProcessWarningWorkflowOwner(() => false),
             scheduler,
             viewModel.RegularChartList,
-            viewModel.PlaylistWorkspace,
+            playlistWorkspace ?? viewModel.PlaylistWorkspace,
             viewModel.PlayHistory,
             viewModel.PackageInstallWorkflow,
             viewModel.MaintenanceRescanWorkflow,

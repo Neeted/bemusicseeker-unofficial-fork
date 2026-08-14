@@ -867,22 +867,26 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private async Task WaitForPlaylistBuildIdleAsync(ShutdownWaitTracker tracker)
     {
-        await WaitForConditionAsync(
+        Task detailBuildIdle = playlistWorkspace.WaitForDetailBuildIdleAsync();
+        await WaitForTaskCompletionAsync(
             "playlistBuild",
-            () => playlistWorkspace.IsDetailBuildIdle,
+            detailBuildIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
             () => playlistWorkspace.DescribeDetailBuildState(FormatBool)).ConfigureAwait(false);
+        await detailBuildIdle.ConfigureAwait(false);
     }
 
     private async Task WaitForPlaylistSummaryDataBuildIdleAsync(ShutdownWaitTracker tracker)
     {
-        await WaitForConditionAsync(
+        Task summaryBuildIdle = playlistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        await WaitForTaskCompletionAsync(
             "playlistSummaryDataBuild",
-            () => playlistWorkspace.IsPlaylistSummaryDataBuildIdle,
+            summaryBuildIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
             () => "idle=" + FormatBool(playlistWorkspace.IsPlaylistSummaryDataBuildIdle)).ConfigureAwait(false);
+        await summaryBuildIdle.ConfigureAwait(false);
     }
 
     private async Task WaitForStartupBackgroundTasksIdleAsync(ShutdownWaitTracker tracker)
@@ -929,12 +933,14 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private async Task WaitForPlaylistReloadCleanupIdleAsync(ShutdownWaitTracker tracker)
     {
-        await WaitForConditionAsync(
+        Task reloadCleanupIdle = playlistWorkspace.WaitForPlaylistReloadCleanupIdleAsync();
+        await WaitForTaskCompletionAsync(
             "playlistReloadCleanup",
-            () => playlistWorkspace.IsPlaylistReloadCleanupIdle,
+            reloadCleanupIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
             playlistWorkspace.DescribePlaylistReloadCleanupWaitState).ConfigureAwait(false);
+        await reloadCleanupIdle.ConfigureAwait(false);
     }
 
     private async Task WaitForLibraryShutdownBlockingWorkAsync(ShutdownWaitTracker tracker)
