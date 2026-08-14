@@ -84,7 +84,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             return Task.CompletedTask;
         });
         Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+        await WaitUntilAsync(owner, () => owner.IsIdle);
         Assert.IsFalse(owner.IsFullyIdle);
 
         postRelease.SetResult(true);
@@ -207,6 +207,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.MarkRequiredInitializationSchedulingComplete();
         owner.MarkPostInitializationSchedulingComplete();
 
+        // This negative watchdog deliberately holds the old generation's GC gate long enough to prove
+        // that new required work cannot enter while the contention condition remains active.
         Assert.IsFalse(requiredEntered.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
 
         garbageCollectionRelease.SetResult(true);
@@ -274,11 +276,13 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     {
         var order = new ConcurrentQueue<string>();
         var dependencyRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var maintenanceEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         owner.Queue("maintenance_hydration", "startup", null, async () =>
         {
             order.Enqueue("maintenance");
+            maintenanceEntered.TrySetResult(true);
             await dependencyRelease.Task.ConfigureAwait(false);
         });
         owner.Queue("installable_maintenance", "startup", "maintenance_hydration", () =>
@@ -288,7 +292,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
         owner.Start();
 
-        await Task.Delay(100);
+        await maintenanceEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         CollectionAssert.AreEqual(new[] { "maintenance" }, order.ToArray());
         dependencyRelease.SetResult(true);
         await WaitForFullyIdleAsync(owner);
@@ -456,79 +460,86 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         int readHydrationActive = 0;
         int maximumReadHydrationActive = 0;
         int started = 0;
+        var threeStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fourStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var twoReadHydrationsStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
-        string[] readHydrationNames = ["chart_info_hydration", "playlist_entries_hydration"];
-        for (int i = 0; i < readHydrationNames.Length; i++)
+        void RecordStart(bool isReadHydration)
         {
-            int index = i;
-            owner.Queue(readHydrationNames[index], "test", null, async () =>
+            int currentActive = Interlocked.Increment(ref active);
+            UpdateMaximum(ref maximumActive, currentActive);
+            if (isReadHydration)
             {
-                int currentActive = Interlocked.Increment(ref active);
-                UpdateMaximum(ref maximumActive, currentActive);
                 int currentRead = Interlocked.Increment(ref readHydrationActive);
                 UpdateMaximum(ref maximumReadHydrationActive, currentRead);
-                Interlocked.Increment(ref started);
+                if (currentRead == 2)
+                {
+                    twoReadHydrationsStarted.TrySetResult(true);
+                }
+            }
+            int currentStarted = Interlocked.Increment(ref started);
+            if (currentStarted == 3)
+            {
+                threeStarted.TrySetResult(true);
+            }
+            if (currentStarted == 4)
+            {
+                fourStarted.TrySetResult(true);
+            }
+        }
+
+        void QueueGatedWork(string name, bool isReadHydration)
+        {
+            owner.Queue(name, "test", null, async () =>
+            {
+                RecordStart(isReadHydration);
                 await release.Task.ConfigureAwait(false);
-                Interlocked.Decrement(ref readHydrationActive);
+                if (isReadHydration)
+                {
+                    Interlocked.Decrement(ref readHydrationActive);
+                }
                 Interlocked.Decrement(ref active);
             });
         }
-        owner.Queue("default_a", "test", null, async () =>
-        {
-            int currentActive = Interlocked.Increment(ref active);
-            UpdateMaximum(ref maximumActive, currentActive);
-            Interlocked.Increment(ref started);
-            await release.Task.ConfigureAwait(false);
-            Interlocked.Decrement(ref active);
-        });
-        owner.Queue("maintenance_hydration", "test", null, async () =>
-        {
-            int currentActive = Interlocked.Increment(ref active);
-            UpdateMaximum(ref maximumActive, currentActive);
-            Interlocked.Increment(ref started);
-            await release.Task.ConfigureAwait(false);
-            Interlocked.Decrement(ref active);
-        });
-        owner.Queue("installable_maintenance", "test", null, async () =>
-        {
-            int currentActive = Interlocked.Increment(ref active);
-            UpdateMaximum(ref maximumActive, currentActive);
-            Interlocked.Increment(ref started);
-            await release.Task.ConfigureAwait(false);
-            Interlocked.Decrement(ref active);
-        });
-        owner.Queue("default_a", "test", null, async () =>
-        {
-            int currentActive = Interlocked.Increment(ref active);
-            UpdateMaximum(ref maximumActive, currentActive);
-            Interlocked.Increment(ref started);
-            await release.Task.ConfigureAwait(false);
-            Interlocked.Decrement(ref active);
-        });
 
-        owner.Start();
-        Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref started) == 4, TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref maximumReadHydrationActive) == 2, TimeSpan.FromSeconds(5)));
-        Assert.IsFalse(owner.IsIdle);
-
-        owner.Queue("chart_info_hydration", "queued_read", null, async () =>
+        try
         {
-            int currentActive = Interlocked.Increment(ref active);
-            UpdateMaximum(ref maximumActive, currentActive);
-            int currentRead = Interlocked.Increment(ref readHydrationActive);
-            UpdateMaximum(ref maximumReadHydrationActive, currentRead);
-            Interlocked.Increment(ref started);
-            await release.Task.ConfigureAwait(false);
-            Interlocked.Decrement(ref readHydrationActive);
-            Interlocked.Decrement(ref active);
-        });
+            QueueGatedWork("chart_info_hydration", isReadHydration: true);
+            QueueGatedWork("playlist_entries_hydration", isReadHydration: true);
+            QueueGatedWork("default_a", isReadHydration: false);
+            owner.Start();
 
-        release.SetResult(true);
-        await WaitForFullyIdleAsync(owner);
-        Assert.AreEqual(6, Volatile.Read(ref started));
-        Assert.IsTrue(Volatile.Read(ref maximumActive) <= 4);
-        Assert.IsTrue(Volatile.Read(ref maximumReadHydrationActive) <= 2);
+            await Task.WhenAll(threeStarted.Task, twoReadHydrationsStarted.Task)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(0, 3), owner.CaptureWorkSnapshot());
+
+            QueueGatedWork("chart_info_hydration", isReadHydration: true);
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(1, 3), owner.CaptureWorkSnapshot());
+
+            QueueGatedWork("maintenance_hydration", isReadHydration: false);
+            await fourStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            QueueGatedWork("installable_maintenance", isReadHydration: false);
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(2, 4), owner.CaptureWorkSnapshot());
+
+            release.TrySetResult(true);
+            await WaitForFullyIdleAsync(owner);
+            Assert.AreEqual(6, Volatile.Read(ref started));
+            Assert.IsTrue(Volatile.Read(ref maximumActive) <= 4);
+            Assert.IsTrue(Volatile.Read(ref maximumReadHydrationActive) <= 2);
+        }
+        finally
+        {
+            release.TrySetResult(true);
+            try
+            {
+                await WaitForFullyIdleAsync(owner);
+            }
+            catch
+            {
+                // Cleanup releases all gated workers without replacing the test's primary failure.
+            }
+        }
     }
 
     [TestMethod]
@@ -563,9 +574,11 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         QueueGatedWork(owner, "chart_info_hydration", newRelease, counters);
         QueueGatedWork(owner, "maintenance_hydration", newRelease, counters);
         QueueGatedWork(owner, "installable_maintenance", newRelease, counters);
-        Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref counters.NewStarted) >= 3, TimeSpan.FromSeconds(5)));
-        await Task.Delay(100).ConfigureAwait(false);
-        Assert.IsTrue(Volatile.Read(ref counters.MaximumActive) <= 4);
+        await counters.ThreeNewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(3, Volatile.Read(ref counters.NewStarted));
+        Assert.AreEqual(4, Volatile.Read(ref counters.Active));
+        Assert.AreEqual(4, Volatile.Read(ref counters.MaximumActive));
+        Assert.AreEqual(new StartupBackgroundWorkSnapshot(2, 4), owner.CaptureWorkSnapshot());
 
         oldRelease.SetResult(true);
         newRelease.SetResult(true);
@@ -599,13 +612,11 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
         owner.Start();
         Assert.IsTrue(dependencyCompleted.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () =>
-            {
-                string summary = owner.BuildSummaryLog(0L);
-                return summary.Contains("playlist_entries_hydration{") && summary.Contains("completed=1");
-            },
-            TimeSpan.FromSeconds(5)));
+        await WaitUntilAsync(owner, () =>
+        {
+            string summary = owner.BuildSummaryLog(0L);
+            return summary.Contains("playlist_entries_hydration{") && summary.Contains("completed=1");
+        });
         Assert.IsFalse(followupEntered.IsSet);
 
         owner.Reset(startImmediately: true);
@@ -652,7 +663,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
         owner.Queue("external_playlist_sync", "shutdown", "chart_info_hydration", () => Task.CompletedTask, reason =>
         {
-            discardedProbeSucceeded = ProbeOwnerFromAnotherThread(owner);
+            // The discard callback is synchronous, so keep it active until the probe acquires the owner locks.
+            discardedProbeSucceeded = ProbeOwnerFromAnotherThreadAsync(owner).GetAwaiter().GetResult();
             discarded.Set();
         });
         owner.Start();
@@ -713,7 +725,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner = CreateOwner(schedulerIdleChanged: (_, _) =>
         {
             observedIdle = owner.IsIdle;
-            idleProbeSucceeded = ProbeOwnerFromAnotherThread(owner);
+            // The notification callback is synchronous, so keep it active until the probe acquires the owner locks.
+            idleProbeSucceeded = ProbeOwnerFromAnotherThreadAsync(owner).GetAwaiter().GetResult();
             notified.Set();
         });
 
@@ -733,6 +746,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         internal int MaximumActive;
 
         internal int NewStarted;
+
+        internal TaskCompletionSource<bool> ThreeNewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private static void QueueGatedWork(
@@ -745,46 +761,108 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         {
             int currentActive = Interlocked.Increment(ref counters.Active);
             UpdateMaximum(ref counters.MaximumActive, currentActive);
-            Interlocked.Increment(ref counters.NewStarted);
+            if (Interlocked.Increment(ref counters.NewStarted) == 3)
+            {
+                counters.ThreeNewStarted.TrySetResult(true);
+            }
             await release.Task.ConfigureAwait(false);
             Interlocked.Decrement(ref counters.Active);
         });
     }
 
-    private static bool ProbeOwnerFromAnotherThread(StartupBackgroundTaskSchedulerOwner owner)
+    private static async Task<bool> ProbeOwnerFromAnotherThreadAsync(StartupBackgroundTaskSchedulerOwner owner)
     {
-        var completed = new ManualResetEventSlim();
-        bool succeeded = false;
-        _ = Task.Run(() =>
+        try
         {
-            owner.DescribeWaitState();
-            succeeded = true;
-            completed.Set();
-        });
-        return completed.Wait(TimeSpan.FromSeconds(2)) && succeeded;
+            await Task.Run(owner.DescribeWaitState)
+                .WaitAsync(TimeSpan.FromSeconds(2))
+                .ConfigureAwait(false);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
     }
 
     private static StartupBackgroundTaskSchedulerOwner CreateOwner(
         Func<bool>? isShutdownRequested = null,
         Action<long, long>? schedulerIdleChanged = null)
     {
+        var notificationProbe = new SchedulerNotificationProbe();
         return new StartupBackgroundTaskSchedulerOwner(
             isShutdownRequested ?? (() => false),
             _ => { },
             _ => { },
             _ => { },
             value => value ?? string.Empty,
-            schedulerIdleChanged ?? ((_, _) => { }),
-            new object());
+            (generation, revision) =>
+            {
+                notificationProbe.Publish(generation, revision);
+                schedulerIdleChanged?.Invoke(generation, revision);
+            },
+            notificationProbe);
     }
 
-    private static async Task WaitForFullyIdleAsync(StartupBackgroundTaskSchedulerOwner owner)
+    private static Task WaitForFullyIdleAsync(StartupBackgroundTaskSchedulerOwner owner)
     {
-        for (int i = 0; i < 500 && !owner.IsFullyIdle; i++)
+        return WaitUntilAsync(owner, () => owner.IsFullyIdle);
+    }
+
+    private static async Task WaitUntilAsync(StartupBackgroundTaskSchedulerOwner owner, Func<bool> predicate)
+    {
+        var notificationProbe = (SchedulerNotificationProbe)owner.ProgressSynchronization;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        (long Generation, long Revision)? lastNotification = null;
+        while (!predicate())
         {
-            await Task.Delay(10).ConfigureAwait(false);
+            Task<(long Generation, long Revision)> notification = notificationProbe.CaptureNextNotification();
+            if (predicate())
+            {
+                return;
+            }
+            try
+            {
+                lastNotification = await notification.WaitAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+                Assert.Fail(
+                    $"Scheduler state was not reached. Last notification={lastNotification?.Generation}/{lastNotification?.Revision}; {owner.DescribeWaitState()}");
+            }
         }
-        Assert.IsTrue(owner.IsFullyIdle);
+    }
+
+    private sealed class SchedulerNotificationProbe
+    {
+        private readonly object syncRoot = new();
+
+        private TaskCompletionSource<(long Generation, long Revision)> nextNotification = CreateNotificationSource();
+
+        internal Task<(long Generation, long Revision)> CaptureNextNotification()
+        {
+            lock (syncRoot)
+            {
+                return nextNotification.Task;
+            }
+        }
+
+        internal void Publish(long generation, long revision)
+        {
+            TaskCompletionSource<(long Generation, long Revision)> notification;
+            lock (syncRoot)
+            {
+                notification = nextNotification;
+                nextNotification = CreateNotificationSource();
+            }
+            notification.TrySetResult((generation, revision));
+        }
+
+        private static TaskCompletionSource<(long Generation, long Revision)> CreateNotificationSource()
+        {
+            return new TaskCompletionSource<(long Generation, long Revision)>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        }
     }
 
     private static void UpdateMaximum(ref int target, int candidate)

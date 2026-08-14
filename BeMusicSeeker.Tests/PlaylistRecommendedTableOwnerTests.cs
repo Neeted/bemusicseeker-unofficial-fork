@@ -212,12 +212,17 @@ public sealed class PlaylistRecommendedTableOwnerTests
     public async Task LoadWalkureTable_EstimationLoadsJsonOnceForConcurrentRequests()
     {
         int getCount = 0;
+        var startCalls = new ManualResetEventSlim();
+        var allCallsIssued = new CountdownEvent(8);
+        var firstRequestEntered = new ManualResetEventSlim();
+        var releaseFirstRequest = new ManualResetEventSlim();
         var httpClient = new FakeHttpClient
         {
             GetStringHandler = _ =>
             {
                 Interlocked.Increment(ref getCount);
-                Thread.Sleep(50);
+                firstRequestEntered.Set();
+                releaseFirstRequest.Wait();
                 return "{}";
             }
         };
@@ -226,11 +231,55 @@ public sealed class PlaylistRecommendedTableOwnerTests
             externalTableLoader: _ => CreateTable());
         Uri uri = new("bmseeker:table.estimation?type=easy");
 
-        BMSTable[] tables = await Task.WhenAll(
-            Enumerable.Range(0, 8).Select(_ => Task.Run(() => owner.LoadWalkureTable(uri))));
+        Task<BMSTable>[] loadTasks = Enumerable.Range(0, 8)
+            .Select(_ => Task.Factory.StartNew(
+                () =>
+                {
+                    startCalls.Wait();
+                    allCallsIssued.Signal();
+                    return owner.LoadWalkureTable(uri);
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default))
+            .ToArray();
 
-        Assert.AreEqual(1, getCount);
-        Assert.IsTrue(tables.All(table => table.entries.Count == 0));
+        try
+        {
+            startCalls.Set();
+            Assert.IsTrue(firstRequestEntered.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(allCallsIssued.Wait(TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(1, Volatile.Read(ref getCount));
+
+            releaseFirstRequest.Set();
+            BMSTable[] tables = await Task.WhenAll(loadTasks).WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.AreEqual(1, Volatile.Read(ref getCount));
+            Assert.IsTrue(tables.All(table => table.entries.Count == 0));
+        }
+        finally
+        {
+            startCalls.Set();
+            releaseFirstRequest.Set();
+            bool allTasksCompleted = false;
+            try
+            {
+                await Task.WhenAll(loadTasks).WaitAsync(TimeSpan.FromSeconds(5));
+                allTasksCompleted = true;
+            }
+            catch
+            {
+                // Cleanup must observe every issued caller without replacing the test's primary failure.
+                allTasksCompleted = loadTasks.All(task => task.IsCompleted);
+            }
+            if (allTasksCompleted)
+            {
+                startCalls.Dispose();
+                allCallsIssued.Dispose();
+                firstRequestEntered.Dispose();
+                releaseFirstRequest.Dispose();
+            }
+        }
     }
 
     [TestMethod]

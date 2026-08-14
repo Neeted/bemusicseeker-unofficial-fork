@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -26,10 +27,10 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
     [TestMethod]
-    public void RenameChartFolder_UpdatesFolderCellWithoutStorageRowCollectionNotification()
+    public async Task RenameChartFolder_UpdatesFolderCellWithoutStorageRowCollectionNotification()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
+        await WithTemporarySongDbAsync(async delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RenameRefresh_" + Guid.NewGuid().ToString("N"));
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Source");
@@ -47,6 +48,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int bmsFilesChangedCount = 0;
                 int folderChangedCount = 0;
                 int pathChangedCount = 0;
+                var folderChanged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var pathChanged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
@@ -61,20 +64,22 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     if (e.PropertyName == nameof(BMSFile.Folder))
                     {
                         Interlocked.Increment(ref folderChangedCount);
+                        folderChanged.TrySetResult(true);
                     }
                     if (e.PropertyName == nameof(BMSFile.path))
                     {
                         Interlocked.Increment(ref pathChangedCount);
+                        pathChanged.TrySetResult(true);
                     }
                 };
 
                 library.RenameChartFolder(sourceDirectoryPath, "Renamed");
 
-                Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref folderChangedCount) > 0));
-                Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref pathChangedCount) > 0));
+                await Task.WhenAll(folderChanged.Task, pathChanged.Task)
+                    .WaitAsync(TimeSpan.FromSeconds(2));
                 Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
-                Assert.IsTrue(Volatile.Read(ref folderChangedCount) > 0);
-                Assert.IsTrue(Volatile.Read(ref pathChangedCount) > 0);
+                Assert.AreEqual(1, Volatile.Read(ref folderChangedCount));
+                Assert.AreEqual(1, Volatile.Read(ref pathChangedCount));
                 Assert.AreEqual("Renamed", file.Folder);
                 Assert.IsTrue(file.path.Contains(Path.Combine("Renamed", "chart.bms")));
             }
@@ -1452,7 +1457,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 library.SetBMSFilesEncoding([file], "gb2312");
 
-                Thread.Sleep(200);
                 Assert.AreEqual(0, Volatile.Read(ref garbledChangedCount));
                 Assert.AreEqual(0, Volatile.Read(ref garbledFixedChangedCount));
                 Assert.IsTrue(Volatile.Read(ref encodingChangedCount) > 0);
@@ -1515,7 +1519,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.RefreshReferenceDisplayForTable(table);
 
-            Assert.IsFalse(WaitUntilTrue(() => Volatile.Read(ref filePropertyChangedCount) > 0, timeoutMs: 100));
+            Assert.AreEqual(0, Volatile.Read(ref filePropertyChangedCount));
             Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
             Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
@@ -1903,11 +1907,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
-    private static bool WaitUntilTrue(Func<bool> predicate, int timeoutMs = 2000)
-    {
-        return SpinWait.SpinUntil(predicate, timeoutMs);
-    }
-
     private static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)
     {
         var result = new SongTableFileCheckResult
@@ -2020,6 +2019,31 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
             }
             testAction(songDbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    private static async Task WithTemporarySongDbAsync(Func<string, Task> testAction)
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SongDbTest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+            }
+            await testAction(songDbPath).ConfigureAwait(false);
         }
         finally
         {
