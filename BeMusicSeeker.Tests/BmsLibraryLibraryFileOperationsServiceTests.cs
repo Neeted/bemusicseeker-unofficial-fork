@@ -159,7 +159,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
             uint sourceHash = ChartResourceKeyHash.GetLookupHash("root.wav");
             uint nestedHash = ChartResourceKeyHash.GetLookupHash("chart.bms");
-            var lookupCache = new DirectoryResourceLookupCache();
+            var resourceIndex = new LibraryResourceIndex();
+            DirectoryResourceLookupCache lookupCache = resourceIndex.DirectoryLookupCache;
+            var resourceIndexOwner = new LibraryResourceIndexOwner(resourceIndex);
             lookupCache.AddDir(sourceRoot, [sourceHash], [], []);
             lookupCache.AddDir(nestedDirectoryPath, [nestedHash], [], []);
             lookupCache.EnsureAudioRelativeDirectoriesByHashes([sourceHash, nestedHash]);
@@ -180,12 +182,14 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             installedPackage.delete_parent = false;
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
-            service.MoveFolderAndUpdateReferences(
+            service.MoveFolder(
                 sourceRoot,
                 destinationRoot,
-                lookupCache,
                 fileMutationService,
                 null);
+            resourceIndexOwner.MoveFolderReferences(sourceRoot, destinationRoot);
+            DirectoryResourceLookupCache priorLookupCache = lookupCache;
+            lookupCache = resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
             LibraryMutationDelta delta = service.BuildFolderMoveDelta(
                 sourceRoot,
                 destinationRoot,
@@ -204,6 +208,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsNotNull(lookupCache.GetEntryOrNull(Path.Combine(destinationRoot, "Nested")));
             Assert.IsNull(lookupCache.GetEntryOrNull(sourceRoot));
             Assert.IsNull(lookupCache.GetEntryOrNull(nestedDirectoryPath));
+            Assert.IsNotNull(priorLookupCache.GetEntryOrNull(sourceRoot));
+            Assert.IsNotNull(priorLookupCache.GetEntryOrNull(nestedDirectoryPath));
+            Assert.IsNull(priorLookupCache.GetEntryOrNull(destinationRoot));
             Assert.AreEqual(2, delta.UpdatedInstallDestinations.Count);
             Assert.AreEqual(1, delta.UpdatedInstalledPackagePaths.Count);
             CollectionAssert.AreEquivalent(
@@ -230,17 +237,22 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         string destinationRoot = Path.Combine(directories.DestinationBaseDirectory, "Dst");
         uint sourceHash = ChartResourceKeyHash.GetLookupHash("root.wav");
         uint nestedHash = ChartResourceKeyHash.GetLookupHash("chart.bms");
-        var lookupCache = new DirectoryResourceLookupCache();
+        var resourceIndex = new LibraryResourceIndex();
+        DirectoryResourceLookupCache lookupCache = resourceIndex.DirectoryLookupCache;
+        var resourceIndexOwner = new LibraryResourceIndexOwner(resourceIndex);
         lookupCache.AddDir(sourceRoot, [sourceHash], [], []);
         lookupCache.AddDir(nestedDirectoryPath, [nestedHash], [], []);
         lookupCache.EnsureAudioRelativeDirectoriesByHashes([sourceHash, nestedHash]);
 
-        DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = service.MoveFolderAndUpdateReferences(
+        service.MoveFolder(
             sourceRoot,
             destinationRoot,
-            lookupCache,
             new ResilientFileMutationService(),
             new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree));
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult =
+            resourceIndexOwner.MoveFolderReferences(sourceRoot, destinationRoot).MutationResult;
+        DirectoryResourceLookupCache priorLookupCache = lookupCache;
+        lookupCache = resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
 
         Assert.IsFalse(LongPathFileSystem.DirectoryExists(sourceRoot));
         Assert.IsTrue(LongPathFileSystem.DirectoryExists(destinationRoot));
@@ -249,14 +261,17 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         CollectionAssert.AreEquivalent(new[] { Path.Combine(destinationRoot, "Nested") }, lookupCache.GetDirectoriesByAudioRelativeHash(nestedHash).ToArray());
         Assert.IsNull(lookupCache.GetEntryOrNull(sourceRoot));
         Assert.IsNull(lookupCache.GetEntryOrNull(nestedDirectoryPath));
+        Assert.IsNotNull(priorLookupCache.GetEntryOrNull(sourceRoot));
+        Assert.IsNotNull(priorLookupCache.GetEntryOrNull(nestedDirectoryPath));
         Assert.IsTrue(mutationResult.Changed);
     }
 
     [TestMethod]
     public void UpdateMovedFolderReferences_RewritesMultipleMovedFoldersInOnePass()
     {
-        var service = new BmsLibraryLibraryFileOperationsService();
-        var lookupCache = new DirectoryResourceLookupCache();
+        var resourceIndex = new LibraryResourceIndex();
+        DirectoryResourceLookupCache lookupCache = resourceIndex.DirectoryLookupCache;
+        var resourceIndexOwner = new LibraryResourceIndexOwner(resourceIndex);
         string firstSource = "C:\\Lib\\First";
         string firstNestedSource = "C:\\Lib\\First\\Nested";
         string secondSource = "C:\\Lib\\Second";
@@ -271,7 +286,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         lookupCache.AddDir(secondSource, [secondHash], [], []);
         lookupCache.EnsureAudioRelativeDirectoriesByHashes([firstHash, firstNestedHash, secondHash]);
 
-        MovedFolderReferenceUpdateResult updateResult = service.UpdateMovedFolderReferences(
+        LibraryResourceIndexMovedFoldersResult updateResult = resourceIndexOwner.UpdateMovedFolderReferences(
         [
             new LibraryFolderPathChange
             {
@@ -283,9 +298,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 OldFolderPath = secondSource,
                 NewFolderPath = secondDestination
             }
-        ],
-        lookupCache);
-        DirectoryResourceLookupCache.ReverseLookupMutationResult result = updateResult.MutationResult;
+        ]);
+        DirectoryResourceLookupCache priorLookupCache = lookupCache;
+        lookupCache = resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
+        DirectoryResourceLookupCache.ReverseLookupMutationResult result = updateResult.Receipt.MutationResult;
 
         Assert.IsTrue(result.Changed);
         Assert.AreEqual(2, updateResult.MoveCount);
@@ -301,6 +317,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.IsNotNull(lookupCache.GetEntryOrNull(firstDestination));
         Assert.IsNotNull(lookupCache.GetEntryOrNull(firstNestedDestination));
         Assert.IsNotNull(lookupCache.GetEntryOrNull(secondDestination));
+        Assert.IsNotNull(priorLookupCache.GetEntryOrNull(firstSource));
+        Assert.IsNotNull(priorLookupCache.GetEntryOrNull(firstNestedSource));
+        Assert.IsNotNull(priorLookupCache.GetEntryOrNull(secondSource));
     }
 
     [TestMethod]
@@ -465,8 +484,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             var pendingPackage = ChartPackage.FromChartEntries([pendingBmsEntry, adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
-            var lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(folderPath, []);
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
@@ -474,7 +491,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 CreateLibraryChartRefLookup([libraryRef, LibraryChartRef.FromBmsonSong(bmsonSong)]),
                 CreateInstallDestinationOverlaySnapshot([libraryRef]),
                 [pendingPackage],
-                lookupCache,
                 false,
                 _ => true,
                 fileMutationService,
@@ -498,7 +514,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             CollectionAssert.AreEqual(Array.Empty<string>(), adapterlessBmsonEntry.Chart.InstallDestinationSuggestions.ToArray());
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.IsFalse(Directory.Exists(folderPath));
-            Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
+            CollectionAssert.Contains(result.DeletedFolderPaths, folderPath);
         });
     }
 
@@ -518,15 +534,11 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 path = chartPath,
                 folder = folderPath
             };
-            var lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(folderPath, []);
-
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromBmsonSong(song)],
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsonSong(song)]),
                 CreateInstallDestinationOverlaySnapshot(),
                 [],
-                lookupCache,
                 false,
                 _ => true,
                 fileMutationService,
@@ -538,7 +550,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreSame(song, result.RemovedCharts[0].GetBmsonStorageOwner());
             Assert.AreEqual(0, result.Failures.Count);
             Assert.IsFalse(Directory.Exists(folderPath));
-            Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
+            CollectionAssert.Contains(result.DeletedFolderPaths, folderPath);
         });
     }
 
@@ -554,15 +566,11 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string chartPath = Path.Combine(folderPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             TestableBmsFile canonicalFile = CreateFile(chartPath);
-            var lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(folderPath, []);
-
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, canonicalFile.hash, canonicalFile.sha256)],
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(canonicalFile)]),
                 CreateInstallDestinationOverlaySnapshot(),
                 [],
-                lookupCache,
                 true,
                 _ => true,
                 fileMutationService,
@@ -575,7 +583,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(folderPath, fileMutationService.LastDeletedDirectoryPath);
             Assert.AreEqual(RecycleOption.SendToRecycleBin, fileMutationService.LastDirectoryRecycleOption);
             Assert.IsFalse(Directory.Exists(folderPath));
-            Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
+            CollectionAssert.Contains(result.DeletedFolderPaths, folderPath);
         });
     }
 
@@ -599,7 +607,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(catalogFile)]),
                 CreateInstallDestinationOverlaySnapshot(),
                 [],
-                new DirectoryResourceLookupCache(),
                 true,
                 _ => true,
                 fileMutationService,
@@ -635,7 +642,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(libraryFile)]),
                 CreateInstallDestinationOverlaySnapshot(),
                 [],
-                new DirectoryResourceLookupCache(),
                 true,
                 _ => true,
                 fileMutationService,
@@ -673,7 +679,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(canonicalFile)]),
                 CreateInstallDestinationOverlaySnapshot(),
                 [],
-                new DirectoryResourceLookupCache(),
                 false,
                 _ => true,
                 fileMutationService,
@@ -706,7 +711,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(catalogFile)]),
                 CreateInstallDestinationOverlaySnapshot(),
                 [],
-                new DirectoryResourceLookupCache(),
                 false,
                 _ => true,
                 fileMutationService,
@@ -743,7 +747,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(libraryFile)]),
                 CreateInstallDestinationOverlaySnapshot(),
                 [],
-                new DirectoryResourceLookupCache(),
                 false,
                 path =>
                 {

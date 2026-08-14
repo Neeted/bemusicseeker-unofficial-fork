@@ -67,23 +67,6 @@ internal sealed class MovedFolderReferenceUpdateResult
 /// </summary>
 internal sealed class BmsLibraryLibraryFileOperationsService
 {
-    public DirectoryResourceLookupCache.ReverseLookupMutationResult MoveFolderAndUpdateReferences(
-        string srcDir,
-        string dstDir,
-        DirectoryResourceLookupCache directoryLookupCache,
-        IFileMutationService fileMutationService,
-        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
-    {
-        fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
-        DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        foreach (string item in (directoryLookupCache?.Keys ?? []).Where(f => (f + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
-        {
-            string newKey = item.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-            mutationResult = mutationResult.Combine(directoryLookupCache.ReplaceDirWithResult(item, newKey));
-        }
-        return mutationResult;
-    }
-
     public void MoveFolder(
         string srcDir,
         string dstDir,
@@ -93,57 +76,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
     }
 
-    public MovedFolderReferenceUpdateResult UpdateMovedFolderReferences(
-        IEnumerable<LibraryFolderPathChange> movedFolders,
-        DirectoryResourceLookupCache directoryLookupCache)
-    {
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        var updateResult = new MovedFolderReferenceUpdateResult();
-        List<LibraryFolderPathChange> moves = [.. (movedFolders ?? [])
-            .Where(move => !string.IsNullOrWhiteSpace(move?.OldFolderPath)
-                && !string.IsNullOrWhiteSpace(move.NewFolderPath)
-                && !move.OldFolderPath.Equals(move.NewFolderPath, StringComparison.OrdinalIgnoreCase))
-            .GroupBy(move => NormalizeDirectoryLookupPath(move.OldFolderPath), StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.Last())];
-        updateResult.MoveCount = moves.Count;
-        if (moves.Count == 0 || directoryLookupCache == null)
-        {
-            stopwatch.Stop();
-            updateResult.ElapsedMs = stopwatch.ElapsedMilliseconds;
-            return updateResult;
-        }
-
-        Dictionary<string, LibraryFolderPathChange> movesByOldPath = moves.ToDictionary(
-            move => NormalizeDirectoryLookupPath(move.OldFolderPath),
-            move => move,
-            StringComparer.OrdinalIgnoreCase);
-        List<string> lookupKeys = [.. directoryLookupCache.Keys ?? []];
-        updateResult.LookupKeyCount = lookupKeys.Count;
-        List<KeyValuePair<string, string>> replacements = [];
-        foreach (string item in lookupKeys)
-        {
-            if (!TryFindMovedFolderReference(item, movesByOldPath, out LibraryFolderPathChange move))
-            {
-                continue;
-            }
-
-            updateResult.MatchedKeyCount++;
-            string newKey = item.ReplaceFromStart(move.OldFolderPath, move.NewFolderPath, isIgnoreCase: true);
-            replacements.Add(new KeyValuePair<string, string>(item, newKey));
-        }
-        DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = directoryLookupCache.ReplaceDirsWithResult(replacements);
-        stopwatch.Stop();
-        updateResult.MutationResult = mutationResult;
-        updateResult.ElapsedMs = stopwatch.ElapsedMilliseconds;
-        return updateResult;
-    }
-
     public LibraryRemovalResult DeleteLibraryCharts(
         IEnumerable<LibraryChartRef> charts,
         ILibraryChartCanonicalLookup libraryChartLookup,
         InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
         IEnumerable<ChartPackage> pendingPackages,
-        DirectoryResourceLookupCache directoryLookupCache,
         bool sendToRecycleBin,
         Func<string, bool> confirmDeleteWholeFolder,
         IFileMutationService fileMutationService,
@@ -198,6 +135,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 {
                     fileMutationService.DeleteDirectoryShell(folderGroup.Key, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
                     result.FolderDeleteCount++;
+                    result.DeletedFolderPaths.Add(folderGroup.Key);
                     AddRemovedCharts(result, folderGroup);
                 }
                 catch (Exception ex)
@@ -211,7 +149,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 }
                 if (!result.Failures.Any(failure => failure.IsDirectory && string.Equals(failure.Path, folderGroup.Key, StringComparison.OrdinalIgnoreCase)))
                 {
-                    result.ResourceIndexMutation = result.ResourceIndexMutation.Combine(CleanupDeletedFolderIndexes(folderGroup.Key, directoryLookupCache));
                     CollectInstallDestinationClearsUnderDeletedFolder(result, folderGroup.Key, pendingPackages, installDestinationOverlayCharts);
                 }
                 continue;
@@ -306,27 +243,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         return canonicalChart.Path;
-    }
-
-    private static DirectoryResourceLookupCache.ReverseLookupMutationResult CleanupDeletedFolderIndexes(string folderPath, DirectoryResourceLookupCache directoryLookupCache)
-    {
-        if (string.IsNullOrWhiteSpace(folderPath))
-        {
-            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        }
-        try
-        {
-            DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-            foreach (string indexedDirectoryPath in (directoryLookupCache?.Keys ?? []).Where(directoryPath => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
-            {
-                mutationResult = mutationResult.Combine(directoryLookupCache.RemoveDirWithResult(indexedDirectoryPath));
-            }
-            return mutationResult;
-        }
-        catch
-        {
-            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        }
     }
 
     private static void CollectInstallDestinationClearsUnderDeletedFolder(
@@ -670,42 +586,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return lastSeparatorIndex >= 0
             ? trimmedPath.Substring(lastSeparatorIndex + 1)
             : trimmedPath;
-    }
-
-    private static bool TryFindMovedFolderReference(
-        string path,
-        IReadOnlyDictionary<string, LibraryFolderPathChange> movesByOldPath,
-        out LibraryFolderPathChange move)
-    {
-        move = null;
-        if (string.IsNullOrWhiteSpace(path) || movesByOldPath == null || movesByOldPath.Count == 0)
-        {
-            return false;
-        }
-
-        string currentPath = NormalizeDirectoryLookupPath(path);
-        while (!string.IsNullOrWhiteSpace(currentPath))
-        {
-            if (movesByOldPath.TryGetValue(currentPath, out move))
-            {
-                return true;
-            }
-
-            string parentPath = NormalizeDirectoryLookupPath(GetParentDirectory(currentPath));
-            if (string.IsNullOrWhiteSpace(parentPath) || string.Equals(parentPath, currentPath, StringComparison.OrdinalIgnoreCase))
-            {
-                break;
-            }
-            currentPath = parentPath;
-        }
-        return false;
-    }
-
-    private static string NormalizeDirectoryLookupPath(string path)
-    {
-        return string.IsNullOrWhiteSpace(path)
-            ? string.Empty
-            : path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private static string GetParentDirectory(string path)

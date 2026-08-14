@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -11,6 +14,23 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DirectoryResourceLookupCacheTests
 {
+    [TestMethod]
+    public void Entry_DoesNotExposeMutableHashArrayToAssemblyConsumers()
+    {
+        PropertyInfo[] assemblyVisibleMutableArrayProperties = typeof(DirectoryResourceLookupCache.Entry)
+            .GetProperties(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Where(property => property.PropertyType == typeof(uint[]))
+            .Where(property => property.GetMethod?.IsAssembly == true
+                || property.GetMethod?.IsFamilyOrAssembly == true
+                || property.GetMethod?.IsFamilyAndAssembly == true)
+            .ToArray();
+
+        Assert.AreEqual(
+            0,
+            assemblyVisibleMutableArrayProperties.Length,
+            string.Join(", ", assemblyVisibleMutableArrayProperties.Select(property => property.Name)));
+    }
+
     [TestMethod]
     public void CreateFromScanResult_UntrustedUnsortedHashesRemainSearchableAndDistinct()
     {
@@ -251,6 +271,90 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEquivalent(new[] { dirB }, cache.GetDirectoriesByMovieRelativeHash(movieRelativeHash).ToArray());
     }
 
+    [TestMethod]
+    public void CloneForMutation_CopiesEntriesAndFullReverseLookupIndependently()
+    {
+        DirectoryResourceLookupCache original = CreateNativeCanonicalCache();
+        DirectoryResourceLookupCache clone = original.CloneForMutation();
+
+        clone.ReplaceDirWithResult(@"C:\Songs\A", @"C:\Songs\RenamedA");
+        clone.RemoveDirWithResult(@"C:\Songs\B");
+        clone.AddDir(@"C:\Songs\C", [4u], [], []);
+
+        Assert.IsTrue(original.IsFullReverseLookupBuilt);
+        Assert.IsTrue(clone.IsFullReverseLookupBuilt);
+        Assert.IsNotNull(original.GetEntryOrNull(@"C:\Songs\A"));
+        Assert.IsNotNull(original.GetEntryOrNull(@"C:\Songs\B"));
+        Assert.IsNull(original.GetEntryOrNull(@"C:\Songs\RenamedA"));
+        Assert.IsNull(original.GetEntryOrNull(@"C:\Songs\C"));
+        CollectionAssert.AreEquivalent(
+            new[] { @"C:\Songs\A", @"C:\Songs\B" },
+            original.GetDirectoriesByAudioRelativeHash(2u).ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { @"C:\Songs\RenamedA" },
+            clone.GetDirectoriesByAudioRelativeHash(2u).ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { @"C:\Songs\C" },
+            clone.GetDirectoriesByAudioRelativeHash(4u).ToArray());
+    }
+
+    [TestMethod]
+    public void LazyReverseLookupOverlappingOwnerMutation_PreservesBothGenerations()
+    {
+        const uint sharedHash = 73u;
+        string oldDirectory = @"C:\Songs\Old";
+        string addedDirectory = @"C:\Songs\Added";
+        var initialIndex = new LibraryResourceIndex();
+        initialIndex.DirectoryLookupCache.AddDir(oldDirectory, [sharedHash], [], []);
+        var owner = new LibraryResourceIndexOwner(initialIndex);
+        LibraryResourceIndexSnapshot oldSnapshot = owner.CaptureSnapshot();
+        using var entrySnapshotCaptured = new ManualResetEventSlim(false);
+        using var resumeLazyPublish = new ManualResetEventSlim(false);
+        SetLazyReverseLookupEntrySnapshotObserver(
+            oldSnapshot.DirectoryLookupCache,
+            delegate
+            {
+                entrySnapshotCaptured.Set();
+                Assert.IsTrue(resumeLazyPublish.Wait(TimeSpan.FromSeconds(10)));
+            });
+
+        Task<string[]> oldLookupTask = Task.Run(() =>
+            oldSnapshot.DirectoryLookupCache
+                .GetDirectoriesByAudioRelativeHash(sharedHash)
+                .ToArray());
+        Assert.IsTrue(entrySnapshotCaptured.Wait(TimeSpan.FromSeconds(10)));
+
+        LibraryResourceIndexMutationReceipt addReceipt =
+            owner.AddDirectory(addedDirectory, [sharedHash], [], []);
+        resumeLazyPublish.Set();
+        string[] oldDirectories = oldLookupTask.GetAwaiter().GetResult();
+        string[] currentDirectories = addReceipt.Snapshot.DirectoryLookupCache
+            .GetDirectoriesByAudioRelativeHash(sharedHash)
+            .ToArray();
+
+        CollectionAssert.AreEquivalent(new[] { oldDirectory }, oldDirectories);
+        CollectionAssert.AreEquivalent(new[] { oldDirectory }, oldSnapshot.DirectoryLookupCache
+            .GetDirectoriesByAudioRelativeHash(sharedHash).ToArray());
+        CollectionAssert.AreEquivalent(new[] { oldDirectory, addedDirectory }, currentDirectories);
+        Assert.AreEqual(0L, oldSnapshot.Generation);
+        Assert.AreEqual(1L, addReceipt.Snapshot.Generation);
+        Assert.AreNotSame(oldSnapshot.DirectoryLookupCache, addReceipt.Snapshot.DirectoryLookupCache);
+    }
+
+    [TestMethod]
+    public void PublishedEntryAndReverseLookupSurfaces_DoNotExposeSharedMutablePayloads()
+    {
+        DirectoryResourceLookupCache cache = CreateNativeCanonicalCache();
+        DirectoryResourceLookupCache.Entry entry = cache.GetEntryOrNull(@"C:\Songs\A");
+        uint[] exposedHashes = entry.AudioRelativePathHashArray;
+
+        exposedHashes[0] = 999u;
+
+        Assert.AreNotEqual(999u, entry.AudioRelativePathHashArray[0]);
+        Assert.ThrowsException<NotSupportedException>(() => entry.AudioRelativePathHashes.Add(999u));
+        Assert.IsFalse(cache.GetDirectoriesByAudioRelativeHash(2u) is string[]);
+    }
+
     private static DirectoryResourceLookupCache CreateCache()
     {
         var cache = new DirectoryResourceLookupCache();
@@ -265,6 +369,16 @@ public sealed class DirectoryResourceLookupCacheTests
             [],
             []);
         return cache;
+    }
+
+    private static void SetLazyReverseLookupEntrySnapshotObserver(
+        DirectoryResourceLookupCache cache,
+        Action observer)
+    {
+        FieldInfo field = typeof(DirectoryResourceLookupCache).GetField(
+            "lazyReverseLookupEntrySnapshotCapturedObserver",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        field.SetValue(cache, observer);
     }
 
     private static DirectoryResourceLookupCache CreateNativeCanonicalCache()

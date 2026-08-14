@@ -142,8 +142,8 @@ internal sealed partial class LibraryFileOperationOwner
                 catalogDelta.ClearDuplicatedCache = true;
                 ApplyLibraryMutationDeltaWithPerformanceContext(catalogDelta, "duplicate_merge_catalog_transition op=" + operationId);
 
-                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = RemoveReverseLookupDirectoriesUnderSource(sourceDirectory);
-                reverseLookupMutation = reverseLookupMutation.Combine(AddReverseLookupDirectories(mergedDirectoryScan));
+                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+                    resourceIndexOwner.ReplaceSourceDirectoryWithScan(sourceDirectory, mergedDirectoryScan).MutationResult;
                 LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
 
                 List<ChartFile> destinationMaintenanceChartSnapshots = CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);

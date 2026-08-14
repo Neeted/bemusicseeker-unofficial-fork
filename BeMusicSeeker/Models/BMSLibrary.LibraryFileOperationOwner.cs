@@ -31,7 +31,7 @@ internal sealed partial class LibraryFileOperationOwner
 
     private readonly PackageLifecycleOwner packageLifecycleOwner;
 
-    private readonly DirectoryResourceLookupCache directoryResourceLookupCache;
+    private readonly LibraryResourceIndexOwner resourceIndexOwner;
 
     private readonly IFileMutationService fileMutationService;
 
@@ -80,7 +80,7 @@ internal sealed partial class LibraryFileOperationOwner
         BmsLibraryLibraryFileOperationsService libraryFileOperationsService,
         BmsLibraryPackageInstallService packageInstallService,
         PackageLifecycleOwner packageLifecycleOwner,
-        DirectoryResourceLookupCache directoryResourceLookupCache,
+        LibraryResourceIndexOwner resourceIndexOwner,
         IFileMutationService fileMutationService,
         InstallDestinationStateOwner installDestinationStateOwner,
         ScopedOperationDialogCoordinator dialogService,
@@ -106,7 +106,7 @@ internal sealed partial class LibraryFileOperationOwner
         this.libraryFileOperationsService = libraryFileOperationsService ?? throw new ArgumentNullException(nameof(libraryFileOperationsService));
         this.packageInstallService = packageInstallService ?? throw new ArgumentNullException(nameof(packageInstallService));
         this.packageLifecycleOwner = packageLifecycleOwner ?? throw new ArgumentNullException(nameof(packageLifecycleOwner));
-        this.directoryResourceLookupCache = directoryResourceLookupCache ?? throw new ArgumentNullException(nameof(directoryResourceLookupCache));
+        this.resourceIndexOwner = resourceIndexOwner ?? throw new ArgumentNullException(nameof(resourceIndexOwner));
         this.fileMutationService = fileMutationService ?? throw new ArgumentNullException(nameof(fileMutationService));
         this.installDestinationStateOwner = installDestinationStateOwner ?? throw new ArgumentNullException(nameof(installDestinationStateOwner));
         this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
@@ -261,12 +261,12 @@ internal sealed partial class LibraryFileOperationOwner
         string sourceDirectory,
         string destinationDirectory)
     {
-        return libraryFileOperationsService.MoveFolderAndUpdateReferences(
+        libraryFileOperationsService.MoveFolder(
             sourceDirectory,
             destinationDirectory,
-            directoryResourceLookupCache,
             fileMutationService,
             recursiveDirectoryTreeFileMutationOptions);
+        return resourceIndexOwner.MoveFolderReferences(sourceDirectory, destinationDirectory).MutationResult;
     }
 
     internal LibraryMutationDelta BuildFolderMoveDelta(
@@ -305,7 +305,6 @@ internal sealed partial class LibraryFileOperationOwner
             CreateOwnedCanonicalChartLookupUnsafe(),
             CreateInstallDestinationOverlayChartRefSnapshot(),
             packageLifecycleOwner.PendingPackages,
-            directoryResourceLookupCache,
             sendToRecycleBin,
             path => IsApprovedWholeFolderDelete(path, approvedWholeFolderDeletePaths),
             fileMutationService,
@@ -319,7 +318,12 @@ internal sealed partial class LibraryFileOperationOwner
         removedChartCount = result.RemovedCharts?.Count ?? 0;
         folderDeleteCount = result.FolderDeleteCount;
         fileDeleteCount = result.FileDeleteCount;
-        resourceIndexMutation = result.ResourceIndexMutation;
+        resourceIndexMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        foreach (string deletedFolderPath in result.DeletedFolderPaths)
+        {
+            resourceIndexMutation = resourceIndexMutation.Combine(
+                resourceIndexOwner.RemoveUnderSourceDirectory(deletedFolderPath).MutationResult);
+        }
         return result.MutationDelta;
     }
 
@@ -738,12 +742,12 @@ internal sealed partial class LibraryFileOperationOwner
 
     private DirectoryResourceLookupCache.ReverseLookupMutationResult RemoveReverseLookupDirectoriesUnderSource(string sourceDirectory)
     {
-        return directoryResourceLookupCache.RemoveUnderSourceDirectory(sourceDirectory);
+        return resourceIndexOwner.RemoveUnderSourceDirectory(sourceDirectory).MutationResult;
     }
 
     private DirectoryResourceLookupCache.ReverseLookupMutationResult AddReverseLookupDirectories(ChartScanResult scan)
     {
-        return directoryResourceLookupCache.AddScanDirectories(scan);
+        return resourceIndexOwner.AddScanDirectories(scan).MutationResult;
     }
 
     private void LogInstallPerformanceWarning(string message)
@@ -832,9 +836,16 @@ internal sealed partial class LibraryFileOperationOwner
     internal MovedFolderReferenceUpdateResult UpdateMovedFolderReferences(
         List<LibraryFolderPathChange> movedFolders)
     {
-        return libraryFileOperationsService.UpdateMovedFolderReferences(
-            movedFolders,
-            directoryResourceLookupCache);
+        LibraryResourceIndexMovedFoldersResult result =
+            resourceIndexOwner.UpdateMovedFolderReferences(movedFolders);
+        return new MovedFolderReferenceUpdateResult
+        {
+            MutationResult = result.Receipt.MutationResult,
+            MoveCount = result.MoveCount,
+            LookupKeyCount = result.LookupKeyCount,
+            MatchedKeyCount = result.MatchedKeyCount,
+            ElapsedMs = result.ElapsedMs
+        };
     }
 
     internal void ApplyLibraryMutationDeltaWithPerformanceContext(

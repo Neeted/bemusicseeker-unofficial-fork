@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -82,41 +83,41 @@ internal sealed class DirectoryResourceLookupCache
 
         private readonly uint[] selfOwnedMovieRelativePathHashArray;
 
-        private HashSet<uint> audioRelativePathHashes;
+        private ISet<uint> audioRelativePathHashes;
 
-        private HashSet<uint> imageRelativePathHashes;
+        private ISet<uint> imageRelativePathHashes;
 
-        private HashSet<uint> movieRelativePathHashes;
+        private ISet<uint> movieRelativePathHashes;
 
-        private HashSet<uint> selfOwnedAudioRelativePathHashes;
+        private ISet<uint> selfOwnedAudioRelativePathHashes;
 
-        private HashSet<uint> selfOwnedImageRelativePathHashes;
+        private ISet<uint> selfOwnedImageRelativePathHashes;
 
-        private HashSet<uint> selfOwnedMovieRelativePathHashes;
+        private ISet<uint> selfOwnedMovieRelativePathHashes;
 
-        public ISet<uint> AudioRelativePathHashes => audioRelativePathHashes ??= CreateHashSet(audioRelativePathHashArray);
+        public ISet<uint> AudioRelativePathHashes => GetOrCreateReadOnlySet(ref audioRelativePathHashes, audioRelativePathHashArray);
 
-        public ISet<uint> ImageRelativePathHashes => imageRelativePathHashes ??= CreateHashSet(imageRelativePathHashArray);
+        public ISet<uint> ImageRelativePathHashes => GetOrCreateReadOnlySet(ref imageRelativePathHashes, imageRelativePathHashArray);
 
-        public ISet<uint> MovieRelativePathHashes => movieRelativePathHashes ??= CreateHashSet(movieRelativePathHashArray);
+        public ISet<uint> MovieRelativePathHashes => GetOrCreateReadOnlySet(ref movieRelativePathHashes, movieRelativePathHashArray);
 
-        public ISet<uint> SelfOwnedAudioRelativePathHashes => selfOwnedAudioRelativePathHashes ??= CreateHashSet(selfOwnedAudioRelativePathHashArray);
+        public ISet<uint> SelfOwnedAudioRelativePathHashes => GetOrCreateReadOnlySet(ref selfOwnedAudioRelativePathHashes, selfOwnedAudioRelativePathHashArray);
 
-        public ISet<uint> SelfOwnedImageRelativePathHashes => selfOwnedImageRelativePathHashes ??= CreateHashSet(selfOwnedImageRelativePathHashArray);
+        public ISet<uint> SelfOwnedImageRelativePathHashes => GetOrCreateReadOnlySet(ref selfOwnedImageRelativePathHashes, selfOwnedImageRelativePathHashArray);
 
-        public ISet<uint> SelfOwnedMovieRelativePathHashes => selfOwnedMovieRelativePathHashes ??= CreateHashSet(selfOwnedMovieRelativePathHashArray);
+        public ISet<uint> SelfOwnedMovieRelativePathHashes => GetOrCreateReadOnlySet(ref selfOwnedMovieRelativePathHashes, selfOwnedMovieRelativePathHashArray);
 
-        public uint[] AudioRelativePathHashArray => audioRelativePathHashArray;
+        public uint[] AudioRelativePathHashArray => [.. audioRelativePathHashArray];
 
-        public uint[] ImageRelativePathHashArray => imageRelativePathHashArray;
+        public uint[] ImageRelativePathHashArray => [.. imageRelativePathHashArray];
 
-        public uint[] MovieRelativePathHashArray => movieRelativePathHashArray;
+        public uint[] MovieRelativePathHashArray => [.. movieRelativePathHashArray];
 
-        public uint[] SelfOwnedAudioRelativePathHashArray => selfOwnedAudioRelativePathHashArray;
+        public uint[] SelfOwnedAudioRelativePathHashArray => [.. selfOwnedAudioRelativePathHashArray];
 
-        public uint[] SelfOwnedImageRelativePathHashArray => selfOwnedImageRelativePathHashArray;
+        public uint[] SelfOwnedImageRelativePathHashArray => [.. selfOwnedImageRelativePathHashArray];
 
-        public uint[] SelfOwnedMovieRelativePathHashArray => selfOwnedMovieRelativePathHashArray;
+        public uint[] SelfOwnedMovieRelativePathHashArray => [.. selfOwnedMovieRelativePathHashArray];
 
         public int AudioFileNameHashCount => audioRelativePathHashArray.Length;
 
@@ -137,6 +138,39 @@ internal sealed class DirectoryResourceLookupCache
         public bool ContainsMovieRelativePathHash(uint hash)
         {
             return ContainsSortedHash(movieRelativePathHashArray, hash);
+        }
+
+        /// <summary>
+        /// Enumerates audio hashes without exposing the immutable backing array.
+        /// </summary>
+        internal IEnumerable<uint> EnumerateAudioRelativePathHashes()
+        {
+            foreach (uint hash in audioRelativePathHashArray)
+            {
+                yield return hash;
+            }
+        }
+
+        /// <summary>
+        /// Enumerates image hashes without exposing the immutable backing array.
+        /// </summary>
+        internal IEnumerable<uint> EnumerateImageRelativePathHashes()
+        {
+            foreach (uint hash in imageRelativePathHashArray)
+            {
+                yield return hash;
+            }
+        }
+
+        /// <summary>
+        /// Enumerates movie hashes without exposing the immutable backing array.
+        /// </summary>
+        internal IEnumerable<uint> EnumerateMovieRelativePathHashes()
+        {
+            foreach (uint hash in movieRelativePathHashArray)
+            {
+                yield return hash;
+            }
         }
 
         public Entry()
@@ -234,16 +268,62 @@ internal sealed class DirectoryResourceLookupCache
             }
             if (hashArray.Length <= 1)
             {
-                return hashArray;
+                return takeOwnership ? hashArray : [.. hashArray];
             }
             uint[] sorted = [.. hashArray.Distinct()];
             Array.Sort(sorted);
             return sorted;
         }
 
+        internal bool SemanticallyEquals(Entry other)
+        {
+            return other != null
+                && audioRelativePathHashArray.SequenceEqual(other.audioRelativePathHashArray)
+                && imageRelativePathHashArray.SequenceEqual(other.imageRelativePathHashArray)
+                && movieRelativePathHashArray.SequenceEqual(other.movieRelativePathHashArray)
+                && selfOwnedAudioRelativePathHashArray.SequenceEqual(other.selfOwnedAudioRelativePathHashArray)
+                && selfOwnedImageRelativePathHashArray.SequenceEqual(other.selfOwnedImageRelativePathHashArray)
+                && selfOwnedMovieRelativePathHashArray.SequenceEqual(other.selfOwnedMovieRelativePathHashArray);
+        }
+
         private static HashSet<uint> CreateHashSet(IEnumerable<uint> hashes)
         {
             return hashes == null ? [] : [.. hashes];
+        }
+
+        private static ISet<uint> GetOrCreateReadOnlySet(ref ISet<uint> target, uint[] hashes)
+        {
+            ISet<uint> current = Volatile.Read(ref target);
+            if (current != null)
+            {
+                return current;
+            }
+            ISet<uint> created = new ReadOnlySet(CreateHashSet(hashes));
+            return Interlocked.CompareExchange(ref target, created, null) ?? created;
+        }
+
+        private sealed class ReadOnlySet(HashSet<uint> values) : ISet<uint>
+        {
+            public int Count => values.Count;
+            public bool IsReadOnly => true;
+            bool ISet<uint>.Add(uint item) => throw new NotSupportedException();
+            void ICollection<uint>.Add(uint item) => throw new NotSupportedException();
+            public void Clear() => throw new NotSupportedException();
+            public bool Contains(uint item) => values.Contains(item);
+            public void CopyTo(uint[] array, int arrayIndex) => values.CopyTo(array, arrayIndex);
+            public void ExceptWith(IEnumerable<uint> other) => throw new NotSupportedException();
+            public IEnumerator<uint> GetEnumerator() => values.GetEnumerator();
+            public void IntersectWith(IEnumerable<uint> other) => throw new NotSupportedException();
+            public bool IsProperSubsetOf(IEnumerable<uint> other) => values.IsProperSubsetOf(other);
+            public bool IsProperSupersetOf(IEnumerable<uint> other) => values.IsProperSupersetOf(other);
+            public bool IsSubsetOf(IEnumerable<uint> other) => values.IsSubsetOf(other);
+            public bool IsSupersetOf(IEnumerable<uint> other) => values.IsSupersetOf(other);
+            public bool Overlaps(IEnumerable<uint> other) => values.Overlaps(other);
+            public bool Remove(uint item) => throw new NotSupportedException();
+            public bool SetEquals(IEnumerable<uint> other) => values.SetEquals(other);
+            public void SymmetricExceptWith(IEnumerable<uint> other) => throw new NotSupportedException();
+            public void UnionWith(IEnumerable<uint> other) => throw new NotSupportedException();
+            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         }
 
         private static bool ContainsSortedHash(uint[] hashes, uint hash)
@@ -254,13 +334,21 @@ internal sealed class DirectoryResourceLookupCache
 
     private readonly object lockEntries = new();
 
-    private readonly Dictionary<string, Entry> entries = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, Entry> entries = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<uint, string[]> audioDirectoriesByRelativeHash;
+    private bool entriesRootShared;
 
-    private readonly Dictionary<uint, string[]> imageDirectoriesByRelativeHash;
+    private Dictionary<uint, string[]> audioDirectoriesByRelativeHash;
 
-    private readonly Dictionary<uint, string[]> movieDirectoriesByRelativeHash;
+    private Dictionary<uint, string[]> imageDirectoriesByRelativeHash;
+
+    private Dictionary<uint, string[]> movieDirectoriesByRelativeHash;
+
+    private bool audioReverseLookupRootShared;
+
+    private bool imageReverseLookupRootShared;
+
+    private bool movieReverseLookupRootShared;
 
     private readonly object lockLazyDirectoriesByHash = new();
 
@@ -269,6 +357,10 @@ internal sealed class DirectoryResourceLookupCache
     private long lazyHashLookupCount;
 
     private bool isFullReverseLookupBuilt;
+
+    // Test-only synchronization seam. It is intentionally private so production callers cannot
+    // coordinate or delay lookup publication.
+    private Action lazyReverseLookupEntrySnapshotCapturedObserver = null;
 
     public DirectoryResourceLookupCache()
         : this(
@@ -286,6 +378,55 @@ internal sealed class DirectoryResourceLookupCache
         this.audioDirectoriesByRelativeHash = audioDirectoriesByRelativeHash ?? [];
         this.imageDirectoriesByRelativeHash = imageDirectoriesByRelativeHash ?? [];
         this.movieDirectoriesByRelativeHash = movieDirectoriesByRelativeHash ?? [];
+    }
+
+    /// <summary>
+    /// Creates an unpublished structural copy of the current directory and reverse-lookup state.
+    /// </summary>
+    /// <remarks>
+    /// The dictionary roots, immutable entries, and immutable reverse buckets remain shared until
+    /// either cache writes that category. A write detaches the corresponding dictionary root and
+    /// replaces only changed entries or buckets, preserving earlier published generations.
+    /// </remarks>
+    internal DirectoryResourceLookupCache CloneForMutation()
+    {
+        Dictionary<string, Entry> sharedEntries;
+        lock (lockEntries)
+        {
+            entriesRootShared = true;
+            sharedEntries = entries;
+        }
+
+        Dictionary<uint, string[]> sharedAudioReverseLookup;
+        Dictionary<uint, string[]> sharedImageReverseLookup;
+        Dictionary<uint, string[]> sharedMovieReverseLookup;
+        bool fullReverseLookupBuilt;
+        lock (lockLazyDirectoriesByHash)
+        {
+            audioReverseLookupRootShared = true;
+            imageReverseLookupRootShared = true;
+            movieReverseLookupRootShared = true;
+            sharedAudioReverseLookup = audioDirectoriesByRelativeHash;
+            sharedImageReverseLookup = imageDirectoriesByRelativeHash;
+            sharedMovieReverseLookup = movieDirectoriesByRelativeHash;
+            fullReverseLookupBuilt = isFullReverseLookupBuilt;
+        }
+
+        var clone = new DirectoryResourceLookupCache(
+            sharedAudioReverseLookup,
+            sharedImageReverseLookup,
+            sharedMovieReverseLookup)
+        {
+            entries = sharedEntries,
+            entriesRootShared = true,
+            audioReverseLookupRootShared = true,
+            imageReverseLookupRootShared = true,
+            movieReverseLookupRootShared = true,
+            isFullReverseLookupBuilt = fullReverseLookupBuilt,
+            lazyHashBuildMs = Interlocked.Read(ref lazyHashBuildMs),
+            lazyHashLookupCount = Interlocked.Read(ref lazyHashLookupCount)
+        };
+        return clone;
     }
 
     public IEnumerable<string> Keys
@@ -509,6 +650,7 @@ internal sealed class DirectoryResourceLookupCache
         {
             if (entries.TryGetValue(directoryPath, out removedEntry))
             {
+                EnsureEntriesRootWritableUnsafe();
                 entries.Remove(directoryPath);
             }
         }
@@ -547,6 +689,7 @@ internal sealed class DirectoryResourceLookupCache
             {
                 return ReverseLookupMutationResult.Empty;
             }
+            EnsureEntriesRootWritableUnsafe();
             entries.Remove(oldPath);
             entries.TryGetValue(newPath, out overwrittenEntry);
             entries[newPath] = entry;
@@ -603,6 +746,7 @@ internal sealed class DirectoryResourceLookupCache
             }
             foreach (Tuple<string, string, Entry> entryToMove in entriesToMove)
             {
+                EnsureEntriesRootWritableUnsafe();
                 entries.Remove(entryToMove.Item1);
             }
             foreach (Tuple<string, string, Entry> entryToMove in entriesToMove)
@@ -641,9 +785,15 @@ internal sealed class DirectoryResourceLookupCache
         bool requiresDeferredWarmup;
         lock (lockLazyDirectoriesByHash)
         {
-            updatedHashCount += RewriteCachedDirectoryPaths(audioDirectoriesByRelativeHash, replacementsByOldPath);
-            updatedHashCount += RewriteCachedDirectoryPaths(imageDirectoriesByRelativeHash, replacementsByOldPath);
-            updatedHashCount += RewriteCachedDirectoryPaths(movieDirectoriesByRelativeHash, replacementsByOldPath);
+            updatedHashCount += MutateReverseLookupRootUnsafe(
+                ReverseLookupCategory.Audio,
+                root => RewriteCachedDirectoryPaths(root, replacementsByOldPath));
+            updatedHashCount += MutateReverseLookupRootUnsafe(
+                ReverseLookupCategory.Image,
+                root => RewriteCachedDirectoryPaths(root, replacementsByOldPath));
+            updatedHashCount += MutateReverseLookupRootUnsafe(
+                ReverseLookupCategory.Movie,
+                root => RewriteCachedDirectoryPaths(root, replacementsByOldPath));
             maintainedFullReverseLookup = isFullReverseLookupBuilt;
             requiresDeferredWarmup = false;
         }
@@ -665,12 +815,12 @@ internal sealed class DirectoryResourceLookupCache
         {
             return [];
         }
-        EnsureRelativeDirectoriesByHashes(audioDirectoriesByRelativeHash, entry => entry?.AudioRelativePathHashArray, [relativePathHash]);
+        EnsureRelativeDirectoriesByHashes(ReverseLookupCategory.Audio, entry => entry?.EnumerateAudioRelativePathHashes(), [relativePathHash]);
         lock (lockLazyDirectoriesByHash)
         {
             if (audioDirectoriesByRelativeHash.TryGetValue(relativePathHash, out string[] directories))
             {
-                return directories;
+                return Array.AsReadOnly(directories);
             }
         }
         return [];
@@ -682,12 +832,12 @@ internal sealed class DirectoryResourceLookupCache
         {
             return [];
         }
-        EnsureRelativeDirectoriesByHashes(imageDirectoriesByRelativeHash, entry => entry?.ImageRelativePathHashArray, [relativePathHash]);
+        EnsureRelativeDirectoriesByHashes(ReverseLookupCategory.Image, entry => entry?.EnumerateImageRelativePathHashes(), [relativePathHash]);
         lock (lockLazyDirectoriesByHash)
         {
             if (imageDirectoriesByRelativeHash.TryGetValue(relativePathHash, out string[] directories))
             {
-                return directories;
+                return Array.AsReadOnly(directories);
             }
         }
         return [];
@@ -699,12 +849,12 @@ internal sealed class DirectoryResourceLookupCache
         {
             return [];
         }
-        EnsureRelativeDirectoriesByHashes(movieDirectoriesByRelativeHash, entry => entry?.MovieRelativePathHashArray, [relativePathHash]);
+        EnsureRelativeDirectoriesByHashes(ReverseLookupCategory.Movie, entry => entry?.EnumerateMovieRelativePathHashes(), [relativePathHash]);
         lock (lockLazyDirectoriesByHash)
         {
             if (movieDirectoriesByRelativeHash.TryGetValue(relativePathHash, out string[] directories))
             {
-                return directories;
+                return Array.AsReadOnly(directories);
             }
         }
         return [];
@@ -712,17 +862,17 @@ internal sealed class DirectoryResourceLookupCache
 
     public void EnsureAudioRelativeDirectoriesByHashes(IEnumerable<uint> hashes)
     {
-        EnsureRelativeDirectoriesByHashes(audioDirectoriesByRelativeHash, entry => entry?.AudioRelativePathHashArray, hashes);
+        EnsureRelativeDirectoriesByHashes(ReverseLookupCategory.Audio, entry => entry?.EnumerateAudioRelativePathHashes(), hashes);
     }
 
     public void EnsureImageRelativeDirectoriesByHashes(IEnumerable<uint> hashes)
     {
-        EnsureRelativeDirectoriesByHashes(imageDirectoriesByRelativeHash, entry => entry?.ImageRelativePathHashArray, hashes);
+        EnsureRelativeDirectoriesByHashes(ReverseLookupCategory.Image, entry => entry?.EnumerateImageRelativePathHashes(), hashes);
     }
 
     public void EnsureMovieRelativeDirectoriesByHashes(IEnumerable<uint> hashes)
     {
-        EnsureRelativeDirectoriesByHashes(movieDirectoriesByRelativeHash, entry => entry?.MovieRelativePathHashArray, hashes);
+        EnsureRelativeDirectoriesByHashes(ReverseLookupCategory.Movie, entry => entry?.EnumerateMovieRelativePathHashes(), hashes);
     }
 
     public bool IsFullReverseLookupBuilt
@@ -747,6 +897,39 @@ internal sealed class DirectoryResourceLookupCache
             entries.TryGetValue(directoryPath, out Entry entry);
             return entry;
         }
+    }
+
+    /// <summary>
+    /// Compares the semantic directory mappings for a bounded set of paths.
+    /// </summary>
+    internal bool HasSameDirectoryEntries(
+        DirectoryResourceLookupCache other,
+        IEnumerable<string> directoryPaths)
+    {
+        if (other == null)
+        {
+            return false;
+        }
+        foreach (string directoryPath in (directoryPaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            Entry currentEntry = GetEntryOrNull(directoryPath);
+            Entry otherEntry = other.GetEntryOrNull(directoryPath);
+            if (currentEntry == null || otherEntry == null)
+            {
+                if (!ReferenceEquals(currentEntry, otherEntry))
+                {
+                    return false;
+                }
+                continue;
+            }
+            if (!currentEntry.SemanticallyEquals(otherEntry))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static IEnumerable<uint> TryGetHashes(Dictionary<string, uint[]> hashesByDirectory, string directoryPath)
@@ -783,7 +966,13 @@ internal sealed class DirectoryResourceLookupCache
         lock (lockEntries)
         {
             entries.TryGetValue(directoryPath, out oldEntry);
-            entries[directoryPath] = entry ?? new Entry();
+            Entry replacement = entry ?? new Entry();
+            if (oldEntry?.SemanticallyEquals(replacement) == true)
+            {
+                return ReverseLookupMutationResult.Empty;
+            }
+            EnsureEntriesRootWritableUnsafe();
+            entries[directoryPath] = replacement;
         }
         return ApplyReverseLookupMutation(
             addedDirectoryPath: directoryPath,
@@ -793,13 +982,78 @@ internal sealed class DirectoryResourceLookupCache
             replacedDirectoryCount: 0);
     }
 
+    private void EnsureEntriesRootWritableUnsafe()
+    {
+        if (!entriesRootShared)
+        {
+            return;
+        }
+        entries = new Dictionary<string, Entry>(entries, StringComparer.OrdinalIgnoreCase);
+        entriesRootShared = false;
+    }
+
+    private int MutateReverseLookupRootUnsafe(
+        ReverseLookupCategory category,
+        Func<Dictionary<uint, string[]>, int> mutation)
+    {
+        Dictionary<uint, string[]> root = GetReverseLookupRootUnsafe(category);
+        bool isShared = category switch
+        {
+            ReverseLookupCategory.Audio => audioReverseLookupRootShared,
+            ReverseLookupCategory.Image => imageReverseLookupRootShared,
+            ReverseLookupCategory.Movie => movieReverseLookupRootShared,
+            _ => throw new ArgumentOutOfRangeException(nameof(category))
+        };
+        if (!isShared)
+        {
+            return mutation(root);
+        }
+
+        var detachedRoot = new Dictionary<uint, string[]>(root);
+        int changedBucketCount = mutation(detachedRoot);
+        if (changedBucketCount == 0)
+        {
+            return 0;
+        }
+        if (category == ReverseLookupCategory.Audio)
+        {
+            audioDirectoriesByRelativeHash = detachedRoot;
+            audioReverseLookupRootShared = false;
+        }
+        else if (category == ReverseLookupCategory.Image)
+        {
+            imageDirectoriesByRelativeHash = detachedRoot;
+            imageReverseLookupRootShared = false;
+        }
+        else
+        {
+            movieDirectoriesByRelativeHash = detachedRoot;
+            movieReverseLookupRootShared = false;
+        }
+        return changedBucketCount;
+    }
+
+    private Dictionary<uint, string[]> GetReverseLookupRootUnsafe(ReverseLookupCategory category)
+    {
+        return category switch
+        {
+            ReverseLookupCategory.Audio => audioDirectoriesByRelativeHash,
+            ReverseLookupCategory.Image => imageDirectoriesByRelativeHash,
+            ReverseLookupCategory.Movie => movieDirectoriesByRelativeHash,
+            _ => throw new ArgumentOutOfRangeException(nameof(category))
+        };
+    }
+
     private void InvalidateLazyReverseLookupCache()
     {
         lock (lockLazyDirectoriesByHash)
         {
-            audioDirectoriesByRelativeHash.Clear();
-            imageDirectoriesByRelativeHash.Clear();
-            movieDirectoriesByRelativeHash.Clear();
+            audioDirectoriesByRelativeHash = [];
+            imageDirectoriesByRelativeHash = [];
+            movieDirectoriesByRelativeHash = [];
+            audioReverseLookupRootShared = false;
+            imageReverseLookupRootShared = false;
+            movieReverseLookupRootShared = false;
             isFullReverseLookupBuilt = false;
         }
         Interlocked.Exchange(ref lazyHashBuildMs, 0L);
@@ -825,19 +1079,15 @@ internal sealed class DirectoryResourceLookupCache
         bool requiresDeferredWarmup;
         lock (lockLazyDirectoriesByHash)
         {
-            if (hasRemoved)
-            {
-                updatedHashCount += RemoveDirectoryFromCachedHashes(audioDirectoriesByRelativeHash, removedDirectoryPath, removedEntry.AudioRelativePathHashArray);
-                updatedHashCount += RemoveDirectoryFromCachedHashes(imageDirectoriesByRelativeHash, removedDirectoryPath, removedEntry.ImageRelativePathHashArray);
-                updatedHashCount += RemoveDirectoryFromCachedHashes(movieDirectoriesByRelativeHash, removedDirectoryPath, removedEntry.MovieRelativePathHashArray);
-            }
-
-            if (hasAdded)
-            {
-                updatedHashCount += AddDirectoryToCachedHashes(audioDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.AudioRelativePathHashArray, addMissingKeys: isFullReverseLookupBuilt);
-                updatedHashCount += AddDirectoryToCachedHashes(imageDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.ImageRelativePathHashArray, addMissingKeys: isFullReverseLookupBuilt);
-                updatedHashCount += AddDirectoryToCachedHashes(movieDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.MovieRelativePathHashArray, addMissingKeys: isFullReverseLookupBuilt);
-            }
+            updatedHashCount += MutateReverseLookupRootUnsafe(ReverseLookupCategory.Audio, root =>
+                (hasRemoved ? RemoveDirectoryFromCachedHashes(root, removedDirectoryPath, removedEntry.EnumerateAudioRelativePathHashes()) : 0)
+                + (hasAdded ? AddDirectoryToCachedHashes(root, addedDirectoryPath, addedEntry.EnumerateAudioRelativePathHashes(), isFullReverseLookupBuilt) : 0));
+            updatedHashCount += MutateReverseLookupRootUnsafe(ReverseLookupCategory.Image, root =>
+                (hasRemoved ? RemoveDirectoryFromCachedHashes(root, removedDirectoryPath, removedEntry.EnumerateImageRelativePathHashes()) : 0)
+                + (hasAdded ? AddDirectoryToCachedHashes(root, addedDirectoryPath, addedEntry.EnumerateImageRelativePathHashes(), isFullReverseLookupBuilt) : 0));
+            updatedHashCount += MutateReverseLookupRootUnsafe(ReverseLookupCategory.Movie, root =>
+                (hasRemoved ? RemoveDirectoryFromCachedHashes(root, removedDirectoryPath, removedEntry.EnumerateMovieRelativePathHashes()) : 0)
+                + (hasAdded ? AddDirectoryToCachedHashes(root, addedDirectoryPath, addedEntry.EnumerateMovieRelativePathHashes(), isFullReverseLookupBuilt) : 0));
 
             maintainedFullReverseLookup = isFullReverseLookupBuilt;
             requiresDeferredWarmup = false;
@@ -951,7 +1201,10 @@ internal sealed class DirectoryResourceLookupCache
             .Distinct() ?? [];
     }
 
-    private void EnsureRelativeDirectoriesByHashes(Dictionary<uint, string[]> targetDirectoriesByHash, Func<Entry, uint[]> hashArraySelector, IEnumerable<uint> hashes)
+    private void EnsureRelativeDirectoriesByHashes(
+        ReverseLookupCategory category,
+        Func<Entry, IEnumerable<uint>> hashSelector,
+        IEnumerable<uint> hashes)
     {
         uint[] requestedHashes = hashes?
             .Where(hash => hash != 0u)
@@ -965,6 +1218,7 @@ internal sealed class DirectoryResourceLookupCache
         var missingHashes = new HashSet<uint>(requestedHashes);
         lock (lockLazyDirectoriesByHash)
         {
+            Dictionary<uint, string[]> targetDirectoriesByHash = GetReverseLookupRootUnsafe(category);
             missingHashes.RemoveWhere(hash => targetDirectoriesByHash.ContainsKey(hash));
             if (isFullReverseLookupBuilt)
             {
@@ -977,11 +1231,12 @@ internal sealed class DirectoryResourceLookupCache
         }
 
         KeyValuePair<string, Entry>[] entrySnapshot = SnapshotEntries();
+        lazyReverseLookupEntrySnapshotCapturedObserver?.Invoke();
         Dictionary<uint, List<string>> builtDirectories = [];
         foreach (KeyValuePair<string, Entry> entryPair in entrySnapshot)
         {
-            uint[] relativeHashes = hashArraySelector?.Invoke(entryPair.Value);
-            if (relativeHashes == null || relativeHashes.Length == 0)
+            IEnumerable<uint> relativeHashes = hashSelector?.Invoke(entryPair.Value);
+            if (relativeHashes == null)
             {
                 continue;
             }
@@ -1002,21 +1257,27 @@ internal sealed class DirectoryResourceLookupCache
 
         lock (lockLazyDirectoriesByHash)
         {
-            foreach (uint hash in missingHashes)
+            MutateReverseLookupRootUnsafe(category, root =>
             {
-                if (targetDirectoriesByHash.ContainsKey(hash))
+                int addedBucketCount = 0;
+                foreach (uint hash in missingHashes)
                 {
-                    continue;
+                    if (root.ContainsKey(hash))
+                    {
+                        continue;
+                    }
+                    if (builtDirectories.TryGetValue(hash, out List<string> directories))
+                    {
+                        root[hash] = [.. directories.Distinct(StringComparer.OrdinalIgnoreCase)];
+                    }
+                    else
+                    {
+                        root[hash] = [];
+                    }
+                    addedBucketCount++;
                 }
-                if (builtDirectories.TryGetValue(hash, out List<string> directories))
-                {
-                    targetDirectoriesByHash[hash] = [.. directories.Distinct(StringComparer.OrdinalIgnoreCase)];
-                }
-                else
-                {
-                    targetDirectoriesByHash[hash] = [];
-                }
-            }
+                return addedBucketCount;
+            });
         }
     }
 
@@ -1069,5 +1330,12 @@ internal sealed class DirectoryResourceLookupCache
         public int AddedEntryCount { get; } = addedEntryCount;
 
         public long ElapsedMs { get; } = elapsedMs;
+    }
+
+    private enum ReverseLookupCategory
+    {
+        Audio,
+        Image,
+        Movie
     }
 }

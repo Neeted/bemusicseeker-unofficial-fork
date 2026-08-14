@@ -367,6 +367,10 @@ installed lookup は用途別に二層へ分ける。`PrimaryHashLookupState` �
 
 full directory lookup は md5 / sha256 の両方を登録する一方、個別 chart の owned installed 判定や package resolve の primary identity は md5 であり、「常に両 hash で union lookup する」仕様ではない。sha256 bucket は playlist sha-only entry、diagnostics、digest-aware auxiliary lookup のために保持する。installed-only package destination / package-level installed directory scoring / pending destination validation は package 内 chart を `PackageChartEntry` として列挙し、BMS-only mutation が必要な境界だけ BMS storage owner を返す。installed-only resource overwrite の skip 診断で原因 chart を探す helper は `ChartFile` を返すため、adapterless entry でも path / md5 identity をログへ出せる。
 
+destination resource index は `LibraryResourceIndexOwner` が BMS / bmson 共通の current `LibraryResourceIndex`、directory cache、runtime generation を一体で所有する。file-scan replacement 後も folder auto rename / manual rename / root move / whole-folder delete / install / merge / maintenance / install estimation は同じ owner の current snapshot または mutation command を使い、construction 時点の cache instance を保持しない。owner command は copy-on-write で次 generation を一括 publishし、既に捕捉済みの generation の directory/resource mapping を後続変更から隔離する。
+
+pending install destination の background 推定は resource、owned collection、installed-directory lookup、digest mutation window の composite currentness stamp を持つ。準備時の installed resolution と lock 外評価結果は、installed lookup の publish と同じ currentness gate 内で stamp が一致するときだけ entry へ適用する。不一致時は current package partition と current indexes で各段階を最大1回再評価する。2回目も stale の場合は既存 destination / warning を上書きせず、dispatch 時の元 entry 集合から searching state を解除して pending のまま残す。
+
 ## Playlist
 
 ### Entry identity

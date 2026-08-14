@@ -8,6 +8,13 @@ internal sealed class LibraryRemovalResult
 
     public List<LibraryDeleteFailure> Failures { get; } = [];
 
+    /// <summary>
+    /// Gets directories whose filesystem deletion completed successfully.
+    /// The operation owner uses these facts to update the current resource index
+    /// after the filesystem service returns.
+    /// </summary>
+    public List<string> DeletedFolderPaths { get; } = [];
+
     public LibraryMutationDelta MutationDelta { get; } = new();
 
     public int InputChartCount { get; set; }
@@ -22,5 +29,4 @@ internal sealed class LibraryRemovalResult
 
     public int FileDeleteCount { get; set; }
 
-    public DirectoryResourceLookupCache.ReverseLookupMutationResult ResourceIndexMutation { get; set; } = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
 }

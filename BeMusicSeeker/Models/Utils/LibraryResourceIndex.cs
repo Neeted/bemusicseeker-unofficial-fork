@@ -19,6 +19,21 @@ internal sealed class LibraryResourceIndex
 
     public int DirectoryCount => DirectoryLookupCache?.Count ?? 0;
 
+    /// <summary>
+    /// Creates a derived runtime generation while preserving the source index provenance.
+    /// </summary>
+    internal LibraryResourceIndex DeriveWithDirectoryLookupCache(
+        DirectoryResourceLookupCache directoryLookupCache)
+    {
+        return new LibraryResourceIndex
+        {
+            DirectoryLookupCache = directoryLookupCache ?? new DirectoryResourceLookupCache(),
+            BuildMs = BuildMs,
+            ResourceLookupMs = ResourceLookupMs,
+            Source = Source
+        };
+    }
+
     public static LibraryResourceIndex CreateFromScanResult(ChartScanResult scanResult)
     {
         var index = new LibraryResourceIndex();

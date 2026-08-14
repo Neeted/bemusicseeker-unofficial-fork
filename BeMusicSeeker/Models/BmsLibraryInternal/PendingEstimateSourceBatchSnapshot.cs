@@ -4,6 +4,17 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// Identifies the in-memory inputs from which a pending install estimate was produced.
+/// Retry callers capture this stamp in the same read boundary as the package's
+/// installed/missing partition so a newer stamp can never validate an older partition.
+/// </summary>
+internal readonly record struct PendingInstallEstimateCurrentnessStamp(
+    long ResourceIndexGeneration,
+    int OwnedCollectionVersion,
+    long InstalledLookupGeneration,
+    long DigestMutationGeneration);
+
 internal sealed class SourceSurfaceEntryView
 {
     public string SourceDirectory { get; set; } = string.Empty;
@@ -56,6 +67,11 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public InstalledDirectoryLookupResult PreparationInstalledResolution { get; set; }
 
+    /// <summary>
+    /// Gets or sets the runtime inputs used for <see cref="PreparationInstalledResolution"/>.
+    /// </summary>
+    public PendingInstallEstimateCurrentnessStamp? PreparationCurrentnessStamp { get; set; }
+
     public SourceSurfaceEntryView SourceSurface { get; set; }
 
     public SourceBaselinePrefilterResult BaselinePrefilter { get; set; } = new SourceBaselinePrefilterResult();
@@ -72,6 +88,12 @@ internal sealed class PendingEstimateSourceBatchSnapshot
     private readonly Dictionary<ChartPackage, PendingEstimateSourceBatchPackageState> packageStatesByPackage = [];
 
     public List<PendingEstimateSourceBatchPackageState> PackageStates { get; } = [];
+
+    /// <summary>
+    /// Gets or sets the versioned inputs shared by every package state in this batch. The stamp
+    /// guards the prepared installed/missing partition and source-derived state as one unit.
+    /// </summary>
+    public PendingInstallEstimateCurrentnessStamp PreparationCurrentnessStamp { get; set; }
 
     public int RootCount { get; set; }
 

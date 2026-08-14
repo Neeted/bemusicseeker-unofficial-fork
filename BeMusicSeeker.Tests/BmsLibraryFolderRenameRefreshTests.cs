@@ -104,6 +104,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Directory.CreateDirectory(secondDirectoryPath);
             File.WriteAllText(firstChartPath, "#PLAYER 1");
             File.WriteAllText(secondChartPath, "#PLAYER 1");
+            File.WriteAllText(Path.Combine(firstDirectoryPath, "first.wav"), "audio");
             try
             {
                 var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
@@ -125,6 +126,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 secondFile.SetTitle("Second Title");
                 secondFile.SetArtist("Second Artist");
                 SetLibraryFilesWithoutNotification(library, [firstFile, secondFile]);
+                var replacementIndex = new LibraryResourceIndex();
+                replacementIndex.DirectoryLookupCache.AddDir(firstDirectoryPath, new[] { "first.wav" });
+                replacementIndex.DirectoryLookupCache.AddDir(secondDirectoryPath, new[] { "second.wav" });
+                LibraryResourceIndexOwner resourceIndexOwner = GetLibraryResourceIndexOwner(library);
+                resourceIndexOwner.Replace(replacementIndex);
                 List<(int Total, int Processed, string Path)> progress = [];
                 int refreshCount = 0;
                 library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -149,8 +155,56 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 CollectionAssert.AreEqual(new[] { string.Empty, firstDirectoryPath, secondDirectoryPath }, progress.Select(item => item.Path).ToArray());
                 Assert.AreEqual(Path.Combine(libraryRootPath, "[First Artist] First Title", "first.bms"), firstFile.path);
                 Assert.AreEqual(Path.Combine(libraryRootPath, "[Second Artist] Second Title", "second.bms"), secondFile.path);
+                LibraryResourceIndexSnapshot resourceSnapshot = resourceIndexOwner.CaptureSnapshot();
+                Assert.IsNull(resourceSnapshot.DirectoryLookupCache.GetEntryOrNull(firstDirectoryPath));
+                Assert.IsNull(resourceSnapshot.DirectoryLookupCache.GetEntryOrNull(secondDirectoryPath));
+                Assert.IsNotNull(resourceSnapshot.DirectoryLookupCache.GetEntryOrNull(Path.Combine(libraryRootPath, "[First Artist] First Title")));
+                Assert.IsNotNull(resourceSnapshot.DirectoryLookupCache.GetEntryOrNull(Path.Combine(libraryRootPath, "[Second Artist] Second Title")));
                 Assert.IsFalse(Directory.Exists(firstDirectoryPath));
                 Assert.IsFalse(Directory.Exists(secondDirectoryPath));
+
+                string pendingDirectoryPath = Path.Combine(tempRootPath, "PendingAfterRename");
+                string pendingChartPath = Path.Combine(pendingDirectoryPath, "pending.bms");
+                Directory.CreateDirectory(pendingDirectoryPath);
+                File.WriteAllText(
+                    pendingChartPath,
+                    "#PLAYER 1\r\n#TITLE First Title\r\n#ARTIST First Artist\r\n#WAVAA first.wav\r\n#00111:AA\r\n");
+                var pendingPackage = ChartPackageTestExtensions.CreatePackage(
+                    [BMSFile.CreateBMSFileFromFile(pendingChartPath)]);
+                pendingPackage.path = pendingDirectoryPath;
+                pendingPackage.delete_parent = false;
+                library.ChartPackagesPending = CreatePackageCollection([pendingPackage]);
+
+                library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+                PackageChartEntry pendingEntry = pendingPackage.ChartEntries.Single();
+                Assert.AreEqual(
+                    Path.Combine(libraryRootPath, "[First Artist] First Title"),
+                    pendingEntry.Chart.InstallDestination);
+                Assert.AreNotEqual(firstDirectoryPath, pendingEntry.Chart.InstallDestination);
+
+                string pendingBmsonPath = Path.Combine(pendingDirectoryPath, "pending.bmson");
+                File.WriteAllText(
+                    pendingBmsonPath,
+                    "{\"version\":\"1.0.0\",\"info\":{\"title\":\"First Title\",\"artist\":\"First Artist\",\"mode_hint\":\"beat-7k\"},"
+                    + "\"sound_channels\":[{\"name\":\"first.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}");
+                ChartPackage pendingBmsonPackage = ChartPackage.FromChartEntries(
+                [
+                    PackageChartEntry.FromChart(
+                        ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)))
+                ]);
+                pendingBmsonPackage.path = pendingBmsonPath;
+                pendingBmsonPackage.delete_parent = true;
+                library.ChartPackagesPending = CreatePackageCollection([pendingPackage, pendingBmsonPackage]);
+
+                library.SearchEstimatedInstallationDirectory(pendingBmsonPackage);
+
+                PackageChartEntry pendingBmsonEntry = pendingBmsonPackage.ChartEntries.Single();
+                Assert.IsNull(pendingBmsonEntry.GetBmsOwnerForTest());
+                Assert.AreEqual(
+                    Path.Combine(libraryRootPath, "[First Artist] First Title"),
+                    pendingBmsonEntry.Chart.InstallDestination);
+                Assert.AreNotEqual(firstDirectoryPath, pendingBmsonEntry.Chart.InstallDestination);
             }
             finally
             {
@@ -1909,6 +1963,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledChartLookupSnapshot(BMSLibrary library)
     {
         return library.CreateInstalledChartLookupSnapshotForDiagnostics();
+    }
+
+    private static LibraryResourceIndexOwner GetLibraryResourceIndexOwner(BMSLibrary library)
+    {
+        FieldInfo field = typeof(BMSLibrary).GetField(
+            "libraryResourceIndexOwner",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return (LibraryResourceIndexOwner)field.GetValue(library)!;
     }
 
     private static bool IsInstalledChartLookupIndexInitialized(BMSLibrary library)

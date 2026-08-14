@@ -34,7 +34,7 @@ internal sealed class CatalogMaintenanceOwner
 
     private readonly Func<IDisposable> enterStorageRowsWriteGuard;
 
-    private readonly DirectoryResourceLookupCache resourceLookupCache;
+    private readonly LibraryResourceIndexOwner resourceIndexOwner;
 
     private readonly IBmsLibraryDialogService dialogService;
 
@@ -72,7 +72,7 @@ internal sealed class CatalogMaintenanceOwner
         Func<OwnedChartStorageOwnerView> ownerViewProvider,
         Func<string, ResourceMaintenanceTargetSet> fullTargetProvider,
         Func<IDisposable> enterStorageRowsWriteGuard,
-        DirectoryResourceLookupCache resourceLookupCache,
+        LibraryResourceIndexOwner resourceIndexOwner,
         IBmsLibraryDialogService dialogService,
         Func<bool> isShutdownRequested,
         Func<string, string, bool> trySkipForShutdown,
@@ -92,7 +92,7 @@ internal sealed class CatalogMaintenanceOwner
         this.ownerViewProvider = ownerViewProvider ?? throw new ArgumentNullException(nameof(ownerViewProvider));
         this.fullTargetProvider = fullTargetProvider ?? throw new ArgumentNullException(nameof(fullTargetProvider));
         this.enterStorageRowsWriteGuard = enterStorageRowsWriteGuard ?? throw new ArgumentNullException(nameof(enterStorageRowsWriteGuard));
-        this.resourceLookupCache = resourceLookupCache;
+        this.resourceIndexOwner = resourceIndexOwner ?? throw new ArgumentNullException(nameof(resourceIndexOwner));
         this.dialogService = dialogService;
         this.isShutdownRequested = isShutdownRequested ?? throw new ArgumentNullException(nameof(isShutdownRequested));
         this.trySkipForShutdown = trySkipForShutdown ?? throw new ArgumentNullException(nameof(trySkipForShutdown));
@@ -192,7 +192,7 @@ internal sealed class CatalogMaintenanceOwner
                         forceUpdate,
                         catalogMutationOwner.ApplyMaintenanceWriteUnderGuard,
                         dialogServiceOverride ?? dialogService,
-                        new ResourceHealthLookupContext(resourceLookupCache),
+                        new ResourceHealthLookupContext(resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache),
                         logPerformanceOverride ?? logPerformance,
                         progressReporter,
                         cancellationToken,

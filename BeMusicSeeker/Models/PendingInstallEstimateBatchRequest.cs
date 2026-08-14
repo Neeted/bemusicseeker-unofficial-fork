@@ -23,6 +23,10 @@ internal sealed class PendingInstallEstimateBatchRequest
 
     public string[] RegroupEligibleSourceDirectories { get; }
 
+    /// <summary>
+    /// Gets the optional prepared partition and source-surface snapshot. Consumers may reuse it only
+    /// while its composite currentness stamp matches the processing capture.
+    /// </summary>
     public PendingEstimateSourceBatchSnapshot BatchSourceSnapshot { get; }
 
     internal PerformanceInteraction PerformanceInteraction { get; }

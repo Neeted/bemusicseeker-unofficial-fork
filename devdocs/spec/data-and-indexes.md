@@ -41,8 +41,12 @@ install readiness の critical path では、導入先推定に必要な catalog
 通常起動の destination resource index は file enumeration から作る。
 
 - 正本:
-  - `LibraryResourceIndex`
-  - `DirectoryResourceLookupCache`
+  - runtime owner は `LibraryResourceIndexOwner` とする。
+  - owner が current `LibraryResourceIndex`、対応する `DirectoryResourceLookupCache`、runtime generation を一体で所有する。
+  - file-scan replacement、move / rename、whole-folder delete、install、merge は owner の replace / mutation command を通す。長寿命 owner / service は cache instance を保持しない。
+  - snapshot は index / directory cache / generation の対応を atomic に捕捉し、公開後の directory/resource mapping は後続 mutation で変化しない。変更 command は current cache を copy-on-write し、新 index/cache/generation を一括 publish する。変更 receipt は mutation result と変更後 snapshot を返し、実変更時だけ generation を進める。`Replace` に渡した完成済み index は owner へ ownership transfer され、呼出側は publish 後に直接変更しない。
+  - cache copy-on-write は dictionary root、immutable `Entry`、immutable reverse-lookup bucket を generation 間で共有する。mutation は unpublished clone の dictionary root を必要時に detach し、変更対象の entry / bucket だけを置換する。入力配列は ownership transfer が明示された native canonical build を除いて複製し、呼出側 alias を保持しない。`Entry` の内部 backing 配列も assembly consumer へ公開しない。
+  - merge の source subtree removal と destination scan addition は単一 owner command で unpublished clone に適用し、combined receipt として1回だけ publish する。途中で入力列挙または mutation が失敗した場合は例外を伝播し、旧 snapshot / generation を維持する。remove と add の最終 mapping が更新前と同一なら no-op とし、snapshot identity と generation を維持する。
 - key semantics:
   - chart-relative resource key。
   - `foo.wav` は `foo`。
@@ -56,6 +60,8 @@ install readiness の critical path では、導入先推定に必要な catalog
   - resource-key -> candidate chart directory。
   - install readiness 前に完成している。
   - pending package batch 側へ lazy build を持ち越さない。
+
+pending install destination の background 推定は resource generation、owned collection version、installed-directory lookup generation、digest mutation generation を currentness stamp として保持する。installed lookup の snapshot / generation 公開、digest mutation window の begin / end、推定結果の currentness 検証 / entry 適用は同じ狭い同期境界を通す。準備済み installed-directory 解決、installed / missing partition、source-derived state は準備 stamp が処理開始時の composite stamp と一致する場合だけ一体で再利用し、不一致なら current partition / context を同じ read boundary で再構築する。評価結果も stamp が current で digest mutation window が閉じている場合だけ適用する。準備または評価の後に入力が変化した場合は current snapshot で同じ段階を最大1回再評価し、retry の installed / missing partition、pending membership、resource snapshot、installed lookup、currentness stamp は同じ read boundary で一括捕捉する。再評価中にも変化した場合は destination / warning を書き込まず明示的に skip する。generation は runtime-only であり DB schema や install row へ保存しない。background batch が terminal success、stale skip、exception、cancellation のいずれで終了しても、dispatch 時に `SEARCHING` を立てた元 entry 集合を必ず解除する。
 
 native bridge path では `EBridge_ScanChartAndResources` の packed result から直接 resource index を作る。`ChartScanResult` は chart paths / chart directories の carrier として使い、resource dictionaries は通常起動 main path では materialize しない。
 
@@ -150,7 +156,7 @@ file diff / install / merge / delete / move 後は、必要な範囲で次を同
 - `DirectoryResourceLookupCache`
 - playlist references when affected
 
-増分更新では、旧 union cache ではなく `DirectoryResourceLookupCache` の directory key set を正本にする。
+増分更新では、旧 union cache ではなく `LibraryResourceIndexOwner` が所有する current `DirectoryResourceLookupCache` の directory key set を正本にする。filesystem mutation は resource owner の lock 外で完了させ、成功後に current index へ command を適用する。file-scan replacement は owner 自体を差し替えず、owner の `Replace` で current generation を更新する。
 
 chart-info storageでは、inline用BMS generated rowsまたはfull-backfill用update-only projectionと`chart_digest_map` / `chart_info` / parse-failure factsを同じtransactionに入れる。full backfillは既存songの基本列を再生成せず、missing rowもmaterializeしない。BMSONは`bmson_song`と`chart_info`を正本にし、LR2 `song`へ互換rowをmaterializeしない。metadata cacheとしてownerのない`chart_info` rowを保持する契約も維持し、backfillを理由に全件削除しない。
 

@@ -365,11 +365,8 @@ public partial class BMSLibrary
             }
             if (ChartDirectoryScanBuilder.TryBuildFromRoots(directoryList, out ChartScanResult addedDirectoryScan, out string scanFailureReason))
             {
-                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-                foreach (string dir in addedDirectoryScan.ChartDirectories)
-                {
-                    reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
-                }
+                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+                    libraryResourceIndexOwner.AddScanDirectories(addedDirectoryScan).MutationResult;
                 LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
             }
             else
@@ -523,14 +520,9 @@ public partial class BMSLibrary
         {
             return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
-        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
-            DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        foreach (string dir in preparation.AffectedDirectories)
-        {
-            reverseLookupMutation = reverseLookupMutation.Combine(
-                directoryResourceLookupCache.AddDir(dir, preparation.DirectoryScan));
-        }
-        return reverseLookupMutation;
+        return libraryResourceIndexOwner.AddDirectories(
+            preparation.AffectedDirectories,
+            preparation.DirectoryScan).MutationResult;
     }
 
     private static List<ChartFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<ChartFile> charts)
@@ -783,7 +775,8 @@ public partial class BMSLibrary
                             }
                             if (resolution.Reason == InstalledDirectoryResolveReason.MultipleCandidateDirectories)
                             {
-                                if (!HasUsableDirectoryLookupCache(directoryResourceLookupCache))
+                                if (!HasUsableDirectoryLookupCache(
+                                    libraryResourceIndexOwner.CaptureSnapshot().DirectoryLookupCache))
                                 {
                                     LogInstallPerformance("mixed_package_resolve failed reason=resource_index_unavailable missing=" + missingEntries.Count + " candidateDirs=" + resolution.CandidateDirectoryCount);
                                     ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, missingEntries);
@@ -912,14 +905,14 @@ public partial class BMSLibrary
         RunPendingEstimateExclusive(delegate
         {
             SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, request.PackageCount, 0, request.DisplayName ?? string.Empty);
-            PendingInstallEstimateEvaluationContext evaluationContext = CreatePendingInstallEstimateEvaluationContext();
-            List<PendingInstallEstimateEvaluationRequest> evaluationRequests = PreparePendingInstallEstimateEvaluationRequests(request);
+            PendingInstallEstimateBatchCapture evaluationCapture =
+                CapturePendingInstallEstimateBatch(request);
             ProcessPendingInstallEstimateEvaluationPipeline(
                 request,
                 source,
                 CancellationToken.None,
-                evaluationContext,
-                evaluationRequests,
+                evaluationCapture.Context,
+                evaluationCapture.Requests,
                 executionPolicy,
                 ref completed,
                 ref lowConfidenceCount,
