@@ -187,7 +187,9 @@ public sealed class ShellShutdownWorkflowOwnerTests
             });
 
         Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("update");
-        Assert.IsFalse(preparation.Wait(TimeSpan.FromMilliseconds(100)));
+        Assert.IsTrue(owner.IsShutdownPreparationStarted);
+        Assert.IsTrue(owner.IsShutdownPreparationRunning);
+        Assert.IsFalse(preparation.IsCompleted);
         regularChartStopRelease.SetResult(true);
         await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => preparation);
 
@@ -205,11 +207,17 @@ public sealed class ShellShutdownWorkflowOwnerTests
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         TaskCompletionSource<bool> regularChartStopRelease = PreparePendingRegularChartStop(viewModel);
-        ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
+        using var shutdownEntered = new ManualResetEventSlim();
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            markShutdown: _ => shutdownEntered.Set());
 
         Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
 
-        Assert.IsFalse(close.Wait(TimeSpan.FromMilliseconds(100)));
+        Assert.IsTrue(shutdownEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(owner.IsShutdownPreparationStarted);
+        Assert.IsTrue(owner.IsShutdownPreparationRunning);
+        Assert.IsFalse(close.IsCompleted);
         Assert.IsFalse(owner.IsShutdownPrepared);
         regularChartStopRelease.SetResult(true);
 
@@ -312,8 +320,9 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(checkEntered.Wait(TimeSpan.FromSeconds(5)));
 
         Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
-        Assert.IsFalse(close.Wait(TimeSpan.FromMilliseconds(100)));
+        Assert.IsFalse(close.IsCompleted);
         Assert.IsFalse(owner.IsShutdownPreparationStarted);
+        Assert.IsFalse(owner.IsShutdownPreparationRunning);
 
         checkRelease.SetResult(UpdateCheckResult.NoUpdate("1.0.0.0"));
         ShellShutdownWorkflowCompletionReceipt receipt = await close;
@@ -372,9 +381,9 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsFalse(owner.IsShutdownPreparationStarted);
 
         startRelease.SetResult(true);
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => owner.IsShutdownPrepared && startupUpdate.IsIdle,
-            TimeSpan.FromSeconds(5)));
+        await startupUpdate.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await startupUpdate.WaitForTerminalAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(owner.IsShutdownPrepared);
 
         Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
         ShellShutdownWorkflowCompletionReceipt receipt = await close;

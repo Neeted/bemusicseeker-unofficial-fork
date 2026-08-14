@@ -19,6 +19,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
     private int keywordActiveCount;
     private long displayTargetQueuedRevision = -1L;
     private int displayTargetActiveCount;
+    private TaskCompletionSource<bool> refreshQueuesIdleCompletion;
     private ChartListSortParameters sortParameters;
     private ListenerCommand<PlayHistorySummaryCard> toggleSummaryFilterCommand;
     private Func<bool> isViewRefreshShutdownRequested;
@@ -1662,7 +1663,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 }
                 revision = KeywordRevision;
             }
-            if (!TryReserveRevision(ref keywordQueuedRevision, revision))
+            if (!TryReserveRevisionUnsafe(ref keywordQueuedRevision, revision))
             {
                 return false;
             }
@@ -1674,7 +1675,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             {
                 DetailSourceRetirement = ActiveRequest.DetailSourceRetirement
             };
-            Interlocked.Increment(ref keywordActiveCount);
+            keywordActiveCount++;
             return true;
         }
     }
@@ -1706,7 +1707,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 }
                 revision = DisplayTargetRevision;
             }
-            if (!TryReserveRevision(ref displayTargetQueuedRevision, revision))
+            if (!TryReserveRevisionUnsafe(ref displayTargetQueuedRevision, revision))
             {
                 return false;
             }
@@ -1718,41 +1719,109 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             {
                 DetailSourceRetirement = ActiveRequest.DetailSourceRetirement
             };
-            Interlocked.Increment(ref displayTargetActiveCount);
+            displayTargetActiveCount++;
             return true;
         }
     }
 
     internal void CompleteKeywordRefresh(long revision)
     {
-        DecrementActiveCount(ref keywordActiveCount, "keyword");
-        Interlocked.CompareExchange(ref keywordQueuedRevision, -1L, revision);
+        TaskCompletionSource<bool> completion;
+        lock (PresentationState.SyncRoot)
+        {
+            DecrementActiveCountUnsafe(ref keywordActiveCount, "keyword");
+            if (keywordQueuedRevision == revision)
+            {
+                keywordQueuedRevision = -1L;
+            }
+            completion = TakeRefreshQueuesIdleCompletionUnsafe();
+        }
+        completion?.TrySetResult(true);
     }
 
     internal void CompleteDisplayTargetRefresh(long revision)
     {
-        DecrementActiveCount(ref displayTargetActiveCount, "display-target");
-        Interlocked.CompareExchange(ref displayTargetQueuedRevision, -1L, revision);
+        TaskCompletionSource<bool> completion;
+        lock (PresentationState.SyncRoot)
+        {
+            DecrementActiveCountUnsafe(ref displayTargetActiveCount, "display-target");
+            if (displayTargetQueuedRevision == revision)
+            {
+                displayTargetQueuedRevision = -1L;
+            }
+            completion = TakeRefreshQueuesIdleCompletionUnsafe();
+        }
+        completion?.TrySetResult(true);
     }
 
     internal void ClearQueuedRefreshes()
     {
-        Interlocked.Exchange(ref keywordQueuedRevision, -1L);
-        Interlocked.Exchange(ref displayTargetQueuedRevision, -1L);
+        TaskCompletionSource<bool> completion;
+        lock (PresentationState.SyncRoot)
+        {
+            keywordQueuedRevision = -1L;
+            displayTargetQueuedRevision = -1L;
+            completion = TakeRefreshQueuesIdleCompletionUnsafe();
+        }
+        completion?.TrySetResult(true);
     }
 
-    internal bool AreRefreshQueuesIdle =>
-        Interlocked.Read(ref keywordQueuedRevision) < 0L
-        && Volatile.Read(ref keywordActiveCount) == 0
-        && Interlocked.Read(ref displayTargetQueuedRevision) < 0L
-        && Volatile.Read(ref displayTargetActiveCount) == 0;
+    internal bool AreRefreshQueuesIdle
+    {
+        get
+        {
+            lock (PresentationState.SyncRoot)
+            {
+                return AreRefreshQueuesIdleUnsafe();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns a task that completes when all queued keyword and display-target revisions and their active workers are idle.
+    /// </summary>
+    internal Task WaitForRefreshQueuesIdleAsync()
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            if (AreRefreshQueuesIdleUnsafe())
+            {
+                return Task.CompletedTask;
+            }
+            refreshQueuesIdleCompletion ??= new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            return refreshQueuesIdleCompletion.Task;
+        }
+    }
 
     internal string DescribeRefreshQueues()
     {
-        return "keywordQueuedRevision=" + Interlocked.Read(ref keywordQueuedRevision)
-            + " keywordActiveCount=" + Volatile.Read(ref keywordActiveCount)
-            + " displayTargetQueuedRevision=" + Interlocked.Read(ref displayTargetQueuedRevision)
-            + " displayTargetActiveCount=" + Volatile.Read(ref displayTargetActiveCount);
+        lock (PresentationState.SyncRoot)
+        {
+            return "keywordQueuedRevision=" + keywordQueuedRevision
+                + " keywordActiveCount=" + keywordActiveCount
+                + " displayTargetQueuedRevision=" + displayTargetQueuedRevision
+                + " displayTargetActiveCount=" + displayTargetActiveCount;
+        }
+    }
+
+    private bool AreRefreshQueuesIdleUnsafe()
+    {
+        return keywordQueuedRevision < 0L
+            && keywordActiveCount == 0
+            && displayTargetQueuedRevision < 0L
+            && displayTargetActiveCount == 0;
+    }
+
+    private TaskCompletionSource<bool> TakeRefreshQueuesIdleCompletionUnsafe()
+    {
+        if (!AreRefreshQueuesIdleUnsafe())
+        {
+            return null;
+        }
+        TaskCompletionSource<bool> completion = refreshQueuesIdleCompletion;
+        refreshQueuesIdleCompletion = null;
+        return completion;
     }
 
     internal IReadOnlyList<PlayHistoryRow> ApplyKeywordFilters(
@@ -2050,36 +2119,23 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         }
     }
 
-    private static bool TryReserveRevision(ref long queuedRevision, long revision)
+    private static bool TryReserveRevisionUnsafe(ref long queuedRevision, long revision)
     {
-        while (true)
+        if (queuedRevision >= revision)
         {
-            long current = Interlocked.Read(ref queuedRevision);
-            if (current >= revision)
-            {
-                return false;
-            }
-            if (Interlocked.CompareExchange(ref queuedRevision, revision, current) == current)
-            {
-                return true;
-            }
+            return false;
         }
+        queuedRevision = revision;
+        return true;
     }
 
-    private static void DecrementActiveCount(ref int activeCount, string queueName)
+    private static void DecrementActiveCountUnsafe(ref int activeCount, string queueName)
     {
-        while (true)
+        if (activeCount <= 0)
         {
-            int current = Volatile.Read(ref activeCount);
-            if (current <= 0)
-            {
-                throw new InvalidOperationException("The " + queueName + " refresh queue was completed without an active worker.");
-            }
-            if (Interlocked.CompareExchange(ref activeCount, current - 1, current) == current)
-            {
-                return;
-            }
+            throw new InvalidOperationException("The " + queueName + " refresh queue was completed without an active worker.");
         }
+        activeCount--;
     }
 
     internal CancellationToken GetCancellationToken(long requestId)

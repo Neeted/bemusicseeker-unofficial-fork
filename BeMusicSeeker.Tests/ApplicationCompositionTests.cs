@@ -1035,12 +1035,15 @@ public sealed class ApplicationCompositionTests
                 () => new BmsLibraryOptionsSnapshot(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+            long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+            Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache([], dataGeneration));
             int uiThreadId = Thread.CurrentThread.ManagedThreadId;
             int workerThreadId = 0;
             int propertyChangedThreadId = 0;
             int propertyChangedCount = 0;
             var frame = new DispatcherFrame();
-            viewModel.PlaylistWorkspace.PropertyChanged += (_, e) =>
+            workspace.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode))
                 {
@@ -1050,11 +1053,15 @@ public sealed class ApplicationCompositionTests
                 }
             };
 
-            Task worker = Task.Run(() =>
-            {
-                workerThreadId = Thread.CurrentThread.ManagedThreadId;
-                viewModel.PlaylistWorkspace.RequestSummarySelection();
-            });
+            Task worker = Task.Factory.StartNew(
+                () =>
+                {
+                    workerThreadId = Thread.CurrentThread.ManagedThreadId;
+                    workspace.RequestSummarySelection();
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
             bool timedOut = false;
             var timeout = new DispatcherTimer(
                 TimeSpan.FromSeconds(5),
@@ -1071,8 +1078,8 @@ public sealed class ApplicationCompositionTests
             worker.GetAwaiter().GetResult();
 
             Assert.IsFalse(timedOut, "Playlist summary terminal presentation was not published.");
-            Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryMode);
-            Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryModeRequested);
+            Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+            Assert.IsTrue(workspace.IsPlaylistSummaryModeRequested);
             Assert.AreNotEqual(uiThreadId, workerThreadId);
             Assert.AreEqual(uiThreadId, propertyChangedThreadId);
             Assert.AreEqual(1, propertyChangedCount);

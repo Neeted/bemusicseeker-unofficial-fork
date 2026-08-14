@@ -1877,10 +1877,13 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void MainChartListSortRequest_KeepsPlayHistorySortSeparateFromMainSort()
+    public async Task MainChartListSortRequest_KeepsPlayHistorySortSeparateFromMainSort()
     {
         var viewModel = MainWindowViewModelTestFactory.Create();
         var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        var regularSortChanged = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        regularOwner.SortChanged += (_, request) => regularSortChanged.TrySetResult(request);
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
@@ -1889,9 +1892,8 @@ public sealed class PlayHistoryReadModelTests
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
         viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => regularOwner.CaptureSortParameters()?.ColumnsName == nameof(BMSFile.Title),
-            TimeSpan.FromSeconds(5)));
+        MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(nameof(BMSFile.Title), regularReceipt.ColumnName);
 
         ChartListSortParameters regularSort = regularOwner.CaptureSortParameters();
         Assert.AreEqual(nameof(BMSFile.Title), regularSort.ColumnsName);
@@ -1906,11 +1908,13 @@ public sealed class PlayHistoryReadModelTests
             MainViewUpdateMode.PlayHistorySelected);
         viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlayHistorySelected);
 
+        var playHistorySortChanged = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        viewModel.PlayHistory.SortChanged += (_, request) => playHistorySortChanged.TrySetResult(request);
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => viewModel.PlayHistory.CaptureSortParameters(out _)?.ColumnsName == nameof(PlayHistoryRow.PlayedAt),
-            TimeSpan.FromSeconds(5)));
+        MainChartListSortRequestedEventArgs playHistoryReceipt = await playHistorySortChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistoryReceipt.ColumnName);
 
         ChartListSortParameters playHistorySort = viewModel.PlayHistory.CaptureSortParameters(out _);
         Assert.AreEqual(nameof(BMSFile.Title), regularOwner.CaptureSortParameters().ColumnsName);
@@ -1922,10 +1926,13 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void MainChartListSortRequest_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
+    public async Task MainChartListSortRequest_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
     {
         var viewModel = MainWindowViewModelTestFactory.Create();
         var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        var playHistorySortChanged = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        viewModel.PlayHistory.SortChanged += (_, request) => playHistorySortChanged.TrySetResult(request);
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
@@ -1935,9 +1942,8 @@ public sealed class PlayHistoryReadModelTests
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => viewModel.PlayHistory.CaptureSortParameters(out _)?.ColumnsName == nameof(PlayHistoryRow.PlayedAt),
-            TimeSpan.FromSeconds(5)));
+        MainChartListSortRequestedEventArgs playHistoryReceipt = await playHistorySortChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistoryReceipt.ColumnName);
 
         ChartListSortParameters playHistorySort = viewModel.PlayHistory.CaptureSortParameters(out _);
         Assert.IsNull(regularOwner.CaptureSortParameters());
@@ -1951,6 +1957,9 @@ public sealed class PlayHistoryReadModelTests
             MainViewUpdateMode.PlayHistorySelected);
         viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlayHistorySelected);
 
+        var regularSortChanged = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        regularOwner.SortChanged += (_, request) => regularSortChanged.TrySetResult(request);
         viewModel.MainChartList.SetSortPresentation(
             new MainChartListSortPresentation(
                 playHistorySort.ColumnsName,
@@ -1962,9 +1971,8 @@ public sealed class PlayHistoryReadModelTests
                 playHistorySort.ColumnsName,
                 playHistorySort.Direction),
             MainChartListSortTarget.PlayHistory);
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => regularOwner.CaptureSortParameters()?.ColumnsName == nameof(BMSFile.Title),
-            TimeSpan.FromSeconds(5)));
+        MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(nameof(BMSFile.Title), regularReceipt.ColumnName);
 
         ChartListSortParameters regularSort = regularOwner.CaptureSortParameters();
         Assert.AreEqual(nameof(BMSFile.Title), regularSort.ColumnsName);
@@ -2025,11 +2033,15 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void PlayHistorySortRefreshQueue_CoalescesAndNeverPublishesOutOfRevisionOrder()
+    public async Task PlayHistorySortRefreshQueue_CoalescesAndNeverPublishesOutOfRevisionOrder()
     {
         var owner = new PlayHistoryWorkflowOwner();
         var changed = new List<MainChartListSortRequestedEventArgs>();
         var refreshed = new List<MainChartListSortRequestedEventArgs>();
+        var firstRefreshEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstRefreshRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finalRefreshPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        long finalRevision = -1L;
         owner.SortChanged += (_, request) => changed.Add(request);
         owner.SortRefreshRequested += (_, request) =>
         {
@@ -2037,25 +2049,37 @@ public sealed class PlayHistoryReadModelTests
             {
                 refreshed.Add(request);
             }
-            Thread.Sleep(2);
+            if (firstRefreshEntered.TrySetResult(true))
+            {
+                firstRefreshRelease.Task.GetAwaiter().GetResult();
+            }
+            if (request.OwnerRevision == Volatile.Read(ref finalRevision))
+            {
+                finalRefreshPublished.TrySetResult(true);
+            }
         };
 
-        for (int index = 0; index < 40; index++)
+        owner.QueueSort(new MainChartListSortRequestedEventArgs(
+            nameof(PlayHistoryRow.Title),
+            ListSortDirection.Ascending,
+            MainChartListSortTarget.PlayHistory));
+        await firstRefreshEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
         {
-            owner.QueueSort(new MainChartListSortRequestedEventArgs(
-                index % 2 == 0 ? nameof(PlayHistoryRow.Title) : nameof(PlayHistoryRow.PlayedAt),
-                index % 2 == 0 ? ListSortDirection.Ascending : ListSortDirection.Descending,
-                MainChartListSortTarget.PlayHistory));
-        }
-
-        long finalRevision = changed[changed.Count - 1].OwnerRevision;
-        Assert.IsTrue(SpinWait.SpinUntil(() =>
-        {
-            lock (refreshed)
+            for (int index = 1; index < 40; index++)
             {
-                return refreshed.Count > 0 && refreshed[refreshed.Count - 1].OwnerRevision == finalRevision;
+                owner.QueueSort(new MainChartListSortRequestedEventArgs(
+                    index % 2 == 0 ? nameof(PlayHistoryRow.Title) : nameof(PlayHistoryRow.PlayedAt),
+                    index % 2 == 0 ? ListSortDirection.Ascending : ListSortDirection.Descending,
+                    MainChartListSortTarget.PlayHistory));
             }
-        }, TimeSpan.FromSeconds(5)));
+            Volatile.Write(ref finalRevision, changed[changed.Count - 1].OwnerRevision);
+        }
+        finally
+        {
+            firstRefreshRelease.TrySetResult(true);
+        }
+        await finalRefreshPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         lock (refreshed)
         {
@@ -3315,7 +3339,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void WorkflowOwner_OwnsRefreshRevisionCoalescingAndActivity()
+    public async Task WorkflowOwner_OwnsRefreshRevisionCoalescingAndActivity()
     {
         var owner = new PlayHistoryWorkflowOwner();
         PlayHistoryViewRequest activeRequest =
@@ -3330,9 +3354,16 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreSame(detailSourceRetirement, initialRequest.DetailSourceRetirement);
         owner.CompleteKeywordRefresh(initialRequest.KeywordFilterRevision);
 
+        Task alreadyIdle = owner.WaitForRefreshQueuesIdleAsync();
+        Assert.IsTrue(alreadyIdle.IsCompletedSuccessfully);
+
         Assert.IsTrue(owner.TryBeginKeywordRefresh("keyword", advanceRevision: true, out PlayHistoryViewRequest keywordRequest));
+        Task keywordIdle = owner.WaitForRefreshQueuesIdleAsync();
+        Assert.IsFalse(keywordIdle.IsCompleted);
         Assert.IsFalse(owner.TryBeginKeywordRefresh("keyword", advanceRevision: false, out _));
         Assert.IsTrue(owner.TryBeginDisplayTargetRefresh("target", advanceRevision: true, out PlayHistoryViewRequest displayRequest));
+        Task displayIdle = owner.WaitForRefreshQueuesIdleAsync();
+        Assert.AreSame(keywordIdle, displayIdle);
         Assert.AreSame(detailSourceRetirement, keywordRequest.DetailSourceRetirement);
         Assert.AreSame(detailSourceRetirement, displayRequest.DetailSourceRetirement);
         Assert.IsFalse(owner.TryBeginDisplayTargetRefresh("target", advanceRevision: false, out _));
@@ -3340,9 +3371,12 @@ public sealed class PlayHistoryReadModelTests
 
         owner.ClearQueuedRefreshes();
         Assert.IsFalse(owner.AreRefreshQueuesIdle, "Active workers keep the owner non-idle after queued revisions are cleared.");
+        Assert.IsFalse(keywordIdle.IsCompleted, "Clearing revisions must not report idle while their workers remain active.");
         owner.CompleteKeywordRefresh(keywordRequest.KeywordFilterRevision);
+        Assert.IsFalse(keywordIdle.IsCompleted, "The display-target worker still owns active work.");
         owner.CompleteDisplayTargetRefresh(displayRequest.DisplayTargetRevision);
 
+        await keywordIdle.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.IsTrue(owner.AreRefreshQueuesIdle);
         Assert.AreEqual(keywordRequest.KeywordFilterRevision, owner.KeywordRevision);
         Assert.AreEqual(displayRequest.DisplayTargetRevision, owner.DisplayTargetRevision);
@@ -3373,11 +3407,19 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(1, keywordReservations);
         owner.CompleteKeywordRefresh(concurrentRequest!.KeywordFilterRevision);
         Assert.ThrowsException<InvalidOperationException>(() => owner.CompleteKeywordRefresh(concurrentRequest.KeywordFilterRevision));
-        Assert.IsTrue(owner.AreRefreshQueuesIdle);
+        await owner.WaitForRefreshQueuesIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsTrue(owner.TryBeginKeywordRefresh("stale-current", advanceRevision: true, out PlayHistoryViewRequest staleRequest));
+        Assert.IsTrue(owner.TryBeginKeywordRefresh("stale-current", advanceRevision: true, out PlayHistoryViewRequest currentRequest));
+        Task requeuedIdle = owner.WaitForRefreshQueuesIdleAsync();
+        owner.CompleteKeywordRefresh(staleRequest.KeywordFilterRevision);
+        Assert.IsFalse(requeuedIdle.IsCompleted, "Completing a stale worker must retain the current queued revision.");
+        owner.CompleteKeywordRefresh(currentRequest.KeywordFilterRevision);
+        await requeuedIdle.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [TestMethod]
-    public void WorkflowOwner_QueuesViewRefreshAndCompletesRevisionAfterRefreshCallback()
+    public async Task WorkflowOwner_QueuesViewRefreshAndCompletesRevisionAfterRefreshCallback()
     {
         var owner = new PlayHistoryWorkflowOwner();
         owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0);
@@ -3397,7 +3439,7 @@ public sealed class PlayHistoryReadModelTests
         owner.QueueKeywordFilterRefresh(string.Empty, advanceRevision: false);
 
         Assert.IsTrue(refreshed.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.AreRefreshQueuesIdle, TimeSpan.FromSeconds(5)));
+        await owner.WaitForRefreshQueuesIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
         lock (requests)
         {
             Assert.AreEqual(1, requests.Count);
@@ -3483,7 +3525,91 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void WorkflowOwner_ExecuteViewRequeuesLatestDisplayTargetAfterPresentationStale()
+    public void WorkflowOwner_ExecuteViewKeywordFilterUpdatedReusesCurrentProjectionWithoutReadingSource()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        var detailSourceRetirement = new PlaylistSourceRetirementRequest(
+            requestVersion: 1,
+            buildCancellation: null);
+        PlayHistoryViewRequest active = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            detailSourceRetirement);
+        PlayHistoryRow row = CreateProjectedRow(HashA);
+        IReadOnlyList<PlayHistoryRow> allProjectedRows = [row];
+        IReadOnlyList<PlayHistoryRow> filterSourceRows = [row];
+        owner.PresentationState.CurrentView = new PlayHistoryViewState(
+            active.RequestId,
+            active.PeriodRequest,
+            allProjectedRows,
+            filterSourceRows,
+            [row],
+            diagnostics: [],
+            PlayHistoryProvider.Lr2,
+            schemaStatus: default,
+            sourceCount: 1,
+            new SortSnapshot(null, null, revision: 0),
+            keywordFilter: string.Empty,
+            keywordFilterRevision: owner.KeywordRevision,
+            PlayHistoryDisplayTargetItem.All,
+            displayTargetRevision: owner.DisplayTargetRevision);
+        Assert.IsTrue(owner.TryBeginKeywordRefresh(
+            "title:missing",
+            advanceRevision: true,
+            out PlayHistoryViewRequest keywordRequest));
+        Assert.AreSame(detailSourceRetirement, keywordRequest.DetailSourceRetirement);
+
+        int presentationInvocationCount = 0;
+        owner.ConfigureViewExecution(CreateViewExecutionDependencies(
+            () => throw new AssertFailedException("A keyword-only refresh must not resolve its source."),
+            _ =>
+            {
+                presentationInvocationCount++;
+                return false;
+            }));
+
+        PlayHistoryViewExecutionResult result;
+        try
+        {
+            result = owner.ExecuteView(
+                new PlayHistoryViewExecutionRequest(
+                    MainViewUpdateMode.PlayHistorySelected,
+                    MainViewUpdateMode.KeywordFilterUpdated,
+                    parameter: null,
+                    Stopwatch.StartNew(),
+                    keywordRequest,
+                    keywordFilter: "title:missing",
+                    PlayHistoryDisplayTargetItem.All));
+        }
+        finally
+        {
+            owner.CompleteKeywordRefresh(keywordRequest.KeywordFilterRevision);
+        }
+
+        Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, result.Status);
+        Assert.IsTrue(result.FromSortOnly);
+        Assert.AreEqual(1, presentationInvocationCount);
+        Assert.IsNull(result.ReadResult);
+        Assert.AreEqual(0L, result.ReadMs);
+        Assert.AreEqual(0L, result.ProjectionIndexMs);
+        Assert.IsFalse(result.ProjectionIndexCacheHit);
+        Assert.AreEqual(0, result.ProjectionIndexStaleRetries);
+        Assert.AreEqual(0L, result.ProjectionMs);
+        Assert.AreEqual(0L, result.PeriodIndexMs);
+        Assert.IsNotNull(result.PresentationOnlyResult);
+        Assert.AreEqual(PlayHistoryPresentationOnlyBuildStatus.Built, result.PresentationOnlyResult.Status);
+        Assert.IsTrue(result.PresentationOnlyResult.KeywordFilterApplied);
+        Assert.AreEqual(keywordRequest.KeywordFilterRevision, result.PresentationOnlyResult.State.KeywordFilterRevision);
+        Assert.AreEqual(owner.DisplayTargetRevision, result.PresentationOnlyResult.State.DisplayTargetRevision);
+        Assert.AreSame(row, result.PresentationOnlyResult.State.AllProjectedRows.Single());
+        Assert.AreSame(row, result.PresentationOnlyResult.State.FilterSourceRows.Single());
+        Assert.AreEqual(0, result.PresentationOnlyResult.State.ProjectedRows.Count);
+    }
+
+    [TestMethod]
+    public async Task WorkflowOwner_ExecuteViewRequeuesLatestDisplayTargetAfterPresentationStale()
     {
         var owner = new PlayHistoryWorkflowOwner();
         PlayHistoryViewRequest active = owner.BeginRequest(
@@ -3534,7 +3660,7 @@ public sealed class PlayHistoryReadModelTests
 
         Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, result.Status);
         Assert.IsTrue(refreshed.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.AreRefreshQueuesIdle, TimeSpan.FromSeconds(5)));
+        await owner.WaitForRefreshQueuesIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
         Assert.IsNotNull(refreshRequest);
         Assert.AreEqual(owner.DisplayTargetRevision, refreshRequest.DisplayTargetRevision);
         Assert.AreEqual(latestTarget.Identity, owner.CurrentDisplayTargetIdentity);
@@ -3564,7 +3690,7 @@ public sealed class PlayHistoryReadModelTests
             owner.KeywordRevision,
             PlayHistoryDisplayTargetItem.All,
             owner.DisplayTargetRevision);
-        owner.ConfigureViewExecution(CreateViewExecutionDependencies(invokePresentation: false));
+        owner.ConfigureViewExecution(CreateViewExecutionDependencies(invokePresentation: _ => false));
 
         PlayHistoryViewExecutionResult result = owner.ExecuteView(
             new PlayHistoryViewExecutionRequest(
@@ -3581,21 +3707,17 @@ public sealed class PlayHistoryReadModelTests
 
     private static PlayHistoryViewExecutionDependencies CreateViewExecutionDependencies(
         Func<PlayHistoryReadSourceContext>? sourceResolver = null,
-        bool invokePresentation = true)
+        Func<Action, bool>? invokePresentation = null)
     {
         return new PlayHistoryViewExecutionDependencies(
             () => null,
             () => null,
             sourceResolver ?? (() => PlayHistoryReadSourceContext.Lr2(string.Empty, isLr2LinkedProfile: false)),
-            action =>
+            invokePresentation ?? (action =>
             {
-                if (!invokePresentation)
-                {
-                    return false;
-                }
                 action();
                 return true;
-            },
+            }),
             (_, _) => { },
             () => MainViewUpdateMode.PlayHistorySelected,
             new MainChartListViewModel(),

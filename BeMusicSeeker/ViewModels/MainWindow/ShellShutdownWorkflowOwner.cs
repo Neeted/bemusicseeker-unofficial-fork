@@ -897,10 +897,18 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private async Task WaitForPlayHistoryRefreshIdleAsync(ShutdownWaitTracker tracker)
     {
+        Task refreshQueuesIdle = playHistoryWorkflowOwner.WaitForRefreshQueuesIdleAsync();
+        await WaitForTaskCompletionAsync(
+            "playHistoryRefresh",
+            refreshQueuesIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => playHistoryWorkflowOwner.DescribeRefreshQueues()
+                + " " + playHistoryWorkflowOwner.DescribeDisplayTargetCatalogRefresh()).ConfigureAwait(false);
+        await refreshQueuesIdle.ConfigureAwait(false);
         await WaitForConditionAsync(
             "playHistoryRefresh",
-            () => playHistoryWorkflowOwner.AreRefreshQueuesIdle
-                && playHistoryWorkflowOwner.IsDisplayTargetCatalogRefreshIdle,
+            () => playHistoryWorkflowOwner.IsDisplayTargetCatalogRefreshIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
             () => playHistoryWorkflowOwner.DescribeRefreshQueues()
@@ -972,10 +980,11 @@ internal sealed class ShellShutdownWorkflowOwner
         }
         var stopwatch = Stopwatch.StartNew();
         bool warningLogged = false;
-        while (!task.IsCompleted)
+        Task warningDelay = Task.Delay(warningThreshold);
+        if (await Task.WhenAny(task, warningDelay).ConfigureAwait(false) == warningDelay)
         {
-            await Task.Delay(100).ConfigureAwait(false);
             LogSlowWaitIfNeeded(target, stopwatch, warningThreshold, tracker, ref warningLogged, describeState);
+            await Task.WhenAny(task).ConfigureAwait(false);
         }
     }
 
