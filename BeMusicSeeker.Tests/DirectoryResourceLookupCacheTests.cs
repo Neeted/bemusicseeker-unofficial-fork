@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -308,27 +306,18 @@ public sealed class DirectoryResourceLookupCacheTests
         initialIndex.DirectoryLookupCache.AddDir(oldDirectory, [sharedHash], [], []);
         var owner = new LibraryResourceIndexOwner(initialIndex);
         LibraryResourceIndexSnapshot oldSnapshot = owner.CaptureSnapshot();
-        using var entrySnapshotCaptured = new ManualResetEventSlim(false);
-        using var resumeLazyPublish = new ManualResetEventSlim(false);
+        LibraryResourceIndexMutationReceipt? addReceipt = null;
         SetLazyReverseLookupEntrySnapshotObserver(
             oldSnapshot.DirectoryLookupCache,
-            delegate
-            {
-                entrySnapshotCaptured.Set();
-                Assert.IsTrue(resumeLazyPublish.Wait(TimeSpan.FromSeconds(10)));
-            });
+            () => addReceipt = owner.AddDirectory(addedDirectory, [sharedHash], [], []));
 
-        Task<string[]> oldLookupTask = Task.Run(() =>
+        string[] oldDirectories =
             oldSnapshot.DirectoryLookupCache
                 .GetDirectoriesByAudioRelativeHash(sharedHash)
-                .ToArray());
-        Assert.IsTrue(entrySnapshotCaptured.Wait(TimeSpan.FromSeconds(10)));
-
-        LibraryResourceIndexMutationReceipt addReceipt =
-            owner.AddDirectory(addedDirectory, [sharedHash], [], []);
-        resumeLazyPublish.Set();
-        string[] oldDirectories = oldLookupTask.GetAwaiter().GetResult();
-        string[] currentDirectories = addReceipt.Snapshot.DirectoryLookupCache
+                .ToArray();
+        Assert.IsTrue(addReceipt.HasValue);
+        LibraryResourceIndexMutationReceipt observedReceipt = addReceipt.Value;
+        string[] currentDirectories = observedReceipt.Snapshot.DirectoryLookupCache
             .GetDirectoriesByAudioRelativeHash(sharedHash)
             .ToArray();
 
@@ -337,8 +326,8 @@ public sealed class DirectoryResourceLookupCacheTests
             .GetDirectoriesByAudioRelativeHash(sharedHash).ToArray());
         CollectionAssert.AreEquivalent(new[] { oldDirectory, addedDirectory }, currentDirectories);
         Assert.AreEqual(0L, oldSnapshot.Generation);
-        Assert.AreEqual(1L, addReceipt.Snapshot.Generation);
-        Assert.AreNotSame(oldSnapshot.DirectoryLookupCache, addReceipt.Snapshot.DirectoryLookupCache);
+        Assert.AreEqual(1L, observedReceipt.Snapshot.Generation);
+        Assert.AreNotSame(oldSnapshot.DirectoryLookupCache, observedReceipt.Snapshot.DirectoryLookupCache);
     }
 
     [TestMethod]
