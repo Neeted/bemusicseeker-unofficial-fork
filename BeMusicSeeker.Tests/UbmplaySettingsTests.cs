@@ -10,7 +10,6 @@ namespace BeMusicSeeker.Tests;
 public sealed class UbmplaySettingsTests
 {
     [TestMethod]
-    [DoNotParallelize]
     public void TemporarilyRewriteSettings_PreservesPlayerContractAndRestoresOriginalBytes()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -58,7 +57,6 @@ public sealed class UbmplaySettingsTests
     }
 
     [TestMethod]
-    [DoNotParallelize]
     public void TemporarilyRewriteSettings_CreatesMissingSectionsWithoutThrowing()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -93,7 +91,6 @@ public sealed class UbmplaySettingsTests
     [DataRow(-1, "Volume=0")]
     [DataRow(37, "Volume=37")]
     [DataRow(101, "Volume=100")]
-    [DoNotParallelize]
     public void TemporarilyRewriteSettings_ClampsVolume(int playerVolume, string expectedVolume)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);

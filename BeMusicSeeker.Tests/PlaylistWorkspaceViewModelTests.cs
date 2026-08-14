@@ -24,7 +24,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class PlaylistWorkspaceViewModelTests
 {
     [TestInitialize]
@@ -794,7 +793,6 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    [DoNotParallelize]
     public async Task SubmitExternalPlaylistUriText_QueuesValidUrisInInputOrderAndCompletesImport()
     {
         string tempDirectory = Path.Combine(
@@ -1295,7 +1293,6 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    [DoNotParallelize]
     public async Task ExternalPlaylistSourceRequests_QueueCatalogAndBuiltInImportsInOrder()
     {
         string tempDirectory = Path.Combine(
@@ -2917,7 +2914,6 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    [DoNotParallelize]
     public async Task PlaylistWorkspaceRecommendedImportAcceptsConfirmationAndEnqueues()
     {
         string databasePath = Path.Combine(

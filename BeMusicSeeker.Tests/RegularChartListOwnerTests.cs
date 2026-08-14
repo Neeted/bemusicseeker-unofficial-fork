@@ -3826,6 +3826,7 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainChartListColumnPresentation_LoadCommitAndReuseOwnsMainAndWorkspacePresentation()
     {
         CustomTableColumnSettings previousStandard = Settings.Default.StandardCustomTableColumnSettings;

@@ -21,6 +21,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// Arbitrary filtered Quick runs share one testhost. This fixture mutates the
+// process-global playback modes, player selection, volume, panel state,
+// stagefile, and external-panel settings in Settings.Default.
 [DoNotParallelize]
 public sealed class PlaybackPanelViewModelTests
 {

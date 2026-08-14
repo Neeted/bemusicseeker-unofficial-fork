@@ -25,6 +25,9 @@ using Ribbit.Util.Extensions;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// Arbitrary filtered Quick runs share one testhost. This fixture mutates the
+// process-global playlist URL completion, LR2 mode/root/output paths, Beatoraja
+// output settings, and IR flag in Settings.Default.
 [DoNotParallelize]
 public sealed class BmsPlaylistUpdateTests
 {

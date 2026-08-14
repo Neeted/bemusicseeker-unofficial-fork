@@ -38,7 +38,13 @@ $functionalFilter = @(
     'TestCategory!=ProcessIntegration',
     'TestCategory!=ReleaseAcceptance') -join '&'
 $functionalBassCollectibleLoadContextClass = 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
-$functionalSettingsWindowPresentationClass = 'BeMusicSeeker.Tests.SettingsWindowPresentationTests'
+$functionalForegroundWindowInteractionClasses = @(
+    'BeMusicSeeker.Tests.SettingsWindowPresentationTests',
+    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests')
+$functionalProcessGlobalLifecycleClasses = @(
+    'BeMusicSeeker.Tests.BassNativeRuntimeTests',
+    'BeMusicSeeker.Tests.NLogWrapperTests',
+    'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests')
 $functionalTestClassShards = @(
     [pscustomobject]@{
         # This collectible ALC contract must run in a testhost that has never
@@ -49,7 +55,7 @@ $functionalTestClassShards = @(
             $functionalBassCollectibleLoadContextClass)
     },
     [pscustomobject]@{
-        # Class-wide non-parallel fixtures consume one active worker per testhost.
+        # Dedicated fixture groups consume one active worker per testhost.
         # Keep each short-lived external host at one worker while the remaining
         # host uses every logical processor. This bounded overlap was faster and
         # stable in repeated Functional runs; subtracting these workers would
@@ -99,44 +105,20 @@ $functionalTestClassShards = @(
             'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests')
     },
     [pscustomobject]@{
-        Name = 'feature-remaining-classwide-dnp'
+        # These fixtures intentionally interact with the foreground window and
+        # must not present focus-sensitive windows concurrently.
+        Name = 'foreground-window-interaction'
         Workers = 1
-        Classes = @(
-            'BeMusicSeeker.Tests.PlaylistViewPipelineTests',
-            'BeMusicSeeker.Tests.PlayHistoryReadModelTests',
-            'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
-            # Keep all 61 real-window presentation cases beside the related settings
-            # fixture instead of competing with the parallel remaining shard.
-            $functionalSettingsWindowPresentationClass,
-            'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests',
-            'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests',
-            'BeMusicSeeker.Tests.PlaylistUrlCompletionTests',
-            'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
-            'BeMusicSeeker.Tests.ChartListVirtualViewTests',
-            'BeMusicSeeker.Tests.BmsLibraryInstallEstimationServiceTests',
-            'BeMusicSeeker.Tests.ApplicationCompositionTests',
-            'BeMusicSeeker.Tests.CatalogMutationOwnerTests',
-            'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests',
-            'BeMusicSeeker.Tests.Lr2PlayHistorySchemaServiceTests',
-            'BeMusicSeeker.Tests.AudioDeviceTestWorkflowOwnerTests',
-            'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests',
-            'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests',
-            'BeMusicSeeker.Tests.AudioContractsTests',
-            'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
-            'BeMusicSeeker.Tests.SettingDialogOpenCommandTests',
-            'BeMusicSeeker.Tests.InstallDestinationStateOwnerTests',
-            'BeMusicSeeker.Tests.BassNativeRuntimeTests',
-            'BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests',
-            'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests',
-            'BeMusicSeeker.Tests.MainWindowViewSettingsBoundaryTests',
-            'BeMusicSeeker.Tests.PlayerSettingsGatewayTests',
-            'BeMusicSeeker.Tests.BmsLibraryOptionsSnapshotTests',
-            'BeMusicSeeker.Tests.BeatorajaBmtOptionsSnapshotTests',
-            'BeMusicSeeker.Tests.NLogWrapperTests',
-            'BeMusicSeeker.Tests.ResourceIconContractTests',
-            'BeMusicSeeker.Tests.StartupSettingsSnapshotTests',
-            'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests',
-            'BeMusicSeeker.Tests.CustomFolderOutputSettingsSnapshotTests')
+        Scope = 'ClassLevel'
+        Classes = $functionalForegroundWindowInteractionClasses
+    },
+    [pscustomobject]@{
+        # These fixtures mutate process-global native, logging, or application
+        # settings lifecycle state and therefore require a single serial host.
+        Name = 'process-global-lifecycle'
+        Workers = 1
+        Scope = 'ClassLevel'
+        Classes = $functionalProcessGlobalLifecycleClasses
     })
 $functionalRemainingShardWorkers = [Math]::Max(
     1,
@@ -210,16 +192,38 @@ function Assert-FunctionalShardConfiguration {
         throw 'Functional test shard classes must belong to exactly one shard.'
     }
 
-    $settingsPresentationShards = @($functionalTestClassShards |
-        Where-Object { @($_.Classes | Where-Object { $_ -ceq $functionalSettingsWindowPresentationClass }).Count -gt 0 })
-    if ($settingsPresentationShards.Count -ne 1) {
-        throw 'SettingsWindowPresentationTests must occur exactly once outside the Functional remaining shard.'
-    }
-    if ($settingsPresentationShards[0].Name -cne 'feature-remaining-classwide-dnp') {
-        throw 'SettingsWindowPresentationTests must belong to feature-remaining-classwide-dnp.'
-    }
-    if ($settingsPresentationShards[0].Workers -ne 1) {
-        throw 'The SettingsWindowPresentationTests shard must use exactly one worker.'
+    $exactSingleWorkerClassLevelShards = @(
+        [pscustomobject]@{
+            Name = 'foreground-window-interaction'
+            Classes = @(
+                'BeMusicSeeker.Tests.SettingsWindowPresentationTests',
+                'BeMusicSeeker.Tests.SettingDialogEditCompletionTests')
+        },
+        [pscustomobject]@{
+            Name = 'process-global-lifecycle'
+            Classes = @(
+                'BeMusicSeeker.Tests.BassNativeRuntimeTests',
+                'BeMusicSeeker.Tests.NLogWrapperTests',
+                'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests')
+        })
+    foreach ($requiredShard in $exactSingleWorkerClassLevelShards) {
+        $matchingShards = @($functionalTestClassShards |
+            Where-Object { $_.Name -ceq $requiredShard.Name })
+        if ($matchingShards.Count -ne 1) {
+            throw "Functional $($requiredShard.Name) tests must have exactly one dedicated shard."
+        }
+        $actualClasses = @($matchingShards[0].Classes)
+        $requiredClasses = @($requiredShard.Classes)
+        if ($actualClasses.Count -ne $requiredClasses.Count -or
+            @(Compare-Object `
+                -ReferenceObject $requiredClasses `
+                -DifferenceObject $actualClasses `
+                -CaseSensitive).Count -ne 0) {
+            throw "Functional $($requiredShard.Name) shard must contain exactly its approved test classes."
+        }
+        if ($matchingShards[0].Workers -ne 1 -or $matchingShards[0].Scope -cne 'ClassLevel') {
+            throw "Functional $($requiredShard.Name) shard must use one worker with ClassLevel scope."
+        }
     }
 
     $bassCollectibleShards = @($functionalTestClassShards |

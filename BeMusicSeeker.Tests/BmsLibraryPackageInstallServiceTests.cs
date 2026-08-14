@@ -1739,7 +1739,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    [DoNotParallelize]
     public void PrepareAutoInstallWorkflow_DoesNotPrebuildSourceSurfaceForDiscoveredPackages()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -3547,7 +3546,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow("../outside.txt")]
     [DataRow(".. /outside.txt")]
     [DataRow(" ../outside.txt")]
-    [DoNotParallelize]
     public void SevenZipArchiveExtractor_RejectsEntryOutsideExtractionDirectory(string entryName)
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)

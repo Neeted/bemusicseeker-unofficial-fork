@@ -20,6 +20,9 @@ using static BeMusicSeeker.Tests.Lr2SongDbSyncTestSupport;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// Arbitrary filtered Quick runs share one testhost. This fixture mutates the
+// process-global LR2 mode/root, custom-folder output paths, and IR flag in
+// Settings.Default, so the whole fixture is the required safety boundary.
 [DoNotParallelize]
 public sealed class BmsLibraryLr2SongDbSyncTests
 {

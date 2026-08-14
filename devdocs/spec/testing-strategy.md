@@ -1,6 +1,6 @@
 # テスト運用方針
 
-最終更新: 2026-08-14
+最終更新: 2026-08-15
 
 この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。
 
@@ -28,6 +28,10 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 LR2 song database sync は、`BmsLibraryLr2SongDbSyncTests` の library / ownership 境界を 1-worker の `lr2-songdb-sync` class shard に残す。`Lr2SongDbSyncServiceTests` の direct service 45 case は method-level pre-wave ではなく、`BmsLibraryIrServiceTests`、`PackageInstallWorkflowOwnerTests` とともに 3-worker の `owned-db-file-class-level` shard で実行する。この shard は MSTest の `ClassLevel` scope を明示し、各 class 内の method は直列、3 class 間は並列に実行する。割り当てられた IR と package install fixture は remaining shard から除外される。各 fixture は test ごとに一意な database / filesystem resource を所有し、direct LR2 service fixture は GUID で一意な temporary directory と song database を使用して `Settings.Default`、共有 dispatcher、固定待ち、process-global mutable state に依存しない。
 
 playlist / presentation 系は、`BmsPlaylistUpdateTests` を 1-worker の `playlist-update` class shard に単独で割り当てる。`presentation-workspace` は `PlaybackPanelViewModelTests`、`PlaylistWorkspaceViewModelTests`、`LibraryFolderTreeViewModelTests` の3 class を 1-worker で順次実行する。runner の class 重複・専用 shard 検査を維持し、同じ fixture を remaining shard や別 class shard に重複割り当てしない。
+
+class / method の `DoNotParallelize` は、任意の filter を同一 testhost で実行する Quick を含む全 route の safety boundary である。Functional の named shard は testhost ownership と性能 topology を定めるが、属性の safety contract を代替しない。`BmsLibraryLr2SongDbSyncTests` は process-global `Settings.Default` の LR2 mode/root、custom-folder output paths、IR flag を変更し、各 test の cleanup で固定 fixture baseline へ reset する。`BmsPlaylistUpdateTests` は playlist URL completion、LR2/output、Beatoraja output、IR settings、`PlaybackPanelViewModelTests` は playback mode、player selection、volume、panel state、stagefile / external-panel settings の元値を退避・変更・復元する。これらの lifecycle が別 class の設定観測と交差しないよう、3 fixture とも class-level serialization を維持する。
+
+Functional の専用 shard は ownership と performance の境界である。`foreground-window-interaction` は foreground input / focus / hit testing を行う `SettingsWindowPresentationTests` と `SettingDialogEditCompletionTests` の2 classだけを 1-worker の `ClassLevel` scope で実行する。`process-global-lifecycle` は native BASS lifecycle、NLog の process-global configuration、`Settings.Default` lifecycle をそれぞれ変更する `BassNativeRuntimeTests`、`NLogWrapperTests`、`ApplicationSettingsLifecycleTests` の3 classだけを同じく 1-worker の `ClassLevel` scope で実行する。runner は両 shard の exact membership、worker 数、scope を test 起動前に検証する。これら以外の旧 class-wide fixture は、別の共有 resource 契約がない限り明示的な catchall shard を作らず remaining shard で実行する。
 
 lock file を所有する project は `RuntimeIdentifiers=win-x64` を宣言し、C# Dev Kit などが RID を明示せず通常 restore を行った場合も、tracked lock file の base graph と `win-x64` graph を維持する。通常 restore が tracked lock file を変更した場合は dependency graph の不整合として失敗を隠さず調査する。標準検証入口は引き続き、標準スクリプトの locked `win-x64` restore と `--no-restore` build / test route を使う。RID を指定しない素の `dotnet test BeMusicSeeker.sln /p:Configuration=Release` は、locked restore、tracked-file 不変確認、共通の時間予算を迂回するため標準入口ではない。
 
@@ -110,7 +114,7 @@ Functional に含めないもの:
   - `SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting`
   - `SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected`
   - `SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor`
-- 上記2 class は同じ `feature-remaining-classwide-dnp` の 1-worker shard で実行する。`SettingsWindowPresentationTests` の61 case は remaining shard からこの shard へ移し、foreground-sensitive fixture 同士を並行表示しない。allowlist の追加、visible / foreground window が必要な受入検証、OS focus policy に依存する操作は通常の Functional へ安易に追加せず、まず Full / release acceptance の責務として分離できるか検討する。待機時間の延長や固定 sleep を foreground 成功条件にしない。
+- 上記2 class は同じ `foreground-window-interaction` の 1-worker / `ClassLevel` shard で実行する。`SettingsWindowPresentationTests` の61 case は remaining shard からこの shard へ移し、foreground-sensitive fixture 同士を並行表示しない。allowlist の追加、visible / foreground window が必要な受入検証、OS focus policy に依存する操作は通常の Functional へ安易に追加せず、まず Full / release acceptance の責務として分離できるか検討する。待機時間の延長や固定 sleep を foreground 成功条件にしない。
 - 共有 WPF host は process-local な `AppearanceTheme` を退避し、ready signal を通知する前に保存せず Light theme を適用する。assembly cleanup は未起動なら何もせず、起動済みなら owner dispatcher 上で元の値へ戻してから `Application` と dispatcher を停止し、完了 signal と thread join によって終了を待つ。既存 `Application` との競合、キャッシュされた起動失敗、invoke・cleanup の例外は failure として表面化させる。testhost の `Application.ResourceAssembly` は変更しない。
 - 固定 `Thread.Sleep` や余裕時間としての長い `Task.Delay` を待機手段にしない。`TaskCompletionSource`、`ManualResetEventSlim`、channel、fake scheduler / clock など、観測対象の state transition と直接結び付く同期を使う。
 - deadlock / cancellation timeout は機能テストに含めてよいが、通常完了を固定時間で待つのではなく、短い failure watchdog と決定的な完了 signal を組み合わせる。
