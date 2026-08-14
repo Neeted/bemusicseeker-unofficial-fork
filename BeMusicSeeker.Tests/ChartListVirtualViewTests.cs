@@ -21,9 +21,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class ChartListVirtualViewTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void Count_DoesNotRealizeRowsUntilIndexed()
     {
@@ -232,9 +232,9 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void PlaybackPanel_StartAtIndexUsesChartInstallDestinationWhenTemporaryRenameChangesPath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        bool originalUsePlayerLR2body = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
-        bool originalOperationModeLR2Db = BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB;
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        bool originalUsePlayerLR2body = testSettings.UsePlayerLR2body;
+        bool originalOperationModeLR2Db = testSettings.OperationModeLR2DB;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayStart_" + Guid.NewGuid().ToString("N"));
         string sourceDirectoryPath = Path.Combine(tempRootPath, "Source");
         string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed");
@@ -247,16 +247,17 @@ public sealed class ChartListVirtualViewTests
         File.WriteAllText(destinationCollisionPath, "#PLAYER 1");
         try
         {
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = false;
-            BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = false;
+            testSettings.UsePlayerLR2body = false;
+            testSettings.OperationModeLR2DB = false;
             var player = new RecordingBmsPlayer();
             var composition = new ApplicationComposition(
                 defaultBmsPlayerFactory: () => player,
+                settingsEditSession: new NoOpSettingsEditSession(testSettings),
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var viewModel = new MainWindowViewModel(composition);
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             viewModel.PlaybackPanel.AttachLibrary(library);
             var file = new TestableBmsFile();
@@ -289,8 +290,8 @@ public sealed class ChartListVirtualViewTests
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = originalUsePlayerLR2body;
-            BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = originalOperationModeLR2Db;
+            testSettings.UsePlayerLR2body = originalUsePlayerLR2body;
+            testSettings.OperationModeLR2DB = originalOperationModeLR2Db;
             if (Directory.Exists(tempRootPath))
             {
                 Directory.Delete(tempRootPath, recursive: true);
@@ -2434,7 +2435,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void PackageChartSourceRows_ReadLiveEntryProjectionForPendingInstall()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
         var maintenanceInfo = new BMSFileMaintenanceInfo
@@ -2497,8 +2498,8 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public async Task InstallDestinationWorkflow_ClearPackagesWithoutLibraryClearsAdapterlessBmsonEntry()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(
             ChartFileProjection.WithPackageState(
                 ChartFileProjection.FromBmsonSong(CreateBmsonSong()),
@@ -2517,8 +2518,8 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public async Task InstallDestinationWorkflow_ClearPendingClearsAdapterlessBmsonPackageEntryWithoutMaterializing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2534,7 +2535,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
             library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var selectedChart = new ChartOperationTarget(
@@ -2567,8 +2568,8 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2584,7 +2585,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
             library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
@@ -2617,8 +2618,8 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveLooseBmsonCompatibilityAdapterWhenStandaloneTargetSharesPath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2634,7 +2635,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
             library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var packageTarget = new ChartOperationTarget(
@@ -2682,7 +2683,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void PackageEntryRowsCarryPackageEntryIntoChartOperationTarget()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BMSFile adapter = CreateFile(
             @"C:\Pkg\chart.bms",
             "BMS",
@@ -2700,8 +2701,8 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public async Task InstallDestinationWorkflow_SearchPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2711,7 +2712,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
             library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
@@ -2742,7 +2743,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void InstallDestinationStore_SearchMergeDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2752,7 +2753,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
             library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             var target = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
@@ -2782,8 +2783,8 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public async Task InstallDestinationWorkflow_ClearPendingResolvesReplacedPackageEntryByChartIdentity()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2806,7 +2807,7 @@ public sealed class ChartListVirtualViewTests
         ChartPackage package = ChartPackage.FromChartEntries([currentEntry]);
         try
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
             library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
@@ -2998,12 +2999,12 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualChartSubsetUnsupportedSort_ResetsToDefaultVirtualSort()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
         RegularChartListOwner regularOwner = viewModel.RegularChartList;
         BMSFile zeta = CreateFile(Path.Combine(tempRootPath, "zeta.bms"), "Zeta", tempRootPath);
         BMSFile alpha = CreateFile(Path.Combine(tempRootPath, "alpha.bms"), "Alpha", tempRootPath, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -3012,11 +3013,9 @@ public sealed class ChartListVirtualViewTests
             [tempRootPath]);
         try
         {
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [zeta, alpha],
-                DuplicateChartGroups = [duplicateGroup]
-            };
+            var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
+            library.BMSFiles = [zeta, alpha];
+            library.DuplicateChartGroups = [duplicateGroup];
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             typeof(MainWindowViewModel).GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainViewUpdateMode.DuplicateFilterSelected);
             viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);

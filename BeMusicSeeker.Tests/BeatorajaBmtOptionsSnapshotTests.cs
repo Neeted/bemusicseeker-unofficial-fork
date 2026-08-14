@@ -10,28 +10,28 @@ using System.Threading.Tasks;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class BeatorajaBmtOptionsSnapshotTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void CreateCurrentCapturesAllBmtExportSettings()
     {
-        bool previousEnabled = Settings.Default.EnableBeatorajaBmtOutput;
-        bool previousKeepFiles = Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
-        string previousRootPath = Settings.Default.BeatorajaRootPath;
-        string previousTablePath = Settings.Default.BeatorajaBmtTablePath;
-        bool previousRegisterUrls = Settings.Default.RegisterBeatorajaBmtUrls;
-        string previousHashMode = Settings.Default.BeatorajaBmtHashOutputMode;
+        bool previousEnabled = testSettings.EnableBeatorajaBmtOutput;
+        bool previousKeepFiles = testSettings.KeepBeatorajaBmtFilesWhenOutputDisabled;
+        string previousRootPath = testSettings.BeatorajaRootPath;
+        string previousTablePath = testSettings.BeatorajaBmtTablePath;
+        bool previousRegisterUrls = testSettings.RegisterBeatorajaBmtUrls;
+        string previousHashMode = testSettings.BeatorajaBmtHashOutputMode;
         try
         {
-            Settings.Default.EnableBeatorajaBmtOutput = true;
-            Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled = true;
-            Settings.Default.BeatorajaRootPath = "beatoraja-root";
-            Settings.Default.BeatorajaBmtTablePath = "table.json";
-            Settings.Default.RegisterBeatorajaBmtUrls = true;
-            Settings.Default.BeatorajaBmtHashOutputMode = "FillMissingMd5Sha256";
+            testSettings.EnableBeatorajaBmtOutput = true;
+            testSettings.KeepBeatorajaBmtFilesWhenOutputDisabled = true;
+            testSettings.BeatorajaRootPath = "beatoraja-root";
+            testSettings.BeatorajaBmtTablePath = "table.json";
+            testSettings.RegisterBeatorajaBmtUrls = true;
+            testSettings.BeatorajaBmtHashOutputMode = "FillMissingMd5Sha256";
 
-            BeatorajaBmtOptionsSnapshot snapshot = BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default);
+            BeatorajaBmtOptionsSnapshot snapshot = BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.EnableBeatorajaBmtOutput);
             Assert.IsTrue(snapshot.KeepBeatorajaBmtFilesWhenOutputDisabled);
@@ -42,12 +42,12 @@ public sealed class BeatorajaBmtOptionsSnapshotTests
         }
         finally
         {
-            Settings.Default.EnableBeatorajaBmtOutput = previousEnabled;
-            Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled = previousKeepFiles;
-            Settings.Default.BeatorajaRootPath = previousRootPath;
-            Settings.Default.BeatorajaBmtTablePath = previousTablePath;
-            Settings.Default.RegisterBeatorajaBmtUrls = previousRegisterUrls;
-            Settings.Default.BeatorajaBmtHashOutputMode = previousHashMode;
+            testSettings.EnableBeatorajaBmtOutput = previousEnabled;
+            testSettings.KeepBeatorajaBmtFilesWhenOutputDisabled = previousKeepFiles;
+            testSettings.BeatorajaRootPath = previousRootPath;
+            testSettings.BeatorajaBmtTablePath = previousTablePath;
+            testSettings.RegisterBeatorajaBmtUrls = previousRegisterUrls;
+            testSettings.BeatorajaBmtHashOutputMode = previousHashMode;
         }
     }
 

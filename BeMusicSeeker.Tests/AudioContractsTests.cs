@@ -12,9 +12,9 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class AudioContractsTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void PersistedAudioEnumValuesRemainStable()
     {
@@ -137,7 +137,7 @@ public sealed class AudioContractsTests
     [TestMethod]
     public void SettingsAudioGateway_PreservesKnownAndUnknownPersistedValues()
     {
-        BeMusicSeeker.Properties.Settings settings = BeMusicSeeker.Properties.Settings.Default;
+        BeMusicSeeker.Properties.Settings settings = testSettings;
         var originalDriver = settings.PlayerDriver;
         string originalDevice = settings.PlayerDevice;
         string originalDeviceName = settings.PlayerDeviceName;
@@ -192,7 +192,7 @@ public sealed class AudioContractsTests
     [TestMethod]
     public void SettingsAudioGateway_CapturesEncodingSettingsWithoutBmsTypes()
     {
-        BeMusicSeeker.Properties.Settings settings = BeMusicSeeker.Properties.Settings.Default;
+        BeMusicSeeker.Properties.Settings settings = testSettings;
         var originalNormalization = settings.EncoderNormalization;
         try
         {
@@ -239,7 +239,7 @@ public sealed class AudioContractsTests
     [TestMethod]
     public void InternalPlayer_DelegatesVolumeAndCloseLifecycleToPlaybackRuntime()
     {
-        BeMusicSeeker.Properties.Settings settings = BeMusicSeeker.Properties.Settings.Default;
+        BeMusicSeeker.Properties.Settings settings = testSettings;
         int originalVolume = settings.uBMplayVolume;
         try
         {

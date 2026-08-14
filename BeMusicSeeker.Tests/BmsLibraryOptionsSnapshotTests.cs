@@ -8,9 +8,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class BmsLibraryOptionsSnapshotTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void AdditionalOutputDirectoriesAreCopiedWhenSnapshotIsCreated()
     {
@@ -33,21 +33,21 @@ public sealed class BmsLibraryOptionsSnapshotTests
     [TestMethod]
     public void CreateCurrentReturnsValuesFromTheCurrentSettingsEachTime()
     {
-        int original = Settings.Default.PendingInstallEstimateMaxParallelPackages;
+        int original = testSettings.PendingInstallEstimateMaxParallelPackages;
         try
         {
-            Settings.Default.PendingInstallEstimateMaxParallelPackages = 3;
-            BmsLibraryOptionsSnapshot first = BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default);
+            testSettings.PendingInstallEstimateMaxParallelPackages = 3;
+            BmsLibraryOptionsSnapshot first = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
 
-            Settings.Default.PendingInstallEstimateMaxParallelPackages = 5;
-            BmsLibraryOptionsSnapshot second = BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default);
+            testSettings.PendingInstallEstimateMaxParallelPackages = 5;
+            BmsLibraryOptionsSnapshot second = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.AreEqual(3, first.PendingInstallEstimateMaxParallelPackages);
             Assert.AreEqual(5, second.PendingInstallEstimateMaxParallelPackages);
         }
         finally
         {
-            Settings.Default.PendingInstallEstimateMaxParallelPackages = original;
+            testSettings.PendingInstallEstimateMaxParallelPackages = original;
         }
     }
 }

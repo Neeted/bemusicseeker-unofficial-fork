@@ -18,21 +18,21 @@ using Ribbit.Net;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class PlaylistUrlAcquisitionOwnershipTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void OptionsSnapshot_CapturesAutoInstallSettingsWithoutExposingSettingsObject()
     {
-        bool previousScan = Settings.Default.ScanBmsFilesOnStartup;
-        bool previousAutoInstall = Settings.Default.AutoInstall;
+        bool previousScan = testSettings.ScanBmsFilesOnStartup;
+        bool previousAutoInstall = testSettings.AutoInstall;
         try
         {
-            Settings.Default.ScanBmsFilesOnStartup = true;
-            Settings.Default.AutoInstall = true;
+            testSettings.ScanBmsFilesOnStartup = true;
+            testSettings.AutoInstall = true;
 
             PlaylistUrlAcquisitionOptionsSnapshot snapshot =
-                PlaylistUrlAcquisitionOptionsSnapshot.CreateCurrent(Settings.Default);
+                PlaylistUrlAcquisitionOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.ScanBmsFilesOnStartup);
             Assert.IsTrue(snapshot.AutoInstall);
@@ -40,8 +40,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
         finally
         {
-            Settings.Default.ScanBmsFilesOnStartup = previousScan;
-            Settings.Default.AutoInstall = previousAutoInstall;
+            testSettings.ScanBmsFilesOnStartup = previousScan;
+            testSettings.AutoInstall = previousAutoInstall;
         }
     }
 

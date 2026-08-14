@@ -7,13 +7,13 @@ using Ribbit.Windows;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class MainWindowViewSettingsBoundaryTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void ViewSettingsStoreCapturesViewStateAndForwardsDraftChanges()
     {
-        Settings settings = Settings.Default;
+        Settings settings = testSettings;
         double originalTreeViewWidth = settings.TreeViewWidth;
         bool originalStartupSelection = settings.StartupSelectInstallPending;
         double originalRowHeight = settings.CustomTableRowHeight;
@@ -63,7 +63,7 @@ public sealed class MainWindowViewSettingsBoundaryTests
     [TestMethod]
     public void ViewSettingsStoreNormalizesAndPersistsInvalidTreeViewWidthOnRead()
     {
-        Settings settings = Settings.Default;
+        Settings settings = testSettings;
         double originalTreeViewWidth = settings.TreeViewWidth;
         try
         {
@@ -82,7 +82,7 @@ public sealed class MainWindowViewSettingsBoundaryTests
     [TestMethod]
     public void ViewSettingsStoreUsesTechnologyNeutralWindowPlacement()
     {
-        Settings settings = Settings.Default;
+        Settings settings = testSettings;
         Win32API.WINDOWPLACEMENT originalPlacement = settings.WindowPlacement;
         try
         {

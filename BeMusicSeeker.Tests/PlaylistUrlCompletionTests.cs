@@ -19,9 +19,9 @@ using Newtonsoft.Json.Linq;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class PlaylistUrlCompletionTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     [TestCategory("Playlist")]
     public void ParseMd5UrlMappingTsv_SkipsHeaderInvalidRowsAndKeepsFirstDuplicate()
@@ -240,18 +240,18 @@ public sealed class PlaylistUrlCompletionTests
     public async Task BMSPlaylist_UrlCompletionFetchesSourcesOnceAndRefetchesTsvWhenUriChanges()
     {
         string tempDbPath = CreateEmptySongDbPath();
-        string previousTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri;
-        bool previousEnableCompletion = Settings.Default.EnablePlaylistUrlCompletion;
-        bool previousOverwriteCompletion = Settings.Default.OverwritePlaylistUrlsWithCompletion;
-        bool previousEnableStella = Settings.Default.EnableStellaFullPlaylistUrlCompletion;
+        string previousTsvUri = testSettings.PlaylistMd5UrlMappingTsvUri;
+        bool previousEnableCompletion = testSettings.EnablePlaylistUrlCompletion;
+        bool previousOverwriteCompletion = testSettings.OverwritePlaylistUrlsWithCompletion;
+        bool previousEnableStella = testSettings.EnableStellaFullPlaylistUrlCompletion;
         try
         {
             int tsvFetchCount = 0;
             int stellaFetchCount = 0;
-            Settings.Default.EnablePlaylistUrlCompletion = true;
-            Settings.Default.OverwritePlaylistUrlsWithCompletion = false;
-            Settings.Default.EnableStellaFullPlaylistUrlCompletion = true;
-            Settings.Default.PlaylistMd5UrlMappingTsvUri = "https://example.com/map-a.tsv";
+            testSettings.EnablePlaylistUrlCompletion = true;
+            testSettings.OverwritePlaylistUrlsWithCompletion = false;
+            testSettings.EnableStellaFullPlaylistUrlCompletion = true;
+            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/map-a.tsv";
             Func<Uri, CancellationToken, Task<string>> tsvFetcher = (uri, cancellationToken) =>
             {
                 tsvFetchCount++;
@@ -272,9 +272,9 @@ public sealed class PlaylistUrlCompletionTests
                 null,
                 null,
                 null,
-                () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
-                () => BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default),
-                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default),
+                () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
+                () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
+                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings),
                 null,
                 tsvFetcher,
                 stellaFetcher);
@@ -294,7 +294,7 @@ public sealed class PlaylistUrlCompletionTests
             Assert.AreEqual(new Uri("https://example.com/main-stella-b"), stellaEntry.RuntimeUrlCompletion);
             Assert.AreEqual(new Uri("https://example.com/diff-stella-b"), stellaEntry.RuntimeUrlDiffCompletion);
 
-            Settings.Default.PlaylistMd5UrlMappingTsvUri = "https://example.com/map-b.tsv";
+            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/map-b.tsv";
             await ScheduleUrlCompletionRefreshAsync(playlist, "settings_changed");
 
             Assert.AreEqual(2, tsvFetchCount);
@@ -303,10 +303,10 @@ public sealed class PlaylistUrlCompletionTests
         }
         finally
         {
-            Settings.Default.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
-            Settings.Default.EnablePlaylistUrlCompletion = previousEnableCompletion;
-            Settings.Default.OverwritePlaylistUrlsWithCompletion = previousOverwriteCompletion;
-            Settings.Default.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
+            testSettings.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
+            testSettings.EnablePlaylistUrlCompletion = previousEnableCompletion;
+            testSettings.OverwritePlaylistUrlsWithCompletion = previousOverwriteCompletion;
+            testSettings.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
@@ -316,17 +316,17 @@ public sealed class PlaylistUrlCompletionTests
     public async Task BMSPlaylist_StellaFullSettingDisablesFetchAndClearsStellaRuntimeCompletion()
     {
         string tempDbPath = CreateEmptySongDbPath();
-        string previousTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri;
-        bool previousEnableCompletion = Settings.Default.EnablePlaylistUrlCompletion;
-        bool previousOverwriteCompletion = Settings.Default.OverwritePlaylistUrlsWithCompletion;
-        bool previousEnableStella = Settings.Default.EnableStellaFullPlaylistUrlCompletion;
+        string previousTsvUri = testSettings.PlaylistMd5UrlMappingTsvUri;
+        bool previousEnableCompletion = testSettings.EnablePlaylistUrlCompletion;
+        bool previousOverwriteCompletion = testSettings.OverwritePlaylistUrlsWithCompletion;
+        bool previousEnableStella = testSettings.EnableStellaFullPlaylistUrlCompletion;
         try
         {
             int stellaFetchCount = 0;
-            Settings.Default.EnablePlaylistUrlCompletion = true;
-            Settings.Default.OverwritePlaylistUrlsWithCompletion = false;
-            Settings.Default.EnableStellaFullPlaylistUrlCompletion = false;
-            Settings.Default.PlaylistMd5UrlMappingTsvUri = "https://example.com/empty.tsv";
+            testSettings.EnablePlaylistUrlCompletion = true;
+            testSettings.OverwritePlaylistUrlsWithCompletion = false;
+            testSettings.EnableStellaFullPlaylistUrlCompletion = false;
+            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/empty.tsv";
             Func<Uri, CancellationToken, Task<string>> tsvFetcher = (uri, cancellationToken) => Task.FromResult("md5\turl_diff\turl");
             Func<Uri, CancellationToken, Task<string>> stellaFetcher = (uri, cancellationToken) =>
             {
@@ -339,9 +339,9 @@ public sealed class PlaylistUrlCompletionTests
                 null,
                 null,
                 null,
-                () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
-                () => BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default),
-                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default),
+                () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
+                () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
+                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings),
                 null,
                 tsvFetcher,
                 stellaFetcher);
@@ -356,14 +356,14 @@ public sealed class PlaylistUrlCompletionTests
             Assert.IsNull(stellaEntry.RuntimeUrlCompletion);
             Assert.IsNull(stellaEntry.RuntimeUrlDiffCompletion);
 
-            Settings.Default.EnableStellaFullPlaylistUrlCompletion = true;
+            testSettings.EnableStellaFullPlaylistUrlCompletion = true;
             await ScheduleUrlCompletionRefreshAsync(playlist, "enabled");
 
             Assert.AreEqual(1, stellaFetchCount);
             Assert.AreEqual(new Uri("https://example.com/main-stella"), stellaEntry.RuntimeUrlCompletion);
             Assert.AreEqual(new Uri("https://example.com/diff-stella"), stellaEntry.RuntimeUrlDiffCompletion);
 
-            Settings.Default.EnableStellaFullPlaylistUrlCompletion = false;
+            testSettings.EnableStellaFullPlaylistUrlCompletion = false;
             await ScheduleUrlCompletionRefreshAsync(playlist, "disabled_again");
 
             Assert.AreEqual(1, stellaFetchCount);
@@ -372,10 +372,10 @@ public sealed class PlaylistUrlCompletionTests
         }
         finally
         {
-            Settings.Default.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
-            Settings.Default.EnablePlaylistUrlCompletion = previousEnableCompletion;
-            Settings.Default.OverwritePlaylistUrlsWithCompletion = previousOverwriteCompletion;
-            Settings.Default.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
+            testSettings.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
+            testSettings.EnablePlaylistUrlCompletion = previousEnableCompletion;
+            testSettings.OverwritePlaylistUrlsWithCompletion = previousOverwriteCompletion;
+            testSettings.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
@@ -461,7 +461,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new TestBmsPlaylist(tempDbPath);
+            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4001, "LocalTable");
             var oldLastUpdate = DateTime.Now.AddDays(1);
             table.last_update = oldLastUpdate;
@@ -498,7 +498,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new TestBmsPlaylist(tempDbPath);
+            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4002, "ExternalTable");
             table.Page_url = new Uri("https://example.com/page.html");
             table.Header_url = new Uri("https://example.com/header.json");
@@ -534,7 +534,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new TestBmsPlaylist(tempDbPath);
+            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4003, "ShaTable");
             InsertPlaylistHeader(tempDbPath, table);
             TestablePlaylistEntry first = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "memo-1");
@@ -565,7 +565,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new TestBmsPlaylist(tempDbPath);
+            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4005, "ShaToBothTable");
             InsertPlaylistHeader(tempDbPath, table);
             string sha256 = "4545454545454545454545454545454545454545454545454545454545454545";
@@ -638,7 +638,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new TestBmsPlaylist(tempDbPath);
+            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4004, "BmsonTable");
             InsertPlaylistHeader(tempDbPath, table);
             var song = new LR2SongDBExtended.bmson_song

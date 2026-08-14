@@ -5,32 +5,32 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class CustomFolderOutputSettingsSnapshotTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void CreateCurrentCapturesCustomFolderOutputResolutionSettings()
     {
-        bool previousOperationMode = Settings.Default.OperationModeLR2DB;
-        string previousRootPath = Settings.Default.LR2RootPath;
-        string previousOutputBaseDirectory = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDirectory = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirectories = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
-        bool previousEnableUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent;
-        int previousPlaylistDefaultIgnoreFolderOutput = Settings.Default.PlaylistDefaultIgnoreFolderOutput;
-        bool previousShowRecommUpdatedMsg = Settings.Default.ShowRecommUpdatedMsg;
+        bool previousOperationMode = testSettings.OperationModeLR2DB;
+        string previousRootPath = testSettings.LR2RootPath;
+        string previousOutputBaseDirectory = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBaseDirectory = testSettings.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBaseDirectories = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
+        bool previousEnableUnsent = testSettings.EnableDownloadLr2IrScoreAndDetectUnsent;
+        int previousPlaylistDefaultIgnoreFolderOutput = testSettings.PlaylistDefaultIgnoreFolderOutput;
+        bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
         try
         {
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2RootPath = "lr2-root";
-            Settings.Default.LR2CustomFolderOutputBaseDir = "output-base";
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = "root-output-base";
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[\"additional-output-base\"]";
-            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
-            Settings.Default.PlaylistDefaultIgnoreFolderOutput = 23;
-            Settings.Default.ShowRecommUpdatedMsg = true;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2RootPath = "lr2-root";
+            testSettings.LR2CustomFolderOutputBaseDir = "output-base";
+            testSettings.LR2CustomFolderOutputBaseDirRootType = "root-output-base";
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[\"additional-output-base\"]";
+            testSettings.EnableDownloadLr2IrScoreAndDetectUnsent = true;
+            testSettings.PlaylistDefaultIgnoreFolderOutput = 23;
+            testSettings.ShowRecommUpdatedMsg = true;
 
-            CustomFolderOutputSettingsSnapshot snapshot = CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default);
+            CustomFolderOutputSettingsSnapshot snapshot = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.OperationModeLR2DB);
             Assert.AreEqual("lr2-root", snapshot.LR2RootPath);
@@ -43,14 +43,14 @@ public sealed class CustomFolderOutputSettingsSnapshotTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationMode;
-            Settings.Default.LR2RootPath = previousRootPath;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDirectory;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDirectory;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirectories;
-            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = previousEnableUnsent;
-            Settings.Default.PlaylistDefaultIgnoreFolderOutput = previousPlaylistDefaultIgnoreFolderOutput;
-            Settings.Default.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
+            testSettings.OperationModeLR2DB = previousOperationMode;
+            testSettings.LR2RootPath = previousRootPath;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDirectory;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDirectory;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirectories;
+            testSettings.EnableDownloadLr2IrScoreAndDetectUnsent = previousEnableUnsent;
+            testSettings.PlaylistDefaultIgnoreFolderOutput = previousPlaylistDefaultIgnoreFolderOutput;
+            testSettings.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
         }
     }
 }

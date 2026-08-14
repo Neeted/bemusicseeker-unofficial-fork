@@ -1,11 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
-using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows.Threading;
-using BeMusicSeeker;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -14,9 +11,9 @@ using Ribbit.Media;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class SettingDialogOpenCommandTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void OpenCommand_PublishesExactlyOneOwnerRequest()
     {
@@ -79,32 +76,23 @@ public sealed class SettingDialogOpenCommandTests
         {
             PlayerDriver = BassAudioPlayer.DeviceDriver.NULL_DEVICE
         };
-        PropertyInfo availableCulturesProperty = GetAvailableCulturesProperty();
-        object? previousAvailableCultures = EnsureAvailableCultures(availableCulturesProperty);
-        try
-        {
-            MainWindowViewModel viewModel = CreateViewModel(
-                settingsEditSession: new TestSettingsEditSession(settings));
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
-            var changedProperties = new List<string>();
-            dialog.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
+        MainWindowViewModel viewModel = CreateViewModel(
+            settingsEditSession: new TestSettingsEditSession(settings));
+        SettingsDialogViewModel dialog = viewModel.SettingDialog;
+        var changedProperties = new List<string>();
+        dialog.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
 
-            dialog.OpenCommand.Execute();
+        dialog.OpenCommand.Execute();
 
-            CollectionAssert.Contains(changedProperties, nameof(SettingsDialogViewModel.UnavailablePlayerDriverDescription));
-            Assert.IsFalse(string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription));
+        CollectionAssert.Contains(changedProperties, nameof(SettingsDialogViewModel.UnavailablePlayerDriverDescription));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription));
 
-            changedProperties.Clear();
-            dialog.ShowRecommUpdatedMsg = !settings.ShowRecommUpdatedMsg;
-            dialog.CancelCommand.Execute();
+        changedProperties.Clear();
+        dialog.ShowRecommUpdatedMsg = !settings.ShowRecommUpdatedMsg;
+        dialog.CancelCommand.Execute();
 
-            CollectionAssert.Contains(changedProperties, nameof(SettingsDialogViewModel.UnavailablePlayerDriverDescription));
-            Assert.IsFalse(string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription));
-        }
-        finally
-        {
-            RestoreAvailableCultures(availableCulturesProperty, previousAvailableCultures);
-        }
+        CollectionAssert.Contains(changedProperties, nameof(SettingsDialogViewModel.UnavailablePlayerDriverDescription));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription));
     }
 
     [TestMethod]
@@ -116,11 +104,7 @@ public sealed class SettingDialogOpenCommandTests
             PlayerDevice = "saved-missing-device",
             PlayerDeviceName = "Saved missing device"
         };
-        PropertyInfo availableCulturesProperty = GetAvailableCulturesProperty();
-        object? previousAvailableCultures = EnsureAvailableCultures(availableCulturesProperty);
-        try
-        {
-            var catalog = new TestAudioDeviceCatalog
+        var catalog = new TestAudioDeviceCatalog
             {
                 Devices =
                 [
@@ -128,26 +112,21 @@ public sealed class SettingDialogOpenCommandTests
                     new AudioDeviceInfo("Current device", "current-device")
                 ]
             };
-            MainWindowViewModel viewModel = CreateViewModel(
-                catalog,
-                new TestSettingsEditSession(settings));
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+        MainWindowViewModel viewModel = CreateViewModel(
+            catalog,
+            new TestSettingsEditSession(settings));
+        SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
-            dialog.OpenCommand.Execute();
-            dialog.PlayerDevice = "current-device";
-            dialog.CancelCommand.Execute();
+        dialog.OpenCommand.Execute();
+        dialog.PlayerDevice = "current-device";
+        dialog.CancelCommand.Execute();
 
-            Assert.AreEqual("saved-missing-device", dialog.PlayerDevice);
-            AudioDeviceInfo restored = dialog.PlayerDeviceNames.Find(
-                device => device.Driver == "saved-missing-device");
-            Assert.AreEqual("saved-missing-device", restored.Driver);
-            Assert.AreEqual("Saved missing device", restored.Name);
-            Assert.IsFalse(restored.IsAvailable);
-        }
-        finally
-        {
-            RestoreAvailableCultures(availableCulturesProperty, previousAvailableCultures);
-        }
+        Assert.AreEqual("saved-missing-device", dialog.PlayerDevice);
+        AudioDeviceInfo restored = dialog.PlayerDeviceNames.Find(
+            device => device.Driver == "saved-missing-device");
+        Assert.AreEqual("saved-missing-device", restored.Driver);
+        Assert.AreEqual("Saved missing device", restored.Name);
+        Assert.IsFalse(restored.IsAvailable);
     }
 
     [TestMethod]
@@ -272,20 +251,11 @@ public sealed class SettingDialogOpenCommandTests
     [TestMethod]
     public void CancelCommand_ChangedDraft_ResetsDraftBeforeClosing()
     {
-        bool previousShowRecommUpdatedMsg = BeMusicSeeker.Properties.Settings.Default.ShowRecommUpdatedMsg;
-        PropertyInfo availableCulturesProperty = typeof(App).GetProperty("AvailableCultures", BindingFlags.Static | BindingFlags.Public)!;
-        object previousAvailableCultures = availableCulturesProperty.GetValue(null);
+        bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
         try
         {
-            if (previousAvailableCultures == null)
-            {
-                availableCulturesProperty.SetValue(
-                    null,
-                    new ReadOnlyDictionary<string, string>(
-                        new Dictionary<string, string> { ["ja-JP"] = "ja-JP" }));
-            }
-
-            MainWindowViewModel viewModel = CreateViewModel();
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsEditSession: new TestSettingsEditSession(testSettings));
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
@@ -308,11 +278,7 @@ public sealed class SettingDialogOpenCommandTests
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
-            if (previousAvailableCultures == null)
-            {
-                availableCulturesProperty.SetValue(null, null);
-            }
+            testSettings.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
         }
     }
 
@@ -324,35 +290,10 @@ public sealed class SettingDialogOpenCommandTests
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            settingsEditSession: settingsEditSession,
+            settingsEditSession: settingsEditSession
+                ?? new TestSettingsEditSession(new BeMusicSeeker.Properties.Settings()),
             audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog())
             .CreateMainWindowViewModel();
-    }
-
-    private static PropertyInfo GetAvailableCulturesProperty()
-    {
-        return typeof(App).GetProperty("AvailableCultures", BindingFlags.Static | BindingFlags.Public)!;
-    }
-
-    private static object? EnsureAvailableCultures(PropertyInfo property)
-    {
-        object? previous = property.GetValue(null);
-        if (previous == null)
-        {
-            property.SetValue(
-                null,
-                new ReadOnlyDictionary<string, string>(
-                    new Dictionary<string, string> { ["ja-JP"] = "ja-JP" }));
-        }
-        return previous;
-    }
-
-    private static void RestoreAvailableCultures(PropertyInfo property, object? previous)
-    {
-        if (previous == null)
-        {
-            property.SetValue(null, null);
-        }
     }
 
     private sealed class TestSettingsEditSession : ISettingsEditSession

@@ -9,43 +9,43 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class StartupSettingsSnapshotTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void CreateCurrentCapturesStartupTailSettingsAsOneSnapshot()
     {
-        Uri previousTableListUrl = Settings.Default.TableListURL;
-        bool previousBackupEnabled = Settings.Default.IsLR2BackupEnabled;
-        Backup.Target previousBackupTarget = Settings.Default.LR2BackupTarget;
-        string previousBackupPath = Settings.Default.LR2BackupPath;
-        int previousBackupSpan = Settings.Default.LR2BackupSpan;
-        int previousBackupNum = Settings.Default.LR2BackupNum;
-        bool previousSkipInitPlaylistLoad = Settings.Default.SkipInitPlaylistLoad;
-        bool previousStartupSelectInstallPending = Settings.Default.StartupSelectInstallPending;
-        bool previousShowDuplicateFileCheckConfirmMsg = Settings.Default.ShowDuplicateFileCheckConfirmMsg;
-        bool previousUseBeatorajaScoreDb = Settings.Default.UseBeatorajaScoreDb;
-        string previousBeatorajaRootPath = Settings.Default.BeatorajaRootPath;
-        string previousBeatorajaPlayerId = Settings.Default.BeatorajaPlayerId;
-        string previousBeatorajaScoreDbPath = Settings.Default.BeatorajaScoreDbPath;
+        Uri previousTableListUrl = testSettings.TableListURL;
+        bool previousBackupEnabled = testSettings.IsLR2BackupEnabled;
+        Backup.Target previousBackupTarget = testSettings.LR2BackupTarget;
+        string previousBackupPath = testSettings.LR2BackupPath;
+        int previousBackupSpan = testSettings.LR2BackupSpan;
+        int previousBackupNum = testSettings.LR2BackupNum;
+        bool previousSkipInitPlaylistLoad = testSettings.SkipInitPlaylistLoad;
+        bool previousStartupSelectInstallPending = testSettings.StartupSelectInstallPending;
+        bool previousShowDuplicateFileCheckConfirmMsg = testSettings.ShowDuplicateFileCheckConfirmMsg;
+        bool previousUseBeatorajaScoreDb = testSettings.UseBeatorajaScoreDb;
+        string previousBeatorajaRootPath = testSettings.BeatorajaRootPath;
+        string previousBeatorajaPlayerId = testSettings.BeatorajaPlayerId;
+        string previousBeatorajaScoreDbPath = testSettings.BeatorajaScoreDbPath;
         try
         {
             Uri tableListUrl = new("https://example.invalid/startup-table-list");
-            Settings.Default.TableListURL = tableListUrl;
-            Settings.Default.IsLR2BackupEnabled = true;
-            Settings.Default.LR2BackupTarget = Backup.Target.Config | Backup.Target.ScoreDB;
-            Settings.Default.LR2BackupPath = "backup-root";
-            Settings.Default.LR2BackupSpan = 7;
-            Settings.Default.LR2BackupNum = 4;
-            Settings.Default.SkipInitPlaylistLoad = true;
-            Settings.Default.StartupSelectInstallPending = true;
-            Settings.Default.ShowDuplicateFileCheckConfirmMsg = true;
-            Settings.Default.UseBeatorajaScoreDb = true;
-            Settings.Default.BeatorajaRootPath = "beatoraja-root";
-            Settings.Default.BeatorajaPlayerId = "player-id";
-            Settings.Default.BeatorajaScoreDbPath = "beatoraja-score.db";
+            testSettings.TableListURL = tableListUrl;
+            testSettings.IsLR2BackupEnabled = true;
+            testSettings.LR2BackupTarget = Backup.Target.Config | Backup.Target.ScoreDB;
+            testSettings.LR2BackupPath = "backup-root";
+            testSettings.LR2BackupSpan = 7;
+            testSettings.LR2BackupNum = 4;
+            testSettings.SkipInitPlaylistLoad = true;
+            testSettings.StartupSelectInstallPending = true;
+            testSettings.ShowDuplicateFileCheckConfirmMsg = true;
+            testSettings.UseBeatorajaScoreDb = true;
+            testSettings.BeatorajaRootPath = "beatoraja-root";
+            testSettings.BeatorajaPlayerId = "player-id";
+            testSettings.BeatorajaScoreDbPath = "beatoraja-score.db";
 
-            StartupSettingsSnapshot snapshot = StartupSettingsSnapshot.CreateCurrent(Settings.Default);
+            StartupSettingsSnapshot snapshot = StartupSettingsSnapshot.CreateCurrent(testSettings);
 
             Assert.AreEqual(tableListUrl, snapshot.TableListURL);
             Assert.IsTrue(snapshot.IsLR2BackupEnabled);
@@ -63,42 +63,42 @@ public sealed class StartupSettingsSnapshotTests
         }
         finally
         {
-            Settings.Default.TableListURL = previousTableListUrl;
-            Settings.Default.IsLR2BackupEnabled = previousBackupEnabled;
-            Settings.Default.LR2BackupTarget = previousBackupTarget;
-            Settings.Default.LR2BackupPath = previousBackupPath;
-            Settings.Default.LR2BackupSpan = previousBackupSpan;
-            Settings.Default.LR2BackupNum = previousBackupNum;
-            Settings.Default.SkipInitPlaylistLoad = previousSkipInitPlaylistLoad;
-            Settings.Default.StartupSelectInstallPending = previousStartupSelectInstallPending;
-            Settings.Default.ShowDuplicateFileCheckConfirmMsg = previousShowDuplicateFileCheckConfirmMsg;
-            Settings.Default.UseBeatorajaScoreDb = previousUseBeatorajaScoreDb;
-            Settings.Default.BeatorajaRootPath = previousBeatorajaRootPath;
-            Settings.Default.BeatorajaPlayerId = previousBeatorajaPlayerId;
-            Settings.Default.BeatorajaScoreDbPath = previousBeatorajaScoreDbPath;
+            testSettings.TableListURL = previousTableListUrl;
+            testSettings.IsLR2BackupEnabled = previousBackupEnabled;
+            testSettings.LR2BackupTarget = previousBackupTarget;
+            testSettings.LR2BackupPath = previousBackupPath;
+            testSettings.LR2BackupSpan = previousBackupSpan;
+            testSettings.LR2BackupNum = previousBackupNum;
+            testSettings.SkipInitPlaylistLoad = previousSkipInitPlaylistLoad;
+            testSettings.StartupSelectInstallPending = previousStartupSelectInstallPending;
+            testSettings.ShowDuplicateFileCheckConfirmMsg = previousShowDuplicateFileCheckConfirmMsg;
+            testSettings.UseBeatorajaScoreDb = previousUseBeatorajaScoreDb;
+            testSettings.BeatorajaRootPath = previousBeatorajaRootPath;
+            testSettings.BeatorajaPlayerId = previousBeatorajaPlayerId;
+            testSettings.BeatorajaScoreDbPath = previousBeatorajaScoreDbPath;
         }
     }
 
     [TestMethod]
     public void CreateCurrentReadsStandaloneRootsThroughSettingsAdapter()
     {
-        string previousStandaloneRoots = Settings.Default.StandaloneBmsRootPaths;
-        string previousLegacyRoot = Settings.Default.BMSRootPath;
+        string previousStandaloneRoots = testSettings.StandaloneBmsRootPaths;
+        string previousLegacyRoot = testSettings.BMSRootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "StartupSettingsSnapshotTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            Settings.Default.StandaloneBmsRootPaths = tempDirectory;
-            Settings.Default.BMSRootPath = null;
+            testSettings.StandaloneBmsRootPaths = tempDirectory;
+            testSettings.BMSRootPath = null;
 
-            StartupSettingsSnapshot snapshot = StartupSettingsSnapshot.CreateCurrent(Settings.Default);
+            StartupSettingsSnapshot snapshot = StartupSettingsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.StandaloneBmsRootPaths.Contains(tempDirectory, StringComparer.OrdinalIgnoreCase));
         }
         finally
         {
-            Settings.Default.StandaloneBmsRootPaths = previousStandaloneRoots;
-            Settings.Default.BMSRootPath = previousLegacyRoot;
+            testSettings.StandaloneBmsRootPaths = previousStandaloneRoots;
+            testSettings.BMSRootPath = previousLegacyRoot;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

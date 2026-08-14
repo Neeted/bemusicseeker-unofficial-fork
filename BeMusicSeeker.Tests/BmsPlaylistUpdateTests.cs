@@ -1397,7 +1397,7 @@ public sealed class BmsPlaylistUpdateTests
             }
             table.Folder_order = ["1", "★1"];
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
-            var viewModel = MainWindowViewModelTestFactory.Create();
+            var viewModel = MainWindowViewModelTestFactory.Create(Settings.Default);
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -2647,7 +2647,7 @@ public sealed class BmsPlaylistUpdateTests
             Directory.CreateDirectory(oldOutputDirectory);
             Directory.CreateDirectory(newAdditionalOutputBaseDir);
             File.WriteAllText(oldOutputPath, "#TITLE stale default", Encoding.GetEncoding("shift_jis"));
-            var viewModel = MainWindowViewModelTestFactory.Create();
+            var viewModel = MainWindowViewModelTestFactory.Create(Settings.Default);
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2CustomFolderOutputBaseDir = defaultOutputBaseDir;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
@@ -2839,7 +2839,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
-            var viewModel = MainWindowViewModelTestFactory.Create();
+            var viewModel = MainWindowViewModelTestFactory.Create(Settings.Default);
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);

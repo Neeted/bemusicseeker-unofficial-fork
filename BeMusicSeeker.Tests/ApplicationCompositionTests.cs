@@ -18,9 +18,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class ApplicationCompositionTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void CompositionKeepsTheConfiguredLibraryOptionsProvider()
     {
@@ -31,7 +31,7 @@ public sealed class ApplicationCompositionTests
         };
         var composition = new ApplicationComposition(
             () => snapshot,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         Assert.AreSame(snapshot, composition.BmsLibraryOptionsProvider());
     }
@@ -40,8 +40,8 @@ public sealed class ApplicationCompositionTests
     [TestCategory("Playlist")]
     public async Task PlaylistWorkspaceCreatesNewPlaylistThroughConfiguredStore()
     {
-        int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
-        BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput =
+        int previousDefault = testSettings.PlaylistDefaultIgnoreFolderOutput;
+        testSettings.PlaylistDefaultIgnoreFolderOutput =
             (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -52,13 +52,11 @@ public sealed class ApplicationCompositionTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>()
-            };
+            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
+            playlist.BMSTables = new ObservableCollection<BMSTable>();
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainChartListViewModel missingProviderMainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel missingProviderWorkspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
@@ -133,7 +131,7 @@ public sealed class ApplicationCompositionTests
             PlaylistPropertyDialogViewModel dialog =
                 await workspace.CreatePlaylistPropertyDialogAsync();
             Assert.IsNotNull(dialog);
-            Assert.AreEqual(BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB, dialog.OperationModeLR2DB);
+            Assert.AreEqual(testSettings.OperationModeLR2DB, dialog.OperationModeLR2DB);
             Assert.AreEqual(2, playlist.BMSTables.Count);
             Assert.AreSame(dialog, workspace.ActivePropertyDialog);
             Assert.AreEqual(
@@ -145,7 +143,7 @@ public sealed class ApplicationCompositionTests
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = previousDefault;
+            testSettings.PlaylistDefaultIgnoreFolderOutput = previousDefault;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -164,7 +162,7 @@ public sealed class ApplicationCompositionTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             () => snapshot,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         Assert.AreSame(snapshot, composition.StartupSettingsProvider());
     }
@@ -173,7 +171,7 @@ public sealed class ApplicationCompositionTests
     public void CompositionCreatesTheDefaultInternalBmsPlayer()
     {
         var composition = new ApplicationComposition(
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         Assert.IsInstanceOfType(composition.CreateDefaultBmsPlayer(), typeof(InternalBMSAutoPlayerSoundOnly));
     }
@@ -188,7 +186,7 @@ public sealed class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var settings = new StartupSettingsSnapshot
             {
                 UsePlayeruBMplay = true,
@@ -216,7 +214,7 @@ public sealed class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var settings = new StartupSettingsSnapshot
             {
                 UsePlayerBMIIDXView = true,
@@ -247,7 +245,7 @@ public sealed class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var settings = new StartupSettingsSnapshot
             {
                 UsePlayerLR2body = true,
@@ -268,66 +266,66 @@ public sealed class ApplicationCompositionTests
     [TestMethod]
     public void CompositionUsesInjectedDefaultWhenNoExternalPlayerIsSelected()
     {
-        bool originalUbMplay = BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay;
-        bool originalBmi = BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView;
-        bool originalLr2 = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
+        bool originalUbMplay = testSettings.UsePlayeruBMplay;
+        bool originalBmi = testSettings.UsePlayerBMIIDXView;
+        bool originalLr2 = testSettings.UsePlayerLR2body;
         var expected = new InternalBMSAutoPlayerSoundOnly(
-            new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default),
+            new SettingsPlayerSettingsGateway(() => testSettings),
             new BassAudioPlaybackRuntime());
         var composition = new ApplicationComposition(
             defaultBmsPlayerFactory: () => expected,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         try
         {
-            BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay = false;
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView = false;
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = false;
+            testSettings.UsePlayeruBMplay = false;
+            testSettings.UsePlayerBMIIDXView = false;
+            testSettings.UsePlayerLR2body = false;
 
             Assert.AreSame(
                 expected,
                 composition.CreateBmsPlayerForSettings(
-                    StartupSettingsSnapshot.CreateCurrent(BeMusicSeeker.Properties.Settings.Default)));
+                    StartupSettingsSnapshot.CreateCurrent(testSettings)));
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay = originalUbMplay;
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView = originalBmi;
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = originalLr2;
+            testSettings.UsePlayeruBMplay = originalUbMplay;
+            testSettings.UsePlayerBMIIDXView = originalBmi;
+            testSettings.UsePlayerLR2body = originalLr2;
         }
     }
 
     [TestMethod]
     public void CompositionRejectsConfiguredLr2PlayerWhenExecutableIsMissing()
     {
-        bool originalUbMplay = BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay;
-        bool originalBmi = BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView;
-        bool originalLr2 = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
-        string originalLr2RootPath = BeMusicSeeker.Properties.Settings.Default.LR2RootPath;
-        string originalLr2ConfigPath = BeMusicSeeker.Properties.Settings.Default.LR2ConfigXmlPath;
+        bool originalUbMplay = testSettings.UsePlayeruBMplay;
+        bool originalBmi = testSettings.UsePlayerBMIIDXView;
+        bool originalLr2 = testSettings.UsePlayerLR2body;
+        string originalLr2RootPath = testSettings.LR2RootPath;
+        string originalLr2ConfigPath = testSettings.LR2ConfigXmlPath;
         try
         {
-            BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay = false;
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView = false;
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = true;
+            testSettings.UsePlayeruBMplay = false;
+            testSettings.UsePlayerBMIIDXView = false;
+            testSettings.UsePlayerLR2body = true;
             string missingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-            BeMusicSeeker.Properties.Settings.Default.LR2RootPath = missingRoot;
-            BeMusicSeeker.Properties.Settings.Default.LR2ConfigXmlPath = Path.Combine(missingRoot, "LR2files", "Config.xml");
+            testSettings.LR2RootPath = missingRoot;
+            testSettings.LR2ConfigXmlPath = Path.Combine(missingRoot, "LR2files", "Config.xml");
             var composition = new ApplicationComposition(
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
             InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
                 () => composition.CreateBmsPlayerForSettings(
-                    StartupSettingsSnapshot.CreateCurrent(BeMusicSeeker.Properties.Settings.Default)));
+                    StartupSettingsSnapshot.CreateCurrent(testSettings)));
 
             Assert.AreEqual("Configured LR2 playback player could not be created.", exception.Message);
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay = originalUbMplay;
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView = originalBmi;
-            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = originalLr2;
-            BeMusicSeeker.Properties.Settings.Default.LR2RootPath = originalLr2RootPath;
-            BeMusicSeeker.Properties.Settings.Default.LR2ConfigXmlPath = originalLr2ConfigPath;
+            testSettings.UsePlayeruBMplay = originalUbMplay;
+            testSettings.UsePlayerBMIIDXView = originalBmi;
+            testSettings.UsePlayerLR2body = originalLr2;
+            testSettings.LR2RootPath = originalLr2RootPath;
+            testSettings.LR2ConfigXmlPath = originalLr2ConfigPath;
         }
     }
 
@@ -342,7 +340,7 @@ public sealed class ApplicationCompositionTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             playlistUrlCompletionOptionsProvider: () => snapshot,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         Assert.AreSame(snapshot, composition.PlaylistUrlCompletionOptionsProvider());
     }
@@ -359,7 +357,7 @@ public sealed class ApplicationCompositionTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             beatorajaBmtOptionsProvider: () => snapshot,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         Assert.AreSame(snapshot, composition.BeatorajaBmtOptionsProvider());
     }
@@ -374,7 +372,7 @@ public sealed class ApplicationCompositionTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             customFolderOutputSettingsProvider: () => snapshot,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         Assert.AreSame(snapshot, composition.CustomFolderOutputSettingsProvider());
     }
@@ -384,7 +382,7 @@ public sealed class ApplicationCompositionTests
     {
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: true),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
@@ -398,7 +396,7 @@ public sealed class ApplicationCompositionTests
     {
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(
             action => action(),
             _ =>
@@ -450,7 +448,7 @@ public sealed class ApplicationCompositionTests
     {
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(
             action => action(),
             _ =>
@@ -491,7 +489,7 @@ public sealed class ApplicationCompositionTests
             mainChartList,
             playlistWorkspace,
             () => new InternalBMSAutoPlayerSoundOnly(
-                new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 new BassAudioPlaybackRuntime()),
                 new ChartFileOperationSynchronizer(),
             _ =>
@@ -590,13 +588,11 @@ public sealed class ApplicationCompositionTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>([first, second])
-            };
+            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
+            playlist.BMSTables = new ObservableCollection<BMSTable>([first, second]);
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
@@ -631,7 +627,7 @@ public sealed class ApplicationCompositionTests
                 mainChartList,
                 workspace,
                 () => new InternalBMSAutoPlayerSoundOnly(
-                    new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default),
+                    new SettingsPlayerSettingsGateway(() => testSettings),
                     new BassAudioPlaybackRuntime()),
                 new ChartFileOperationSynchronizer(),
                 _ => { },
@@ -718,13 +714,11 @@ public sealed class ApplicationCompositionTests
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
             var third = new BMSTable { playlist_id = 3, name = "Third", symbol = "T", bmt_sort = 3 };
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>([first, second, third])
-            };
+            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
+            playlist.BMSTables = new ObservableCollection<BMSTable>([first, second, third]);
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var restoreRequests = new List<PlaylistSummarySelectionRestoreRequest>();
             MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
@@ -760,7 +754,7 @@ public sealed class ApplicationCompositionTests
                 mainChartList,
                 workspace,
                 () => new InternalBMSAutoPlayerSoundOnly(
-                    new SettingsPlayerSettingsGateway(() => BeMusicSeeker.Properties.Settings.Default),
+                    new SettingsPlayerSettingsGateway(() => testSettings),
                     new BassAudioPlaybackRuntime()),
                 new ChartFileOperationSynchronizer(),
                 _ => { },
@@ -1015,28 +1009,19 @@ public sealed class ApplicationCompositionTests
     {
         RunOnStaDispatcherThread(() =>
         {
-            Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
-            DispatcherHelper.UIDispatcher = Dispatcher.CurrentDispatcher;
-            try
-            {
-                var composition = new ApplicationComposition(
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-                MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-                PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
-                workspace.IsPlaylistSummaryMode = true;
+            var composition = new ApplicationComposition(
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+            workspace.IsPlaylistSummaryMode = true;
 
-                long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
-                Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache([], dataGeneration));
+            long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+            Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache([], dataGeneration));
 
-                workspace.RequestPlaylistSummaryPresentationRefresh();
+            workspace.RequestPlaylistSummaryPresentationRefresh();
 
-                Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh());
-                Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
-            }
-            finally
-            {
-                DispatcherHelper.UIDispatcher = previousDispatcher;
-            }
+            Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh());
+            Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
         });
     }
 
@@ -1045,61 +1030,52 @@ public sealed class ApplicationCompositionTests
     {
         RunOnStaDispatcherThread(() =>
         {
-            Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
             Dispatcher uiDispatcher = Dispatcher.CurrentDispatcher;
-            DispatcherHelper.UIDispatcher = uiDispatcher;
-            try
+            var composition = new ApplicationComposition(
+                () => new BmsLibraryOptionsSnapshot(),
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            int uiThreadId = Thread.CurrentThread.ManagedThreadId;
+            int workerThreadId = 0;
+            int propertyChangedThreadId = 0;
+            int propertyChangedCount = 0;
+            var frame = new DispatcherFrame();
+            viewModel.PlaylistWorkspace.PropertyChanged += (_, e) =>
             {
-                var composition = new ApplicationComposition(
-                    () => new BmsLibraryOptionsSnapshot(),
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-                MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-                int uiThreadId = Thread.CurrentThread.ManagedThreadId;
-                int workerThreadId = 0;
-                int propertyChangedThreadId = 0;
-                int propertyChangedCount = 0;
-                var frame = new DispatcherFrame();
-                viewModel.PlaylistWorkspace.PropertyChanged += (_, e) =>
+                if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode))
                 {
-                    if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode))
-                    {
-                        propertyChangedThreadId = Thread.CurrentThread.ManagedThreadId;
-                        propertyChangedCount++;
-                        frame.Continue = false;
-                    }
-                };
+                    propertyChangedThreadId = Thread.CurrentThread.ManagedThreadId;
+                    propertyChangedCount++;
+                    frame.Continue = false;
+                }
+            };
 
-                Task worker = Task.Run(() =>
-                {
-                    workerThreadId = Thread.CurrentThread.ManagedThreadId;
-                    viewModel.PlaylistWorkspace.RequestSummarySelection();
-                });
-                bool timedOut = false;
-                var timeout = new DispatcherTimer(
-                    TimeSpan.FromSeconds(5),
-                    DispatcherPriority.Send,
-                    (_, _) =>
-                    {
-                        timedOut = true;
-                        frame.Continue = false;
-                    },
-                    uiDispatcher);
-
-                Dispatcher.PushFrame(frame);
-                timeout.Stop();
-                worker.GetAwaiter().GetResult();
-
-                Assert.IsFalse(timedOut, "Playlist summary terminal presentation was not published.");
-                Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryMode);
-                Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryModeRequested);
-                Assert.AreNotEqual(uiThreadId, workerThreadId);
-                Assert.AreEqual(uiThreadId, propertyChangedThreadId);
-                Assert.AreEqual(1, propertyChangedCount);
-            }
-            finally
+            Task worker = Task.Run(() =>
             {
-                DispatcherHelper.UIDispatcher = previousDispatcher;
-            }
+                workerThreadId = Thread.CurrentThread.ManagedThreadId;
+                viewModel.PlaylistWorkspace.RequestSummarySelection();
+            });
+            bool timedOut = false;
+            var timeout = new DispatcherTimer(
+                TimeSpan.FromSeconds(5),
+                DispatcherPriority.Send,
+                (_, _) =>
+                {
+                    timedOut = true;
+                    frame.Continue = false;
+                },
+                uiDispatcher);
+
+            Dispatcher.PushFrame(frame);
+            timeout.Stop();
+            worker.GetAwaiter().GetResult();
+
+            Assert.IsFalse(timedOut, "Playlist summary terminal presentation was not published.");
+            Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryMode);
+            Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryModeRequested);
+            Assert.AreNotEqual(uiThreadId, workerThreadId);
+            Assert.AreEqual(uiThreadId, propertyChangedThreadId);
+            Assert.AreEqual(1, propertyChangedCount);
         });
     }
 
@@ -1140,7 +1116,7 @@ public sealed class ApplicationCompositionTests
     [TestMethod]
     public void MainWindowSettingDialogUsesInjectedEditSessionForOpenAndRestartSave()
     {
-        bool operationMode = BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB;
+        bool operationMode = testSettings.OperationModeLR2DB;
         var session = new FakeSettingsEditSession();
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
@@ -1161,7 +1137,7 @@ public sealed class ApplicationCompositionTests
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = operationMode;
+            testSettings.OperationModeLR2DB = operationMode;
         }
     }
 
@@ -1320,6 +1296,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void SettingDialogAdditionalOutputPathsUseInjectedSessionInsteadOfGlobalSettings()
     {
         string previousGlobalPaths = BeMusicSeeker.Properties.Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
@@ -1378,6 +1355,7 @@ public sealed class ApplicationCompositionTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             keywordSearchHistorySettingsStore: store,
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
@@ -1398,7 +1376,7 @@ public sealed class ApplicationCompositionTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             keywordSearchHistorySettingsStore: store,
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
@@ -1444,7 +1422,8 @@ public sealed class ApplicationCompositionTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             playHistoryDisplaySettingsStore: store,
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
@@ -1569,7 +1548,7 @@ public sealed class ApplicationCompositionTests
 
     private sealed class FakeSettingsEditSession : ISettingsEditSession
     {
-        public BeMusicSeeker.Properties.Settings Values { get; set; } = BeMusicSeeker.Properties.Settings.Default;
+        public BeMusicSeeker.Properties.Settings Values { get; set; } = new();
 
         public List<string> Calls { get; } = [];
 

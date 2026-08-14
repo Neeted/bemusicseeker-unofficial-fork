@@ -31,8 +31,8 @@
 
 | Slice | Scope | Status | Commit | Quick | Functional | Review | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1A | owner-local/GUID resource | complete | pending | 232/232 passed, 50.8 s | 3 consecutive runs passed: 149.7 / 144.4 / 137.8 s | clean after two focused corrections | Audited 12 owner/resource fixtures; removed 5 attributes and retained 7 documented process-wide boundaries. |
-| 1B | fresh settings/composition | pending | — | pending | pending | pending | — |
+| 1A | owner-local/GUID resource | complete | `0d2731b9` | 232/232 passed, 50.8 s | 3 consecutive runs passed: 149.7 / 144.4 / 137.8 s | clean after two focused corrections | Audited 12 owner/resource fixtures; removed 5 attributes and retained 7 documented process-wide boundaries. |
+| 1B | fresh settings/composition | complete | pending | 519/519 passed, plus correction 4/4 and 140/140 | 3 consecutive runs passed: 139.9 / 131.3 / 136.4 s; corrected snapshot 134.5 s | clean after corrective replan | Replaced shared settings/resource state with fresh settings sessions, explicit option providers, and scoped thread culture in the 16-fixture cohort; retained method-level serialization only for the intentional distinct-`Settings.Default` sentinel test. |
 | 1C | large fixture/method-level DNP/runner topology | pending | — | pending | pending | pending | — |
 | 1D | deterministic signal cohort | pending | — | pending | pending | pending | — |
 | 1E | remaining wait audit | pending | — | pending | pending | pending | — |
@@ -67,6 +67,20 @@
 - No `testhost`, `vstest`, updater, or repository test process remained after the three runs.
 - `git diff --check`: passed.
 - Static review: the first review requested the mandatory post-change Functional triplet. The first fresh review confirmed that evidence and identified an incomplete retained-resource comment for `InstalledOnlyResourceOverwriteValidationTests`; the comment and this audit now name both settings and localization globals. The second fresh review reported no blocking findings.
+
+### Slice 1B
+
+- Exact 16-fixture Quick: 519/519 passed in 20.5 s, `tests-quick-20260815-032158`.
+- Explicit-global compatibility checks: the Settings window appearance and playlist default-output migration tests each passed with an explicit `Settings.Default` factory argument.
+- Three consecutive Functional runs passed with 3,962 total tests and unchanged tracked-tree fingerprint `0E066EAFD817B1EC60B0E29E168286A18F980BB26F844CBE8104BBD9F878401C`:
+  - `tests-functional-20260815-033114`: 139.9 s;
+  - `tests-functional-20260815-033341`: 131.3 s;
+  - `tests-functional-20260815-033557`: 136.4 s.
+- Worker static review completed two focused correction rounds and reported no remaining blocking findings. Final integrated review is pending.
+- The integrated review then found a process-global `DispatcherHelper.UIDispatcher` race and two retained-global tests with mismatched factory settings. A corrective unit-planner pass removed both static dispatcher mutations and made the two remaining global-settings consumers explicit.
+- Corrective Quick runs passed: 4/4 focused tests (`tests-quick-20260815-035246`) and 140/140 ApplicationComposition/BmsPlaylistUpdate tests (`tests-quick-20260815-035319`).
+- Corrected-snapshot Functional passed 3,962 tests in 134.5 s with unchanged fingerprint `F7C627C6B75F8B893EE55B385B3CD8ECD8B38351A401DABD4AF6AD4E75210027`, `tests-functional-20260815-035353`.
+- The final fresh review of the replanned correction reported no blocking findings.
 
 ## Retirement rule
 

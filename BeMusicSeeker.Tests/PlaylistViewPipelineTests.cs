@@ -21,15 +21,8 @@ using Newtonsoft.Json.Linq;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class PlaylistViewPipelineTests
 {
-    [ClassInitialize]
-    public static void ClassInitialize(TestContext _)
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-    }
-
     [TestMethod]
     public void PlaylistDetailPresentationService_SortKeepsAllRowsVisible()
     {
@@ -2300,7 +2293,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void RepairInstalledLocationRequest_HasInstallDestinationUsesExistingChartWithoutCreatingAdapter()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
         var bmson = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Songs\\Bmson\\repair-existing.bmson",
@@ -2703,7 +2696,7 @@ public sealed class PlaylistViewPipelineTests
             };
             PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
             var viewModel = MainWindowViewModelTestFactory.Create();
-            typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, new TestBmsPlaylist(songDbPath));
+            typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, new BeMusicSeeker.Properties.Settings()));
 
             var context = new MainChartListCellEditContext(
                 row,

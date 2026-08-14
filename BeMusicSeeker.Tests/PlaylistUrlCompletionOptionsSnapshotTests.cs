@@ -5,24 +5,24 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class PlaylistUrlCompletionOptionsSnapshotTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void CreateCurrentCapturesAllUrlCompletionSettings()
     {
-        bool previousEnableCompletion = Settings.Default.EnablePlaylistUrlCompletion;
-        string previousTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri;
-        bool previousEnableStella = Settings.Default.EnableStellaFullPlaylistUrlCompletion;
-        bool previousOverwrite = Settings.Default.OverwritePlaylistUrlsWithCompletion;
+        bool previousEnableCompletion = testSettings.EnablePlaylistUrlCompletion;
+        string previousTsvUri = testSettings.PlaylistMd5UrlMappingTsvUri;
+        bool previousEnableStella = testSettings.EnableStellaFullPlaylistUrlCompletion;
+        bool previousOverwrite = testSettings.OverwritePlaylistUrlsWithCompletion;
         try
         {
-            Settings.Default.EnablePlaylistUrlCompletion = true;
-            Settings.Default.PlaylistMd5UrlMappingTsvUri = "https://example.invalid/playlist.tsv";
-            Settings.Default.EnableStellaFullPlaylistUrlCompletion = true;
-            Settings.Default.OverwritePlaylistUrlsWithCompletion = true;
+            testSettings.EnablePlaylistUrlCompletion = true;
+            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.invalid/playlist.tsv";
+            testSettings.EnableStellaFullPlaylistUrlCompletion = true;
+            testSettings.OverwritePlaylistUrlsWithCompletion = true;
 
-            PlaylistUrlCompletionOptionsSnapshot snapshot = PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default);
+            PlaylistUrlCompletionOptionsSnapshot snapshot = PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.EnablePlaylistUrlCompletion);
             Assert.AreEqual("https://example.invalid/playlist.tsv", snapshot.PlaylistMd5UrlMappingTsvUri);
@@ -31,10 +31,10 @@ public sealed class PlaylistUrlCompletionOptionsSnapshotTests
         }
         finally
         {
-            Settings.Default.EnablePlaylistUrlCompletion = previousEnableCompletion;
-            Settings.Default.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
-            Settings.Default.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
-            Settings.Default.OverwritePlaylistUrlsWithCompletion = previousOverwrite;
+            testSettings.EnablePlaylistUrlCompletion = previousEnableCompletion;
+            testSettings.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
+            testSettings.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
+            testSettings.OverwritePlaylistUrlsWithCompletion = previousOverwrite;
         }
     }
 }

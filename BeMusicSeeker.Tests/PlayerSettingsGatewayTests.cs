@@ -6,13 +6,13 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class PlayerSettingsGatewayTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void GatewayCapturesRequestedAudioSettingsWithoutNegotiatedWriteBack()
     {
-        Settings settings = Settings.Default;
+        Settings settings = testSettings;
         var originalDriver = settings.PlayerDriver;
         string originalDevice = settings.PlayerDevice;
         string originalDeviceName = settings.PlayerDeviceName;
@@ -84,7 +84,7 @@ public sealed class PlayerSettingsGatewayTests
     [TestMethod]
     public void PlayerResolutionSettingsAdapterPreservesPersistedDimensions()
     {
-        Settings settings = Settings.Default;
+        Settings settings = testSettings;
         System.Windows.Point originalResolution = settings.LR2bodyResolution;
         try
         {

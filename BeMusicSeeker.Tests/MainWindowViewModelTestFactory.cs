@@ -5,17 +5,45 @@ using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
 
 internal static class MainWindowViewModelTestFactory
 {
-    internal static MainWindowViewModel Create()
+    internal static MainWindowViewModel Create(Settings settings = null)
     {
+        settings ??= new Settings();
         return new ApplicationComposition(
-            uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+            settingsEditSession: new NoOpSettingsEditSession(settings),
+            uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog())
             .CreateMainWindowViewModelForTest();
+    }
+
+    internal static TestBmsLibrary CreateLibrary(string songDbPath, Settings settings)
+    {
+        return new TestBmsLibrary(
+            songDbPath,
+            getLR2Config: null,
+            _lr2ScoreDB: null,
+            startupRequiredFileScanReason: null,
+            optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+    }
+
+    internal static TestBmsPlaylist CreatePlaylist(string songDbPath, Settings settings)
+    {
+        return new TestBmsPlaylist(
+            songDbPath,
+            getLr2Config: null,
+            scoreDbPath: null,
+            getBmsScores: null,
+            getBeatorajaBmtSongHashResolver: null,
+            playlistUrlCompletionOptionsProvider: () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),
+            beatorajaBmtOptionsProvider: () => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings),
+            customFolderOutputSettingsProvider: () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings));
     }
 
     internal static MainWindowViewModel CreateMainWindowViewModelForTest(
@@ -27,6 +55,24 @@ internal static class MainWindowViewModelTestFactory
         return viewModel;
     }
 
+}
+
+internal sealed class NoOpSettingsEditSession : ISettingsEditSession
+{
+    internal NoOpSettingsEditSession(Settings values)
+    {
+        Values = values ?? throw new ArgumentNullException(nameof(values));
+    }
+
+    public Settings Values { get; }
+
+    public void Reload()
+    {
+    }
+
+    public void Save()
+    {
+    }
 }
 
 internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort

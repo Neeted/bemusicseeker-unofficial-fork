@@ -998,7 +998,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 Settings.Default.AppearanceTheme = AppThemeService.Light;
                 AppThemeService.ApplyTheme(AppThemeService.Light);
-                MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
+                MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create(Settings.Default);
                 SettingsDialogViewModel settings = mainViewModel.SettingDialog;
                 window = new SettingsWindow
                 {
