@@ -20,15 +20,13 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         var events = new List<string>();
         var runtimeStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        using var releaseRuntime = new ManualResetEventSlim();
+        var releaseRuntime = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var runtime = new RecordingAudioDeviceTestRuntime(() =>
         {
             events.Add("runtime");
             runtimeStarted.TrySetResult();
-            if (!releaseRuntime.Wait(TimeSpan.FromSeconds(5)))
-            {
-                throw new TimeoutException("The audio-device runtime release was not observed.");
-            }
+            releaseRuntime.Task.GetAwaiter().GetResult();
             return CreateResult();
         });
         var owner = new AudioDeviceTestWorkflowOwner(
@@ -38,15 +36,22 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         Task<AudioDeviceTestResult> firstTask = owner.TryRunAsync(request);
 
-        await runtimeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.IsTrue(owner.IsRunning);
-        Assert.IsNull(await owner.TryRunAsync(request));
+        try
+        {
+            await runtimeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsTrue(owner.IsRunning);
+            Assert.IsNull(await owner.TryRunAsync(request));
 
-        releaseRuntime.Set();
-        Assert.IsNotNull(await firstTask);
-        Assert.IsFalse(owner.IsRunning);
-        CollectionAssert.AreEqual(new[] { "stop", "runtime" }, events);
-        Assert.AreEqual(1, runtime.CallCount);
+            releaseRuntime.TrySetResult();
+            Assert.IsNotNull(await firstTask.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.IsFalse(owner.IsRunning);
+            CollectionAssert.AreEqual(new[] { "stop", "runtime" }, events);
+            Assert.AreEqual(1, runtime.CallCount);
+        }
+        finally
+        {
+            releaseRuntime.TrySetResult();
+        }
     }
 
     [TestMethod]
