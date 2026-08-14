@@ -117,13 +117,121 @@ public sealed class AudioEncoderCommandFactoryTests
         StringAssert.Contains(oggCommand.CommandLine, "-r -F 3 -C");
         Assert.IsFalse(oggCommand.CommandLine.Contains(" -B ", System.StringComparison.Ordinal));
         Assert.IsFalse(oggCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo16BitInt));
+
+        AudioEncoderCommand neroCommand = AudioEncoderCommandFactory.Create(CreateRequest(
+            EncoderType.AAC_NERO,
+            @"C:\output\sample.m4a",
+            AudioTagInfo.Empty,
+            SampleFormat.SAMPLE_FLOAT_32BIT));
+        Assert.IsFalse(neroCommand.Flags.HasFlag(EncodeFlags.NoHeader));
+        Assert.IsFalse(neroCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo16BitInt));
+
+        AudioEncoderCommand wavCommand = AudioEncoderCommandFactory.Create(CreateRequest(
+            EncoderType.WAVE,
+            @"C:\output\sample.wav",
+            AudioTagInfo.Empty,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            requestedOutputFormat: SampleFormat.SAMPLE_INT_16BIT));
+        Assert.IsTrue(wavCommand.Flags.HasFlag(EncodeFlags.PCM));
+        Assert.IsTrue(wavCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo16BitInt));
+    }
+
+    [TestMethod]
+    public void QualityValuesClampToEachEncoderProductionRange()
+    {
+        StringAssert.Contains(CreateCommand(EncoderType.MP3_LAME, -1f), " -V 9 ");
+        StringAssert.Contains(CreateCommand(EncoderType.MP3_LAME, 2f), " -V 0 ");
+
+        StringAssert.Contains(CreateCommand(EncoderType.AAC_NERO, -1f), " -q 0.0 ");
+        StringAssert.Contains(CreateCommand(EncoderType.AAC_NERO, 2f), " -q 1.0 ");
+
+        StringAssert.Contains(CreateCommand(EncoderType.OPUS, -1f), "--bitrate 6 ");
+        StringAssert.Contains(CreateCommand(EncoderType.OPUS, 2f), "--bitrate 256 ");
+
+        StringAssert.Contains(CreateCommand(EncoderType.FLAC, -1f), "--replay-gain -0 ");
+        StringAssert.Contains(CreateCommand(EncoderType.FLAC, 2f), "--replay-gain -8 ");
+
+        StringAssert.Contains(CreateCommand(EncoderType.OGG_VORBIS, -1f), " -q 0.0 ");
+        StringAssert.Contains(CreateCommand(EncoderType.OGG_VORBIS, 2f), " -q 8.0 ");
+    }
+
+    [TestMethod]
+    public void EncoderCommandLinesPreserveQualityAndTagMappings()
+    {
+        AudioTagInfo tags = new(
+            "artist value",
+            "title value",
+            "genre value",
+            12.5,
+            "120",
+            "source.bms",
+            "comment value");
+
+        Assert.AreEqual(
+            @"""C:\encoder tools\lame.exe"" -r -s 44.1 --bitwidth 16 -h --replaygain-accurate -V 4 --ignore-tag-errors --tt ""title value"" --ta ""artist value"" --tc ""comment value"" --tg ""genre value"" - ""C:\output folder\sample file.mp3""",
+            AudioEncoderCommandFactory.Create(CreateRequest(
+                EncoderType.MP3_LAME,
+                @"C:\output folder\sample file.mp3",
+                tags,
+                quality: 0.6f)).CommandLine);
+
+        Assert.AreEqual(
+            @"""C:\encoder tools\neroAacEnc.exe"" -q 0.6 -if - -of ""C:\output folder\sample file.m4a""",
+            AudioEncoderCommandFactory.Create(CreateRequest(
+                EncoderType.AAC_NERO,
+                @"C:\output folder\sample file.m4a",
+                tags,
+                quality: 0.6f)).CommandLine);
+
+        Assert.AreEqual(
+            @"""C:\encoder tools\opusenc.exe"" --raw --raw-bits 16 --raw-rate 44100 --raw-chan 2 --ignorelength --bitrate 106 - ""C:\output folder\sample file.opus""",
+            AudioEncoderCommandFactory.Create(CreateRequest(
+                EncoderType.OPUS,
+                @"C:\output folder\sample file.opus",
+                tags,
+                quality: 0.4f)).CommandLine);
+
+        Assert.AreEqual(
+            @"""C:\encoder tools\flac.exe"" -f --force-raw-format --endian=little --sample-rate=44100 --channels=2 --bps=16 --sign=signed --replay-gain -4 -o ""C:\output folder\sample file.flac"" -- -",
+            AudioEncoderCommandFactory.Create(CreateRequest(
+                EncoderType.FLAC,
+                @"C:\output folder\sample file.flac",
+                tags,
+                quality: 0.4f)).CommandLine);
+
+        Assert.AreEqual(
+            @"""C:\encoder tools\oggenc2.exe"" -r -F 1 -B 16 -C 2 -R 44100 -q 4.0 -o ""C:\output folder\sample file.ogg"" -",
+            AudioEncoderCommandFactory.Create(CreateRequest(
+                EncoderType.OGG_VORBIS,
+                @"C:\output folder\sample file.ogg",
+                AudioTagInfo.Empty,
+                quality: 0.4f)).CommandLine);
+
+        string oggWithTags = AudioEncoderCommandFactory.Create(CreateRequest(
+            EncoderType.OGG_VORBIS,
+            @"C:\output folder\sample file.ogg",
+            tags,
+            quality: 0.4f)).CommandLine;
+        StringAssert.Contains(oggWithTags, "--utf8 -t \"title value\" -a \"artist value\"");
+        StringAssert.Contains(oggWithTags, "-c \"COMMENT=comment value\" -c \"BPM=120\"");
+    }
+
+    private static string CreateCommand(EncoderType encoderType, float quality)
+    {
+        return AudioEncoderCommandFactory.Create(CreateRequest(
+            encoderType,
+            @"C:\output\sample" + encoderType.GetEncoderOutputExtension(),
+            AudioTagInfo.Empty,
+            quality: quality)).CommandLine;
     }
 
     private static AudioEncoderCommandRequest CreateRequest(
         EncoderType encoderType,
         string outputFile,
         AudioTagInfo tags,
-        SampleFormat sampleFormat = SampleFormat.SAMPLE_INT_16BIT)
+        SampleFormat sampleFormat = SampleFormat.SAMPLE_INT_16BIT,
+        float quality = 0.4f,
+        SampleFormat requestedOutputFormat = SampleFormat.UNKNOWN)
     {
         return new AudioEncoderCommandRequest(
             encoderType,
@@ -132,7 +240,8 @@ public sealed class AudioEncoderCommandFactoryTests
             44100,
             2,
             sampleFormat,
-            0.4f,
-            tags);
+            quality,
+            tags,
+            requestedOutputFormat);
     }
 }

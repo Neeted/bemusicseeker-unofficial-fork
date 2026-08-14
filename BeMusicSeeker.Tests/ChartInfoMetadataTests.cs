@@ -1982,6 +1982,30 @@ createTempDirectory);
     [TestMethod]
     public void ParseBmson_LongNoteAudioDurationAffectsChartHash()
     {
+        BmsonSoundNote[] notesWithEqualY =
+        [
+            new BmsonSoundNote { Y = 0, Continue = false },
+            new BmsonSoundNote { Y = 0, Continue = true },
+            new BmsonSoundNote { Y = 240, Continue = true }
+        ];
+        int nextDistinctNoteIndex = 0;
+        Assert.AreSame(
+            notesWithEqualY[2],
+            ChartInfoParser.AdvanceToNextBmsonContinuationNote(
+                notesWithEqualY,
+                noteIndex: 0,
+                ref nextDistinctNoteIndex));
+        Assert.AreSame(
+            notesWithEqualY[2],
+            ChartInfoParser.AdvanceToNextBmsonContinuationNote(
+                notesWithEqualY,
+                noteIndex: 1,
+                ref nextDistinctNoteIndex));
+        Assert.IsNull(ChartInfoParser.AdvanceToNextBmsonContinuationNote(
+            notesWithEqualY,
+            noteIndex: 2,
+            ref nextDistinctNoteIndex));
+
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string firstPath = Path.Combine(tempRootPath, "duration-a.bmson");

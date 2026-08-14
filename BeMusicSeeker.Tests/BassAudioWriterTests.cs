@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
@@ -10,6 +11,19 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BassAudioWriterTests
 {
+    [DataTestMethod]
+    [DataRow(".mp3")]
+    [DataRow(".wav")]
+    public void OutputUsesTheExistingCollisionSuffixContract(string extension)
+    {
+        WithCollisionFixture(extension, path =>
+        {
+            Assert.AreEqual(
+                path + " (2)" + extension,
+                BassAudioWriter.GetAvailableOutputFile(path, extension));
+        });
+    }
+
     [TestMethod]
     public void RenderUsesFullChunksAndOneRemainderWithoutChangingRequestGeometry()
     {
@@ -209,6 +223,28 @@ public sealed class BassAudioWriterTests
         {
             Calls.Add("level:" + seconds + ":" + flags);
             return LevelResults.Count == 0 ? [1f] : LevelResults.Dequeue();
+        }
+    }
+
+    private static void WithCollisionFixture(string extension, Action<string> assertion)
+    {
+        string directoryPath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerWriterContracts",
+            Guid.NewGuid().ToString("N"));
+        string pathWithoutExtension = Path.Combine(directoryPath, "sample");
+        try
+        {
+            Directory.CreateDirectory(directoryPath);
+            File.WriteAllText(pathWithoutExtension + extension, string.Empty);
+            assertion(pathWithoutExtension);
+        }
+        finally
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive: true);
+            }
         }
     }
 }

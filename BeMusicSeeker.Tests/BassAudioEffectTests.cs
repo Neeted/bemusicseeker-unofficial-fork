@@ -107,6 +107,7 @@ public sealed class BassAudioEffectTests
         CollectionAssert.AreEqual(expectedNativeTypeIds, definitions.Select(definition => definition.NativeTypeId).ToArray());
         CollectionAssert.AreEqual(expectedManagedBassTypes, definitions.Select(definition => definition.ManagedBassType).ToArray());
         Assert.AreEqual(32, definitions.Select(definition => definition.NativeTypeId).Distinct().Count());
+        Assert.AreEqual(definitions.Length, definitions.Select(definition => definition.ParameterType).Distinct().Count());
     }
 
     [TestMethod]

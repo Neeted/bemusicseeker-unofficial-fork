@@ -3238,8 +3238,12 @@ internal sealed class RegularChartListOwner : IDisposable
         }
 
         ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
-        IReadOnlyList<ChartListSourceRow> orderedRows = SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes);
-        int distinctFolderCount = CountDistinctFolders(orderedRows);
+        int distinctFolderCount = CountDistinctFoldersByIndex(
+            sourceRows,
+            viewOrderedIndexes,
+            () => lease.Token.IsCancellationRequested,
+            out _,
+            out _);
         if (lease.Token.IsCancellationRequested)
         {
             return default;
@@ -3666,32 +3670,6 @@ internal sealed class RegularChartListOwner : IDisposable
             work.Complete();
             throw;
         }
-    }
-
-    internal static IReadOnlyList<ChartListSourceRow> SelectSourceRowsByOrder(
-        IReadOnlyList<ChartListSourceRow> sourceRows,
-        IReadOnlyList<int> orderedIndexes)
-    {
-        if (sourceRows == null || orderedIndexes == null)
-        {
-            return [];
-        }
-        return [.. orderedIndexes
-            .Where(index => index >= 0 && index < sourceRows.Count)
-            .Select(index => sourceRows[index])
-            .Where(row => row != null)];
-    }
-
-    internal static int CountDistinctFolders(IEnumerable<ChartListSourceRow> rows)
-    {
-        if (rows == null)
-        {
-            return -1;
-        }
-        return rows.Select(row => row?.Folder)
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
     }
 
     internal static int CountDistinctFoldersByIndex(

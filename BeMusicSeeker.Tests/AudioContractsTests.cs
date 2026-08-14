@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using ManagedBass;
@@ -12,6 +15,84 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class AudioContractsTests
 {
+    [TestMethod]
+    public void PersistedAudioEnumValuesRemainStable()
+    {
+        AssertPersistedEnumValue(EncoderType.WAVE, 0);
+        AssertPersistedEnumValue(EncoderType.MP3_LAME, 1);
+        AssertPersistedEnumValue(EncoderType.AAC_NERO, 2);
+        AssertPersistedEnumValue(EncoderType.OPUS, 3);
+        AssertPersistedEnumValue(EncoderType.FLAC, 4);
+        AssertPersistedEnumValue(EncoderType.OGG_VORBIS, 5);
+
+        AssertPersistedEnumValue(SampleFormat.UNKNOWN, -1);
+        AssertPersistedEnumValue(SampleFormat.AUTO, 0);
+        AssertPersistedEnumValue(SampleFormat.SAMPLE_INT_8BIT, 1);
+        AssertPersistedEnumValue(SampleFormat.SAMPLE_INT_16BIT, 2);
+        AssertPersistedEnumValue(SampleFormat.SAMPLE_INT_24BIT, 3);
+        AssertPersistedEnumValue(SampleFormat.SAMPLE_INT_32BIT, 4);
+        AssertPersistedEnumValue(SampleFormat.SAMPLE_FLOAT_32BIT, 5);
+
+        AssertPersistedEnumValue(SampleRate.AUTO, 0);
+        AssertPersistedEnumValue(SampleRate.SAMPLE_RATE_11025Hz, 11025);
+        AssertPersistedEnumValue(SampleRate.SAMPLE_RATE_22050Hz, 22050);
+        AssertPersistedEnumValue(SampleRate.SAMPLE_RATE_32000Hz, 32000);
+        AssertPersistedEnumValue(SampleRate.SAMPLE_RATE_44100Hz, 44100);
+        AssertPersistedEnumValue(SampleRate.SAMPLE_RATE_48000Hz, 48000);
+        AssertPersistedEnumValue(SampleRate.SAMPLE_RATE_88200Hz, 88200);
+        AssertPersistedEnumValue(SampleRate.SAMPLE_RATE_96000Hz, 96000);
+        AssertPersistedEnumValue(SampleRate.SAMPLE_RATE_176400Hz, 176400);
+        AssertPersistedEnumValue(SampleRate.SAMPLE_RATE_192000Hz, 192000);
+
+        AssertPersistedEnumValue(AudioDriver.Invalid, -2);
+        AssertPersistedEnumValue(AudioDriver.NullDevice, -1);
+        AssertPersistedEnumValue(AudioDriver.DirectSound, 0);
+        AssertPersistedEnumValue(AudioDriver.WasapiShared, 1);
+        AssertPersistedEnumValue(AudioDriver.WasapiExclusive, 2);
+        AssertPersistedEnumValue(AudioDriver.Asio, 3);
+
+        AssertPersistedEnumValue(BassAudioPlayer.DeviceDriver.INVALID, -2);
+        AssertPersistedEnumValue(BassAudioPlayer.DeviceDriver.NULL_DEVICE, -1);
+        AssertPersistedEnumValue(BassAudioPlayer.DeviceDriver.DIRECT_SOUND, 0);
+        AssertPersistedEnumValue(BassAudioPlayer.DeviceDriver.WASAPI_SHARED, 1);
+        AssertPersistedEnumValue(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE, 2);
+        AssertPersistedEnumValue(BassAudioPlayer.DeviceDriver.ASIO, 3);
+    }
+
+    [TestMethod]
+    public void EncoderExtensionsSeparatePersistedAndPhysicalAacContracts()
+    {
+        CollectionAssert.AreEqual(
+            new[] { ".wav", ".mp3", ".aac", ".opus", ".flac", ".ogg" },
+            Enum.GetValues<EncoderType>().Select(value => value.GetExtension()).ToArray());
+
+        Assert.AreEqual(string.Empty, EncoderType.WAVE.SearchEncoderBinary());
+        CollectionAssert.AreEqual(
+            new[] { ".wav", ".mp3", ".m4a", ".opus", ".flac", ".ogg" },
+            Enum.GetValues<EncoderType>().Select(value => value.GetEncoderOutputExtension()).ToArray());
+    }
+
+    [TestMethod]
+    public void EncoderBinarySearchHonorsConfiguredDirectory()
+    {
+        string directoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerEncoderContracts", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directoryPath);
+        try
+        {
+            File.WriteAllText(Path.Combine(directoryPath, EncoderType.MP3_LAME.GetEncoderFileName()), string.Empty);
+
+            Assert.AreEqual(directoryPath, EncoderType.MP3_LAME.SearchEncoderBinary(directoryPath));
+            Assert.IsNull(EncoderType.OPUS.SearchEncoderBinary(directoryPath));
+        }
+        finally
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive: true);
+            }
+        }
+    }
+
     [TestMethod]
     public void AudioDriverPolicyExposesThreeSelectableBackendsWithoutLegacyDisplay()
     {
@@ -313,6 +394,12 @@ public sealed class AudioContractsTests
             new PlayerResolution(800, 600),
             false,
             default);
+    }
+
+    private static void AssertPersistedEnumValue<TEnum>(TEnum value, int expected)
+        where TEnum : struct, Enum
+    {
+        Assert.AreEqual(expected, Convert.ToInt32(value, CultureInfo.InvariantCulture), value.ToString());
     }
 
     private sealed class RecordingAudioPlaybackRuntime : IAudioPlaybackRuntime

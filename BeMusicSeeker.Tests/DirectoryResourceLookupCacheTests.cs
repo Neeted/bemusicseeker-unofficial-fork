@@ -30,7 +30,7 @@ public sealed class DirectoryResourceLookupCacheTests
     }
 
     [TestMethod]
-    public void CreateFromScanResult_UntrustedUnsortedHashesRemainSearchableAndDistinct()
+    public void CreateFromScanResult_TrustsCanonicalArraysAndNormalizesUntrustedHashes()
     {
         string directory = @"C:\Songs\Unsorted";
         var scanResult = new ChartScanResult
@@ -50,6 +50,36 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.IsTrue(entry.AudioRelativePathHashes.Contains(10u));
         Assert.IsTrue(entry.AudioRelativePathHashes.Contains(20u));
         Assert.IsTrue(entry.AudioRelativePathHashes.Contains(30u));
+
+        string trustedDirectory = @"C:\Songs\Trusted";
+        uint[] trustedHashes = [10u, 20u, 30u];
+        var trustedScanResult = new ChartScanResult
+        {
+            ResourceHashArraysAreSortedDistinct = true,
+            ChartDirectories = new HashSet<string>([trustedDirectory], StringComparer.OrdinalIgnoreCase),
+            AudioRelativePathHashesByChartDirectory =
+                new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [trustedDirectory] = trustedHashes
+                },
+            ImageRelativePathHashesByChartDirectory =
+                new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [trustedDirectory] = trustedHashes
+                },
+            MovieRelativePathHashesByChartDirectory =
+                new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [trustedDirectory] = trustedHashes
+                }
+        };
+
+        DirectoryResourceLookupCache trustedCache = DirectoryResourceLookupCache.CreateFromScanResult(trustedScanResult);
+        DirectoryResourceLookupCache.Entry trustedEntry = trustedCache.GetEntryOrNull(trustedDirectory);
+
+        CollectionAssert.AreEqual(trustedHashes, trustedEntry.AudioRelativePathHashArray);
+        CollectionAssert.AreEqual(trustedHashes, trustedEntry.ImageRelativePathHashArray);
+        CollectionAssert.AreEqual(trustedHashes, trustedEntry.MovieRelativePathHashArray);
     }
 
     [TestMethod]

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('all', 'contract', 'list', 'startup', 'estimation', 'scan', 'parser')]
+    [ValidateSet('all', 'contract', 'estimation', 'parser')]
     [string]$Corpus = 'all',
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',

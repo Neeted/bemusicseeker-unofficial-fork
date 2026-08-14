@@ -216,7 +216,14 @@ public class BassAudioWriter : BassAudioPlayer
         return new AudioEncoderSession(BassAudioPlayer.outputMixer, request);
     }
 
-    private static string GetAvailableOutputFile(string filePathWithoutExtension, string extension)
+    /// <summary>
+    /// Resolves the first unused output path while preserving the writer's existing
+    /// <c> (n)</c> collision suffix contract.
+    /// </summary>
+    /// <param name="filePathWithoutExtension">The normalized output path without an extension.</param>
+    /// <param name="extension">The encoder-specific output extension, including its leading period.</param>
+    /// <returns>The first path that does not already exist.</returns>
+    internal static string GetAvailableOutputFile(string filePathWithoutExtension, string extension)
     {
         string originalPath = filePathWithoutExtension;
         int suffix = 1;

@@ -2946,18 +2946,17 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
-    public void VirtualSummary_IndexedSnapshotMatchesLegacyOutputAndStopsAtChunkBoundary()
+    public void VirtualSummary_IndexedSnapshotCountsDistinctFoldersAndStopsAtChunkBoundary()
     {
         ChartListSourceRow[] sourceRows =
         [
             CreateSourceRow("Folder A", "a.bms"),
             CreateSourceRow("folder a", "b.bms"),
             CreateSourceRow("Folder B", "c.bms"),
-            CreateSourceRow(string.Empty, "d.bms")
+            CreateSourceRow(string.Empty, "d.bms"),
+            CreateSourceRow("Folder C", "filtered-out.bms")
         ];
         int[] indexes = [2, 0, 1, 3, -1, sourceRows.Length];
-        int legacy = RegularChartListOwner.CountDistinctFolders(
-            RegularChartListOwner.SelectSourceRowsByOrder(sourceRows, indexes));
 
         int indexed = RegularChartListOwner.CountDistinctFoldersByIndex(
             sourceRows,
@@ -2966,7 +2965,7 @@ public sealed class RegularChartListOwnerTests
             out int scanned,
             out bool stopped);
 
-        Assert.AreEqual(legacy, indexed);
+        Assert.AreEqual(2, indexed);
         Assert.AreEqual(indexes.Length, scanned);
         Assert.IsFalse(stopped);
 
@@ -4236,9 +4235,12 @@ public sealed class RegularChartListOwnerTests
 
     private static ChartListSourceRow CreateSourceRow(string folder, string fileName, int? mode = null)
     {
+        string path = string.IsNullOrEmpty(folder)
+            ? fileName
+            : System.IO.Path.Combine(@"C:\Charts", folder, fileName);
         var chart = new ChartFile(
             ChartFileKind.Bms,
-            System.IO.Path.Combine(@"C:\Charts", folder, fileName),
+            path,
             md5: fileName,
             sha256: null,
             title: fileName,

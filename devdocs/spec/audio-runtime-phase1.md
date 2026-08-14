@@ -44,7 +44,7 @@ Unit 1 以降の runtime owner は `BassAudioRuntime` とする。`BassNativeRun
 
 native generation の publication は6つすべての load 成功後に行い、partial load failure は当該 candidate generation の成功済み handle だけを reverse order で解放する。最初の ManagedBass DllImport binding より前に、CLR に unbind API がないことを前提として成功済み generation を process lifetime pin として保持する。shutdown は audio operation / callback admission を閉じて active root を drain した後、session と core device を解放し、active generation の publication だけを clear する。resolver の static installation lifetime、process-pinned handle lifetime、logical active publication は別であり、shutdown 後の再初期化は同じ pinned handle を current generation として再公開する。in-process の native DLL 差し替えは process restart 境界で行う。
 
-ManagedBass `Version` properties を `BassVersionPacking` で既存の packed version 形式へ変換して検証する。runtime bootstrap に wrapper registration stage や registration material は存在せず、characterization は通常の ManagedBass runtime owner を使用する。
+ManagedBass `Version` properties を `BassVersionPacking` で既存の packed version 形式へ変換し、`BassNativeRuntimeTests` で pack／unpack と実 native version を検証する。runtime bootstrap に wrapper registration stage や registration material は存在せず、native smoke は通常の ManagedBass runtime owner を使用する。
 
 ### 3. クリーンアップと主例外
 
@@ -172,7 +172,7 @@ volume-envelope の `FXGetParameters` は、返された node count と pointer 
 
 ### 10.1.2 ManagedBass の encoder、metadata、writer 境界
 
-`BassAudioWriter` は legacy helper の `BaseEncoder`／`TAG_INFO` を使用せず、project-owned の immutable `AudioTagInfo`、`AudioEncoderCommandFactory`、`AudioEncoderSession` を通して ManagedBass.Enc を使用する。command factory は shell を経由せず、executable path、output path、metadata を Windows の引数規則で quote する。WAV、LAME、Nero AAC、Opus、FLAC、OGG の six format と quality clamp／tag option は Unit 0 の characterization contract に合わせる。アプリケーション設定上の AAC 拡張子 `.aac` と、Nero encoder が生成する実ファイル拡張子 `.m4a` は別の契約として維持する。
+`BassAudioWriter` は legacy helper の `BaseEncoder`／`TAG_INFO` を使用せず、project-owned の immutable `AudioTagInfo`、`AudioEncoderCommandFactory`、`AudioEncoderSession` を通して ManagedBass.Enc を使用する。command factory は shell を経由せず、executable path、output path、metadata を Windows の引数規則で quote する。WAV、LAME、Nero AAC、Opus、FLAC、OGG の six format と quality clamp／tag option は `AudioContractsTests`、`AudioEncoderCommandFactoryTests`、`BassAudioWriterTests` で検証する。アプリケーション設定上の AAC 拡張子 `.aac` と、Nero encoder が生成する実ファイル拡張子 `.m4a` は別の契約として維持する。
 
 WAV は output path を直接 `EncodeStart` へ渡し、requested output sample format に対応する conversion flag を使用する。raw external encoder と Nero は command／header が宣言する実 source format と bytes を一致させるため、native mixer の channel info を source format の正本とする。Float32 source は LAME では signed 32-bit、FLAC／Opus では signed 24-bit へ conversion し、Ogg では `-F 3` の IEEE Float raw input、Nero では Float32 WAV header として渡す。現行 behavior に RIFF metadata がないため、WAV command へ INFO chunk を追加しない。writer は non-zero encoder handle の生成と `EncodeSetNotify` の成功後にだけ `RecordState.Playing` を公開する。stop が失敗した場合は encoder handle の ownership と Playing state を保持し、失敗を隠して解放済みとして扱わない。conversion workflow は shared audio operation lease を保持したまま writer-owned encoder の停止／dispose と結果判定を完了し、その lease を破棄してから core audio session の `BassAudioPlayer.Free` を行う。encoder cleanup 失敗時は session lease も保持して次回 cleanup で再試行する。
 
