@@ -1,6 +1,6 @@
 # TestData 運用メモ
 
-最終更新: 2026-06-15
+最終更新: 2026-08-14
 
 このディレクトリには、通常の合成データでは確認しづらい互換性や実データ由来の挙動を確認するための fixture を置く。
 大容量 fixture は通常テストを重くしやすいため、用途と実行条件を明確にして扱う。
@@ -14,9 +14,9 @@
 | `archives` | 圧縮ファイル処理の小規模 fixture。 | 通常検証で利用可。 |
 | `chart_info_real` | BMS 実譜面 1000 件と beatoraja / jbms-parser 参照値の比較。 | 全件検証は `BMS_TEST_CHART_INFO_FULL=1` の opt-in。 |
 | `chart_info_bmson_real` | BMSON 実譜面 1034 件と参照値の比較。 | 全件検証は `BMS_TEST_CHART_INFO_FULL=1` の opt-in。 |
-| `chart_info_edge_cases` | 巨大 timeline、RANDOM overflow、initial BPM edge case など。 | 小さい edge case は通常検証可。巨大 timeline は opt-in。 |
+| `chart_info_edge_cases` | 巨大 timeline、RANDOM overflow、initial BPM edge case などの実譜面参照値。 | `BMS_TEST_CHART_INFO_FULL=1` の opt-in。小さい合成 edge case は通常検証に残す。 |
 | `chart_info_production_diff` | production 差分調査用 fixture。 | 全件検証は `BMS_TEST_PRODUCTION_DIFF_FULL=1` の opt-in。 |
-| `chart_info_production_latest_diff` | 新しい参照実装差分の少数 fixture。 | 少数検証として通常検証可。 |
+| `chart_info_production_latest_diff` | 新しい参照実装差分の少数だが大容量な fixture。 | `BMS_TEST_PRODUCTION_DIFF_FULL=1` の opt-in。 |
 | `lr2_builtin_custom_folder_real` | LR2 builtin custom folder の実ファイル互換確認。 | 通常検証で利用可。 |
 
 ## 外部 audio encoder smoke
@@ -35,10 +35,11 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Ful
 
 ## 大容量 fixture の扱い
 
-- `chart_info_real`、`chart_info_bmson_real`、`chart_info_edge_cases` の巨大譜面、`chart_info_production_diff` は `LargeFixture` として扱う。
+- `chart_info_real`、`chart_info_bmson_real`、`chart_info_edge_cases` の実譜面、`chart_info_production_diff`、`chart_info_production_latest_diff` は `LargeFixture` として扱う。
 - 大容量 fixture を使うテストには、用途に応じて `ParserCompatibilityFull`、`ProductionDiffFull`、`ParserCompatibilitySlow`、`LargeFixture` などの `TestCategory` を付ける。
 - 新規または整理済みの大容量 fixture テストでは、通常の `dotnet test` で全件 parse や巨大 DB copy が走らないよう、環境変数 guard を付ける。
-- 現状は一部 `chart_info_*` fixture が `BeMusicSeeker.Tests.csproj` の `CopyToOutputDirectory` 対象に残っている。これは次の整理対象であり、guard だけでは output copy を止められない。
+- `chart_info_real` と `chart_info_edge_cases` は、build 開始前に `BMS_TEST_CHART_INFO_FULL=1` が設定されている場合だけ test output へコピーする。通常 build はこれら約 137 MiB をコピーしない。
+- opt-in flag が無い場合は対象テストを `Inconclusive` とする。flag があるのに必要な fixture が無い場合は明示的に失敗させ、検証済みとして扱わない。
 - 新しい regression を追加するときは、まず最小の合成譜面や小さい DB で再現できないか検討する。
 - 実データでしか再現できない場合は、全件 fixture に依存する前に、該当 fixture だけを切り出せないか確認する。
 
@@ -53,7 +54,7 @@ $env:BMS_TEST_CHART_INFO_FULL = "1"
 dotnet test BeMusicSeeker.sln /p:Configuration=Release --filter "TestCategory=ParserCompatibilityFull"
 ```
 
-Production diff 全件:
+Production diff（全件および latest diff）:
 
 ```powershell
 $env:BMS_TEST_PRODUCTION_DIFF_FULL = "1"

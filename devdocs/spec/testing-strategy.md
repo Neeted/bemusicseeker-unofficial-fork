@@ -1,6 +1,6 @@
 # テスト運用方針
 
-最終更新: 2026-08-11
+最終更新: 2026-08-14
 
 この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。
 
@@ -120,6 +120,8 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 
 `ChartInfoParser`、`ChartInfoBuildService`、BMSON/BMS decode、`chart_info` schema 投影を変更した場合は該当 full lane を追加する。大容量 fixture の詳細は [TestData README](../../BeMusicSeeker.Tests/TestData/README.md) を参照する。
 
+`chart_info_real` と `chart_info_edge_cases` は、`BMS_TEST_CHART_INFO_FULL=1` を build 開始前に設定した場合だけ test output へコピーする。これらの opt-in parser test は対応する full / slow category と環境変数 guard の両方を持ち、flag が無ければ `Inconclusive`、flag があるのに fixture が無ければ failure とする。少数でも約 20 MiB を parse する `chart_info_production_latest_diff` は `ProductionDiffFull` / `LargeFixture` とし、Functional には含めない。Functional の parser behavior は小さい合成入力で検証する。
+
 ## 新しいテストを追加するとき
 
 - 先にそのテストが保証する observable behavior と failure contract を一文で示す。
@@ -136,6 +138,5 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 - 既存の `DoNotParallelize` を共有 resource の実在性で監査し、class 全体指定を resource 単位の分離へ縮小する。
 - `Task.Delay`、`Thread.Sleep`、`WaitOne` 等を、通常完了待ち、failure watchdog、性能 assertion に分類し、通常完了待ちを決定的な signal へ置換する。
 - updater 以外の process 起動テストを `ProcessIntegration` と軽量 contract test に分離する。
-- 大容量 TestData の output copy を opt-in lane 専用にし、通常 build/test の I/O を削減する。
 - 性能テストを専用 project または明示実行 profile へ移し、履歴比較可能な測定結果を保存する。
 - test ごとの実行時間と flaky 履歴を継続収集し、Functional の 180 秒予算を超える前に増加を検出する。

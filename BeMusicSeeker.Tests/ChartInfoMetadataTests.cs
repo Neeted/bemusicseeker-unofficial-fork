@@ -2419,8 +2419,15 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ProductionDiffFull")]
+    [TestCategory("LargeFixture")]
     public void ParseProductionLatestDiffFixture_MatchesJdk21ReferenceForReportedFields()
     {
+        if (!string.Equals(Environment.GetEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_FULL"), "1", StringComparison.Ordinal))
+        {
+            Assert.Inconclusive("Set BMS_TEST_PRODUCTION_DIFF_FULL=1 to run the latest production diff compatibility fixture.");
+        }
+
         string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_latest_diff");
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
         Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_latest_diff expected.db fixture is missing.");
@@ -2482,8 +2489,14 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ParserCompatibilityFull")]
+    [TestCategory("LargeFixture")]
     public void ParseRealEdgeCase_InitialBpmDefinedByTimelineZeroMatchesBeatoraja()
     {
+        TestOptIn.RequireEnvironmentFlag(
+            TestOptIn.ChartInfoFullEnvironmentVariable,
+            "the chart_info initial-BPM edge-case fixture");
+
         string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
         Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_edge_cases expected.db fixture is missing.");
@@ -2544,8 +2557,14 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ParserCompatibilityFull")]
+    [TestCategory("LargeFixture")]
     public void ParseRealEdgeCases_RandomOverflowFixturesDoNotOverflow()
     {
+        TestOptIn.RequireEnvironmentFlag(
+            TestOptIn.ChartInfoFullEnvironmentVariable,
+            "the chart_info RANDOM-overflow edge-case fixture");
+
         string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
         Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_edge_cases expected.db fixture is missing.");
@@ -2577,8 +2596,14 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ParserCompatibilityFull")]
+    [TestCategory("LargeFixture")]
     public void ParseRealEdgeCases_RandomEndIfScopeReferenceMatchesBeatorajaCounts()
     {
+        TestOptIn.RequireEnvironmentFlag(
+            TestOptIn.ChartInfoFullEnvironmentVariable,
+            "the chart_info RANDOM/ENDIF reference fixture");
+
         string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
         string chartPath = Path.Combine(fixtureRootPath, "charts", "b862bf34bf6fbe034a18cceb9178a7e44a864a77e3475b9d478b9b5e5a46ff01.bms");
         Assert.IsTrue(File.Exists(chartPath), "random_endif_scope_reference fixture is missing.");
@@ -2597,8 +2622,14 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ParserCompatibilityFull")]
+    [TestCategory("LargeFixture")]
     public void ParseRealEdgeCases_InitialBpmReferenceFatalChartsRemainFatal()
     {
+        TestOptIn.RequireEnvironmentFlag(
+            TestOptIn.ChartInfoFullEnvironmentVariable,
+            "the chart_info fatal initial-BPM edge-case fixture");
+
         string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
         Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_edge_cases expected.db fixture is missing.");
