@@ -68,16 +68,32 @@ $functionalTestClassShards = @(
             'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests')
     },
     [pscustomobject]@{
+        # ClassLevel scope keeps each fixture serial while allowing these three
+        # independently owned database/filesystem fixtures to run concurrently.
+        Name = 'owned-db-file-class-level'
+        Workers = 3
+        Scope = 'ClassLevel'
+        Classes = @(
+            'BeMusicSeeker.Tests.BmsLibraryIrServiceTests',
+            'BeMusicSeeker.Tests.PackageInstallWorkflowOwnerTests',
+            'BeMusicSeeker.Tests.Lr2SongDbSyncServiceTests')
+    },
+    [pscustomobject]@{
         Name = 'owned-chart-collection'
         Workers = 1
         Classes = @(
             'BeMusicSeeker.Tests.OwnedChartCollectionStateTests')
     },
     [pscustomobject]@{
+        Name = 'playlist-update'
+        Workers = 1
+        Classes = @(
+            'BeMusicSeeker.Tests.BmsPlaylistUpdateTests')
+    },
+    [pscustomobject]@{
         Name = 'presentation-workspace'
         Workers = 1
         Classes = @(
-            'BeMusicSeeker.Tests.BmsPlaylistUpdateTests',
             'BeMusicSeeker.Tests.PlaybackPanelViewModelTests',
             'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests',
             'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests')
@@ -153,8 +169,30 @@ function Assert-FunctionalShardConfiguration {
     if (@($workers | Where-Object { $_ -isnot [int] -or $_ -lt 1 }).Count -gt 0) {
         throw 'Functional test shard workers must be positive integers.'
     }
-    if (@($workers | Where-Object { $_ -ne 1 }).Count -gt 0) {
-        throw 'Functional external test shards must use exactly one worker each.'
+    $ownedDbFileShards = @($functionalTestClassShards |
+        Where-Object { $_.Name -ceq 'owned-db-file-class-level' })
+    if ($ownedDbFileShards.Count -ne 1) {
+        throw 'Functional owned database/file tests must have exactly one dedicated shard.'
+    }
+    $ownedDbFileShard = $ownedDbFileShards[0]
+    $requiredOwnedDbFileClasses = @(
+        'BeMusicSeeker.Tests.BmsLibraryIrServiceTests',
+        'BeMusicSeeker.Tests.PackageInstallWorkflowOwnerTests',
+        'BeMusicSeeker.Tests.Lr2SongDbSyncServiceTests')
+    $ownedDbFileClasses = @($ownedDbFileShard.Classes)
+    if ($ownedDbFileClasses.Count -ne $requiredOwnedDbFileClasses.Count -or
+        @(Compare-Object `
+            -ReferenceObject $requiredOwnedDbFileClasses `
+            -DifferenceObject $ownedDbFileClasses `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional owned database/file shard must contain exactly the approved three test classes.'
+    }
+    if ($ownedDbFileShard.Workers -ne 3 -or $ownedDbFileShard.Scope -cne 'ClassLevel') {
+        throw 'Functional owned database/file shard must use three workers with ClassLevel scope.'
+    }
+    if (@($functionalTestClassShards |
+        Where-Object { $_.Name -cne 'owned-db-file-class-level' -and $_.Workers -ne 1 }).Count -gt 0) {
+        throw 'All other Functional external test shards must use exactly one worker.'
     }
     if ($functionalRemainingShardWorkers -ne
         [Math]::Max(1, [Environment]::ProcessorCount)) {
@@ -596,15 +634,23 @@ function Invoke-ParallelFunctionalTestShards {
             Name = 'remaining'
             Filter = "($functionalFilter)&($remainingClassFilter)"
             Workers = $functionalRemainingShardWorkers
+            Scope = 'ClassLevel'
         })
     $shards += @(
         $functionalTestClassShards | ForEach-Object {
             $classFilter = ($_.Classes |
                 ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+            $scope = if ($_.PSObject.Properties.Name -contains 'Scope') {
+                $_.Scope
+            }
+            else {
+                'ClassLevel'
+            }
             [pscustomobject]@{
                 Name = $_.Name
                 Filter = "($functionalFilter)&($classFilter)"
                 Workers = $_.Workers
+                Scope = $scope
             }
         })
 
@@ -661,7 +707,8 @@ function Invoke-ParallelFunctionalTestShards {
             $runSettingsPath = Join-Path $shardDirectory 'parallel.runsettings'
             Write-MSTestParallelRunSettings `
                 -Path $runSettingsPath `
-                -Workers $shard.Workers
+                -Workers $shard.Workers `
+                -Scope $shard.Scope
             $arguments = Get-TestArguments `
                 -Filter $shard.Filter `
                 -DiagnosticsDirectory $shardDirectory `

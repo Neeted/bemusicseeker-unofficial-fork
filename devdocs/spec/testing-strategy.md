@@ -25,6 +25,10 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 
 `BassCollectibleLoadContextTests` は単一クラス専用 shard で実行する。この testhost は WPF host や WPF resource を解決せず、collectible ALC の unload と BASS static initialization の非 native-load 契約を他 fixture の process state から分離する。runner はこのクラスが専用 shard に単独で割り当てられていない構成を test 起動前に失敗させる。
 
+LR2 song database sync は、`BmsLibraryLr2SongDbSyncTests` の library / ownership 境界を 1-worker の `lr2-songdb-sync` class shard に残す。`Lr2SongDbSyncServiceTests` の direct service 45 case は method-level pre-wave ではなく、`BmsLibraryIrServiceTests`、`PackageInstallWorkflowOwnerTests` とともに 3-worker の `owned-db-file-class-level` shard で実行する。この shard は MSTest の `ClassLevel` scope を明示し、各 class 内の method は直列、3 class 間は並列に実行する。割り当てられた IR と package install fixture は remaining shard から除外される。各 fixture は test ごとに一意な database / filesystem resource を所有し、direct LR2 service fixture は GUID で一意な temporary directory と song database を使用して `Settings.Default`、共有 dispatcher、固定待ち、process-global mutable state に依存しない。
+
+playlist / presentation 系は、`BmsPlaylistUpdateTests` を 1-worker の `playlist-update` class shard に単独で割り当てる。`presentation-workspace` は `PlaybackPanelViewModelTests`、`PlaylistWorkspaceViewModelTests`、`LibraryFolderTreeViewModelTests` の3 class を 1-worker で順次実行する。runner の class 重複・専用 shard 検査を維持し、同じ fixture を remaining shard や別 class shard に重複割り当てしない。
+
 lock file を所有する project は `RuntimeIdentifiers=win-x64` を宣言し、C# Dev Kit などが RID を明示せず通常 restore を行った場合も、tracked lock file の base graph と `win-x64` graph を維持する。通常 restore が tracked lock file を変更した場合は dependency graph の不整合として失敗を隠さず調査する。標準検証入口は引き続き、標準スクリプトの locked `win-x64` restore と `--no-restore` build / test route を使う。RID を指定しない素の `dotnet test BeMusicSeeker.sln /p:Configuration=Release` は、locked restore、tracked-file 不変確認、共通の時間予算を迂回するため標準入口ではない。
 
 ### Quick: 反復中の対象テスト
