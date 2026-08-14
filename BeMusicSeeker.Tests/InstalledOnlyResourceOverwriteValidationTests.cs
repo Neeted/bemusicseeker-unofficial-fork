@@ -13,6 +13,8 @@ namespace BeMusicSeeker.Tests;
 /// installed-only resource overwrite の導入先確認が、既存配置の厳密確認として動作することを検証します。
 /// </summary>
 [TestClass]
+// The production options snapshot uses process-wide Settings.Default, and the shared fixture
+// initializes process-wide App.AvailableCultures and Resources.Culture localization state.
 [DoNotParallelize]
 public sealed class InstalledOnlyResourceOverwriteValidationTests
 {

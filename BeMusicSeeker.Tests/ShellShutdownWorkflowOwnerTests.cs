@@ -14,6 +14,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// Shutdown composition reaches the process-wide Settings.Default instance and shared dispatcher-owned state.
 [DoNotParallelize]
 public sealed class ShellShutdownWorkflowOwnerTests
 {

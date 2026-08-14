@@ -16,6 +16,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// Icon conversion uses the shared WPF dispatcher plus process-wide ResourceManager and GDI handles.
 [DoNotParallelize]
 public sealed class ResourceIconContractTests
 {

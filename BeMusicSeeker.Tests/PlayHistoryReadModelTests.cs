@@ -20,6 +20,7 @@ using SQLite;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// This fixture uses the shared WPF dispatcher host and process-wide settings-backed test ports.
 [DoNotParallelize]
 public sealed class PlayHistoryReadModelTests
 {

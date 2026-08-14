@@ -18,6 +18,7 @@ using SQLite;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// These tests use WPF dispatcher state and the process-wide Settings.Default instance.
 [DoNotParallelize]
 public sealed class Lr2PlayHistorySchemaUiTests
 {

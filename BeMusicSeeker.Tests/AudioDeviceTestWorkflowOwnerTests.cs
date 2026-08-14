@@ -12,7 +12,6 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class AudioDeviceTestWorkflowOwnerTests
 {
     [TestMethod]

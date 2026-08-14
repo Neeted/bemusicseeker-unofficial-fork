@@ -9,7 +9,6 @@ using SQLite;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class Lr2PlayHistorySchemaServiceTests
 {
     [TestMethod]

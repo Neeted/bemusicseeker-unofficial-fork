@@ -10,6 +10,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// These tests share the process-wide WPF dispatcher host, whose thread affinity cannot be isolated per test.
 [DoNotParallelize]
 public sealed class ApplicationUiSchedulerBoundaryTests
 {

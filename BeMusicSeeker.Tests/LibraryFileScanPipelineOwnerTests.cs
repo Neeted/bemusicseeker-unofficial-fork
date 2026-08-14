@@ -11,6 +11,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// This fixture changes the process-wide localization resource state through TestResourceInitializer.
 [DoNotParallelize]
 public sealed class LibraryFileScanPipelineOwnerTests
 {
