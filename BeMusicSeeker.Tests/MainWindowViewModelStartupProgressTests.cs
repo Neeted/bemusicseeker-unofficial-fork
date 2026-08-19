@@ -131,16 +131,24 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupPostInitialization_StaleCallbackCannotOpenNewGenerationBarrier()
+    public async Task StartupPostInitialization_StaleCallbackCannotOpenNewGenerationBarrier()
     {
         var postEntered = new ManualResetEventSlim();
-        StartupBackgroundTaskSchedulerOwner scheduler = new(
+        var fullyIdle = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner scheduler = null!;
+        scheduler = new(
             () => false,
             _ => { },
             _ => { },
             _ => { },
             value => value ?? string.Empty,
-            (_, _) => { },
+            (_, _) =>
+            {
+                if (scheduler.IsFullyIdle)
+                {
+                    fullyIdle.TrySetResult(true);
+                }
+            },
             new object());
         scheduler.Queue("post_initialize_gc", "test", null, () =>
         {
@@ -172,9 +180,8 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.IsTrue(currentAccepted);
         Assert.IsTrue(scheduler.MarkRequiredInitializationSchedulingComplete(currentGeneration));
         Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(
-            SpinWait.SpinUntil(() => scheduler.IsFullyIdle, TimeSpan.FromSeconds(5)),
-            scheduler.DescribeWaitState());
+        await fullyIdle.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(scheduler.IsFullyIdle, scheduler.DescribeWaitState());
     }
 
     [TestMethod]
@@ -577,7 +584,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupReadiness_OperableAndRequiredSchedulerStartBeforeBlockedFolderReaderCompletes()
+    public async Task StartupReadiness_OperableAndRequiredSchedulerStartBeforeBlockedFolderReaderCompletes()
     {
         string tempRootPath = Path.Combine(
             Path.GetTempPath(),
@@ -657,18 +664,16 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.IsTrue(scheduler.IsStarted);
                 Assert.IsTrue(requiredTaskStarted.Wait(TimeSpan.FromSeconds(5)));
                 Assert.AreEqual(0, refreshCompletions);
-                FieldInfo queuedField = typeof(LibraryFolderTreeViewModel)
-                    .GetField("deferredRefreshQueued", BindingFlags.Instance | BindingFlags.NonPublic)!;
-                Assert.IsTrue((bool)queuedField.GetValue(owner.LibraryFolderTree)!);
+                Task deferredRefreshIdle = owner.LibraryFolderTree.WaitForDeferredRefreshIdleAsync();
+                Assert.IsFalse(deferredRefreshIdle.IsCompleted);
+
+                writerGuard.Dispose();
+                writerGuard = null!;
+                await deferredRefreshIdle.WaitAsync(TimeSpan.FromSeconds(5));
             }
             finally
             {
-                writerGuard.Dispose();
-                FieldInfo queuedField = typeof(LibraryFolderTreeViewModel)
-                    .GetField("deferredRefreshQueued", BindingFlags.Instance | BindingFlags.NonPublic)!;
-                SpinWait.SpinUntil(
-                    () => !(bool)queuedField.GetValue(owner.LibraryFolderTree)!,
-                    TimeSpan.FromSeconds(5));
+                writerGuard?.Dispose();
             }
         }
         finally

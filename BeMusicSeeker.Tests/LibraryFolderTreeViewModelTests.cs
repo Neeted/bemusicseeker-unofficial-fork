@@ -30,7 +30,7 @@ public sealed class LibraryFolderTreeViewModelTests
     }
 
     [TestMethod]
-    public void DeferredRefresh_DropsRequestAfterDispatcherShutdownWithoutRetry()
+    public async Task DeferredRefresh_DropsRequestAfterDispatcherShutdownWithoutRetry()
     {
         Dispatcher shutdownDispatcher = null!;
         using var dispatcherReady = new ManualResetEventSlim();
@@ -51,19 +51,13 @@ public sealed class LibraryFolderTreeViewModelTests
             new WpfUiScheduler(() => shutdownDispatcher));
         int refreshRequests = 0;
         owner.CacheRefreshRequested += (_, _) => refreshRequests++;
-        FieldInfo queuedField = typeof(LibraryFolderTreeViewModel)
-            .GetField("deferredRefreshQueued", BindingFlags.Instance | BindingFlags.NonPublic)!;
-
         owner.ScheduleDeferredRefresh(operationToken: 1);
-
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => !(bool)queuedField.GetValue(owner)!,
-            TimeSpan.FromSeconds(5)));
+        await owner.WaitForDeferredRefreshIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
         Assert.AreEqual(0, refreshRequests);
     }
 
     [TestMethod]
-    public void DeferredRefresh_DropsQueuedRequestWhenDispatcherShutsDown()
+    public async Task DeferredRefresh_DropsQueuedRequestWhenDispatcherShutsDown()
     {
         Dispatcher dispatcher = null!;
         LibraryFolderTreeViewModel owner = null!;
@@ -88,9 +82,6 @@ public sealed class LibraryFolderTreeViewModelTests
         int refreshCompletions = 0;
         owner.CacheRefreshRequested += (_, _) => Interlocked.Increment(ref refreshRequests);
         owner.DeferredRefreshCompleted += (_, _) => Interlocked.Increment(ref refreshCompletions);
-        FieldInfo queuedField = typeof(LibraryFolderTreeViewModel)
-            .GetField("deferredRefreshQueued", BindingFlags.Instance | BindingFlags.NonPublic)!;
-
         dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
         {
             blockerEntered.Set();
@@ -109,20 +100,21 @@ public sealed class LibraryFolderTreeViewModelTests
         dispatcher.Hooks.OperationPosted += operationPosted;
 
         owner.ScheduleDeferredRefresh(operationToken: 1);
+        Task refreshIdle = owner.WaitForDeferredRefreshIdleAsync();
         Assert.IsTrue(refreshOperationPosted.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue((bool)queuedField.GetValue(owner)!);
+        Assert.IsFalse(refreshIdle.IsCompleted);
         dispatcher.Hooks.OperationPosted -= operationPosted;
         dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
         releaseBlocker.Set();
 
         Assert.IsTrue(dispatcherThread.Join(TimeSpan.FromSeconds(5)));
-        Assert.IsFalse((bool)queuedField.GetValue(owner)!);
+        await refreshIdle.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.AreEqual(0, refreshRequests);
         Assert.AreEqual(0, refreshCompletions);
     }
 
     [TestMethod]
-    public void DeferredRefresh_CoalescesToLatestOperationWithoutShellRetry()
+    public async Task DeferredRefresh_CoalescesToLatestOperationWithoutShellRetry()
     {
         Dispatcher dispatcher = null!;
         LibraryFolderTreeViewModel owner = null!;
@@ -175,11 +167,13 @@ public sealed class LibraryFolderTreeViewModelTests
         try
         {
             owner.ScheduleDeferredRefresh(operationToken: 0);
+            Task refreshIdle = owner.WaitForDeferredRefreshIdleAsync();
             Assert.IsTrue(firstRefreshPosted.Wait(TimeSpan.FromSeconds(5)));
             owner.ScheduleDeferredRefresh(operationToken: 42);
             releaseBlocker.Set();
 
             Assert.IsTrue(latestRefreshCompleted.Wait(TimeSpan.FromSeconds(5)));
+            await refreshIdle.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(42, completedOperationToken);
             Assert.AreEqual(1, refreshCompletions);
             Assert.AreEqual(0, refreshRequests);
@@ -194,7 +188,7 @@ public sealed class LibraryFolderTreeViewModelTests
     }
 
     [TestMethod]
-    public void DeferredRefresh_StaleSourceRequestsShellReadmissionBeforeRetry()
+    public async Task DeferredRefresh_StaleSourceRequestsShellReadmissionBeforeRetry()
     {
         Dispatcher dispatcher = null!;
         LibraryFolderTreeViewModel owner = null!;
@@ -203,6 +197,7 @@ public sealed class LibraryFolderTreeViewModelTests
         using var releaseBlocker = new ManualResetEventSlim();
         using var firstRefreshPosted = new ManualResetEventSlim();
         using var readmissionRequested = new ManualResetEventSlim();
+        using var releaseReadmission = new ManualResetEventSlim();
         using var latestRefreshCompleted = new ManualResetEventSlim();
         PerformanceInteraction interaction = PerformanceInteraction.Start("startup", 7L);
         PerformanceInteraction latestInteraction = PerformanceInteraction.Start("startup", 42L);
@@ -228,6 +223,10 @@ public sealed class LibraryFolderTreeViewModelTests
             request = args;
             owner.ScheduleDeferredRefresh(args.OperationToken, args.Interaction);
             readmissionRequested.Set();
+            if (!releaseReadmission.Wait(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException("Deferred refresh continuation was not released.");
+            }
         };
         owner.DeferredRefreshCompleted += (_, args) =>
         {
@@ -255,6 +254,7 @@ public sealed class LibraryFolderTreeViewModelTests
         try
         {
             owner.ScheduleDeferredRefresh(operationToken: 7, interaction: interaction);
+            Task refreshIdle = owner.WaitForDeferredRefreshIdleAsync();
             Assert.IsTrue(firstRefreshPosted.Wait(TimeSpan.FromSeconds(5)));
             owner.ScheduleDeferredRefresh(operationToken: 42, interaction: latestInteraction);
             typeof(LibraryFolderTreeViewModel)
@@ -269,14 +269,19 @@ public sealed class LibraryFolderTreeViewModelTests
                 request.Origin);
             Assert.AreEqual(42, request.OperationToken);
             Assert.AreEqual(latestInteraction.InteractionId, request.Interaction.InteractionId);
+            Assert.IsFalse(refreshIdle.IsCompleted);
+            Assert.AreSame(refreshIdle, owner.WaitForDeferredRefreshIdleAsync());
+            releaseReadmission.Set();
 
             Assert.IsTrue(latestRefreshCompleted.Wait(TimeSpan.FromSeconds(5)));
+            await refreshIdle.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(42, completedOperationToken);
             Assert.AreEqual(1, refreshCompletions);
         }
         finally
         {
             dispatcher.Hooks.OperationPosted -= operationPosted;
+            releaseReadmission.Set();
             releaseBlocker.Set();
             dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
             Assert.IsTrue(dispatcherThread.Join(TimeSpan.FromSeconds(5)));
@@ -284,7 +289,7 @@ public sealed class LibraryFolderTreeViewModelTests
     }
 
     [TestMethod]
-    public void DeferredRefresh_EmitsAggregateStagesForOneInteraction()
+    public async Task DeferredRefresh_EmitsAggregateStagesForOneInteraction()
     {
         string tempRootPath = Path.Combine(
             Path.GetTempPath(),
@@ -320,10 +325,7 @@ public sealed class LibraryFolderTreeViewModelTests
 
             PerformanceInteraction interaction = PerformanceInteraction.Start("startup", 17L);
             owner.ScheduleDeferredRefresh(42L, interaction);
-
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => stages.Any(value => value.IndexOf("stage=ui_applied", StringComparison.Ordinal) >= 0),
-                TimeSpan.FromSeconds(5)));
+            await owner.WaitForDeferredRefreshIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
             string[] expectedStages =
             [
@@ -354,11 +356,7 @@ public sealed class LibraryFolderTreeViewModelTests
             int entryCountBeforeIndependentRefresh = stages.Count;
             owner.InvalidateLibraryFolderCache();
             owner.ScheduleDeferredRefresh(43L);
-            FieldInfo queuedField = typeof(LibraryFolderTreeViewModel)
-                .GetField("deferredRefreshQueued", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => !(bool)queuedField.GetValue(owner)!,
-                TimeSpan.FromSeconds(5)));
+            await owner.WaitForDeferredRefreshIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
             string[] independentRefreshMarkers = stages
                 .Skip(entryCountBeforeIndependentRefresh)
                 .Where(value => value.IndexOf("stage=", StringComparison.Ordinal) >= 0)

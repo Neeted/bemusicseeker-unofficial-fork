@@ -943,7 +943,7 @@ internal sealed class RegularChartListOwner : IDisposable
             && GridRowResolver.TryGetFolderEditChartOperationTarget(context.Row, context.SourceScope, out ChartOperationTarget folderTarget)
             && RenameChartFolderRequest.TryCreate(folderTarget, out RenameChartFolderRequest renameRequest))
         {
-            RenameChartFolderAsync(renameRequest, request.Text);
+            _ = RenameChartFolderAsync(renameRequest, request.Text);
             return;
         }
         if (string.Equals(context.PropertyName, "instl_dst", StringComparison.Ordinal)
@@ -958,11 +958,15 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
-    internal void RenameChartFolderAsync(RenameChartFolderRequest request, string newFolder)
+    /// <summary>
+    /// Queues a folder rename and returns its logged completion task.
+    /// Invalid requests, disposed owners, and owners without a library are completed no-ops.
+    /// </summary>
+    internal Task RenameChartFolderAsync(RenameChartFolderRequest request, string newFolder)
     {
         if (request?.HasTarget != true || string.IsNullOrWhiteSpace(newFolder))
         {
-            return;
+            return Task.CompletedTask;
         }
         BMSLibrary library;
         Task renameTask;
@@ -970,12 +974,12 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             if (disposed)
             {
-                return;
+                return Task.CompletedTask;
             }
             library = normalLibraryRefreshSource;
             if (library == null)
             {
-                return;
+                return Task.CompletedTask;
             }
             Task previousRename = folderRenameTail;
             var completion = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1006,6 +1010,7 @@ internal sealed class RegularChartListOwner : IDisposable
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+        return renameTask;
     }
 
     private void ExecuteFolderRename(BMSLibrary library, RenameChartFolderRequest request, string newFolder)

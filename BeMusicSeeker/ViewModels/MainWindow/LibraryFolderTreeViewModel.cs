@@ -40,6 +40,10 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
 
     private bool deferredRefreshQueued;
 
+    private bool deferredRefreshContinuationExpected;
+
+    private TaskCompletionSource<bool> deferredRefreshIdleCompletionSource;
+
     private long refreshRequestVersion;
 
     private long deferredRefreshOperationToken;
@@ -89,6 +93,19 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     /// Raised after a deferred refresh has reached an observable UI completion point.
     /// </summary>
     internal event EventHandler<LibraryFolderTreeRefreshCompletedEventArgs> DeferredRefreshCompleted;
+
+    /// <summary>
+    /// Waits until the current deferred refresh queue reaches a terminal state.
+    /// Coalesced requests share the same receipt and the receipt includes the
+    /// final UI apply, dispatcher rejection, and dispatcher-abort paths.
+    /// </summary>
+    internal Task WaitForDeferredRefreshIdleAsync()
+    {
+        lock (refreshLock)
+        {
+            return deferredRefreshIdleCompletionSource?.Task ?? Task.CompletedTask;
+        }
+    }
 
     /// <summary>
     /// Gets the sorted parent-folder presentation shared by the library tree and move menu.
@@ -213,6 +230,12 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
             if (!deferredRefreshQueued)
             {
                 deferredRefreshQueued = true;
+                if (!deferredRefreshContinuationExpected)
+                {
+                    deferredRefreshIdleCompletionSource =
+                        new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                }
+                deferredRefreshContinuationExpected = false;
                 shouldSchedule = true;
             }
         }
@@ -296,11 +319,7 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
 
         if (!uiScheduler.IsAvailable)
         {
-            lock (refreshLock)
-            {
-                deferredRefreshQueued = false;
-                deferredRefreshInteraction = default;
-            }
+            ClearDeferredRefreshQueue();
             return;
         }
 
@@ -366,6 +385,7 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                 bool requestAnotherRefresh;
                 long latestOperationToken;
                 PerformanceInteraction latestInteraction;
+                bool dispatcherShuttingDown = !uiScheduler.IsAvailable;
                 lock (refreshLock)
                 {
                     requestAnotherRefresh = shouldReschedule
@@ -375,34 +395,41 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
                     latestInteraction = deferredRefreshInteraction;
                     deferredRefreshQueued = false;
                     deferredRefreshInteraction = default;
+                    deferredRefreshContinuationExpected = true;
                 }
-                bool dispatcherShuttingDown = !uiScheduler.IsAvailable;
-                if (requestAnotherRefresh)
+                try
                 {
-                    LogRefreshStage(
-                        interaction,
-                        "stale_reschedule",
-                        "reason=" + (rescheduleReason ?? "latest_request")
-                            + " operationToken=" + latestOperationToken);
-                    if (dispatcherShuttingDown)
+                    if (requestAnotherRefresh)
                     {
-                        ClearDeferredRefreshQueue();
+                        LogRefreshStage(
+                            interaction,
+                            "stale_reschedule",
+                            "reason=" + (rescheduleReason ?? "latest_request")
+                                + " operationToken=" + latestOperationToken);
+                        if (dispatcherShuttingDown)
+                        {
+                            ClearDeferredRefreshQueue();
+                        }
+                        else
+                        {
+                            CacheRefreshRequested?.Invoke(
+                                this,
+                                new LibraryFolderTreeRefreshRequestedEventArgs(
+                                    LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
+                                    latestOperationToken,
+                                    latestInteraction));
+                        }
                     }
-                    else
+                    else if (prepareException == null)
                     {
-                        CacheRefreshRequested?.Invoke(
+                        DeferredRefreshCompleted?.Invoke(
                             this,
-                            new LibraryFolderTreeRefreshRequestedEventArgs(
-                                LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
-                                latestOperationToken,
-                                latestInteraction));
+                            new LibraryFolderTreeRefreshCompletedEventArgs(latestOperationToken));
                     }
                 }
-                else if (prepareException == null)
+                finally
                 {
-                    DeferredRefreshCompleted?.Invoke(
-                        this,
-                        new LibraryFolderTreeRefreshCompletedEventArgs(latestOperationToken));
+                    CompleteDeferredRefreshQueueIfIdle();
                 }
             }
         }, UiSchedulePriority.Background);
@@ -429,11 +456,32 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
 
     private void ClearDeferredRefreshQueue()
     {
+        TaskCompletionSource<bool> completionSource;
         lock (refreshLock)
         {
             deferredRefreshQueued = false;
             deferredRefreshInteraction = default;
+            deferredRefreshContinuationExpected = false;
+            completionSource = deferredRefreshIdleCompletionSource;
+            deferredRefreshIdleCompletionSource = null;
         }
+        completionSource?.TrySetResult(true);
+    }
+
+    private void CompleteDeferredRefreshQueueIfIdle()
+    {
+        TaskCompletionSource<bool> completionSource;
+        lock (refreshLock)
+        {
+            if (deferredRefreshQueued || !deferredRefreshContinuationExpected)
+            {
+                return;
+            }
+            deferredRefreshContinuationExpected = false;
+            completionSource = deferredRefreshIdleCompletionSource;
+            deferredRefreshIdleCompletionSource = null;
+        }
+        completionSource?.TrySetResult(true);
     }
 
     private void LogRefreshStage(

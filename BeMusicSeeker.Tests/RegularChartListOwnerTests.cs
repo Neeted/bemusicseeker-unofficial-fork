@@ -476,6 +476,7 @@ public sealed class RegularChartListOwnerTests
             RenameChartFolderRequest firstRequest = CreateRenameRequest(firstFile);
             RenameChartFolderRequest secondRequest = CreateRenameRequest(secondFile);
             var pendingActions = new Queue<Action>();
+            using var actionQueued = new ManualResetEventSlim();
             using RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
@@ -486,8 +487,10 @@ public sealed class RegularChartListOwnerTests
                     {
                         pendingActions.Enqueue(action);
                     }
+                    actionQueued.Set();
                 }));
             owner.AttachNormalLibraryRefreshSource(library);
+            Assert.IsTrue(actionQueued.Wait(TimeSpan.FromSeconds(10)));
             Action catchUp;
             lock (pendingActions)
             {
@@ -495,23 +498,18 @@ public sealed class RegularChartListOwnerTests
                 catchUp = pendingActions.Dequeue();
             }
             catchUp();
+            actionQueued.Reset();
 
-            owner.RenameChartFolderAsync(firstRequest, "first-destination");
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () =>
-                {
-                    lock (pendingActions)
-                    {
-                        return pendingActions.Count == 1;
-                    }
-                },
-                TimeSpan.FromSeconds(10)));
-            owner.RenameChartFolderAsync(secondRequest, "second-destination");
+            Task firstRename = owner.RenameChartFolderAsync(firstRequest, "first-destination");
+            Assert.IsTrue(actionQueued.Wait(TimeSpan.FromSeconds(10)));
+            Task secondRename = owner.RenameChartFolderAsync(secondRequest, "second-destination");
+            Assert.IsTrue(firstRename.Wait(TimeSpan.FromSeconds(10)));
+            Assert.IsTrue(secondRename.Wait(TimeSpan.FromSeconds(10)));
+            firstRename.GetAwaiter().GetResult();
+            secondRename.GetAwaiter().GetResult();
 
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => Directory.Exists(Path.Combine(libraryRoot, "first-destination"))
-                    && Directory.Exists(Path.Combine(libraryRoot, "second-destination")),
-                TimeSpan.FromSeconds(10)));
+            Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "first-destination")));
+            Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "second-destination")));
             Action coalescedRefresh;
             lock (pendingActions)
             {
@@ -540,6 +538,7 @@ public sealed class RegularChartListOwnerTests
             };
             RenameChartFolderRequest request = CreateRenameRequest(file);
             var pendingActions = new Queue<Action>();
+            using var actionQueued = new ManualResetEventSlim();
             using RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
@@ -550,8 +549,10 @@ public sealed class RegularChartListOwnerTests
                     {
                         pendingActions.Enqueue(action);
                     }
+                    actionQueued.Set();
                 }));
             owner.AttachNormalLibraryRefreshSource(library);
+            Assert.IsTrue(actionQueued.Wait(TimeSpan.FromSeconds(10)));
             Action catchUp;
             lock (pendingActions)
             {
@@ -559,17 +560,10 @@ public sealed class RegularChartListOwnerTests
                 catchUp = pendingActions.Dequeue();
             }
             catchUp();
+            actionQueued.Reset();
 
-            owner.RenameChartFolderAsync(request, "queued-destination");
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () =>
-                {
-                    lock (pendingActions)
-                    {
-                        return pendingActions.Count == 1;
-                    }
-                },
-                TimeSpan.FromSeconds(10)));
+            Task renameTask = owner.RenameChartFolderAsync(request, "queued-destination");
+            Assert.IsTrue(actionQueued.Wait(TimeSpan.FromSeconds(10)));
             Task stopTask = owner.StopAsync();
             Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
 
@@ -581,6 +575,7 @@ public sealed class RegularChartListOwnerTests
             }
             pendingAction();
             stopTask.GetAwaiter().GetResult();
+            renameTask.GetAwaiter().GetResult();
             Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "queued-destination")));
         });
     }
@@ -2864,12 +2859,27 @@ public sealed class RegularChartListOwnerTests
             var currentRows = new List<object> { new(), new() };
             Assert.IsTrue(owner.TryCommitVirtual(currentLease, CreateVirtualTerminalInput(currentRows)).WasCommitted);
             owner.ScheduleVirtualSummary(currentLease, key, sourceRows, [0, 1], currentRows, "current");
-            sourceRows.ReleaseIndexRead.Set();
 
             string expectedSummary = "[2" + BeMusicSeeker.Properties.Resources.Num_songs + " / 2" + BeMusicSeeker.Properties.Resources.Num_folders + "]";
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => string.Equals(table.SummaryText, expectedSummary, StringComparison.Ordinal),
-                TimeSpan.FromSeconds(5)));
+            using var summaryUpdated = new ManualResetEventSlim();
+            PropertyChangedEventHandler summaryHandler = (_, args) =>
+            {
+                if (args.PropertyName == nameof(MainChartListViewModel.SummaryText)
+                    && string.Equals(table.SummaryText, expectedSummary, StringComparison.Ordinal))
+                {
+                    summaryUpdated.Set();
+                }
+            };
+            table.PropertyChanged += summaryHandler;
+            try
+            {
+                sourceRows.ReleaseIndexRead.Set();
+                Assert.IsTrue(summaryUpdated.Wait(TimeSpan.FromSeconds(5)));
+            }
+            finally
+            {
+                table.PropertyChanged -= summaryHandler;
+            }
             Assert.AreSame(currentRows, table.Rows);
             Assert.AreEqual(2, sourceRows.IndexReadCount);
         }
@@ -2926,15 +2936,30 @@ public sealed class RegularChartListOwnerTests
             latestLease = owner.BeginRequest();
             latestRows = Enumerable.Repeat<object>(new(), indexes.Count).ToList();
             Assert.IsTrue(owner.TryCommitVirtual(latestLease, CreateVirtualTerminalInput(latestRows)).WasCommitted);
-            sourceRows.ReleaseIndexRead.Set();
 
             string expectedSummary = "[" + indexes.Count + BeMusicSeeker.Properties.Resources.Num_songs
                 + " / 2" + BeMusicSeeker.Properties.Resources.Num_folders + "]";
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => string.Equals(table.SummaryText, expectedSummary, StringComparison.Ordinal),
-                TimeSpan.FromSeconds(5)),
-                "Actual summary: " + table.SummaryText
-                + Environment.NewLine + string.Join(Environment.NewLine, messages));
+            using var summaryUpdated = new ManualResetEventSlim();
+            PropertyChangedEventHandler summaryHandler = (_, args) =>
+            {
+                if (args.PropertyName == nameof(MainChartListViewModel.SummaryText)
+                    && string.Equals(table.SummaryText, expectedSummary, StringComparison.Ordinal))
+                {
+                    summaryUpdated.Set();
+                }
+            };
+            table.PropertyChanged += summaryHandler;
+            try
+            {
+                sourceRows.ReleaseIndexRead.Set();
+                Assert.IsTrue(summaryUpdated.Wait(TimeSpan.FromSeconds(5)),
+                    "Actual summary: " + table.SummaryText
+                    + Environment.NewLine + string.Join(Environment.NewLine, messages));
+            }
+            finally
+            {
+                table.PropertyChanged -= summaryHandler;
+            }
             Assert.AreEqual(1, Volatile.Read(ref rescheduleCount));
             Assert.AreSame(latestRows, table.Rows);
         }

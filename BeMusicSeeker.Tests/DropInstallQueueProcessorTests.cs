@@ -58,7 +58,11 @@ public sealed class DropInstallQueueProcessorTests
             },
             null);
         Task disposition = request.WaitForDispositionAsync();
-        Task abandon = Task.Run(request.TryAbandonUnconsumedSources);
+        Task abandon = Task.Factory.StartNew(
+            request.TryAbandonUnconsumedSources,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
         try
         {
             Assert.IsTrue(cleanupEntered.Wait(5000));
