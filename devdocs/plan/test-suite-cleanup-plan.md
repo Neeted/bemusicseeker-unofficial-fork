@@ -132,6 +132,14 @@
 - After the review correction, Functional completed 3,969 total tests (3,958 passed and 11 opt-in skipped) in 160.3 s, `tests-functional-20260815-073638`; tracked fingerprint remained `4BDAE46E0CF5F42233B1AA3289BC973BC8124B5FE3820797C48E9CC48AEF2C2B` and no repository test process remained.
 - Fresh static review reported no blocking findings after the actual detail-failure and shell lifecycle-consumer corrections.
 
+#### Unit 4 (in progress)
+
+- Scope: expose playlist-detail cell-edit persistence as an awaitable commit task, keep the MainWindow route's existing logged fire-and-forget behavior explicit, replace the playlist persistence test's database polling with the returned task, and replace the unsupported virtual-sort test's completion polling with the existing `SortRefreshRequested` receipt.
+- `CompleteDetailEdit` returns only the scheduled persistence commit; cancelled edits, invalid requests, and non-applicable routes return `Task.CompletedTask`. Same-value edits remain applicable and continue to schedule `Task.Run(CommitRow)` as before; they are not treated as no-ops. The edit session still closes immediately, and the commit captures the edited row and property before returning. No supported external contract, persisted/configuration schema, serialization, or XAML/resource reference was found.
+- Targeted Quick passed 264/264 tests in 68.9 s command time (6.1215 s test time), `tests-quick-20260820-030307`; tracked fingerprint remained `CE5DAF930FE59509B205BE5E9760BD7A26339A829DADBFD2A5E93A6DD5CF0649`.
+- Functional completed 3,969 total tests (3,958 passed and 11 skipped) in 154.3 s command time (within the 180 s budget), `tests-functional-20260820-030518`; tracked fingerprint remained `DB43BF7FA5A172728481E9AAD77437B198AAFD9BFCBDAD2E8D4DB6A60B2AB6`, and no repository test process remained.
+- Functional evidence is complete; final static-review evidence remains pending for this unit.
+
 ## Retirement rule
 
 Slice 4 must delete this file. Before deletion, any still-relevant runner contract or test strategy decision must be incorporated once into the appropriate `devdocs/spec` document; transient status, command output, and slice bookkeeping are not normative and must not be copied forward.
