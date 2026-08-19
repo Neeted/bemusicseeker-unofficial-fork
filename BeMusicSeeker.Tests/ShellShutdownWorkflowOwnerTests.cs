@@ -5,6 +5,7 @@ using System.Runtime.Serialization;
 using System.Threading;
 using System.ComponentModel;
 using System.Collections.Generic;
+using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Update;
@@ -577,6 +578,68 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(0, warnings.Count);
     }
 
+    [TestMethod]
+    public async Task PreparationWaitsForPackageInstallQueueReceiptAfterCancellation()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(ShellShutdownWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        using var installEntered = new ManualResetEventSlim(false);
+        using var releaseInstall = new ManualResetEventSlim(false);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var packageInstall = new PackageInstallWorkflowOwner(
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                {
+                    installEntered.Set();
+                    Assert.IsTrue(releaseInstall.Wait(5000), "The package install was not released.");
+                    return [];
+                }),
+                action =>
+                {
+                    action();
+                    return true;
+                });
+            packageInstall.AttachLibrary(library);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            var warnings = new List<string>();
+            ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+                viewModel,
+                packageInstallWorkflow: packageInstall,
+                markShutdown: _ => { },
+                logShutdownWarning: warnings.Add);
+            owner.AttachLibrary(library);
+            packageInstall.Enqueue([Path.Combine(root, "pending.zip")]);
+            Assert.IsTrue(installEntered.Wait(5000), "The package install did not start.");
+
+            Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("package_install");
+            Assert.IsFalse(preparation.IsCompleted, "Preparation must wait for the package receipt.");
+            releaseInstall.Set();
+
+            ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsFalse(result.SlowWaitLogged);
+            Assert.AreEqual(0, warnings.Count);
+        }
+        finally
+        {
+            releaseInstall.Set();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     private static ShellShutdownWorkflowOwner CreateDirectOwner(
         MainWindowViewModel viewModel,
         Func<Func<Task>, Task>? dispatch = null,
@@ -587,7 +650,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Func<Task>? stopPerformanceDiagnostics = null,
         Action<string>? logShutdown = null,
         Action<string>? logShutdownWarning = null,
-        PlaylistWorkspaceViewModel? playlistWorkspace = null)
+        PlaylistWorkspaceViewModel? playlistWorkspace = null,
+        PackageInstallWorkflowOwner? packageInstallWorkflow = null)
     {
         StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
             viewModel,
@@ -607,7 +671,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             viewModel.RegularChartList,
             playlistWorkspace ?? viewModel.PlaylistWorkspace,
             viewModel.PlayHistory,
-            viewModel.PackageInstallWorkflow,
+            packageInstallWorkflow ?? viewModel.PackageInstallWorkflow,
             viewModel.MaintenanceRescanWorkflow,
             viewModel.FolderAutoRenameWorkflow,
             viewModel.PlaybackPanel,

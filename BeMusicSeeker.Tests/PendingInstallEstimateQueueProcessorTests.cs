@@ -97,6 +97,7 @@ public sealed class PendingInstallEstimateQueueProcessorTests
     public void GetStatusSnapshot_ReturnsInactiveSnapshotAfterCompletion()
     {
         var completed = new ManualResetEventSlim(initialState: false);
+        var inactivePublished = new ManualResetEventSlim(initialState: false);
         var processor = new PendingInstallEstimateQueueProcessor(
             delegate (PendingInstallEstimateBatchRequest request, CancellationToken token)
             {
@@ -104,6 +105,10 @@ public sealed class PendingInstallEstimateQueueProcessorTests
             },
             delegate (PendingInstallEstimateQueueStatusSnapshot snapshot)
             {
+                if (!snapshot.IsActive)
+                {
+                    inactivePublished.Set();
+                }
             });
 
         processor.Enqueue(new PendingInstallEstimateBatchRequest(
@@ -112,7 +117,7 @@ public sealed class PendingInstallEstimateQueueProcessorTests
             "startup"));
 
         Assert.IsTrue(completed.Wait(3000), "The batch did not complete.");
-        Assert.IsTrue(SpinWait.SpinUntil(() => !processor.GetStatusSnapshot().IsActive, 3000), "The queue did not become inactive.");
+        Assert.IsTrue(inactivePublished.Wait(3000), "The queue did not publish its inactive status.");
 
         PendingInstallEstimateQueueStatusSnapshot snapshot = processor.GetStatusSnapshot();
         Assert.IsFalse(snapshot.IsActive);

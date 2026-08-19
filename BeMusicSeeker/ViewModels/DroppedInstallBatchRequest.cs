@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -19,6 +20,8 @@ internal sealed class DroppedInstallBatchRequest
     private readonly string[] ownedIngressRoots;
     private readonly Action<string> deleteOwnedIngressRoot;
     private readonly Action<string, Exception> reportCleanupFailure;
+    private readonly TaskCompletionSource<bool> dispositionCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int sourceOwnershipState;
 
     /// <summary>
@@ -32,6 +35,15 @@ internal sealed class DroppedInstallBatchRequest
     internal string[] OriginalPaths { get; }
 
     internal int PathCount => Paths.Length;
+
+    /// <summary>
+    /// Returns a task that completes after this request is transferred to the installer or its
+    /// queue-owned ingress roots have been abandoned and cleaned up.
+    /// </summary>
+    internal Task WaitForDispositionAsync()
+    {
+        return dispositionCompletion.Task;
+    }
 
     internal string DisplayName { get; }
 
@@ -66,10 +78,15 @@ internal sealed class DroppedInstallBatchRequest
     /// <returns><see langword="true"/> when this call performed the one-way transfer.</returns>
     internal bool TransferSourceOwnershipToInstaller()
     {
-        return Interlocked.CompareExchange(
+        bool transferred = Interlocked.CompareExchange(
             ref sourceOwnershipState,
             SourcesTransferredToInstaller,
             SourcesUnconsumed) == SourcesUnconsumed;
+        if (transferred)
+        {
+            dispositionCompletion.TrySetResult(true);
+        }
+        return transferred;
     }
 
     /// <summary>
@@ -104,26 +121,34 @@ internal sealed class DroppedInstallBatchRequest
 
         if (deleteOwnedIngressRoot == null)
         {
+            dispositionCompletion.TrySetResult(true);
             return true;
         }
 
-        foreach (string root in ownedIngressRoots)
+        try
         {
-            try
-            {
-                deleteOwnedIngressRoot(root);
-            }
-            catch (Exception exception)
+            foreach (string root in ownedIngressRoots)
             {
                 try
                 {
-                    reportCleanupFailure?.Invoke(root, exception);
+                    deleteOwnedIngressRoot(root);
                 }
-                catch
+                catch (Exception exception)
                 {
-                    // Cleanup reporting must not change cancellation or shutdown semantics.
+                    try
+                    {
+                        reportCleanupFailure?.Invoke(root, exception);
+                    }
+                    catch
+                    {
+                        // Cleanup reporting must not change cancellation or shutdown semantics.
+                    }
                 }
             }
+        }
+        finally
+        {
+            dispositionCompletion.TrySetResult(true);
         }
         return true;
     }

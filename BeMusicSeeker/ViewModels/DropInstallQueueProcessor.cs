@@ -19,6 +19,8 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
 
     private readonly Action<Exception> batchFailed = batchFailed;
 
+    private TaskCompletionSource<bool> idleCompletion = CreateCompletedCompletion();
+
     private bool workerRunning;
 
     private bool cancelRequested;
@@ -57,6 +59,35 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
     }
 
     /// <summary>
+    /// Returns a task that completes after the current queue lifecycle has published its terminal
+    /// inactive status and finished any detached cancellation cleanup.
+    /// </summary>
+    internal Task WaitForIdleAsync()
+    {
+        lock (syncRoot)
+        {
+            return idleCompletion.Task.IsCompleted
+                ? Task.CompletedTask
+                : idleCompletion.Task;
+        }
+    }
+
+    /// <summary>
+    /// Gets whether the current lifecycle has published its terminal status and completed its
+    /// idle receipt.
+    /// </summary>
+    internal bool IsIdleReceiptCompleted
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return idleCompletion.Task.IsCompleted;
+            }
+        }
+    }
+
+    /// <summary>
     /// Attempts to transfer an acquired request to this FIFO queue.
     /// </summary>
     /// <returns><see langword="true"/> only when the request remains accepted by the queue.</returns>
@@ -87,6 +118,11 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             if (cancelRequested)
             {
                 return EnqueueTransition.Rejected;
+            }
+
+            if (IsIdleUnsafe())
+            {
+                idleCompletion = CreatePendingCompletion();
             }
 
             pendingBatches.Enqueue(request);
@@ -220,6 +256,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             DroppedInstallBatchRequest batch;
             CancellationTokenSource cancellationTokenSource;
             DropInstallQueueStatusSnapshot snapshot;
+            TaskCompletionSource<bool> terminalCompletion;
             bool shouldExit;
             lock (syncRoot)
             {
@@ -234,6 +271,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                     snapshot = cancelRequested
                         ? TryCompleteCancellationUnsafe()
                         : CaptureStatusSnapshotUnsafe();
+                    terminalCompletion = snapshot == null ? null : idleCompletion;
                     batch = null;
                     cancellationTokenSource = null;
                     shouldExit = true;
@@ -248,13 +286,14 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                     activeCancellationTokenSource = new CancellationTokenSource();
                     cancellationTokenSource = activeCancellationTokenSource;
                     snapshot = CaptureStatusSnapshotUnsafe();
+                    terminalCompletion = null;
                     shouldExit = false;
                 }
             }
 
             if (snapshot != null)
             {
-                statusChanged(snapshot);
+                PublishStatus(snapshot, terminalCompletion);
             }
             if (shouldExit)
             {
@@ -292,16 +331,18 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                         snapshot = cancelRequested
                             ? TryCompleteCancellationUnsafe()
                             : CaptureStatusSnapshotUnsafe();
+                        terminalCompletion = snapshot == null ? null : idleCompletion;
                     }
                     else
                     {
                         snapshot = CaptureStatusSnapshotUnsafe();
+                        terminalCompletion = null;
                     }
                 }
 
                 if (snapshot != null)
                 {
-                    statusChanged(snapshot);
+                    PublishStatus(snapshot, terminalCompletion);
                 }
             }
             if (shouldExit)
@@ -329,15 +370,37 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
         finally
         {
             DropInstallQueueStatusSnapshot terminalSnapshot;
+            TaskCompletionSource<bool> terminalCompletion;
             lock (syncRoot)
             {
                 backgroundCleanupInProgress = false;
                 terminalSnapshot = TryCompleteCancellationUnsafe();
+                terminalCompletion = terminalSnapshot == null ? null : idleCompletion;
             }
             if (terminalSnapshot != null)
             {
-                statusChanged(terminalSnapshot);
+                PublishStatus(terminalSnapshot, terminalCompletion);
             }
+        }
+    }
+
+    private void PublishStatus(
+        DropInstallQueueStatusSnapshot snapshot,
+        TaskCompletionSource<bool> terminalCompletion)
+    {
+        if (terminalCompletion == null)
+        {
+            statusChanged(snapshot);
+            return;
+        }
+
+        try
+        {
+            statusChanged(snapshot);
+        }
+        finally
+        {
+            terminalCompletion.TrySetResult(true);
         }
     }
 
@@ -379,6 +442,27 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             CurrentWorkTotal = (activeBatch != null) ? activeCurrentWorkTotal : 0,
             CurrentWorkDisplayName = (activeBatch != null) ? activeCurrentWorkDisplayName : string.Empty
         };
+    }
+
+    private bool IsIdleUnsafe()
+    {
+        return !workerRunning
+            && !cancelRequested
+            && !backgroundCleanupInProgress
+            && activeBatch == null
+            && pendingBatches.Count == 0;
+    }
+
+    private static TaskCompletionSource<bool> CreatePendingCompletion()
+    {
+        return new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private static TaskCompletionSource<bool> CreateCompletedCompletion()
+    {
+        TaskCompletionSource<bool> completion = CreatePendingCompletion();
+        completion.SetResult(true);
+        return completion;
     }
 
     private void ClearActiveCurrentWorkUnsafe()

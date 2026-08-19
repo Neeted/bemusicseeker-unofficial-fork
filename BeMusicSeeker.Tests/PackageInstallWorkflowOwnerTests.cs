@@ -74,7 +74,7 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             owner.Enqueue(Enumerable.Range(1, 20).Select(index => "batch-" + index + ".zip"));
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             lock (notifications)
             {
                 Assert.AreEqual(
@@ -118,6 +118,7 @@ public sealed class PackageInstallWorkflowOwnerTests
         using var secondStarted = new ManualResetEventSlim(false);
         using var releaseFirst = new ManualResetEventSlim(false);
         using var releaseSecond = new ManualResetEventSlim(false);
+        using var notificationsReady = new ManualResetEventSlim(false);
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
@@ -149,6 +150,10 @@ public sealed class PackageInstallWorkflowOwnerTests
                     lock (notifications)
                     {
                         notifications.Enqueue(action);
+                        if (notifications.Count >= 3)
+                        {
+                            notificationsReady.Set();
+                        }
                     }
                     return true;
                 });
@@ -164,13 +169,9 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.Enqueue(["second.zip"]);
             releaseFirst.Set();
             Assert.IsTrue(secondStarted.Wait(5000));
-            Assert.IsTrue(SpinWait.SpinUntil(() =>
-            {
-                lock (notifications)
-                {
-                    return notifications.Count >= 3;
-                }
-            }, 5000));
+            Assert.IsTrue(
+                notificationsReady.Wait(5000),
+                "Replacement status notifications were not queued.");
 
             DrainNotifications(notifications);
 
@@ -181,13 +182,93 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             releaseFirst.Set();
             releaseSecond.Set();
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             DrainNotifications(notifications);
         }
         finally
         {
             releaseFirst.Set();
             releaseSecond.Set();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void RetiredQueuePruningWaitsForTerminalReceiptAfterStatusDispatchStops()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PackageInstallWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        string firstDirectory = Path.Combine(root, "first");
+        string secondDirectory = Path.Combine(root, "second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        string firstDb = Path.Combine(firstDirectory, "song.db");
+        string secondDb = Path.Combine(secondDirectory, "song.db");
+        File.WriteAllBytes(firstDb, []);
+        File.WriteAllBytes(secondDb, []);
+        using var firstStarted = new ManualResetEventSlim(false);
+        using var terminalEntered = new ManualResetEventSlim(false);
+        using var releaseTerminal = new ManualResetEventSlim(false);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
+            {
+            }
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(secondDb))
+            {
+            }
+            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
+            var owner = CreateOwner(
+                (library, paths, token, onPath, onArchive) =>
+                {
+                    if (ReferenceEquals(library, first))
+                    {
+                        firstStarted.Set();
+                    }
+                    return [];
+                },
+                action =>
+                {
+                    action();
+                    return true;
+                });
+            owner.StatusChanged += snapshot =>
+            {
+                if (!snapshot.IsActive
+                    && snapshot.Sequence > 0)
+                {
+                    terminalEntered.Set();
+                    Assert.IsTrue(releaseTerminal.Wait(5000));
+                }
+            };
+            owner.AttachLibrary(first);
+            owner.Enqueue([Path.Combine(root, "first.zip")]);
+            Assert.IsTrue(firstStarted.Wait(5000), "The first generation did not start.");
+
+            Assert.IsTrue(
+                terminalEntered.Wait(5000),
+                "The current generation terminal status was not held.");
+            owner.AttachLibrary(second);
+
+            Assert.IsTrue(owner.IsIdle, "The status getter should still report queue state as idle.");
+            Task idle = owner.WaitForIdleAsync();
+            Assert.IsFalse(
+                idle.IsCompleted,
+                "Owner idle must retain a retired processor until its terminal receipt completes.");
+
+            releaseTerminal.Set();
+            Assert.IsTrue(idle.Wait(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            releaseTerminal.Set();
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -288,7 +369,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             File.Delete(source);
             allowMutationRead.Set();
             Assert.IsTrue(mutationFinished.Wait(5000));
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             Assert.AreEqual(
                 Path.Combine(ingressRoot, "archiver", "nested", "chart.bms"),
                 installedPath);
@@ -483,7 +564,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(second);
             release.Set();
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000), "The stale workflow did not drain.");
+            AssertOwnerIdle(owner, "The stale workflow did not drain.");
             Assert.IsFalse(completion.IsSet, "A replaced library generation must not publish a receipt.");
         }
         finally
@@ -556,7 +637,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 owner.AttachLibrary(second);
             }
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.AreEqual(1, staleFailureReports);
         }
@@ -610,7 +691,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 owner.CancelAll();
             }
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
@@ -664,7 +745,7 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
@@ -692,6 +773,7 @@ public sealed class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(firstDb, []);
         File.WriteAllBytes(secondDb, []);
         var notifications = new Queue<Action>();
+        using var notificationQueued = new ManualResetEventSlim(false);
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
@@ -714,6 +796,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                     lock (notifications)
                     {
                         notifications.Enqueue(action);
+                        notificationQueued.Set();
                     }
                     return true;
                 },
@@ -722,14 +805,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(first);
             owner.Enqueue([Path.Combine(root, "failed-generation.zip")]);
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
-            Assert.IsTrue(SpinWait.SpinUntil(() =>
-            {
-                lock (notifications)
-                {
-                    return notifications.Count > 0;
-                }
-            }, 5000));
+            AssertOwnerIdle(owner);
+            Assert.IsTrue(notificationQueued.Wait(5000), "The failure notification was not queued.");
             owner.AttachLibrary(second);
             DrainNotifications(notifications);
 
@@ -776,7 +853,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.Enqueue([Path.Combine(root, "dispatcher-rejected.zip")]);
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             lock (diagnosticReports)
             {
                 Assert.IsTrue(
@@ -824,7 +901,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.Enqueue([Path.Combine(root, "dispatcher-threw.zip")]);
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             lock (diagnosticReports)
             {
                 Assert.IsTrue(
@@ -877,7 +954,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.Enqueue([Path.Combine(root, "notification-failed.zip")]);
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             lock (diagnosticReports)
             {
                 Assert.IsTrue(diagnosticReports.Any(exception => exception?.Message == "install failed"));
@@ -935,7 +1012,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             release.Set();
 
             Assert.IsTrue(completion.Wait(5000), "A completed live apply must still publish its receipt after cancellation.");
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000), "The workflow did not become idle.");
+            AssertOwnerIdle(owner, "The workflow did not become idle.");
         }
         finally
         {
@@ -1010,7 +1087,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             releaseFirst.Set();
             Assert.IsTrue(secondCompleted.Wait(5000), "The new generation request was lost during replacement.");
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000), "The replaced workflow did not drain.");
+            AssertOwnerIdle(owner, "The replaced workflow did not drain.");
             CollectionAssert.AreEqual(new[] { "first-generation.zip", "second-generation.zip" }, calls);
             Assert.AreEqual(1, completions, "Only the current generation may publish a completion receipt.");
         }
@@ -1053,7 +1130,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.RequestShutdown();
             owner.Enqueue([Path.Combine(root, "after-shutdown.zip")]);
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000), "Shutdown must drain all queue contexts.");
+            AssertOwnerIdle(owner, "Shutdown must drain all queue contexts.");
             Assert.AreEqual(0, mutationCalls, "A request submitted after shutdown must not enter live mutation.");
         }
         finally
@@ -1103,7 +1180,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.Enqueue([Path.Combine(root, "second.zip")]);
 
             Assert.IsTrue(secondFinished.Wait(5000), "A notification exception must not stop the following batch.");
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000), "The queue must remain drainable after notification failure.");
+            AssertOwnerIdle(owner, "The queue must remain drainable after notification failure.");
             Assert.AreEqual(2, mutationCalls);
         }
         finally
@@ -1190,7 +1267,7 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             Assert.IsTrue(enqueue.Wait(5000));
             Assert.IsTrue(enqueue.Result, "Physical insertion preceding shutdown remains an accepted transfer.");
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
@@ -1261,13 +1338,13 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             Assert.IsTrue(enqueue.Wait(5000));
             Assert.IsTrue(enqueue.Result);
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
 
             owner.Enqueue(["fresh.zip"]);
             Assert.IsTrue(freshInstallCalled.Wait(5000), "Normal cancellation must not close later admissions.");
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             Assert.AreEqual(1, mutationCalls);
         }
         finally
@@ -1319,16 +1396,20 @@ public sealed class PackageInstallWorkflowOwnerTests
                 },
                 _ => true);
             owner.AttachLibrary(firstLibrary);
-            Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(activeRoot, "active.zip")));
+            DroppedInstallBatchRequest activeRequest = CreateOwnedRequest(activeRoot, "active.zip");
+            Assert.IsTrue(owner.TryEnqueue(activeRequest));
             Assert.IsTrue(activeStarted.Wait(5000));
-            Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(pendingRoot, "pending.zip")));
+            DroppedInstallBatchRequest pendingRequest = CreateOwnedRequest(pendingRoot, "pending.zip");
+            Assert.IsTrue(owner.TryEnqueue(pendingRequest));
 
             owner.AttachLibrary(secondLibrary);
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => !Directory.Exists(pendingRoot), 5000));
+            Assert.IsTrue(
+                pendingRequest.WaitForDispositionAsync().Wait(TimeSpan.FromSeconds(5)),
+                "The retired pending ingress was not abandoned.");
             Assert.IsTrue(Directory.Exists(activeRoot), "Installer handoff must protect the active source from queue cleanup.");
             releaseActive.Set();
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, 5000));
+            AssertOwnerIdle(owner);
             Assert.IsTrue(Directory.Exists(activeRoot));
         }
         finally
@@ -1357,6 +1438,15 @@ public sealed class PackageInstallWorkflowOwnerTests
         {
             Directory.Delete(path, recursive: true);
         }
+    }
+
+    private static void AssertOwnerIdle(
+        PackageInstallWorkflowOwner owner,
+        string message = "The package install workflow did not become idle.")
+    {
+        Assert.IsTrue(
+            owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)),
+            message);
     }
 
     private static PackageInstallWorkflowOwner CreateOwner(

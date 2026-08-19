@@ -4,6 +4,7 @@ using System.Linq;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using Ribbit.Logging;
 
@@ -167,6 +168,26 @@ internal sealed class PackageInstallWorkflowOwner
                 return queueProcessors.All(queue => queue.Processor.IsIdle);
             }
         }
+    }
+
+    /// <summary>
+    /// Captures all current and retired queue lifecycles and completes when that snapshot is idle.
+    /// </summary>
+    internal Task WaitForIdleAsync()
+    {
+        Task[] idleTasks;
+        lock (syncRoot)
+        {
+            idleTasks = [.. queueProcessors.Select(queue => queue.Processor.WaitForIdleAsync())];
+            PruneIdleRetiredQueuesUnsafe();
+        }
+
+        return idleTasks.Length switch
+        {
+            0 => Task.CompletedTask,
+            1 => idleTasks[0],
+            _ => Task.WhenAll(idleTasks)
+        };
     }
 
     internal void AttachLibrary(BMSLibrary nextLibrary)
@@ -662,7 +683,7 @@ internal sealed class PackageInstallWorkflowOwner
     {
         for (int index = queueProcessors.Count - 2; index >= 0; index--)
         {
-            if (queueProcessors[index].Processor.IsIdle)
+            if (queueProcessors[index].Processor.IsIdleReceiptCompleted)
             {
                 queueProcessors.RemoveAt(index);
             }

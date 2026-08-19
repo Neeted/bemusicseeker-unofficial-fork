@@ -837,12 +837,14 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private async Task WaitForDropInstallQueueIdleAsync(ShutdownWaitTracker tracker)
     {
-        await WaitForConditionAsync(
+        Task queueIdle = packageInstallWorkflow.WaitForIdleAsync();
+        await WaitForTaskCompletionAsync(
             "dropInstallQueue",
-            () => packageInstallWorkflow.IsIdle,
+            queueIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
             () => "idle=" + FormatBool(packageInstallWorkflow.IsIdle)).ConfigureAwait(false);
+        await queueIdle.ConfigureAwait(false);
     }
 
     private async Task WaitForMaintenanceRescanIdleAsync(ShutdownWaitTracker tracker)

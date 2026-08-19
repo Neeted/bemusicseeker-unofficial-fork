@@ -13,6 +13,123 @@ namespace BeMusicSeeker.Tests;
 public sealed class DropInstallQueueProcessorTests
 {
     [TestMethod]
+    public void WaitForIdleAsync_CompletesAfterTerminalStatusNotificationReturns()
+    {
+        using var terminalEntered = new ManualResetEventSlim(false);
+        using var releaseTerminal = new ManualResetEventSlim(false);
+        var processor = new DropInstallQueueProcessor(
+            (_, _) => { },
+            snapshot =>
+            {
+                if (!snapshot.IsActive)
+                {
+                    terminalEntered.Set();
+                    Assert.IsTrue(releaseTerminal.Wait(5000));
+                }
+            });
+        try
+        {
+            Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["chart.zip"])));
+            Task idle = processor.WaitForIdleAsync();
+            Assert.IsTrue(terminalEntered.Wait(5000), "The terminal status was not published.");
+            Assert.IsFalse(idle.IsCompleted, "Idle completion must follow terminal status publication.");
+            releaseTerminal.Set();
+            Assert.IsTrue(idle.Wait(5000));
+        }
+        finally
+        {
+            releaseTerminal.Set();
+        }
+    }
+
+    [TestMethod]
+    public void RequestDisposition_CompletesAfterAbandonmentCleanupReturns()
+    {
+        using var cleanupEntered = new ManualResetEventSlim(false);
+        using var releaseCleanup = new ManualResetEventSlim(false);
+        var request = new DroppedInstallBatchRequest(
+            ["chart.zip"],
+            ["chart.zip"],
+            ["owned-root"],
+            _ =>
+            {
+                cleanupEntered.Set();
+                Assert.IsTrue(releaseCleanup.Wait(5000));
+            },
+            null);
+        Task disposition = request.WaitForDispositionAsync();
+        Task abandon = Task.Run(request.TryAbandonUnconsumedSources);
+        try
+        {
+            Assert.IsTrue(cleanupEntered.Wait(5000));
+            Assert.IsFalse(disposition.IsCompleted, "Disposition must follow ingress cleanup.");
+            releaseCleanup.Set();
+            Assert.IsTrue(abandon.Wait(5000));
+            Assert.IsTrue(disposition.Wait(5000));
+        }
+        finally
+        {
+            releaseCleanup.Set();
+        }
+    }
+
+    [TestMethod]
+    public void TerminalStatusReenqueue_CompletesOldIdleReceiptAndCreatesNewLifecycleReceipt()
+    {
+        using var firstStarted = new ManualResetEventSlim(false);
+        using var releaseFirst = new ManualResetEventSlim(false);
+        using var secondProcessed = new ManualResetEventSlim(false);
+        var secondIdleCaptured = new TaskCompletionSource<Task>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        DropInstallQueueProcessor? processor = null;
+        int terminalEnqueueCount = 0;
+        processor = new DropInstallQueueProcessor(
+            (request, _) =>
+            {
+                if (request.DisplayName == "first.zip")
+                {
+                    firstStarted.Set();
+                    Assert.IsTrue(releaseFirst.Wait(5000));
+                }
+                else
+                {
+                    secondProcessed.Set();
+                }
+            },
+            snapshot =>
+            {
+                if (!snapshot.IsActive
+                    && Interlocked.Exchange(ref terminalEnqueueCount, 1) == 0)
+                {
+                    Assert.IsTrue(processor!.TryEnqueue(
+                        new DroppedInstallBatchRequest(["second.zip"])));
+                    secondIdleCaptured.TrySetResult(processor.WaitForIdleAsync());
+                }
+            });
+
+        try
+        {
+            Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["first.zip"])));
+            Assert.IsTrue(firstStarted.Wait(5000));
+            Task firstIdle = processor.WaitForIdleAsync();
+            releaseFirst.Set();
+
+            Assert.IsTrue(
+                secondIdleCaptured.Task.Wait(TimeSpan.FromSeconds(5)),
+                "The terminal callback did not enqueue the replacement batch.");
+            Task secondIdle = secondIdleCaptured.Task.Result;
+            Assert.AreNotSame(firstIdle, secondIdle, "Each queue lifecycle must own a distinct idle receipt.");
+            Assert.IsTrue(firstIdle.Wait(5000), "The replaced lifecycle idle receipt remained pending.");
+            Assert.IsTrue(secondProcessed.Wait(5000));
+            Assert.IsTrue(secondIdle.Wait(5000));
+        }
+        finally
+        {
+            releaseFirst.Set();
+        }
+    }
+
+    [TestMethod]
     public void Enqueue_ProcessesBatchesSequentiallyAndReportsPendingCount()
     {
         List<string> processed = [];
@@ -78,13 +195,7 @@ public sealed class DropInstallQueueProcessorTests
 
         releaseFirst.Set();
         Assert.IsTrue(secondFinished.Wait(3000), "The second batch did not complete.");
-        Assert.IsTrue(SpinWait.SpinUntil(delegate
-        {
-            lock (syncRoot)
-            {
-                return processed.Count == 2;
-            }
-        }, 3000), "Both batches were not processed.");
+        AssertProcessorIdle(processor, "The queue did not publish its terminal inactive status.");
 
         lock (syncRoot)
         {
@@ -236,7 +347,7 @@ public sealed class DropInstallQueueProcessorTests
         releaseFirst.Set();
 
         Assert.IsTrue(secondFinished.Wait(5000), "The throwing notification callback stranded the FIFO worker.");
-        Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+        AssertProcessorIdle(processor);
         Assert.AreEqual(2, Volatile.Read(ref processCalls));
         Assert.AreEqual(1, Volatile.Read(ref failureCallbackCalls));
     }
@@ -357,7 +468,7 @@ public sealed class DropInstallQueueProcessorTests
             Assert.IsTrue(File.Exists(secondFile), "Pending ownership must keep the staged copy alive.");
             releaseFirst.Set();
             Assert.IsTrue(secondRead.Wait(5000));
-            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            AssertProcessorIdle(processor);
             Assert.IsNull(failure);
             Assert.IsFalse(Directory.Exists(secondRoot), "An untransferred request is abandoned after its consumer returns.");
         }
@@ -400,7 +511,7 @@ public sealed class DropInstallQueueProcessorTests
 
             processor.CancelAll();
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            AssertProcessorIdle(processor);
             Assert.IsFalse(Directory.Exists(pendingRoot));
             Assert.IsFalse(Directory.Exists(activeRoot));
             Assert.IsTrue(File.Exists(original));
@@ -432,7 +543,7 @@ public sealed class DropInstallQueueProcessorTests
                 DeleteDirectory,
                 null));
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            AssertProcessorIdle(processor);
             Assert.IsTrue(Directory.Exists(root));
         }
         finally
@@ -545,7 +656,7 @@ public sealed class DropInstallQueueProcessorTests
             Assert.IsTrue(Directory.Exists(lateRoot), "Rejected request ownership remains with the caller.");
             releasePendingCleanup.Set();
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            AssertProcessorIdle(processor);
             Assert.IsTrue(
                 terminalInactive.Wait(5000),
                 "The terminal inactive notification must follow completion of detached cleanup.");
@@ -556,7 +667,7 @@ public sealed class DropInstallQueueProcessorTests
 
             Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["fresh.zip"])));
             Assert.IsTrue(freshProcessed.Wait(5000), "An enqueue after the epoch closes must start a fresh worker.");
-            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            AssertProcessorIdle(processor);
             Assert.IsNull(backgroundFailure);
         }
         finally
@@ -615,12 +726,12 @@ public sealed class DropInstallQueueProcessorTests
             processor.CancelAll();
 
             Assert.IsTrue(cleanupFailureReported.Wait(5000));
-            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            AssertProcessorIdle(processor);
             Assert.IsTrue(Directory.Exists(failedCleanupRoot));
             Assert.IsNull(backgroundFailure);
             Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["fresh.zip"])));
             Assert.IsTrue(freshProcessed.Wait(5000));
-            Assert.IsTrue(SpinWait.SpinUntil(() => processor.IsIdle, 5000));
+            AssertProcessorIdle(processor);
         }
         finally
         {
@@ -636,6 +747,15 @@ public sealed class DropInstallQueueProcessorTests
             [ownedRoot],
             DeleteDirectory,
             null);
+    }
+
+    private static void AssertProcessorIdle(
+        DropInstallQueueProcessor processor,
+        string message = "The drop-install queue did not become idle.")
+    {
+        Assert.IsTrue(
+            processor.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)),
+            message);
     }
 
     private static void DeleteDirectory(string path)
