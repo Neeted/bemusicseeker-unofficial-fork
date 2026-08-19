@@ -64,8 +64,37 @@ internal sealed class PlaylistExternalSyncOwner
 
     private readonly Action<IEnumerable<BMSTable>, string> applyCachedPlaylistUrlCompletions;
 
+    private readonly Action<IReadOnlyList<BMSTable>, string> reOutputCustomFoldersAfterReload;
+
     internal event EventHandler<PlaylistTableUpdateReceiptPublishedEventArgs> PlaylistTableUpdateReceiptPublished;
 
+    /// <summary>
+    /// 外部プレイリスト取得、正本永続化、関連する派生出力の収束に必要な依存を構成します。
+    /// </summary>
+    /// <param name="httpClient">外部データ取得に使う HTTP client。</param>
+    /// <param name="recommendedTableOwner">おすすめ表の解決 owner。</param>
+    /// <param name="logWarning">失敗を記録する callback。</param>
+    /// <param name="isPlaylistUrlCompletionEnabled">URL 補完の有効状態を返す callback。</param>
+    /// <param name="schedulePlaylistUrlCompletionRefresh">URL 補完 refresh を予約する callback。</param>
+    /// <param name="playlistAggregatePersistenceOwner">playlist 正本と active membership の owner。</param>
+    /// <param name="ensurePlaylistEntriesLoaded">playlist entry hydration を保証する callback。</param>
+    /// <param name="isActiveTable">対象 table が active かを返す callback。</param>
+    /// <param name="queueBeatorajaBmtExport">単一 table の `.bmt` 出力を予約する callback。</param>
+    /// <param name="applyCachedPlaylistUrlCompletion">単一 table へ URL 補完 cache を反映する callback。</param>
+    /// <param name="enterPlaylistUpdating">playlist 更新中状態へ入る callback。</param>
+    /// <param name="exitPlaylistUpdating">playlist 更新中状態から抜ける callback。</param>
+    /// <param name="logPerformance">性能情報を記録する callback。</param>
+    /// <param name="addSingleVisibleTable">単一 table を visible collection へ追加する callback。</param>
+    /// <param name="addBatchVisibleTables">複数 table を visible collection へ追加する callback。</param>
+    /// <param name="removeVisibleTables">visible collection から table を除く callback。</param>
+    /// <param name="customFolderOutputSettingsProvider">custom-folder 出力設定 snapshot provider。</param>
+    /// <param name="resolveCustomFolderOutputDirectory">custom-folder 出力先を解決する callback。</param>
+    /// <param name="tryMigrateCustomFolderOutputDirectory">custom-folder 出力を移行する callback。</param>
+    /// <param name="queueBeatorajaBmtExports">複数 table の `.bmt` 出力を予約する callback。</param>
+    /// <param name="applyCachedPlaylistUrlCompletions">複数 table へ URL 補完 cache を反映する callback。</param>
+    /// <param name="reOutputCustomFoldersAfterReload">
+    /// 正本を永続化した reload result を呼び出し単位でまとめ、`.lr2folder` と LR2 `folder` row を収束させる callback。
+    /// </param>
     internal PlaylistExternalSyncOwner(
         AppHttpClient httpClient,
         PlaylistRecommendedTableOwner recommendedTableOwner,
@@ -87,7 +116,8 @@ internal sealed class PlaylistExternalSyncOwner
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> resolveCustomFolderOutputDirectory = null,
         Func<BMSTable, string, string, bool, string, string, bool, CustomFolderOutputSettingsSnapshot, bool> tryMigrateCustomFolderOutputDirectory = null,
         Action<IEnumerable<BMSTable>, string> queueBeatorajaBmtExports = null,
-        Action<IEnumerable<BMSTable>, string> applyCachedPlaylistUrlCompletions = null)
+        Action<IEnumerable<BMSTable>, string> applyCachedPlaylistUrlCompletions = null,
+        Action<IReadOnlyList<BMSTable>, string> reOutputCustomFoldersAfterReload = null)
     {
         this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         this.recommendedTableOwner = recommendedTableOwner ?? throw new ArgumentNullException(nameof(recommendedTableOwner));
@@ -110,6 +140,7 @@ internal sealed class PlaylistExternalSyncOwner
         this.tryMigrateCustomFolderOutputDirectory = tryMigrateCustomFolderOutputDirectory;
         this.queueBeatorajaBmtExports = queueBeatorajaBmtExports;
         this.applyCachedPlaylistUrlCompletions = applyCachedPlaylistUrlCompletions;
+        this.reOutputCustomFoldersAfterReload = reOutputCustomFoldersAfterReload;
     }
 
     internal BMSTable LoadExternalTable(Uri pageUri, BMSTable baseTable = null)
@@ -321,6 +352,18 @@ internal sealed class PlaylistExternalSyncOwner
         return [.. results.Where(result => result != null)];
     }
 
+    /// <summary>
+    /// 指定した外部プレイリストを並列取得して正本へ反映し、永続化された対象の派生出力を返却前に batch 収束させます。
+    /// </summary>
+    /// <param name="targets">再取得対象。</param>
+    /// <param name="syncResultCallback">table 単位の取得結果を通知する callback。</param>
+    /// <param name="progressCallback">進捗を通知する callback。</param>
+    /// <param name="reason">ログと派生処理へ渡す理由。</param>
+    /// <param name="cancellationToken">取得待機を取り消す token。</param>
+    /// <param name="requireCurrentTargetForApply">active table でなくなった対象への反映を拒否するか。</param>
+    /// <param name="uriProvider">対象ごとの取得 URI override。</param>
+    /// <param name="publishReferenceReceipts">reference table 更新 receipt を publish するか。</param>
+    /// <returns>URI を解決できた対象ごとの reload result。</returns>
     internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(
         IEnumerable<BMSTable> targets,
         Action<PlaylistSyncAttemptResult> syncResultCallback = null,
@@ -363,49 +406,63 @@ internal sealed class PlaylistExternalSyncOwner
                 CurrentUri = null
             }, reason);
             using var semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
-            await Task.WhenAll([.. targetSnapshot.Select(async table =>
+            try
             {
-                await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
-                Uri uri = ResolveTargetUri(table);
-                try
+                await Task.WhenAll([.. targetSnapshot.Select(async table =>
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
+                    await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    Uri uri = ResolveTargetUri(table);
+                    try
                     {
-                        IsActive = true,
-                        TotalTableCount = targetSnapshot.Count,
-                        CompletedTableCount = Volatile.Read(ref completedTableCount),
-                        CurrentTableName = table.name,
-                        CurrentUri = uri
-                    }, reason);
-                    PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(
-                        table,
-                        uri,
-                        syncResultCallback,
-                        reason,
-                        cancellationToken,
-                        requireCurrentTargetForApply,
-                        allowUriOverride: uriProvider != null,
-                        publishReferenceReceipt: publishReferenceReceipts).ConfigureAwait(false);
-                    lock (resultLock)
-                    {
-                        results.Add(result);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
+                        {
+                            IsActive = true,
+                            TotalTableCount = targetSnapshot.Count,
+                            CompletedTableCount = Volatile.Read(ref completedTableCount),
+                            CurrentTableName = table.name,
+                            CurrentUri = uri
+                        }, reason);
+                        PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(
+                            table,
+                            uri,
+                            syncResultCallback,
+                            reason,
+                            cancellationToken,
+                            requireCurrentTargetForApply,
+                            allowUriOverride: uriProvider != null,
+                            publishReferenceReceipt: publishReferenceReceipts).ConfigureAwait(false);
+                        lock (resultLock)
+                        {
+                            results.Add(result);
+                        }
                     }
-                }
-                finally
-                {
-                    int completed = Interlocked.Increment(ref completedTableCount);
-                    semaphoreSlim.Release();
-                    InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
+                    finally
                     {
-                        IsActive = true,
-                        TotalTableCount = targetSnapshot.Count,
-                        CompletedTableCount = completed,
-                        CurrentTableName = table.name,
-                        CurrentUri = uri
-                    }, reason);
+                        int completed = Interlocked.Increment(ref completedTableCount);
+                        semaphoreSlim.Release();
+                        InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
+                        {
+                            IsActive = true,
+                            TotalTableCount = targetSnapshot.Count,
+                            CompletedTableCount = completed,
+                            CurrentTableName = table.name,
+                            CurrentUri = uri
+                        }, reason);
+                    }
+                })]).ConfigureAwait(false);
+            }
+            finally
+            {
+                // Cancellation can be observed after another target has already committed.
+                // Converge derived LR2 output for every durable result before propagating it.
+                List<PlaylistReloadTargetResult> resultSnapshot;
+                lock (resultLock)
+                {
+                    resultSnapshot = [.. results];
                 }
-            })]).ConfigureAwait(false);
+                ReOutputCustomFoldersForPersistedReloads(resultSnapshot, reason);
+            }
             InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
             {
                 IsActive = false,
@@ -1021,9 +1078,33 @@ internal sealed class PlaylistExternalSyncOwner
             ResultTable = newTable,
             Uri = uri,
             Updated = updated,
+            StatePersisted = persistenceDecision?.NeedsStatePersistence == true,
             Exception = failure,
             UpdateReceipt = updateReceipt
         };
+    }
+
+    private void ReOutputCustomFoldersForPersistedReloads(
+        IReadOnlyList<PlaylistReloadTargetResult> results,
+        string reason)
+    {
+        if (reOutputCustomFoldersAfterReload == null)
+        {
+            return;
+        }
+        List<BMSTable> persistedTables = [.. (results ?? [])
+            .Where(result => result?.Succeeded == true
+                && result.StatePersisted
+                && result.ResultTable != null)
+            .Select(result => result.ResultTable)
+            .Distinct()];
+        if (persistedTables.Count == 0)
+        {
+            return;
+        }
+        InvokeResidualAction(
+            () => reOutputCustomFoldersAfterReload(persistedTables, reason),
+            reason + ":custom-folder-output");
     }
 
     private void PublishPlaylistTableUpdateReceipt(
@@ -1196,6 +1277,13 @@ internal sealed class PlaylistExternalSyncOwner
         internal Uri Uri { get; init; }
 
         internal bool Updated { get; init; }
+
+        /// <summary>
+        /// 正規の playlist / playlist_entry 状態がこのリロードで永続化されたかを示します。
+        /// hash 初期化や entry fingerprint 修復では <see cref="Updated"/> が false の場合もあるため、
+        /// durable state に従う派生出力はこの値を基準に収束させます。
+        /// </summary>
+        internal bool StatePersisted { get; init; }
 
         internal Exception Exception { get; init; }
 

@@ -298,6 +298,7 @@ public sealed class BmsPlaylistUpdateTests
 
             Assert.AreEqual(1, results.Count);
             Assert.IsFalse(results[0].Updated);
+            Assert.IsTrue(results[0].StatePersisted);
             Assert.IsNotNull(receipt);
             Assert.IsFalse(receipt!.Updated);
             Assert.IsTrue(receipt.ReferenceEntriesChanged);
@@ -315,6 +316,251 @@ public sealed class BmsPlaylistUpdateTests
         finally
         {
             Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_ReoutputsLr2FolderProjectionAfterPersistedEntryChange()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"ExternalFolderProjection\",\r\n\"symbol\":\"E\",\r\n\"tag\":\"LEVEL \",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Projection Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = tempDirectory,
+                LR2CustomFolderOutputBaseDir = outputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootCustomFolder"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath);
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => outputSettings,
+                synchronization);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.EnableExternalSync();
+            table.playlist_id = 900002;
+            table.Output_dir = "ExternalReloadProjection";
+            table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                foreach (BMSTableEntry entry in table.entries)
+                {
+                    db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+            }
+            playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
+            playlist.ReOutputCustomFolder(table);
+
+            string outputPath = Path.Combine(outputBaseDir, table.Output_dir, "0000.lr2folder");
+            StringAssert.Contains(ReadShiftJisText(outputPath), "#TITLE LEVEL 1");
+            using (var verifyInitial = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual("LEVEL 1", verifyInitial.Table<LR2SongDB.folder>().Single(row => row.path == outputPath).title);
+            }
+            synchronization.Operations.Clear();
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Projection Song\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
+
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                [table],
+                reason: "test_external_reload_custom_folder_projection");
+
+            Assert.AreEqual(1, results.Count);
+            Assert.IsTrue(results[0].Succeeded);
+            Assert.IsTrue(results[0].Updated);
+            Assert.IsTrue(results[0].StatePersisted);
+            BMSTable reloadedTable = results[0].ResultTable;
+            Assert.AreSame(reloadedTable, playlist.BMSTables.Single());
+            Assert.AreEqual("LEVEL 2", reloadedTable.entries.Single(entry => !entry.is_removed).folder);
+            string reloadedText = ReadShiftJisText(outputPath);
+            StringAssert.Contains(reloadedText, "#TITLE LEVEL 2");
+            Assert.IsFalse(reloadedText.Contains("#TITLE LEVEL 1", StringComparison.Ordinal));
+            CollectionAssert.AreEqual(new[] { "playlist_lr2folder_batch_sync" }, synchronization.Operations);
+            using (var verifyReloaded = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(
+                    "LEVEL 2",
+                    verifyReloaded.ExecuteScalar<string>(
+                        "SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND is_removed = 0;",
+                        900002,
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+                LR2SongDB.folder folderRow = verifyReloaded.Table<LR2SongDB.folder>().Single(row => row.path == outputPath);
+                Assert.AreEqual("LEVEL 2", folderRow.title);
+                StringAssert.Contains(folderRow.command, "playlist_entry");
+            }
+
+            synchronization.Operations.Clear();
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> unchangedResults = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                [reloadedTable],
+                reason: "test_external_reload_custom_folder_projection_no_change");
+
+            Assert.AreEqual(1, unchangedResults.Count);
+            Assert.IsTrue(unchangedResults[0].Succeeded);
+            Assert.IsFalse(unchangedResults[0].Updated);
+            Assert.IsFalse(unchangedResults[0].StatePersisted);
+            Assert.AreEqual(0, synchronization.Operations.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_SerializesLr2FolderConvergenceWithLocalFolderEdit()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        BlockingLr2PlaylistFolderSynchronizationPort? synchronization = null;
+        Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>>? reloadTask = null;
+        Task<bool>? localEditTask = null;
+        try
+        {
+            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"ExternalFolderProjectionRace\",\r\n\"symbol\":\"E\",\r\n\"tag\":\"LEVEL \",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Projection Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = tempDirectory,
+                LR2CustomFolderOutputBaseDir = outputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootCustomFolder"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            synchronization = new BlockingLr2PlaylistFolderSynchronizationPort(songDbPath);
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => outputSettings,
+                synchronization);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.EnableExternalSync();
+            table.playlist_id = 900003;
+            table.Output_dir = "ExternalReloadProjectionRace";
+            table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                foreach (BMSTableEntry entry in table.entries)
+                {
+                    db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+            }
+            playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
+            playlist.ReOutputCustomFolder(table);
+
+            string outputPath = Path.Combine(outputBaseDir, table.Output_dir, "0000.lr2folder");
+            StringAssert.Contains(ReadShiftJisText(outputPath), "#TITLE LEVEL 1");
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Projection Song\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
+            synchronization.BlockNextSync();
+
+            reloadTask = playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                [table],
+                reason: "test_external_reload_custom_folder_projection_race");
+            Assert.IsTrue(
+                synchronization.BlockedSyncEntered.Wait(TimeSpan.FromSeconds(10)),
+                "External reload did not reach the LR2 folder-row synchronization stage.");
+
+            BMSTable activeReloadedTable = playlist.BMSTables.Single();
+            using var localEditStarted = new ManualResetEventSlim(initialState: false);
+            localEditTask = Task.Run(() =>
+            {
+                localEditStarted.Set();
+                return playlist.RenameFolderBMSTable(activeReloadedTable, "LEVEL 2", "LOCAL LEVEL");
+            });
+            Assert.IsTrue(localEditStarted.Wait(TimeSpan.FromSeconds(10)));
+            Assert.IsTrue(
+                SpinWait.SpinUntil(
+                    () => activeReloadedTable.ReaderWriterLock.WaitingWriteCount > 0,
+                    TimeSpan.FromSeconds(10)),
+                "The local edit was not serialized behind custom-folder convergence.");
+            Assert.IsFalse(localEditTask.IsCompleted);
+
+            synchronization.ReleaseBlockedSync();
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await reloadTask;
+            bool localEditApplied = await localEditTask;
+
+            Assert.AreEqual(1, results.Count);
+            Assert.IsTrue(results[0].Succeeded);
+            Assert.IsTrue(results[0].StatePersisted);
+            Assert.IsTrue(localEditApplied);
+            Assert.AreEqual("LOCAL LEVEL", activeReloadedTable.entries.Single(entry => !entry.is_removed).folder);
+            string finalText = ReadShiftJisText(outputPath);
+            StringAssert.Contains(finalText, "#TITLE LOCAL LEVEL");
+            Assert.IsFalse(finalText.Contains("#TITLE LEVEL 2", StringComparison.Ordinal));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(
+                "LOCAL LEVEL",
+                verify.ExecuteScalar<string>(
+                    "SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND is_removed = 0;",
+                    900003,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual(
+                "LOCAL LEVEL",
+                verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath).title);
+        }
+        finally
+        {
+            synchronization?.ReleaseBlockedSync();
+            if (reloadTask != null && !reloadTask.IsCompleted)
+            {
+                try
+                {
+                    await reloadTask;
+                }
+                catch
+                {
+                }
+            }
+            if (localEditTask != null && !localEditTask.IsCompleted)
+            {
+                try
+                {
+                    await localEditTask;
+                }
+                catch
+                {
+                }
+            }
+            synchronization?.Dispose();
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -8469,6 +8715,78 @@ public sealed class BmsPlaylistUpdateTests
             () => BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default),
             () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default),
             synchronization ?? new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+    }
+
+    private sealed class BlockingLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFolderSynchronizationPort, IDisposable
+    {
+        private readonly string songDbPath;
+
+        private int syncCallCount;
+
+        private int blockedSyncCallNumber = -1;
+
+        internal BlockingLr2PlaylistFolderSynchronizationPort(string songDbPath)
+        {
+            this.songDbPath = songDbPath;
+        }
+
+        internal ManualResetEventSlim BlockedSyncEntered { get; } = new(initialState: false);
+
+        private ManualResetEventSlim ContinueBlockedSync { get; } = new(initialState: false);
+
+        internal void BlockNextSync()
+        {
+            BlockedSyncEntered.Reset();
+            ContinueBlockedSync.Reset();
+            Volatile.Write(ref blockedSyncCallNumber, Volatile.Read(ref syncCallCount) + 1);
+        }
+
+        internal void ReleaseBlockedSync()
+        {
+            ContinueBlockedSync.Set();
+        }
+
+        public CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
+        {
+            return new CustomFolderOutputPhysicalSurface(
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                discoveryComplete: false);
+        }
+
+        public Lr2FolderFileDbSyncResult SyncPlaylistLr2FolderFileRows(
+            string operation,
+            Lr2FolderFileDbSyncRequest request)
+        {
+            int callNumber = Interlocked.Increment(ref syncCallCount);
+            if (callNumber == Volatile.Read(ref blockedSyncCallNumber))
+            {
+                BlockedSyncEntered.Set();
+                if (!ContinueBlockedSync.Wait(TimeSpan.FromSeconds(10)))
+                {
+                    throw new TimeoutException("Timed out waiting to release the blocked LR2 folder-row synchronization.");
+                }
+            }
+
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            string savepoint = songDb.SaveTransactionPoint();
+            try
+            {
+                Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, request);
+                songDb.Commit();
+                return result;
+            }
+            catch
+            {
+                songDb.RollbackTo(savepoint);
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            BlockedSyncEntered.Dispose();
+            ContinueBlockedSync.Dispose();
+        }
     }
 
     private sealed class TestLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFolderSynchronizationPort

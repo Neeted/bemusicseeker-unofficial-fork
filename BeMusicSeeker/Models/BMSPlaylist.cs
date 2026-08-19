@@ -613,7 +613,8 @@ public partial class BMSPlaylist : ObservableObject
                     inferOutputBaseDirectoryBeforeWhenMissing,
                     settings),
             (tables, reason) => BmtOutput.QueueBeatorajaBmtExportForTables(tables, reason),
-            ApplyCachedPlaylistUrlCompletionToTables);
+            ApplyCachedPlaylistUrlCompletionToTables,
+            ReOutputCustomFoldersAfterExternalReload);
         externalSyncOwner = externalSyncOwnerLocal;
         customFolderOutputOwner = new PlaylistCustomFolderOutputOwner(
             this.customFolderOutputSettingsProvider,
@@ -2000,6 +2001,82 @@ public partial class BMSPlaylist : ObservableObject
                     outputBaseDirBefore,
                     inferOutputBaseDirBeforeWhenMissing,
                     settings);
+            }
+        }
+    }
+
+    private void ReOutputCustomFoldersAfterExternalReload(
+        IReadOnlyList<BMSTable> bmsTables,
+        string reason)
+    {
+        if (bmsTables == null || bmsTables.Count == 0)
+        {
+            return;
+        }
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (!settings.OperationModeLR2DB)
+        {
+            return;
+        }
+
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            List<BMSTable> activeTables = [.. bmsTables
+                .Where(table => table != null
+                    && !string.IsNullOrWhiteSpace(table.Output_dir)
+                    && BMSTables.Contains(table)
+                    && playlistAggregatePersistenceOwner.IsActive(table))
+                .Distinct()
+                .OrderBy(table => table.playlist_id ?? int.MaxValue)
+                .ThenBy(table => table.name ?? string.Empty, StringComparer.Ordinal)
+                .ThenBy(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode)];
+            if (activeTables.Count == 0)
+            {
+                return;
+            }
+
+            foreach (BMSTable table in activeTables)
+            {
+                EnsurePlaylistEntriesLoaded(table, "ExternalPlaylistReloadCustomFolderOutput");
+            }
+
+            var tableReadGuards = new List<IDisposable>();
+            try
+            {
+                foreach (BMSTable table in activeTables)
+                {
+                    tableReadGuards.Add(table.ReaderWriterLock.GetReaderGuard());
+                }
+
+                // Keep each canonical table stable through projection, file materialization, and
+                // LR2 folder-row sync. Otherwise a local edit could complete between those stages
+                // and then be overwritten by the older external-reload projection.
+                // A complete physical surface intentionally trusts mtime and does not re-read every
+                // `.lr2folder` body. A durable external reload can change the body without changing
+                // the existing file first, so mark every expected file in this changed-table batch.
+                CustomFolderBatchOutputResult result = customFolderOutputMaintenanceOwner.ReOutputTablesAsync(
+                    activeTables,
+                    reason,
+                    "playlist_external_reload_custom_folder_output",
+                    forceWriteAllFiles: true,
+                    throwOnProjectionFailure: true,
+                    buildPreparedDataSurface: false,
+                    yieldBetweenTables: false,
+                    settings: settings)
+                    .GetAwaiter()
+                    .GetResult();
+                if (result.HasUnverifiedFiles)
+                {
+                    throw new InvalidOperationException(
+                        "Custom-folder output could not verify one or more existing files after external playlist reload.");
+                }
+            }
+            finally
+            {
+                for (int index = tableReadGuards.Count - 1; index >= 0; index--)
+                {
+                    tableReadGuards[index]?.Dispose();
+                }
             }
         }
     }
