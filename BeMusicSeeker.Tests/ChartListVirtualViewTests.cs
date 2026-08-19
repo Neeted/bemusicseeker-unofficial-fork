@@ -2997,7 +2997,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void VirtualChartSubsetUnsupportedSort_ResetsToDefaultVirtualSort()
+    public async Task VirtualChartSubsetUnsupportedSort_ResetsToDefaultVirtualSort()
     {
         using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
@@ -3019,12 +3019,14 @@ public sealed class ChartListVirtualViewTests
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             typeof(MainWindowViewModel).GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainViewUpdateMode.DuplicateFilterSelected);
             viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
+            var sortRefresh = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            regularOwner.SortRefreshRequested += (_, request) => sortRefresh.TrySetResult(request);
             viewModel.MainChartList.RequestSort("UnsupportedColumn", ListSortDirection.Descending);
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => regularOwner.CaptureSortParameters() == null && viewModel.MainChartList.Rows is ChartListVirtualView,
-                TimeSpan.FromSeconds(5)));
+            MainChartListSortRequestedEventArgs sortRequest = await sortRefresh.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
+            Assert.AreEqual(MainChartListSortTarget.Regular, sortRequest.Target);
             Assert.IsNull(regularOwner.CaptureSortParameters());
+            Assert.IsNull(viewModel.MainChartList.SortParameters);
             var view = viewModel.MainChartList.Rows as ChartListVirtualView;
             Assert.IsNotNull(view);
             Assert.AreEqual(2, view.Count);

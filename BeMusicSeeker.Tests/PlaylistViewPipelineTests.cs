@@ -2658,7 +2658,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void CommitPlaylistRow_ExternalSyncEntryDoesNotBackfillHashesFromResolvedChart()
+    public async Task CommitPlaylistRow_ExternalSyncEntryDoesNotBackfillHashesFromResolvedChart()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistViewPipelineTests", Guid.NewGuid().ToString("N"));
         string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -2703,14 +2703,9 @@ public sealed class PlaylistViewPipelineTests
                 nameof(PlaylistDetailRow.memo),
                 ChartOperationSourceScope.PlaylistOwned,
                 MainViewOperationSection.Playlist);
-            viewModel.PlaylistWorkspace.CompleteDetailEdit(
+            Task commitTask = viewModel.PlaylistWorkspace.CompleteDetailEdit(
                 new MainChartListCellEditEndedEventArgs(context, "updated memo", commit: true));
-
-            Assert.IsTrue(SpinWait.SpinUntil(() =>
-            {
-                using var pollDb = new LR2SongDBExtended(songDbPath);
-                return pollDb.Table<BMSTableEntry>().Any(dbRow => dbRow.playlist_id == table.playlist_id);
-            }, TimeSpan.FromSeconds(5)));
+            await commitTask.WaitAsync(TimeSpan.FromSeconds(5));
 
             using var verifyDb = new LR2SongDBExtended(songDbPath);
             BMSTableEntry stored = verifyDb.Table<BMSTableEntry>().Single(dbRow => dbRow.playlist_id == table.playlist_id);
@@ -2788,7 +2783,7 @@ public sealed class PlaylistViewPipelineTests
         workspace.BeginDetailEdit(context);
         Assert.IsTrue(state.Source.IsPlaylistCellEditing);
 
-        workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "after", commit: false));
+        _ = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "after", commit: false));
 
         Assert.IsFalse(state.Source.IsPlaylistCellEditing);
         Assert.AreEqual("before", row.memo);
@@ -2851,7 +2846,7 @@ public sealed class PlaylistViewPipelineTests
             MainViewOperationSection.Playlist);
 
         workspace.BeginDetailEdit(context);
-        workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "not a URI", commit: true));
+        _ = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "not a URI", commit: true));
 
         Assert.IsFalse(state.Source.IsPlaylistCellEditing);
         Assert.IsNull(row.Url);

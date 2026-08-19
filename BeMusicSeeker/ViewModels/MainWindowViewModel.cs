@@ -3207,7 +3207,7 @@ public partial class MainWindowViewModel : ViewModel,
         MainChartListCellEditContext context = request.Context;
         if (context.Row is PlaylistDetailRow)
         {
-            PlaylistWorkspace.CompleteDetailEdit(request);
+            _ = PlaylistWorkspace.CompleteDetailEdit(request).Logging("playlistDetailCellEditCommit");
             return;
         }
         regularChartListOwner.CompleteCellEdit(request);

@@ -29,11 +29,19 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    internal void CompleteDetailEdit(MainChartListCellEditEndedEventArgs request)
+    /// <summary>
+    /// Completes a playlist-detail cell edit and returns the scheduled persistence commit.
+    /// </summary>
+    /// <param name="request">The edit result raised by the main chart list.</param>
+    /// <returns>
+    /// A task for the persistence commit, or <see cref="Task.CompletedTask"/> when the edit is
+    /// cancelled or cannot be applied.
+    /// </returns>
+    internal Task CompleteDetailEdit(MainChartListCellEditEndedEventArgs request)
     {
         if (request?.Context.Row is not PlaylistDetailRow playlistRow)
         {
-            return;
+            return Task.CompletedTask;
         }
         try
         {
@@ -42,10 +50,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                 || !GridRowResolver.CanEditPlaylistCell(playlistRow, request.Context.PropertyName)
                 || !TryApplyEdit(playlistRow, request.Context.PropertyName, request.Text))
             {
-                return;
+                return Task.CompletedTask;
             }
             SynchronizeSourceRow(playlistRow);
-            Task.Run(() => CommitRow(playlistRow, request.Context.PropertyName)).Logging("playlistDetailCellEditCommit");
+            string editedPropertyName = request.Context.PropertyName;
+            return Task.Run(() => CommitRow(playlistRow, editedPropertyName));
         }
         finally
         {
