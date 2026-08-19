@@ -148,6 +148,19 @@ internal sealed class MaintenanceRescanWorkflowOwner
 
     internal bool IsIdle => !IsActive;
 
+    /// <summary>
+    /// Returns a receipt for the currently owned run, completing when the worker
+    /// reaches success, failure, or stale-generation retirement.  The receipt is
+    /// independent of the UI progress notification queue.
+    /// </summary>
+    internal Task WaitForIdleAsync()
+    {
+        lock (syncRoot)
+        {
+            return activeRun?.IdleCompletion.Task ?? Task.CompletedTask;
+        }
+    }
+
     internal void AttachLibrary(BMSLibrary nextLibrary)
     {
         RunContext run;
@@ -417,6 +430,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
             publish = IsCurrentGenerationUnsafe(run);
         }
         run.DisposeCancellationTokenSource();
+        run.IdleCompletion.TrySetResult(true);
         if (!publish)
         {
             return;
@@ -459,6 +473,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
         {
             ReportWorkflowFailure(exception);
         }
+        run.IdleCompletion.TrySetResult(true);
         if (!publish)
         {
             return;
@@ -510,6 +525,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
                 statusVersion++;
             }
         }
+        run.IdleCompletion.TrySetResult(true);
     }
 
     private MaintenanceWorkflowProgress CreateTerminalProgress(RunContext run, bool canceled)
@@ -666,6 +682,9 @@ internal sealed class MaintenanceRescanWorkflowOwner
         internal MaintenanceWorkflowProgress LastProgress { get; set; }
 
         internal bool CancelRequested { get; set; }
+
+        internal TaskCompletionSource<bool> IdleCompletion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private int cancellationTokenSourceDisposed;
 

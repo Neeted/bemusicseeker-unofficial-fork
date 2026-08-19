@@ -46,8 +46,17 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(4, hub.InstallPipelineValue);
         Assert.AreEqual(11, hub.InstallPipelineMaximum);
 
+        using var packageValueUpdated = new ManualResetEventSlim(false);
+        hub.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(hub.InstallPipelineValue)
+                && hub.InstallPipelineValue == 1)
+            {
+                packageValueUpdated.Set();
+            }
+        };
         fixture.StartPackageProgress();
-        Assert.IsTrue(SpinWait.SpinUntil(() => hub.InstallPipelineValue == 1, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(packageValueUpdated.Wait(TimeSpan.FromSeconds(5)));
         Assert.AreEqual(1, hub.InstallPipelineValue);
         Assert.IsTrue(hub.InstallPipelineCanCancel);
         StringAssert.Contains(hub.InstallPipelineSubLabel, "drop.zip");
@@ -101,13 +110,29 @@ public sealed class OperationProgressHubViewModelTests
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
         using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub, packageTotalCount: 0);
+        using var packageActive = new ManualResetEventSlim(false);
+        using var packageInactive = new ManualResetEventSlim(false);
+        hub.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(hub.IsInstallPipelineStatusActive))
+            {
+                if (hub.IsInstallPipelineStatusActive)
+                {
+                    packageActive.Set();
+                }
+                else
+                {
+                    packageInactive.Set();
+                }
+            }
+        };
         fixture.StartPackageProgress();
-        Assert.IsTrue(SpinWait.SpinUntil(() => hub.IsInstallPipelineStatusActive, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(packageActive.Wait(TimeSpan.FromSeconds(5)));
         Assert.AreEqual(1, hub.InstallPipelineMaximum);
 
         fixture.ReleasePackageProgress();
-        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.Package.IsIdle, TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(SpinWait.SpinUntil(() => !hub.IsInstallPipelineStatusActive, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(fixture.Package.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(packageInactive.Wait(TimeSpan.FromSeconds(5)));
         Assert.IsFalse(hub.IsInstallPipelineStatusActive);
         Assert.AreEqual(0, hub.InstallPipelineValue);
         Assert.AreEqual(1, hub.InstallPipelineMaximum);
@@ -121,7 +146,7 @@ public sealed class OperationProgressHubViewModelTests
         using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
 
         fixture.StartFolderRenameProgress();
-        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.FolderProgressStarted.IsSet, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(fixture.FolderProgressStarted.Wait(TimeSpan.FromSeconds(5)));
 
         Assert.IsTrue(hub.IsFolderAutoRenameProgressActive);
         Assert.AreEqual(1.0, hub.FolderAutoRenameProgressMaximum);
@@ -129,9 +154,18 @@ public sealed class OperationProgressHubViewModelTests
         StringAssert.Contains(hub.FolderAutoRenameProgressLabel, "1/1");
         Assert.AreEqual("source", hub.FolderAutoRenameProgressSubLabel);
 
+        using var progressCleared = new ManualResetEventSlim(false);
+        hub.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(hub.IsFolderAutoRenameProgressActive)
+                && !hub.IsFolderAutoRenameProgressActive)
+            {
+                progressCleared.Set();
+            }
+        };
         fixture.ReleaseFolderRenameProgress();
-        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.Folder.IsIdle, TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(SpinWait.SpinUntil(() => !hub.IsFolderAutoRenameProgressActive, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(fixture.Folder.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(progressCleared.Wait(TimeSpan.FromSeconds(5)));
         Assert.IsFalse(hub.IsFolderAutoRenameProgressActive);
         Assert.AreEqual(0.0, hub.FolderAutoRenameProgressValue);
         Assert.AreEqual(1.0, hub.FolderAutoRenameProgressMaximum);
@@ -147,14 +181,23 @@ public sealed class OperationProgressHubViewModelTests
         using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
 
         fixture.StartMaintenanceProgress();
-        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.MaintenanceProgressStarted.IsSet, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(fixture.MaintenanceProgressStarted.Wait(TimeSpan.FromSeconds(5)));
         Assert.IsTrue(hub.IsMaintenanceRescanProgressActive);
         Assert.AreEqual(1.0, hub.MaintenanceRescanMaximum);
         Assert.AreEqual(1.0, hub.MaintenanceRescanValue);
 
+        using var progressCleared = new ManualResetEventSlim(false);
+        hub.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(hub.IsMaintenanceRescanProgressActive)
+                && !hub.IsMaintenanceRescanProgressActive)
+            {
+                progressCleared.Set();
+            }
+        };
         fixture.ReleaseMaintenanceProgress();
-        Assert.IsTrue(SpinWait.SpinUntil(() => fixture.Maintenance.IsIdle, TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(SpinWait.SpinUntil(() => !hub.IsMaintenanceRescanProgressActive, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(fixture.Maintenance.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(progressCleared.Wait(TimeSpan.FromSeconds(5)));
         Assert.IsFalse(hub.IsMaintenanceRescanProgressActive);
         Assert.IsFalse(hub.MaintenanceRescanCanCancel);
     }
@@ -563,9 +606,9 @@ public sealed class OperationProgressHubViewModelTests
             packageRelease.Set();
             maintenanceRelease.Set();
             folderRelease.Set();
-            SpinWait.SpinUntil(() => Package.IsIdle, TimeSpan.FromSeconds(5));
-            SpinWait.SpinUntil(() => Maintenance.IsIdle, TimeSpan.FromSeconds(5));
-            SpinWait.SpinUntil(() => Folder.IsIdle, TimeSpan.FromSeconds(5));
+            Package.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5));
+            Maintenance.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5));
+            Folder.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5));
             packageRelease.Dispose();
             maintenanceRelease.Dispose();
             folderRelease.Dispose();

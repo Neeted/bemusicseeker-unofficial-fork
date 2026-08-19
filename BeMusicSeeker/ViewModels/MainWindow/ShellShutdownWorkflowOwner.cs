@@ -849,22 +849,26 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private async Task WaitForMaintenanceRescanIdleAsync(ShutdownWaitTracker tracker)
     {
-        await WaitForConditionAsync(
+        Task maintenanceRescanIdle = maintenanceRescanWorkflow.WaitForIdleAsync();
+        await WaitForTaskCompletionAsync(
             "maintenanceRescan",
-            () => maintenanceRescanWorkflow.IsIdle,
+            maintenanceRescanIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
             () => "idle=" + FormatBool(maintenanceRescanWorkflow.IsIdle)).ConfigureAwait(false);
+        await maintenanceRescanIdle.ConfigureAwait(false);
     }
 
     private async Task WaitForFolderAutoRenameIdleAsync(ShutdownWaitTracker tracker)
     {
-        await WaitForConditionAsync(
+        Task folderAutoRenameIdle = folderAutoRenameWorkflow.WaitForIdleAsync();
+        await WaitForTaskCompletionAsync(
             "folderAutoRename",
-            () => folderAutoRenameWorkflow.IsIdle,
+            folderAutoRenameIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
             () => "idle=" + FormatBool(folderAutoRenameWorkflow.IsIdle)).ConfigureAwait(false);
+        await folderAutoRenameIdle.ConfigureAwait(false);
     }
 
     private async Task WaitForPlaylistBuildIdleAsync(ShutdownWaitTracker tracker)

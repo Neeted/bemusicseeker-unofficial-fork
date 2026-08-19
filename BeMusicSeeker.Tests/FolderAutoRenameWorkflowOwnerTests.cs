@@ -73,7 +73,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)));
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             CollectionAssert.AreEqual(
                 new[] { "initial", "progress", "terminal", "completion", "terminal-published" },
                 events.ToArray());
@@ -124,7 +124,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.ProgressChanged += _ => Interlocked.Increment(ref progressCalls);
 
             await owner.RequestStartAllAsync(root);
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(0, executorCalls);
             Assert.AreEqual(0, progressCalls);
             Assert.AreNotEqual(callerThreadId, checkerThreadId);
@@ -178,7 +178,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreEqual(MessageBoxResult.Cancel, dialogs.LastConfirmationRequest.DefaultResult);
             Assert.AreEqual(1, schedulerCalls);
             Assert.AreEqual(1, completionCount);
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(1, executorCalls);
             Assert.AreEqual(root, observedParentDirectory);
         }
@@ -218,7 +218,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
             Assert.AreEqual(1, dialogs.ConfirmationCalls);
             Assert.AreEqual(0, executorCalls);
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -256,7 +256,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
             Assert.AreEqual(1, dialogs.ConfirmationCalls);
             Assert.AreEqual(0, executorCalls);
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -298,7 +298,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             dialogs.ReleaseConfirmation();
             await requestTask;
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(0, executorCalls);
         }
         finally
@@ -315,6 +315,9 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
+            string replacementRoot = Path.Combine(root, "replacement");
+            Directory.CreateDirectory(replacementRoot);
+            BMSLibrary replacement = CreateLibrary(replacementRoot, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var notifications = new Queue<Action>();
             int completionCount = 0;
@@ -341,15 +344,21 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(owner.IsActive);
             Assert.IsFalse(owner.RequestStartSelected(targets));
+            Task firstIdle = owner.WaitForIdleAsync();
+            Assert.IsFalse(firstIdle.IsCompleted, "Folder idle receipt must wait for queued terminal publication.");
+
+            owner.AttachLibrary(replacement);
+            Assert.IsFalse(firstIdle.IsCompleted, "A generation change must not complete the stale terminal before its notification is drained.");
 
             DrainNotifications(notifications);
 
-            Assert.IsTrue(owner.IsIdle);
-            Assert.AreEqual(1, completionCount);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(firstIdle.IsCompleted);
+            Assert.AreEqual(0, completionCount, "A stale terminal must not publish completion.");
             Assert.IsTrue(owner.RequestStartSelected(targets));
             DrainNotifications(notifications);
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
-            Assert.AreEqual(2, completionCount);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(1, completionCount);
         }
         finally
         {
@@ -393,7 +402,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsFalse(owner.RequestStartSelected(targets));
             release.Set();
             Assert.IsTrue(completed.Wait(TimeSpan.FromSeconds(5)));
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -451,7 +460,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)));
             owner.AttachLibrary(second);
             releaseFirst.Set();
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(0, completionCount);
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
@@ -507,7 +516,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 owner.AttachLibrary(second);
             }
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(0, mutationCalls);
         }
         finally
@@ -568,7 +577,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)));
             owner.AttachLibrary(second);
             releaseFirst.Set();
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
 
             DrainNotifications(notifications);
 
@@ -611,7 +620,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.RequestShutdown();
             Assert.IsFalse(owner.RequestStartSelected(targets));
             release.Set();
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -649,7 +658,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsTrue(owner.RequestStartSelected(targets));
             Assert.IsTrue(failure.IsSet);
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -680,7 +689,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(library);
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(1, workflowFailures);
             Assert.IsTrue(notificationFailures > 0);
         }

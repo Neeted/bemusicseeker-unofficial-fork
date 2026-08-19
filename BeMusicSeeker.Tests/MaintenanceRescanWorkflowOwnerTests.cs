@@ -42,7 +42,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
 
         Assert.AreEqual(MaintenanceRescanStartStatus.Rejected, result.Status);
         Assert.AreEqual(0, executionCalls);
-        Assert.IsTrue(owner.IsIdle);
+        Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
     }
 
     [TestMethod]
@@ -66,7 +66,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
 
         Assert.AreEqual(MaintenanceRescanStartStatus.Failed, result.Status);
         Assert.IsNotNull(result.Failure);
-        Assert.IsTrue(owner.IsIdle);
+        Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
     }
 
     [TestMethod]
@@ -119,7 +119,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
 
         Assert.AreEqual(MaintenanceRescanStartStatus.Failed, result.Status);
         Assert.IsNotNull(result.Failure);
-        Assert.IsTrue(owner.IsIdle);
+        Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
     }
 
     [TestMethod]
@@ -152,7 +152,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 MaintenanceRescanStartResult active = await owner.RequestStartAsync();
                 Assert.AreEqual(MaintenanceRescanStartStatus.NotStarted, active.Status);
                 release.Set();
-                Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+                Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             }
             finally
             {
@@ -222,7 +222,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
 
             Assert.IsTrue(StartConfirmed(owner));
             Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)), "The rescan did not publish completion.");
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             CollectionAssert.AreEqual(
                 new[] { "initial", "progress", "terminal", "completion" },
                 events.ToArray());
@@ -270,7 +270,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Assert.IsFalse(StartConfirmed(owner), "A second request must not overlap the active rescan.");
             release.Set();
             Assert.IsTrue(completed.Wait(TimeSpan.FromSeconds(5)), "The active rescan did not complete.");
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -338,7 +338,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Assert.IsTrue(tokenWasCanceled);
             Assert.IsTrue(receiptWasCanceled);
             Assert.IsFalse(uncanceledProgressAfterCancel);
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -381,7 +381,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Assert.IsTrue(StartConfirmed(owner));
             Assert.IsTrue(completion.IsSet);
             Assert.IsTrue(receiptWasCanceled);
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -435,7 +435,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)), "The first generation did not start.");
             owner.AttachLibrary(second);
             releaseFirst.Set();
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(0, completionCount, "A replaced generation must not publish completion.");
 
             Assert.IsTrue(StartConfirmed(owner));
@@ -477,7 +477,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.RequestShutdown();
             Assert.IsFalse(StartConfirmed(owner), "Shutdown must prevent a new rescan.");
             release.Set();
-            Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -511,7 +511,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Assert.IsTrue(StartConfirmed(owner));
             Assert.IsTrue(failure.IsSet);
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -538,7 +538,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
 
             Assert.IsTrue(StartConfirmed(owner));
             Assert.IsTrue(failure.IsSet, "An unrequested canceled scheduler task must publish failure.");
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -572,7 +572,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Assert.IsTrue(StartConfirmed(owner));
             Assert.IsTrue(failure.IsSet);
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -606,7 +606,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Assert.IsTrue(StartConfirmed(owner));
             Assert.IsTrue(failure.IsSet);
             Assert.IsFalse(completion.IsSet);
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -640,7 +640,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Assert.IsTrue(StartConfirmed(owner));
             Assert.IsTrue(failure.IsSet);
             Assert.IsFalse(completion.IsSet);
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {
@@ -672,7 +672,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.AttachLibrary(library);
 
             Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(1, workflowFailures);
             Assert.IsTrue(notificationFailures > 0);
         }
@@ -704,7 +704,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.AttachLibrary(library);
 
             Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
             Assert.IsTrue(notificationFailures > 0);
         }
         finally
@@ -740,7 +740,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Assert.IsTrue(StartConfirmed(owner));
             Assert.IsTrue(completion.IsSet);
             Assert.IsTrue(notificationFailures > 0);
-            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
         }
         finally
         {

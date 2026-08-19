@@ -203,6 +203,18 @@ internal sealed class FolderAutoRenameWorkflowOwner
 
     internal bool IsIdle => !IsActive;
 
+    /// <summary>
+    /// Returns a receipt for the currently owned run, completing after terminal
+    /// observer delivery, dispatcher rejection, or stale-generation retirement.
+    /// </summary>
+    internal Task WaitForIdleAsync()
+    {
+        lock (syncRoot)
+        {
+            return activeRun?.IdleCompletion.Task ?? Task.CompletedTask;
+        }
+    }
+
     internal void AttachLibrary(BMSLibrary nextLibrary)
     {
         RunContext run;
@@ -597,19 +609,22 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
         if (!publish)
         {
+            CompleteIdle(run);
             return;
         }
         FolderAutoRenameProgressSnapshot terminalProgress = CreateTerminalProgress(run);
         var receipt = new FolderAutoRenameCompletionReceipt(run.Generation, run.AllFolders, result);
         bool dispatched = DispatchNotification(() =>
         {
+            bool staleTerminal;
             lock (syncRoot)
             {
-                if (!IsCurrentGenerationUnsafe(run) || statusVersion != terminalStatusVersion)
-                {
-                    FinishTerminalPublication(run);
-                    return;
-                }
+                staleTerminal = !IsCurrentGenerationUnsafe(run) || statusVersion != terminalStatusVersion;
+            }
+            if (staleTerminal)
+            {
+                FinishTerminalPublication(run);
+                return;
             }
             if (run.ProgressStarted)
             {
@@ -648,19 +663,22 @@ internal sealed class FolderAutoRenameWorkflowOwner
         ReportWorkflowFailure(exception);
         if (!publish)
         {
+            CompleteIdle(run);
             return;
         }
         FolderAutoRenameProgressSnapshot terminalProgress = CreateTerminalProgress(run);
         var failure = new FolderAutoRenameFailure(run.Generation, run.AllFolders, exception);
         bool dispatched = DispatchNotification(() =>
         {
+            bool staleTerminal;
             lock (syncRoot)
             {
-                if (!IsCurrentGenerationUnsafe(run) || statusVersion != terminalStatusVersion)
-                {
-                    FinishTerminalPublication(run);
-                    return;
-                }
+                staleTerminal = !IsCurrentGenerationUnsafe(run) || statusVersion != terminalStatusVersion;
+            }
+            if (staleTerminal)
+            {
+                FinishTerminalPublication(run);
+                return;
             }
             if (run.ProgressStarted)
             {
@@ -678,6 +696,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
 
     private void FinishTerminalPublication(RunContext run)
     {
+        bool completed = false;
         lock (syncRoot)
         {
             if (ReferenceEquals(activeRun, run) && run.TerminalPending)
@@ -685,7 +704,12 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 activeRun = null;
                 run.TerminalPending = false;
                 statusVersion++;
+                completed = true;
             }
+        }
+        if (completed)
+        {
+            CompleteIdle(run);
         }
     }
 
@@ -699,6 +723,12 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 statusVersion++;
             }
         }
+        CompleteIdle(run);
+    }
+
+    private static void CompleteIdle(RunContext run)
+    {
+        run.IdleCompletion.TrySetResult(true);
     }
 
     private bool IsCurrentGeneration(RunContext run)
@@ -855,5 +885,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
         internal bool ProgressStarted { get; set; }
 
         internal bool TerminalPending { get; set; }
+
+        internal TaskCompletionSource<bool> IdleCompletion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }

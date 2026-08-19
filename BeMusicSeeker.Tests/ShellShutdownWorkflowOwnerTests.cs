@@ -9,7 +9,9 @@ using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -640,6 +642,108 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    [TestMethod]
+    public async Task PreparationWaitsForMaintenanceReceiptAfterCancellation()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(ShellShutdownWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        var maintenanceRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Directory.CreateDirectory(root);
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            using var maintenanceEntered = new ManualResetEventSlim(false);
+            var maintenance = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token) =>
+                {
+                    maintenanceEntered.Set();
+                    maintenanceRelease.Task.GetAwaiter().GetResult();
+                    return new MaintenanceWorkflowResult();
+                },
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
+                action => action(),
+                dialogs: CreateAcceptedDialogService());
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+                viewModel,
+                maintenanceRescanWorkflow: maintenance);
+
+            maintenance.AttachLibrary(library);
+            Assert.IsTrue((await maintenance.RequestStartAsync()).Started);
+            Assert.IsTrue(maintenanceEntered.Wait(TimeSpan.FromSeconds(5)));
+
+            Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("maintenance_receipt");
+            Assert.IsFalse(preparation.IsCompleted, "Preparation must wait for the maintenance receipt.");
+
+            maintenanceRelease.TrySetResult(true);
+            await maintenance.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual("maintenance_receipt", result.Reason);
+            Assert.IsFalse(result.SlowWaitLogged);
+        }
+        finally
+        {
+            maintenanceRelease.TrySetResult(true);
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task PreparationWaitsForFolderReceiptAfterCancellation()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(ShellShutdownWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        var folderRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Directory.CreateDirectory(root);
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            using var folderEntered = new ManualResetEventSlim(false);
+            var folder = new FolderAutoRenameWorkflowOwner(
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new BlockingFolderMutationPort(folderEntered, folderRelease),
+                new NoopFolderAutoRenamePlaybackPort(),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
+                action => action(),
+                CreateAcceptedDialogService());
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+                viewModel,
+                folderAutoRenameWorkflow: folder);
+
+            folder.AttachLibrary(library);
+            await folder.RequestStartAllAsync(root);
+            Assert.IsTrue(folderEntered.Wait(TimeSpan.FromSeconds(5)));
+
+            Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("folder_receipt");
+            Assert.IsFalse(preparation.IsCompleted, "Preparation must wait for the folder receipt.");
+
+            folderRelease.TrySetResult(true);
+            await folder.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual("folder_receipt", result.Reason);
+            Assert.IsFalse(result.SlowWaitLogged);
+        }
+        finally
+        {
+            folderRelease.TrySetResult(true);
+            DeleteDirectory(root);
+        }
+    }
+
     private static ShellShutdownWorkflowOwner CreateDirectOwner(
         MainWindowViewModel viewModel,
         Func<Func<Task>, Task>? dispatch = null,
@@ -651,7 +755,9 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Action<string>? logShutdown = null,
         Action<string>? logShutdownWarning = null,
         PlaylistWorkspaceViewModel? playlistWorkspace = null,
-        PackageInstallWorkflowOwner? packageInstallWorkflow = null)
+        PackageInstallWorkflowOwner? packageInstallWorkflow = null,
+        MaintenanceRescanWorkflowOwner? maintenanceRescanWorkflow = null,
+        FolderAutoRenameWorkflowOwner? folderAutoRenameWorkflow = null)
     {
         StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
             viewModel,
@@ -672,8 +778,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
             playlistWorkspace ?? viewModel.PlaylistWorkspace,
             viewModel.PlayHistory,
             packageInstallWorkflow ?? viewModel.PackageInstallWorkflow,
-            viewModel.MaintenanceRescanWorkflow,
-            viewModel.FolderAutoRenameWorkflow,
+            maintenanceRescanWorkflow ?? viewModel.MaintenanceRescanWorkflow,
+            folderAutoRenameWorkflow ?? viewModel.FolderAutoRenameWorkflow,
             viewModel.PlaybackPanel,
             settingsEditSession
                 ?? GetPrivateField<ApplicationComposition>(viewModel, "applicationComposition").SettingsEditSession,
@@ -708,6 +814,75 @@ public sealed class ShellShutdownWorkflowOwnerTests
         FieldInfo field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(field, name);
         field.SetValue(target, value);
+    }
+
+    private static BMSLibrary CreateLibrary(string root, string fileName)
+    {
+        string path = Path.Combine(root, fileName);
+        File.WriteAllBytes(path, []);
+        using (var initialize = new LR2SongDBExtended(path))
+        {
+        }
+        return new TestBmsLibrary(path, null, null, string.Empty);
+    }
+
+    private static PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService CreateAcceptedDialogService()
+    {
+        return new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK)
+        };
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    private sealed class BlockingFolderMutationPort : IFolderAutoRenameMutationPort
+    {
+        private readonly ManualResetEventSlim entered;
+        private readonly TaskCompletionSource<bool> release;
+
+        internal BlockingFolderMutationPort(
+            ManualResetEventSlim entered,
+            TaskCompletionSource<bool> release)
+        {
+            this.entered = entered;
+            this.release = release;
+        }
+
+        public bool HasTargets(BMSLibrary library, string parentDirectory) => true;
+
+        public FolderAutoRenameExecutionResult RenameSelected(
+            BMSLibrary library,
+            ChartFolderAutoRenameRequest request,
+            Action<int, int, string> progressReporter) =>
+            throw new InvalidOperationException("selected folder mutation was not expected");
+
+        public bool RenameAll(
+            BMSLibrary library,
+            string parentDirectory,
+            Action<int, int, string> progressReporter)
+        {
+            entered.Set();
+            release.Task.GetAwaiter().GetResult();
+            return true;
+        }
+    }
+
+    private sealed class NoopFolderAutoRenamePlaybackPort : IFolderAutoRenamePlaybackPort
+    {
+        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
+        {
+        }
+
+        public void StopPlaybackForFolderMutation()
+        {
+        }
     }
 
     private sealed class NoOpPreparedUpdaterLaunch : IPreparedUpdaterLaunch
