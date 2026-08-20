@@ -1370,19 +1370,24 @@ public sealed class PendingPackageWorkflowOwnerTests
         });
         Assert.IsTrue(gateHeld.Wait(TimeSpan.FromSeconds(5)));
 
-        Task search = owner.SearchPackagesAsync(
-            PendingInstallDestinationSearchKind.InstallDestination,
-            [new ChartPackage()]);
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => search.Status == TaskStatus.Running || search.IsCompleted,
-            TimeSpan.FromSeconds(5)));
-        Assert.IsFalse(search.IsCompleted);
-        Assert.AreEqual(0, store.SearchPackagesCount);
+        try
+        {
+            Task search = owner.SearchPackagesAsync(
+                PendingInstallDestinationSearchKind.InstallDestination,
+                [new ChartPackage()]);
+            Assert.IsFalse(search.Wait(0));
+            Assert.AreEqual(0, store.SearchPackagesCount);
 
-        releaseGate.Set();
-        await search;
-        await gateHolder;
-        Assert.AreEqual(1, store.SearchPackagesCount);
+            releaseGate.Set();
+            await search;
+            await gateHolder;
+            Assert.AreEqual(1, store.SearchPackagesCount);
+        }
+        finally
+        {
+            releaseGate.Set();
+            await gateHolder;
+        }
     }
 
     private static PendingPackageWorkflowOwner CreateOwner(
@@ -1804,9 +1809,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             }
             if (WaitForDeleteSourcesCancellation)
             {
-                Assert.IsTrue(SpinWait.SpinUntil(
-                    () => cancellationToken.IsCancellationRequested,
-                    TimeSpan.FromSeconds(5)));
+                Assert.IsTrue(cancellationToken.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)));
             }
             foreach (ChartPackage _ in packages)
             {

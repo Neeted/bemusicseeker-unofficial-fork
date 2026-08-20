@@ -37,7 +37,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
 
         Assert.IsTrue(owner.Start());
         Assert.IsFalse(owner.Start());
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
 
         CollectionAssert.AreEqual(new[] { "schedule", "cleanup", "check", "terminal" }, events);
         Assert.IsNotNull(receipt);
@@ -154,7 +154,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         };
 
         Assert.IsTrue(owner.Start());
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
 
         CollectionAssert.AreEqual(new[] { "present", "terminal" }, events);
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Cancelled, receipt.Outcome);
@@ -205,7 +205,8 @@ public sealed class StartupUpdateWorkflowOwnerTests
         };
 
         Assert.IsTrue(owner.Start());
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null && applicationShutdown.IsSet, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
+        Assert.IsTrue(applicationShutdown.Wait(TimeSpan.FromSeconds(5)));
 
         CollectionAssert.AreEqual(
             new[] { "present", "download", "prepare", "start", "shutdown_prepare", "terminal", "application_shutdown" },
@@ -230,7 +231,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         owner.NotifyClosing();
         checkCompletion.SetResult(CreateAvailableResult());
 
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
         Assert.AreEqual(0, presentationCount);
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Closing, receipt.Outcome);
     }
@@ -263,7 +264,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.IsTrue(owner.NotifyClosing());
         downloadCompletion.SetResult("package.zip");
 
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Closing, receipt.Outcome);
         Assert.AreEqual(0, shutdownPreparationCount);
     }
@@ -271,6 +272,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
     [TestMethod]
     public void DownloadFailureRequestsErrorPresentationWithoutApplicationShutdown()
     {
+        using var applicationShutdown = new ManualResetEventSlim();
         int failurePresentationCount = 0;
         int shutdownCount = 0;
         StartupUpdateWorkflowOwner owner = CreateOwner(
@@ -279,15 +281,20 @@ public sealed class StartupUpdateWorkflowOwnerTests
             schedule: action => Task.Run(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
-        owner.ApplicationShutdownRequested += () => Interlocked.Increment(ref shutdownCount);
+        owner.ApplicationShutdownRequested += () =>
+        {
+            Interlocked.Increment(ref shutdownCount);
+            applicationShutdown.Set();
+        };
         StartupUpdateWorkflowCompletionReceipt receipt = null!;
         owner.TerminalPublished += published => receipt = published;
 
         Assert.IsTrue(owner.Start());
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
 
         Assert.AreEqual(1, failurePresentationCount);
         Assert.AreEqual(0, shutdownCount);
+        Assert.IsFalse(applicationShutdown.IsSet);
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
         Assert.IsFalse(receipt.ShutdownPrepared);
     }
@@ -295,6 +302,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
     [TestMethod]
     public void ShutdownPreparationFailureRequestsErrorPresentationAndApplicationShutdown()
     {
+        using var applicationShutdown = new ManualResetEventSlim();
         int failurePresentationCount = 0;
         int shutdownCount = 0;
         StartupUpdateWorkflowOwner owner = CreateOwner(
@@ -305,15 +313,20 @@ public sealed class StartupUpdateWorkflowOwnerTests
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.BindShutdownPreparation(_ => Task.FromException<ShutdownPreparationResult>(new InvalidOperationException("shutdown preparation failed")));
         owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
-        owner.ApplicationShutdownRequested += () => Interlocked.Increment(ref shutdownCount);
+        owner.ApplicationShutdownRequested += () =>
+        {
+            Interlocked.Increment(ref shutdownCount);
+            applicationShutdown.Set();
+        };
         StartupUpdateWorkflowCompletionReceipt receipt = null!;
         owner.TerminalPublished += published => receipt = published;
 
         Assert.IsTrue(owner.Start());
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
 
         Assert.AreEqual(1, failurePresentationCount);
-        Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref shutdownCount) == 1, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(applicationShutdown.Wait(TimeSpan.FromSeconds(5)));
+        Assert.AreEqual(1, Volatile.Read(ref shutdownCount));
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
         Assert.IsFalse(receipt.ShutdownPrepared);
     }
@@ -321,6 +334,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
     [TestMethod]
     public void AvailableUpdateWithoutShutdownPreparationPortFailsExplicitly()
     {
+        using var applicationShutdown = new ManualResetEventSlim();
         int failurePresentationCount = 0;
         int shutdownCount = 0;
         StartupUpdateWorkflowOwner owner = CreateOwner(
@@ -329,15 +343,20 @@ public sealed class StartupUpdateWorkflowOwnerTests
             schedule: action => Task.Run(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
-        owner.ApplicationShutdownRequested += () => Interlocked.Increment(ref shutdownCount);
+        owner.ApplicationShutdownRequested += () =>
+        {
+            Interlocked.Increment(ref shutdownCount);
+            applicationShutdown.Set();
+        };
         StartupUpdateWorkflowCompletionReceipt receipt = null!;
         owner.TerminalPublished += published => receipt = published;
 
         Assert.IsTrue(owner.Start());
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
 
         Assert.AreEqual(1, failurePresentationCount);
-        Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref shutdownCount) == 1, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(applicationShutdown.Wait(TimeSpan.FromSeconds(5)));
+        Assert.AreEqual(1, Volatile.Read(ref shutdownCount));
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
         Assert.IsFalse(receipt.ShutdownPrepared);
     }
@@ -363,13 +382,14 @@ public sealed class StartupUpdateWorkflowOwnerTests
 
         owner.NotifyClosing();
         checkCompletion.SetResult(CreateAvailableResult());
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
     }
 
     [TestMethod]
     public void ShutdownPreparationFailureRetainsBoundaryForDelayedUiNotification()
     {
         var failurePresentation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var applicationShutdown = new ManualResetEventSlim();
         int launchAbortCount = 0;
         int applicationShutdownCount = 0;
         bool shutdownPreparationWasObserved = false;
@@ -386,18 +406,23 @@ public sealed class StartupUpdateWorkflowOwnerTests
             shutdownPreparationWasObserved = owner.IsShutdownPreparationStarted;
             failurePresentation.TrySetResult(true);
         };
-        owner.ApplicationShutdownRequested += () => Interlocked.Increment(ref applicationShutdownCount);
+        owner.ApplicationShutdownRequested += () =>
+        {
+            Interlocked.Increment(ref applicationShutdownCount);
+            applicationShutdown.Set();
+        };
         StartupUpdateWorkflowCompletionReceipt receipt = null!;
         owner.TerminalPublished += published => receipt = published;
 
         Assert.IsTrue(owner.Start());
         Assert.IsTrue(failurePresentation.Task.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
 
         Assert.IsTrue(shutdownPreparationWasObserved);
         Assert.AreEqual(1, launchAbortCount);
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
-        Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref applicationShutdownCount) == 1, TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(applicationShutdown.Wait(TimeSpan.FromSeconds(5)));
+        Assert.AreEqual(1, Volatile.Read(ref applicationShutdownCount));
     }
 
     [TestMethod]
@@ -432,7 +457,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         };
 
         Assert.IsTrue(owner.Start());
-        Assert.IsTrue(SpinWait.SpinUntil(() => owner.IsIdle && receipt != null, TimeSpan.FromSeconds(5)));
+        WaitForCompletion(owner);
 
         CollectionAssert.AreEqual(new[] { "delete", "failure_presentation", "terminal" }, events);
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
@@ -456,6 +481,13 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.IsTrue(owner.IsIdle);
         Assert.AreEqual(1, failurePresentationCount);
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
+    }
+
+    private static void WaitForCompletion(StartupUpdateWorkflowOwner owner)
+    {
+        Assert.IsTrue(
+            Task.WhenAll(owner.WaitForIdleAsync(), owner.WaitForTerminalAsync())
+                .Wait(TimeSpan.FromSeconds(5)));
     }
 
     private static StartupUpdateWorkflowOwner CreateOwner(

@@ -147,7 +147,7 @@ public sealed class BmsLibraryDialogRoutingTests
 
             Assert.IsTrue(library.QueueEverythingFallbackWarning(fallbackReason));
             Assert.IsFalse(library.QueueEverythingFallbackWarning("second_reason"));
-            Assert.IsTrue(SpinWait.SpinUntil(() => dialogService.CallCount == 1, TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(1, dialogService.CallCount);
 
             DialogCall call = dialogService.GetCall(0);
             Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
@@ -168,7 +168,7 @@ public sealed class BmsLibraryDialogRoutingTests
 
             Assert.IsTrue(library.QueueFileScanSkippedIncompleteWarning(failureReason));
             Assert.IsFalse(library.QueueFileScanSkippedIncompleteWarning("second_reason"));
-            Assert.IsTrue(SpinWait.SpinUntil(() => dialogService.CallCount == 1, TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(1, dialogService.CallCount);
 
             DialogCall call = dialogService.GetCall(0);
             Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
@@ -190,7 +190,7 @@ public sealed class BmsLibraryDialogRoutingTests
 
             Assert.IsTrue(library.QueueEmptyScanWithExistingDbWarning(failureReason));
             Assert.IsFalse(library.QueueEmptyScanWithExistingDbWarning("second_reason"));
-            Assert.IsTrue(SpinWait.SpinUntil(() => dialogService.CallCount == 1, TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(1, dialogService.CallCount);
 
             DialogCall call = dialogService.GetCall(0);
             Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);

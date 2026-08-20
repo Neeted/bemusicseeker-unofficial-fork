@@ -53,17 +53,22 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
         });
         Assert.IsTrue(gateHeld.Wait(TimeSpan.FromSeconds(5)));
 
-        Task<bool> recheckTask = owner.RecheckAsync();
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => recheckTask.Status == TaskStatus.Running || recheckTask.IsCompleted,
-            TimeSpan.FromSeconds(5)));
-        Assert.IsFalse(recheckTask.IsCompleted);
-        Assert.AreEqual(0, Volatile.Read(ref recheckCount));
+        try
+        {
+            Task<bool> recheckTask = owner.RecheckAsync();
+            Assert.IsFalse(recheckTask.Wait(0));
+            Assert.AreEqual(0, Volatile.Read(ref recheckCount));
 
-        releaseGate.Set();
-        Assert.IsTrue(await recheckTask);
-        await gateHolder;
-        Assert.AreEqual(1, Volatile.Read(ref recheckCount));
+            releaseGate.Set();
+            Assert.IsTrue(await recheckTask);
+            await gateHolder;
+            Assert.AreEqual(1, Volatile.Read(ref recheckCount));
+        }
+        finally
+        {
+            releaseGate.Set();
+            await gateHolder;
+        }
     }
 
     [TestMethod]

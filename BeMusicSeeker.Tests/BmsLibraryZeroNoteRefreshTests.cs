@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -204,8 +205,9 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     private static void SeedChartInfoIndex(string songDbPath, BMSLibrary library, params LR2SongDBExtended.chart_info[] chartInfos)
     {
         new BmsLibraryDbGateway(songDbPath).UpsertChartInfos(chartInfos);
-        InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false);
-        Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
+        WaitForChartInfoHydration(
+            library,
+            () => InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false));
     }
 
     private static void InvokeDeferredChartInfoHydration(BMSLibrary library, string reason, bool queueFullBackfillAfterHydration)
@@ -215,13 +217,46 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         method.Invoke(library, [reason, queueFullBackfillAfterHydration]);
     }
 
-    private static bool WaitForChartInfoHydration(BMSLibrary library)
+    private static void WaitForChartInfoHydration(BMSLibrary library, Action queueHydration)
     {
-        return SpinWait.SpinUntil(
-            () => library.ChartInfoHydrationRequestedVersion > 0
-                && library.ChartInfoHydrationCompletedVersion == library.ChartInfoHydrationRequestedVersion
-                && !library.ChartInfoHydrationRunning,
-            10000);
+        int baselineRequestedVersion = library.ChartInfoHydrationRequestedVersion;
+        var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void TryComplete()
+        {
+            int requestedVersion = library.ChartInfoHydrationRequestedVersion;
+            if (requestedVersion <= baselineRequestedVersion
+                || library.ChartInfoHydrationCompletedVersion < requestedVersion
+                || library.ChartInfoHydrationRunning)
+            {
+                return;
+            }
+
+            completion.TrySetResult(requestedVersion);
+        }
+
+        System.ComponentModel.PropertyChangedEventHandler handler = (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSLibrary.ChartInfoHydrationRequestedVersion)
+                || args.PropertyName == nameof(BMSLibrary.ChartInfoHydrationCompletedVersion)
+                || args.PropertyName == nameof(BMSLibrary.ChartInfoHydrationRunning))
+            {
+                TryComplete();
+            }
+        };
+
+        library.PropertyChanged += handler;
+        try
+        {
+            queueHydration();
+            TryComplete();
+            Assert.IsTrue(
+                completion.Task.Wait(TimeSpan.FromSeconds(10)),
+                "chart_info hydration did not publish a completed version.");
+        }
+        finally
+        {
+            library.PropertyChanged -= handler;
+        }
     }
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService
