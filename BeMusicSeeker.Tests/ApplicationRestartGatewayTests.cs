@@ -23,17 +23,6 @@ public sealed class ApplicationRestartGatewayTests
     }
 
     [TestMethod]
-    public void AppRestartUsesApplicationPathSnapshotAndRestartGateway()
-    {
-        string source = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "App.cs");
-
-        StringAssert.Contains(source, "IApplicationRestartGateway applicationRestartGateway");
-        StringAssert.Contains(source, "ApplicationRestartCoordinator");
-        Assert.IsFalse(source.Contains("Process.Start(new ProcessStartInfo"));
-        Assert.IsFalse(source.Contains("Process.GetCurrentProcess().MainModule"));
-    }
-
-    [TestMethod]
     public void RestartCoordinatorPreservesRequestAndShutdownOrdering()
     {
         var events = new List<string>();

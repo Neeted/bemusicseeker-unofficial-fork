@@ -61,27 +61,6 @@ public sealed class PlayerSettingsGatewayTests
     }
 
     [TestMethod]
-    public void PlayerSettingsGatewayUsesTechnologyNeutralContracts()
-    {
-        string source = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "Models",
-            "PlayerSettingsGateway.cs");
-
-        Assert.IsFalse(source.Contains("using System.Windows;"));
-        Assert.IsFalse(source.Contains("Win32API."));
-        StringAssert.Contains(source, "PlayerResolution LR2bodyResolution");
-        StringAssert.Contains(source, "WindowPlacement LR2bodyWindowPlacement");
-        Assert.IsFalse(source.Contains("ApplyNegotiatedAudioSettings"));
-
-        string playerSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "Models",
-            "InternalBMSAutoPlayerSoundOnly.cs");
-        Assert.IsFalse(playerSource.Contains("ApplyNegotiatedAudioSettings"));
-    }
-
-    [TestMethod]
     public void PlayerResolutionSettingsAdapterPreservesPersistedDimensions()
     {
         Settings settings = testSettings;

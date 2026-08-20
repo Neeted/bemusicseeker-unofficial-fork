@@ -1397,15 +1397,6 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void BmiIdxView_RegistersSuppliedExitHandlerForAutoAdvance()
-    {
-        string source = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "BMIIDXView2015.cs");
-
-        StringAssert.Contains(source, "onExitEventHandlerRegstered = onExitEventHandler;");
-        StringAssert.Contains(source, "BMIIDXView2015Process.Exited += onExitEventHandlerRegstered;");
-    }
-
-    [TestMethod]
     public void PlaybackPanel_OwnsPanelStateTransitionsUsingViewHostAvailability()
     {
         PlayerPanelState originalPanelState = Settings.Default.PlayerPanelState;

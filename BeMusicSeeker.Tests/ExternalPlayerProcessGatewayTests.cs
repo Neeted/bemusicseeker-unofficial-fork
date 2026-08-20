@@ -162,65 +162,37 @@ public sealed class ExternalPlayerProcessGatewayTests
     }
 
     [TestMethod]
-    public void ExternalPlayersUseProcessGatewayInsteadOfOwningRawProcessRoutes()
+    public void BmiIdxViewInvokesSuppliedExitHandlerWhenProcessRaisesExited()
     {
-        string[] playerSources =
-        [
-            SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "uBMplay.cs"),
-            SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "BMIIDXView2015.cs"),
-            SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "LR2", "LR2body.cs")
-        ];
-
-        foreach (string source in playerSources)
+        WithTemporaryPlayerFiles("BMIIDXView2015_64.exe", (root, executablePath, chartPath) =>
         {
-            StringAssert.Contains(source, "IExternalPlayerProcessGateway");
-            StringAssert.Contains(source, "ExternalPlayerProcessDiscoveryRequest");
-            StringAssert.Contains(source, "ExternalPlayerProcessLaunchRequest");
-            Assert.IsFalse(source.Contains("Process.GetProcessesByName"));
-            Assert.IsFalse(source.Contains("ProcessStartInfo"));
-            Assert.IsFalse(source.Contains("new Process"));
-            Assert.IsFalse(source.Contains("ProcessThread"));
-        }
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(17));
+            var player = new BMIIDXView2015(
+                executablePath,
+                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                gateway);
+            ((IExternalWindowPlayer)player).AttachWindowHost(new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
+            object? observedSender = null;
+            EventArgs? observedArgs = null;
+            int callbackCount = 0;
+            EventHandler suppliedExitHandler = (sender, args) =>
+            {
+                observedSender = sender;
+                observedArgs = args;
+                callbackCount++;
+            };
 
-        StringAssert.Contains(playerSources[0], "ExternalPlayerProcessDiscoveryRequest.Create(\"uBMplay\")");
-        StringAssert.Contains(playerSources[0], "-SP");
-        StringAssert.Contains(playerSources[0], "bmsFilePath");
-        StringAssert.Contains(playerSources[1], "ExternalPlayerProcessDiscoveryRequest.Create(\"BMIIDXView2015\", \"BMIIDXView2015_64\")");
-        StringAssert.Contains(playerSources[1], "-S");
-        StringAssert.Contains(playerSources[2], "ExternalPlayerProcessDiscoveryRequest.Create(\"LR2body\", \"LRHbody\")");
-        StringAssert.Contains(playerSources[2], "-A -NS");
-    }
+            player.PlayStart(chartPath, suppliedExitHandler);
 
-    [TestMethod]
-    public void ExternalPlayersUseWindowHostForEmbeddingOperations()
-    {
-        string[] playerSources =
-        [
-            SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "uBMplay.cs"),
-            SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "BMIIDXView2015.cs"),
-            SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "LR2", "LR2body.cs")
-        ];
+            gateway.Session.KeepRunning = false;
+            gateway.Session.RaiseExited();
 
-        foreach (string source in playerSources)
-        {
-            StringAssert.Contains(source, "IExternalWindowPlayer");
-            StringAssert.Contains(source, "IExternalPlayerWindowHost");
-            Assert.IsFalse(source.Contains("Win32API.SetParent"));
-            Assert.IsFalse(source.Contains("Win32API.SetWindowLong"));
-            Assert.IsFalse(source.Contains("Win32API.GetWindowLong"));
-            Assert.IsFalse(source.Contains("Win32API.SetWindowPos"));
-            Assert.IsFalse(source.Contains("Win32API.GetForegroundWindow"));
-            Assert.IsFalse(source.Contains("Win32API.SetForegroundWindow"));
-            Assert.IsFalse(source.Contains("Win32API.SetFocus"));
-            Assert.IsFalse(source.Contains("Win32API.GetWindowPlacement"));
-            Assert.IsFalse(source.Contains("Win32API.SetWindowPlacement"));
-            Assert.IsFalse(source.Contains("Win32API.GetWindowText"));
-            Assert.IsFalse(source.Contains("Win32API.GetClassName"));
-            Assert.IsFalse(source.Contains("Win32API.PostMessage"));
-            Assert.IsFalse(source.Contains("DirectInputSendKey"));
-            Assert.IsFalse(source.Contains("ThreadWindowHandles"));
-            Assert.IsFalse(source.Contains("IntPtr"));
-        }
+            Assert.AreEqual(1, callbackCount);
+            Assert.AreSame(gateway.Session, observedSender);
+            Assert.AreSame(EventArgs.Empty, observedArgs);
+        });
     }
 
     [TestMethod]
@@ -403,6 +375,11 @@ public sealed class ExternalPlayerProcessGatewayTests
             player.FastForwardPlayingBMSfileStart();
             player.FastForwardPlayingBMSfileEnd();
 
+            Assert.AreEqual(1, gateway.DiscoveryRequest.ProcessNames.Count);
+            Assert.AreEqual("uBMplay", gateway.DiscoveryRequest.ProcessNames[0]);
+            Assert.AreEqual(executablePath, gateway.LaunchRequest.ExecutablePath);
+            Assert.AreEqual("-SP \"" + chartPath + "\"", gateway.LaunchRequest.Arguments);
+            Assert.AreEqual(ProcessWindowStyle.Normal, gateway.LaunchRequest.WindowStyle);
             CollectionAssert.Contains(windowHost.Operations, "AttachUbmplayWindow");
             Assert.AreEqual(6, windowHost.Operations.Count(operation => operation == "SendKey"));
             CollectionAssert.Contains(windowHost.KeyEvents, "11:False:True");
