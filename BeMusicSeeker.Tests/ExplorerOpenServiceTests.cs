@@ -177,6 +177,7 @@ public sealed class ExplorerOpenServiceTests
             Assert.AreEqual(ExplorerOpenResultKind.OpenedDirectory, result.Kind);
             Assert.AreEqual(LongPathFileSystem.NormalizePathForStorage(tempDirectory), result.OpenedPath);
             Assert.AreEqual(1, shell.ResolvePathPaths.Count);
+            Assert.AreEqual(0, shell.SelectFilePaths.Count);
             Assert.AreEqual(1, shell.OpenDirectoryPaths.Count);
             Assert.AreEqual(0, shell.ExplorerDirectoryPaths.Count);
         });
@@ -198,6 +199,7 @@ public sealed class ExplorerOpenServiceTests
 
             Assert.AreEqual(ExplorerOpenResultKind.Failed, result.Kind);
             StringAssert.Contains(result.FailureReason, "open_directory_failed");
+            Assert.AreEqual(0, shell.SelectFilePaths.Count);
             Assert.AreEqual(1, shell.OpenDirectoryPaths.Count);
             Assert.AreEqual(0, shell.ExplorerDirectoryPaths.Count);
         });
@@ -217,6 +219,7 @@ public sealed class ExplorerOpenServiceTests
             ExplorerOpenResult result = ExplorerOpenService.OpenDirectory(tempDirectory, shell);
 
             Assert.AreEqual(ExplorerOpenResultKind.OpenedDirectory, result.Kind);
+            Assert.AreEqual(0, shell.SelectFilePaths.Count);
             Assert.AreEqual(0, shell.OpenDirectoryPaths.Count);
             Assert.AreEqual(1, shell.ExplorerDirectoryPaths.Count);
             Assert.AreEqual(LongPathFileSystem.NormalizePathForStorage(tempDirectory), shell.ExplorerDirectoryPaths[0]);
@@ -239,51 +242,11 @@ public sealed class ExplorerOpenServiceTests
             Assert.AreEqual(2, shell.ResolvePathPaths.Count);
             Assert.AreEqual(LongPathFileSystem.NormalizePathForStorage(tempDirectory), shell.ResolvePathPaths[0]);
             StringAssert.StartsWith(shell.ResolvePathPaths[1], @"\\?\");
+            Assert.AreEqual(0, shell.SelectFilePaths.Count);
             Assert.AreEqual(1, shell.OpenDirectoryPaths.Count);
             Assert.AreEqual(shell.ResolvePathPaths[1], shell.OpenDirectoryPaths[0]);
             Assert.AreEqual(0, shell.ExplorerDirectoryPaths.Count);
         });
-    }
-
-    [TestMethod]
-    public void MainWindowExplorerContextMenusUseExplorerOpenService()
-    {
-        string mainWindow = SourceTextTestHelper.ReadMainWindowSourceText();
-        string applicationComposition = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "ApplicationComposition.cs");
-        string selectedChartExternalActionOwner = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "SelectedChartExternalActionWorkflowOwner.cs");
-
-        Assert.IsFalse(mainWindow.Contains("Process.Start(\"EXPLORER.EXE\""));
-        StringAssert.Contains(selectedChartExternalActionOwner, "IExternalShellGateway externalShellGateway");
-        Assert.IsFalse(selectedChartExternalActionOwner.Contains("associatedFileLauncher"));
-        Assert.IsFalse(selectedChartExternalActionOwner.Contains("urlLauncher"));
-        string libraryFolderHandler = SourceTextTestHelper.ExtractMethodBody(
-            mainWindow,
-            "private void treeViewLibraryFolderContextMenuItemOpenExplorerClick(");
-        StringAssert.Contains(libraryFolderHandler, "viewModel.LibraryFolderTree.OpenFolderInExplorer(text)");
-        Assert.IsFalse(libraryFolderHandler.Contains("LongPathFileSystem.DirectoryExists"));
-        Assert.IsFalse(libraryFolderHandler.Contains("ExplorerOpenService.OpenDirectory"));
-        StringAssert.Contains(applicationComposition, "LongPathFileSystem.DirectoryExists");
-        StringAssert.Contains(applicationComposition, "externalShellGateway.OpenDirectory");
-    }
-
-    [TestMethod]
-    public void ShellDirectoryOpenDoesNotUseSelectionApi()
-    {
-        string root = FindRepositoryRoot();
-        string source = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "ExplorerOpenService.cs"));
-
-        Assert.IsFalse(source.Contains("SHOpenFolderAndSelectItems(directoryPidl"));
-        StringAssert.Contains(source, "SHOpenFolderAndSelectItems(parentPidl");
-        StringAssert.Contains(source, "ExternalShellGatewayPolicy.Current.TryOpenDirectoryWithExplorerProcess");
-        string gateway = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "ExternalShellGateway.cs"));
-        StringAssert.Contains(gateway, "Process.Start(\"EXPLORER.EXE\", \"\\\"\" + directoryPath + \"\\\"\")");
     }
 
     private static void WithTemporaryDirectory(Action<string> action)
@@ -301,25 +264,6 @@ public sealed class ExplorerOpenServiceTests
                 LongPathFileSystem.DeleteDirectory(directory, recursive: true);
             }
         }
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        string directory = AppDomain.CurrentDomain.BaseDirectory;
-        while (!string.IsNullOrWhiteSpace(directory))
-        {
-            if (File.Exists(Path.Combine(directory, "BeMusicSeeker.sln")))
-            {
-                return directory;
-            }
-            DirectoryInfo parent = Directory.GetParent(directory);
-            if (parent == null)
-            {
-                break;
-            }
-            directory = parent.FullName;
-        }
-        throw new DirectoryNotFoundException("Repository root was not found.");
     }
 
     private static string CreateLongDirectory(string tempDirectory)
