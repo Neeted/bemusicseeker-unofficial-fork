@@ -38,13 +38,55 @@ $functionalFilter = @(
     'TestCategory!=ProcessIntegration',
     'TestCategory!=ReleaseAcceptance') -join '&'
 $functionalBassCollectibleLoadContextClass = 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
-$functionalForegroundWindowInteractionClasses = @(
+$functionalSettingsPresentationClasswideClasses = @(
+    'BeMusicSeeker.Tests.ApplicationCompositionTests',
+    'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests',
+    'BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests',
+    'BeMusicSeeker.Tests.BeatorajaBmtOptionsSnapshotTests',
+    'BeMusicSeeker.Tests.BmsLibraryOptionsSnapshotTests',
+    'BeMusicSeeker.Tests.CustomFolderOutputSettingsSnapshotTests',
+    'BeMusicSeeker.Tests.MainWindowViewSettingsBoundaryTests',
+    'BeMusicSeeker.Tests.PlayerSettingsGatewayTests',
+    'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests',
+    'BeMusicSeeker.Tests.ResourceIconContractTests',
+    'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests',
+    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
+    'BeMusicSeeker.Tests.SettingDialogOpenCommandTests',
     'BeMusicSeeker.Tests.SettingsWindowPresentationTests',
-    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests')
+    'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests',
+    'BeMusicSeeker.Tests.StartupSettingsSnapshotTests')
 $functionalProcessGlobalLifecycleClasses = @(
     'BeMusicSeeker.Tests.BassNativeRuntimeTests',
-    'BeMusicSeeker.Tests.NLogWrapperTests',
-    'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests')
+    'BeMusicSeeker.Tests.NLogWrapperTests')
+$functionalFeatureProcessGlobalStateClasses = @(
+    'BeMusicSeeker.Tests.AudioContractsTests',
+    'BeMusicSeeker.Tests.AudioDeviceTestWorkflowOwnerTests',
+    'BeMusicSeeker.Tests.BmsLibraryInstallEstimationServiceTests',
+    'BeMusicSeeker.Tests.CatalogMutationOwnerTests',
+    'BeMusicSeeker.Tests.ChartListVirtualViewTests',
+    'BeMusicSeeker.Tests.InstallDestinationStateOwnerTests',
+    'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests',
+    'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests',
+    'BeMusicSeeker.Tests.Lr2PlayHistorySchemaServiceTests',
+    'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests',
+    'BeMusicSeeker.Tests.MainWindowExternalShellTests',
+    'BeMusicSeeker.Tests.MainWindowViewModelStartupProgressTests',
+    'BeMusicSeeker.Tests.PlayHistoryReadModelTests',
+    'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
+    'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
+    'BeMusicSeeker.Tests.PlaylistUrlCompletionTests')
+$functionalMethodLevelPreWaveClasses = @(
+    # These I/O-heavy fixtures own a distinct temporary database and directory
+    # per test. Keep them in the dedicated MethodLevel pre-wave to avoid
+    # cross-shard I/O contention; their explicit non-parallel settings tests
+    # remain protected by DoNotParallelize.
+    'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
+    'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
+    'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
+    'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests',
+    'BeMusicSeeker.Tests.BmsLibraryDuplicateServiceTests',
+    'BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests',
+    'BeMusicSeeker.Tests.PlaylistViewPipelineTests')
 $functionalTestClassShards = @(
     [pscustomobject]@{
         # This collectible ALC contract must run in a testhost that has never
@@ -105,41 +147,39 @@ $functionalTestClassShards = @(
             'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests')
     },
     [pscustomobject]@{
-        # These fixtures intentionally interact with the foreground window and
-        # must not present focus-sensitive windows concurrently.
-        Name = 'foreground-window-interaction'
+        # These fixtures share application/settings/presentation state that is
+        # not isolated per class. ClassLevel serializes each fixture while the
+        # dedicated testhost remains concurrent with the other hosts.
+        Name = 'settings-presentation-classwide'
         Workers = 1
         Scope = 'ClassLevel'
-        Classes = $functionalForegroundWindowInteractionClasses
+        Classes = $functionalSettingsPresentationClasswideClasses
     },
     [pscustomobject]@{
-        # These fixtures mutate process-global native, logging, or application
-        # settings lifecycle state and therefore require a single serial host.
+        # These fixtures mutate process-global native or logging lifecycle
+        # state and therefore require a single serial host.
         Name = 'process-global-lifecycle'
         Workers = 1
         Scope = 'ClassLevel'
         Classes = $functionalProcessGlobalLifecycleClasses
+    },
+    [pscustomobject]@{
+        # This is a Functional topology group for measured headroom and
+        # owner-local resource isolation. Five members retain class-wide
+        # DoNotParallelize safety boundaries for arbitrary Quick filters;
+        # the remaining members are isolated here by the one-worker host.
+        Name = 'feature-process-global-state'
+        Workers = 1
+        Scope = 'ClassLevel'
+        Classes = $functionalFeatureProcessGlobalStateClasses
     })
-$functionalRemainingShardWorkers = [Math]::Max(
-    1,
-    [Environment]::ProcessorCount)
 $functionalExclusiveTestClasses = @(
     # This test temporarily replaces the repository-local portable user.config.
     # Run it before any testhost that could read settings from the same file.
     'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests')
-$functionalMethodLevelPreWaveClasses = @(
-    # These I/O-heavy fixtures own a distinct temporary database and directory per
-    # test. Limit method-level concurrency to this measured set; its explicitly
-    # non-parallel settings tests remain protected by DoNotParallelize.
-    'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
-    'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
-    'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
-    'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests',
-    'BeMusicSeeker.Tests.BmsLibraryDuplicateServiceTests',
-    'BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests',
-    # Playlist view pipeline tests use fresh settings/composition state; their
-    # persistence case owns a GUID-scoped database and temporary directory.
-    'BeMusicSeeker.Tests.PlaylistViewPipelineTests')
+$functionalRemainingShardWorkers = [Math]::Max(
+    1,
+    [Environment]::ProcessorCount)
 
 function Assert-FunctionalShardConfiguration {
     $names = @($functionalTestClassShards | ForEach-Object { $_.Name })
@@ -176,7 +216,9 @@ function Assert-FunctionalShardConfiguration {
         throw 'Functional owned database/file shard must use three workers with ClassLevel scope.'
     }
     if (@($functionalTestClassShards |
-        Where-Object { $_.Name -cne 'owned-db-file-class-level' -and $_.Workers -ne 1 }).Count -gt 0) {
+        Where-Object {
+            $_.Name -cne 'owned-db-file-class-level' -and
+            $_.Workers -ne 1 }).Count -gt 0) {
         throw 'All other Functional external test shards must use exactly one worker.'
     }
     if ($functionalRemainingShardWorkers -ne
@@ -197,17 +239,50 @@ function Assert-FunctionalShardConfiguration {
 
     $exactSingleWorkerClassLevelShards = @(
         [pscustomobject]@{
-            Name = 'foreground-window-interaction'
+            Name = 'settings-presentation-classwide'
             Classes = @(
+                'BeMusicSeeker.Tests.ApplicationCompositionTests',
+                'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests',
+                'BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests',
+                'BeMusicSeeker.Tests.BeatorajaBmtOptionsSnapshotTests',
+                'BeMusicSeeker.Tests.BmsLibraryOptionsSnapshotTests',
+                'BeMusicSeeker.Tests.CustomFolderOutputSettingsSnapshotTests',
+                'BeMusicSeeker.Tests.MainWindowViewSettingsBoundaryTests',
+                'BeMusicSeeker.Tests.PlayerSettingsGatewayTests',
+                'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests',
+                'BeMusicSeeker.Tests.ResourceIconContractTests',
+                'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests',
+                'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
+                'BeMusicSeeker.Tests.SettingDialogOpenCommandTests',
                 'BeMusicSeeker.Tests.SettingsWindowPresentationTests',
-                'BeMusicSeeker.Tests.SettingDialogEditCompletionTests')
+                'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests',
+                'BeMusicSeeker.Tests.StartupSettingsSnapshotTests')
         },
         [pscustomobject]@{
             Name = 'process-global-lifecycle'
             Classes = @(
                 'BeMusicSeeker.Tests.BassNativeRuntimeTests',
-                'BeMusicSeeker.Tests.NLogWrapperTests',
-                'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests')
+                'BeMusicSeeker.Tests.NLogWrapperTests')
+        },
+        [pscustomobject]@{
+            Name = 'feature-process-global-state'
+            Classes = @(
+                'BeMusicSeeker.Tests.AudioContractsTests',
+                'BeMusicSeeker.Tests.AudioDeviceTestWorkflowOwnerTests',
+                'BeMusicSeeker.Tests.BmsLibraryInstallEstimationServiceTests',
+                'BeMusicSeeker.Tests.CatalogMutationOwnerTests',
+                'BeMusicSeeker.Tests.ChartListVirtualViewTests',
+                'BeMusicSeeker.Tests.InstallDestinationStateOwnerTests',
+                'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests',
+                'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests',
+                'BeMusicSeeker.Tests.Lr2PlayHistorySchemaServiceTests',
+                'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests',
+                'BeMusicSeeker.Tests.MainWindowExternalShellTests',
+                'BeMusicSeeker.Tests.MainWindowViewModelStartupProgressTests',
+                'BeMusicSeeker.Tests.PlayHistoryReadModelTests',
+                'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
+                'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
+                'BeMusicSeeker.Tests.PlaylistUrlCompletionTests')
         })
     foreach ($requiredShard in $exactSingleWorkerClassLevelShards) {
         $matchingShards = @($functionalTestClassShards |
@@ -227,29 +302,6 @@ function Assert-FunctionalShardConfiguration {
         if ($matchingShards[0].Workers -ne 1 -or $matchingShards[0].Scope -cne 'ClassLevel') {
             throw "Functional $($requiredShard.Name) shard must use one worker with ClassLevel scope."
         }
-    }
-
-    $bassCollectibleShards = @($functionalTestClassShards |
-        Where-Object { $_.Name -eq 'bass-collectible-load-context' })
-    if ($bassCollectibleShards.Count -ne 1) {
-        throw 'Functional BASS collectible load-context tests must have exactly one dedicated shard.'
-    }
-    $bassCollectibleClasses = @($bassCollectibleShards[0].Classes)
-    if ($bassCollectibleClasses.Count -ne 1 -or
-        $bassCollectibleClasses[0] -cne $functionalBassCollectibleLoadContextClass) {
-        throw 'Functional BASS collectible load-context shard must contain only BassCollectibleLoadContextTests.'
-    }
-
-    if (@($functionalExclusiveTestClasses).Count -eq 0) {
-        throw 'Functional exclusive tests must contain at least one class selector.'
-    }
-    if (@($functionalExclusiveTestClasses |
-        Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
-        throw 'Functional exclusive test class selectors must not be empty.'
-    }
-    if (@($functionalExclusiveTestClasses | Sort-Object -Unique).Count -ne
-        $functionalExclusiveTestClasses.Count) {
-        throw 'Functional exclusive test classes must be unique.'
     }
 
     if (@($functionalMethodLevelPreWaveClasses).Count -eq 0) {
@@ -276,7 +328,30 @@ function Assert-FunctionalShardConfiguration {
             -ReferenceObject $requiredMethodLevelPreWaveClasses `
             -DifferenceObject $functionalMethodLevelPreWaveClasses `
             -CaseSensitive).Count -ne 0) {
-        throw 'Functional method-level pre-wave must contain exactly its approved test classes.'
+        throw 'Functional method-level pre-wave must contain exactly its approved seven test classes.'
+    }
+
+    $bassCollectibleShards = @($functionalTestClassShards |
+        Where-Object { $_.Name -eq 'bass-collectible-load-context' })
+    if ($bassCollectibleShards.Count -ne 1) {
+        throw 'Functional BASS collectible load-context tests must have exactly one dedicated shard.'
+    }
+    $bassCollectibleClasses = @($bassCollectibleShards[0].Classes)
+    if ($bassCollectibleClasses.Count -ne 1 -or
+        $bassCollectibleClasses[0] -cne $functionalBassCollectibleLoadContextClass) {
+        throw 'Functional BASS collectible load-context shard must contain only BassCollectibleLoadContextTests.'
+    }
+
+    if (@($functionalExclusiveTestClasses).Count -eq 0) {
+        throw 'Functional exclusive tests must contain at least one class selector.'
+    }
+    if (@($functionalExclusiveTestClasses |
+        Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+        throw 'Functional exclusive test class selectors must not be empty.'
+    }
+    if (@($functionalExclusiveTestClasses | Sort-Object -Unique).Count -ne
+        $functionalExclusiveTestClasses.Count) {
+        throw 'Functional exclusive test classes must be unique.'
     }
 
     $allClasses = @($shardClasses) +
