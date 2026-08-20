@@ -90,23 +90,27 @@ public sealed class PackageInstallWorkflowOwnerTests
                 Assert.AreEqual(invokeCountBefore, scheduler.InvokeCount);
                 Assert.AreEqual(invokeAsyncCountBefore, scheduler.InvokeAsyncCount);
 
-                await TestUiDispatcherHost.Dispatcher.InvokeAsync(
-                    () => scheduler.Release(activeDispatch)).Task.WaitAsync(dispatchWatchdog);
-                await activeDispatch.Completion.WaitAsync(dispatchWatchdog);
+                Task activeDispatchRelease = TestUiDispatcherHost.Dispatcher.InvokeAsync(
+                    () => scheduler.Release(activeDispatch)).Task;
+                await Task.WhenAll(activeDispatchRelease, activeDispatch.Completion)
+                    .WaitAsync(dispatchWatchdog);
                 Assert.AreEqual(1, observations.Count);
                 Assert.AreEqual("active", observations[0]);
 
+                Task<QueuedPackageInstallUiScheduler.ScheduledOperation> terminalDispatchTask =
+                    scheduler.WaitForNextAsync();
                 QueuedPackageInstallUiScheduler.ScheduledOperation terminalDispatch =
-                    await scheduler.WaitForNextAsync().WaitAsync(dispatchWatchdog);
+                    await terminalDispatchTask.WaitAsync(dispatchWatchdog);
                 Assert.AreEqual(UiSchedulePriority.Normal, terminalDispatch.Priority);
                 Assert.IsTrue(terminalDispatch.IsAccepted);
                 Assert.IsFalse(terminalDispatch.IsCompleted);
                 Assert.AreEqual(1, observations.Count);
 
-                await TestUiDispatcherHost.Dispatcher.InvokeAsync(
-                    () => scheduler.Release(terminalDispatch)).Task.WaitAsync(dispatchWatchdog);
-                await terminalDispatch.Completion.WaitAsync(dispatchWatchdog);
-                await viewModel.PackageInstallWorkflow.WaitForIdleAsync().WaitAsync(dispatchWatchdog);
+                Task terminalDispatchRelease = TestUiDispatcherHost.Dispatcher.InvokeAsync(
+                    () => scheduler.Release(terminalDispatch)).Task;
+                Task idle = viewModel.PackageInstallWorkflow.WaitForIdleAsync();
+                await Task.WhenAll(terminalDispatchRelease, terminalDispatch.Completion, idle)
+                    .WaitAsync(dispatchWatchdog);
 
                 Assert.AreEqual("active|inactive", string.Join("|", observations));
                 Assert.AreEqual(invokeCountBefore, scheduler.InvokeCount);
