@@ -780,6 +780,65 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public void AdvancedStartupOptions_AcceptedChangesPublishLocalizedConfirmationRequestsInOrder()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.ScanBmsFilesOnStartup = true;
+            settings.SkipInitPlaylistLoad = false;
+            settings.EstimateOfflineScoreRanking = false;
+            settings.UpdateLr2IrRankingCacheOnStartup = false;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            SettingsDialogViewModel dialog = CreateOperationModeDialog(
+                settingsSession,
+                dialogs,
+                TestApplicationContext.CreateLifetime());
+
+            dialog.ScanBmsFilesOnStartup = false;
+            dialog.SkipInitPlaylistLoad = true;
+            dialog.EstimateOfflineScoreRanking = true;
+            dialog.UpdateLr2IrRankingCacheOnStartup = true;
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    Resources.Msg_confirm_disable_startup_file_scan,
+                    Resources.Msg_confirm_skip_init_playlist_load,
+                    Resources.Msg_confirm_enable_offline_score_ranking_estimation,
+                    Resources.Msg_confirm_enable_lr2ir_ranking_cache_startup_update
+                },
+                dialogs.ConfirmationRequests
+                    .Select(request => request.MessageBoxText)
+                    .ToArray());
+            foreach (UiConfirmationRequest request in dialogs.ConfirmationRequests)
+            {
+                Assert.AreEqual(Resources.Warning, request.Caption);
+                Assert.AreEqual(MessageBoxButton.OKCancel, request.Button);
+                Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+                Assert.AreEqual(MessageBoxResult.None, request.DefaultResult);
+                Assert.AreEqual(MessageBoxOptions.None, request.Options);
+                Assert.IsNull(request.Owner);
+                Assert.IsNull(request.WarningMessageBoxText);
+            }
+
+            Assert.IsFalse(settings.ScanBmsFilesOnStartup);
+            Assert.IsTrue(settings.SkipInitPlaylistLoad);
+            Assert.IsTrue(settings.EstimateOfflineScoreRanking);
+            Assert.IsTrue(settings.UpdateLr2IrRankingCacheOnStartup);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ApplySettingsAsync_ChangedNormalSetting_SavesBeforeClosing()
     {
         string root = CreateTemporaryRoot();
@@ -3301,6 +3360,8 @@ public sealed class SettingDialogEditCompletionTests
     {
         internal UiDialogResult ConfirmationResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
 
+        internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
+
         internal int ConfirmationCount { get; private set; }
 
         internal int MessageCount { get; private set; }
@@ -3317,6 +3378,7 @@ public sealed class SettingDialogEditCompletionTests
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
             ConfirmationCount++;
+            ConfirmationRequests.Add(request);
             return Task.FromResult(ConfirmationResult);
         }
 

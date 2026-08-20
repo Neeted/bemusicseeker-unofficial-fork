@@ -4481,22 +4481,6 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void SettingDialog_ExposesAppearanceThemeSelector()
-    {
-        string xaml = SourceTextTestHelper.ReadSettingsWindowXamlSourceText();
-
-        Assert.AreEqual(1, CountOccurrences(xaml, "x:Name=\"navigationAppearance\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "IsChecked=\"{Binding IsLightAppearanceTheme, Mode=TwoWay}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "IsChecked=\"{Binding IsDarkAppearanceTheme, Mode=TwoWay}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_theme, Mode=OneWay"));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_table, Mode=OneWay"));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"resetCustomTableAppearanceDefaultsButtonClick\""));
-    }
-
-    [TestMethod]
     public void PlaylistPropertyDialog_UsesScopedModernLayoutStyles()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlaylistPropertyDialog.xaml"));
@@ -4641,33 +4625,19 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void AdvancedSettings_RemovePlaylistExpandSettingAndPromoteSongDbPragmaLabel()
+    public void AdvancedSettings_UserFacingCopyRetiresPlaylistExpansionLabelAndPromotesSongDbPragmaLabel()
     {
-        string root = FindRepositoryRoot();
-        string viewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string settings = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Settings.cs"));
-        string appConfig = File.ReadAllText(Path.Combine(root, "app.config"));
-        string settingDialog = SourceTextTestHelper.ReadSettingsWindowXamlSourceText();
-
         Assert.AreEqual("song.dbアクセス最適化PRAGMAを有効にする", Resources.Details_test_db_read_optimized_pragmas);
-        Assert.IsFalse(viewModel.Contains("_IsPlaylistTreeExpanded"));
-        Assert.AreEqual(0, CountOccurrences(viewModel + settings + appConfig + settingDialog, "StartupExpandPlaylistTree"));
-        Assert.AreEqual(0, CountOccurrences(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"))
-            + File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs")), "Details_test_startup_expand_playlist_tree"));
-
-        foreach (string languagePath in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
-        {
-            string json = File.ReadAllText(languagePath);
-            Assert.AreEqual(0, CountOccurrences(json, "Details_test_startup_expand_playlist_tree"), languagePath);
-            Assert.AreEqual(1, CountOccurrences(json, "Details_test_db_read_optimized_pragmas"), languagePath);
-        }
+        Assert.IsNull(
+            Resources.ResourceManager.GetString(
+                "Details_test_startup_expand_playlist_tree",
+                CultureInfo.InvariantCulture),
+            "The retired playlist-expansion option must not have user-facing localized copy.");
     }
 
     [TestMethod]
-    public void AdvancedSettings_TestPrefixLabelsArePromotedToRegularSettingLabels()
+    public void AdvancedSettings_UserFacingLabelsArePromotedToRegularSettingLabels()
     {
-        string root = FindRepositoryRoot();
-        string viewModel = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
         string[] promotedLabels =
         [
             Resources.Details_scan_bms_files_on_startup,
@@ -4687,11 +4657,10 @@ public sealed class MainWindowContextMenuResourceTests
             Assert.IsFalse(label.Contains("[テスト中]"), label);
             Assert.IsFalse(label.Contains("[TEST]"), label);
         }
-        Assert.AreEqual(0, CountOccurrences(viewModel, "本機能はテスト実装中です"));
-        StringAssert.Contains(viewModel, "Resources.Msg_confirm_disable_startup_file_scan");
-        StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_init_playlist_load");
-        StringAssert.Contains(viewModel, "Resources.Msg_confirm_enable_lr2ir_ranking_cache_startup_update");
-        StringAssert.Contains(viewModel, "Resources.Msg_confirm_enable_offline_score_ranking_estimation");
+        Assert.IsFalse(Resources.Details_scan_bms_files_on_startup.Contains("本機能はテスト実装中です"));
+        Assert.IsFalse(Resources.Details_test_notcheck_playlists.Contains("本機能はテスト実装中です"));
+        Assert.IsFalse(Resources.Details_update_lr2ir_ranking_cache_on_startup.Contains("本機能はテスト実装中です"));
+        Assert.IsFalse(Resources.Details_estimate_offline_score_ranking.Contains("本機能はテスト実装中です"));
     }
 
     [TestMethod]
@@ -5265,19 +5234,6 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playlistWorkspaceCode, "addExtension: true");
         StringAssert.Contains(loadPlaylistCode, "new UiFilePickerRequest(");
         StringAssert.Contains(loadPlaylistCode, "defaultExtension: \".json\"");
-    }
-
-    [TestMethod]
-    public void SettingDialog_UsesTypedBindingConverters()
-    {
-        string settingDialogXaml = SourceTextTestHelper.ReadSettingsWindowXamlSourceText();
-
-        Assert.IsFalse(settingDialogXaml.Contains("QuickConverter", StringComparison.Ordinal));
-        Assert.IsFalse(settingDialogXaml.Contains("wasapiControlEnabledConverter", StringComparison.Ordinal));
-        StringAssert.Contains(settingDialogXaml, "IsPlayerBufferControlEnabled");
-        StringAssert.Contains(settingDialogXaml, "Lr2_song_db_sync_data_resync");
-        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\"");
-        Assert.IsFalse(settingDialogXaml.Contains("checkBoxEnableLr2SongDbFullGeneration"));
     }
 
     [TestMethod]

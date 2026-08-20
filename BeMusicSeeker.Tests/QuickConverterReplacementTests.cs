@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Windows;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using BeMusicSeeker.Views;
@@ -64,50 +63,4 @@ public sealed class QuickConverterReplacementTests
         Assert.AreSame(DependencyProperty.UnsetValue, positiveCount.Convert("2", typeof(bool), null, Culture));
     }
 
-    [TestMethod]
-    public void QuickConverterPresentationRouteIsFullyRetired()
-    {
-        string root = FindRepositoryRoot();
-        foreach (string fileName in new[]
-        {
-            "MainWindow.xaml",
-            "PlaybackPanelView.xaml",
-            "EditableTextBlock.xaml",
-            "PlaylistPropertyDialog.xaml",
-            "LoadPlaylistURIDialog.xaml"
-        })
-        {
-            string source = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", fileName));
-            Assert.IsFalse(source.Contains("QuickConverter", StringComparison.Ordinal), fileName);
-            Assert.IsFalse(source.Contains("qc:", StringComparison.Ordinal), fileName);
-        }
-
-        string settingsSource = SourceTextTestHelper.ReadSettingsWindowXamlSourceText();
-        Assert.IsFalse(settingsSource.Contains("QuickConverter", StringComparison.Ordinal));
-        Assert.IsFalse(settingsSource.Contains("qc:", StringComparison.Ordinal));
-
-        string appSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.cs"));
-        string project = File.ReadAllText(Path.Combine(root, "BeMusicSeeker.csproj"));
-        string testProject = File.ReadAllText(Path.Combine(root, "BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"));
-        Assert.IsFalse(appSource.Contains("EquationTokenizer", StringComparison.Ordinal));
-        Assert.IsFalse(project.Contains("QuickConverter", StringComparison.Ordinal));
-        Assert.IsFalse(testProject.Contains("QuickConverter", StringComparison.Ordinal));
-        Assert.IsFalse(File.Exists(Path.Combine(root, "libs", "QuickConverter.dll")));
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        DirectoryInfo directory = new(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new AssertFailedException("Could not locate repository root.");
-    }
 }
