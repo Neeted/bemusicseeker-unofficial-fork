@@ -717,36 +717,6 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void StartupReadiness_DoesNotWaitForLibraryFolderTreeCompletion()
-    {
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string completedHandler = ExtractBetween(
-            viewModelCode,
-            "private void LibraryFolderTreeDeferredRefreshCompleted(",
-            "private void InstallTreePresentationChanged(");
-        string flushPendingUiRefresh = ExtractBetween(
-            viewModelCode,
-            "private void FlushPendingUiRefresh(",
-            "private void ChartMutationActivityChanged");
-
-        Assert.IsTrue(completedHandler.IndexOf("TryLogStartupReadyOperable", StringComparison.Ordinal) < 0);
-        StringAssert.Contains(completedHandler, "library_folder_tree_ready");
-
-        int scheduleIndex = flushPendingUiRefresh.IndexOf(
-            "LibraryFolderTree.ScheduleDeferredRefresh",
-            StringComparison.Ordinal);
-        int readinessIndex = flushPendingUiRefresh.IndexOf(
-            "TryLogStartupReadyOperable(operationToken)",
-            StringComparison.Ordinal);
-        Assert.IsTrue(scheduleIndex >= 0);
-        Assert.IsTrue(readinessIndex > scheduleIndex);
-        StringAssert.Contains(flushPendingUiRefresh, "if (flag)");
-        StringAssert.Contains(flushPendingUiRefresh, "if (logReadiness)");
-        Assert.IsTrue(flushPendingUiRefresh.IndexOf("else if (logReadiness)", StringComparison.Ordinal) < 0);
-        StringAssert.Contains(viewModelCode, "startupReadyOperableStopwatch == null || !startupReadyUiReached");
-    }
-
-    [TestMethod]
     public void PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState()
     {
         XDocument mainWindowDocument = LoadMainWindowXamlDocument();
@@ -1525,40 +1495,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowViewModelCode.Contains("public double PlaylistSyncProgressMaximum"));
         StringAssert.Contains(progressHubCode, "private void UpdatePlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)");
         StringAssert.Contains(progressHubCode, "PlaylistWorkspacePlaylistSyncProgressChanged");
-    }
-
-    [TestMethod]
-    public void StartupInteractionBlock_UsesProgressOwnerAndTypedShutdownBoundary()
-    {
-        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
-        string viewModelSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindowViewModel.cs");
-        string startupProgressSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "StartupProgressWorkflowOwner.cs");
-        string shutdownOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "ShellShutdownWorkflowOwner.cs");
-
-        StringAssert.Contains(startupProgressSource, "public bool IsStartupUiInteractionBlocked");
-        StringAssert.Contains(startupProgressSource, "internal void SetStartupUiInteractionBlocked(bool value)");
-        StringAssert.Contains(shutdownOwnerSource, "StartupProgressWorkflowOwner startupProgressWorkflowOwner");
-        StringAssert.Contains(shutdownOwnerSource, "startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true)");
-        StringAssert.Contains(shutdownOwnerSource, "startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false)");
-        StringAssert.Contains(viewModelSource, "startupProgressWorkflowOwner.IsStartupUiInteractionBlocked");
-        StringAssert.Contains(viewModelSource, "nameof(StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked)");
-        StringAssert.Contains(mainWindowSource, "viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked");
-        Assert.IsFalse(rootViewModelSource.Contains("public bool IsStartupUiInteractionBlocked"));
-        Assert.IsFalse(rootViewModelSource.Contains("internal void SetStartupUiInteractionBlocked"));
-        Assert.IsFalse(mainWindowSource.Contains("viewModel.IsStartupUiInteractionBlocked"));
-        Assert.IsFalse(mainWindowSource.Contains("SetStartupUiInteractionBlocked"));
     }
 
     [TestMethod]

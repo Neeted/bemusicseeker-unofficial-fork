@@ -2,9 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -14,16 +17,208 @@ namespace BeMusicSeeker.Tests;
 public sealed class PackageInstallWorkflowOwnerTests
 {
     [TestMethod]
-    public void ProductionPackageInstallDispatcher_QueuesWithoutSynchronousUiWait()
+    public async Task ProductionPackageInstallDispatcher_QueuesAtNormalWithoutSynchronousUiWait()
     {
-        string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string method = SourceTextTestHelper.ExtractMethodBody(
-            source,
-            "private bool TryDispatchPackageInstallUi(Action action)");
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PackageInstallWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        string installDirectory = Path.Combine(root, "install-source");
+        Directory.CreateDirectory(installDirectory);
+        File.WriteAllBytes(songDbPath, []);
+        var settings = new Settings();
+        var scheduler = new QueuedPackageInstallUiScheduler();
+        TimeSpan dispatchWatchdog = TimeSpan.FromSeconds(5);
+        Task? enqueueTask = null;
+        PackageInstallWorkflowOwner? workflow = null;
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        try
+        {
+            try
+            {
+                MainWindowViewModel? viewModel = null;
+                TestBmsLibrary? library = null;
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+                    {
+                    }
+                    var composition = new ApplicationComposition(
+                        settingsEditSession: new NoOpSettingsEditSession(settings),
+                        uiScheduler: scheduler,
+                        applicationLifetime: TestApplicationContext.CreateLifetime(),
+                        cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    viewModel = composition.CreateMainWindowViewModel();
+                    scheduler.ReleaseAll();
+                    library = new TestBmsLibrary(
+                        songDbPath,
+                        null,
+                        null,
+                        string.Empty,
+                        () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+                    viewModel.PackageInstallWorkflow.AttachLibrary(library);
+                    scheduler.ReleaseAll();
+                });
 
-        StringAssert.Contains(method, "uiScheduler.Schedule(");
-        Assert.IsFalse(method.Contains("uiScheduler.Invoke(", StringComparison.Ordinal));
-        Assert.IsFalse(method.Contains("InvokeMainChartListPresentationAction(", StringComparison.Ordinal));
+                Assert.IsNotNull(viewModel);
+                Assert.IsNotNull(library);
+                workflow = viewModel.PackageInstallWorkflow;
+                var observations = new List<string>();
+                workflow.StatusChanged += snapshot =>
+                    observations.Add(snapshot.IsActive ? "active" : "inactive");
+                int invokeCountBefore = scheduler.InvokeCount;
+                int invokeAsyncCountBefore = scheduler.InvokeAsyncCount;
+
+                enqueueTask = Task.Factory.StartNew(
+                    () => viewModel.PackageInstallWorkflow.Enqueue([installDirectory]),
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+
+                await scheduler.WaitForPendingCountAsync(2).WaitAsync(dispatchWatchdog);
+                await enqueueTask.WaitAsync(dispatchWatchdog);
+                QueuedPackageInstallUiScheduler.ScheduledOperation activeDispatch =
+                    scheduler.PeekNext();
+                Assert.AreEqual(UiSchedulePriority.Normal, activeDispatch.Priority);
+                Assert.IsTrue(activeDispatch.IsAccepted);
+                Assert.IsFalse(activeDispatch.IsCompleted);
+                Assert.AreEqual(0, observations.Count);
+                Assert.AreEqual(invokeCountBefore, scheduler.InvokeCount);
+                Assert.AreEqual(invokeAsyncCountBefore, scheduler.InvokeAsyncCount);
+
+                await TestUiDispatcherHost.Dispatcher.InvokeAsync(
+                    () => scheduler.Release(activeDispatch)).Task.WaitAsync(dispatchWatchdog);
+                await activeDispatch.Completion.WaitAsync(dispatchWatchdog);
+                Assert.AreEqual(1, observations.Count);
+                Assert.AreEqual("active", observations[0]);
+
+                QueuedPackageInstallUiScheduler.ScheduledOperation terminalDispatch =
+                    await scheduler.WaitForNextAsync().WaitAsync(dispatchWatchdog);
+                Assert.AreEqual(UiSchedulePriority.Normal, terminalDispatch.Priority);
+                Assert.IsTrue(terminalDispatch.IsAccepted);
+                Assert.IsFalse(terminalDispatch.IsCompleted);
+                Assert.AreEqual(1, observations.Count);
+
+                await TestUiDispatcherHost.Dispatcher.InvokeAsync(
+                    () => scheduler.Release(terminalDispatch)).Task.WaitAsync(dispatchWatchdog);
+                await terminalDispatch.Completion.WaitAsync(dispatchWatchdog);
+                await viewModel.PackageInstallWorkflow.WaitForIdleAsync().WaitAsync(dispatchWatchdog);
+
+                Assert.AreEqual("active|inactive", string.Join("|", observations));
+                Assert.AreEqual(invokeCountBefore, scheduler.InvokeCount);
+                Assert.AreEqual(invokeAsyncCountBefore, scheduler.InvokeAsyncCount);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+        }
+        finally
+        {
+            bool backgroundDrained = true;
+            try
+            {
+                scheduler.ReleaseAll();
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure ??= exception;
+                backgroundDrained = false;
+            }
+            if (enqueueTask != null)
+            {
+                try
+                {
+                    await enqueueTask.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            // The worker can enqueue its terminal status after the first drain and
+            // just before the enqueue task completes. Drain again before observing
+            // owner idleness so no accepted UI operation can outlive this fixture.
+            try
+            {
+                scheduler.ReleaseAll();
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure ??= exception;
+                backgroundDrained = false;
+            }
+            if (workflow != null)
+            {
+                try
+                {
+                    await workflow.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            // A final drain closes the race where the terminal callback is queued
+            // while the workflow transitions to idle.
+            try
+            {
+                scheduler.ReleaseAll();
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure ??= exception;
+                backgroundDrained = false;
+            }
+            if (workflow != null)
+            {
+                try
+                {
+                    await workflow.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (backgroundDrained)
+            {
+                try
+                {
+                    if (Directory.Exists(root))
+                    {
+                        Directory.Delete(root, recursive: true);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                }
+            }
+        }
+
+        if (bodyFailure != null)
+        {
+            if (cleanupFailure != null)
+            {
+                throw new AggregateException(
+                    "The package dispatch assertion failed and cleanup also failed.",
+                    bodyFailure.SourceException,
+                    cleanupFailure);
+            }
+            bodyFailure.Throw();
+        }
+        if (cleanupFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
     }
 
     [TestMethod]
@@ -1478,6 +1673,186 @@ public sealed class PackageInstallWorkflowOwnerTests
                 notification = notifications.Dequeue();
             }
             notification();
+        }
+    }
+
+    private sealed class QueuedPackageInstallUiScheduler : IUiScheduler
+    {
+        private readonly object syncRoot = new();
+
+        private readonly Queue<ScheduledOperation> pending = new();
+
+        private TaskCompletionSource<ScheduledOperation>? nextScheduled;
+
+        private TaskCompletionSource<bool>? pendingCountWaiter;
+
+        private int pendingCountThreshold;
+
+        internal int InvokeCount { get; private set; }
+
+        internal int InvokeAsyncCount { get; private set; }
+
+        public bool IsAvailable => true;
+
+        public bool CanExecuteInline => false;
+
+        public bool CheckAccess() => false;
+
+        public IUiScheduledOperation Schedule(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            ArgumentNullException.ThrowIfNull(action);
+            var operation = new ScheduledOperation(action, priority);
+            TaskCompletionSource<ScheduledOperation>? waiter;
+            TaskCompletionSource<bool>? pendingWaiter;
+            lock (syncRoot)
+            {
+                pending.Enqueue(operation);
+                waiter = nextScheduled;
+                nextScheduled = null;
+                pendingWaiter = pending.Count >= pendingCountThreshold
+                    ? pendingCountWaiter
+                    : null;
+                if (pendingWaiter != null)
+                {
+                    pendingCountWaiter = null;
+                    pendingCountThreshold = 0;
+                }
+            }
+            waiter?.TrySetResult(operation);
+            pendingWaiter?.TrySetResult(true);
+            return operation;
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            InvokeCount++;
+            throw new InvalidOperationException("Package-install UI dispatch must use Schedule, not Invoke.");
+        }
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            InvokeCount++;
+            throw new InvalidOperationException("Package-install UI dispatch must use Schedule, not Invoke.");
+        }
+
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            InvokeAsyncCount++;
+            throw new InvalidOperationException("Package-install UI dispatch must use Schedule, not InvokeAsync.");
+        }
+
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            InvokeAsyncCount++;
+            throw new InvalidOperationException("Package-install UI dispatch must use Schedule, not InvokeAsync.");
+        }
+
+        internal Task<ScheduledOperation> WaitForNextAsync()
+        {
+            lock (syncRoot)
+            {
+                if (pending.Count > 0)
+                {
+                    return Task.FromResult(pending.Peek());
+                }
+                nextScheduled = new TaskCompletionSource<ScheduledOperation>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                return nextScheduled.Task;
+            }
+        }
+
+        internal Task WaitForPendingCountAsync(int count)
+        {
+            lock (syncRoot)
+            {
+                if (pending.Count >= count)
+                {
+                    return Task.CompletedTask;
+                }
+                pendingCountThreshold = count;
+                pendingCountWaiter = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                return pendingCountWaiter.Task;
+            }
+        }
+
+        internal ScheduledOperation PeekNext()
+        {
+            lock (syncRoot)
+            {
+                Assert.IsTrue(pending.Count > 0);
+                return pending.Peek();
+            }
+        }
+
+        internal void Release(ScheduledOperation operation)
+        {
+            lock (syncRoot)
+            {
+                Assert.AreSame(operation, pending.Peek());
+                pending.Dequeue();
+            }
+            try
+            {
+                operation.Action();
+                operation.Complete();
+            }
+            catch (Exception exception)
+            {
+                operation.Fail(exception);
+                throw;
+            }
+        }
+
+        internal void ReleaseAll()
+        {
+            while (true)
+            {
+                ScheduledOperation? operation;
+                lock (syncRoot)
+                {
+                    operation = pending.Count == 0 ? null : pending.Peek();
+                }
+                if (operation == null)
+                {
+                    return;
+                }
+                Release(operation);
+            }
+        }
+
+        internal sealed class ScheduledOperation : IUiScheduledOperation
+        {
+            private readonly TaskCompletionSource<bool> completion =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            internal ScheduledOperation(Action action, UiSchedulePriority priority)
+            {
+                Action = action;
+                Priority = priority;
+            }
+
+            internal Action Action { get; }
+
+            internal UiSchedulePriority Priority { get; }
+
+            public bool IsAccepted => true;
+
+            public bool IsCompleted => completion.Task.IsCompleted;
+
+            public bool IsAborted => completion.Task.IsCanceled;
+
+            public string? RejectionReason => null;
+
+            public Task Completion => completion.Task;
+
+            public void Abort() => completion.TrySetCanceled();
+
+            internal void Complete() => completion.TrySetResult(true);
+
+            internal void Fail(Exception exception) => completion.TrySetException(exception);
         }
     }
 }

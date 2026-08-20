@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using System;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.ComponentModel;
@@ -210,24 +211,87 @@ public sealed class ShellShutdownWorkflowOwnerTests
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         TaskCompletionSource<bool> regularChartStopRelease = PreparePendingRegularChartStop(viewModel);
-        using var shutdownEntered = new ManualResetEventSlim();
+        var shutdownEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var interactionBlocked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        viewModel.ProgressHub.StartupProgress.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(StartupProgressWorkflowOwner.IsStartupUiInteractionBlocked)
+                && viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked)
+            {
+                interactionBlocked.TrySetResult(true);
+            }
+        };
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(
             viewModel,
-            markShutdown: _ => shutdownEntered.Set());
+            markShutdown: _ => shutdownEntered.TrySetResult(true));
 
-        Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
+        Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
+        Task<ShellShutdownWorkflowCompletionReceipt>? closeCompletion = null;
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        try
+        {
+            try
+            {
+                close = owner.RequestWindowCloseAsync();
 
-        Assert.IsTrue(shutdownEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(owner.IsShutdownPreparationStarted);
-        Assert.IsTrue(owner.IsShutdownPreparationRunning);
-        Assert.IsFalse(close.IsCompleted);
-        Assert.IsFalse(owner.IsShutdownPrepared);
-        regularChartStopRelease.SetResult(true);
+                await shutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await interactionBlocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsTrue(owner.IsShutdownPreparationStarted);
+                Assert.IsTrue(owner.IsShutdownPreparationRunning);
+                Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                Assert.IsFalse(close.IsCompleted);
+                Assert.IsFalse(owner.IsShutdownPrepared);
+                regularChartStopRelease.TrySetResult(true);
 
-        ShellShutdownWorkflowCompletionReceipt receipt = await close;
+                closeCompletion = close.WaitAsync(TimeSpan.FromSeconds(5));
+                ShellShutdownWorkflowCompletionReceipt receipt = await closeCompletion;
 
-        Assert.IsTrue(receipt.PreparationSucceeded);
-        Assert.IsTrue(receipt.CloseAllowed);
+                Assert.IsTrue(receipt.PreparationSucceeded);
+                Assert.IsTrue(receipt.CloseAllowed);
+                owner.CompleteTerminalShutdown();
+                Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+        }
+        finally
+        {
+            // Preserve the body failure if an assertion above aborts before the gate is released,
+            // then await the started shutdown so it cannot continue into another test.
+            regularChartStopRelease.TrySetResult(true);
+            if (close != null)
+            {
+                try
+                {
+                    // Wait on the underlying operation again rather than reusing a
+                    // timed-out wrapper; WaitAsync does not cancel the shutdown.
+                    await close.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure = exception;
+                }
+            }
+        }
+
+        if (bodyFailure != null)
+        {
+            if (cleanupFailure != null)
+            {
+                throw new AggregateException(
+                    "The shutdown assertion failed and cleanup also failed.",
+                    bodyFailure.SourceException,
+                    cleanupFailure);
+            }
+            bodyFailure.Throw();
+        }
+        if (cleanupFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
     }
 
     [TestMethod]
