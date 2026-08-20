@@ -136,7 +136,10 @@ $functionalMethodLevelPreWaveClasses = @(
     'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
     'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests',
     'BeMusicSeeker.Tests.BmsLibraryDuplicateServiceTests',
-    'BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests')
+    'BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests',
+    # Playlist view pipeline tests use fresh settings/composition state; their
+    # persistence case owns a GUID-scoped database and temporary directory.
+    'BeMusicSeeker.Tests.PlaylistViewPipelineTests')
 
 function Assert-FunctionalShardConfiguration {
     $names = @($functionalTestClassShards | ForEach-Object { $_.Name })
@@ -259,6 +262,21 @@ function Assert-FunctionalShardConfiguration {
     if (@($functionalMethodLevelPreWaveClasses | Sort-Object -Unique).Count -ne
         $functionalMethodLevelPreWaveClasses.Count) {
         throw 'Functional method-level pre-wave classes must be unique.'
+    }
+    $requiredMethodLevelPreWaveClasses = @(
+        'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
+        'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
+        'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
+        'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests',
+        'BeMusicSeeker.Tests.BmsLibraryDuplicateServiceTests',
+        'BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests',
+        'BeMusicSeeker.Tests.PlaylistViewPipelineTests')
+    if ($functionalMethodLevelPreWaveClasses.Count -ne $requiredMethodLevelPreWaveClasses.Count -or
+        @(Compare-Object `
+            -ReferenceObject $requiredMethodLevelPreWaveClasses `
+            -DifferenceObject $functionalMethodLevelPreWaveClasses `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional method-level pre-wave must contain exactly its approved test classes.'
     }
 
     $allClasses = @($shardClasses) +
