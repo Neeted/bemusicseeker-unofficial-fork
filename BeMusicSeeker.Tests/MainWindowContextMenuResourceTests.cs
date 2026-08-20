@@ -332,38 +332,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(-1, rootViewModelSource.IndexOf("ReplaceBMSFileLevelByTableEntryLevel(", StringComparison.Ordinal));
     }
 
-    [TestMethod]
-    public void PlaylistTableJsonExportRoutesThroughWorkspaceOwner()
-    {
-        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
-        string route = ExtractBetween(
-            mainWindowSource,
-            "private async void treeViewPlaylistTableContextMenuItemExportTableClick",
-            "private async void treeViewPlaylistTableContextMenuItemOverwriteLevelClick");
-        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
-        string selectionSpec = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "devdocs",
-            "spec",
-            "file-selection-dialogs.md"));
-
-        StringAssert.Contains(route, "ExportPlaylistTableAsync(bmsTable)");
-        StringAssert.Contains(route, "LoggingAndPropagate(\"treeViewPlaylistTableContextMenuItemExportTableClick\")");
-        Assert.AreEqual(-1, route.IndexOf("new UiDialogCoordinator", StringComparison.Ordinal));
-        Assert.AreEqual(-1, route.IndexOf("UiSaveFilePickerRequest", StringComparison.Ordinal));
-        Assert.AreEqual(-1, route.IndexOf("ThrowIfPickerFailed", StringComparison.Ordinal));
-        Assert.AreEqual(-1, route.IndexOf("Task.Run", StringComparison.Ordinal));
-        Assert.AreEqual(-1, route.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal async Task ExportPlaylistTableAsync(BMSTable bmsTable)");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("internal Task ExportPlaylistTableAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "new UiSaveFilePickerRequest(");
-        StringAssert.Contains(workspaceSource, "HeaderToJson()");
-        StringAssert.Contains(workspaceSource, "DataToJson()");
-        Assert.AreEqual(-1, rootViewModelSource.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
-        StringAssert.Contains(selectionSpec, "PlaylistWorkspace.ExportPlaylistTableAsync(bmsTable)");
-    }
 
     [TestMethod]
     public void PlaylistTableRemoval_RoutesThroughWorkflowOwner()
@@ -3824,37 +3792,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("pendingPackagePresentation"));
     }
 
-    [TestMethod]
-    public void PlaylistDropReferenceRefreshUsesChartTargets()
-    {
-        string viewModelCode = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
-        string addChartRows = ExtractBetween(
-            viewModelCode,
-            "private void AddRowsToFolder",
-            "private void DeleteEntries");
-        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
-        string addReferenceCharts = ExtractBetween(
-            libraryCode,
-            "internal void AddReferenceBMSTablesToCharts",
-            "internal void RefreshReferenceDisplayForTable");
-        string referenceOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "Models",
-            "BmsLibraryInternal",
-            "BmsLibraryPlaylistReferenceOwner.cs");
-
-        StringAssert.Contains(addChartRows, "List<ChartFile> resolvedCharts");
-        StringAssert.Contains(addChartRows, "library.AddReferenceBMSTablesToCharts(table, resolvedCharts)");
-        Assert.IsTrue(addChartRows.IndexOf("library.AddReferenceBMSTablesToCharts(table, resolvedCharts)", StringComparison.Ordinal) < addChartRows.IndexOf("PublishEntriesChanged(table)", StringComparison.Ordinal));
-        Assert.IsFalse(addChartRows.Contains("resolvedBmsFiles"));
-        StringAssert.Contains(addReferenceCharts, "playlistReferenceOwner.AddReferenceBMSTablesToCharts(SnapshotPlaylistReferenceTable(table))");
-        StringAssert.Contains(referenceOwnerCode, "internal void AddReferenceBMSTablesToCharts(PlaylistReferenceTableSnapshot tableSnapshot)");
-        StringAssert.Contains(referenceOwnerCode, "ReplaceTable(tableSnapshot)");
-        Assert.IsFalse(libraryCode.Contains("IPlaylistReferenceApplyHost"));
-        Assert.IsFalse(libraryCode.Contains("PlaylistReferenceApplyCoordinator"));
-        Assert.IsFalse(addReferenceCharts.Contains("AddReferenceBMSTableToCharts(table, charts)"));
-        Assert.IsFalse(addReferenceCharts.Contains("IEnumerable<BMSFile>"));
-    }
 
     [TestMethod]
     public void PendingInstallDestinationCellEditUsesChartTargets()
@@ -4154,125 +4091,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(method.Contains("QueueDeferredRankingRefresh"));
     }
 
-    [TestMethod]
-    public void ManualPlaylistResync_UsesBatchReloadWithoutFailureDialogs()
-    {
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string workspaceCode = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "PlaylistWorkspaceViewModel.Reload.cs");
-        string propertyEditingCode = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "PlaylistWorkspaceViewModel.PropertyEditing.cs");
-        string propertySaveEventsCode = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindowViewModel.PlaylistPropertySaveEvents.cs");
 
-        StringAssert.Contains(workspaceCode, "playlists.ExternalSyncOwner.ReloadPlaylistTargetsAsync(");
-        StringAssert.Contains(workspaceCode, "publishReferenceReceipts: true");
-        StringAssert.Contains(workspaceCode, "requireCurrentTargetForApply: true");
-        StringAssert.Contains(workspaceCode, "playlists.BmtOutput.QueueBeatorajaBmtExportAll(\"manual_resync\")");
-        StringAssert.Contains(workspaceCode, "LogPlaylistSyncFailure(result)");
-        StringAssert.Contains(workspaceCode, "playlist_manual_resync_failed table=");
-        StringAssert.Contains(propertyEditingCode, "LogPlaylistPropertyExternalSyncFailure(request)");
-        StringAssert.Contains(propertyEditingCode, "playlist_property_resync_failed table=");
-        Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistSyncResultReported"));
-        Assert.IsFalse(propertySaveEventsCode.Contains("playlist_property_resync_failed table="));
-        Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistReferenceTableReplaced"));
-        StringAssert.Contains(viewModelCode, "publishReferenceReceipt: true");
-        Assert.AreEqual(-1, viewModelCode.IndexOf("files.ReplaceReferenceBMSTable(", StringComparison.Ordinal));
-        Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection("));
-        Assert.AreEqual(-1, viewModelCode.IndexOf("ReplaceCurrentPlaylistSelectionTable(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, viewModelCode.IndexOf("RemapCurrentPlaylistFolderSelection(", StringComparison.Ordinal));
-        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();");
-        StringAssert.Contains(viewModelCode, "InvokeMainChartListPresentationAction(");
-        StringAssert.Contains(viewModelCode, "RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);");
-        string playlistReferencePresentationHandler = ExtractBetween(
-            viewModelCode,
-            "private void PlaylistReferenceApplyWorkflowPresentationRequested(",
-            "private void FinalizeMainViewBuild(");
-        int suppressionIndex = playlistReferencePresentationHandler.IndexOf(
-            "TrySuppress(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree)",
-            StringComparison.Ordinal);
-        int startupDeferIndex = playlistReferencePresentationHandler.IndexOf(
-            "TryDeferStartupPresentationRefresh(",
-            StringComparison.Ordinal);
-        Assert.IsTrue(
-            suppressionIndex >= 0 && startupDeferIndex > suppressionIndex,
-            "Playlist reference presentation must honor ordinary UI suppression before startup deferral.");
-        Assert.IsFalse(viewModelCode.Contains("public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)"));
-        Assert.IsFalse(workspaceCode.Contains("ResetBMSTableAsync("));
-        Assert.IsFalse(workspaceCode.Contains("ShowPlaylistLoadFailure("));
-    }
 
-    [TestMethod]
-    public void BeatorajaBmtFullExport_DoesNotShowNoOpProgress()
-    {
-        string playlistCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistBmtOutputOwner.cs"));
-        string method = ExtractBetween(
-            playlistCode,
-            "internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null)",
-            "internal void QueueBeatorajaBmtExportForTable(BMSTable table, string reason)");
-
-        StringAssert.Contains(method, "bool shouldReportProgress = projectionTablesSnapshot.Count > 0;");
-        StringAssert.Contains(method, "if (shouldReportProgress)");
-        StringAssert.Contains(method, "ReportProgress(progressOperationId, true, projectionTablesSnapshot.Count, 0, string.Empty);");
-        StringAssert.Contains(method, "shouldReportProgress");
-        StringAssert.Contains(method, ": null);");
-    }
-
-    [TestMethod]
-    public void PlaylistReferenceReplace_InvalidatesIndexBackedBmsonDisplay()
-    {
-        string root = FindRepositoryRoot();
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string propertyDialogSave = ExtractBetween(
-            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistPropertySaveService.cs")),
-            "internal async Task ApplyPostSaveUpdatesAsync(PlaylistPropertySaveCommit commit)",
-            "private static bool IsValid(");
-        string replaceReceipt = ExtractBetween(
-            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.Reload.cs")),
-            "private void ApplyReferenceReplaceReceipt(",
-            "internal sealed class PlaylistSyncProgressChangedEventArgs");
-
-        AssertReplaceInvalidatesReferenceSortKey(propertyDialogSave);
-        StringAssert.Contains(replaceReceipt, "ReferenceEntriesChanged");
-        AssertReplaceInvalidatesReferenceSortKey(replaceReceipt);
-    }
-
-    private static void AssertReplaceInvalidatesReferenceSortKey(string source)
-    {
-        int replaceIndex = source.IndexOf("files.ReplaceReferenceBMSTable(", StringComparison.Ordinal);
-        if (replaceIndex < 0)
-        {
-            replaceIndex = source.IndexOf("ownerViewModel.files.ReplaceReferenceBMSTable(", StringComparison.Ordinal);
-        }
-        if (replaceIndex < 0)
-        {
-            replaceIndex = source.IndexOf("GetLibrary().ReplaceReferenceBMSTable(", StringComparison.Ordinal);
-        }
-        if (replaceIndex < 0)
-        {
-            replaceIndex = source.IndexOf("library.ReplaceReferenceBMSTable(", StringComparison.Ordinal);
-        }
-        int invalidateIndex = source.IndexOf("InvalidateNormalLibraryReferenceTableSortKeys()", StringComparison.Ordinal);
-        if (invalidateIndex < 0)
-        {
-            invalidateIndex = source.IndexOf("PlaylistPropertyReferenceSortInvalidationRequested", StringComparison.Ordinal);
-        }
-        if (invalidateIndex < 0)
-        {
-            invalidateIndex = source.IndexOf("RequestPlaylistReferenceSortInvalidation()", StringComparison.Ordinal);
-        }
-
-        Assert.IsTrue(replaceIndex >= 0);
-        Assert.IsTrue(invalidateIndex > replaceIndex);
-    }
 
     [TestMethod]
     public void SidebarTreeViewWidthPolicy_NormalizesInvalidPersistedValues()

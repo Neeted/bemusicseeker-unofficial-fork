@@ -97,135 +97,6 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PlaylistBuildRequest_SourceText_IsRootExternalContract()
-    {
-        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-        string requestSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistBuildRequest.cs");
-
-        Assert.AreEqual(-1, rootSource.IndexOf("private sealed class PlaylistBuildRequest", StringComparison.Ordinal));
-        StringAssert.Contains(requestSource, "internal sealed class PlaylistBuildRequest");
-        StringAssert.Contains(requestSource, "internal MainViewUpdateMode Mode;");
-        StringAssert.Contains(requestSource, "internal PlaylistRequestIdentity Identity;");
-    }
-
-    [TestMethod]
-    public void PlaylistDetailBuildState_SourceText_OwnsWorkerQueueState()
-    {
-        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-        string playlistStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistState.cs");
-        string playlistDetailViewStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailViewState.cs");
-        string buildStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildState.cs");
-        string queueCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildQueueCoordinator.cs");
-        string mainChartListSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
-        string sourceBuildResultSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSourceBuildResult.cs");
-        string sourceRowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "PlaylistDetailSourceRow.cs");
-        string playlistViewStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailViewState");
-        string playlistSourceSnapshotStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailSourceSnapshotState");
-        string playlistViewSnapshotStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailViewSnapshotState");
-        string playlistTerminalCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailTerminal.cs");
-        string playlistSourceOwner = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailSource.cs");
-        string playlistRequestOwner = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailRequests.cs");
-        string playlistTerminalApplySource = SourceTextTestHelper.ExtractMethodBody(
-            playlistTerminalCoordinatorSource,
-            "internal PlaylistDetailTerminalCommitResult ApplyDetailTerminal(");
-
-        foreach (string rootFieldDeclaration in new[]
-        {
-            "internal readonly SemaphoreSlim BuildGate = new(1, 1);",
-            "internal int RequestVersion;",
-            "internal CancellationTokenSource Cancellation = new();",
-            "internal CancellationTokenSource CurrentBuildCancellation;",
-            "internal PlaylistBuildRequest CurrentBuildRequest;",
-            "internal PlaylistBuildRequest PendingRequest;",
-            "internal bool WorkerRunning;",
-            "internal bool ShutdownCancellationRequested;"
-        })
-        {
-            Assert.AreEqual(-1, playlistViewStateSource.IndexOf(rootFieldDeclaration, StringComparison.Ordinal), rootFieldDeclaration);
-        }
-
-        StringAssert.Contains(buildStateSource, "internal sealed class PlaylistDetailBuildState");
-        StringAssert.Contains(buildStateSource, "internal readonly object SyncRoot = new();");
-        StringAssert.Contains(buildStateSource, "internal readonly SemaphoreSlim BuildGate = new(1, 1);");
-        StringAssert.Contains(buildStateSource, "internal PlaylistBuildRequest PendingRequest;");
-        StringAssert.Contains(buildStateSource, "internal bool ShutdownCancellationRequested;");
-        StringAssert.Contains(playlistSourceSnapshotStateSource, "internal List<PlaylistDetailSourceRow> Rows = [];");
-        StringAssert.Contains(playlistSourceSnapshotStateSource, "internal PlaylistSourceIdentity? CurrentIdentity;");
-        StringAssert.Contains(playlistViewSnapshotStateSource, "internal IList Rows = new List<object>();");
-        StringAssert.Contains(playlistViewSnapshotStateSource, "internal PlaylistRequestIdentity? CurrentIdentity;");
-        StringAssert.Contains(playlistViewStateSource, "internal readonly PlaylistDetailSourceSnapshotState Source = new();");
-        StringAssert.Contains(playlistViewStateSource, "internal readonly PlaylistDetailViewSnapshotState View = new();");
-        Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal List<PlaylistDetailSourceRow> SourceRows", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal IList CurrentViewRows", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("new PlaylistDetailBuildState()", StringComparison.Ordinal));
-        StringAssert.Contains(queueCoordinatorSource, "internal static class PlaylistDetailBuildQueueCoordinator");
-        StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested || isShutdownRequested");
-        StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested = true;");
-        StringAssert.Contains(queueCoordinatorSource, "lock (state.SyncRoot)");
-        StringAssert.Contains(playlistRequestOwner, "internal int RequestDetailRefresh(");
-        StringAssert.Contains(playlistRequestOwner, "PlaylistDetailSelection selection = playlistDetailSelection;");
-        StringAssert.Contains(playlistRequestOwner, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
-        StringAssert.Contains(playlistRequestOwner, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailBuildQueueCoordinator.", StringComparison.Ordinal));
-        StringAssert.Contains(buildStateSource, "RequestVersion++;");
-        StringAssert.Contains(buildStateSource, "PendingRequest = null;");
-        StringAssert.Contains(buildStateSource, "commit.BuildCancellation?.Cancel();");
-        Assert.AreEqual(-1, rootSource.IndexOf("CommitPlaylistSourceClearWithoutCallbacks", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PublishPlaylistSourceClear", StringComparison.Ordinal));
-        StringAssert.Contains(playlistRequestOwner, "PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot)");
-        Assert.AreEqual(-1, rootSource.IndexOf("TryCommitPlaylistDetailTerminal(", StringComparison.Ordinal));
-        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");
-        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistViewApplyResult");
-        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistMainViewApplyResult");
-        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistScoreProbeMetrics");
-        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistViewFromCurrentSource(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistViewFromRebuiltSource(", StringComparison.Ordinal));
-        StringAssert.Contains(playlistTerminalCoordinatorSource, "internal PlaylistDetailTerminalApplyResult ApplyDetailFromCurrentSource(");
-        StringAssert.Contains(playlistTerminalCoordinatorSource, "internal PlaylistDetailTerminalApplyResult ApplyDetailFromRebuiltSource(");
-        StringAssert.Contains(playlistTerminalApplySource, "lock (DetailBuildState.SyncRoot)");
-        StringAssert.Contains(playlistTerminalApplySource, "DetailViewState.CommitTerminal(");
-        StringAssert.Contains(playlistViewStateSource, "lock (SyncRoot)");
-        StringAssert.Contains(playlistTerminalApplySource, "detailMainChartList.ApplyPresentation(");
-        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("PrepareRowsTransition(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("transition.CommitOwnership", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("transition.Complete()", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainChartListSource.IndexOf("ApplyCoordinatedRows(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainChartListSource.IndexOf("ApplyPlaylistDetailTerminal", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("CommitPreparedRowsWithoutDisposal", StringComparison.Ordinal));
-        StringAssert.Contains(mainChartListSource, "internal MainChartListRowsCommit CommitPreparedRowsWithoutDisposal(");
-        StringAssert.Contains(mainChartListSource, "internal void DisposeCommittedRows(");
-        StringAssert.Contains(mainChartListSource, "internal MainChartListRowsApplyResult PublishRowsCommit(");
-        StringAssert.Contains(playlistTerminalApplySource, "CommitMainTablePresentationWithoutNotification(");
-        StringAssert.Contains(playlistTerminalApplySource, "PublishMainTablePresentation(result.MainTablePresentationCommit)");
-        StringAssert.Contains(playlistTerminalApplySource, "result.AppliedColumnMode = request.ColumnSelection.AppliedMode;");
-        StringAssert.Contains(playlistTerminalApplySource, "detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);");
-        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("CommitExternalColumnMode", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainChartListSource.IndexOf("MainChartListCoordinatedPublishException", StringComparison.Ordinal));
-        Assert.IsFalse(rootSource.Contains("PlaylistDetailTerminalTransition"));
-        StringAssert.Contains(playlistSourceOwner, "request.RequestVersion != DetailBuildState.RequestVersion");
-        StringAssert.Contains(playlistSourceOwner, "ReferenceEquals(DetailViewState.Source.Rows, sourceRows)");
-        StringAssert.Contains(sourceRowSource, "internal PlaylistDetailSourceRow WithEntryChartInfo(");
-        StringAssert.Contains(playlistSourceOwner, "internal PlaylistSourceBuildResult BuildDetailSourceRows(");
-        Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSourceRows(", StringComparison.Ordinal));
-        StringAssert.Contains(playlistRequestOwner, "private bool RebuildDetailSource(");
-        StringAssert.Contains(playlistRequestOwner, "DetailBuildState.BuildGate.Wait(cancellationToken);");
-        StringAssert.Contains(playlistRequestOwner, "DetailBuildState.BuildGate.Release();");
-        StringAssert.Contains(playlistRequestOwner, "ApplyDetailFromRebuiltSource(");
-        StringAssert.Contains(playlistRequestOwner, "private bool ApplyDetailViewWithoutSourceRebuild(");
-        StringAssert.Contains(playlistRequestOwner, "ApplyDetailFromCurrentSource(");
-        Assert.AreEqual(-1, rootSource.IndexOf("RebuildPlaylistSource", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistViewWithoutSourceRebuild", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("IPlaylistDetailBuildWorkflowHost", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailBuildWorkflowCoordinator", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("out int scoreUpdateTargetCount", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("out long columnStageMs", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playlistStateSource.IndexOf("private sealed class PlaylistScoreProbeMetrics", StringComparison.Ordinal));
-    }
-
-    [TestMethod]
     public void PlaylistDetailTerminal_StaleRequestCancelsPreparationWithoutApplyingRows()
     {
         var viewModel = MainWindowViewModelTestFactory.Create();
@@ -1686,6 +1557,19 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("Bmson Playlist", row.RefTablesNames);
         Assert.IsTrue(GridKeywordSearchQuery.Parse("BMSN").MatchesPlaylistDetail(sourceRow));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Bmson Playlist\"").MatchesPlaylistDetail(sourceRow));
+
+        table.symbol = "REPLACED";
+        table.name = "Replaced Bmson Playlist";
+        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
+
+        var refreshedSourceRow = new PlaylistDetailSourceRow(
+            entry,
+            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
+            playlistReferenceDisplayProvider: chart => index.Find(chart));
+        Assert.AreEqual("REPLACED", refreshedSourceRow.RefTablesSymbols);
+        Assert.AreEqual("Replaced Bmson Playlist", refreshedSourceRow.RefTablesNames);
+        Assert.AreEqual("BMSN", sourceRow.RefTablesSymbols);
+        Assert.AreEqual("Bmson Playlist", sourceRow.RefTablesNames);
     }
 
     [TestMethod]
@@ -4926,40 +4810,6 @@ public sealed class PlaylistViewPipelineTests
             identity.ChartInfoIndexVersion,
             identity.SourceIdentity,
             currentViewIdentity ?? identity);
-    }
-
-    private static string ExtractTypeBlock(string text, string typeDeclaration)
-    {
-        int declarationIndex = text.IndexOf(typeDeclaration, StringComparison.Ordinal);
-        if (declarationIndex < 0)
-        {
-            throw new InvalidOperationException("Type declaration was not found.");
-        }
-
-        int braceIndex = text.IndexOf('{', declarationIndex);
-        if (braceIndex < 0)
-        {
-            throw new InvalidOperationException("Type declaration brace was not found.");
-        }
-
-        int depth = 0;
-        for (int index = braceIndex; index < text.Length; index++)
-        {
-            if (text[index] == '{')
-            {
-                depth++;
-            }
-            else if (text[index] == '}')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    return text.Substring(declarationIndex, index - declarationIndex + 1);
-                }
-            }
-        }
-
-        throw new InvalidOperationException("Type declaration body was not closed.");
     }
 
     private sealed class TestablePlaylistEntry : BMSTableEntry

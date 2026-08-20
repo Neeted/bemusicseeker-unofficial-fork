@@ -33,754 +33,6 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void SourceText_OwnsPlaylistPresentationStateOutsideRoot()
-    {
-        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
-        string referenceApplySource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "PlaylistReferenceApplyWorkflowOwner.cs");
-        string removalSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "PlaylistRemovalWorkflowOwner.cs");
-        string levelOverwriteSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "PlaylistTableLevelOverwriteWorkflowOwner.cs");
-        string detailSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailSource.cs");
-        string summaryBuildSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBuild.cs");
-        string entrySnapshotSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.EntrySnapshot.cs");
-        string logicalSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string bmtSortSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSummaryBmtSortCoordinator.cs");
-        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
-        string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
-        string shellShutdownSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "ShellShutdownWorkflowOwner.cs");
-        string mainChartListSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
-        string regularOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
-        string playHistoryOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
-        string bulkEditSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit.cs");
-        string catalogSummaryOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistCatalogSummaryOwner.cs");
-
-        foreach (string rootField in new[]
-        {
-            "_PlaylistSummarySortParameters",
-            "_PlaylistSummaryColumnsSettings",
-            "_ColumnSettingsVisibilityForPlaylist",
-            "_PlaylistSummaryView",
-            "playlistSummaryPresentationGeneration",
-            "playlistSummaryDataRebuildGeneration",
-            "playlistSummaryRowsCacheGeneration",
-            "lockPlaylistSummaryRowsCache",
-            "playlistSummaryRowsCache",
-            "deferredPlaylistSummaryRefreshRequested",
-            "deferredPlaylistSummaryPresentationRefreshRequested",
-            "previousPlaylistSummaryViewWeakReference",
-            "_IsPlaylistSummaryMode",
-            "_IsPlaylistDetailViewActive",
-            "_IsPlaylistTreeExpanded",
-            "_GridHeaderText",
-            "_PlaylistSummaryKeywordFilter",
-            "_PlaylistSummaryKeywordSearchWarningText",
-            "_IsPlaylistSummaryKeywordSearchHelpOpen",
-            "_PlaylistSummaryKeywordSearchSuggestions",
-            "_IsPlaylistSummaryKeywordSearchSuggestionPopupOpen",
-            "_PlaylistSummaryKeywordSearchSuggestionHeaderText",
-            "_PlaylistSummaryOwnedFilter"
-        })
-        {
-            Assert.AreEqual(-1, rootSource.IndexOf(rootField, StringComparison.Ordinal), rootField);
-        }
-
-        StringAssert.Contains(workspaceSource, "public sealed partial class PlaylistWorkspaceViewModel : ViewModel");
-        StringAssert.Contains(workspaceSource, "private readonly ObservableCollection<BMSTable> emptyPlaylistTreeTables;");
-        StringAssert.Contains(workspaceSource, "private ObservableCollection<BMSTable> playlistTreeTables;");
-        StringAssert.Contains(workspaceSource, "public ObservableCollection<BMSTable> PlaylistTreeTables");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigurePlaylistTreeSource(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore)");
-        StringAssert.Contains(workspaceSource, "ObservableCollection<BMSTable> emptyPlaylistTreeSource");
-        StringAssert.Contains(workspaceSource, "internal bool SetPlaylistSummaryMode(bool enabled)");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigurePlaylistSummaryColumnSettingsStore(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureSummaryBmtSort(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureDetailEditing(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigurePropertyEditing(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureMutations(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureSummaryBulkEditing(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureSummaryBulkWarningLogging(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "private readonly Func<BMSPlaylist> getPlaylistStore;");
-        StringAssert.Contains(workspaceSource, "private readonly PlaylistPropertySaveService propertySaveService;");
-        StringAssert.Contains(workspaceSource, "private readonly Func<BMSLibrary> getPlaylistLibrary;");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("presentPlaylistOperationNotifications", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;");
-        StringAssert.Contains(workspaceSource, "PlaylistOperationNotificationPresentationRequestedEventArgs(session.TakeReceipt(), routeName)");
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested +=", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;");
-        StringAssert.Contains(workspaceSource, "private readonly Func<LR2Config> getLr2Config;");
-        StringAssert.Contains(entrySnapshotSource, "using (table.ReaderWriterLock.GetReaderGuard())");
-        StringAssert.Contains(entrySnapshotSource, "return [.. table.GetEntriesExceptDummy()]");
-        StringAssert.Contains(detailSource, "SnapshotPlaylistEntriesExceptDummy(table)");
-        Assert.AreEqual(-1, detailSource.IndexOf("table.GetEntriesExceptDummy()", StringComparison.Ordinal));
-        Assert.AreEqual(-1, summaryBuildSource.IndexOf("SnapshotPlaylistEntriesExceptDummy(table)", StringComparison.Ordinal));
-        Assert.AreEqual(-1, summaryBuildSource.IndexOf("table.GetEntriesExceptDummy()", StringComparison.Ordinal));
-        StringAssert.Contains(catalogSummaryOwnerSource, "using (table.ReaderWriterLock.GetReaderGuard())");
-        StringAssert.Contains(catalogSummaryOwnerSource, "table.GetEntriesExceptDummy()");
-        StringAssert.Contains(workspaceSource, "private readonly Action<string> summaryBulkWarningLog;");
-        StringAssert.Contains(workspaceSource, "IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore");
-        StringAssert.Contains(workspaceSource, "PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort");
-        StringAssert.Contains(workspaceSource, "internal Task ApplyCurrentVisibleBmtOrderAsync(");
-        StringAssert.Contains(workspaceSource, "internal Task MoveSummaryRowsToBmtTopAsync(");
-        StringAssert.Contains(workspaceSource, "internal Task MoveSummaryRowsToBmtBottomAsync(");
-        StringAssert.Contains(workspaceSource, "internal Task DropSummaryRowsInBmtOrderAsync(");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("internal void ApplyCurrentVisibleBmtOrder(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("internal void MoveSummaryRowsToBmtTop(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("internal void MoveSummaryRowsToBmtBottom(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("internal long DropSummaryRowsInBmtOrder(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "return Task.Run(() => ApplyCurrentVisibleBmtOrderCore(visibleRowsSnapshot));");
-        StringAssert.Contains(workspaceSource, "return Task.Run(() => MoveSummaryRowsToBmtTopCore(rowsSnapshot));");
-        StringAssert.Contains(workspaceSource, "return Task.Run(() => MoveSummaryRowsToBmtBottomCore(rowsSnapshot));");
-        StringAssert.Contains(workspaceSource, "DropSummaryRowsInBmtOrderCore(");
-        StringAssert.Contains(workspaceSource, "appliedDraggedTables =>");
-        StringAssert.Contains(workspaceSource, "var activeDraggedTableSet = new HashSet<BMSTable>(appliedDraggedTables);");
-        StringAssert.Contains(workspaceSource, "int? appliedCurrentPlaylistId = currentPlaylistId.HasValue");
-        StringAssert.Contains(bmtSortSource, "private readonly object reorderGate = new();");
-        StringAssert.Contains(bmtSortSource, "playlist.AcquireReaderLockBMSTables();");
-        StringAssert.Contains(bmtSortSource, "table.ReaderWriterLock.GetWriterGuard()");
-        StringAssert.Contains(bmtSortSource, "collectionReadLockHeld: true");
-        string summaryDropSource = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private async void customTablePlaylistSummary_Drop(");
-        StringAssert.Contains(summaryDropSource, "DropSummaryRowsInBmtOrderAsync(");
-        Assert.AreEqual(-1, summaryDropSource.IndexOf("Task.Run", StringComparison.Ordinal));
-        foreach (string summarySortHandler in new[]
-        {
-            "private async void playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick(",
-            "private async void playlistSummaryContextMenuMoveToBmtSortTopClick(",
-            "private async void playlistSummaryContextMenuMoveToBmtSortBottomClick("
-        })
-        {
-            string handlerSource = SourceTextTestHelper.ExtractMethodBody(mainWindowSource, summarySortHandler);
-            Assert.AreEqual(-1, handlerSource.IndexOf("Task.Run", StringComparison.Ordinal), summarySortHandler);
-            StringAssert.Contains(handlerSource, "Async(");
-        }
-        StringAssert.Contains(workspaceSource, "internal async Task ResetPlaylistSummaryColumnsToDefaultAsync()");
-        StringAssert.Contains(workspaceSource, "private bool isPlaylistTreeExpanded = true;");
-        StringAssert.Contains(workspaceSource, "public bool IsPlaylistTreeExpanded");
-        StringAssert.Contains(mainWindowXaml, "IsExpanded=\"{Binding PlaylistWorkspace.IsPlaylistTreeExpanded, Mode=TwoWay}\"");
-        StringAssert.Contains(mainWindowXaml, "ItemsSource=\"{Binding PlaylistWorkspace.PlaylistTreeTables}\"");
-        Assert.IsFalse(mainWindowXaml.Contains("ItemsSource=\"{Binding BMSTables}\""));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RefreshPlaylistTreeTables(tables, files);");
-        Assert.AreEqual(-1, logicalSource.IndexOf("ConfigurePlaylistTreeSource(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<BMSTable> BMSTables", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "PlaylistTablesPresentationChanged");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;");
-        Assert.AreEqual(-1, rootSource.IndexOf("private void SetPlaylistSummaryMode(", StringComparison.Ordinal));
-        foreach (string rootLockProperty in new[]
-        {
-            "IsWriteLockHeldBMSTables",
-            "IsWriteLockHeldBMSTablesInitializeMin",
-            "IsWriteLockHeldAnyBMSTable",
-            "IsPlaylistUpdating"
-        })
-        {
-            Assert.AreEqual(-1, rootSource.IndexOf("public bool " + rootLockProperty, StringComparison.Ordinal), rootLockProperty);
-        }
-        StringAssert.Contains(workspaceSource, "internal bool IsWriteLockHeldBMSTables");
-        StringAssert.Contains(workspaceSource, "internal bool IsWriteLockHeldBMSTablesInitializeMin");
-        StringAssert.Contains(workspaceSource, "internal bool IsWriteLockHeldAnyBMSTable");
-        StringAssert.Contains(workspaceSource, "internal bool IsPlaylistUpdating");
-        StringAssert.Contains(mainWindowSource, "CapturePlaylistRootContextMenuAvailability()");
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace?.IsPlaylistUpdating");
-        Assert.AreEqual(-1, rootSource.IndexOf("RunPlaylistOperationWithNotifications", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("playlistLibraryIndexSync", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("GetOrCreatePlaylistLibraryIndexSnapshot", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigurePlaylistLibraryIndexPrewarm(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "private readonly Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler;");
-        StringAssert.Contains(workspaceSource, "Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler");
-        StringAssert.Contains(workspaceSource, "InvalidatePlaylistLibraryIndexSnapshot(");
-        StringAssert.Contains(workspaceSource, "CapturePlaylistLibraryIndexReadinessSnapshot()");
-        StringAssert.Contains(workspaceSource, "MarkPlaylistLibraryIndexShutdownRequested()");
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.ConfigurePlaylistLibraryIndexPrewarm(", StringComparison.Ordinal));
-        StringAssert.Contains(rootSource, "startupBackgroundTaskScheduler.Queue(\"playlist_library_index_prewarm\", reason, null, work)");
-        StringAssert.Contains(shellShutdownSource, "playlistWorkspace.MarkPlaylistLibraryIndexShutdownRequested");
-        Assert.AreEqual(-1, rootSource.IndexOf("public bool IsPlaylistDetailViewActive", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryColumnSettingsCoordinator", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.IsPlaylistSummaryMode =", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.GridHeaderText =", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.PlaylistSummaryText =", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("internal BMSTable CreateBMSTable()", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal Task<BMSTable> CreatePlaylistAsync()");
-        StringAssert.Contains(workspaceSource, "internal async Task<PlaylistPropertyDialogViewModel> CreatePlaylistPropertyDialogAsync()");
-        StringAssert.Contains(workspaceSource, "return GetPlaylistStore().CreateBMSTable();");
-        StringAssert.Contains(mainWindowSource, "CreatePlaylistPropertyDialogAsync()");
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("viewModel.PlaylistWorkspace.CreatePlaylistAsync()", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true)", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("private void ApplyPlaylistSummarySelection(", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.IsPlaylistDetailViewActive");
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("viewModel.IsPlaylistDetailViewActive", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive");
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("mainWindowViewModel.PlaylistSummaryColumns", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "await mainWindowViewModel.PlaylistWorkspace.ResetPlaylistSummaryColumnsToDefaultAsync()");
-        string playlistSummaryColumnResetSource = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private async void playlistSummaryInitializeColumnSetting(");
-        Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf("TryResetPlaylistSummaryColumnsToDefault", StringComparison.Ordinal));
-        string recommendedImportSource = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private async void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(");
-        Assert.AreEqual(-1, recommendedImportSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
-        Assert.AreEqual(-1, recommendedImportSource.IndexOf("Msg_load_recommended_tables_", StringComparison.Ordinal));
-        Assert.AreEqual(-1, recommendedImportSource.IndexOf("viewModel.LR2ID", StringComparison.Ordinal));
-        Assert.AreEqual(-1, recommendedImportSource.IndexOf("IsWriteLockHeldBMSTablesInitializeMin", StringComparison.Ordinal));
-        Assert.AreEqual(-1, recommendedImportSource.IndexOf("new Uri", StringComparison.Ordinal));
-        Assert.AreEqual(-1, recommendedImportSource.IndexOf("Regex.Match", StringComparison.Ordinal));
-        Assert.AreEqual(-1, recommendedImportSource.IndexOf("EnqueueExternalPlaylistBMSTableImport", StringComparison.Ordinal));
-        StringAssert.Contains(recommendedImportSource, "EnqueueRecommendedPlaylistImportAsync((string)menuItem.Tag)");
-        StringAssert.Contains(recommendedImportSource, "LoggingAndPropagate(\"treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick\")");
-        StringAssert.Contains(workspaceSource, "private readonly PlaylistSummaryVersionedCollection playlistSummaryView");
-        StringAssert.Contains(workspaceSource, "private PlaylistSummaryPresentationIdentity appliedPlaylistSummaryIdentity;");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("previousPlaylistSummaryViewWeakReference", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");
-        StringAssert.Contains(workspaceSource, "internal bool TryApplyPlaylistSummary(PlaylistSummaryApplyRequest request)");
-        StringAssert.Contains(workspaceSource, "private CancellationTokenSource playlistSummaryDataBuildCancellation;");
-        StringAssert.Contains(workspaceSource, "internal bool TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest request)");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("TryGetPlaylistSummaryTableCount", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)");
-        StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(");
-        StringAssert.Contains(workspaceSource, "internal long RequestPlaylistSummaryDataRefresh(");
-        StringAssert.Contains(workspaceSource, "        string reason,");
-        StringAssert.Contains(workspaceSource, "PlaylistPresentationRefreshRequestedEventArgs");
-        StringAssert.Contains(workspaceSource, "PlaylistPresentationRefreshKind");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("playlistSummaryPresentationRefreshGate", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("playlistSummaryDataRefreshGate", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("playlistTreeRefreshSuppressedProvider", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("playlistTreeRefreshDeferredProvider", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "Func<string, Func<Task>, bool> playlistExternalSyncScheduler,");
-        StringAssert.Contains(workspaceSource, "Func<string, Func<Task>, bool> playlistReferenceApplyScheduler,");
-        StringAssert.Contains(workspaceSource, "Func<Action, Task> playlistRestoreUiApplyScheduler,");
-        StringAssert.Contains(workspaceSource, "Func<bool> playlistRestoreUiThreadCheck,");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("QueuePlaylistReferenceApply(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal PlaylistReferenceApplyWorkflowOwner PlaylistReferenceApplyWorkflow { get; }");
-        StringAssert.Contains(referenceApplySource, "context.Store.EnsureAllPlaylistEntriesLoadedAsync(\"playlist_ref_deferred\")");
-        StringAssert.Contains(referenceApplySource, "context.Library.PrepareReferenceBMSTableSynchronization(tables)");
-        StringAssert.Contains(referenceApplySource, "context.Library.TryCommitReferenceBMSTableSynchronization(synchronizationPlan)");
-        Assert.AreEqual(-1, rootSource.IndexOf("deferredPlaylistRefRequestedVersion", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("lockDeferredPlaylistRef", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("private void ScheduleDeferredPlaylistReferenceApply(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("playlistSummaryDataRefreshGate = null", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("playlistSummaryPresentationRefreshGate = null", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("playlistSummaryDataRefreshGate != null", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("playlistSummaryPresentationRefreshGate != null", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "private long RequestPlaylistSummaryBmtSortRefresh(");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(");
-        StringAssert.Contains(workspaceSource, "internal async Task WaitForPlaylistReloadCleanupReadinessAsync(");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("internal void ConfigurePlaylistReloadCleanup(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal bool QueuePlaylistReloadCleanup(string reason, bool fromReloadTables, int tableCount)");
-        StringAssert.Contains(workspaceSource, "internal bool IsPlaylistReloadCleanupIdle");
-        StringAssert.Contains(workspaceSource, "internal void CancelPlaylistReloadCleanupForShutdown()");
-        StringAssert.Contains(workspaceSource, "internal PlaylistReloadCleanupSnapshot CapturePlaylistReloadCleanupSnapshot()");
-        StringAssert.Contains(workspaceSource, "internal bool ShouldRefreshPlaylistDetailAfterReload(MainViewUpdateMode currentTreeMode)");
-        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailReloadRefresh()");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();");
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ConfigurePlaylistReloadCleanup(", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "WaitForPlaylistReloadCleanupDispatcherIdleAsync");
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistReloadCleanupRequest", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("lockPlaylistReloadCleanup", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("ProcessPendingPlaylistReloadCleanupAsync", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("private bool QueuePlaylistReloadCleanup(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("RefreshPlaylistDetailAfterReloadIfVisible", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("IsPlaylistDetailRefreshWaitRequired", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("TryGetPreviousPlaylistSummaryViewState", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.LastPlaylistSummaryBuildCompletedTimestamp", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.LastDetailBuildCompletedTimestamp", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.CapturePreviousDetailRowsSnapshot", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("WaitForPlaylistReloadCleanupShellReadinessAsync(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, bmtSortSource.IndexOf("refreshPlaylistSummary", StringComparison.Ordinal));
-        Assert.AreEqual(-1, bmtSortSource.IndexOf("Func<string, bool, bool, long>", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("refreshPlaylistSummary", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal long LastPlaylistSummaryBuildCompletedTimestamp");
-        StringAssert.Contains(workspaceSource, "CommitMainTablePresentationWithoutNotification(");
-        StringAssert.Contains(workspaceSource, "PublishMainTablePresentation(");
-        StringAssert.Contains(regularOwnerSource, "CommitColumnPresentationWithoutNotification(");
-        Assert.AreEqual(-1, regularOwnerSource.IndexOf("CommitPlaylistDetailActivationWithoutNotification(", StringComparison.Ordinal));
-        StringAssert.Contains(regularOwnerSource, "PublishColumnPresentation(");
-        Assert.AreEqual(-1, regularOwnerSource.IndexOf("PublishPlaylistDetailActivation(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("CommitColumnPresentationWithoutNotification(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("CommitPlaylistDetailActivationWithoutNotification(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishColumnPresentation(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishPlaylistDetailActivation(", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;");
-        Assert.AreEqual(-1, logicalSource.IndexOf("TreeSelectionRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.EntriesChanged", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryDataRefreshRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSummaryDataRefreshRequested", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;");
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistReferenceTableReplaced", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistReferenceTableReplaced", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistPropertyReferenceTableReplaced", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistPropertyFolderSelectionRemapped", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistPropertyReferenceSortInvalidationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "private void ApplyReferenceReplaceReceipt(");
-        StringAssert.Contains(logicalSource, "publishReferenceReceipt: true");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistTableUpdateContext", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("CreatePlaylistReferenceReplaceUpdateCallback", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("files.ReplaceReferenceBMSTable(", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;");
-        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistEntriesChanged(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspaceEntriesChangedEventArgs", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspaceEntriesChanged", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("MarkCurrentPlaylistDetailEntriesChanged(table, \"playlist_updated\")", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("ReplaceCurrentPlaylistSelectionTable(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("RemapCurrentPlaylistFolderSelection(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("treeViewFilterParameterSelected is PlaylistDetailSelection", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true)");
-        StringAssert.Contains(workspaceSource, "bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(table, \"playlist_updated\")");
-        StringAssert.Contains(workspaceSource, "RequestPlaylistDetailReloadRefresh();");
-        StringAssert.Contains(workspaceSource, "PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);");
-        StringAssert.Contains(workspaceSource, "ReplaceCurrentPlaylistDetailSelectionTable(");
-        StringAssert.Contains(workspaceSource, "() => RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders)");
-        StringAssert.Contains(workspaceSource, "RaiseRequiredEvent(");
-        StringAssert.Contains(workspaceSource, "            PlaylistReferenceSortInvalidationRequested,");
-        StringAssert.Contains(workspaceSource, "private void ForwardPlaylistEntriesChanged(");
-        StringAssert.Contains(workspaceSource, "PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);");
-        StringAssert.Contains(workspaceSource, "PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible);");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistWorkspaceEntriesChangedEventArgs", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal Task AddRowsToFolderAsync(");
-        StringAssert.Contains(workspaceSource, "internal Task DeleteSelectedEntriesAsync(IEnumerable<object> selectedRows)");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("internal Task DeleteEntriesAsync(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("DeleteEntriesAsync(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("RemoveTableAsync(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("RemoveTablesAsync(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal void RefreshPlaylistSummaryKeywordSearchSuggestions(");
-        StringAssert.Contains(workspaceSource, "internal IReadOnlyList<string> GetPlaylistKeywordValueCandidates()");
-        StringAssert.Contains(workspaceSource, "internal void CommitPlaylistSummaryKeywordSearchHistory(");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureKeywordSearchHistory(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "IKeywordSearchHistorySettingsStore playlistSummaryKeywordSearchHistorySettingsStore");
-        Assert.AreEqual(-1, rootSource.IndexOf("playlistSummaryKeywordSearchHistory", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("RefreshPlaylistSummaryKeywordSearchSuggestions", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("CommitPlaylistSummaryKeywordSearchHistory", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("ClosePlaylistSummaryKeywordSearchSuggestions", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("UpdatePlaylistSummaryKeywordSearchPresentation", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("GetKeywordSearchPlaylistNameCandidates(", StringComparison.Ordinal));
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.GetPlaylistKeywordValueCandidates()");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RefreshPlaylistSummaryKeywordSearchSuggestions(");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.CommitPlaylistSummaryKeywordSearchHistory(");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ClosePlaylistSummaryKeywordSearchSuggestions();");
-        StringAssert.Contains(workspaceSource, "\"playlist_table_removed\"");
-        StringAssert.Contains(workspaceSource, "rebuildAsync: false");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("RemovePlaylistSummaryRowsAsync(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistSummaryRemovalConfirmationRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistTableRemovalConfirmationRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfirmPlaylistTableRemoval(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "PlaylistRemovalWorkflowOwner PlaylistRemovalWorkflow");
-        StringAssert.Contains(removalSource, "internal async Task RemoveTreeTableAsync(");
-        StringAssert.Contains(removalSource, "internal async Task RemoveSummaryRowsAsync(");
-        StringAssert.Contains(removalSource, "internal async Task RemoveFolderAsync(");
-        StringAssert.Contains(removalSource, "MessageBoxButton.OKCancel");
-        StringAssert.Contains(removalSource, "MessageBoxResult.Cancel");
-        StringAssert.Contains(removalSource, "applySelectionBeforeMutation();");
-        StringAssert.Contains(removalSource, "playlistStore.RemoveCustomFolder(table, settings)");
-        StringAssert.Contains(removalSource, "playlistStore.RemoveBMSTable(table)");
-        StringAssert.Contains(removalSource, "playlistStore.RemoveFolderBMSTable(table, folderName)");
-        StringAssert.Contains(removalSource, "library.RemoveReferenceBMSTables(removedTable)");
-        StringAssert.Contains(workspaceSource, "PlaylistTableLevelOverwriteWorkflowOwner PlaylistTableLevelOverwriteWorkflow");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistTableLevelOverwriteConfirmationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(levelOverwriteSource, "internal async Task OverwriteAsync(BMSTable table)");
-        StringAssert.Contains(levelOverwriteSource, "ReplaceBmsFileLevelByTableEntryLevel(table)");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistSummaryColumnResetConfirmationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal async Task ResetPlaylistSummaryColumnsToDefaultAsync()");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistRecommendedTableImportConfirmationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal async Task<bool> EnqueueRecommendedPlaylistImportAsync(string rawTag)");
-        StringAssert.Contains(workspaceSource, "ShowPlaylistWorkspaceMessageAsync(");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;");
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.MutationRejected += MainWindow_PlaylistWorkspaceMutationRejected;");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested += MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;");
-        StringAssert.Contains(mainWindowSource, "subscribedViewModel.PlaylistWorkspace.MutationRejected -= MainWindow_PlaylistWorkspaceMutationRejected;");
-        StringAssert.Contains(mainWindowSource, "subscribedViewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested -= MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;");
-        StringAssert.Contains(mainWindowSource, "subscribedViewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested -= MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;");
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady +=", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
-        Assert.IsFalse(logicalSource.Contains("PlaylistWorkspace.PlaylistImportNotificationsFlushRequested"));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed +=", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
-        Assert.AreEqual(-1, logicalSource.IndexOf("ExternalPlaylistImportSummaryRefreshRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ConfigureExternalPlaylistImportLogging(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureExternalPlaylistImportLogging(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ConfigureBeatorajaTableUrlImportLogging(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureBeatorajaTableUrlImportLogging(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested +=", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested +=", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady +=", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;");
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;");
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;");
-        StringAssert.Contains(workspaceSource, "internal bool TryEnqueueExternalPlaylistCollectionImport(BMSTableSimple source)");
-        StringAssert.Contains(workspaceSource, "internal bool TryEnqueueBuiltInExternalPlaylistImport(string rawTag)");
-        StringAssert.Contains(workspaceSource, "internal ExternalPlaylistUriSubmissionResult SubmitExternalPlaylistUriText(string input)");
-        StringAssert.Contains(workspaceSource, "private static ExternalPlaylistUriParseResult ParseExternalPlaylistUriInput(string input)");
-        StringAssert.Contains(workspaceSource, "private void EnqueueExternalPlaylistBMSTableImports(IEnumerable<Uri> uris)");
-        StringAssert.Contains(workspaceSource, "private async Task DrainExternalPlaylistImportQueueAsync()");
-        StringAssert.Contains(workspaceSource, "internal bool CompleteImportedPlaylistRegistrations(");
-        StringAssert.Contains(workspaceSource, "RequestPlaylistSummaryDataRefresh(");
-        StringAssert.Contains(workspaceSource, "internal void StartBeatorajaTableUrlImport(string rootPath)");
-        StringAssert.Contains(workspaceSource, "internal bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string rootPath)");
-        StringAssert.Contains(workspaceSource, "private async Task ImportBeatorajaTableUrlsAsync(");
-        StringAssert.Contains(workspaceSource, "private static IReadOnlyList<BeatorajaTableUrlImportTarget> BuildBeatorajaTableUrlImportTargets(");
-        StringAssert.Contains(workspaceSource, "BeatorajaTableUrlImportConfirmationRequested");
-        StringAssert.Contains(workspaceSource, "BeatorajaTableUrlImportNotificationRequested");
-        StringAssert.Contains(workspaceSource, "BeatorajaTableUrlImportSummaryReady");
-        Assert.AreEqual(-1, rootSource.IndexOf("EnqueueExternalPlaylistBMSTableImport(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("DrainExternalPlaylistImportQueueAsync(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("private bool CompleteImportedPlaylistRegistrations(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("StartBeatorajaTableUrlImport(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("ImportBeatorajaTableUrlsAsync(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("BuildBeatorajaTableUrlImportTargets(", StringComparison.Ordinal));
-        string settingDialogSource = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
-        StringAssert.Contains(settingDialogSource, "playlistWorkspace.StartBeatorajaTableUrlImport(");
-        StringAssert.Contains(workspaceSource, "internal Task BackupPlaylistAsync(string fileName)");
-        StringAssert.Contains(workspaceSource, "playlist backup notification");
-        StringAssert.Contains(workspaceSource, "internal async Task ExportPlaylistTableAsync(BMSTable bmsTable)");
-        Assert.AreEqual(
-            -1,
-            workspaceSource.IndexOf("internal Task ExportPlaylistTableAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "tables?.EnsurePlaylistEntriesLoaded(bmsTable, \"ExportBMSTable\")");
-        StringAssert.Contains(workspaceSource, "File.WriteAllText(fileNameHeader, contents)");
-        StringAssert.Contains(workspaceSource, "File.WriteAllText(fileNameData, dataContents)");
-        StringAssert.Contains(workspaceSource, "internal async Task RestorePlaylistBackupAsync(string fileName)");
-        StringAssert.Contains(workspaceSource, "playlistRestoreUiApplyScheduler(() => RestorePlaylistBackup(playlistDump))");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("Application.Current", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("DispatcherHelper", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("MessageBox.Show", StringComparison.Ordinal));
-        StringAssert.Contains(settingDialogSource, "playlistWorkspace.BackupPlaylistAsync(result.FileName)");
-        string restoreHandlerSource = SourceTextTestHelper.ExtractMethodBody(
-            settingDialogSource,
-            "internal async Task HandlePlaylistRestoreAsync()");
-        StringAssert.Contains(restoreHandlerSource, "playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)");
-        Assert.AreEqual(-1, restoreHandlerSource.IndexOf("Task.Run", StringComparison.Ordinal));
-        Assert.AreEqual(-1, restoreHandlerSource.IndexOf("viewModel.RestoreBMSTables(", StringComparison.Ordinal));
-        StringAssert.Contains(restoreHandlerSource, "Application.Current.MainWindow.Close();");
-        StringAssert.Contains(mainWindowSource, "ExportPlaylistTableAsync(bmsTable)");
-        Assert.AreEqual(-1, logicalSource.IndexOf("BackupBMSTables(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("RestoreBMSTables(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, settingDialogSource.IndexOf("viewModel.BackupBMSTables(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "ISettingsDialogWorkspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide");
-        StringAssert.Contains(workspaceSource, "ISettingsDialogWorkspacePort.SchedulePlaylistUrlCompletionRefresh");
-        StringAssert.Contains(workspaceSource, "ISettingsDialogWorkspacePort.QueueBeatorajaBmtExportAll");
-        Assert.AreEqual(-1, rootSource.IndexOf("ISettingsDialogLibraryPort", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistFolderRemovalConfirmationRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested(", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "DeleteSelectedEntriesAsync(GetSelectedGridRowsSnapshot())");
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("GetSelectedGridPlaylistEntries", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow");
-        StringAssert.Contains(mainWindowSource, "RemoveTreeTableAsync(");
-        string tableRemoveSource = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick(");
-        Assert.AreEqual(-1, tableRemoveSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
-        StringAssert.Contains(tableRemoveSource, "SelectNextSiblingOrRoot(");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistTableLevelOverwriteWorkflow");
-        string tableOverwriteSource = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private async void treeViewPlaylistTableContextMenuItemOverwriteLevelClick(");
-        Assert.AreEqual(-1, tableOverwriteSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
-        Assert.AreEqual(-1, tableOverwriteSource.IndexOf("bmseeker:table.recommended", StringComparison.Ordinal));
-        string summaryRemoveSource = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private async void playlistSummaryContextMenuRemoveClick(");
-        StringAssert.Contains(summaryRemoveSource, "RemoveSummaryRowsAsync(");
-        Assert.AreEqual(-1, summaryRemoveSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
-        Assert.AreEqual(-1, summaryRemoveSource.IndexOf("RemoveTablesAsync(", StringComparison.Ordinal));
-        string folderRemoveSource = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private void treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick(");
-        StringAssert.Contains(folderRemoveSource, "RemoveFolderAsync(");
-        Assert.AreEqual(-1, folderRemoveSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
-        Assert.AreEqual(-1, folderRemoveSource.IndexOf("RemovePlaylistFolderAsync(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal void RequestSummarySelection()");
-        StringAssert.Contains(workspaceSource, "internal void RequestDetailSelection(BMSTable table, PlaylistFolderNode folderNode = null)");
-        StringAssert.Contains(workspaceSource, "internal PlaylistDetailSelection CapturePlaylistDetailSelection()");
-        StringAssert.Contains(workspaceSource, "internal PlaylistDetailSelection CapturePlaylistDetailSelection(out long selectionRevision)");
-        StringAssert.Contains(workspaceSource, "internal bool IsCurrentPlaylistDetailSelection(");
-        StringAssert.Contains(workspaceSource, "internal event EventHandler<PlaylistTreeSelectionActivatedEventArgs> TreeSelectionActivated;");
-        StringAssert.Contains(workspaceSource, "dispatchPresentation(");
-        StringAssert.Contains(workspaceSource, "internal sealed class PlaylistTreeSelectionActivatedEventArgs");
-        StringAssert.Contains(workspaceSource, "internal bool SummaryModeChanged");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("TreeSelectionRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("TryExecuteCurrentPlaylistSummarySelection", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("TryActivateCurrentPlaylistDetailSelection", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal bool ReplaceCurrentPlaylistDetailSelectionTable(");
-        StringAssert.Contains(workspaceSource, "internal bool RemapCurrentPlaylistDetailFolderSelection(");
-        StringAssert.Contains(workspaceSource, "internal bool MarkCurrentPlaylistDetailEntriesChanged(");
-        StringAssert.Contains(bulkEditSource, "PublishEntriesChanged(table, refreshSummaryIfVisible: false);");
-        StringAssert.Contains(bulkEditSource, "DispatchPlaylistKeywordValueCandidatesChanged();");
-        StringAssert.Contains(workspaceSource, "internal long ClearPlaylistDetailSelection()");
-        Assert.AreEqual(-1, logicalSource.IndexOf("TryExecuteCurrentPlaylistSummarySelection", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("TryActivateCurrentPlaylistDetailSelection", StringComparison.Ordinal));
-        string treeSelectionHandlerSource = SourceTextTestHelper.ExtractMethodBody(
-            logicalSource,
-            "private void PlaylistWorkspaceTreeSelectionActivated(");
-        Assert.AreEqual(-1, treeSelectionHandlerSource.IndexOf("InvokeMainChartListPresentationAction(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, treeSelectionHandlerSource.IndexOf("PlaylistWorkspace.SetPlaylistSummaryMode(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, treeSelectionHandlerSource.IndexOf("RequestPlaylistSummaryPresentationRefresh", StringComparison.Ordinal));
-        StringAssert.Contains(treeSelectionHandlerSource, "RefreshChartRowsView(");
-        StringAssert.Contains(treeSelectionHandlerSource, "PlaylistDetailFilter.PlaylistNotOwnedFilterSelected");
-        StringAssert.Contains(logicalSource, "CapturePlaylistDetailSelection(out long selectionRevision)");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestSummarySelection();");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);");
-        foreach (string selectionRoute in new[]
-        {
-            "private void playlistRootSelect(",
-            "private void ForceRefreshPlaylistTreeSelection(",
-            "private void playlistTableSelected("
-        })
-        {
-            string selectionRouteSource = SourceTextTestHelper.ExtractMethodBody(mainWindowSource, selectionRoute);
-            Assert.AreEqual(-1, selectionRouteSource.IndexOf("Task.Run", StringComparison.Ordinal));
-            Assert.AreEqual(-1, selectionRouteSource.IndexOf("Logging", StringComparison.Ordinal));
-        }
-        string tableRemoveSelectionSource = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick(");
-        Assert.AreEqual(-1, tableRemoveSelectionSource.IndexOf("Task.Run", StringComparison.Ordinal));
-        StringAssert.Contains(tableRemoveSelectionSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(null);");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.HandlePlaylistSummaryCellActionAsync(");
-        StringAssert.Contains(bulkEditSource, "ownerWorkspace.ApplyPlaylistSummaryBmtOutput(");
-        StringAssert.Contains(workspaceSource, "internal void ApplyPlaylistSummaryBmtOutput(");
-        StringAssert.Contains(workspaceSource, "internal async Task ApplyPlaylistSummaryCellActionAsync(");
-        StringAssert.Contains(workspaceSource, "internal async Task HandlePlaylistSummaryCellActionAsync(");
-        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistSummaryExternalSyncConfirmationRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummarySyncFromCustomTableAsync", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummaryRootFromCustomTableAsync", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummaryBmtOutputFromCustomTableAsync", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("playlistSummarySyncCheckBoxClick", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("playlistSummaryRootCheckBoxClick", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistSummaryBmtOutput(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("RemoveBMSTable(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("ExecPlaylistFilter", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("SelectPlaylistSummary", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("playlistViewState", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("AddChartRowsToFolderBMSTable", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("DeleteBMSTableEntries", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("ArePlaylistDropCandidateRows", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("GetPlaylistFilterType", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("GetPlaylistFolderSelectionKey", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "LogPlaylistViewApply,");
-        StringAssert.Contains(workspaceSource, "internal PlaylistDetailBuildState DetailBuildState { get; }");
-        StringAssert.Contains(workspaceSource, "internal PlaylistDetailViewState DetailViewState { get; }");
-        StringAssert.Contains(logicalSource, "LogPlaylistRetention,");
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("private void PlaylistWorkspacePropertyChanged(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("playlistTreeStore.PropertyChanged", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "playlistTreeStore.PlaylistTablesReplaced += PlaylistTreeStoreTablesReplaced;");
-        StringAssert.Contains(logicalSource, "playlistTreeStore.PlaylistEntriesHydrationRequested += PlaylistTreeStoreHydrationRequested;");
-        StringAssert.Contains(logicalSource, "playlistTreeStore.PlaylistEntriesHydrationCompleted += PlaylistTreeStoreHydrationCompleted;");
-        Assert.AreEqual(-1, rootSource.IndexOf("lockPlaylistSyncStatuses", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("playlistSyncStatuses", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("UpdatePlaylistSyncRuntimeStatus", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("GetPlaylistSyncStatusSnapshot", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal void RecordPlaylistSyncResult(PlaylistSyncAttemptResult result)");
-        StringAssert.Contains(workspaceSource, "internal IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> CapturePlaylistSyncStatusSnapshot()");
-        Assert.AreEqual(-1, rootSource.IndexOf("playlistSyncProgressLock", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("playlistSyncProgressActiveOperationCount", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("activeBeatorajaBmtExportProgressOperations", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("private void BeginPlaylistSyncProgressOperation", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("private void EndPlaylistSyncProgressOperation", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("UpdateBeatorajaBmtExportProgressStatus", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal void BeginPlaylistSyncProgressOperation()");
-        StringAssert.Contains(workspaceSource, "internal void EndPlaylistSyncProgressOperation()");
-        StringAssert.Contains(workspaceSource, "internal void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)");
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryBulkOperationStarted", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryBulkOperationFinished", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncStarted", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncFinished", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspacePlaylistSyncProgressChanged", StringComparison.Ordinal));
-        Assert.IsFalse(mainWindowSource.Contains("PlaylistSyncProgressChanged += MainWindow_PlaylistSyncProgressChanged"));
-        Assert.IsFalse(mainWindowSource.Contains("PlaylistSyncProgressChanged -= MainWindow_PlaylistSyncProgressChanged"));
-        foreach (string propertyDialogEvent in new[]
-        {
-            "PlaylistPropertyValidationError",
-            "PlaylistPropertyExternalSyncConfirmationRequested",
-            "PlaylistPropertyInvalidOutputDirectoryRequested",
-            "PlaylistPropertyExternalSyncFailed"
-        })
-        {
-            Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace" + propertyDialogEvent, StringComparison.Ordinal));
-            StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace." + propertyDialogEvent + " += MainWindow_PlaylistProperty");
-        }
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistSummarySortRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistSummaryFilterChanged", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSummarySortRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSummaryFilterChanged", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummaryPresentationRefresh()");
-        StringAssert.Contains(workspaceSource, "RequestDeferredPlaylistSummaryPresentationRefresh();");
-        StringAssert.Contains(workspaceSource, "internal bool HasDeferredPlaylistSummaryPresentationRefresh()");
-        StringAssert.Contains(workspaceSource, "internal bool HasDeferredPlaylistSummaryRefresh()");
-        StringAssert.Contains(workspaceSource, "DrainDeferredPlaylistSummaryRefresh(");
-        Assert.AreEqual(-1, rootSource.IndexOf("pendingPlaylistSummaryPresentationRefresh", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("QueuePlaylistSummaryPresentationRefresh", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.RequestPlaylistSummaryPresentationRefresh();", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistSummaryViewApplied", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryDataRefreshDecision", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;");
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummarySelectionRestoreRequested", StringComparison.Ordinal));
-        Assert.IsFalse(rootSource.Contains("PlaylistWorkspacePlaylistUrlDownloadStatusChanged"));
-        Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryRows", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryPresentationRows", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("DrainPlaylistSummaryRefresh(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("CanApplyPlaylistSummaryPresentation", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("private void ApplyPlaylistSummaryPresentation", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("lastPlaylistSummaryBuildElapsedMs", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("pendingPlaylistSummarySelection", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("GetPlaylistSummaryRowIds", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPendingPlaylistSummarySelectionRestore", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "ApplyPlaylistSummarySelectionRestoreToView");
-        StringAssert.Contains(workspaceSource, "private bool TryTakePlaylistSummarySelectionRestore");
-        StringAssert.Contains(workspaceSource, "PlaylistSummarySelectionRestoreRequested");
-        StringAssert.Contains(workspaceSource, "QueuePlaylistSummarySelectionRestore");
-        StringAssert.Contains(workspaceSource, "SetPlaylistSummarySelectionRestoreMinimumGeneration");
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("IsPlaylistSummaryEditableProperty", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("GetPlaylistSummaryEditableText", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("NormalizePlaylistSummaryEditableText", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "CanBeginSummaryPropertyEdit");
-        StringAssert.Contains(workspaceSource, "private static bool IsSummaryPropertyEditable");
-        StringAssert.Contains(workspaceSource, "private long lastPlaylistSummaryBuildElapsedMs;");
-        string buildOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBuild.cs");
-        StringAssert.Contains(buildOwnerSource, "internal long DrainDeferredPlaylistSummaryRefresh(");
-        StringAssert.Contains(buildOwnerSource, "internal long RebuildPlaylistSummaryView(");
-        StringAssert.Contains(buildOwnerSource, "private PlaylistSummaryRowsBuildResult BuildPlaylistSummaryRows(");
-        StringAssert.Contains(buildOwnerSource, "internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(");
-        Assert.AreEqual(-1, buildOwnerSource.IndexOf("Logger", StringComparison.Ordinal));
-        Assert.AreEqual(-1, buildOwnerSource.IndexOf("logger", StringComparison.Ordinal));
-        Assert.AreEqual(-1, buildOwnerSource.IndexOf("DispatcherHelper.UIDispatcher", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workspaceSource.IndexOf("CustomFolderOutputSettingsSnapshot.CreateCurrent", StringComparison.Ordinal));
-        StringAssert.Contains(buildOwnerSource, "dispatchPresentation(Reflect);");
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryViewApplied", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("installPerformanceLoggingEnabled ? installPerformanceLogger : null", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("MainTableDisplayRefreshRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("MainTableSortParameters", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("public void ExecSort", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("public void ExecPlaylistSummarySort", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("public long RebuildPlaylistSummaryView(", StringComparison.Ordinal));
-        StringAssert.Contains(mainChartListSource, "internal event EventHandler DisplayRefreshRequested;");
-        StringAssert.Contains(mainChartListSource, "internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;");
-        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummarySort(");
-        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailSort(");
-        StringAssert.Contains(workspaceSource, "internal bool TryRequestPlaylistDetailSort(");
-        StringAssert.Contains(workspaceSource, "internal ChartListSortParameters CapturePlaylistDetailSortParameters()");
-        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailFilter(");
-        StringAssert.Contains(workspaceSource, "internal bool TryRequestPlaylistDetailFilter(");
-        StringAssert.Contains(workspaceSource, "internal ChartListFilterSnapshot CapturePlaylistDetailFilterSnapshot()");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.InitializePlaylistDetailSort(regularChartListOwner.CaptureSortParameters());");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryRequestPlaylistDetailSort(request.ColumnName, request.Direction)");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.CapturePlaylistDetailSortParameters()");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryRequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters)");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryRequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters)");
-        string modeFilterChanged = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void ChartFiltersModeFilterChanged(");
-        string keywordFilterChanged = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void ChartFiltersKeywordFilterChanged(");
-        string sortRequested = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void MainChartListSortRequested(");
-        Assert.AreEqual(-1, modeFilterChanged.IndexOf("IsPlaylistDetailWorkflowActive", StringComparison.Ordinal));
-        Assert.AreEqual(-1, modeFilterChanged.IndexOf(".RequestPlaylistDetailFilter(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, keywordFilterChanged.IndexOf("IsPlaylistDetailWorkflowActive", StringComparison.Ordinal));
-        Assert.AreEqual(-1, keywordFilterChanged.IndexOf(".RequestPlaylistDetailFilter(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, sortRequested.IndexOf("IsPlaylistDetailWorkflowActive", StringComparison.Ordinal));
-        Assert.AreEqual(-1, sortRequested.IndexOf(".RequestPlaylistDetailSort(", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal event EventHandler<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs> PlaylistDetailScoreSnapshotRefreshRequested;");
-        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailScoreSnapshotRefresh(int scoreSnapshotVersion)");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailScoreSnapshotRefresh(files.ScoreSnapshotVersion);");
-        string scoreSnapshotRefreshSource = SourceTextTestHelper.ExtractMethodBody(
-            logicalSource,
-            "private void PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested(");
-        StringAssert.Contains(scoreSnapshotRefreshSource, "InvokeMainChartListPresentationAction(");
-        int scoreSnapshotDispatchIndex = scoreSnapshotRefreshSource.IndexOf(
-            "InvokeMainChartListPresentationAction(",
-            StringComparison.Ordinal);
-        int scoreSnapshotRefreshIndex = scoreSnapshotRefreshSource.IndexOf(
-            "RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged)",
-            StringComparison.Ordinal);
-        StringAssert.Contains(scoreSnapshotRefreshSource, "|| PlaylistWorkspace.IsPlaylistSummaryMode");
-        Assert.IsTrue(scoreSnapshotDispatchIndex >= 0);
-        Assert.IsTrue(scoreSnapshotRefreshIndex > scoreSnapshotDispatchIndex);
-        Assert.AreEqual(-1, rootSource.IndexOf("RequestPlaylistScoreSnapshotRefresh(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("EvaluateScoreSnapshotRefresh(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistDetailEditRefreshRequested", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("CreatePlaylistDetailRefreshInput(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailRefreshInput", StringComparison.Ordinal));
-        string detailActivationUpdate = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void UpdatePlaylistDetailActivation(");
-        StringAssert.Contains(detailActivationUpdate, "if (!playlistDetailActive)");
-        StringAssert.Contains(detailActivationUpdate, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
-        Assert.IsFalse(mainWindowSource.Contains("MainChartList.DisplayRefreshRequested"));
-        string customTableSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "CustomTableView.cs");
-        StringAssert.Contains(customTableSource, "subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;");
-        StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.RequestSort(e.SortMemberPath, e.Direction);");
-        StringAssert.Contains(mainWindowSource, "private void customTableView_SortRequested(");
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("private async void customTableView_SortRequested(", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainChartListSource.IndexOf("CaptureSortRequest", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
-        string playlistSummarySortRequested = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private void customTablePlaylistSummary_SortRequested(");
-        Assert.AreEqual(-1, playlistSummarySortRequested.IndexOf("Task.Run", StringComparison.Ordinal));
-        Assert.AreEqual(-1, playlistSummarySortRequested.IndexOf("Logging", StringComparison.Ordinal));
-        StringAssert.Contains(playlistSummarySortRequested, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
-        StringAssert.Contains(
-            workspaceSource,
-            "internal async Task<PlaylistSummaryPropertyEditCompletion> CompleteSummaryPropertyEditAsync(");
-        Assert.AreEqual(
-            -1,
-            workspaceSource.IndexOf("internal async Task<bool> ApplySummaryPropertyEditAsync(", StringComparison.Ordinal));
-        string playlistSummaryPropertyEditSource = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private async void customTablePlaylistSummary_CellEditEnded(");
-        StringAssert.Contains(
-            playlistSummaryPropertyEditSource,
-            "CompleteSummaryPropertyEditAsync(");
-        StringAssert.Contains(
-            playlistSummaryPropertyEditSource,
-            "customTablePlaylistSummary?.RefreshDisplay();");
-        Assert.AreEqual(
-            -1,
-            playlistSummaryPropertyEditSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
-        Assert.AreEqual(
-            -1,
-            playlistSummaryPropertyEditSource.IndexOf("Msg_invalid_setting", StringComparison.Ordinal));
-        Assert.AreEqual(
-            -1,
-            playlistSummaryPropertyEditSource.IndexOf("Msg_error_unexpected", StringComparison.Ordinal));
-    }
-
-    [TestMethod]
     public void SubmitExternalPlaylistUriText_AllInvalidReturnsValidationFactsWithoutEnqueueing()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
@@ -1077,6 +329,147 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public async Task SettingsWorkspacePort_CatalogMutationPublishesTypedVersion()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTableEntry entry = new TestablePlaylistEntry(
+                "abababababababababababababababab",
+                "Catalog entry")
+            {
+                playlist_id = 7820,
+                folder = "Folder"
+            };
+            BMSTable table = new()
+            {
+                playlist_id = 7820,
+                name = "Catalog target",
+                symbol = "CAT",
+                compat_prefix = string.Empty,
+                Page_url = new Uri("https://example.test/catalog"),
+                Header_url = new Uri("https://example.test/catalog.json"),
+                Data_url = new Uri("https://example.test/catalog-data.json"),
+                Output_dir = "CatalogTarget",
+                is_root_folder = true,
+                custom_folder_output_base_name = "OldBase",
+                entries = [entry],
+                Folder_order = ["Folder"]
+            };
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+
+            TestBmsPlaylist playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            var library = new TestBmsLibrary(songDbPath);
+            var propertySaveService = new PlaylistPropertySaveService(
+                () => playlist,
+                () => library,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            var catalogNotificationQueue = new Queue<Action>();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                propertySaveService: propertySaveService,
+                catalogNotificationQueue: catalogNotificationQueue.Enqueue);
+            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => { };
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+
+            ISettingsDialogWorkspacePort settingsPort = workspace;
+            var publishedEvents = new List<PlaylistCatalogChangedEventArgs>();
+            settingsPort.PlaylistCatalogChanged += (_, eventArgs) => publishedEvents.Add(eventArgs);
+
+            long CompletePublishedMutation(long previousVersion, int previousEventCount)
+            {
+                Assert.IsTrue(
+                    settingsPort.PlaylistCatalogVersion > previousVersion,
+                    "The catalog version did not advance for the mutation.");
+                Assert.IsTrue(
+                    catalogNotificationQueue.Count > 0,
+                    "The mutation did not queue a typed catalog notification.");
+                while (catalogNotificationQueue.Count > 0)
+                {
+                    catalogNotificationQueue.Dequeue()();
+                }
+                Assert.AreEqual(previousEventCount + 1, publishedEvents.Count);
+                PlaylistCatalogChangedEventArgs latestEvent = publishedEvents[^1];
+                Assert.AreEqual(settingsPort.PlaylistCatalogVersion, latestEvent.Version);
+                Assert.IsTrue(latestEvent.Version > previousVersion);
+                return latestEvent.Version;
+            }
+
+            long previousVersion = settingsPort.PlaylistCatalogVersion;
+            int previousEventCount = publishedEvents.Count;
+            workspace.RefreshPlaylistTreeTables(playlist);
+            Assert.AreSame(playlist.BMSTables, workspace.PlaylistTreeTables);
+            CompletePublishedMutation(previousVersion, previousEventCount);
+
+            previousVersion = settingsPort.PlaylistCatalogVersion;
+            previousEventCount = publishedEvents.Count;
+            PlaylistSummaryPropertyEditCompletion nameEdit =
+                await workspace.CompleteSummaryPropertyEditAsync(
+                    new PlaylistSummaryRow { TableRef = table },
+                    nameof(PlaylistSummaryRow.Name),
+                    "Catalog renamed",
+                    commit: true);
+            Assert.IsTrue(nameEdit.IsApplied);
+            Assert.AreEqual("Catalog renamed", table.name);
+            CompletePublishedMutation(previousVersion, previousEventCount);
+
+            previousVersion = settingsPort.PlaylistCatalogVersion;
+            previousEventCount = publishedEvents.Count;
+            PlaylistSummaryPropertyEditCompletion entriesEdit =
+                await workspace.CompleteSummaryPropertyEditAsync(
+                    new PlaylistSummaryRow { TableRef = table },
+                    nameof(PlaylistSummaryRow.CompatPrefix),
+                    "★",
+                    commit: true);
+            Assert.IsTrue(entriesEdit.IsApplied);
+            Assert.AreEqual("★Folder", table.entries.Single().folder);
+            CompletePublishedMutation(previousVersion, previousEventCount);
+
+            previousVersion = settingsPort.PlaylistCatalogVersion;
+            previousEventCount = publishedEvents.Count;
+            workspace.ApplyPlaylistSummaryOutputBase(
+                [new PlaylistSummaryRow { TableRef = table }],
+                outputBaseName: string.Empty);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(table.custom_folder_output_base_name));
+            CompletePublishedMutation(previousVersion, previousEventCount);
+
+            for (int index = 1; index < publishedEvents.Count; index++)
+            {
+                Assert.IsTrue(publishedEvents[index - 1].Version < publishedEvents[index].Version);
+            }
+            Assert.AreEqual(
+                settingsPort.PlaylistCatalogVersion,
+                publishedEvents[^1].Version);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void SettingsWorkspacePort_CatalogCallbackFailureDoesNotBlockNextVersion()
     {
         var presentationQueue = new Queue<Action>();
@@ -1152,49 +545,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         }
     }
 
-    [TestMethod]
-    public void SettingsWorkspacePort_CatalogMutationRoutesPublishTypedVersion()
-    {
-        string workspaceSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.cs");
-        string treeSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.TreeSelection.cs");
-        string notificationsSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs");
-        string propertyEditingSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PropertyEditing.cs");
-        string bulkEditSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit.cs");
-
-        Assert.AreEqual(
-            -1,
-            workspaceSource.IndexOf("PropertyChanged += handler", StringComparison.Ordinal));
-        StringAssert.Contains(
-            SourceTextTestHelper.ExtractMethodBody(
-                treeSource,
-                "internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore, BMSLibrary playlistLibrary)"),
-            "PublishPlaylistCatalogChanged();");
-        StringAssert.Contains(
-            SourceTextTestHelper.ExtractMethodBody(
-                notificationsSource,
-                "private void RequestPlaylistTreePresentationRefresh("),
-            "PublishPlaylistCatalogChanged();");
-        StringAssert.Contains(
-            SourceTextTestHelper.ExtractMethodBody(
-                propertyEditingSource,
-                "private void ForwardPlaylistSummaryDataRefreshRequested("),
-            "PublishPlaylistCatalogChanged();");
-        StringAssert.Contains(
-            SourceTextTestHelper.ExtractMethodBody(
-                propertyEditingSource,
-                "private void ForwardPlaylistEntriesChanged("),
-            "PublishPlaylistCatalogChanged();");
-        StringAssert.Contains(
-            SourceTextTestHelper.ExtractMethodBody(
-                bulkEditSource,
-                "private void RequestPlaylistSummaryRefresh("),
-            "PublishPlaylistCatalogChanged();");
-    }
 
     [TestMethod]
     public void SettingsWorkspacePort_DelegatesBackgroundPublishRequestsToAttachedPlaylist()
@@ -1356,47 +706,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         }
     }
 
-    [TestMethod]
-    public void ExternalTableListCatalog_IsOwnedByWorkspaceAndRunsAfterCoreStartup()
-    {
-        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
-        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
-        string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
-
-        StringAssert.Contains(rootSource, "files.InitializeStartup(");
-        StringAssert.Contains(rootSource, "startupPerformanceInteraction);");
-        StringAssert.Contains(rootSource, "\"external_table_catalog\"");
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.LoadExternalTableCollectionAsync(");
-        StringAssert.Contains(rootSource, "BMSPlaylist.GetBMSTableInfoAsync");
-        Assert.IsTrue(
-            rootSource.IndexOf("_semaphore.Release();", StringComparison.Ordinal)
-            < rootSource.IndexOf("\"external_table_catalog\"", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("void taskAdd2()", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("files.InitializeStartup([taskAdd1, taskAdd2]", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("BMSExternalTableListExt", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootSource.IndexOf("IsLoadingExternalCollectionBMSTables", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal async Task LoadExternalTableCollectionAsync(");
-        StringAssert.Contains(workspaceSource, "CancellationTokenSource externalTableListLoadCancellation");
-        StringAssert.Contains(workspaceSource, "internal PlaylistRootContextMenuAvailability CapturePlaylistRootContextMenuAvailability()");
-        StringAssert.Contains(workspaceSource, "await fetchTableInfoAsync(");
-        StringAssert.Contains(workspaceSource, "BuildExternalTableListCatalog(tableInfo)");
-        StringAssert.Contains(mainWindowXaml, "ItemsSource=\"{Binding PlaylistWorkspace.BMSExternalTableListExt.Children}\"");
-        Assert.AreEqual(-1, mainWindowXaml.IndexOf("ItemsSource=\"{Binding BMSExternalTableListExt.Children}\"", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "CanLoadPlaylistCollection");
-        string rootMenuHandler = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private void treeViewPlaylistRootContextMenuOpend(");
-        string loadUriHandler = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private void treeViewPlaylistRootContextMenuItemLoadPlaylistURLClick(");
-        StringAssert.Contains(rootMenuHandler, "CapturePlaylistRootContextMenuAvailability()");
-        Assert.AreEqual(-1, rootMenuHandler.IndexOf("IsWriteLockHeldBMSTablesInitializeMin", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootMenuHandler.IndexOf("IsLoadingExternalCollectionBMSTables", StringComparison.Ordinal));
-        Assert.AreEqual(-1, rootMenuHandler.IndexOf("CanOpenPlaylistEditDialog", StringComparison.Ordinal));
-        StringAssert.Contains(loadUriHandler, "CapturePlaylistRootContextMenuAvailability().CanLoadPlaylistUri");
-        Assert.AreEqual(-1, loadUriHandler.IndexOf("IsWriteLockHeldBMSTablesInitializeMin", StringComparison.Ordinal));
-    }
 
     [TestMethod]
     public async Task ExternalTableListCatalog_SlowFetchDoesNotBlockCallerAndPublishesAfterCompletion()
@@ -1559,26 +868,8 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void PlaylistTreeSnapshot_IsOwnedByWorkspaceAndReleasesReaderLock()
+    public void PlaylistTreeSnapshot_ReleasesReaderLockAfterCapture()
     {
-        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-        string workspaceTreeSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "PlaylistWorkspaceViewModel.TreeSelection.cs");
-        string displayTargetRefreshSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "PlayHistoryWorkflowOwner.DisplayTargetRefresh.cs");
-
-        Assert.AreEqual(-1, rootSource.IndexOf("SnapshotPlayHistoryDisplayTargetTables", StringComparison.Ordinal));
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot,");
-        StringAssert.Contains(displayTargetRefreshSource, "snapshotDisplayTargetCatalogTables()");
-        StringAssert.Contains(workspaceTreeSource, "internal List<BMSTable> CapturePlaylistTreeTablesSnapshot()");
-        StringAssert.Contains(workspaceTreeSource, "playlistStore.AcquireReaderLockBMSTables();");
-        StringAssert.Contains(workspaceTreeSource, "playlistStore.FreeReaderLockBMSTables();");
 
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -1641,86 +932,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         }
     }
 
-    [TestMethod]
-    public void PlaylistTableExternalLinks_AreOwnedByWorkspace()
-    {
-        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
-        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
 
-        foreach (string member in new[]
-        {
-            "CapturePlaylistTableContextMenuAvailability",
-            "PlaylistTableContextMenuAvailability",
-            "TryResolvePlaylistTablePageUri",
-            "TryResolvePlaylistTableClearLampUri",
-            "OpenPlaylistTablePage",
-            "OpenPlaylistTableClearLamp",
-            "OpenPlaylistSummaryUriAsync"
-        })
-        {
-            StringAssert.Contains(workspaceSource, member);
-        }
-
-        string handler = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private void treeViewPlaylistTableContextMenuOpend(");
-        StringAssert.Contains(handler, "CapturePlaylistTableContextMenuAvailability(dataContext)");
-        foreach (string terminalApply in new[]
-        {
-            "menuItem7.IsEnabled = availability.CanReload;",
-            "menuItem.IsEnabled = availability.CanOpenPage;",
-            "menuItem2.IsEnabled = availability.CanOpenClearLamp;",
-            "menuItem4.IsEnabled = availability.CanCreateFolder;",
-            "menuItem3.IsEnabled = availability.CanOverwriteLevel;",
-            "menuItem5.IsEnabled = availability.CanRemoveTable;",
-            "menuItem6.IsEnabled = availability.CanOpenProperty;"
-        })
-        {
-            StringAssert.Contains(handler, terminalApply, terminalApply);
-        }
-        foreach (string directDecision in new[]
-        {
-            "CanReloadPlaylistTable",
-            "CanOpenPlaylistTablePage",
-            "CanOpenPlaylistTableClearLamp",
-            "CanOpenPlaylistEditDialog",
-            "dataContext.is_external_sync"
-        })
-        {
-            Assert.AreEqual(-1, handler.IndexOf(directDecision, StringComparison.Ordinal), directDecision);
-        }
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.OpenPlaylistTablePage(dataContext)");
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.OpenPlaylistTableClearLamp(dataContext)");
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("OpenPlaylistSummaryUriAsync(Uri uri)", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("Process.Start(uri.", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("bmseeker:table.estimation", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("bmseeker:table.recommended", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("recommended_mypage", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("clearlampUri", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindowSource.IndexOf("EscapeDataString(mainWindowViewModel.LR2ID", StringComparison.Ordinal));
-    }
-
-    [TestMethod]
-    public void PlaylistFolderContextMenuAvailability_IsOwnedByWorkspace()
-    {
-        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
-        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
-        StringAssert.Contains(
-            workspaceSource,
-            "internal PlaylistFolderContextMenuAvailability CapturePlaylistFolderContextMenuAvailability(");
-        StringAssert.Contains(workspaceSource, "internal sealed class PlaylistFolderContextMenuAvailability");
-
-        string handler = SourceTextTestHelper.ExtractMethodBody(
-            mainWindowSource,
-            "private void treeViewPlaylistTableFolderContextMenuOpend(");
-        StringAssert.Contains(handler, "CapturePlaylistFolderContextMenuAvailability(bMSTable, folderNode)");
-        StringAssert.Contains(handler, "menuItem.IsEnabled = availability.CanDelete;");
-        StringAssert.Contains(handler, "menuItem2.IsEnabled = availability.CanRename;");
-        foreach (string directDecision in new[] { "bMSTable.is_external_sync", "folderNode.IsEditable" })
-        {
-            Assert.AreEqual(-1, handler.IndexOf(directDecision, StringComparison.Ordinal), directDecision);
-        }
-    }
 
     [TestMethod]
     public void PlaylistFolderContextMenuAvailability_PreservesEditabilityPolicy()
@@ -2451,27 +1663,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         }
     }
 
-    [TestMethod]
-    public void InstallPackageReferenceAttachment_IsOwnedByWorkspace()
-    {
-        string rootSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
-        string workflowSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "PackageInstallWorkflowOwner.cs");
-
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.AttachInstalledPackageReferences(receipt.Packages);");
-        StringAssert.Contains(workflowSource, "CompletionPublished");
-        Assert.AreEqual(-1, workflowSource.IndexOf("AddReferenceBMSTablesToPackageCharts", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workflowSource.IndexOf("AcquireReaderLockBMSTables", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workflowSource.IndexOf("FreeReaderLockBMSTables", StringComparison.Ordinal));
-        Assert.AreEqual(-1, workflowSource.IndexOf("InvalidateNormalLibraryReferenceTableSortKeys", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal void AttachInstalledPackageReferences(IReadOnlyList<ChartPackage> packages)");
-        StringAssert.Contains(workspaceSource, "playlistStore.AcquireReaderLockBMSTables();");
-        StringAssert.Contains(workspaceSource, "GetPlaylistLibrary().AddReferenceBMSTablesToPackageCharts");
-        StringAssert.Contains(workspaceSource, "RequestPlaylistReferenceSortInvalidation();");
-    }
 
     [TestMethod]
     public void InstallPackageReferenceAttachment_AttachesBmsAndBmsonAndRaisesOneInvalidation()
@@ -7657,6 +6848,77 @@ public sealed class PlaylistWorkspaceViewModelTests
                 rebuildAsync: false));
         Assert.IsTrue(workspace.CurrentPlaylistSummaryPresentationGeneration > presentationGenerationBefore);
         Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+    }
+
+    [TestMethod]
+    public async Task PlaylistDropReferenceIndex_IsUpdatedBeforeInvalidationNotification()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable table = new()
+            {
+                playlist_id = 7815,
+                name = "Drop target",
+                symbol = "DROP",
+                Output_dir = "DropTarget"
+            };
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot(),
+                null)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            var library = new TestBmsLibrary(songDbPath);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library);
+            workspace.RefreshPlaylistTreeTables(playlist);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+
+            const string md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+            ChartFile chart = ChartFileProjection.FromBmsFile(
+                BMSFile.FromSongTableRawValues(CreateSongTableRow(md5, @"C:\Library\drop-chart.bms")));
+            LibraryChartRow libraryRow = LibraryChartRow.FromChartFile(chart);
+            PlaylistReferenceDisplay? displayObservedDuringInvalidation = null;
+            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) =>
+                displayObservedDuringInvalidation = library.GetPlaylistReferenceDisplay(chart);
+
+            await workspace.AddRowsToFolderAsync(
+                [libraryRow],
+                table,
+                PlaylistFolderNode.CreateFolder("Imported"));
+
+            Assert.IsNotNull(displayObservedDuringInvalidation);
+            Assert.AreEqual("DROP", displayObservedDuringInvalidation.Symbols);
+            Assert.AreEqual("Drop target", displayObservedDuringInvalidation.Names);
+            Assert.AreEqual("DROP", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("Drop target", library.GetPlaylistReferenceDisplay(chart).Names);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]

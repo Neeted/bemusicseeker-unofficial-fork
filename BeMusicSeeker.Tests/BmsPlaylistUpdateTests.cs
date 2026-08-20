@@ -9063,6 +9063,289 @@ public sealed class BmsPlaylistUpdateTests
         }
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ExternalTableRegistration_PersistsBeforeVisibleCollectionNotification()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot(),
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            BMSTable table = new()
+            {
+                playlist_id = 7811,
+                name = "Durable before visible",
+                symbol = "DBV",
+                Output_dir = "DurableBeforeVisible",
+                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder")]
+            };
+            bool visibleNotificationObserved = false;
+            bool durableAtVisibleNotification = false;
+            playlist.BMSTables.CollectionChanged += (_, change) =>
+            {
+                if (change.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                {
+                    return;
+                }
+
+                visibleNotificationObserved = true;
+                using var verify = new LR2SongDBExtended(songDbPath);
+                durableAtVisibleNotification = verify.ExecuteScalar<long>(
+                    "SELECT COUNT(1) FROM playlist WHERE playlist_id = ?;",
+                    table.playlist_id) == 1;
+            };
+
+            await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(
+                table,
+                renameDuplicateName: false,
+                reason: "durable_before_visible");
+
+            Assert.IsTrue(visibleNotificationObserved);
+            Assert.IsTrue(durableAtVisibleNotification);
+            Assert.IsTrue(playlist.BMSTables.Contains(table));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ExternalTableRegistration_CancellationDuringVisiblePublishDoesNotUndoCommit()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot(),
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            BMSTable table = new()
+            {
+                playlist_id = 7812,
+                name = "Cancellation during visible publish",
+                symbol = "CDV",
+                Output_dir = "CancellationDuringVisiblePublish",
+                entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Folder")]
+            };
+            using var cancellation = new CancellationTokenSource();
+            bool visibleNotificationObserved = false;
+            playlist.BMSTables.CollectionChanged += (_, change) =>
+            {
+                if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                {
+                    visibleNotificationObserved = true;
+                    cancellation.Cancel();
+                }
+            };
+
+            await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(
+                table,
+                renameDuplicateName: false,
+                reason: "cancel_during_visible_publish",
+                cancellation.Token);
+
+            Assert.IsTrue(visibleNotificationObserved);
+            Assert.IsTrue(cancellation.IsCancellationRequested);
+            Assert.IsTrue(playlist.BMSTables.Contains(table));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>(
+                "SELECT COUNT(1) FROM playlist WHERE playlist_id = ?;",
+                table.playlist_id));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistEntryBatchCommit_ConcurrentReverseOrderCompletesWithoutDeadlock()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable first = new()
+            {
+                playlist_id = 7813,
+                name = "Concurrent first",
+                symbol = "CF",
+                Output_dir = "ConcurrentFirst",
+                entries = [CreateEntry("cccccccccccccccccccccccccccccccc", "First")]
+            };
+            BMSTable second = new()
+            {
+                playlist_id = 7814,
+                name = "Concurrent second",
+                symbol = "CS",
+                Output_dir = "ConcurrentSecond",
+                entries = [CreateEntry("dddddddddddddddddddddddddddddddd", "Second")]
+            };
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot(),
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new ObservableCollection<BMSTable>([first, second])
+            };
+            using var releaseHeldWriter = new ManualResetEventSlim();
+            var writerAcquired = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            Task heldFirstWriter = Task.Run(() =>
+            {
+                using (first.ReaderWriterLock.GetWriterGuard())
+                {
+                    writerAcquired.SetResult(true);
+                    releaseHeldWriter.Wait();
+                }
+            });
+            Task? reverseOrderCommit = null;
+            try
+            {
+                await writerAcquired.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var commitStarted = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                reverseOrderCommit = Task.Run(() =>
+                {
+                    commitStarted.SetResult(true);
+                    playlist.CommitBMSTablesWithEntriesToDB([second, first]);
+                });
+
+                await commitStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsTrue(
+                    SpinWait.SpinUntil(
+                        () => first.ReaderWriterLock.WaitingWriteCount > 0,
+                        TimeSpan.FromSeconds(5)),
+                    "The reverse-order commit did not reach the held first-table writer lock.");
+                Assert.AreEqual(0u, second.ReaderWriterLock.LockingWriteCount);
+            }
+            finally
+            {
+                releaseHeldWriter.Set();
+                await heldFirstWriter.WaitAsync(TimeSpan.FromSeconds(5));
+                if (reverseOrderCommit != null)
+                {
+                    await reverseOrderCommit.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+            }
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(2L, verify.ExecuteScalar<long>(
+                "SELECT COUNT(1) FROM playlist WHERE playlist_id IN (?, ?);",
+                first.playlist_id,
+                second.playlist_id));
+            Assert.AreEqual(2L, verify.ExecuteScalar<long>(
+                "SELECT COUNT(1) FROM playlist_entry WHERE playlist_id IN (?, ?) AND is_removed = 0;",
+                first.playlist_id,
+                second.playlist_id));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task BeatorajaBmtExport_EmptyPlaylistDoesNotPublishActiveProgress()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string tablePath = Path.Combine(tempDirectory, "beatoraja", "table.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(tablePath)!);
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot
+                {
+                    EnableBeatorajaBmtOutput = true,
+                    BeatorajaBmtTablePath = tablePath
+                },
+                () => new CustomFolderOutputSettingsSnapshot(),
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            Func<Task>? scheduledWork = null;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                scheduledWork = work;
+                return true;
+            };
+            var progress = new List<PlaylistSyncProgressSnapshot>();
+            playlist.BmtOutput.ExportProgressReporter = snapshot => progress.Add(snapshot);
+
+            playlist.BmtOutput.QueueBeatorajaBmtExportAll("empty_playlist");
+
+            Assert.IsNotNull(scheduledWork);
+            await scheduledWork!().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual(0, progress.Count);
+            Assert.IsFalse(playlist.BmtOutput.HasBlockingWork);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     private static void InsertCustomFolderClassificationRow(LR2SongDBExtended db, string hash, int clear, int rank, int? opHistory)
     {
         db.Execute("INSERT OR REPLACE INTO song(hash, title, path) VALUES (?, ?, ?);", hash, hash, hash + ".bms");
