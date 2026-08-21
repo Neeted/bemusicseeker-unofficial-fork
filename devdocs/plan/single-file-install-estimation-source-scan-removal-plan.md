@@ -186,9 +186,11 @@ MaxVisitedFileSystemEntryCount = 0
    - `BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs`
    - `BeMusicSeeker.Tests/BmsLibraryPendingPackageRegroupTests.cs`
 
-コード、設定、script を編集する前に、`AGENTS.md` に従って `.codex/agents/unit-planner.toml` の `unit-planner` を呼ぶ。planner へ渡す情報には、少なくとも目的、現行 route、上記の確定判断、対象外、開始 branch / HEAD / status、変更予定 path、テストと仕様更新を含める。
+コード、設定、script を編集する前に、ルートが `AGENTS.md` と `devdocs/spec/codex-agent-workflow.md` に従って本計画を current evidence で再検証する。実装へ渡す draft には、少なくとも Goal / Context / Constraints / Done when、上記の確定判断、対象外、開始 branch / HEAD / status、変更予定 path と ownership、検証 command を含める。
 
-planner 実行中、呼出元の実装担当は repository への読み取り、検索、編集、build、test、format、stage、commit を行わず、planner が確認する snapshot を固定する。planner が `NEEDS_DECISION` を返した場合、確定済み判断を再度未決にせず、実在する consumer、互換性 contract、observable behavior の衝突を確認する。repo 内の正本から一意に解決できない事項だけが残る場合は実装を開始せず再計画する。
+サブエージェントへ実装を委任する draft は、確定前に `.codex/agents/plan-clarifier.toml` の `plan-clarifier` へ一度だけ渡す。clarifier は repository で解決できる事実、未決 semantics、unsafe assumption、並列編集の衝突だけを点検し、計画全体を作り直さない。ルートは repo 内の正本から解ける事項を自ら解決し、真に一意に決まらない判断だけをユーザーへ確認して、回答を final plan に反映する。
+
+final plan 確定後は、原則として `.codex/agents/implementation-worker.toml` の `implementation-worker` に、1 Unit と競合しない writable path を明示して実装させる。同じ file を複数 worker に同時所有させない。worker が routine failure ではない重大な blocker を発見した場合だけ、worker 自身が `issue-resolver` を一度呼び、結果を取り込んでから続行する。
 
 ## 実装 Unit 1: Snapshot surface の package-kind ownership を修正する
 

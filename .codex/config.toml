@@ -1,5 +1,11 @@
 review_model = "gpt-5.6-sol"
 
 [agents]
-max_threads = 4
-max_depth = 1
+enabled = true
+# Run at most two independent implementation workers while keeping one slot
+# available for a worker-owned issue resolver. Close completed threads before
+# starting the review agent.
+max_concurrent_threads_per_session = 3
+# Root (depth 0) -> implementation-worker (1) -> issue-resolver (2).
+# V1 enforces this; V2 ignores it, so the role prompts enforce the same boundary.
+max_depth = 2

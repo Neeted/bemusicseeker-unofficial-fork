@@ -41,4 +41,4 @@ PC起動後初回・2回目とも、folder-r2r / bundle-r2rはoperable約22秒�
 - `startup_initialization_complete`: chart install、local playlist edit、通常local list operationに必要なrequired initialization完了。
 - `startup_post_initialization_maintenance_complete`: automatic external sync、audit、export、prewarmを含むpost work完了。
 
-active planはない。unit-plannerを起動しない。
+active planはない。不要な plan-clarifier や implementation-worker を起動しない。

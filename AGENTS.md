@@ -2,39 +2,41 @@
 
 ## 基本方針
 
-- このリポジトリは .NET 10 / C# 14 の WPF アプリケーションであり、デコンパイル由来コードを含む。依頼された挙動を守りつつ、変更した範囲では命名、責務、コメント、テスト可能性を改善する。
+- このリポジトリは .NET 10 / C# 14 の WPF アプリケーション。依頼された挙動を守りつつ、変更した範囲では命名、責務、コメント、テスト可能性を改善する。
 - 作業開始時に `git status --short` と適用範囲内の `AGENTS.md` を確認し、既存の未コミット差分や無関係なファイルを変更、破棄、整形しない。
 - 差分の小ささ自体を目的にしない一方、依頼と無関係な全面整理や将来用抽象化は行わない。
 - コミット、push、tag、署名、公開、version 更新は、ユーザーの明示指示または合意済みの作業手順がある場合だけ行う。
 
 ## 作業の進め方とサブエージェント
 
+複数段階の変更、実装の委譲、並列 worker、static review を伴う作業では、`devdocs\spec\codex-agent-workflow.md` を運用の正本として先に確認する。単純な質問や軽微な文書修正まで機械的にサブエージェントへ渡さない。
+
 ### 要件整理と実装計画
 
-1. ルートエージェントが、ユーザー要件を目的、対象範囲、対象外、受入条件、互換性条件、既知の制約へ整理する。生の会話をそのまま planner へ渡して解釈を委ねない。
-2. 永続化、fallback、failure contract、ownership、互換性など、選択によって observable behavior が変わる事項を decision list として明示する。repository の正本や既に合意した方針から一意に決まらない場合は、実装を始めずユーザー判断を得る。
-3. コード、設定、スクリプトを実装する前に、`.codex/agents/unit-planner.toml` の `unit-planner` を呼び出す。現在の worktree、整理済み要件、decision list、関連する既知情報を渡し、実行可能な有限の計画を得る。
-4. planner が `NEEDS_DECISION` を返した場合は、安全そうな部分だけを先行実装せず、示された未決事項を解消してから新しい計画を得る。
-5. 3つを超える独立 subsystem にまたがる、またはおおむね 15 files を超える見込みの変更は、同じ受入条件へ段階的に到達する reviewable unit へ分割する。数値は停止の絶対条件ではなく、単一 snapshot の責務と検証範囲が広すぎないか判断するための signal とする。
+1. ルートエージェントが、ユーザー要件を Goal、Context、Constraints、Done when、対象外、互換性条件、decision list へ整理し、設計と最終計画に責任を持つ。生の会話をサブエージェントへ渡して解釈を委ねない。
+2. repository の正本や既に合意した方針から一意に決まる事項は調査して解決する。永続化、fallback、failure contract、ownership、互換性など、選択で observable behavior が変わる事項だけをユーザーへ確認し、回答を decision list に残す。
+3. draft plan は、同じ behavior、owner、failure contract、verification scope が閉じる reviewable unit に分け、書込み path、依存順、統合検証を明示する。作成時に、独立した unit を安全に並列化できないか検討する。
+4. サブエージェントへ実装を渡す計画は、完成前に `.codex/agents/plan-clarifier.toml` の Luna Low `plan-clarifier` へ原則一度だけ渡す。repo で解けた事実、未決質問、並列境界、replan trigger を返させ、ルートが必要なユーザー回答を得て最終計画へ反映する。clarifier に計画全体を代作させない。
+5. final plan には unit ごとの observable outcome、所有 path、依存関係、退役する旧 route、維持する invariant、behavior test / filter、review scope、handoff、再計画条件を含める。
 6. feature 固有の現行仕様は `devdocs\spec`、背景・判断履歴は `devdocs\decisions`、一時的な計画は `devdocs\plan` に置く。個別機能仕様を `AGENTS.md` や汎用 agent 設定へ混ぜない。
-7. `unit-planner` の実行中はルートエージェントを凍結する。repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、応答を待つ。
-8. planner の前提と実コードに差異が見つかった場合は、その差異だけを返して計画を補正する。同じ範囲を別 planner やルート側の全面調査で重複させない。
 
-### その他の調査と並列作業
+### 実装と並列作業
 
-- planner 作成と直接関係しない調査、仕様確認、履歴調査、独立した技術観点には、必要に応じて別のサブエージェントを使ってよい。
-- ルートエージェントとサブエージェントは、範囲、観点、参照対象、書込み対象が重ならない場合に限り並列で作業できる。重複調査や同一ファイルへの同時書込みは行わない。
-- ルートエージェントが統合責任を持つ。書込みを委譲する場合は対象ファイルを明示し、重複しない単位に限定する。調査だけなら read-only を優先する。
+- production code、test、runner、設定の bounded implementation は、原則 `.codex/agents/implementation-worker.toml` の Luna Max `implementation-worker` へ任せる。ルートは割当 path を同時に編集・重複調査せず、統合責任を持つ。
+- 書込み worker は既定1つ、同時実行は最大2つとする。writable path、生成物、schema / shared fixture、依存順が重ならず、並列化の利益が統合コストを上回る場合だけ並列化する。同じ巨大 file の別 method を同時編集しない。
+- worker が重大な correctness、安全性、compatibility、ownership 問題、または同一条件で2回目の timeout / failure を発見した場合だけ、worker 自身が `.codex/agents/issue-resolver.toml` の Sol High `issue-resolver` を一度呼ぶ。worker は編集を止めて結果を待ち、resolver から先へ再帰しない。通常の compile error、局所的な test failure、最初の単発 timeout では呼ばない。
+- worker は変更概要、path、focused verification、旧 test / route と replacement、残る risk を要約して返す。生ログや同じ調査をルートへ持ち帰らない。完了した agent thread は結果受領後に閉じる。
+- ルートは並列結果の path ownership と handoff を軽く確認し、機械的 conflict を解消して統合 snapshot の Quick / Functional / 必要な opt-in lane を実行してよい。worker と同じ範囲を最初から再実装・全面調査しない。
 
 ### 実装後レビュー
 
-1. 実装と標準検証を終えたら、`.codex/agents/repo-static-review.toml` の `repo-static-review` を呼び出し、凍結した snapshot をレビューさせる。
-2. reviewer の実行中はルートエージェントを凍結し、repository の読み取り、検索、編集、build、test、format、stage、commit を行わない。
-3. 初回 reviewer には対象 unit の intent、受入条件、base / head、検証結果を渡す。finding は P0 / P1、受入条件へ直接反する P2、pre-existing / out-of-scope、non-blocking recommendation を区別させる。P0 / P1 と直接反する P2 は修正対象とし、単なる改善提案を同じ変更へ無制限に取り込まない。
+1. 実装と標準検証を終え、実装 agent を閉じたら、`.codex/agents/repo-static-review.toml` の `repo-static-review` を呼び出し、凍結した snapshot をレビューさせる。
+2. reviewer の実行中はルートエージェントを凍結し、repository の読み取り、検索、編集、build、test、format、stage、commit を行わない。reviewer と同じ scope の重複チェックも行わない。
+3. 初回 reviewer には対象 unit の intent、受入条件、base / head、worktree diff、検証結果を渡す。finding は P0 / P1、受入条件へ直接反する P2、pre-existing / out-of-scope、non-blocking recommendation を区別させる。P0 / P1 と直接反する P2 は修正対象とし、単なる改善提案を同じ変更へ無制限に取り込まない。
 4. 指摘を修正した場合は影響範囲を再検証し、変更後の snapshot を fresh reviewer へ渡す。fresh reviewer には前回確認済み snapshot、修正差分、前回 finding を明示し、修正とそこから直接影響する invariant を主対象にさせる。
 5. 同じ unit で2回の修正 review を完了した後も新しい P1 が続く場合は、指摘を順次継ぎ足さず、ownership、scope、受入条件、unit 分割を再計画する。新しい P0 / P1 を無視するための回数制限にはしない。
 6. pre-existing / out-of-scope の問題は影響と根拠を記録し、現在の受入条件を阻害する場合だけ scope 変更をユーザーへ提示する。現在の変更で生じた問題として扱わない。
-7. planner / reviewer が利用できない環境では、同じ read-only 契約を明示した汎用サブエージェントを代替にし、省略したことにしない。
+7. custom agent が利用できない場合は同じ model、permission、role contract を明示した built-in / generic agent を代替にする。multi-agent 機能自体が使えない場合は、ルートが同じ工程を順番に再現し、代替箇所と独立 review の有無を明記する。
 
 ## ドキュメント配置
 
@@ -96,10 +98,10 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 - 通常のコード変更は、レビュー前に原則一度 `Functional` を行う。`Functional` は command 全体で 180 秒以内を受入条件とし、個別 testhost / shard ごとに時間予算をリセットしない。
 - `Full` は publish / updater / distribution、release 手順、または Full runner 自体を変更した場合と release 前に使う。settings、startup、共有 model などの変更だけを理由に、通常機能テストと release acceptance を毎回まとめて実行しない。対象に応じて filtered `Quick`、`Functional`、明示的な opt-in lane を組み合わせる。
 - review 修正後は、まず影響範囲の filtered `Quick` を行う。修正が通常機能検証の前提を変えた場合だけ最終 `Functional` を再実行し、release lane を変えた場合だけ `Full` も再実行する。
-- timeout 時は process tree を停止し、active または last observed test、経過時間、console progress / TRX / blame artifact を残す。timeout を延長したり同じ run を無制限に再試行したりせず、`artifacts\verification` の出力を確認して原因を直す。
+- timeout 時は process tree を停止し、active または last observed test、経過時間、console progress / TRX / blame artifact を残し、残留 test process がないことを確認する。最初の単発 timeout は同じ command・filter・budget で一度だけ再実行し、2回目が成功して再発 evidence がなければ一過性のマシン負荷として両方の結果を記録する。2回目も timeout / failure、同じ症状の再発、または artifact が決定的問題を示す場合は原因を調査する。timeout 延長や無制限の再試行は行わない。
 - runner、lane、並列化、fixture 配置を変更した場合は、同一条件の `Functional` を3回連続で実行し、各 command が180秒以内、tracked file が不変、残留 test process がないことを確認する。
 - test はマシンの CPU / I/O を安定性が許す範囲で利用し、wall-clock time を短縮する。負荷抑制だけを理由に shard / worker を制限せず、競合で不安定になる場合は共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
-- flaky test、timeout、または従来より明白に長時間化した test を発見した時点で、本筋を一旦止めて原因を調査する。現在の変更範囲外に見えても放置せず、並列実行、共有 state、固定待ち時間、競合、I/O、fixture / input 量、監視側の timeout 根拠を確認する。
+- timeout 以外の deterministic failure、2回目も失敗した timeout、同じ症状が再発する flaky / 長時間化を確認した時点で、本筋を一旦止めて原因を調査する。現在の変更範囲外に見えても放置せず、並列実行、共有 state、固定待ち時間、競合、I/O、fixture / input 量、監視側の timeout 根拠を確認する。
 - test の見直しでは、可能なら同期 barrier や決定的な fake で安定化し、不要な固定待ちや過大な入力を削減する。必要な処理量として妥当な長時間 test は、実測と失敗検出能力を根拠に timeout / shard 設計を変更してよい。timeout 延長だけで不安定性を隠さない。
 - test-only の修正で閉じる場合は、現在の unit と同じ invariant を検証するものなら同じ commit、横断的または既存の test infrastructure 問題なら独立 commit とする。修正と該当 test の検証後、本筋へ戻る。
 - script が環境上利用できない場合だけ個別 command へ分解し、未実施項目と理由を明示する。標準入口を黙って省略しない。

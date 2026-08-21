@@ -22,34 +22,41 @@
 - contention/deadlockを作る短いwatchdogは許容するが、通常完了待ちには使わない。失敗時もgateを必ず解放し、開始済みtaskをbounded drainする。
 - source-text/private-reflection testを退役する際は、同じ契約をtyped/public owner routeまたはcompiled WPF behaviorで確認する。production APIをテスト都合だけで広げない。
 - runner、lane、shard、fixture配置を変更した場合は、同一条件のFunctionalを3回連続で実行する。各回180秒以内、tracked file不変、残留test processなしを確認する。
+- 最初の単発 timeout は process tree と diagnostics を保存し、残留 process がないことを確認して、同一 command・filter・budget で一度だけ再実行する。2回目が成功し再発 evidence がなければ一過性のマシン負荷として記録し、直ちに調査 unit へ切り替えない。
+- 2回目も timeout / failure、同じ症状の再発、または artifact 上の決定的 evidence がある場合は本筋を止めて調査する。timeout 延長、無制限の再試行、並列度低下だけによる隠蔽は行わない。
 
 ## 3. 現在の停止地点
 
-- 実装作業を停止した時点のHEAD: `5ca2c547` (`test: retire catalog and lr2 reflection probes`)
-- この文書以外のworktree差分: なし
+- この監査の基準HEAD: `7ce680ae` (`docs: refresh test suite cleanup plan`)
+- 直前のproduction/test実装commit: `5ca2c547` (`test: retire catalog and lr2 reflection probes`)
+- bundleに含まれる基準worktree差分: なし
 - 最後に完了した実装: Unit 8のcatalog/LR2 private-reflection整理
-- 次に予定していた作業: Unit 6の残存shell/settings source-text整理
-- Unit 6用plannerは利用上限で失敗し、repositoryの編集は行っていない。再開時は改めてunit-plannerを実行する。
+- 次に再開する作業: Unit 6の残存shell/settings source-text整理
+- 前回のUnit 6専用plannerは利用上限で失敗し、計画結果もrepository編集も残していない。専用planner前提は廃止し、ルートが計画を統括して Luna Low `plan-clarifier` の点検を一度受ける運用へ移行する。
+- Codex運用見直しの変更はagent設定・運用文書・本計画の監査だけであり、Unit 6のproduction/test実装そのものはまだ再開していない。
 
 ## 4. 基準値と現在値
 
 | 指標 | 整理開始時 | 現在 | 注記 |
 | --- | ---: | ---: | --- |
 | `DoNotParallelize` | 76属性 / 47ファイル | 47属性 / 26ファイル | 現値は単純な属性行数。残存属性には任意Quick filterで必要なsafety boundaryを含む。 |
-| `SourceTextTestHelper` | 417参照 / 20ファイル | 275参照 / 8ファイル | 現在は7 consumer + helper本体。 |
+| `SourceTextTestHelper` | 417参照 / 20ファイル | 275 textual reference / 8ファイル | 現在は7 consumerの274 call siteとhelper本体。 |
+| source-text依存test method | 未採取 | 118 method | 7 consumerに残るmethod数。fixture単位ではなくbehavior sliceで退役する。 |
 | Unit 8対象8ファイルのprivate-reflection | planner-core 286参照 | 大幅削減 | broad regexには正当なmetadata/reflectionや1契約内の複数API呼出しも含まれるため、単純なゼロ目標にはしない。 |
 | Functional | 3,962 total / 3,951 pass / 11 opt-in skip、約143/134/134秒 | Unit 9受入時 3,970 terminal / 3,959 pass / 11 not executed、152.5/155.3/158.1秒 | Unit 7・8後の統合Functionalは未実施。 |
 
-現在 `SourceTextTestHelper` を参照するファイルは次の8件である。
+現在のconsumer別inventoryは次のとおりである。
 
-- `BeMusicSeeker.Tests/BmsLibraryMutationBoundaryTests.cs`
-- `BeMusicSeeker.Tests/DialogRouteConsolidationTests.cs`
-- `BeMusicSeeker.Tests/Lr2PlayHistorySchemaUiTests.cs`
-- `BeMusicSeeker.Tests/Lr2SynchronizationArchitectureTests.cs`
-- `BeMusicSeeker.Tests/MainWindowContextMenuResourceTests.cs`
-- `BeMusicSeeker.Tests/PlaylistConcurrencyArchitectureTests.cs`
-- `BeMusicSeeker.Tests/RegularChartListRefreshTypesTests.cs`
-- `BeMusicSeeker.Tests/SourceTextTestHelper.cs`
+| consumer | source-text依存method | helper call site | 主な領域 |
+| --- | ---: | ---: | --- |
+| `MainWindowContextMenuResourceTests.cs` | 82 | 194 | shell binding、navigation、context menu、settings、startup/progress、playlist/play history、library/package |
+| `PlaylistConcurrencyArchitectureTests.cs` | 23 | 49 | settings lifecycle、composition、audio/dialog port、view host |
+| `DialogRouteConsolidationTests.cs` | 8 | 16 | confirmation、progress、file picker、modal / overlay route |
+| `BmsLibraryMutationBoundaryTests.cs` | 2 | 6 | package/folder/library mutation ownership |
+| `Lr2PlayHistorySchemaUiTests.cs` | 1 | 4 | settings UI と schema install boundary |
+| `Lr2SynchronizationArchitectureTests.cs` | 1 | 2 | library synchronization composition |
+| `RegularChartListRefreshTypesTests.cs` | 1 | 3 | typed refresh request / result route |
+| **合計** | **118** | **274** | helper本体を含めると8ファイル・275 textual reference |
 
 ## 5. 元のUnit 1〜10の進捗
 
@@ -108,23 +115,75 @@
 
 ### 7.1 Unit 6: 残存source-text consumer
 
-最優先の未完了事項。再開時は必ずunit-plannerで、次の7 consumerを15ファイル未満のreviewable unitへ分割する。
+最優先の未完了事項である。ルートは各waveのdraft planを作り、実装へ渡す前に Luna Low `plan-clarifier` へ一度だけ点検させる。最終計画では、削除対象method、replacement test、writable path、Quick filter、依存順を固定する。
 
-- `MainWindowContextMenuResourceTests.cs`: 最大の残件。shell binding、context-menu、settings、startup/progress、library/modelが混在する。領域ごとに既存owner/WPF behavior testへ移し、一括削除しない。
-- `PlaylistConcurrencyArchitectureTests.cs`: playlist以外のcomposition/settings/audio/dialog/source配置 assertionが残る。semanticなreflection-only contractとsource placementを区別する。
-- `DialogRouteConsolidationTests.cs`: dialog confirmation/progress/file picker/modalをtyped dialog service/coordinator behaviorへ置換する。
-- `BmsLibraryMutationBoundaryTests.cs`: catalog/package/folder/installation mutationをDB・receipt・failure resultで検証する。
-- `Lr2PlayHistorySchemaUiTests.cs`: actual settings page/controlとschema stateで検証する。
-- `Lr2SynchronizationArchitectureTests.cs`: typed synchronization owner/request/resultへ移す。
-- `RegularChartListRefreshTypesTests.cs`: private method bodyの文字列ではなくrefresh request/type/resultを観測する。
+共通受入条件:
 
-各unitの受入条件:
-
-- 対象fixtureから `SourceTextTestHelper` 参照がなくなる。
-- 削除したmethodごとに、既存または新規behavior testへの対応表をreviewへ渡す。
+- 対象sliceの `SourceTextTestHelper` 呼出しがなくなる。
+- 削除したmethodごとに、既存または新規behavior testへの対応表をworker handoffとreview scopeへ含める。
+- source placementの違反を検出する必要が本当に残る場合は、compiled symbol / semantic ruleで閉じられるかを先に検討し、substring assertionを名前だけ変えて残さない。
 - WPFを扱う場合は共有hostを使い、foreground/window allowlistを増やさない。
 - fixed wait、unbounded await、failure時に解放されないgateを追加しない。
+- production変更は、既存observable routeでは契約を検証できないことが確認できた場合だけ行い、test都合だけのpublic APIを増やさない。
+- 各workerはfocused Quickを行う。並列workerを統合したwaveごとに、ルートが一度だけFunctionalとstatic reviewを行い、worker別に同じ全体検証・reviewを重複させない。
 - 最後のconsumerが消えた時点で `SourceTextTestHelper.cs` を削除する。
+
+#### Wave 6A: typed owner route の最小再開単位
+
+最大2workerで並列化できる最初の候補である。互いのreplacement先が重ならないことをfinal planで確認してから開始する。
+
+- **6A-1** `Lr2SynchronizationArchitectureTests.cs` の1 method / 2 call site
+  - `LibraryFileOperationOwnerUsesDirectCapabilityComposition`
+  - library file operation owner、mutation boundary、typed request / resultのobservable routeへ置換する。
+- **6A-2** `RegularChartListRefreshTypesTests.cs` の1 method / 3 call site
+  - `RefreshChartRowsView_DispatchesRegularProductionEntry`
+  - private method bodyではなくregular refresh request、dispatch、result / notificationを観測する。
+
+workerは別々のconsumer fileとreplacement fixtureを所有し、同じproduction fileへの変更が必要になった場合は並列編集を止めてルートへ返す。統合後に両fixtureからhelper参照が消えたこと、Quick対応表、Functional、reviewを一つのwaveとして閉じる。
+
+#### Wave 6B: 小規模なmutation / settings UI
+
+6Aの運用とhandoffが成立した後に進める。次の2件はdomainが分かれるため並列候補だが、replacement fixtureの所有pathをfinal planで固定する。
+
+- **6B-1** `BmsLibraryMutationBoundaryTests.cs` の2 method / 6 call site
+  - package、folder auto rename、pending package、shell context-menu stateを、mutation receipt / result、DB/file結果、busy stateで検証する。
+- **6B-2** `Lr2PlayHistorySchemaUiTests.cs` の1 method / 4 call site
+  - actual settings page/control、schema state、明示的install boundaryのcompiled behaviorへ置換する。
+
+#### Wave 6C: dialog route
+
+`DialogRouteConsolidationTests.cs` の8 method / 16 call siteを1workerで処理する。confirmation、progress、file picker、window modal、overlay、dispatcher message box禁止、score viewer registrationを、typed coordinator/serviceのrecording fakeと実WPF hostの適切な組合せへ移す。settings presentationのdestination fixtureと重なりやすいため、6B-2や後続MainWindow settings sliceとは同時編集しない。
+
+#### Wave 6D: PlaylistConcurrencyArchitectureTests
+
+23 method / 49 call siteを同一fileで扱うため、複数workerの同時書込みは禁止する。1workerずつ次の2sliceで閉じる。
+
+1. **6D-1 settings / composition lifecycle**
+   - `CustomFolderOutputResolution_UsesDedicatedProviderBoundary` から `StartupPlayerServices_AreConstructedByApplicationComposition` までの15 method。
+   - custom folder、settings edit / persistence、startup / shutdown、settings store、main table / library / player service compositionを、public owner/store/composition behaviorへ移す。
+2. **6D-2 technology-neutral ports / view host**
+   - `PlaybackPlayersUseThePlayerSettingsGatewayBoundary` から `MainWindowRuntimeSettings_UseCompositionEditSession` までの8 method。
+   - player gateway、audio adapter isolation、dialog contracts、pending-delete port、view host store、child owner composition、runtime edit sessionをtyped contract testへ移す。
+
+両sliceは `ApplicationComposition.cs`、`MainWindowViewModel.cs`、settings関連fixtureへ到達しやすいため逐次実行し、各slice開始前に前sliceのcurrent diffを前提としてfinal planを更新する。
+
+#### Wave 6E: MainWindowContextMenuResourceTests
+
+82 method / 194 call siteを含む最大の残件であり、一括削除も同一fileへの並列書込みも行わない。1workerが同時にこのfileを所有し、ルートが各sliceの正確なmethod一覧をfinal planへ固定する。候補sliceは次の5領域である。
+
+1. tree / navigation / regular chart / table projection
+2. playlist / play history / workspace
+3. settings / dialog / startup / progress
+4. package / library / maintenance / cache invalidation
+5. selected-chart context menu / external action / shell WPF terminal behavior
+
+source file内の順序は領域と一致しないため、各methodを一度だけいずれかのsliceへ割り当てるinventoryを作る。replacementは既存のfeature owner、ViewModel、compiled WPF behavior fixtureを優先し、`MainWindowContextMenuResourceTests.cs` 自体を新しい巨大catch-all fixtureとして延命しない。`PlaylistConcurrencyArchitectureTests.cs` や `DialogRouteConsolidationTests.cs` と同じdestination fixtureへ到達するsliceは、それらのwave完了後に逐次実行する。
+
+#### Wave 6F: helper削除と最終監査
+
+- 7 consumerすべてのhelper参照が0であることを確認し、`SourceTextTestHelper.cs` を削除する。
+- source substring、private member placement、method body extractionの残存をinventoryし、behavior / compiled semantic ruleへのreplacementまたは理由付きの残置を確認する。
+- Unit 6全体のremoved method -> replacement test対応表を統合し、Functionalとstatic reviewを行う。
 
 ### 7.2 Unit 8の残存reflection再監査
 
@@ -136,15 +195,20 @@ Unit 8は完了扱いだが、broad regexは対象8ファイルにまだヒッ�
 
 ### 7.3 Unit 10: Full runner
 
-`scripts/verify-refactor.ps1`、`scripts/accept-net10-update.ps1`、関連acceptance tests/specを対象に再度unit-plannerを実行する。現在分かっている未完了契約は次のとおり。
+Unit 6完了後、ルートがUnit 10のdraft planを作り、Luna Low `plan-clarifier` へ一度点検させてから Luna Max workerへ渡す。`scripts/verify-refactor.ps1` とacceptance scriptsが同じartifact / phase contractを共有するため、write-heavyな実装は原則1workerで逐次進める。read-onlyなinventoryだけは必要なら別範囲で並列化してよい。
 
-- FullがFunctional相当を再構築せず、canonical Functional routeを一度だけ実行すること。
-- publish/update acceptanceが同じimmutable distribution artifactを参照し、`dist` の更新時刻でlatest zipを選ばないこと。
-- Full全体または各phaseに明示的なbudgetがあり、timeout時にactive phase/process/artifactを残すこと。
-- `accept-net10-update.ps1` がFull中に再publishしないこと。
-- `UpdaterPackageSyncTests` 等の非UI process起動に `CreateNoWindow = true` を設定し、必要なUI testだけを例外とすること。
-- runnerのmembership、budget、artifact identity、失敗時cleanupをcompiled/script contract testで検証すること。
-- runner/lane変更後はFunctionalを3回連続で実行し、その後Fullを実行すること。
+候補slice:
+
+1. **10A canonical Functional / budget**
+   - FullがFunctional相当を再構築せず、canonical Functional routeを一度だけ実行する。
+   - Full全体または各phaseに明示的なbudgetがあり、timeout時にactive phase/process/artifactを残す。
+2. **10B immutable distribution artifact**
+   - publish/update acceptanceが同じimmutable artifact identity / pathを受け取り、`dist` の更新時刻でlatest zipを選ばない。
+   - `accept-net10-update.ps1` がFull中に再publishしない。
+3. **10C acceptance process / cleanup / contracts**
+   - `UpdaterPackageSyncTests` 等の非UI process起動に `CreateNoWindow = true` を設定し、必要なUI testだけを例外とする。
+   - runner membership、budget、artifact identity、失敗時cleanupをcompiled/script contract testで検証する。
+   - runner/lane変更後はFunctionalを3回連続で実行し、その後Fullを実行する。
 
 ### 7.4 最終統合検証と計画書退役
 
@@ -159,10 +223,14 @@ Unit 6と10の実装・review後、次の順で完了させる。
 
 ## 8. 再開時の最初の手順
 
-1. `git status --short` とHEADを確認し、この文書以外に差分がないことを確認する。
-2. Unit 6残件についてunit-plannerを実行する。前回plannerは利用上限で失敗しており、計画結果は存在しない。
-3. 最初のbounded unitは、consumer 1〜3ファイルに限定し、Quick→Functional→static review→commitの順で閉じる。
-4. Unit 6完了後にUnit 10を新しいplannerで設計する。Unit 6とUnit 10を同じsnapshotへ混在させない。
+1. `git status --short` とHEADを確認し、想定外の差分がないことを確認する。基準commitは `7ce680ae` であり、Codex運用見直しpatchを適用した場合はその差分を既知の前提として扱う。
+2. `SourceTextTestHelper` の7 consumer / 118 method / 274 call siteと、Wave 6Aの2 methodがまだ残っていることを短いinventoryで確認する。数が変わっていれば、その差分だけをplanへ反映する。
+3. ルートがWave 6A-1 / 6A-2について、replacement test、writable path、Quick filter、統合受入条件を含むdraft planを作る。
+4. Luna Low `plan-clarifier` を一度呼び、repoで解けた事実と並列衝突を反映する。observable semanticsの未決事項がある場合だけユーザー回答を得てfinal planを完成させる。
+5. path ownershipが分離できた場合は2つの Luna Max `implementation-worker` を並列起動する。分離できなければ1workerずつ実行する。workerはfocused Quickだけを行い、同じFunctionalやreviewを重複実行しない。
+6. ルートがhandoffとdiffを統合し、Wave 6AのQuick補完とFunctionalを一度行う。最初の単発 timeout は同一条件で一度だけ再実行し、2回目が成功すれば一過性負荷として記録する。2回目も失敗した場合だけ調査へ切り替える。
+7. 実装threadを閉じ、凍結snapshotを `repo-static-review` へ渡す。review中にルートは重複チェックを行わない。
+8. Wave 6Aを閉じた後、6B、6C、6D、6E、6Fの順に同じ境界で進める。Unit 6完了後にUnit 10を新しく計画し、Unit 6とUnit 10のwrite-heavy変更を同じsnapshotへ混在させない。
 
 ## 9. この文書の退役条件
 

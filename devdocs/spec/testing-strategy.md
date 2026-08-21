@@ -1,6 +1,6 @@
 # テスト運用方針
 
-最終更新: 2026-08-15
+最終更新: 2026-08-21
 
 この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。
 
@@ -10,7 +10,7 @@
 - Functional は、追跡対象ファイルを変更せず、実行順序や並列度によらず決定的に成功する。
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
 - リソース競合で不安定になる場合は、共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
-- timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。
+- timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。最初の単発 timeout は、残留 process がないことを確認して同一 command・filter・budget で一度だけ再実行してから調査要否を判断する。
 - runner、lane、並列化、fixture 配置を変更した場合は、Functional を同一条件で 3 回連続実行し、各回が 180 秒以内であることを確認する。
 
 ## 標準コマンド
@@ -123,7 +123,10 @@ Functional に含めないもの:
 - 固定 `Thread.Sleep` や余裕時間としての長い `Task.Delay` を待機手段にしない。`TaskCompletionSource`、`ManualResetEventSlim`、channel、fake scheduler / clock など、観測対象の state transition と直接結び付く同期を使う。
 - deadlock / cancellation timeout は機能テストに含めてよいが、通常完了を固定時間で待つのではなく、短い failure watchdog と決定的な完了 signal を組み合わせる。
 - 性能閾値、応答時間分布、throughput は機能 assertion と混ぜず Performance lane へ置く。
-- flaky、timeout、明白な長時間化を発見したら本筋を一旦止め、再実行だけで済ませない。共有 state、固定待ち、競合、I/O、入力規模、timeout 根拠を調査してから戻る。
+- 最初の単発 timeout では、process tree を停止して diagnostics を保存し、残留 test process がないことを確認したうえで、同一 command・filter・budget を一度だけ再実行する。
+- 2回目が budget 内で成功し、同じ症状の再発または artifact 上の決定的 evidence がなければ、初回を一過性のマシン負荷として両方の結果を記録し、本筋へ戻る。
+- 2回目も timeout / failure、同じ症状の再発、active test の停止、または artifact が問題を示す場合は、本筋を一旦止め、共有 state、固定待ち、競合、I/O、入力規模、timeout 根拠を調査してから戻る。timeout 延長、無制限の再試行、並列度低下だけによる隠蔽は行わない。
+- timeout 以外の deterministic failure は、再実行で消えることを期待して先送りせず、最初の failure evidence から原因を確認する。
 
 ## Parser・実データ互換検証
 
