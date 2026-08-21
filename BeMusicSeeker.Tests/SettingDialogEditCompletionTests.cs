@@ -471,6 +471,9 @@ public sealed class SettingDialogEditCompletionTests
                     return true;
                 }
             };
+            var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+            config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
+            config.Save(configPath);
             var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(
                     owner,
@@ -497,17 +500,12 @@ public sealed class SettingDialogEditCompletionTests
                 audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 audioSettingsGateway: new TestAudioSettingsGateway(),
                 audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-            var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
-            config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
-            typeof(SettingsDialogViewModel)
-                .GetField("lr2ConfigValue", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(dialog, config);
-
             await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
 
             Assert.AreEqual(1, dialogs.ConfirmationCount);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories().ToArray(), bmsRoot);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories().ToArray(), otherRoot);
+            var persistedConfig = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+            CollectionAssert.DoesNotContain(persistedConfig.GetBMSSearchDirectories().ToArray(), bmsRoot);
+            CollectionAssert.Contains(persistedConfig.GetBMSSearchDirectories().ToArray(), otherRoot);
             Assert.AreEqual(0, settingsSession.SaveCount);
             CollectionAssert.DoesNotContain(
                 new BeMusicSeeker.Models.LR2.LR2Config(configPath).GetBMSSearchDirectories().ToArray(),
@@ -725,7 +723,9 @@ public sealed class SettingDialogEditCompletionTests
         Directory.CreateDirectory(bmsRoot);
         Directory.CreateDirectory(otherRoot);
         Directory.CreateDirectory(installRoot);
-        string configPath = Path.Combine(root, "config.xml");
+        string configDirectory = Path.Combine(root, "config");
+        Directory.CreateDirectory(configDirectory);
+        string configPath = Path.Combine(configDirectory, "config.xml");
         File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
         try
         {
@@ -739,6 +739,9 @@ public sealed class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+            config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
+            config.Save(configPath);
             var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
                 owner.PlaylistWorkspace,
@@ -757,19 +760,14 @@ public sealed class SettingDialogEditCompletionTests
                 audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 audioSettingsGateway: new TestAudioSettingsGateway(),
                 audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-            var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
-            config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
-            typeof(SettingsDialogViewModel)
-                .GetField("lr2ConfigValue", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(dialog, config);
-            SetPrivateField(config, "_configPath", Path.Combine(root, "missing", "config.xml"));
+            Directory.Delete(configDirectory, recursive: true);
 
             await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
 
             Assert.AreEqual(1, dialogs.ConfirmationCount);
             Assert.AreEqual(1, dialogs.MessageCount);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories().ToArray(), bmsRoot);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories().ToArray(), otherRoot);
+            CollectionAssert.Contains(dialog.LR2ConfigBMSDirectories.ToArray(), bmsRoot);
+            CollectionAssert.Contains(dialog.LR2ConfigBMSDirectories.ToArray(), otherRoot);
             Assert.AreEqual(0, settingsSession.SaveCount);
         }
         finally
@@ -1625,9 +1623,7 @@ public sealed class SettingDialogEditCompletionTests
                 {
                     DataContext = settingDialogViewModel
                 };
-                Button button = (Button)typeof(SettingsWindow)
-                    .GetField("buttonOK", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .GetValue(settingDialog)!;
+                Button button = (Button)settingDialog.FindName("buttonOK")!;
                 using var closeRequestObserved = new ManualResetEventSlim();
                 DispatcherFrame? frame = null;
                 settingDialogViewModel.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
@@ -3221,6 +3217,9 @@ public sealed class SettingDialogEditCompletionTests
         Func<Task> reloadFileDiff)
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+        config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
+        config.Save(configPath);
         var dialog = new SettingsDialogViewModel(
             new TestSettingsDialogStatePort(
                 owner,
@@ -3242,9 +3241,6 @@ public sealed class SettingDialogEditCompletionTests
                 audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 audioSettingsGateway: new TestAudioSettingsGateway(),
                 audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-        var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
-        config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
-        SetPrivateField(dialog, "lr2ConfigValue", config);
         return (dialog, config);
     }
 
