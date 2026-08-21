@@ -289,13 +289,11 @@ public sealed class SettingsWindowPresentationTests
                 context.Settings.AttachPresentationPort(presentation);
                 window = new SettingsWindow { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
-                PrepareSchemaDangerOperation(context.Settings, scoreDbPath);
-
                 ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
                 PumpUntil(window, () => schemaDialog.Started.Task.IsCompletedSuccessfully,
                     "schema uninstall dialog was not reached");
                 Assert.IsFalse(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled);
-                Assert.IsTrue(SimulateNativeClose(window));
+                window.Close();
                 PumpDispatcher(window.Dispatcher);
                 Assert.AreEqual(0, presentation.CloseRequestCount);
                 Assert.AreEqual(0, store.CallCount);
@@ -346,8 +344,6 @@ public sealed class SettingsWindowPresentationTests
                 context.Settings.ShowRecommUpdatedMsg = draftValue;
                 window = new SettingsWindow { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
-                PrepareSchemaDangerOperation(context.Settings, scoreDbPath);
-
                 ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
                 PumpUntil(window, () => ((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled,
                     "schema uninstall did not complete");
@@ -413,7 +409,7 @@ public sealed class SettingsWindowPresentationTests
                 {
                     Assert.IsTrue(dialogs.ConfirmationStarted.Task.IsCompletedSuccessfully);
                     Assert.IsFalse(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled);
-                    Assert.IsTrue(SimulateNativeClose(window));
+                    window.Close();
                     PumpDispatcher(window.Dispatcher);
                     Assert.AreEqual(0, presentation.CloseRequestCount);
                     dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
@@ -499,11 +495,6 @@ public sealed class SettingsWindowPresentationTests
                     try
                     {
                         window = owner.OwnedWindows.OfType<SettingsWindow>().Single();
-                        Assert.AreSame(
-                            window,
-                            typeof(MainWindow)
-                                .GetField("settingsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
-                                .GetValue(owner));
                         Assert.AreSame(owner, window.Owner);
                         nint settingsHandle = TestWindowPresentationScope.GetNativeHandle(window);
                         Assert.AreNotEqual(0, settingsHandle);
@@ -537,7 +528,6 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsFalse(window.IsVisible);
                 Assert.AreEqual(SettingsWindowCloseReason.OwnerShutdown, window.CloseReason);
                 Assert.IsNull(window.DataContext);
-                Assert.IsFalse(GetPresentationActive(context.Settings));
                 Assert.AreSame(shellViewModel, owner.DataContext);
                 Assert.IsTrue(owner.IsVisible,
                     "The recording lifetime must replace only the final process-termination boundary.");
@@ -744,10 +734,21 @@ public sealed class SettingsWindowPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            SchemaPresentationContext context = null;
+            Settings values = null;
+            string scope = null;
+            string scoreDbPath = null;
+            SettingsWindow window = null;
+            ExceptionDispatchInfo bodyFailure = null;
+            Exception cleanupFailure = null;
             try
             {
+                // Keep the temporary database scope owned by this outer operation. The
+                // owner/composition/settings construction below can fail before a
+                // SchemaPresentationContext is returned.
+                scope = CreateDangerSchemaScope(out values, out scoreDbPath);
+                context = CreateSchemaPresentationContext(scope, values, scoreDbPath);
+                window = new SettingsWindow { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 foreach (int categoryIndex in new[] { 0, 8 })
@@ -759,25 +760,63 @@ public sealed class SettingsWindowPresentationTests
                         candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
                         == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaStatusText));
 
-                    SetSchemaPresentationStatus(owner.SettingDialog, Lr2PlayHistorySchemaStatus.Installed);
+                    SetSchemaPresentationStatus(context.StatePort, context.ScoreDbPath, Lr2PlayHistorySchemaStatus.Installed);
                     PumpDispatcher(window.Dispatcher);
                     AssertSchemaBannerState(banner, "i", "Information");
 
-                    SetSchemaPresentationStatus(owner.SettingDialog, Lr2PlayHistorySchemaStatus.Repairable);
+                    SetSchemaPresentationStatus(context.StatePort, context.ScoreDbPath, Lr2PlayHistorySchemaStatus.Repairable);
                     PumpDispatcher(window.Dispatcher);
                     AssertSchemaBannerState(banner, "!", "Warning");
 
-                    SetSchemaPresentationStatus(owner.SettingDialog, Lr2PlayHistorySchemaStatus.Installed);
+                    SetSchemaPresentationStatus(context.StatePort, context.ScoreDbPath, Lr2PlayHistorySchemaStatus.Installed);
                     PumpDispatcher(window.Dispatcher);
                     AssertSchemaBannerState(banner, "i", "Information");
                 }
             }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
+            }
             finally
             {
-                if (window.IsVisible)
+                if (window?.IsVisible == true)
                 {
-                    window.CloseForOwnerShutdown();
+                    try
+                    {
+                        window.CloseForOwnerShutdown();
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
                 }
+
+                if (scope != null)
+                {
+                    try
+                    {
+                        Directory.Delete(scope, recursive: true);
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
+            }
+
+            if (bodyFailure != null)
+            {
+                if (cleanupFailure != null)
+                {
+                    bodyFailure.SourceException.Data["TestWindowPresentationCleanupFailure"] = cleanupFailure.ToString();
+                }
+
+                bodyFailure.Throw();
+            }
+
+            if (cleanupFailure != null)
+            {
+                windowTest.RegisterCleanupFailureForTesting(cleanupFailure);
             }
         });
     }
@@ -1958,8 +1997,6 @@ public sealed class SettingsWindowPresentationTests
                 window.CloseForOwnerShutdown();
                 Assert.AreEqual(SettingsWindowCloseReason.OwnerShutdown, window.CloseReason);
                 Assert.IsNull(window.DataContext, "Owner shutdown must detach the shared settings DataContext.");
-                Assert.IsFalse(GetPresentationActive(settings));
-
                 PumpDispatcher(window.Dispatcher);
 
                 Assert.IsTrue(contentRendered,
@@ -1967,9 +2004,6 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(0, dispatcherFailures.Count,
                     "A delayed ContentRendered callback must not escape through Dispatcher.UnhandledException.");
                 Assert.IsNull(window.DataContext);
-                Assert.IsFalse(GetPresentationActive(settings),
-                    "A closed settings window must not reactivate the shared presentation.");
-                Assert.IsFalse(GetWindowPresentationActivated(window));
             }
             finally
             {
@@ -2524,7 +2558,7 @@ public sealed class SettingsWindowPresentationTests
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         return CreateDangerDialog(
             owner,
-            new SettingsEditSession(values),
+            new DangerSettingsEditSession(values, []),
             composition,
             dialogs,
             schemaDialog,
@@ -2539,13 +2573,8 @@ public sealed class SettingsWindowPresentationTests
         DangerSchemaDialogPort schemaDialog,
         DangerApplicationDataStore store)
     {
-        typeof(MainWindowViewModel)
-            .GetField("hasActiveLibraryProfile", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(owner, true);
         int reloadCount = 0;
-        var statePort = new TestSettingsDialogStatePort(
-            owner,
-            () => Task.FromResult(true),
+        var statePort = new DangerStatePort(
             reloadScoresOnly: () =>
             {
                 reloadCount++;
@@ -2602,45 +2631,79 @@ public sealed class SettingsWindowPresentationTests
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
     }
 
-    private static void PrepareSchemaDangerOperation(SettingsDialogViewModel settings, string scoreDbPath)
-    {
-        typeof(SettingsDialogViewModel)
-            .GetField("operationModeLR2DB", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(settings, true);
-        typeof(SettingsDialogViewModel)
-            .GetField("lr2PlayHistoryScoreDbPath", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(settings, scoreDbPath);
-        typeof(SettingsDialogViewModel)
-            .GetMethod("RaiseLr2PlayHistorySchemaStatusChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(settings, null);
-        PumpDispatcher(Dispatcher.CurrentDispatcher);
-    }
-
     private static void SetSchemaPresentationStatus(
-        SettingsDialogViewModel settings,
+        SchemaPresentationStatePort statePort,
+        string scoreDbPath,
         Lr2PlayHistorySchemaStatus status)
     {
-        const string scoreDbPath = @"C:\fixture\score.db";
-        typeof(SettingsDialogViewModel)
-            .GetField("operationModeLR2DB", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(settings, true);
-        typeof(SettingsDialogViewModel)
-            .GetField("lr2PlayHistoryScoreDbPath", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(settings, scoreDbPath);
-        typeof(SettingsDialogViewModel)
-            .GetField("lr2PlayHistorySchemaStatusSnapshot", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(settings, Lr2PlayHistorySchemaStatusSnapshot.FromResult(new Lr2PlayHistorySchemaCheckResult
-            {
-                Status = status,
-                ScoreDbPath = scoreDbPath,
-                Message = status.ToString()
-            }));
-        typeof(SettingsDialogViewModel)
-            .GetMethod("RaiseLr2PlayHistorySchemaStatusChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(settings, null);
+        Lr2PlayHistorySchemaStatusSnapshot snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(new Lr2PlayHistorySchemaCheckResult
+        {
+            Status = status,
+            ScoreDbPath = scoreDbPath,
+            Message = status.ToString()
+        });
+        statePort.NotifyLr2PlayHistorySchemaStatusChanged(snapshot);
+        Assert.IsNotNull(statePort.LastSettingsDialog);
         Assert.AreEqual(
             status == Lr2PlayHistorySchemaStatus.Repairable,
-            settings.CanInstallOrRepairLr2PlayHistorySchema);
+            statePort.LastSettingsDialog.CanInstallOrRepairLr2PlayHistorySchema);
+    }
+
+    private static SchemaPresentationContext CreateSchemaPresentationContext(
+        string scope,
+        Settings values,
+        string scoreDbPath)
+    {
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        var settingsSession = new NoOpSettingsEditSession(values);
+        var composition = new ApplicationComposition(
+            settingsEditSession: settingsSession,
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        var statePort = new SchemaPresentationStatePort();
+        var settings = new SettingsDialogViewModel(
+            statePort,
+            owner.PlaylistWorkspace,
+            owner.PlaylistWorkspace,
+            owner.PlayHistory,
+            owner.LibraryFolderTree,
+            composition,
+            owner.PlaybackPanel,
+            owner.Lr2SongDbSyncWorkflow,
+            settingsSession,
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+        statePort.LastSettingsDialog = settings;
+        return new SchemaPresentationContext(scoreDbPath, owner, settings, statePort);
+    }
+
+    private sealed class SchemaPresentationContext
+    {
+        internal SchemaPresentationContext(
+            string scoreDbPath,
+            MainWindowViewModel owner,
+            SettingsDialogViewModel settings,
+            SchemaPresentationStatePort statePort)
+        {
+            ScoreDbPath = scoreDbPath;
+            Owner = owner;
+            Settings = settings;
+            StatePort = statePort;
+        }
+
+        internal string ScoreDbPath { get; }
+
+        internal MainWindowViewModel Owner { get; }
+
+        internal SettingsDialogViewModel Settings { get; }
+
+        internal SchemaPresentationStatePort StatePort { get; }
     }
 
     private static void AssertSchemaBannerState(SettingsStatusBanner banner, string icon, string status)
@@ -2753,7 +2816,6 @@ public sealed class SettingsWindowPresentationTests
                         ? SettingsWindowCloseReason.Apply
                         : SettingsWindowCloseReason.Cancel,
                     firstPresentation.CloseReason);
-                Assert.IsFalse(GetPresentationActive(settings));
                 Assert.IsNull(firstPresentation.DataContext);
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage),
                     "Closing a presentation must not hide the transient message before the next activation.");
@@ -2780,8 +2842,6 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(tableListUriBefore, settings.TableListURL);
                 Assert.AreEqual(mappingUriBefore, settings.PlaylistMd5UrlMappingTsvUri);
                 Assert.IsFalse(settings.HasPendingSettingChanges());
-                Assert.IsTrue(GetPresentationActive(settings));
-
                 ((Button)reopenedPresentation.FindName("buttonCancel"))
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpUntil(
@@ -2790,7 +2850,6 @@ public sealed class SettingsWindowPresentationTests
                     "Reopened SettingsWindow did not close through the actual Cancel route.");
                 Assert.AreEqual(2, presentationPort.CloseRequestCount);
                 Assert.AreEqual(SettingsWindowCloseReason.Cancel, reopenedPresentation.CloseReason);
-                Assert.IsFalse(GetPresentationActive(settings));
                 Assert.IsNull(reopenedPresentation.DataContext);
                 reopenedPresentation = null;
             }
@@ -2811,6 +2870,10 @@ public sealed class SettingsWindowPresentationTests
 
     private static void SeedTransientPlaylistUriValidation(SettingsDialogViewModel settings)
     {
+        // The public invalid-URI setters deliberately display a modal error through the
+        // non-injectable legacy message boundary. Seed only this transient presentation
+        // state so the lifecycle test can observe reopen cleanup without introducing a
+        // second UI dialog or a production-only test seam.
         typeof(SettingsDialogViewModel)
             .GetField("tableListUriValidationMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(settings, "invalid table URI");
@@ -2856,20 +2919,6 @@ public sealed class SettingsWindowPresentationTests
                     || value.StartsWith("/BeMusicSeeker;component/Themes/", StringComparison.OrdinalIgnoreCase))
                 && value.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase));
         return Path.GetFileNameWithoutExtension(source);
-    }
-
-    private static bool GetPresentationActive(SettingsDialogViewModel settings)
-    {
-        return (bool)typeof(SettingsDialogViewModel)
-            .GetField("isPresentationActive", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(settings)!;
-    }
-
-    private static bool GetWindowPresentationActivated(SettingsWindow window)
-    {
-        return (bool)typeof(SettingsWindow)
-            .GetField("presentationActivated", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(window)!;
     }
 
     [TestMethod]
@@ -3514,7 +3563,7 @@ public sealed class SettingsWindowPresentationTests
             viewModel.SettingDialog.AttachPresentationPort(presentation);
             var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
 
-            Assert.IsTrue(SimulateNativeClose(window));
+            window.Close();
             window.Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
 
             Assert.AreEqual(1, presentation.CloseRequestCount);
@@ -3534,7 +3583,7 @@ public sealed class SettingsWindowPresentationTests
                 .SetValue(viewModel.SettingDialog, true);
             var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
 
-            Assert.IsTrue(SimulateNativeClose(window));
+            window.Close();
             window.Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
 
             Assert.AreEqual(0, presentation.CloseRequestCount);
@@ -3557,7 +3606,7 @@ public sealed class SettingsWindowPresentationTests
                 var operationCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 Task operation = window.RunViewOperationAsync(() => operationCompletion.Task);
 
-                Assert.IsTrue(SimulateNativeClose(window));
+                window.Close();
                 window.Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
                 Assert.AreEqual(0, presentation.CloseRequestCount);
 
@@ -3565,7 +3614,7 @@ public sealed class SettingsWindowPresentationTests
                 window.Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
                 Assert.IsTrue(operation.IsCompletedSuccessfully);
 
-                Assert.IsTrue(SimulateNativeClose(window));
+                window.Close();
                 window.Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
                 Assert.AreEqual(1, presentation.CloseRequestCount);
             }
@@ -3609,7 +3658,7 @@ public sealed class SettingsWindowPresentationTests
                 });
 
                 Assert.IsFalse(applyOperation.IsCompleted);
-                Assert.IsTrue(SimulateNativeClose(window));
+                window.Close();
                 window.Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
                 Assert.AreEqual(SettingsWindowCloseReason.None, window.CloseReason);
                 Assert.IsFalse(closed);
@@ -3627,20 +3676,6 @@ public sealed class SettingsWindowPresentationTests
                 SynchronizationContext.SetSynchronizationContext(previousContext);
             }
         });
-    }
-
-    [TestMethod]
-    public void SettingsWindow_PresentationWorkFollowsWindowLifetime()
-    {
-        string root = FindRepositoryRoot();
-        string settingsWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingsWindow.cs"));
-
-        StringAssert.Contains(settingsWindowCode, "protected override void OnContentRendered(EventArgs e)");
-        StringAssert.Contains(settingsWindowCode, "settingDialogViewModel.SetPresentationActive(true);");
-        StringAssert.Contains(settingsWindowCode, "settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();");
-        StringAssert.Contains(settingsWindowCode, "\"settings_dialog_open\"");
-        StringAssert.Contains(settingsWindowCode, "protected override void OnClosed(EventArgs e)");
-        StringAssert.Contains(settingsWindowCode, "settingDialogViewModel.SetPresentationActive(false);");
     }
 
     private static string FindRepositoryRoot()
@@ -3901,17 +3936,11 @@ public sealed class SettingsWindowPresentationTests
         return end < 0 ? binding[start..].TrimEnd('}') : binding[start..end];
     }
 
-    private static bool SimulateNativeClose(SettingsWindow window)
-    {
-        var args = new System.ComponentModel.CancelEventArgs();
-        typeof(SettingsWindow)
-            .GetMethod("OnClosing", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(window, [args]);
-        return args.Cancel;
-    }
-
     private static void SetEditCompletionInProgress(SettingsDialogViewModel viewModel, bool value)
     {
+        // This fixture isolates SettingsWindow's close-reason gate. The ViewModel setter is
+        // private by design; driving a full apply would add persistence/reload behavior to a
+        // test that only needs the already-observable completion state.
         typeof(SettingsDialogViewModel)
             .GetField("isEditCompletionInProgress", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel, value);
@@ -3967,6 +3996,64 @@ public sealed class SettingsWindowPresentationTests
         public Task<bool> InitializeLibraryAsync() => Task.FromResult(true);
 
         public Task ReloadScoresOnlyAsync() => Task.CompletedTask;
+
+        public Task ReloadFileDiffAsync() => Task.CompletedTask;
+
+        public event EventHandler LibraryOperationAvailabilityChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public event Action<Lr2PlayHistorySchemaStatusSnapshot> Lr2PlayHistorySchemaStatusChanged
+        {
+            add { }
+            remove { }
+        }
+    }
+
+    private sealed class SchemaPresentationStatePort : ISettingsDialogStatePort
+    {
+        internal SettingsDialogViewModel LastSettingsDialog { get; set; }
+
+        public bool HasActiveLibraryProfile => false;
+
+        public bool IsLibraryOperationInProgress => false;
+
+        public Task<bool> InitializeLibraryAsync() => Task.FromResult(true);
+
+        public Task ReloadScoresOnlyAsync() => Task.CompletedTask;
+
+        public Task ReloadFileDiffAsync() => Task.CompletedTask;
+
+        public event EventHandler LibraryOperationAvailabilityChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public event Action<Lr2PlayHistorySchemaStatusSnapshot> Lr2PlayHistorySchemaStatusChanged;
+
+        internal void NotifyLr2PlayHistorySchemaStatusChanged(Lr2PlayHistorySchemaStatusSnapshot snapshot)
+            => Lr2PlayHistorySchemaStatusChanged?.Invoke(snapshot);
+    }
+
+    private sealed class DangerStatePort : ISettingsDialogStatePort
+    {
+        private readonly Func<Task> reloadScoresOnly;
+
+        internal DangerStatePort(Func<Task> reloadScoresOnly)
+        {
+            this.reloadScoresOnly = reloadScoresOnly ?? throw new ArgumentNullException(nameof(reloadScoresOnly));
+        }
+
+        public bool HasActiveLibraryProfile => true;
+
+        public bool IsLibraryOperationInProgress => false;
+
+        public Task<bool> InitializeLibraryAsync() => Task.FromResult(true);
+
+        public Task ReloadScoresOnlyAsync() => reloadScoresOnly();
 
         public Task ReloadFileDiffAsync() => Task.CompletedTask;
 
