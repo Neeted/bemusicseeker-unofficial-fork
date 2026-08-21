@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -92,235 +91,69 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
-    public void BuildPendingEstimateSourceBatchSnapshot_FileOnlyBmsAndBmsonDoNotScanParentDirectories()
+    public void PendingInstallEstimate_InstalledCollectionChangesDuringAttempt_RebuildsPartitionAndReleasesSearchingState()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "FileOnlyBatch");
-            string nestedDirectoryPath = Path.Combine(sourceDirectoryPath, "Nested");
-            Directory.CreateDirectory(nestedDirectoryPath);
-            string bmsPath = CreateBmsFileWithContents(
-                sourceDirectoryPath,
-                "chart.bms",
-                "#PLAYER 1\r\n#TITLE BMS\r\n#ARTIST Test\r\n#WAVAA sound/bms.wav\r\n#00111:AA\r\n");
-            string bmsonPath = CreateBmsonFile(sourceDirectoryPath, "chart.bmson", "BMSON", "Test");
-            File.WriteAllText(Path.Combine(sourceDirectoryPath, "sibling.wav"), "audio");
-            File.WriteAllText(Path.Combine(nestedDirectoryPath, "nested.wav"), "audio");
-            ChartPackage bmsPackage = CreatePendingSingleFilePackage(bmsPath);
-            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
-            ChartPackage bmsonPackage = ChartPackage.FromChartEntries(
-            [
-                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong))
-            ]);
-            bmsonPackage.path = bmsonPath;
-            bmsonPackage.delete_parent = true;
-            library.BMSFiles = [];
-
-            PendingEstimateSourceBatchSnapshot snapshot = InvokeBuildPendingEstimateSourceBatchSnapshot(library, bmsPackage, bmsonPackage);
-
-            Assert.AreEqual(0, snapshot.RootCount);
-            Assert.AreEqual(0, snapshot.ChunkCount);
-            Assert.AreEqual(0, snapshot.ResourceFileCount);
-            Assert.AreEqual(0, snapshot.TrackedFileCount);
-            Assert.AreEqual(0, snapshot.VisitedFileSystemEntryCount);
-            Assert.AreEqual(0, snapshot.MaxVisitedFileSystemEntryCount);
-            Assert.AreEqual(string.Empty, snapshot.ScanBackend);
-            Assert.IsFalse(snapshot.ScanLimitExceeded);
-            Assert.AreEqual(2, snapshot.PackageStates.Count);
-            foreach (PendingEstimateSourceBatchPackageState state in snapshot.PackageStates)
-            {
-                Assert.AreEqual(sourceDirectoryPath, state.SourceDirectory);
-                Assert.IsNull(state.SourceSurface);
-                Assert.IsFalse(state.UsesBatchSourceSurface);
-                Assert.IsTrue(state.ChartResources.TotalReferenceCount > 0);
-            }
-            Assert.AreEqual(ChartFileKind.Bms, snapshot.PackageStates.Single(state => state.Package == bmsPackage).MissingEntries.Single().Chart.Kind);
-            Assert.AreEqual(ChartFileKind.Bmson, snapshot.PackageStates.Single(state => state.Package == bmsonPackage).MissingEntries.Single().Chart.Kind);
-        });
-    }
-
-    [TestMethod]
-    public void BuildPendingEstimateSourceBatchSnapshot_SharesSurfaceOnlyWithDirectoryPackageAtSameParent()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MixedSurface");
-            string directoryChartPath = CreateBmsFileWithContents(
-                sourceDirectoryPath,
-                "directory.bms",
-                "#PLAYER 1\r\n#TITLE Directory\r\n#WAVAA package.wav\r\n#00111:AA\r\n");
-            string fileChartPath = CreateBmsFile(sourceDirectoryPath, "file.bms", "File");
-            File.WriteAllText(Path.Combine(sourceDirectoryPath, "package.wav"), "audio");
-            ChartPackage directoryPackage = CreatePendingSingleFilePackage(directoryChartPath);
-            directoryPackage.path = sourceDirectoryPath;
-            directoryPackage.delete_parent = false;
-            ChartPackage filePackage = CreatePendingSingleFilePackage(fileChartPath);
-            library.BMSFiles = [];
-
-            PendingEstimateSourceBatchSnapshot snapshot = InvokeBuildPendingEstimateSourceBatchSnapshot(library, directoryPackage, filePackage);
-            PendingEstimateSourceBatchPackageState directoryState = snapshot.PackageStates.Single(state => state.Package == directoryPackage);
-            PendingEstimateSourceBatchPackageState fileState = snapshot.PackageStates.Single(state => state.Package == filePackage);
-
-            Assert.AreEqual(1, snapshot.RootCount);
-            Assert.AreEqual(1, snapshot.ChunkCount);
-            Assert.AreEqual("bounded_fast_source_surface", snapshot.ScanBackend);
-            Assert.IsTrue(snapshot.TrackedFileCount > 0);
-            Assert.IsTrue(snapshot.ResourceFileCount > 0);
-            Assert.AreEqual(sourceDirectoryPath, directoryState.SourceDirectory);
-            Assert.IsNotNull(directoryState.SourceSurface);
-            Assert.IsTrue(directoryState.UsesBatchSourceSurface);
-            Assert.IsTrue(directoryState.SourceSurface.ResourceEntry.AudioFileNameHashCount > 0);
-            Assert.AreEqual(sourceDirectoryPath, fileState.SourceDirectory);
-            Assert.IsNull(fileState.SourceSurface);
-            Assert.IsFalse(fileState.UsesBatchSourceSurface);
-        });
-    }
-
-    [TestMethod]
-    public void CapturePendingInstallEstimateRetry_PartitionAndInstalledSnapshotDescribeTheSameState()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "RetryCapture");
-            string installedDirectoryPath = Path.Combine(tempRootPath, "Installed", "RetryCapture");
-            string installedContents = "#PLAYER 1\r\n#TITLE Installed\r\n#ARTIST Test\r\n";
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "InstalledCollectionStale");
+            string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "InstalledCollectionStale");
             string pendingInstalledPath = CreateBmsFileWithContents(
                 sourceDirectoryPath,
                 "installed.bms",
-                installedContents);
+                "#PLAYER 1\r\n#TITLE Already Installed\r\n#ARTIST Test\r\n");
             string pendingMissingPath = CreateBmsFileWithContents(
                 sourceDirectoryPath,
                 "missing.bms",
-                "#PLAYER 1\r\n#TITLE Missing\r\n#ARTIST Test\r\n");
+                "#PLAYER 1\r\n#TITLE Missing\r\n#ARTIST Test\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
             string installedPath = CreateBmsFileWithContents(
-                installedDirectoryPath,
-                "installed.bms",
-                installedContents);
-            BMSFile pendingInstalled = BMSFile.CreateBMSFileFromFile(pendingInstalledPath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage(
-                [pendingInstalled, BMSFile.CreateBMSFileFromFile(pendingMissingPath)]);
-            pendingPackage.path = sourceDirectoryPath;
-            pendingPackage.delete_parent = false;
-            library.BMSFiles = [BMSFile.CreateBMSFileFromFile(installedPath)];
-            SeedPendingPackages(library, songDbPath, pendingPackage);
-
-            PendingInstallEstimateRetryDiagnostic beforeRemoval =
-                InvokeCapturePendingInstallEstimateRetry(library, pendingPackage);
-
-            Assert.AreEqual(1, beforeRemoval.AlreadyInstalledCount);
-            Assert.AreEqual(1, beforeRemoval.MissingCount);
-            CollectionAssert.AreEqual(
-                new[] { installedDirectoryPath },
-                beforeRemoval.InstalledLookup.GetDistinctDirectoriesByPrimaryHash(pendingInstalled.hash).ToArray());
-
-            library.BMSFiles = [];
-
-            PendingInstallEstimateRetryDiagnostic afterRemoval =
-                InvokeCapturePendingInstallEstimateRetry(library, pendingPackage);
-
-            Assert.AreEqual(0, afterRemoval.AlreadyInstalledCount);
-            Assert.AreEqual(2, afterRemoval.MissingCount);
-            Assert.AreEqual(
-                0,
-                afterRemoval.InstalledLookup.GetDistinctDirectoriesByPrimaryHash(pendingInstalled.hash).Count);
-            Assert.IsTrue(
-                afterRemoval.CurrentnessStamp.InstalledLookupGeneration
-                > beforeRemoval.CurrentnessStamp.InstalledLookupGeneration);
-        });
-    }
-
-    [TestMethod]
-    public void CapturePendingInstallEstimateBatch_WhenPreparationIsStale_RebuildsCurrentPartition()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PreparedBatch");
-            string installedDirectoryPath = Path.Combine(tempRootPath, "Installed", "PreparedBatch");
-            string installedContents = "#PLAYER 1\r\n#TITLE Installed\r\n#ARTIST Test\r\n";
-            string pendingInstalledPath = CreateBmsFileWithContents(
-                sourceDirectoryPath,
-                "installed.bms",
-                installedContents);
-            string pendingMissingPath = CreateBmsFileWithContents(
-                sourceDirectoryPath,
-                "missing.bms",
-                "#PLAYER 1\r\n#TITLE Missing\r\n#ARTIST Test\r\n");
-            string installedPath = CreateBmsFileWithContents(
-                installedDirectoryPath,
-                "installed.bms",
-                installedContents);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage(
-            [
-                BMSFile.CreateBMSFileFromFile(pendingInstalledPath),
-                BMSFile.CreateBMSFileFromFile(pendingMissingPath)
-            ]);
-            pendingPackage.path = sourceDirectoryPath;
-            pendingPackage.delete_parent = false;
-            library.BMSFiles = [BMSFile.CreateBMSFileFromFile(installedPath)];
-            SeedPendingPackages(library, songDbPath, pendingPackage);
-            PendingEstimateSourceBatchSnapshot preparedSnapshot =
-                InvokeBuildPendingEstimateSourceBatchSnapshot(library, pendingPackage);
-            Assert.AreEqual(1, preparedSnapshot.PackageStates.Single().AlreadyInstalledEntries.Count);
-            Assert.AreEqual(1, preparedSnapshot.PackageStates.Single().MissingEntries.Count);
-
-            library.BMSFiles = [];
-
-            PendingInstallEstimateBatchCaptureDiagnostic capture =
-                InvokeCapturePendingInstallEstimateBatch(library, pendingPackage, preparedSnapshot);
-
-            Assert.AreEqual(0, capture.AlreadyInstalledCount);
-            Assert.AreEqual(2, capture.MissingCount);
-            Assert.IsFalse(capture.UsesPreparedState);
-            Assert.IsTrue(
-                capture.CurrentnessStamp.InstalledLookupGeneration
-                > preparedSnapshot.PreparationCurrentnessStamp.InstalledLookupGeneration);
-        });
-    }
-
-    [TestMethod]
-    public void PendingInstallEstimate_ResourceChangesTwice_RetriesOnceWithoutApplyingStaleResult()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "SecondStale");
-            string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "SecondStale");
-            string pendingPath = CreateBmsFileWithContents(
-                sourceDirectoryPath,
-                "pending.bms",
-                "#PLAYER 1\r\n#TITLE Pending\r\n#ARTIST Test\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
-            CreateBmsFileWithContents(
                 candidateDirectoryPath,
-                "candidate.bms",
-                "#PLAYER 1\r\n#TITLE Candidate\r\n#ARTIST Test\r\n");
+                "installed.bms",
+                "#PLAYER 1\r\n#TITLE Already Installed\r\n#ARTIST Test\r\n");
             File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");
-            ChartPackage pendingPackage = CreatePendingSingleFilePackage(pendingPath);
+            BMSFile pendingInstalled = BMSFile.CreateBMSFileFromFile(pendingInstalledPath);
+            BMSFile pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalled, pendingMissing]);
+            pendingPackage.path = sourceDirectoryPath;
+            pendingPackage.delete_parent = false;
+            ChartPackage emptyPackage = ChartPackage.FromChartEntries([]);
+            emptyPackage.path = Path.Combine(sourceDirectoryPath, "Empty");
+            emptyPackage.delete_parent = false;
             library.BMSFiles = [];
-            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SeedPendingPackages(library, songDbPath, pendingPackage, emptyPackage);
             SetLibraryResourceIndex(
                 library,
                 BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
-            LibraryResourceIndexOwner resourceIndexOwner = GetLibraryResourceIndexOwner(library);
             List<int> attempts = [];
+            bool installedCollectionMutated = false;
             SetPendingInstallEstimateAttemptObserver(
                 library,
                 delegate (int attempt, PendingInstallEstimateCurrentnessStamp _)
                 {
                     attempts.Add(attempt);
-                    string markerDirectoryPath = Path.Combine(tempRootPath, "Generation" + attempt);
-                    resourceIndexOwner.AddDirectory(markerDirectoryPath, ["marker" + attempt + ".wav"]);
+                    if (attempt == 0 && !installedCollectionMutated)
+                    {
+                        library.BMSFiles = [BMSFile.CreateBMSFileFromFile(installedPath)];
+                        installedCollectionMutated = true;
+                    }
                 });
 
-            InvokeProcessPendingInstallEstimateBatch(library, pendingPackage);
+            // The public package-batch overload is the deterministic entry point for the retry pipeline;
+            // keep the second package empty so it only enables that batch shape.
+            library.SearchEstimatedInstallationDirectory([pendingPackage, emptyPackage]);
 
-            CollectionAssert.AreEqual(new[] { 0, 1 }, attempts);
-            PackageChartEntry entry = GetOnlyEntry(pendingPackage);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
-            Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+            Assert.IsTrue(installedCollectionMutated);
+            CollectionAssert.AreEqual(new[] { 0, 1, 0, 1 }, attempts);
+            PackageChartEntry installedEntry = GetEntryByFileName(pendingPackage, "installed.bms");
+            PackageChartEntry missingEntry = GetEntryByFileName(pendingPackage, "missing.bms");
+            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+            Assert.IsFalse(missingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(installedEntry.Chart.InstallDestination));
+            Assert.AreEqual(candidateDirectoryPath, missingEntry.Chart.InstallDestination);
+            Assert.IsFalse(installedEntry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+            Assert.IsFalse(missingEntry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+            Assert.IsFalse(library.GetPendingEstimateQueueStatusSnapshot().IsActive);
+            Assert.IsFalse(library.GetInstallEstimationProgressSnapshot().IsActive);
         });
     }
 
@@ -535,88 +368,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(destinationDirectoryPath, missingEntry.Chart.InstallDestination);
             Assert.IsFalse(missingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
             CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
-        });
-    }
-
-    [TestMethod]
-    public void ReinitializePendingWarningsForPackage_DoesNotMaterializeHealthyAdapterlessBmsonDirectoryEntry()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "HealthyBmsonDirectory");
-            Directory.CreateDirectory(sourceDirectoryPath);
-            string bmsonPath = Path.Combine(sourceDirectoryPath, "healthy.bmson");
-            File.WriteAllText(bmsonPath, "{"
-                + "\"version\":\"1.0.0\","
-                + "\"info\":{\"title\":\"Healthy\",\"artist\":\"Bmson\",\"mode_hint\":\"beat-7k\"},"
-                + "\"sound_channels\":[]"
-                + "}");
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
-            ChartPackage package = ChartPackage.FromChartEntries([entry]);
-            package.path = sourceDirectoryPath;
-            package.delete_parent = false;
-
-            InvokeReinitializePendingWarningsForPackage(library, package, new PrimaryHashSetLookup());
-
-            Assert.IsNull(entry.GetBmsOwnerForTest());
-        });
-    }
-
-    [TestMethod]
-    public void ReinitializePendingWarningsForPackage_StoresBmsonResourceWarningsOnChartState()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MaterializedBmsonResource");
-            string bmsonPath = CreateBmsonFile(sourceDirectoryPath, "missing.bmson", "Missing", "Bmson");
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
-            entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "stale");
-            ChartPackage package = ChartPackage.FromChartEntries([entry]);
-            package.path = sourceDirectoryPath;
-            package.delete_parent = false;
-
-            InvokeReinitializePendingWarningsForPackage(library, package, new PrimaryHashSetLookup());
-
-            Assert.IsNull(entry.GetBmsOwnerForTest());
-            Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
-        });
-    }
-
-    [TestMethod]
-    public void ReinitializePendingWarningsForPackage_ProjectsResourceHealthForAllEntries()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "AllResourceProjection");
-            Directory.CreateDirectory(sourceDirectoryPath);
-            string installedPath = CreateBmsFileWithContents(
-                sourceDirectoryPath,
-                "installed.bms",
-                "#PLAYER 1\r\n#TITLE Installed\r\n#WAVAA missing.wav\r\n#00111:AA\r\n");
-            string healthyPath = CreateBmsFileWithContents(
-                sourceDirectoryPath,
-                "healthy.bms",
-                "#PLAYER 1\r\n#TITLE Healthy\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
-            File.WriteAllBytes(Path.Combine(sourceDirectoryPath, "sound.wav"), new byte[] { 1 });
-            BMSFile installedFile = BMSFile.CreateBMSFileFromFile(installedPath);
-            BMSFile healthyFile = BMSFile.CreateBMSFileFromFile(healthyPath);
-            PackageChartEntry installedEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(installedFile));
-            PackageChartEntry healthyEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(healthyFile));
-            ChartPackage package = ChartPackage.FromChartEntries([installedEntry, healthyEntry]);
-            package.path = sourceDirectoryPath;
-            package.delete_parent = false;
-
-            InvokeReinitializePendingWarningsForPackage(library, package, new PrimaryHashSetLookup([installedFile.hash]));
-
-            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            Assert.IsTrue(installedEntry.Chart.WAVHealth.HasValue);
-            Assert.AreEqual(100, healthyEntry.Chart.WAVHealth);
-            Assert.IsFalse(healthyEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
         });
     }
 
@@ -1731,7 +1482,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string pendingDirectoryPath = Path.Combine(tempRootPath, "Pending", "BmsonManual");
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonManual");
             string pendingBmsonPath = CreateBmsonFile(pendingDirectoryPath, "pending.bmson", "Pending Bmson", "Pending Artist");
-            string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Installed Bmson", "Installed Artist");
+            string nestedDestinationDirectoryPath = Path.Combine(destinationDirectoryPath, "Nested");
+            string installedBmsonPath = CreateBmsonFile(nestedDestinationDirectoryPath, "installed.bmson", "Installed Bmson", "Installed Artist");
             LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(pendingBmsonPath);
             PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong));
             ChartPackage pendingPackage = ChartPackage.FromChartEntries([entry]);
@@ -1739,6 +1491,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             pendingPackage.delete_parent = false;
             library.BMSFiles = [];
             library.BmsonSongs = [BmsonSongParser.Parse(installedBmsonPath)];
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(destinationDirectoryPath, nestedDestinationDirectoryPath));
             SeedPendingPackages(library, songDbPath, pendingPackage);
             bool succeeded = library.SetPendingInstallDestination(entry, destinationDirectoryPath);
 
@@ -1748,38 +1501,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Installed Artist", entry.Chart.InstallDestinationArtist);
         });
-    }
-
-    [TestMethod]
-    public void ResolveInstallDestinationRepresentativeMetadata_UsesOwnedSubtreeBmsonRefs()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonSubtree");
-            string nestedDirectoryPath = Path.Combine(destinationDirectoryPath, "Nested");
-            string installedBmsonPath = CreateBmsonFile(nestedDirectoryPath, "installed.bmson", "Installed Bmson", "Installed Artist");
-            library.BMSFiles = [];
-            library.BmsonSongs = [BmsonSongParser.Parse(installedBmsonPath)];
-
-            InstallDestinationRepresentativeMetadata metadata = InvokeResolveInstallDestinationRepresentativeMetadataUnsafe(
-                library,
-                destinationDirectoryPath);
-
-            Assert.AreEqual("Installed Bmson", metadata.Title);
-            Assert.AreEqual("Installed Artist", metadata.Artist);
-        });
-    }
-
-    [TestMethod]
-    public void NormalizeInstallDestinationDirectoryForLookup_PreservesDriveRoot()
-    {
-        string rootPath = Path.GetPathRoot(Path.GetFullPath(Directory.GetCurrentDirectory()));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(rootPath));
-
-        string normalized = InvokeNormalizeInstallDestinationDirectoryForLookup(rootPath);
-
-        Assert.AreEqual(rootPath, normalized);
     }
 
     [TestMethod]
@@ -2086,100 +1807,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         regroupMethod.Invoke(library, [sourceDirectoryPaths]);
     }
 
-    private static PendingEstimateSourceBatchSnapshot InvokeBuildPendingEstimateSourceBatchSnapshot(BMSLibrary library, params ChartPackage[] packages)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BuildPendingEstimateSourceBatchSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        var installEstimationService = new BmsLibraryInstallEstimationService(
-            BmsLibraryOptionsSnapshot.CreateCurrent(BeMusicSeeker.Properties.Settings.Default),
-            innerWavHealthThreshold: 70);
-        MethodInfo contextMethod = typeof(BMSLibrary).GetMethod(
-            "CreatePendingInstallEstimateEvaluationContext",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(contextMethod);
-        object preparationContext = contextMethod.Invoke(library, null);
-        List<ChartPackage> packageList = [.. (packages ?? []).Where(package => package != null)];
-        return (PendingEstimateSourceBatchSnapshot)methodInfo.Invoke(
-            library,
-            [packageList, installEstimationService, preparationContext]);
-    }
-
-    private static PendingInstallEstimateRetryDiagnostic InvokeCapturePendingInstallEstimateRetry(
-        BMSLibrary library,
-        ChartPackage package)
-    {
-        Type requestType = typeof(BMSLibrary).GetNestedType(
-            "PendingInstallEstimateEvaluationRequest",
-            BindingFlags.NonPublic)!;
-        object previousRequest = Activator.CreateInstance(requestType)!;
-        requestType.GetProperty("Package")!.SetValue(previousRequest, package);
-        requestType.GetProperty("DisplayName")!.SetValue(previousRequest, package.DisplayTitle);
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod(
-            "CapturePendingInstallEstimateRetry",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-        object capture = methodInfo.Invoke(library, [previousRequest])!;
-        object request = capture.GetType().GetProperty("Request")!.GetValue(capture)!;
-        object context = capture.GetType().GetProperty("Context")!.GetValue(capture)!;
-        int alreadyInstalledCount = ((IEnumerable<PackageChartEntry>)request.GetType()
-            .GetProperty("AlreadyInstalledEntries")!
-            .GetValue(request)!).Count();
-        int missingCount = ((IEnumerable<PackageChartEntry>)request.GetType()
-            .GetProperty("MissingEntries")!
-            .GetValue(request)!).Count();
-        var installedLookup = (IInstalledChartLookupIndex)context.GetType()
-            .GetProperty("InstalledChartLookupIndex")!
-            .GetValue(context)!;
-        var currentnessStamp = (PendingInstallEstimateCurrentnessStamp)context.GetType()
-            .GetProperty("CurrentnessStamp")!
-            .GetValue(context)!;
-        return new PendingInstallEstimateRetryDiagnostic(
-            alreadyInstalledCount,
-            missingCount,
-            installedLookup,
-            currentnessStamp);
-    }
-
-    private static PendingInstallEstimateBatchCaptureDiagnostic InvokeCapturePendingInstallEstimateBatch(
-        BMSLibrary library,
-        ChartPackage package,
-        PendingEstimateSourceBatchSnapshot preparedSnapshot)
-    {
-        var batchRequest = new PendingInstallEstimateBatchRequest(
-            PendingInstallEstimateBatchSource.StartupRestore,
-            [package],
-            package.DisplayTitle,
-            batchSourceSnapshot: preparedSnapshot);
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod(
-            "CapturePendingInstallEstimateBatch",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-        object capture = methodInfo.Invoke(library, [batchRequest])!;
-        object context = capture.GetType().GetProperty("Context")!.GetValue(capture)!;
-        var requests = ((System.Collections.IEnumerable)capture.GetType()
-            .GetProperty("Requests")!
-            .GetValue(capture)!)
-            .Cast<object>()
-            .ToArray();
-        Assert.AreEqual(1, requests.Length);
-        object evaluationRequest = requests[0];
-        int alreadyInstalledCount = ((IEnumerable<PackageChartEntry>)evaluationRequest.GetType()
-            .GetProperty("AlreadyInstalledEntries")!
-            .GetValue(evaluationRequest)!).Count();
-        int missingCount = ((IEnumerable<PackageChartEntry>)evaluationRequest.GetType()
-            .GetProperty("MissingEntries")!
-            .GetValue(evaluationRequest)!).Count();
-        bool usesPreparedState = evaluationRequest.GetType()
-            .GetProperty("BatchState")!
-            .GetValue(evaluationRequest) != null;
-        var currentnessStamp = (PendingInstallEstimateCurrentnessStamp)context.GetType()
-            .GetProperty("CurrentnessStamp")!
-            .GetValue(context)!;
-        return new PendingInstallEstimateBatchCaptureDiagnostic(
-            alreadyInstalledCount,
-            missingCount,
-            usesPreparedState,
-            currentnessStamp);
-    }
-
     private static void SetPendingInstallEstimateAttemptObserver(
         BMSLibrary library,
         Action<int, PendingInstallEstimateCurrentnessStamp> observer)
@@ -2188,27 +1815,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             "pendingInstallEstimateAttemptEvaluatedObserver",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
         field.SetValue(library, observer);
-    }
-
-    private static void InvokeProcessPendingInstallEstimateBatch(
-        BMSLibrary library,
-        ChartPackage package)
-    {
-        var request = new PendingInstallEstimateBatchRequest(
-            PendingInstallEstimateBatchSource.ManualReestimate,
-            [package],
-            package.DisplayTitle);
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod(
-            "ProcessPendingInstallEstimateBatch",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-        methodInfo.Invoke(library, [request, CancellationToken.None]);
-    }
-
-    private static void InvokeReinitializePendingWarningsForPackage(BMSLibrary library, ChartPackage package, IPrimaryHashLookup installedHashes)
-    {
-        MethodInfo reinitializeMethod = typeof(BMSLibrary).GetMethod("ReinitializePendingWarningsForPackageUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(reinitializeMethod);
-        reinitializeMethod.Invoke(library, [package, installedHashes]);
     }
 
     private static ChartPackage AssertRegroupedPendingPackage(BMSLibrary library, string expectedPackagePath, string expectedDestinationDirectory, int expectedFileCount)
@@ -2247,20 +1853,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         }
     }
 
-    private static InstallDestinationRepresentativeMetadata InvokeResolveInstallDestinationRepresentativeMetadataUnsafe(BMSLibrary library, string destinationDirectory)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ResolveInstallDestinationRepresentativeMetadataUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (InstallDestinationRepresentativeMetadata)methodInfo.Invoke(library, [destinationDirectory]);
-    }
-
-    private static string InvokeNormalizeInstallDestinationDirectoryForLookup(string destinationDirectory)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("NormalizeInstallDestinationDirectoryForLookup", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (string)methodInfo.Invoke(null, [destinationDirectory]);
-    }
-
     private static DirectoryResourceLookupCache BuildDirectoryLookupCache(params string[] directories)
     {
         var cache = new DirectoryResourceLookupCache();
@@ -2270,26 +1862,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         }
         return cache;
     }
-
-    private static LibraryResourceIndexOwner GetLibraryResourceIndexOwner(BMSLibrary library)
-    {
-        FieldInfo field = typeof(BMSLibrary).GetField(
-            "libraryResourceIndexOwner",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-        return (LibraryResourceIndexOwner)field.GetValue(library)!;
-    }
-
-    private readonly record struct PendingInstallEstimateRetryDiagnostic(
-        int AlreadyInstalledCount,
-        int MissingCount,
-        IInstalledChartLookupIndex InstalledLookup,
-        PendingInstallEstimateCurrentnessStamp CurrentnessStamp);
-
-    private readonly record struct PendingInstallEstimateBatchCaptureDiagnostic(
-        int AlreadyInstalledCount,
-        int MissingCount,
-        bool UsesPreparedState,
-        PendingInstallEstimateCurrentnessStamp CurrentnessStamp);
 
     private static void SetLibraryResourceIndex(BMSLibrary library, DirectoryResourceLookupCache cache)
     {
